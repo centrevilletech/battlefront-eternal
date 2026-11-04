@@ -2,6 +2,7 @@
 // applications; comparison never selects an alternate runtime implementation.
 import fs from 'node:fs';
 import { expand } from './manifest.mjs';
+import { installReplay } from './replay.mjs';
 import { connect, loadBattle, GL_STATE, HELPERS_SRC } from './battle.mjs';
 const manifest = expand(JSON.parse(fs.readFileSync(new URL('./manifest.json', import.meta.url))));
 const id = process.env.BFE_CORPUS_CASE, out = process.env.OUT;
@@ -41,6 +42,8 @@ try {
     const hud=b.hud.render;b.hud.render=function(...a){if(T.want)read('post',null);const r=hud.apply(this,a);if(T.want)read('presented',null);return r;};
     return {buffer:[gl.drawingBufferWidth,gl.drawingBufferHeight],target:[g.sceneTarget.width,g.sceneTarget.height],samples:g.sceneTarget.samples,supportedSamples:g.supportedSamples,upscaling:g.upscaling};
   })()`);
+  await c.ev(`(${installReplay.toString()})()`);
+  await c.ev(`window.__corpus.captureReplay=${role === 'reference'}`);
   if (testCase.camera === 'water') await c.ev(`(() => {
     const b=__bf,g=b.graphics,water=g.scene.userData.water,T=window.__corpus,V=b.THREE.Vector3;
     if(!water || water.ocean)throw Error('No planar mirror water');
@@ -49,7 +52,9 @@ try {
     const reflect=water.reflect;water.reflect=function(c){aim(c);this.reflectFrames=0;return reflect.call(this,c);};
     const render=g.render;g.render=function(...a){aim(g.camera);return render.apply(this,a);};return 1;
   })()`);
-  for (let k=0;k<manifest.captures;k++) {
+  const captures=Number(process.env.BFE_CORPUS_POINTS || manifest.captures);
+  if(!Number.isInteger(captures) || captures<1 || captures>manifest.captures)throw Error('Invalid capture count');
+  for (let k=0;k<captures;k++) {
     const point = await c.ev(`(async () => {
       const b=__bf,g=b.graphics,G=window.__gate,T=window.__corpus,gl=g.renderer.getContext();
       G.key('KeyW',true);window.dispatchEvent(new MouseEvent('mousedown',{button:0,bubbles:true}));
@@ -59,7 +64,7 @@ try {
       for(let i=0;i<${manifest.settleFrames || 2};i++)await b.lockstep(0,true);
       g.upscaler?.invalidate();if(g.upscaling==='temporal')g.upscaler.frame=${k};
       for(let i=0;i<${manifest.historyFrames};i++)await b.lockstep(0,true);
-      G.resetFrame();T.stages={};T.want=true;const tick=await b.lockstep(0,true);T.want=false;
+      G.resetFrame();T.stages={};T.records=[];T.blobs={};T.want=true;const tick=await b.lockstep(0,true);T.want=false;
       const s=T.stages.presented;if(!s)throw Error('HUD did not draw');
       let lit=0;for(let i=0;i<s.buf.length;i+=64)if(s.buf[i]>8 || s.buf[i+1]>8 || s.buf[i+2]>8)lit++;
       return {k:${k},tick,lit:lit/(s.buf.length/64),rustDraws:G.rustDraws(),rustPhases:Object.keys(G.frameStats),errors:[...g.rust.errors],gl:{...${GL_STATE},error:gl.getError()},stages:Object.fromEntries(Object.entries(T.stages).map(([n,s])=>[n,{w:s.w,h:s.h,bytes:s.bytes}]))};
@@ -68,6 +73,24 @@ try {
       const data=await c.ev(`(() => {const s=window.__corpus.stages[${JSON.stringify(name)}],buf=new Uint8Array(s.buf.buffer);let str='';for(let i=0;i<buf.length;i+=0x8000)str+=String.fromCharCode.apply(null,buf.subarray(i,i+0x8000));return btoa(str);})()`);
       stage.file=`${rawDir}/${k}-${name}.bin`;
       fs.writeFileSync(stage.file,Buffer.from(data,'base64'));
+    }
+    if (role==='reference') {
+      const payload=await c.ev(`({records:window.__corpus.records,blobs:Object.fromEntries(Object.entries(window.__corpus.blobs).map(([key,buf])=>[key,{type:buf.constructor.name}]))})`);
+      for (const [key,blob] of Object.entries(payload.blobs)) {
+        const data=await c.ev(`(() => {const b=window.__corpus.blobs[${JSON.stringify(key)}],buf=new Uint8Array(b.buffer,b.byteOffset,b.byteLength);let str='';for(let i=0;i<buf.length;i+=0x8000)str+=String.fromCharCode.apply(null,buf.subarray(i,i+0x8000));return btoa(str);})()`);
+        blob.file=`${rawDir}/${k}-replay-${key}.bin`;fs.writeFileSync(blob.file,Buffer.from(data,'base64'));
+      }
+      point.replayFile=`${rawDir}/${k}-replay.json`;fs.writeFileSync(point.replayFile,JSON.stringify(payload));
+      point.selfReplay=await c.ev(`window.__corpus.replay(window.__corpus.records,window.__corpus.blobs)`);
+    } else if(role==='candidate') {
+      const payload=JSON.parse(fs.readFileSync(`${process.env.BFE_CORPUS_RAW || out}/${id}-reference/${k}-replay.json`));
+      await c.ev(`window.__corpus.payload={records:${JSON.stringify(payload.records)},blobs:{}};1`);
+      for(const [key,blob] of Object.entries(payload.blobs)) {
+        const data=fs.readFileSync(blob.file).toString('base64');
+        await c.ev(`(() => {const raw=atob(${JSON.stringify(data)}),bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));window.__corpus.payload.blobs[${JSON.stringify(key)}]=new window[${JSON.stringify(blob.type)}](bytes.buffer);return 1;})()`);
+      }
+      point.replay=await c.ev(`window.__corpus.replay(window.__corpus.payload.records,window.__corpus.payload.blobs)`);
+      await c.ev(`window.__corpus.payload=null;1`);
     }
     result.points.push(point);
     console.log(JSON.stringify({role,k,tick:point.tick,stages:Object.keys(point.stages),errors:point.errors,gl:point.gl}));

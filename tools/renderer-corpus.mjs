@@ -33,7 +33,7 @@ async function worker() {
     });
     let report;
     try { report = JSON.parse(readFileSync(`${out}/${c.id}.json`)); } catch { report = { error: 'Missing report' }; }
-    results.push({ id: c.id, rc, pass: rc === 0 && report.pass === true && report.complete === true, exact: report.exact, valid: report.valid, error: report.error });
+    results.push({ id: c.id, rc, pass: rc === 0 && report.pass === true && report.complete === true, frameExact: report.frameExact, baselinePass: report.baselinePass, pairs: report.pairs?.length, valid: report.valid, error: report.error });
     console.log(JSON.stringify(results.at(-1)));
   }
 }
@@ -42,6 +42,6 @@ results.sort((a,b) => a.id.localeCompare(b.id));
 const programs = new Set();
 for (const c of cases) { try { const r=JSON.parse(readFileSync(`${out}/${c.id}.json`)); for(const p of r.shaderPrograms || []) if(p.accepted && p.hash) programs.add(p.key); } catch {} }
 const missingPrograms = (manifest.programs || []).filter(key => !programs.has(key));
-const summary = { missingPrograms, programs: [...programs].sort(), version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, reference, complete: cases.length === manifest.cases.length, cases: results, pass: results.length === cases.length && results.every(r => r.pass) && (cases.length < manifest.cases.length || missingPrograms.length === 0) };
+const summary = { missingPrograms, programs: [...programs].sort(), version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, reference, complete: cases.length === manifest.cases.length, cases: results, baselinePass: results.every(r=>r.baselinePass), pass: results.length === cases.length && results.every(r => r.pass) && (cases.length < manifest.cases.length || missingPrograms.length === 0) };
 writeFileSync(`${out}/summary.json`, JSON.stringify(summary, null, 2));
 process.exitCode = summary.pass ? 0 : 1;

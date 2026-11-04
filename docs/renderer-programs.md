@@ -88,11 +88,26 @@ layouts, missing mirrors, blank frames, absent Rust draws, context loss, GPU
 process deaths and GL errors invalidate the case. Transient stage buffers are
 deleted after comparison; compact metrics and run metadata remain.
 
-Exact equality is reported separately. The repeat reference provides a
-per-channel, per-pixel amplitude envelope; a difference outside it fails. A noisy
+The exact shader gate replays recorded reference inputs through each build's
+default Rust API. It records each post step's f64 inputs, sampler texels and
+output, plus HUD vertex mirrors, camera/group inputs and pre-HUD canvas. The
+reference first replays its own capture and must reproduce it exactly; then the
+candidate must reproduce the same outputs exactly. Texture levels and sampler
+parameters are preserved. Depth is sampled losslessly into float texels; the
+reference self-replay checks this representation. Every channel and half-float
+bit must match. This isolates shader behavior from differences between separate
+live battles. Transient payloads are deleted after comparison.
+
+The whole-frame baseline verdict remains separate. Independent launches can
+differ even with matching simulation ticks, so frame exactness must not be
+inferred from shader exactness. The repeat reference provides a
+per-channel, per-pixel amplitude envelope; a difference outside it fails the
+whole-frame baseline. A noisy
 control never grants a blanket pixel budget. Inspect geo1 smoke/flames, bes2
 steam, kam1 rain/lightning and rhn1 dry ice in particular. The corpus visits
 representative states, not every possible effect or camera position.
+
+`BFE_CORPUS_POINTS=1` is a development capture and cannot pass completeness.
 
 The version 1 pre-deletion gate paired the compiled-three and owned programs on
 identical inputs for each step, the whole post chain and HUD. That frozen evidence

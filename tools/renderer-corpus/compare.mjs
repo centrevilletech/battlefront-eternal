@@ -27,11 +27,17 @@ export function compareCase(out,id) {
     report.points.push(point);
   }
   report.valid &&= report.points.every(p=>p.valid);
-  report.exact=report.valid && report.points.every(p=>Object.values(p.stages).every(s=>s.differing===0));
-  report.pass=report.valid && report.complete && report.points.every(p=>Object.values(p.stages).every(s=>s.residual===0));
+  report.frameExact=report.valid && report.points.every(p=>Object.values(p.stages).every(s=>s.differing===0));
+  report.baselinePass=report.valid && report.complete && report.points.every(p=>Object.values(p.stages).every(s=>s.residual===0));
+  report.pairs=runs.candidate.points.flatMap(p=>p.replay || []);
+  report.selfPairs=runs.reference.points.flatMap(p=>p.selfReplay || []);
+  report.pass=report.valid && report.complete && report.pairs.length>0 && report.pairs.length===report.selfPairs.length && [...report.pairs,...report.selfPairs].every(p=>p.differing===0);
   fs.writeFileSync(`${out}/${id}.json`,JSON.stringify(report,null,2));
   // Retail-derived buffers are transient; keep only compact metrics.
-  for(const role of roles)for(const point of runs[role].points)for(const stage of Object.values(point.stages))fs.unlinkSync(stage.file);
+  for(const role of roles)for(const point of runs[role].points){
+    for(const stage of Object.values(point.stages))fs.unlinkSync(stage.file);
+    if(point.replayFile){const payload=JSON.parse(fs.readFileSync(point.replayFile));for(const blob of Object.values(payload.blobs))fs.unlinkSync(blob.file);fs.unlinkSync(point.replayFile);}
+  }
   return report;
 }
-if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){const report=compareCase(process.argv[2],process.argv[3]);console.log(JSON.stringify({id:report.id,valid:report.valid,exact:report.exact,pass:report.pass}));process.exitCode=report.pass?0:3;}
+if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){const report=compareCase(process.argv[2],process.argv[3]);console.log(JSON.stringify({id:report.id,valid:report.valid,frameExact:report.frameExact,pass:report.pass}));process.exitCode=report.pass?0:3;}
