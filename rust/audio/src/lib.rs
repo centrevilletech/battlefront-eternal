@@ -887,3 +887,24 @@ mod tests {
         assert_eq!(tail, 0.0, "the network must reach exact silence (its quiet shortcut)");
     }
 }
+
+/// Classic has no per-voice lowpass; headphones may retain native panners.
+#[no_mangle]
+pub extern "C" fn mixer_filtered(h: u32, filtered: u32) {
+    if let Some(e) = &mut state().engines[h as usize] { e.filtered = filtered != 0; }
+}
+
+/// Render the voice slots without spatial mixing, for native HRTF panners.
+#[no_mangle]
+pub extern "C" fn mixer_voices(h: u32) {
+    let s = state();
+    let st = &mut s.mixers[h as usize];
+    st.input.fill(0.0);
+    if let Some(e) = &mut s.engines[h as usize] { e.render(&mut st.input, &mut st.present); }
+}
+
+/// Classic surround's front stabilizer and output level, ahead of dynamics.
+#[no_mangle]
+pub extern "C" fn master_original(h: u32, centre: u32, level: f32) {
+    master(h).chain.set_original(centre as usize, level);
+}

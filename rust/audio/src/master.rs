@@ -1,5 +1,4 @@
-//! The enhanced mode's master chain in the mixer's own module, for
-//! `?master=rust`: what follows the spatial mixer in src/audio/spatial.js
+//! The master chain in the mixer's own module: what follows the spatial mixer in src/audio/spatial.js
 //! (Renderer.build), worked out here instead of in the browser's nodes and
 //! three more worklets. Per block, as the graph computes it:
 //!
@@ -26,6 +25,7 @@ use crate::clarity::Clarity;
 use crate::limiter::{Limiter, DYNAMICS_COUNT};
 use crate::reverb::{Reverb, PARAM_COUNT};
 use crate::timeline::Timeline;
+use crate::stabilizer::Stabilizer;
 use crate::{Block, BlockMut, FRAMES};
 
 pub struct Master {
@@ -43,6 +43,7 @@ pub struct Master {
     eq: Vec<Vec<Biquad>>,
     clarity: Option<Clarity>,
     level: f32,
+    original: Option<(Stabilizer, f32)>,
     limiter: Limiter,
     volume: Timeline,
     // Scratch: the send, the reverb's output, the LFE, the mix, a stage's
@@ -66,6 +67,13 @@ pub fn kind(n: u32) -> Kind {
     }
 }
 
+// Native GainNodes flush subnormal products, while a unity gain copies
+// its input verbatim (including subnormals produced by a worklet).
+fn gain_product(sample: f32, gain: f32) -> f32 {
+    let value = sample * gain;
+    if value.abs() < f32::MIN_POSITIVE { 0.0f32.copysign(value) } else { value }
+}
+
 impl Master {
     /// A chain for `channels` at the context's `rate`: the reverb as its
     /// worklet starts (its parameters placed after, `place_room`), the
@@ -73,7 +81,7 @@ impl Master {
     /// at 1; no high-pass, LFE, EQ or clarity until they are set.
     pub fn new(rate: f64, channels: usize, ceiling: f64, release: f64, lookahead: f64, x86: bool) -> Master {
         let n = channels * FRAMES;
-        Master {
+        let mut master = Master {
             rate,
             channels,
             x86,
@@ -84,6 +92,7 @@ impl Master {
             eq: Vec::new(),
             clarity: None,
             level: 1.0,
+            original: None,
             limiter: Limiter::new(rate, ceiling, release, lookahead, &[0.0; DYNAMICS_COUNT], 0),
             volume: Timeline::new(1.0),
             send: vec![0.0; FRAMES],
@@ -92,7 +101,17 @@ impl Master {
             mix: vec![0.0; n],
             stage: vec![0.0; n],
             gains: [0.0; FRAMES],
-        }
+        };
+        // Reserve fixed render-quantum scratch before the first block.
+        master.reverb.scratch(FRAMES);
+        master.limiter.setup(channels);
+        master.limiter.scratch(FRAMES);
+        master
+    }
+
+    /// Classic surround's front stabilizer followed by its output level.
+    pub fn set_original(&mut self, centre: usize, level: f32) {
+        self.original = Some((Stabilizer::new(self.rate, self.channels, 0, 1, centre), level));
     }
 
     pub fn set_highpass(&mut self, frequency: f32, q: f32) {
@@ -203,6 +222,14 @@ impl Master {
                 }
             }
         }
+        if let Some((stabilizer, level)) = &mut self.original {
+            let input = Block { data: &self.mix[..len], channels: n, frames: FRAMES };
+            let mut output = BlockMut { data: &mut self.stage[..len], channels: n, frames: FRAMES };
+            stabilizer.process(&input, &mut output);
+            for i in 0..len {
+                self.mix[i] = gain_product(self.stage[i], *level);
+            }
+        }
         // The clarity EQ, then the clarity stage at its level.
         for stage in &mut self.eq {
             for (c, f) in stage.iter_mut().enumerate() {
@@ -218,7 +245,7 @@ impl Master {
             // A GainNode: 1 copies, 0 silences, else a product a sample.
             let level = self.level;
             for i in 0..len {
-                self.mix[i] = if level == 1.0 { self.stage[i] } else if level == 0.0 { 0.0 } else { self.stage[i] * level };
+                self.mix[i] = if level == 1.0 { self.stage[i] } else if level == 0.0 { 0.0 } else { gain_product(self.stage[i], level) };
             }
         }
         // The limiter.
@@ -235,13 +262,13 @@ impl Master {
             for c in 0..n {
                 let at = c * FRAMES;
                 for i in 0..FRAMES {
-                    out[at + i] = self.stage[at + i] * self.gains[i];
+                    out[at + i] = gain_product(self.stage[at + i], self.gains[i]);
                 }
             }
         } else {
             let g = self.volume.k_rate(block, rate);
             for i in 0..len {
-                out[i] = if g == 0.0 { 0.0 } else if g == 1.0 { self.stage[i] } else { self.stage[i] * g };
+                out[i] = if g == 0.0 { 0.0 } else if g == 1.0 { self.stage[i] } else { gain_product(self.stage[i], g) };
             }
         }
         report
@@ -343,5 +370,54 @@ mod tests {
             last = at(&mut m, b);
         }
         assert!((last - 0.125 * 0.3679).abs() < 0.002, "{last}");
+    }
+}
+
+#[cfg(test)]
+mod allocation_tests {
+    use super::*;
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    struct Counting;
+    thread_local! { static ALLOCS: Cell<Option<usize>> = const { Cell::new(None) }; }
+    #[global_allocator]
+    static ALLOCATOR: Counting = Counting;
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            ALLOCS.with(|n| { if let Some(v) = n.get() { n.set(Some(v + 1)); } });
+            System.alloc(layout)
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) { System.dealloc(ptr, layout); }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+            ALLOCS.with(|n| { if let Some(v) = n.get() { n.set(Some(v + 1)); } });
+            System.realloc(ptr, layout, size)
+        }
+    }
+
+    #[test]
+    fn output_paths_allocate_nothing_from_the_first_render_block() {
+        use crate::voices::{Engine, START, GAIN_SET};
+        for (channels, classic) in [(6, true), (8, true), (12, true), (2, false)] {
+            let mut master = Master::new(48000.0, channels, -1.0, 0.06, 0.0015, true);
+            if classic { master.set_original(2, 1.2); }
+            else { master.set_clarity(-1, 0.94); }
+            let mut voices = Engine::new(48000.0, 2, -3.0103, true);
+            voices.filtered = !classic;
+            voices.sample_storage(0, 1024, 48000.0).fill(0.25);
+            voices.command_storage(12).copy_from_slice(&[START as f64, 0.0, 0.0, 0.0, 1.0, 1.0, 6000.0, 0.0, GAIN_SET as f64, 0.0, 0.5, 0.0]);
+            voices.apply_commands(12);
+            let mut slots = [0.0; 2 * FRAMES];
+            let mut present = [0; 2];
+            let feeds = vec![0.1; channels * FRAMES];
+            let mut out = vec![0.0; channels * FRAMES];
+            ALLOCS.with(|n| n.set(Some(0)));
+            for b in 0..64 {
+                voices.render(&mut slots, &mut present);
+                master.process(&feeds, None, &voices.send, None, None, b * FRAMES as u64, &mut out);
+            }
+            let count = ALLOCS.with(|n| n.replace(None).unwrap());
+            assert_eq!(count, 0, "{channels} channels, classic={classic}");
+        }
     }
 }

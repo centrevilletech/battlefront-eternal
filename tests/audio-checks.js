@@ -71,12 +71,17 @@ function settled(r) {
   });
 }
 
-export async function checkAudio() {
+export async function checkAudio({ headphoneMaster = null } = {}) {
   const results = [];
   const assert = (name, ok, detail) => {
     results.push({ name, ok: Boolean(ok), detail });
     if (!ok) throw new Error(`${name}: ${JSON.stringify(detail)}`);
   };
+
+  if (headphoneMaster) {
+    await masterChecks(assert, headphoneMaster);
+    return results;
+  }
 
   // 1. The spatial mixer's routing for every layout: a tone from a set of
   // directions lands on the channels pairwise panning says, at unit power.
@@ -710,9 +715,9 @@ export async function checkAudio() {
   // that starts out of earshot and comes into it partway through its
   // sample (a start at an offset, at the Doppler-shifted rate).
   {
-    const render = async (voicesRust, quality) => {
+    const render = async (voicesRust, quality, output, channels, binaural) => {
       const seconds = 2.5;
-      const ctx = new OfflineAudioContext(2, RATE * seconds, RATE);
+      const ctx = new OfflineAudioContext(channels, RATE * seconds, RATE);
       // A second of 22.05 kHz sound and 0.4 s of 44.1 kHz sound.
       const pcm = new Int16Array(22050 + 17640);
       let seed = 3;
@@ -733,8 +738,16 @@ export async function checkAudio() {
       };
       const engine = new AudioEngine({ context: ctx });
       engine.renderer.voicesRust = voicesRust;
+      engine.renderer.masterRust = false;
+      engine.renderer.classicRust = true;
+      engine.renderer.headphonesRust = true;
+      if (binaural) engine.renderer.decoder = { filters: Array.from({ length: 16 }, (_, c) => {
+        const b = ctx.createBuffer(2, 256, RATE);
+        for (let e = 0; e < 2; e++) b.getChannelData(e)[c + e + 1] = 0.1 / (c + 1);
+        return b;
+      }) };
       if (quality === "enhanced") engine.renderer.setRoom({ room: 0.5, decay: 1.2, reflections: 0.3 });
-      const config = { quality, output: "stereo", dynamics: "normal", mono: false };
+      const config = { quality, output, dynamics: "normal", mono: false };
       await engine.renderer.load(null, config);
       await engine.renderer.configure(config);
       engine.setData(new SoundData(manifest, pcm.buffer));
@@ -746,15 +759,11 @@ export async function checkAudio() {
         e.lfe = 0;
         return e;
       };
-      const port = engine.renderer.mixer?.port;
+      const ports = [engine.renderer.mixer, engine.renderer.voiceMixer].filter(Boolean).map((n) => n.port);
       const waits = new Map();
       let ids = 0;
-      if (port) {
-        port.onmessage = (e) => {
-          if (e.data?.type === "sync") waits.get(e.data.id)?.();
-        };
-      }
-      const sync = () => (port ? new Promise((r) => waits.set(++ids, r) && port.postMessage({ type: "sync", id: ids })) : Promise.resolve());
+      for (const p of ports) p.onmessage = (e) => { if (e.data?.type === "sync") waits.get(e.data.id)?.(); };
+      const sync = () => Promise.all(ports.map((p) => new Promise((r) => waits.set(++ids, r) && p.postMessage({ type: "sync", id: ids }))));
       const handles = {};
       const seen = { ended: false, stopped: false, offset: -1 };
       const step = (k) => {
@@ -784,24 +793,32 @@ export async function checkAudio() {
       }
       await sync();
       const out = await ctx.startRendering();
-      return { channels: [out.getChannelData(0), out.getChannelData(1)], engine: engine.renderer.engine, light: engine.renderer.light, seen };
+      return { channels: Array.from({ length: channels }, (_, c) => out.getChannelData(c)), engine: engine.renderer.engine, light: engine.renderer.light, seen };
     };
-    for (const [quality, what] of [
-      ["enhanced", "the enhanced mode, reverb on"],
-      ["original", "the light mix"],
+    for (const [quality, what, output, channels, binaural] of [
+      ["enhanced", "the enhanced mode, reverb on", "stereo", 2],
+      ["original", "the light mix", "stereo", 2],
+      ["original", "Classic 5.1", "5.1", 6],
+      ["original", "Classic 7.1", "7.1", 8],
+      ["original", "Classic 7.1.4", "7.1.4", 12],
+      ["enhanced", "binaural headphones", "headphones", 2, true],
+      ["enhanced", "HRTF headphones", "headphones", 2],
+      ["original", "Classic HRTF headphones", "headphones", 2],
     ]) {
-      const browser = await render(false, quality);
-      const module = await render(true, quality);
+      const browser = await render(false, quality, output, channels, binaural);
+      const module = await render(true, quality, output, channels, binaural);
       let differ = 0;
+      let largest = 0;
       let peak = 0;
-      for (let c = 0; c < 2; c++) {
+      for (let c = 0; c < channels; c++) {
         for (let i = 0; i < browser.channels[c].length; i++) {
           if (!Object.is(browser.channels[c][i], module.channels[c][i])) differ++;
+          largest = Math.max(largest, Math.abs(browser.channels[c][i] - module.channels[c][i]));
           peak = Math.max(peak, Math.abs(browser.channels[c][i]));
         }
       }
       const lived = module.seen.ended && module.seen.stopped && module.seen.offset > 0;
-      assert(`voice engine, ${what}: starts, ends, stops and an offset start, bit for bit`, module.engine && !browser.engine && module.light === (quality === "original") && lived && differ === 0 && peak > 0.01, { differ, peak, seen: module.seen, engine: module.engine });
+      assert(`voice engine, ${what}: starts, ends, stops and an offset start${output === "headphones" ? ", within -96 dBFS" : ", bit for bit"}`, module.engine && !browser.engine && module.light === (quality === "original" && output === "stereo") && lived && (output === "headphones" ? db(largest) < -96 : differ === 0) && peak > 0.01, { differ, largest: db(largest), peak, seen: module.seen, engine: module.engine });
     }
   }
 
@@ -845,133 +862,7 @@ export async function checkAudio() {
     }
   }
 
-  // 6e. The master chain in the mixer's module against the
-  // browser's nodes and worklets, the voices in the engine on both sides.
-  // Every sum in the chain has two terms on a channel, so the two are equal
-  // to the bit, with the room and the volume moving as a battle moves them.
-  // (The voices start a few frames in: in the very first block Chromium's
-  // own graph takes the LFE's filters in or not, renders differing in it.)
-  // A third term into the mix, the beds, goes in an order of Chromium's own
-  // (6b), so there the voice engine's second rule holds, -96 dBFS. A voice
-  // that keeps the browser's nodes reaches the reverb and the mix too.
-  {
-    const render = async (masterRust, { channels, output, beds = false, own = false, seconds = 1 }) => {
-      const ctx = new OfflineAudioContext(channels, RATE * seconds, RATE);
-      const pcm = new Int16Array(22050);
-      let seed = 11;
-      const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296) * 2 - 1;
-      for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(6000 * Math.sin(i / 7) + 3000 * rand());
-      const voices = 8;
-      const name = (i) => `0x0000f${String(i).padStart(3, "0")}`;
-      const manifest = {
-        objects: [
-          { type: "Bus", Name: "0x00000001", Gain: 1 },
-          ...Array.from({ length: voices }, (_, i) => ({
-            type: "SoundProperties", Name: name(i), Bus: "0x00000001", Mode3D: 1, MinDistance: 2, MaxDistance: 400, MuteDistance: 400,
-            RollOff: 1, Looping: 1, Bias: 0.0001, ReverbGain: 0.5, PitchVariation: 0, ModeDoppler: 1, SampleList: [["0x00000100", 1]],
-          })),
-        ],
-        samples: { "0x00000100": [0, pcm.length, 22050] },
-      };
-      const engine = new AudioEngine({ context: ctx });
-      const r = engine.renderer;
-      r.voicesRust = true;
-      r.masterRust = masterRust;
-      r.masterVolume = 0.8;
-      r.setRoom({ room: 0.5, decay: 1.2, reflections: 0.3 });
-      const config = { quality: "enhanced", output, dynamics: "normal", mono: false };
-      await r.load(null, config);
-      await r.configure(config);
-      engine.setData(new SoundData(manifest, pcm.buffer));
-      engine.shape = (voice) => {
-        const e = voice.extra;
-        e.cutoff = voice.distance > 10 ? Math.min(Math.max(20000 / (1 + (voice.distance - 10) / 35), 1800), 20000) : 20000;
-        e.gain = 1;
-        e.send = 1;
-        e.lfe = 1;
-        return e;
-      };
-      const port = r.mixer.port;
-      const waits = new Map();
-      let ids = 0;
-      const before = port.onmessage;
-      port.onmessage = (e) => {
-        if (e.data?.type === "sync") waits.get(e.data.id)?.();
-        else before?.(e);
-      };
-      const sync = () => new Promise((resolve) => waits.set(++ids, resolve) && port.postMessage({ type: "sync", id: ids }));
-      const start = () => {
-        for (let i = 0; i < voices; i++) {
-          const a = (i / voices) * Math.PI * 2;
-          const far = 5 + ((i * 13) % 90);
-          engine.play(name(i), { position: { x: far * Math.sin(a), y: 0, z: far * Math.cos(a) }, loop: true, category: "ambience" });
-        }
-        if (beds) {
-          for (const [count, kind, freq] of [[2, "music", 180], [4, "ambience", 90], [1, "voice", 400]]) {
-            const gain = ctx.createGain();
-            gain.gain.value = 0.6;
-            const bed = r.bed(count, gain, kind);
-            const split = ctx.createChannelMerger(count);
-            for (let c = 0; c < count; c++) {
-              const src = sine(ctx, freq * (c + 1), 0.1);
-              src.connect(split, 0, c);
-              src.start(ctx.currentTime);
-            }
-            split.connect(bed.input);
-          }
-        }
-        if (own) {
-          const line = sine(ctx, 300, 0.2);
-          const out = r.voice({ mode3D: 1 }, true);
-          out.attach(line);
-          out.update({ x: -0.6, y: 0, z: -0.8 }, 8, 0, { send: 0.7, cutoff: 6000 });
-          line.start(ctx.currentTime);
-        }
-      };
-      const step = (k) => {
-        const t = k / 60;
-        if (k === 3) start();
-        engine.setListener({ x: 3 * Math.sin(t), y: 1.6, z: Math.sin(t * 0.3) }, { x: -Math.sin(t * 0.8), y: 0, z: -Math.cos(t * 0.8) }, { x: 0, y: 1, z: 0 });
-        if (k === 20) r.setRoom({ room: 0.2, decay: 0.6, reverbDelay: 0.05, density: 0.7 });
-        if (k === 30) r.setVolume(0.4);
-        engine.update(1 / 60);
-      };
-      step(0);
-      for (let k = 1; k / 60 < seconds; k++) {
-        ctx.suspend((Math.round(((k / 60) * RATE) / 128) * 128) / RATE).then(async () => {
-          step(k);
-          await sync();
-          ctx.resume();
-        });
-      }
-      await sync();
-      const out = await ctx.startRendering();
-      return { channels: Array.from({ length: channels }, (_, c) => out.getChannelData(c)), master: r.master };
-    };
-    const compare = (a, b) => {
-      let differ = 0;
-      let largest = 0;
-      let peak = 0;
-      a.channels.forEach((channel, c) => {
-        for (let i = 0; i < channel.length; i++) {
-          if (!Object.is(channel[i], b.channels[c][i])) differ++;
-          largest = Math.max(largest, Math.abs(channel[i] - b.channels[c][i]));
-          peak = Math.max(peak, Math.abs(b.channels[c][i]));
-        }
-      });
-      return { differ, largest: db(largest), peak, master: b.master, nodes: a.master };
-    };
-    for (const scene of [
-      { channels: 2, output: "stereo" },
-      { channels: 6, output: "5.1" },
-    ]) {
-      const got = compare(await render(false, scene), await render(true, scene));
-      assert(`master chain in the module, ${scene.output}: the browser's nodes' samples, bit for bit`, got.master && !got.nodes && got.differ === 0 && got.peak > 0.01, got);
-    }
-    const scene = { channels: 2, output: "stereo", beds: true, own: true };
-    const got = compare(await render(false, scene), await render(true, scene));
-    assert("master chain in the module: beds and a voice of its own within -96 dBFS", got.master && !got.nodes && got.largest < -96 && got.peak > 0.01, got);
-  }
+  await masterChecks(assert, null);
 
   // 7. The headphone decoder. The encoder's harmonics against the values
   // tools/make_binaural.py checked against spaudiopy (written with the
@@ -1055,4 +946,155 @@ export async function checkAudio() {
   }
 
   return results;
+}
+
+  // 6e. The master chain in the mixer's module against the
+  // browser's nodes and worklets, the voices in the engine on both sides.
+  // Every sum in the chain has two terms on a channel, so the two are equal
+  // to the bit, with the room and the volume moving as a battle moves them.
+  // (The voices start a few frames in: in the very first block Chromium's
+  // own graph takes the LFE's filters in or not, renders differing in it.)
+  // A third term into the mix, the beds, goes in an order of Chromium's own
+  // (6b), so there the voice engine's second rule holds, -96 dBFS. A voice
+  // that keeps the browser's nodes reaches the reverb and the mix too.
+async function masterChecks(assert, headphoneMaster) {
+  const render = async (masterRust, { channels, output, quality = "enhanced", binaural = false, beds = false, own = false, seconds = 1 }) => {
+    const ctx = new OfflineAudioContext(channels, RATE * seconds, RATE);
+    const pcm = new Int16Array(22050);
+    let seed = 11;
+    const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296) * 2 - 1;
+    for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(6000 * Math.sin(i / 7) + 3000 * rand());
+    const voices = 8;
+    const name = (i) => `0x0000f${String(i).padStart(3, "0")}`;
+    const manifest = {
+      objects: [
+        { type: "Bus", Name: "0x00000001", Gain: 1 },
+        ...Array.from({ length: voices }, (_, i) => ({
+          type: "SoundProperties", Name: name(i), Bus: "0x00000001", Mode3D: 1, MinDistance: 2, MaxDistance: 400, MuteDistance: 400,
+          RollOff: 1, Looping: 1, Bias: 0.0001, ReverbGain: 0.5, PitchVariation: 0, ModeDoppler: 1, SampleList: [["0x00000100", 1]],
+        })),
+      ],
+      samples: { "0x00000100": [0, pcm.length, 22050] },
+    };
+    const engine = new AudioEngine({ context: ctx });
+    const r = engine.renderer;
+    r.voicesRust = true;
+    r.masterRust = masterRust;
+    r.classicRust = true;
+    r.headphonesRust = true;
+    if (binaural) {
+      r.decoder = { filters: Array.from({ length: 16 }, (_, c) => {
+        const b = ctx.createBuffer(2, 256, RATE);
+        for (let e = 0; e < 2; e++) b.getChannelData(e)[c + e + 1] = 0.1 / (c + 1);
+        return b;
+      }) };
+    }
+    r.masterVolume = 0.8;
+    r.setRoom({ room: 0.5, decay: 1.2, reflections: 0.3 });
+    const config = { quality, output, dynamics: "normal", mono: false };
+    await r.load(null, config);
+    await r.configure(config);
+    engine.setData(new SoundData(manifest, pcm.buffer));
+    engine.shape = (voice) => {
+      const e = voice.extra;
+      e.cutoff = voice.distance > 10 ? Math.min(Math.max(20000 / (1 + (voice.distance - 10) / 35), 1800), 20000) : 20000;
+      e.gain = 1;
+      e.send = 1;
+      e.lfe = 1;
+      return e;
+    };
+    const port = r.mixer.port;
+    const waits = new Map();
+    let ids = 0;
+    const before = port.onmessage;
+    port.onmessage = (e) => {
+      if (e.data?.type === "sync") waits.get(e.data.id)?.();
+      else before?.(e);
+    };
+    const ports = [r.mixer, r.voiceMixer, r.chain].filter(Boolean).map((n) => n.port);
+    for (const p of ports.slice(1)) p.onmessage = (e) => { if (e.data?.type === "sync") waits.get(e.data.id)?.(); };
+    const sync = () => Promise.all(ports.map((p) => new Promise((resolve) => waits.set(++ids, resolve) && p.postMessage({ type: "sync", id: ids }))));
+    const start = () => {
+      for (let i = 0; i < voices; i++) {
+        const a = (i / voices) * Math.PI * 2;
+        const far = 5 + ((i * 13) % 90);
+        engine.play(name(i), { position: { x: far * Math.sin(a), y: 0, z: far * Math.cos(a) }, loop: true, category: "ambience" });
+      }
+      if (beds) {
+        for (const [count, kind, freq] of [[2, "music", 180], [4, "ambience", 90], [1, "voice", 400]]) {
+          const gain = ctx.createGain();
+          gain.gain.value = 0.6;
+          const bed = r.bed(count, gain, kind);
+          const split = ctx.createChannelMerger(count);
+          for (let c = 0; c < count; c++) {
+            const src = sine(ctx, freq * (c + 1), 0.1);
+            src.connect(split, 0, c);
+            src.start(ctx.currentTime);
+          }
+          split.connect(bed.input);
+        }
+      }
+      if (own) {
+        const line = sine(ctx, 300, 0.2);
+        const out = r.voice({ mode3D: 1 }, true);
+        out.attach(line);
+        out.update({ x: -0.6, y: 0, z: -0.8 }, 8, 0, { send: 0.7, cutoff: 6000 });
+        line.start(ctx.currentTime);
+      }
+    };
+    const step = (k) => {
+      const t = k / 60;
+      // Native HRTF panners need to exist before offline rendering.
+      // Surround starts later to avoid Chromium's first-block LFE flake.
+      if (k === (output === "headphones" ? 0 : 3)) start();
+      engine.setListener({ x: 3 * Math.sin(t), y: 1.6, z: Math.sin(t * 0.3) }, { x: -Math.sin(t * 0.8), y: 0, z: -Math.cos(t * 0.8) }, { x: 0, y: 1, z: 0 });
+      if (k === 20) r.setRoom({ room: 0.2, decay: 0.6, reverbDelay: 0.05, density: 0.7 });
+      if (k === 30) r.setVolume(0.4);
+      engine.update(1 / 60);
+    };
+    step(0);
+    for (let k = 1; k / 60 < seconds; k++) {
+      ctx.suspend((Math.round(((k / 60) * RATE) / 128) * 128) / RATE).then(async () => {
+        step(k);
+        await sync();
+        ctx.resume();
+      });
+    }
+    await sync();
+    const out = await ctx.startRendering();
+    return { channels: Array.from({ length: channels }, (_, c) => out.getChannelData(c)), master: r.master };
+  };
+  const compare = (a, b) => {
+    let differ = 0;
+    let largest = 0;
+    let peak = 0;
+    a.channels.forEach((channel, c) => {
+      for (let i = 0; i < channel.length; i++) {
+        if (!Object.is(channel[i], b.channels[c][i])) differ++;
+        largest = Math.max(largest, Math.abs(channel[i] - b.channels[c][i]));
+        peak = Math.max(peak, Math.abs(b.channels[c][i]));
+      }
+    });
+    return { differ, largest: db(largest), peak, master: b.master, nodes: a.master };
+  };
+  const scenes = headphoneMaster ? [{ channels: 2, output: "headphones", quality: headphoneMaster === "classic" ? "original" : "enhanced", binaural: headphoneMaster === "binaural" }] : [
+    { channels: 2, output: "stereo" },
+    { channels: 6, output: "5.1" },
+    { channels: 6, output: "5.1", quality: "original" },
+    { channels: 8, output: "7.1", quality: "original" },
+    { channels: 12, output: "7.1.4", quality: "original" },
+  ];
+  for (const scene of scenes) {
+    const got = compare(await render(false, scene), await render(true, scene));
+    // Independent native decoder outputs join the headphone mix in a
+    // hash order. Keep speaker checks strict; headphones use rule two.
+    const headphones = scene.output === "headphones";
+    assert(`master chain in the module, ${scene.quality || "enhanced"} ${scene.binaural ? "binaural " : ""}${scene.output}: ${headphones ? "within -96 dBFS" : "bit for bit"}`, got.master && !got.nodes && (headphones ? got.largest < -96 : got.differ === 0) && got.peak > 0.01, got);
+  }
+  if (!headphoneMaster) {
+    const scene = { channels: 2, output: "stereo", beds: true, own: true };
+    const got = compare(await render(false, scene), await render(true, scene));
+    assert("master chain in the module: beds and a voice of its own within -96 dBFS", got.master && !got.nodes && got.largest < -96 && got.peak > 0.01, got);
+  }
+
 }

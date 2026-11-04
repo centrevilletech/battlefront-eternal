@@ -7,19 +7,26 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright")
 const base = process.env.AUDIO_TEST_URL || "http://127.0.0.1:18449";
 const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
 try {
-  const page = await browser.newPage();
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  page.on("console", (m) => {
-    // The headphone decoder's files are optional (tools/make_binaural.py).
-    if (m.type() === "error" && !m.location()?.url?.includes("/audio/hrtf/")) errors.push(m.text());
-  });
-  await page.route("**/__audio-check__", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><body></body>" }));
-  await page.goto(`${base}/__audio-check__`);
-  const result = await page.evaluate(async () => (await import("/tests/audio-checks.js")).checkAudio());
-  if (errors.length) throw new Error(errors.join("\n"));
-  for (const r of result) console.log(`${r.ok ? "ok  " : "FAIL"} ${r.name}`);
-  console.log(`${result.length} checks passed`);
+  let total = 0;
+  // Chromium can exhaust native HRTF resources after many offline
+  // contexts in one page. Give each headphone master a fresh page.
+  for (const headphoneMaster of [null, "classic", "binaural", "hrtf"]) {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    page.on("console", (m) => {
+      // The headphone decoder's files are optional (tools/make_binaural.py).
+      if (m.type() === "error" && !m.location()?.url?.includes("/audio/hrtf/")) errors.push(m.text());
+    });
+    await page.route("**/__audio-check__", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><body></body>" }));
+    await page.goto(`${base}/__audio-check__`);
+    const result = await page.evaluate(async (headphoneMaster) => (await import("/tests/audio-checks.js")).checkAudio({ headphoneMaster }), headphoneMaster);
+    if (errors.length) throw new Error(errors.join("\n"));
+    for (const r of result) console.log(`${r.ok ? "ok  " : "FAIL"} ${r.name}`);
+    total += result.length;
+    await page.close();
+  }
+  console.log(`${total} checks passed`);
 } finally {
   await browser.close();
 }

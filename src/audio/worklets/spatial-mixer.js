@@ -123,6 +123,7 @@ class SpatialMixer extends AudioWorkletProcessor {
     const o = options.processorOptions || {};
     // The browser's inputs feed the first slots; with the master chain the
     // engine's slots run on past them (processorOptions.slots).
+    this.raw = Boolean(o.raw);
     this.inputs = options.numberOfInputs - (o.master ? 2 : 0);
     this.slots = o.slots ?? this.inputs;
     this.channels = o.channels || 2;
@@ -148,6 +149,7 @@ class SpatialMixer extends AudioWorkletProcessor {
       // renders into the slots itself (rust/audio/src/voices.rs), their
       // sends summed into output 2.
       if (o.engine) x.mixer_engine(this.dsp.h, sampleRate, o.engine.q, o.engine.x86 === false ? 0 : 1);
+      if (o.engine) x.mixer_filtered(this.dsp.h, o.engine.filtered === false ? 0 : 1);
       if (o.master && o.engine) this.dspMaster(o.master, o.engine.x86 === false ? 0 : 1);
     }
     this.port.onmessage = (event) => {
@@ -209,7 +211,8 @@ class SpatialMixer extends AudioWorkletProcessor {
     x.master_new(h, sampleRate, this.channels, m.ceiling, m.release, m.lookahead ?? 0.0015, x86);
     this.dsp.master = {};
     x.master_rooms(h, m.rooms);
-    x.master_highpass(h, m.highpass[0], m.highpass[1]);
+    if (m.highpass) x.master_highpass(h, m.highpass[0], m.highpass[1]);
+    if (m.original) x.master_original(h, m.original.centre, m.original.level);
     if (m.lfe) x.master_lfe(h, m.lfe[0], m.lfe[1], m.lfe[2]);
     for (const [kind, frequency, gain, q] of m.eq) x.master_eq(h, kind, frequency, gain, q);
     if (m.clarity) x.master_clarity(h, m.clarity.skip, m.clarity.level);
@@ -279,7 +282,7 @@ class SpatialMixer extends AudioWorkletProcessor {
     const { x, h } = d;
     // A view per slot and output channel, made again only if the
     // module's memory grew (which empties the old ones).
-    if (!d.ins || d.ins[0].byteLength === 0) {
+    if (!d.ins || d.outs[0].byteLength === 0) {
       d.ins = dspViews(x, x.mixer_in(h), this.inputs);
       d.outs = dspViews(x, x.mixer_out(h), this.channels + 1);
       d.present = new Uint8Array(x.memory.buffer, x.mixer_present(h), this.inputs);
@@ -299,6 +302,13 @@ class SpatialMixer extends AudioWorkletProcessor {
     // The voice engine's block starts at the context's frame (its commands
     // land by it).
     if (d.send && typeof currentFrame === "number") x.mixer_frame(h, currentFrame);
+    if (this.raw) {
+      x.mixer_voices(h);
+      if (!d.raw || d.raw[0].byteLength === 0) d.raw = dspViews(x, x.mixer_in(h), this.slots);
+      for (let s = 0; s < this.slots; s++) outputs[s][0].set(d.raw[s]);
+      outputs[this.slots][0].set(d.send);
+      return true;
+    }
     if (d.master) {
       x.mixer_process(h, out.length, this.lfe >= 0 ? 1 : 0);
       return this.dspChain(inputs, out);

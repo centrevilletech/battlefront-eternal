@@ -1,6 +1,6 @@
 import { Target } from "./automation.js";
 import { ALSOFT, ALSOFT_STREAM_ANGLES, LAYOUTS, alsoftStereo, autoLayout } from "./layouts.js";
-import { loadAudioDsp, masterRust, voicesRust } from "./wasm-dsp.js";
+import { loadAudioDsp, masterRust, voicesRust, outputRust } from "./wasm-dsp.js";
 
 // Where sound goes once it leaves a voice: the output layout, the panning,
 // the reverb, the LFE, and the master chain.
@@ -185,6 +185,8 @@ export class Renderer {
     // masterRust (unless ?master=native; tests set it): with the voice engine,
     // what follows the mixer renders in its module too: `master`, as built.
     this.masterRust = masterRust();
+    this.classicRust = outputRust("classic");
+    this.headphonesRust = outputRust("headphones");
     this.master = false;
     this.engineGen = 0;
     this.commands = [];
@@ -313,6 +315,9 @@ export class Renderer {
     this.engine = false;
     this.master = false;
     this.nodeSlots = null;
+    this.voiceMixer = null;
+    this.chain = null;
+    this.raw = false;
     if (this.light) return this.buildLight();
     // Headphones: the ambisonic decoder when enhanced and loaded, else an
     // HRTF panner per voice.
@@ -346,9 +351,9 @@ export class Renderer {
     this.hrtfOut.connect(this.mix);
     const law = this.binaural ? "ambi3" : this.alsoft ? "alsoft" : mode === "stereo" || mode === "headphones" ? "panpot" : "vbap";
     const feeds = this.binaural ? AMBI_CHANNELS : N;
-    // The voice engine needs the module, and takes the enhanced voices that
-    // go to a mixer slot (not those of the browser's HRTF panners).
-    this.engine = Boolean(this.dsp) && enhanced && !this.hrtf && this.voicesRust;
+    // Mixer-slot voices share the engine; Classic surround is opt-in.
+    // HRTF voices get their own engine below, before the native panners.
+    this.engine = Boolean(this.dsp) && (enhanced || this.classicRust) && !this.hrtf && this.voicesRust;
     // The master chain follows the engine into the module, on speakers; the
     // binaural decoder's convolvers, and the mono fold, keep their nodes.
     this.master = this.engine && this.masterRust && !this.binaural && !config.mono;
@@ -369,7 +374,7 @@ export class Renderer {
           lfe: layout.lfe,
           decoder: this.alsoft,
           ...(this.dsp ? { dsp: this.dsp } : {}),
-          ...(this.engine ? { engine: { q: BUTTERWORTH_Q } } : {}),
+          ...(this.engine ? { engine: { q: BUTTERWORTH_Q, filtered: enhanced } } : {}),
           ...(master ? { master: this.masterOptions(layout) } : {}),
         },
       }),
@@ -440,9 +445,42 @@ export class Renderer {
       this.lfe = a;
     }
 
+    // HRTF keeps the browser's panners, fed by Rust's source, gain and
+    // lowpass per slot. Streams continue through their existing nodes.
+    if (this.hrtf && this.headphonesRust && this.voicesRust && this.dsp) {
+      this.raw = true;
+      this.engine = true;
+      this.rawSlots = Array.from({ length: SLOTS }, (_, i) => SLOTS - 1 - i);
+      this.voiceMixer = keep(new AudioWorkletNode(ctx, "spatial-mixer", {
+        numberOfInputs: 0, numberOfOutputs: SLOTS + 1,
+        outputChannelCount: Array(SLOTS + 1).fill(1),
+        processorOptions: { slots: SLOTS, channels: 2, raw: true, dsp: this.dsp, engine: { q: BUTTERWORTH_Q, filtered: enhanced } },
+      }));
+      this.voiceMixer.connect(this.reverbIn, SLOTS);
+    }
+
     // The reverb: one mono send in, every speaker out (the LFE left dry).
     // The engine's voices' sends, summed, are the mixer's third output.
-    if (this.engine) this.mixer.connect(this.reverbIn, 2);
+    if (this.engine && !this.raw) this.mixer.connect(this.reverbIn, 2);
+    // The headphone decoder and HRTF panners stay native. Their stereo
+    // output enters a separate Rust master, avoiding a graph feedback loop.
+    if (mode === "headphones" && this.headphonesRust && this.masterRust && this.dsp && !config.mono) {
+      this.master = true;
+      this.chain = keep(new AudioWorkletNode(ctx, "spatial-mixer", {
+        numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [N],
+        processorOptions: { slots: 1, channels: N, dsp: this.dsp, engine: { q: BUTTERWORTH_Q }, master: this.masterOptions(layout) },
+      }));
+      this.reverbIn.connect(this.chain, 0, 0);
+      this.mix.connect(this.chain, 0, 1);
+      this.chain.connect(dest);
+      this.chain.port.onmessage = (e) => e.data?.reduction !== undefined && this.onLimiter?.(e.data);
+      this.reverb = this.reverbHP = this.limiter = this.volume = this.preDynamics = null;
+      this.output = this.chain;
+      if (this.meterOn) this.meter(true);
+      for (const v of this.voices) v.rebuild();
+      for (const b of this.beds) b.rebuild();
+      return;
+    }
     const rooms = layout.speakers.map((s) => (s ? 1 : 0));
     this.reverb = keep(
       new AudioWorkletNode(ctx, "fdn-reverb", {
@@ -571,21 +609,22 @@ export class Renderer {
   }
 
   // The master chain for the mixer's module, the same parameters as the
-  // nodes and worklets of build() take below (the enhanced mode's).
+  // nodes and worklets of build() take below.
   masterOptions(layout) {
     const ctx = this.ctx;
     const config = this.config;
-    const clarity = config.clarity !== false;
+    const clarity = this.enhanced && config.clarity !== false;
     const dynamics = DYNAMICS[config.dynamics] || DYNAMICS.normal;
     return {
       ceiling: -1,
-      release: 0.08,
+      release: this.enhanced ? 0.08 : 0.06,
       dynamics: { ...dynamics, skip: layout.lfe },
       room: this.roomParams,
-      highpass: [REVERB_LOW_CUT, BUTTERWORTH_Q],
+      highpass: this.enhanced ? [REVERB_LOW_CUT, BUTTERWORTH_Q] : null,
+      original: this.alsoft && layout.center >= 0 ? { centre: layout.center, level: 10 ** (ORIGINAL_LEVEL[this.mode] / 20) } : null,
       // The channels the reverb reaches, a bit each.
       rooms: layout.lfe >= 0 ? layout.speakers.reduce((mask, s, c) => (s ? mask | (1 << c) : mask), 0) : -1,
-      lfe: layout.lfe >= 0 ? [layout.lfe, LFE_CUTOFF, BUTTERWORTH_Q] : null,
+      lfe: this.enhanced && layout.lfe >= 0 ? [layout.lfe, LFE_CUTOFF, BUTTERWORTH_Q] : null,
       eq: clarity ? CLARITY_EQ.map(([type, frequency, gain, Q]) => [FILTER_KINDS[type], Math.min(frequency, ctx.sampleRate * 0.45), gain, Q]) : [],
       clarity: clarity ? { skip: layout.lfe, level: 10 ** (CLARITY_LEVEL / 20) } : null,
       volume: this.masterVolume ?? 1,
@@ -706,7 +745,7 @@ export class Renderer {
 
   setVolume(v) {
     this.masterVolume = v;
-    if (this.master) this.mixer.port.postMessage({ type: "volume", value: v, time: this.ctx.currentTime });
+    if (this.master) (this.chain || this.mixer).port.postMessage({ type: "volume", value: v, time: this.ctx.currentTime });
     else this.volume?.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
   }
 
@@ -739,7 +778,7 @@ export class Renderer {
 
   setRoom(params) {
     this.roomParams = { ...this.roomParams, ...params };
-    if (this.master) this.mixer.port.postMessage({ type: "room", params });
+    if (this.master) (this.chain || this.mixer).port.postMessage({ type: "room", params });
     else this.reverb?.port.postMessage(params);
   }
 
@@ -775,7 +814,7 @@ export class Renderer {
     }
     if (this.commands.length) {
       const data = Float64Array.from(this.commands);
-      this.mixer.port.postMessage({ type: "voices", data }, [data.buffer]);
+      (this.voiceMixer || this.mixer).port.postMessage({ type: "voices", data }, [data.buffer]);
       this.commands.length = 0;
     }
   }
@@ -803,7 +842,7 @@ export class Renderer {
     if (!this.uploaded.has(id)) {
       this.uploaded.add(id);
       const data = buffer.getChannelData(0).slice();
-      this.mixer.port.postMessage({ type: "sample", id, rate: buffer.sampleRate, data }, [data.buffer]);
+      (this.voiceMixer || this.mixer).port.postMessage({ type: "sample", id, rate: buffer.sampleRate, data }, [data.buffer]);
     }
     return id;
   }
@@ -844,7 +883,7 @@ class VoiceOut {
     // A new voice with a slot to go to renders in the voice engine (the
     // enhanced mode's or the light mix's): no nodes, its sample and
     // parameters sent as commands.
-    if (r.engine && !this.own && !this.source && (this.voice.mode3D || !r.binaural) && r.slots.length) {
+    if (r.engine && !this.own && !this.source && (this.voice.mode3D || !r.binaural) && (r.raw ? r.rawSlots : r.slots).length) {
       this.engine = true;
       this.lost = false;
       this.filter = null;
@@ -855,7 +894,7 @@ class VoiceOut {
       this.entry = null;
       this.head = null;
       this.sides = null;
-      this.slot = r.slots.pop();
+      this.slot = (r.raw ? r.rawSlots : r.slots).pop();
       // Targets (automation.js) reach the engine as commands.
       const param = (op) => ({ setTargetAtTime: (value, now, tau) => !this.lost && r.commands.push(op, this.slot, value, tau, now) });
       this.rateParam = param(VOICE.RATE);
@@ -870,8 +909,26 @@ class VoiceOut {
         this.sent = null;
         return;
       }
-      r.mixer.port.postMessage({ type: "start", slot: this.slot });
-      this.sent = new Float32Array(5).fill(NaN);
+      if (r.raw) {
+        if (this.voice.mode3D || !r.enhanced) {
+          this.panner = new PannerNode(ctx, { panningModel: "HRTF", distanceModel: "linear", refDistance: 1, maxDistance: 1e5, rolloffFactor: 0 });
+          this.position = [new Target(), new Target(), new Target()];
+          for (const t of this.position) t.hold(0);
+          this.panner.connect(r.hrtfOut);
+          this.entry = this.panner;
+        } else {
+          this.entry = ctx.createStereoPanner();
+          this.pan = new Target();
+          this.pan.hold(0);
+          this.entry.connect(r.mix);
+        }
+        this.nodes.push(this.entry);
+        r.voiceMixer.connect(this.entry, this.slot);
+        this.sent = null;
+      } else {
+        r.mixer.port.postMessage({ type: "start", slot: this.slot });
+        this.sent = new Float32Array(5).fill(NaN);
+      }
       this.sendLevel = new Target();
       this.sendLevel.hold(0);
       this.gainParam = param(VOICE.GAIN);
@@ -1027,7 +1084,7 @@ class VoiceOut {
       this.position[0].set(this.panner.positionX, x * d, now, 0.01);
       this.position[1].set(this.panner.positionY, y * d, now, 0.01);
       this.position[2].set(this.panner.positionZ, z * d, now, 0.01);
-    } else if (this.slot >= 0) {
+    } else if (this.slot >= 0 && !(this.engine && r.raw)) {
       // The mixer works a slot's gains out again only from new values (as
       // it receives them, in single precision).
       const sent = this.sent;
@@ -1042,7 +1099,7 @@ class VoiceOut {
     } else if (this.entry?.pan) {
       this.pan.set(this.entry.pan, Math.max(-1, Math.min(1, x)), now, 0.015);
     }
-    if ((this.filter || this.engine) && extra.cutoff !== undefined && Math.abs(extra.cutoff - this.cutoff) > 10) {
+    if (r.enhanced && (this.filter || this.engine) && extra.cutoff !== undefined && Math.abs(extra.cutoff - this.cutoff) > 10) {
       this.cutoff = extra.cutoff;
       if (this.engine) r.commands.push(VOICE.CUTOFF, this.slot, Math.min(this.cutoff, r.ctx.sampleRate / 2), 0.03, now);
       else this.filter.frequency.setTargetAtTime(Math.min(this.cutoff, r.ctx.sampleRate / 2), now, 0.03);
@@ -1143,8 +1200,11 @@ class VoiceOut {
         // gone
       }
     }
+    if (this.engine && this.r.raw && this.entry) {
+      try { this.r.voiceMixer.disconnect(this.entry, this.slot); } catch { /* graph replaced */ }
+    }
     if (this.slot >= 0) {
-      (this.engine ? this.r.slots : (this.r.nodeSlots ?? this.r.slots)).push(this.slot);
+      (this.engine && this.r.raw ? this.r.rawSlots : this.engine ? this.r.slots : (this.r.nodeSlots ?? this.r.slots)).push(this.slot);
       this.slot = -1;
     }
   }
@@ -1220,7 +1280,7 @@ class BedOut {
     // A channel as a virtual speaker in the spatial mixer, at an azimuth
     // (degrees, positive to the left).
     const speaker = (from, az, spread = 0) => {
-      const slot = r.slots.pop();
+      const slot = (r.nodeSlots ?? r.slots).pop();
       if (slot === undefined) return;
       this.slots.push(slot);
       const a = (az * Math.PI) / 180;
@@ -1409,7 +1469,7 @@ class BedOut {
   }
 
   freeSlots() {
-    for (const slot of this.slots) this.r.slots.push(slot);
+    for (const slot of this.slots) (this.r.nodeSlots ?? this.r.slots).push(slot);
     this.slots = [];
   }
 

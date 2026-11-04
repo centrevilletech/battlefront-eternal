@@ -26,6 +26,9 @@
 // env: VOICES (24), SECONDS (3), PAGES (6), SEEDS (5); MASTER=1 renders the
 // engine's side with its master chain in the module too, as the game does, and
 // BEDS=1 adds a battle's three stream beds to the scene on both sides.
+// OUTPUT selects stereo, 5.1, 7.1, 7.1.4 or headphones; QUALITY limits the
+// quality modes. BINAURAL=1 uses synthetic decoder filters on headphones,
+// otherwise the browser's HRTF panners. New paths are explicitly opted in.
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.env.AUDIO_TEST_URL || "http://127.0.0.1:18449";
 const VOICES = +(process.env.VOICES || 24);
@@ -33,6 +36,9 @@ const SECONDS = +(process.env.SECONDS || 3);
 const PAGES = Math.max(2, +(process.env.PAGES || 6));
 const SEEDS = Math.max(1, +(process.env.SEEDS || 5));
 const LIMIT_DB = -96;
+const OUTPUT = process.env.OUTPUT || "stereo";
+const QUALITY = process.env.QUALITY;
+const BINAURAL = Boolean(process.env.BINAURAL);
 const MASTER = Boolean(process.env.MASTER);
 const BEDS = Boolean(process.env.BEDS);
 
@@ -47,13 +53,14 @@ async function render(browser, quality, engine, sceneSeed) {
     if (m.type() === "error" && !m.location()?.url?.includes("/audio/hrtf/")) errors.push(m.text());
   });
   await page.route("**/__engine-gate__*", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><body></body>" }));
-  await page.goto(`${base}/__engine-gate__${engine ? (MASTER ? "" : "?master=native") : "?voices=native"}`);
+  await page.goto(`${base}/__engine-gate__?classic=rust&headphones=rust&${engine ? (MASTER ? "" : "master=native") : "voices=native&master=native"}`);
   const result = await page.evaluate(
-    async ({ voices, seconds, quality, sceneSeed, beds }) => {
+    async ({ voices, seconds, quality, sceneSeed, beds, output, binaural }) => {
       const { AudioEngine } = await import("/src/audio/engine.js");
       const { SoundData } = await import("/src/audio/data.js");
       const RATE = 48000;
-      const ctx = new OfflineAudioContext(2, RATE * seconds, RATE);
+      const channels = ({ "5.1": 6, "7.1": 8, "7.1.4": 12 })[output] || 2;
+      const ctx = new OfflineAudioContext(channels, RATE * seconds, RATE);
       const pcm = new Int16Array(22050);
       let seed = sceneSeed;
       const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296) * 2 - 1;
@@ -72,7 +79,17 @@ async function render(browser, quality, engine, sceneSeed) {
       };
       const engine = new AudioEngine({ context: ctx });
       if (quality === "enhanced") engine.renderer.setRoom({ room: 0.5, decay: 1.2, reflections: 0.3 });
-      const config = { quality, output: "stereo", dynamics: "normal", mono: false };
+      // Synthetic decoder filters exercise the native convolver boundary
+      // without requiring measured HRIR assets.
+      if (binaural) {
+        const filters = Array.from({ length: 16 }, (_, c) => {
+          const b = ctx.createBuffer(2, 256, RATE);
+          for (let ear = 0; ear < 2; ear++) b.getChannelData(ear)[c + ear + 1] = 0.1 / (c + 1);
+          return b;
+        });
+        engine.renderer.decoder = { filters };
+      }
+      const config = { quality, output, dynamics: "normal", mono: false };
       await engine.renderer.load(null, config);
       await engine.renderer.configure(config);
       engine.setData(new SoundData(manifest, pcm.buffer));
@@ -104,20 +121,17 @@ async function render(browser, quality, engine, sceneSeed) {
         source.start();
       }
       // Each frame's messages reach the worklet before its block renders.
-      const port = engine.renderer.mixer?.port;
+      const ports = [engine.renderer.mixer, engine.renderer.voiceMixer, engine.renderer.chain].filter(Boolean).map((n) => n.port);
       const waits = new Map();
       let ids = 0;
-      if (port) {
-        port.onmessage = (e) => {
-          if (e.data?.type === "sync") waits.get(e.data.id)?.();
-        };
-      }
-      const sync = () => (port ? new Promise((r) => waits.set(++ids, r) && port.postMessage({ type: "sync", id: ids })) : Promise.resolve());
+      for (const p of ports) p.onmessage = (e) => { if (e.data?.type === "sync") waits.get(e.data.id)?.(); };
+      const sync = () => Promise.all(ports.map((p) => new Promise((r) => waits.set(++ids, r) && p.postMessage({ type: "sync", id: ids }))));
       const step = (k) => {
         const t = k / 60 + sceneSeed * 0.7;
         engine.setListener({ x: 3 * Math.sin(t), y: 1.6, z: Math.sin(t * 0.3) }, { x: -Math.sin(t * 0.8), y: 0, z: -Math.cos(t * 0.8) }, { x: 0, y: 1, z: 0 });
         engine.update(1 / 60);
       };
+      // Avoid the native LFE graph's nondeterministic first block.
       step(0);
       for (let k = 1; k / 60 < seconds; k++) {
         ctx.suspend((Math.round(((k / 60) * RATE) / 128) * 128) / RATE).then(async () => {
@@ -128,12 +142,24 @@ async function render(browser, quality, engine, sceneSeed) {
       }
       await sync();
       const out = await ctx.startRendering();
-      return { channels: [Array.from(out.getChannelData(0)), Array.from(out.getChannelData(1))], engine: engine.renderer.engine, master: engine.renderer.master, light: engine.renderer.light };
+      const encoded = Array.from({ length: channels }, (_, c) => {
+        const bytes = new Uint8Array(out.getChannelData(c).buffer);
+        let text = "";
+        for (let i = 0; i < bytes.length; i += 8192) text += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        return btoa(text);
+      });
+      return { channels: encoded, engine: engine.renderer.engine, master: engine.renderer.master, light: engine.renderer.light };
     },
-    { voices: VOICES, seconds: SECONDS, quality, sceneSeed, beds: BEDS },
+    { voices: VOICES, seconds: SECONDS, quality, sceneSeed, beds: BEDS, output: OUTPUT, binaural: BINAURAL },
   );
   await page.close();
   if (errors.length) throw new Error(errors.join("\n"));
+  result.channels = result.channels.map((encoded) => {
+    const bytes = Buffer.from(encoded, "base64");
+    return new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  });
+  const peak = Math.max(...result.channels.map((channel) => channel.reduce((p, v) => Math.max(p, Math.abs(v)), 0)));
+  if (!(peak > 0.001)) throw new Error(`The render was silent (${quality}, ${OUTPUT}, engine=${engine})`);
   return result;
 }
 
@@ -163,20 +189,18 @@ const rate = { max: 0, medians: 0, both: 0 };
 let worst = 0;
 try {
   for (let seed = 1; seed <= SEEDS; seed++) {
-    for (const [quality, label] of [
-      ["enhanced", "Enhanced, reverb on"],
-      ["original", "the light mix"],
-    ]) {
+    for (const quality of QUALITY ? [QUALITY] : ["enhanced", "original"]) {
+      const label = `${quality}, ${OUTPUT}${BINAURAL ? ", binaural" : ""}`;
       const natives = [];
       for (let p = 0; p < PAGES; p++) natives.push(await render(browser, quality, false, seed));
       const engine = await render(browser, quality, true, seed);
-      if (!engine.engine || natives.some((n) => n.engine) || engine.light !== (quality === "original") || engine.master !== (MASTER && quality === "enhanced")) throw new Error(`${label}: the engine did not engage as asked`);
+      if (!engine.engine || natives.some((n) => n.engine) || engine.light !== (quality === "original" && OUTPUT === "stereo") || engine.master !== (MASTER && !engine.light)) throw new Error(`${label}: the engine did not engage as asked`);
       const all = [];
       for (let i = 0; i < natives.length; i++) for (let j = i + 1; j < natives.length; j++) all.push(largest(natives[i], natives[j]));
       const offs = natives.map((n) => largest(engine, n));
       const off = Math.max(...offs);
       const head = `seed ${seed}, ${label}, ${VOICES} voices, ${SECONDS} s, ${PAGES} native pages:`;
-      if (quality === "original") {
+      if (engine.light) {
         const spread = Math.max(...all);
         const ok = off <= spread;
         if (!ok) failed++;
@@ -201,7 +225,7 @@ try {
       );
     }
   }
-  console.log(`Enhanced over ${SEEDS} seeds: the largest difference ${db(worst)} (the limit ${LIMIT_DB} dBFS); like with like, the largest within the natives' ${rate.max}/${SEEDS}, the medians within 0.5 dB ${rate.medians}/${SEEDS}, both ${rate.both}/${SEEDS}`);
+  console.log(`Bounded comparisons over ${SEEDS} seeds: the largest difference ${db(worst)} (the limit ${LIMIT_DB} dBFS); like with like, the largest within the natives' ${rate.max}/${SEEDS}, the medians within 0.5 dB ${rate.medians}/${SEEDS}, both ${rate.both}/${SEEDS}`);
 } finally {
   await browser.close();
 }

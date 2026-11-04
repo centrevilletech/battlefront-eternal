@@ -220,8 +220,8 @@ impl Clarity {
             fast: 0.0,
             slow: 0.0,
             gain: 1.0,
-            gains: Vec::new(),
-            power: Vec::new(),
+            gains: vec![0.0; crate::FRAMES],
+            power: vec![0.0; crate::FRAMES],
         }
     }
 

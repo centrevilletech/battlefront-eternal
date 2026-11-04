@@ -145,6 +145,7 @@ impl Default for Voice {
 
 pub struct Engine {
     rate: f64,
+    pub filtered: bool,
     nyquist: f64,
     // The lowpass's Q (in dB, as the browser takes a lowpass's) as its
     // linear resonance.
@@ -266,6 +267,7 @@ impl Engine {
         let x = ((q_db / 20.0) * std::f64::consts::LN_10) as f32;
         Engine {
             rate,
+            filtered: true,
             nyquist: rate / 2.0,
             resonance: v8math::exp(x as f64) as f32 as f64,
             x86,
@@ -423,27 +425,31 @@ impl Engine {
                 sends.fill(v.send.value());
             }
             source_block(v, &sample.data, step, frame, src);
-            let [b0, b1, b2, a1, a2] = v.b;
-            let (mut x1, mut x2, mut y1, mut y2) = (v.x1, v.x2, v.y1, v.y2);
             let out = &mut inputs[slot * FRAMES..(slot + 1) * FRAMES];
             for i in 0..FRAMES {
-                let s = src[i];
-                let g = if gain_zero { 0.0 } else { s * gains[i] };
-                if !send_zero {
-                    send[i] += g * sends[i];
-                }
-                let x = g as f64;
-                let y = (b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) as f32;
-                out[i] = y;
-                x2 = x1;
-                x1 = x;
-                y2 = y1;
-                y1 = y as f64;
+                let g = if gain_zero { 0.0 } else { src[i] * gains[i] };
+                if !send_zero { send[i] += g * sends[i]; }
+                out[i] = g;
             }
-            v.x1 = flush(x1);
-            v.x2 = flush(x2);
-            v.y1 = flush(y1);
-            v.y2 = flush(y2);
+            // Classic voices have no lowpass at all. Keep their gain's
+            // samples, without paying for a bypassed biquad recurrence.
+            if self.filtered {
+                let [b0, b1, b2, a1, a2] = v.b;
+                let (mut x1, mut x2, mut y1, mut y2) = (v.x1, v.x2, v.y1, v.y2);
+                for sample in out {
+                    let x = *sample as f64;
+                    let y = (b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) as f32;
+                    *sample = y;
+                    x2 = x1;
+                    x1 = x;
+                    y2 = y1;
+                    y1 = y as f64;
+                }
+                v.x1 = flush(x1);
+                v.x2 = flush(x2);
+                v.y1 = flush(y1);
+                v.y2 = flush(y2);
+            }
             present[slot] = 1;
         }
     }

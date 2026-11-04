@@ -61,3 +61,9 @@ export function loadAudioDsp() {
   });
   return compiling;
 }
+
+// New output paths stay opt-in until measured on the target hardware.
+export function outputRust(name) {
+  try { return new URLSearchParams(globalThis.location?.search || "").get(name) === "rust"; }
+  catch { return false; }
+}

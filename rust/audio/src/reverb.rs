@@ -175,7 +175,7 @@ impl Reverb {
         self.in_a = if rh >= 0.999 { 0.0 } else { js_min(js_max(1.0 - rh, 0.0), 0.95) };
     }
 
-    fn scratch(&mut self, n: usize) {
+    pub(crate) fn scratch(&mut self, n: usize) {
         if self.ys.len() >= n {
             return;
         }

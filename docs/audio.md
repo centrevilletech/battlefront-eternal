@@ -619,7 +619,21 @@ convolvers and the mono fold keep the nodes. The stream beds stay in the
 browser's nodes too, a source and two gains and, on stereo, as few routes
 as they take: with the chain in the module three beds cost the audio thread
 under a point of a core, too little to pay for moving decoded streams into
-it. Not built yet, in this order: Classic on surround, and headphones.
+it. Classic surround can opt into the same voice engine and a Rust master
+with `?classic=rust`. Its voices have no lowpass; the master keeps its
+front stabilizer and output level ahead of the dynamics. It remains off
+by default until measured on the target laptop.
+
+`?headphones=rust` opts into a Rust master after the native headphone
+decoder. With the ambisonic decoder, its sixteen convolvers still run in
+the browser. With HRTF, a Rust voice engine renders the source, gain,
+lowpass and send; each voice's mono output feeds its browser HRTF panner.
+The HRTF panners themselves remain native. Two-dimensional Enhanced voices
+keep their stereo panning. The headphone master receives the decoded
+stereo mix and the reverb send through separate inputs, so the graph has
+no feedback cycle. This path also remains off by default. `?master=native`
+keeps the old master on either output; `?voices=native&master=native` keeps
+the full reference path. Stream beds keep their browser nodes.
 
 The page still decides everything (ranking, distance, Doppler, levels,
 air, sends). Instead of AudioParam calls it sends one message a frame of
@@ -823,14 +837,18 @@ The game's sound is the user's own copy and stays out of git.
 ## Tests
 
 ```
+node --test tests/audio-raw.test.js              # HRTF voice outputs after a live sample upload grows the module heap
 node --test tests/audio-units.test.js            # 20: hashing, ADPCM, distance, picks, graphs, panning, Doppler, music, voice-over, footsteps
 node --test tests/audio-soldiers.test.js         # 9: other soldiers' weapons and voices, out of earshot, the chatter's queue and lines, online hurts
 node --test tests/audio-light.test.js            # 14: the light mix's graph, panning law and soft clip; Enhanced's graph after a trip through it; worklets loaded only when needed; voices moving between graphs; the graphs with the voice engine and the master chain in the module
 python3 -m unittest tests/test_zero_sound.py      # 5: the archive reader on made-up chunks
 PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio.mjs
-                                                  # 80 offline checks in Chromium (no game assets)
+                                                  # 87 offline checks in Chromium (no game assets)
 PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-engine-gate.mjs
                                                   # the voice engine's gate, its second rule (VOICES, PAGES)
+OUTPUT=5.1 QUALITY=original MASTER=1 BEDS=1 SEEDS=5 PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-engine-gate.mjs
+OUTPUT=headphones QUALITY=enhanced MASTER=1 BEDS=1 SEEDS=5 PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-engine-gate.mjs
+                                                  # BINAURAL=1 uses synthetic decoder filters; otherwise HRTF
 PLAYWRIGHT_MODULE=... GAME_URL=http://127.0.0.1:18449 node tests/audio-loudness.mjs
                                                   # the loudness table above (needs the extracted map)
 PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-bench.mjs

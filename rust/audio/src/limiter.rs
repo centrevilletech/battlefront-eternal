@@ -174,7 +174,7 @@ impl Limiter {
         -slope * (level - t)
     }
 
-    fn setup(&mut self, channels: usize) {
+    pub(crate) fn setup(&mut self, channels: usize) {
         self.channels = channels;
         // Each channel's last TAPS samples, written twice (at p and
         // p + TAPS) so the interpolator reads them in one run.
@@ -184,7 +184,7 @@ impl Limiter {
         self.block = 0;
     }
 
-    fn scratch(&mut self, n: usize) {
+    pub(crate) fn scratch(&mut self, n: usize) {
         if self.block >= n {
             return;
         }
