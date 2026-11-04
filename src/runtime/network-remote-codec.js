@@ -13,7 +13,10 @@ class Fields {
 }
 const base=['yaw','pitch','health','countdown','lookX','lookY'];
 function writeVector(w,array,length){if(!Array.isArray(array)||array.length!==length)throw Error('invalid recon vector');for(const n of array)w.f(n);}
-function readVector(r,length){return Array.from({length},()=>r.read());}
+function readVector(r,length,native=null){
+ const value=typeof native?.readReconVector==='function'?native.readReconVector(r,length):null;
+ return value??Array.from({length},()=>r.read());
+}
 // This block is independent of the own-player envelope. References such as the
 // droid definition and slot/generation belong to its enclosing control mode.
 export function encodeRemoteCorrection(state,droid,native=null){
@@ -31,11 +34,57 @@ export function encodeRemoteCorrection(state,droid,native=null){
  w.u8(state.camera?1:0);if(state.camera){if(typeof state.camera.fresh!=='boolean'||!(state.camera.aspect>0)||!Array.isArray(state.camera.quaternion)||Math.abs(Math.hypot(...state.camera.quaternion)-1)>.001)throw Error('invalid recon camera');writeVector(w,state.camera.position,3);writeVector(w,state.camera.quaternion,4);for(const key of ['aspect','fov','reach'])w.f(state.camera[key]);w.u8(Number(state.camera.fresh));}
  return w.bytes.slice(0,w.at);
 }
-export function decodeRemoteCorrection(bytes,droid){
- if(!(bytes instanceof Uint8Array))throw Error('invalid recon correction');const r=new Fields(bytes);if(r.u8()!==2)throw Error('unsupported recon correction');const bits=r.u8();if(bits>7)throw Error('invalid recon state flags');const state={dead:Boolean(bits&1),piloted:Boolean(bits&2),firstPerson:Boolean(bits&4)};if(state.dead&&state.piloted)throw Error('invalid recon control state');for(const key of base)state[key]=r.read();state.zoomStep=r.u8();if(state.zoomStep>1)throw Error('invalid recon zoom');state.randomSeed=r.u32();for(const key of ['position','velocity'])state[key]=readVector(r,3);state.selected=[r.u8(),r.u8()];const count=r.u8();if(count>2||count!==droid.arsenal.weapons.length)throw Error('recon arsenal mismatch');state.weapons=[];
- for(let i=0;i<count;i++)state.weapons.push(validateArsenalWeapon(droid.arsenal.weapons[i],r.take(r.u16())).state);
+function readHeader(r){
+ if(r.u8()!==2)throw Error('unsupported recon correction');
+ const bits=r.u8();if(bits>7)throw Error('invalid recon state flags');
+ const state={dead:Boolean(bits&1),piloted:Boolean(bits&2),firstPerson:Boolean(bits&4)};
+ if(state.dead&&state.piloted)throw Error('invalid recon control state');
+ for(const key of base)state[key]=r.read();
+ state.zoomStep=r.u8();if(state.zoomStep>1)throw Error('invalid recon zoom');
+ state.randomSeed=r.u32();for(const key of ['position','velocity'])state[key]=readVector(r,3);
+ state.selected=[r.u8(),r.u8()];const count=r.u8();
+ if(count>2)throw Error('recon arsenal mismatch');
+ return {state,count};
+}
+function readSalvoHeader(r){
+ const present=r.u8();if(present>1)throw Error('invalid recon salvo flag');
+ return present?{present:true,index:r.u8(),level:r.u8()}:{present:false};
+}
+function readCamera(r,native){
+ const present=r.u8();if(present>1)throw Error('invalid recon camera flag');
+ if(!present)return {present:false};
+ const value={position:readVector(r,3,native),quaternion:readVector(r,4,native),aspect:r.read(),fov:r.read(),reach:r.read()};
+ const fresh=r.u8();if(fresh>1||value.aspect<=0||Math.abs(Math.hypot(...value.quaternion)-1)>.001)throw Error('invalid recon camera');
+ value.fresh=Boolean(fresh);return {present:true,value};
+}
+export function decodeRemoteCorrection(bytes,droid,native=null){
+ if(!(bytes instanceof Uint8Array))throw Error('invalid recon correction');
+ // Keep this reader and its original DataView across callbacks. A changed
+ // source can resume in JavaScript at the current cursor without repeating
+ // a weapon getter, cache lookup, or definition coercion.
+ const r=new Fields(bytes);
+ const header=(typeof native?.readReconHeader==='function'?native.readReconHeader(r):null)??readHeader(r);
+ const {state,count}=header;
+ if(count!==droid.arsenal.weapons.length)throw Error('recon arsenal mismatch');
+ state.weapons=[];
+ for(let i=0;i<count;i++){
+  // Argument evaluation resolves the live weapon before its length and slice.
+  const weapon=droid.arsenal.weapons[i];
+  const payload=(typeof native?.readReconRange==='function'?native.readReconRange(r):null)??r.take(r.u16());
+  state.weapons.push(validateArsenalWeapon(weapon,payload,native).state);
+ }
  for(let channel=0;channel<2;channel++)if(state.selected[channel]>=Math.max(1,droid.arsenal.channels[channel].length))throw Error('invalid recon selected weapon');
- const salvo=r.u8();if(salvo>1)throw Error('invalid recon salvo flag');state.salvo=null;if(salvo){const index=r.u8(),level=r.u8(),def=droid.arsenal.weapons[index]?.levels[level];if(!def?.strike)throw Error('recon salvo prerequisite missing');state.salvo={def,left:r.u32(),wait:r.read()};if(state.salvo.left>Math.max(1,Math.floor(def.SalvoCount||1)))throw Error('invalid recon salvo count');for(const key of ['at','x','y','z'])state.salvo[key]=new Vector3().fromArray(readVector(r,3));}
- const camera=r.u8();if(camera>1)throw Error('invalid recon camera flag');if(camera){state.camera={position:readVector(r,3),quaternion:readVector(r,4),aspect:r.read(),fov:r.read(),reach:r.read()};const fresh=r.u8();if(fresh>1||state.camera.aspect<=0||Math.abs(Math.hypot(...state.camera.quaternion)-1)>.001)throw Error('invalid recon camera');state.camera.fresh=Boolean(fresh);}
+ const salvo=(typeof native?.readReconSalvo==='function'?native.readReconSalvo(r):null)??readSalvoHeader(r);
+ state.salvo=null;
+ if(salvo.present){
+  const def=droid.arsenal.weapons[salvo.index]?.levels[salvo.level];
+  if(!def?.strike)throw Error('recon salvo prerequisite missing');
+  const values=(typeof native?.readReconSalvoState==='function'?native.readReconSalvoState(r):null)??{left:r.u32(),wait:r.read()};
+  state.salvo={def,left:values.left,wait:values.wait};
+  if(state.salvo.left>Math.max(1,Math.floor(def.SalvoCount||1)))throw Error('invalid recon salvo count');
+  for(const key of ['at','x','y','z'])state.salvo[key]=new Vector3().fromArray(readVector(r,3,native));
+ }
+ const camera=(typeof native?.readReconCamera==='function'?native.readReconCamera(r):null)??readCamera(r,native);
+ if(camera.present)state.camera=camera.value;
  if(r.at!==bytes.length)throw Error('trailing recon correction bytes');return state;
 }

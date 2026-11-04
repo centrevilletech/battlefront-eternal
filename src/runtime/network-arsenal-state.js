@@ -73,23 +73,44 @@ export function captureArsenalWeapon(weapon,native=null){
   return bytes;
 }
 export function validateArsenalWeapon(weapon,bytes,native=null){
-  if(!(bytes instanceof Uint8Array)||bytes.length<6)throw Error('invalid arsenal weapon state');
-  const mask=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(2,true);
-  if(mask>>>WEAPON_STATE_NUMBERS.length)throw Error('invalid arsenal weapon mask');
-  const full=initial(weapon).slice();full.set(bytes.subarray(0,2));let at=6;
-  for(let i=0;i<WEAPON_STATE_NUMBERS.length;i++)if(mask&(1<<i)){
-    if(at+8>bytes.length)throw Error('truncated arsenal weapon state');
-    full.set(bytes.subarray(at,at+8),2+i*8);at+=8;
+  let mask=typeof native?.readArsenalMask==='function'?native.readArsenalMask(bytes):null;
+  if(mask===null){
+    if(!(bytes instanceof Uint8Array)||bytes.length<6)throw Error('invalid arsenal weapon state');
+    mask=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(2,true);
+    if(mask>>>WEAPON_STATE_NUMBERS.length)throw Error('invalid arsenal weapon mask');
   }
-  let melee;
+  // The cache lookup and any cold definition reads happen after the mask, but
+  // before reading the header and dirty values again. Keep the actual copy.
+  const full=initial(weapon).slice();
+  let at=typeof native?.expandArsenal==='function'?native.expandArsenal(full,bytes,mask):null;
+  if(at===null){
+    full.set(bytes.subarray(0,2));at=6;
+    for(let i=0;i<WEAPON_STATE_NUMBERS.length;i++)if(mask&(1<<i)){
+      if(at+8>bytes.length)throw Error('truncated arsenal weapon state');
+      full.set(bytes.subarray(at,at+8),2+i*8);at+=8;
+    }
+  }
+  let melee,tail=null,bound=0;
   if(weapon.melee){
-    if(at+10!==bytes.length)throw Error('invalid melee weapon state');
-    const time=new DataView(bytes.buffer,bytes.byteOffset+at,10).getFloat64(0,true),index=bytes[at+8],active=bytes[at+9];
-    if(!Number.isFinite(time)||time< -1||index>=Math.min(3,weapon.def.swings?.length||1)||active>1)throw Error('invalid melee weapon state');
-    melee={time,index,active:!!active};at+=10;
+    tail=typeof native?.readArsenalMelee==='function'?native.readArsenalMelee(bytes,at):null;
+    if(tail===null){
+      if(at+10!==bytes.length)throw Error('invalid melee weapon state');
+      const time=new DataView(bytes.buffer,bytes.byteOffset+at,10).getFloat64(0,true),index=bytes[at+8],active=bytes[at+9];
+      if(!Number.isFinite(time)||time< -1)throw Error('invalid melee weapon state');
+      tail={time,index,active,at:at+10};
+    }
+    // Read the current definition only after validating the saved time. Its
+    // accessors may edit later bytes, but not these already captured values.
+    bound=Math.min(3,weapon.def.swings?.length||1);
+    melee={time:tail.time,index:tail.index,active:!!tail.active};at=tail.at;
   }
-  if(at!==bytes.length)throw Error('trailing arsenal weapon state');
-  return {...validateWeaponState(weapon,decodeWeaponState(full,native)),melee};
+  let state=typeof native?.finishArsenal==='function'?native.finishArsenal(full,bytes,at,tail,bound):null;
+  if(state===null){
+    if(tail&&(tail.index>=bound||tail.active>1))throw Error('invalid melee weapon state');
+    if(at!==bytes.length)throw Error('trailing arsenal weapon state');
+    state=decodeWeaponState(full,native);
+  }
+  return {...validateWeaponState(weapon,state),melee};
 }
 export function applyArsenalWeapon(entry){applyValidatedWeaponState(entry);if(entry.melee)entry.weapon.melee.restoreState(entry.melee);}
 export function captureArsenalState(arsenal){
