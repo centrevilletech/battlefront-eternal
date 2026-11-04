@@ -1,4 +1,4 @@
-import { shaderSources } from "../render-shaders.js";
+import { VERTEX, FRAGMENT } from "./batch-shaders.js";
 import * as THREE from "three";
 
 // Quads gathered in draw order, one draw per run of the same texture: every
@@ -6,9 +6,6 @@ import * as THREE from "three";
 // through a mask texture.
 
 const QUADS = 2048;
-
-const VERTEX = shaderSources["post-hud/hud"].vertex;
-const FRAGMENT = shaderSources["post-hud/hud"].fragment;
 
 export class Batch {
   constructor() {
@@ -58,9 +55,7 @@ export class Batch {
         }),
       );
     }
-    const material = byMask.get(key);
-    material.userData.bfeProgram = "post-hud/hud";
-    return material;
+    return byMask.get(key);
   }
 
   begin() {

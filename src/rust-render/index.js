@@ -189,7 +189,6 @@ export class RustRender {
     this.phaseMs = {};
     this.enabled = true;
     this.active = !new URLSearchParams(location.search).has("rustOff");
-    this.ownedShaderSources = !new URLSearchParams(location.search).has("rustShaderBridge");
     this.errors = [];
     // The Enhanced configuration the battle started in (supported()), and
     // the cascades' maps last given to the renderer.

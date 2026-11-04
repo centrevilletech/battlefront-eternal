@@ -12,6 +12,9 @@ const runner = arg('--runner', process.env.BFE_CORPUS_RUNNER);
 if (!runner) throw Error('Supply --runner executable (see docs/renderer-programs.md)');
 const out = resolve(arg('--out', 'renderer-corpus-out'));
 const dist = resolve(arg('--dist', 'dist-desktop'));
+const against = arg('--against');
+if (!against) throw Error('Supply --against frozen reference dist');
+const reference = resolve(against);
 const jobs = Number(arg('--jobs', '1'));
 if (!Number.isInteger(jobs) || jobs < 1) throw Error('--jobs must be a positive integer');
 const selected = arg('--cases', '').split(',').filter(Boolean);
@@ -24,13 +27,13 @@ async function worker() {
   for (;;) {
     const c = cases[next++]; if (!c) return;
     const rc = await new Promise((done) => {
-      const child = spawn(runner, [dist, c.id, out], { stdio: 'inherit', env: { ...process.env, BFE_CORPUS_CASE: c.id, OUT: out, LABEL: c.id } });
+      const child = spawn(runner, [dist, c.id, out, reference], { stdio: 'inherit', env: { ...process.env, BFE_CORPUS_CASE: c.id, OUT: out, LABEL: c.id } });
       child.on('error', e => { console.error(e); done(1); });
       child.on('exit', code => done(code ?? 1));
     });
     let report;
     try { report = JSON.parse(readFileSync(`${out}/${c.id}.json`)); } catch { report = { error: 'Missing report' }; }
-    results.push({ id: c.id, rc, pass: rc === 0 && report.pass === true && report.complete === true, baselinePass: report.baselinePass, valid: report.valid, ownedPixels: report.worstOwnedPixels, threePixels: report.worstRustPixels, controlPct: report.worstControlPct, error: report.error });
+    results.push({ id: c.id, rc, pass: rc === 0 && report.pass === true && report.complete === true, exact: report.exact, valid: report.valid, error: report.error });
     console.log(JSON.stringify(results.at(-1)));
   }
 }
@@ -39,6 +42,6 @@ results.sort((a,b) => a.id.localeCompare(b.id));
 const programs = new Set();
 for (const c of cases) { try { const r=JSON.parse(readFileSync(`${out}/${c.id}.json`)); for(const p of r.shaderPrograms || []) if(p.accepted && p.hash) programs.add(p.key); } catch {} }
 const missingPrograms = (manifest.programs || []).filter(key => !programs.has(key));
-const summary = { missingPrograms, programs: [...programs].sort(), version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, complete: cases.length === manifest.cases.length, cases: results, pass: results.length === cases.length && results.every(r => r.pass) && (cases.length < manifest.cases.length || missingPrograms.length === 0), baselinePass: results.every(r => r.baselinePass) };
+const summary = { missingPrograms, programs: [...programs].sort(), version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, reference, complete: cases.length === manifest.cases.length, cases: results, pass: results.length === cases.length && results.every(r => r.pass) && (cases.length < manifest.cases.length || missingPrograms.length === 0) };
 writeFileSync(`${out}/summary.json`, JSON.stringify(summary, null, 2));
 process.exitCode = summary.pass ? 0 : 1;

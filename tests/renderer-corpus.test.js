@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { shaderSources } from '../src/render-shaders.js';
+import { programLayouts } from '../src/render-programs.js';
 import { expand } from '../tools/renderer-corpus/manifest.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -19,8 +19,19 @@ test('the parity corpus includes every map in every preset with valid spawn quer
     assert.equal(q.get('unit'), map === 'hot1' ? 'imp_inf_storm_troopersnow' : q.get('side') === 'imp' ? 'imp_inf_storm_trooper' : 'rep_inf_clone_trooper');
   }
   assert.equal(new Set(manifest.cases.map(c => c.id)).size, manifest.cases.length);
-  assert.deepEqual(manifest.programs.toSorted(), Object.keys(shaderSources).toSorted());
-  assert.equal(manifest.cases.filter(c => c.contextLoss).length, 1);
+  assert.deepEqual(manifest.programs.toSorted(), Object.keys(programLayouts).toSorted());
+  assert.equal(manifest.contextLossOwner, 'renderer lifecycle gate');
   for (const c of manifest.cases) if (c.settings.renderScale < 1) assert.notEqual(c.settings.upscaler, "off", "scaled cases retain the native canvas for HUD capture");
   for (const map of ['kas1','kas2','kam1']) assert.equal(manifest.cases.find(c=>c.id===`mirror-${map}`).settings.waterQuality,'ultra');
+});
+
+import { compare } from '../tools/renderer-corpus/compare.mjs';
+test('frozen comparison requires exact stable channels and uses only local control noise', () => {
+  const a=Uint8Array.of(10,20,30,255,10,20,30,255);
+  assert.deepEqual(compare(a,a,a),{pixels:2,differing:0,control:0,residual:0,stableResidual:0,maxDelta:0,maxExcess:0});
+  const noisy=Uint8Array.of(12,20,30,255,10,20,30,255);
+  assert.equal(compare(a,noisy,noisy).residual,0);
+  assert.equal(compare(a,Uint8Array.of(10,22,30,255,10,20,30,255),noisy).residual,1);
+  assert.equal(compare(a,Uint8Array.of(10,20,30,255,12,20,30,255),noisy).stableResidual,1);
+  assert.equal(compare(a,Uint8Array.of(10,20,30,254,10,20,30,255),a).residual,1);
 });

@@ -46,7 +46,7 @@ const plainPrograms = new WeakMap();
 // Whether plainProgram has made (or refused) the renderer's program for
 // three's current one of a material, so that calling it makes no program.
 export function plainProgramKnown(core, material) {
-  if (material.userData?.bfeProgram && core.ownedShaderSources !== false) return core.ownedPrograms?.has(material.userData.bfeProgram) || false;
+  if (material.userData?.bfeProgram) return core.ownedPrograms?.has(material.userData.bfeProgram) || false;
   const threeProgram = core.renderer.properties.get(material).currentProgram;
   return !threeProgram || plainPrograms.has(threeProgram);
 }
@@ -61,13 +61,12 @@ const unread = (material, name) => (name === "zeroLights" || name === "zeroLight
 // or null for three's own attributes at locations 0, 1... (entry.attributes,
 // for core.geometry).
 export function plainProgram(core, material, attributes) {
-  if (material.userData?.bfeProgram && core.ownedShaderSources !== false && core.rust.add_owned_program) return ownedProgram(core, material, attributes);
+  if (material.userData?.bfeProgram) return ownedProgram(core, material.userData.bfeProgram, attributes);
   const threeProgram = core.renderer.properties.get(material).currentProgram;
   if (!threeProgram) return undefined;
   let entry = plainPrograms.get(threeProgram);
   if (entry !== undefined) return entry;
   entry = null;
-  const start = material.userData?.bfeProgram ? performance.now() : 0;
   const gl = core.gl, p = threeProgram.program;
   let locations = null;
   if (attributes === null) {
@@ -88,7 +87,6 @@ export function plainProgram(core, material, attributes) {
       core.errors.push(`plain p${threeProgram.id}: ${String(error).slice(0, 300)}`);
     }
   } else core.errors.push(`plain p${threeProgram.id}: ${uniforms.filter((u) => !u.type || u.size !== 1).map((u) => u.name).join(" ")}`);
-  if (material.userData?.bfeProgram) (core.shaderPrograms ||= []).push({ key: material.userData.bfeProgram, owned: false, ms: performance.now() - start, accepted: !!entry });
   plainPrograms.set(threeProgram, entry);
   return entry;
 }
@@ -174,7 +172,7 @@ class PostPass {
     const core = this.core;
     if (!core.enabled || !core.active || this.on === false || !steps.length || steps.length > MAX_STEPS) return false;
     for (const step of steps) {
-      if (!step.pass || !plainProgram(core, step.pass.material, ATTRIBUTES)) return false;
+      if (!step.pass || !ownedProgram(core, step.pass.material.userData.bfeProgram, ATTRIBUTES)) return false;
       if (step.target && this.target(step.target) < 0) return false;
     }
     this.pending = steps;
@@ -192,8 +190,9 @@ class PostPass {
   // A target of three's, by its colour texture (made again on a resize).
   target(target) {
     const core = this.core;
-    const handle = core.renderer.properties.get(target.texture).__webglTexture;
-    if (!handle) return -1;
+    let handle = core.renderer.properties.get(target.texture).__webglTexture;
+    if (!handle) { core.renderer.initRenderTarget(target); handle = core.renderer.properties.get(target.texture).__webglTexture; }
+    if (!handle) throw Error("Post target allocation failed");
     let id = this.targets.get(handle);
     if (id === undefined) {
       const texture = core.texture(target.texture);
@@ -213,7 +212,7 @@ class PostPass {
     const out = core.postInput, size = this.size ||= new THREE.Vector4();
     let n = 0;
     for (const step of steps) {
-      const program = plainProgram(core, step.pass.material, ATTRIBUTES);
+      const program = ownedProgram(core, step.pass.material.userData.bfeProgram, ATTRIBUTES);
       const o = n * STRIDE;
       if (step.values) applyValues(step.pass.material, step.values);
       out[o + STEP.PROGRAM] = program.id;

@@ -1,14 +1,13 @@
 // Family manifests declare layouts before a program is linked. Neither source
-// nor reflection is borrowed from three. A refused variant leaves its pass to
-// three; there is no nearest-variant substitution.
-import { shaderSources } from "../render-shaders.js";
+// nor reflection is borrowed from three. Invalid variants stop registration;
+// there is no compiled-source or nearest-variant substitution.
+import { programLayouts } from "../render-programs.js";
 
-export function ownedProgram(core, material, attributes) {
-  const key = material.userData.bfeProgram;
+export function ownedProgram(core, key, attributes) {
   const cache = core.ownedPrograms ||= new Map();
   if (cache.has(key)) return cache.get(key);
-  const source = shaderSources[key];
-  let entry = null;
+  const source = programLayouts[key];
+  let entry;
   const start = performance.now();
   try {
     if (!source) throw Error(`unknown shader variant: ${key}`);
@@ -16,9 +15,9 @@ export function ownedProgram(core, material, attributes) {
     if (attributes !== layout) throw Error(`attribute layout for ${key}: ${attributes}`);
     entry = { id: core.rust.add_owned_program(key), uniforms: source.uniforms, attributes: null };
   } catch (error) {
-    core.errors.push(`${key}: ${String(error).slice(0, 300)}`);
+    throw Error(`${key}: ${String(error)}`);
   }
-  (core.shaderPrograms ||= []).push({ key, owned: true, hash: source?.hash, ms: performance.now() - start, accepted: !!entry });
+  (core.shaderPrograms ||= []).push({ key, hash: source?.hash, ms: performance.now() - start, accepted: true });
   cache.set(key, entry);
   return entry;
 }
