@@ -115,6 +115,9 @@ struct Batch<C: HasContext> {
     interleaved: bool,
     // The side three draws it with (batch_side; 2 both, a particle's).
     side: u32,
+    // Its depth test, function and write when not a particle's (tested
+    // less-or-equal, not written): batch_depth.
+    depth: Option<(bool, u32, bool)>,
 }
 
 struct Owner<C: HasContext> {
@@ -361,7 +364,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.batches.push(Batch {
             program: program as usize, texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             vao, vbo, capacity: 0, sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
-            values: vec![], value_slots: vec![], samplers: vec![], samplers_3d: vec![], index_count: 6, interleaved: false, side: 2,
+            values: vec![], value_slots: vec![], samplers: vec![], samplers_3d: vec![], index_count: 6, interleaved: false, side: 2, depth: None,
         });
         // Its samplers besides the map on their units.
         unsafe {
@@ -420,6 +423,36 @@ impl<C: HasContext> EffectsPass<C> {
         if let Some(b) = self.batches.get_mut(batch as usize) {
             b.side = side;
         }
+    }
+
+    // A batch's depth state when it isn't a particle's: flags (1 test, 2
+    // write) and function (the steam's volumes: neither tested nor written).
+    pub fn batch_depth(&mut self, batch: u32, flags: u32, func: u32) {
+        if let Some(b) = self.batches.get_mut(batch as usize) {
+            b.depth = Some((flags & 1 != 0, func, flags & 2 != 0));
+        }
+    }
+
+    // A batch drawn into a texture of its own rather than the scene (the
+    // steam's volumes, into their half-size target, cleared first): its
+    // `count` instances and its values as the page wrote them from `at` of
+    // the data, `capacity` the batch's room, `depth` the scene's depth
+    // (registered texture, -1 none), the frame's soft values as the page
+    // wrote them. Leaves the renderer's framebuffer over that texture bound
+    // and the viewport its size: the page has three bind its own again.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_into<M: MultiDraw>(&mut self, core: &mut Core<C, M>, batch: usize, target: u32, width: i32, height: i32, count: usize, at: usize, capacity: usize) {
+        let Ok(fb) = core.framebuffer(Some(target), None) else { return };
+        core.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
+        unsafe {
+            core.gl.viewport(0, 0, width, height);
+            core.gl.clear_color(0.0, 0.0, 0.0, 0.0);
+            core.state.color_mask(&core.gl, &mut core.stats, [true; 4]);
+            core.gl.clear(glow::COLOR_BUFFER_BIT);
+        }
+        core.stats.gl_calls += 3;
+        self.common(core);
+        self.draw_batch(core, [batch, count, 0, at, capacity]);
     }
 
     // A batch's own material values ("name:size" or "name:size:form",
@@ -711,11 +744,13 @@ impl<C: HasContext> EffectsPass<C> {
                 state.bind_texture(gl, stats, UNIT_EMITTERS, Some(o.emitters));
             }
             // A particle material: depth tested less-or-equal and not
-            // written, double-sided (or the side three draws it with).
+            // written, double-sided (or the side three draws it with), or
+            // the depth state it was given.
             sides(gl, state, stats, b.side, false);
-            state.depth_test(gl, stats, true);
-            state.depth_func(gl, stats, glow::LEQUAL);
-            state.depth_write(gl, stats, false);
+            let (test, func, write) = b.depth.unwrap_or((true, glow::LEQUAL, false));
+            state.depth_test(gl, stats, test);
+            state.depth_func(gl, stats, func);
+            state.depth_write(gl, stats, write);
             blending(gl, state, stats, &b.blend);
             gl.bind_vertex_array(Some(b.vao));
             gl.draw_elements_instanced(glow::TRIANGLES, b.index_count, glow::UNSIGNED_SHORT, 0, count as i32);

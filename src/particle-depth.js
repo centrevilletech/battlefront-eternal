@@ -155,13 +155,14 @@ export class ParticleDepth {
     return () => { this.requesters.delete(fn); };
   }
 
-  // The copier: one degenerate triangle outside the view, neither tested nor
+  // The copier: zero instances outside the view, neither tested nor
   // written, in a group of its own (whose render order is the group order
   // three sorts it by); its world matrix set here alone. Shown for its first
   // render (its program built then), then only while it has a copy to take.
   makeCopier(scene) {
-    const geometry = new THREE.BufferGeometry();
+    const geometry = new THREE.InstancedBufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    geometry.instanceCount = 0;
     geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0);
     const material = new THREE.ShaderMaterial({
       vertexShader: "void main() { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); }",

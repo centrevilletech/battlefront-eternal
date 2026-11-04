@@ -77,7 +77,7 @@ uniform highp sampler3D noiseField;
 uniform sampler2D sceneDepth, reflection;
 uniform mat4 reflectionMatrix;
 uniform vec2 volumeResolution,cameraRange;
-uniform float time,hasDepth,hasReflection;
+uniform float volumeTime,hasDepth,hasReflection;
 uniform vec4 wakes[8], motion[8];
 varying vec3 point,eye,base,rightAxis,upAxis,forwardAxis,size;
 varying float type;
@@ -102,14 +102,14 @@ void main(){
     float depth=-(viewMatrix*vec4(world,1.)).z;if(depth>surface)break;
     vec3 local=p*size;
     float height=p.y;
-    vec2 bend=vec2(sin(local.y*.9-time*.7+base.x),cos(local.y*.7-time*.6+base.z))*local.y*.13;
+    vec2 bend=vec2(sin(local.y*.9-volumeTime*.7+base.x),cos(local.y*.7-volumeTime*.6+base.z))*local.y*.13;
     float radius=type<.5?size.x*(.10+.25*height):mix(.09,.75,height);
     if(type>1.5)radius=size.x*.37;
     float radial=length(local.xz-bend)/max(radius,.05);
     // Noise is in [0,1], so even maximal erosion cannot put density here.
     // Skip texture fetches and character-wake work outside the actual plume.
     if(radial>=1.81)continue;
-    vec3 flow=world*2.4-upAxis*time*(type<.5?1.15:3.6)+vec3(time*.16,0.,time*.11);
+    vec3 flow=world*2.4-upAxis*volumeTime*(type<.5?1.15:3.6)+vec3(volumeTime*.16,0.,volumeTime*.11);
     float n=noise3(flow),fine=noise3(flow*2.07+vec3(11.,7.,3.));
     float edge=1.-smoothstep(.35,1.25,radial+(n-.5)*1.1);
     float breakup=smoothstep(.28,.66,n*.72+fine*.28);
@@ -123,7 +123,7 @@ void main(){
     if(type<.5)tint+=vec3(.14,.045,0.)*exp(-local.y*1.8);
     if(type<2.5){
       for(int j=0;j<8;j++){
-        float age=time-wakes[j].w;
+        float age=volumeTime-wakes[j].w;
         if(age>=0.&&age<2.){
           vec3 center=wakes[j].xyz+motion[j].xyz*age*.18;
           vec3 delta=world-center;delta.y-=clamp(delta.y,.15,1.65);
@@ -163,6 +163,10 @@ void main(){
   if(total<.001)discard;gl_FragColor=color/total;
 }`;
 
+// The composites' meshes, each to its volume (a renderer that draws the
+// volumes itself finds them here).
+export const environmentVolumes = new WeakMap();
+
 export class EnvironmentVolume {
   constructor(scene, capacity, wakes, reflectionUniforms = {}) {
     const box = new THREE.BoxGeometry(1, 1, 1), geometry = new THREE.InstancedBufferGeometry();
@@ -173,7 +177,7 @@ export class EnvironmentVolume {
     this.target = new THREE.WebGLRenderTarget(1,1,{depthBuffer:false,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});
     this.resolution={value:new THREE.Vector2(1,1)};
     const material = new THREE.ShaderMaterial({vertexShader,fragmentShader,
-      uniforms:{noiseField:{value:this.noise},time:{value:0},sceneDepth:particleDepth.map,
+      uniforms:{noiseField:{value:this.noise},volumeTime:{value:0},sceneDepth:particleDepth.map,
         volumeResolution:this.resolution,cameraRange:particleDepth.cameraRange,hasDepth:{value:1},
         wakes:{value:wakes.points},motion:{value:wakes.motion},reflection:{value:null},reflectionMatrix:{value:new THREE.Matrix4()},hasReflection:{value:0},...reflectionUniforms},
       transparent:true,depthWrite:false,depthTest:false,side:THREE.BackSide,forceSinglePass:true,premultipliedAlpha:true,toneMapped:false});
@@ -187,15 +191,24 @@ export class EnvironmentVolume {
     this.mesh.name='environment-volumes';this.mesh.frustumCulled=false;this.mesh.renderOrder=10;this.mesh.visible=false;
     this.clearColor=new THREE.Color();this.scale=.5;
     this.mesh.onBeforeRender=(renderer,scene,camera)=>this.renderVolumes(renderer,scene,camera);
+    environmentVolumes.set(this.mesh,this);
     scene.add(this.mesh);
   }
-  renderVolumes(renderer,scene,camera){
+  // The scene's depth taken (whatever the setting), the composite told
+  // whether it has it, and the volumes' target sized to the frame's: false
+  // when there is nothing to draw (another render's, a mirror's).
+  prepare(renderer,scene,camera){
     const composite=this.mesh.material;
     const captured=particleDepth.capture(renderer,scene,camera,true);
     composite.uniforms.enabled.value=captured?1:0;composite.uniformsNeedUpdate=true;
-    if(!captured)return;
+    if(!captured)return false;
     const source=renderer.getRenderTarget(),width=Math.max(1,Math.ceil(source.width*this.scale)),height=Math.max(1,Math.ceil(source.height*this.scale));
     this.target.setSize(width,height);this.resolution.value.set(width,height);
+    return true;
+  }
+  renderVolumes(renderer,scene,camera){
+    if(!this.prepare(renderer,scene,camera))return;
+    const source=renderer.getRenderTarget();
     renderer.getClearColor(this.clearColor);const alpha=renderer.getClearAlpha(),autoClear=renderer.autoClear;
     try{
       renderer.autoClear=true;renderer.setClearColor(0,0);renderer.setRenderTarget(this.target);
@@ -206,7 +219,7 @@ export class EnvironmentVolume {
   }
   update(time, volumes) {
     this.mesh.visible=volumes.length>0;this.volumeMesh.geometry.instanceCount=volumes.length;
-    this.volumeMesh.material.uniforms.time.value=time;
+    this.volumeMesh.material.uniforms.volumeTime.value=time;
     const attributes=this.volumeMesh.geometry.attributes;
     for(let i=0;i<volumes.length;i++){
       const v=volumes[i];v.position.toArray(attributes.origin.array,i*3);

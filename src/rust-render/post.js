@@ -19,12 +19,12 @@ const PLAIN = 3;
 // post.rs's step layout.
 const STEP = { PROGRAM: 0, TARGET: 1, WIDTH: 2, HEIGHT: 3, UNIFORMS: 4, FIRST: 5 };
 const UNIFORM = 18, MAX_UNIFORMS = 12, STRIDE = 5 + MAX_UNIFORMS * UNIFORM, MAX_STEPS = 8;
-const SAMPLER = 32;
+const SAMPLER = 32, SAMPLER_3D = 33;
 // Where post.rs's triangle has its position and uv.
 const ATTRIBUTES = "position:0,uv:1";
 
 // A uniform's GL type as post.rs takes it: floats 1-4, int (bool too) 5,
-// mat3 9, mat4 16, sampler 32; 0: one it can't set.
+// mat3 9, mat4 16, sampler 32, sampler3D 33; 0: one it can't set.
 export function uniformType(gl, type) {
   switch (type) {
     case gl.FLOAT: return 1;
@@ -35,6 +35,7 @@ export function uniformType(gl, type) {
     case gl.FLOAT_MAT3: return 9;
     case gl.FLOAT_MAT4: return 16;
     case gl.SAMPLER_2D: return SAMPLER;
+    case gl.SAMPLER_3D: return SAMPLER_3D;
     default: return 0;
   }
 }
@@ -43,6 +44,13 @@ export function uniformType(gl, type) {
 // with its uniforms ({ name, type } in slot order); null when it has one the
 // renderer can't set; undefined until three has made it.
 const plainPrograms = new WeakMap();
+// Whether plainProgram has made (or refused) the renderer's program for
+// three's current one of a material, so that calling it makes no program.
+export function plainProgramKnown(core, material) {
+  const threeProgram = core.renderer.properties.get(material).currentProgram;
+  return !threeProgram || plainPrograms.has(threeProgram);
+}
+
 // A uniform the program reads for nothing it draws, left at zero: an unlit
 // zero material's packed point lights (materials.js), which its vertex
 // shader adds up into a value its fragment shader never reads (three sets
@@ -123,7 +131,7 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
     value = u.value;
   }
   out[o] = slot; out[o + 1] = type;
-  if (type === SAMPLER) {
+  if (type === SAMPLER || type === SAMPLER_3D) {
     // None, or a texture three has no pixels for (a target never drawn, an
     // image still loading): three's empty texture, which these passes only
     // read behind a switch that is off (the composite's glow without bloom).

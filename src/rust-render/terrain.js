@@ -7,6 +7,7 @@
 // ground as it is now (the layers arrive later than the map: world.js hides
 // the ground until they do), then hidden from three, whose patches then
 // skip their per-render cell walk (drawnElsewhere).
+import * as THREE from "three";
 import { WORLD, UNIT_DETAIL, UNIT_LAYER1, UNIT_LAYERS, drawnAsIs } from "./world.js";
 
 // The material values a terrain program may read, set per draw: the zero
@@ -80,10 +81,18 @@ class TerrainPass {
       rust.world_runs(w, ranges, boxes);
       const bind = (name, unit) => {
         if (!program.names.has(name)) return true;
-        // A painted layer no vertex uses has no texture (world.js): its weight
-        // is zero everywhere, so the program never reads it.
-        if (name.startsWith("layerMap") && !material.uniforms[name]?.value) return true;
-        const t = core.texture(material.uniforms[name]?.value);
+        let texture = material.uniforms[name]?.value;
+        // world.js leaves unpainted layers null, as three's empty color
+        // texture. WebGL validates their samplers even with zero weights:
+        // leaving a shadow comparison texture on that unit rejects the draw.
+        if (name.startsWith("layerMap") && !texture) {
+          if (!this.empty) {
+            this.empty = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+            this.empty.needsUpdate = true;
+          }
+          texture = this.empty;
+        }
+        const t = core.texture(texture);
         if (t < 0) return false;
         rust.world_texture(w, unit, t);
         return true;

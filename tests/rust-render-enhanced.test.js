@@ -206,3 +206,116 @@ test("the frame block survives the renderer's memory growing while the Enhanced 
   assert.deepEqual([...input.subarray(72, 75)], [4, 5, 6], "and its position written there");
   assert.deepEqual([...input.subarray(0, 16)], camera.projectionMatrix.elements, "the camera too");
 }));
+
+// A cascade light as graphics.js's CSM makes one: its shadow's camera,
+// matrices and map (a depth texture), updateMatrices as three's.
+function cascade(size = 1024) {
+  const light = new THREE.DirectionalLight();
+  light.position.set(0, 10, 0);
+  light.target.position.set(0, 0, 0);
+  light.updateMatrixWorld(true);
+  light.target.updateMatrixWorld(true);
+  const depthTexture = new THREE.DepthTexture(size, size);
+  light.shadow.mapSize.set(size, size);
+  light.shadow.map = { depthTexture, texture: new THREE.Texture() };
+  return light;
+}
+
+// A caster: a mesh with a depth material of its own that three has a program for.
+function caster(properties, uniforms = [["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4]]) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([0, 1, 2]);
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.FrontSide }));
+  mesh.castShadow = true;
+  mesh.frustumCulled = false;
+  mesh.customDepthMaterial = new THREE.ShaderMaterial({ name: "depth:plain:solid" });
+  properties.get(mesh.customDepthMaterial).currentProgram = fakeProgram(uniforms, ["position"]);
+  return mesh;
+}
+
+test("a cascade's pass: the casters three's shadow pass would draw, drawn by the shadow pass", () => {
+  const { core, calls, region, memory, scene, camera, renderer, properties } = bridge({ shadows: true });
+  const light = cascade(), mesh = caster(properties);
+  scene.add(mesh);
+  const hidden = caster(properties);
+  hidden.visible = false;
+  scene.add(hidden);
+  const other = caster(properties);
+  other.layers.set(5);
+  scene.add(other);
+  scene.updateMatrixWorld(true);
+  assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
+  assert.ok(calls.some((c) => c[0] === "shadow_frame"));
+  const input = new Float64Array(memory.buffer, region("caster_input"), 4 + 2 * 151);
+  assert.equal(input[1], -1, "no cache: the map is cleared");
+  assert.equal(input[2], 1024);
+  assert.equal(input[3], 1, "the one caster shown and on the camera's layers");
+  const d = 4;
+  assert.deepEqual([input[d + 2], input[d + 3]], [0, 3], "its range");
+  assert.equal(input[d + 4], THREE.BackSide, "a front-sided material casts its back faces");
+  assert.equal(input[d + 6], 2, "two uniforms");
+  assert.deepEqual([...input.subarray(d + 7 + 2, d + 7 + 18)], light.shadow.camera.projectionMatrix.elements, "the shadow camera's projection");
+  assert.deepEqual(calls.slice(-2), [["resetState"], ["setRenderTarget", graphics_target(renderer)]], "three's state reset after");
+});
+
+function graphics_target(renderer) { return renderer.getRenderTarget(); }
+
+test("a caster the renderer can't draw leaves the whole pass to three", () => {
+  const { core, region, memory, scene, camera, renderer, properties } = bridge({ shadows: true });
+  const light = cascade(), mesh = caster(properties);
+  mesh.customDepthMaterial = undefined;
+  scene.add(mesh);
+  scene.updateMatrixWorld(true);
+  assert.equal(core.coverShadow(renderer, light, scene, camera, null), false);
+  assert.equal(new Float64Array(memory.buffer, region("caster_input"), 4)[0], -1, "the renderer draws nothing");
+  assert.match(core.byName.shadow.why, /three's own depth material/);
+});
+
+test("a caster's geometry rewritten since: sent as three sends it, its update ranges merged, into the buffer as made", () => {
+  const { core, calls, scene, camera, renderer, properties } = bridge({ shadows: true });
+  const light = cascade(), mesh = caster(properties);
+  mesh.geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(12), 1));
+  scene.add(mesh);
+  scene.updateMatrixWorld(true);
+  assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
+  const sent = (from) => calls.slice(from).filter((c) => /^geometry_(index|buffer)_/.test(c[0])).map((c) => [c[0], ...c.slice(2).map((v) => (ArrayBuffer.isView(v) ? v.byteLength : v))]);
+  const pass = () => { const at = calls.length; core.coverShadow(renderer, light, scene, camera, null); return sent(at); };
+  // Two ranges three merges (adjacent ones), as the crowd's mesh marks its
+  // drawn index when it packs it again.
+  const index = mesh.geometry.index;
+  index.addUpdateRange(6, 3);
+  index.addUpdateRange(3, 3);
+  index.needsUpdate = true;
+  assert.deepEqual(pass(), [["geometry_index_sub_data", 12, 24]], "elements 3 to 8 at their bytes, into the index as made");
+  assert.equal(index.updateRanges.length, 2, "three's ranges left for three");
+  assert.deepEqual(pass(), [], "nothing again while its version stands");
+  // Marked twice since (or sent by three between, which clears its ranges):
+  // the ranges no longer say all that changed, so all of it, as far as the
+  // draw reads it.
+  mesh.geometry.setDrawRange(0, 6);
+  index.needsUpdate = true;
+  index.needsUpdate = true;
+  assert.deepEqual(pass(), [["geometry_index_sub_data", 0, 24]], "the six drawn");
+  mesh.geometry.setDrawRange(0, 12);
+  assert.deepEqual(pass(), [["geometry_index_sub_data", 24, 24]], "the rest once a draw reads it");
+  index.clearUpdateRanges();
+  index.needsUpdate = true;
+  assert.deepEqual(pass(), [["geometry_index_sub_data", 0, 48]], "no ranges: all of it the draw reads");
+  // A vertex source's range, in elements (a vertex's three floats each).
+  const position = mesh.geometry.attributes.position;
+  position.addUpdateRange(3, 6);
+  position.needsUpdate = true;
+  assert.deepEqual(pass(), [["geometry_buffer_sub_data", 0, 12, 24]], "slot 0, its bytes from the fourth float");
+  position.needsUpdate = true;
+  position.needsUpdate = true;
+  assert.deepEqual(pass(), [["geometry_buffer_sub_data", 0, 0, 36]], "marked twice: all of it");
+  // An array of another size: all of it, into an index made again.
+  index.array = new Uint32Array(24);
+  index.needsUpdate = true;
+  assert.deepEqual(pass(), [["geometry_index_data", 96]]);
+  // Another index altogether: three makes buffers for it, so three draws the pass.
+  mesh.geometry.setIndex([0, 1, 2]);
+  assert.equal(core.coverShadow(renderer, light, scene, camera, null), false);
+  assert.match(core.byName.shadow.why, /geometry/);
+});

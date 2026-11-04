@@ -17,7 +17,16 @@
 // program reads as a slot of its uniforms (core.rs Program.uniforms) with a
 // type and value (UNIFORM f64 each). Values are only sent when they differ
 // from what the program holds.
-use crate::core::{Core, MultiDraw, Value, PASS_POST};
+//
+// The same steps draw the full-screen passes outside the post chain
+// (draw_screen, counted as the screen pass's: the far scene's image last of
+// the near scene's opaque objects, the underwater passes, the storm's cloud
+// panorama), each with its material's own state where it is not a
+// full-screen pass's (`states`, STATE f64 a step): its depth test and
+// function, depth write, blending, and the geometry it draws (three's own,
+// where a varying must be interpolated over three's triangles). The page
+// writes a step's state before the phase that draws it; drawn, it is zeroed.
+use crate::core::{Core, MultiDraw, Value, PASS_POST, PASS_SCREEN};
 use glow::HasContext;
 use std::collections::HashMap;
 
@@ -41,6 +50,22 @@ pub const TYPE_INT: u32 = 5;
 pub const TYPE_MAT3: u32 = 9;
 pub const TYPE_MAT4: u32 = 16;
 pub const TYPE_SAMPLER: u32 = 32;
+// A sampler3D (the storm's noise volume: three's Data3DTexture), bound by its
+// target on the draw's next unit.
+pub const TYPE_SAMPLER_3D: u32 = 33;
+// A step's state (draw_screen): flags, the depth function, the blending
+// equations (rgb, alpha) and factors (source rgb, destination rgb, source
+// alpha, destination alpha), the geometry and its index count.
+pub const STATE: usize = 10;
+pub const STATE_FLAGS: usize = 0;
+pub const STATE_DEPTH_FUNC: usize = 1;
+pub const STATE_EQUATIONS: usize = 2;
+pub const STATE_FACTORS: usize = 4;
+pub const STATE_GEOMETRY: usize = 8;
+pub const STATE_DEPTH_TEST: u32 = 1;
+pub const STATE_DEPTH_WRITE: u32 = 2;
+pub const STATE_BLEND: u32 = 4;
+pub const STATE_OWN_GEOMETRY: u32 = 8;
 
 // render-passes.js: one oversized triangle, positions then uvs.
 const TRIANGLE: [f32; 15] = [-1.0, -1.0, 0.0, 3.0, -1.0, 0.0, -1.0, 3.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0];
@@ -56,6 +81,8 @@ pub struct PostPass<C: HasContext> {
     pub input: Vec<f64>,
     // Matrices each program holds, by (program, slot).
     matrices: HashMap<(usize, usize), [f32; 16]>,
+    // The steps' own states (draw_screen), STATE f64 a step.
+    pub states: Vec<f64>,
 }
 
 // A uniform from the page's slots (UNIFORM f64: slot, type, values) into a
@@ -75,6 +102,13 @@ pub(crate) fn set_uniform<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>, ma
             *unit += 1;
             let texture = if v[0] < 0.0 { None } else { core.textures.get(v[0] as usize).copied() };
             core.state.bind_texture(&core.gl, &mut core.stats, k, texture);
+            set_value(core, program, slot, Value::I(k as i32));
+        }
+        TYPE_SAMPLER_3D => {
+            let k = *unit;
+            *unit += 1;
+            let texture = if v[0] < 0.0 { None } else { core.textures.get(v[0] as usize).copied() };
+            core.state.bind_texture_3d(&core.gl, &mut core.stats, k, texture);
             set_value(core, program, slot, Value::I(k as i32));
         }
         TYPE_INT => set_value(core, program, slot, Value::I(v[0] as i32)),
@@ -179,7 +213,7 @@ impl<C: HasContext> PostPass<C> {
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
             (vao, buffer)
         };
-        PostPass { vao, _buffer: buffer, targets: vec![], input: vec![0.0; MAX_STEPS * STEP], matrices: HashMap::new() }
+        PostPass { vao, _buffer: buffer, targets: vec![], input: vec![0.0; MAX_STEPS * STEP], matrices: HashMap::new(), states: vec![0.0; MAX_STEPS * STATE] }
     }
 
     // A target: a framebuffer over one of three's targets' colour textures.
@@ -197,6 +231,16 @@ impl<C: HasContext> PostPass<C> {
 
     // The steps the page wrote, in order.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, steps: usize) {
+        self.draw_steps(core, steps, PASS_POST, false);
+    }
+
+    // The steps the page wrote, each with its own state (`states`), counted
+    // as the screen pass's: the full-screen passes outside the post chain.
+    pub fn draw_screen<M: MultiDraw>(&mut self, core: &mut Core<C, M>, steps: usize) {
+        self.draw_steps(core, steps, PASS_SCREEN, true);
+    }
+
+    fn draw_steps<M: MultiDraw>(&mut self, core: &mut Core<C, M>, steps: usize, counted: usize, stated: bool) {
         if steps == 0 {
             return;
         }
@@ -205,6 +249,12 @@ impl<C: HasContext> PostPass<C> {
         for s in 0..steps.min(MAX_STEPS) {
             let step = &input[s * STEP..(s + 1) * STEP];
             let program = step[STEP_PROGRAM] as usize;
+            // Its state, read once and zeroed for the next phase.
+            let mut own = [0.0f64; STATE];
+            if stated {
+                own.copy_from_slice(&self.states[s * STATE..(s + 1) * STATE]);
+                self.states[s * STATE..(s + 1) * STATE].fill(0.0);
+            }
             if program >= core.programs.len() {
                 continue;
             }
@@ -224,12 +274,42 @@ impl<C: HasContext> PostPass<C> {
                 let at = STEP_FIRST + k * UNIFORM;
                 set_uniform(core, matrices, program, &step[at..at + UNIFORM], &mut unit);
             }
+            if stated {
+                set_state(core, &own);
+            }
+            let flags = own[STATE_FLAGS] as u32;
+            let geometry = own[STATE_GEOMETRY] as usize;
             unsafe {
-                core.gl.bind_vertex_array(Some(self.vao));
-                core.gl.draw_arrays(glow::TRIANGLES, 0, 3);
+                if flags & STATE_OWN_GEOMETRY != 0 && geometry < core.geometries.len() {
+                    let geo = &core.geometries[geometry];
+                    core.gl.bind_vertex_array(Some(geo.vao));
+                    core.gl.draw_elements(glow::TRIANGLES, own[STATE_GEOMETRY + 1] as i32, geo.index_type, 0);
+                } else {
+                    core.gl.bind_vertex_array(Some(self.vao));
+                    core.gl.draw_arrays(glow::TRIANGLES, 0, 3);
+                }
             }
             core.stats.gl_calls += 2;
-            core.stats.pass_draws[PASS_POST] += 1;
+            core.stats.pass_draws[counted] += 1;
         }
+    }
+}
+
+// A step's own state (draw_screen) as three's setMaterial sets its
+// material's: its depth test and function, its depth write and its
+// blending; a step without one draws as a full-screen pass.
+fn set_state<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>, own: &[f64]) {
+    let (gl, state, stats) = (&core.gl, &mut core.state, &mut core.stats);
+    let flags = own[STATE_FLAGS] as u32;
+    state.depth_test(gl, stats, flags & STATE_DEPTH_TEST != 0);
+    if flags & STATE_DEPTH_TEST != 0 {
+        state.depth_func(gl, stats, own[STATE_DEPTH_FUNC] as u32);
+    }
+    state.depth_write(gl, stats, flags & STATE_DEPTH_WRITE != 0);
+    state.blend(gl, stats, flags & STATE_BLEND != 0);
+    if flags & STATE_BLEND != 0 {
+        let (e, f) = (&own[STATE_EQUATIONS..STATE_EQUATIONS + 2], &own[STATE_FACTORS..STATE_FACTORS + 4]);
+        state.blend_equation(gl, stats, e[0] as u32, e[1] as u32);
+        state.blend_func(gl, stats, f[0] as u32, f[1] as u32, f[2] as u32, f[3] as u32);
     }
 }

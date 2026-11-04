@@ -2,6 +2,8 @@
 // transport (BFE_TEST_ELECTRON=1: actual Electron, preload and network process).
 // Start bfeserver with owned Theed content first. No retail data enters artifacts.
 import assert from 'node:assert/strict';
+import { PERFORMANCE_PRESETS } from '../src/settings.js';
+import { writePlayerSettings } from '../electron/player-settings.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -55,12 +57,18 @@ const browser = electronMode ? null : await chromium.launch({ args: ['--use-angl
 // Plain Chromium has no network process: the page's battle ports reach the
 // real one (native UDP) in this process through tools/net-page-bridge.mjs.
 const pageNetwork = electronMode ? null : await startPageNetwork();
+// Pace software rasterization separately from the unchanged 60 Hz world
+// and input clocks, leaving display opportunities for input between draws.
+const fixtureSettings={...PERFORMANCE_PRESETS.minimum.values,renderScale:0.25,dynamicResolution:'off',farTerrain:'full',deathCamera:'classic',frameLimit:'1'};
 const pages = [], bridges = [], errors = [];
 try {
   for (let i = 0; i < 2; i++) {
     let page;
     if (electronMode) {
       const profile=join(directory,`electron-${i}`);
+      // The desktop file overrides localStorage. Seed it before startup;
+      // the initial window can otherwise persist defaults before navigation.
+      assert.ok(writePlayerSettings(profile,{complete:true,values:fixtureSettings}));
       const application=await _electron.launch({executablePath:process.env.BFE_ELECTRON_PATH || resolve('node_modules/electron/dist/electron'),
         args:[resolve('.'),builtApp?`--content-dir=${resolve(process.env.BFE_TEST_CONTENT_DIR)}`:`--dev-url=${base}`,`--user-data-dir=${profile}`,'--use-angle=swiftshader','--enable-unsafe-swiftshader','--autoplay-policy=no-user-gesture-required'],
         env:{...process.env,XDG_CONFIG_HOME:profile,XDG_CACHE_HOME:join(profile,'cache')},timeout:60000});
@@ -82,7 +90,7 @@ try {
     await page.exposeFunction('bfeTestRequest', bridge);
     await pageNetwork.attach(page, join(directory, String(i)));
     }
-    await page.addInitScript(({cpu,electronMode}) => {
+    await page.addInitScript(({cpu,electronMode,settings}) => {
       // Rust HUD and preview passes can submit GL draws outside graphics.render.
       // Keep CPU functionality runs independent of software rasterizer speed.
       if(cpu)for(const context of [WebGLRenderingContext,WebGL2RenderingContext]) {
@@ -91,14 +99,16 @@ try {
         }
       }
       if(cpu){let game;Object.defineProperty(window,'__bf',{configurable:true,get:()=>game,set:value=>{game=value;game.graphics.render=()=>{};game.graphics.renderer.render=()=>{};const clear=game.ordnance.clearProjectilePresentation.bind(game.ordnance);game.ordnance.clearProjectilePresentation=()=>{const before=['bolts','beams','grenades','rounds'].map(k=>game.ordnance[k].length);clear();if(!window.__bootstrapCleanup||before.some(n=>n>0))window.__bootstrapCleanup={before,after:['bolts','beams','grenades','rounds'].map(k=>game.ordnance[k].length)};};}});}
-      localStorage.setItem('battlefront-eternal.settings',JSON.stringify({waterQuality:'low',antialiasing:'off',shadows:'off',renderScale:0.5}));
+      // SwiftShader must draw the same live battle as hardware, using the
+      // supported Minimum presentation preset rather than Enhanced defaults.
+      localStorage.setItem('battlefront-eternal.settings',JSON.stringify(settings));
       if (electronMode && !window.bfeDesktop?.versions?.electron) throw Error('Actual Electron preload bridge missing');
       if (!electronMode) window.bfeDesktop = { network: {
         request: (...args) => window.bfeTestRequest(...args),
         openSession: id => window.bfeTestOpenSession(id),
         onSignal: callback => { const listener = event => callback(event.detail); window.addEventListener('bfe-test-signal', listener); return () => window.removeEventListener('bfe-test-signal', listener); },
       } };
-    },{cpu:process.env.BFE_TEST_CPU==='1',electronMode});
+    },{cpu:process.env.BFE_TEST_CPU==='1',electronMode,settings:fixtureSettings});
     page.on('framenavigated',frame=>{if(frame===page.mainFrame())console.log(`client${i} navigation`,frame.url());});
     page.on('pageerror', error => { errors.push(error.message); console.error(`client${i}:`, error.message); });
     // Prepared content folders can lack presentation-only files (enhanced
@@ -114,6 +124,12 @@ try {
     await page.goto(`${base}/?${query}`);
   }
   await Promise.all(pages.map(page => page.waitForFunction(() => window.__bf?.client?.ready, null, { timeout: 180000 })));
+  const presentation=await Promise.all(pages.map(page=>page.evaluate(()=>({scale:__bf.settings.get('renderScale'),upscaler:__bf.settings.get('upscaler'),shadows:__bf.settings.get('shadows'),samples:__bf.settings.get('antialiasing'),frameLimit:__bf.settings.get('frameLimit')}))));
+  console.log('presentation-settings',JSON.stringify(presentation));
+  for(const value of presentation)assert.deepEqual(value,{scale:0.25,upscaler:'off',shadows:'off',samples:'off',frameLimit:'1'});
+  // A connected transport can precede the loading screen's final GPU work.
+  // Exercise spawn input only after the normal handover releases the battle.
+  if(process.env.BFE_TEST_CPU!=='1')await Promise.all(pages.map(page=>page.waitForFunction(()=>window.__loading?.closed,null,{timeout:180000})));
   await Promise.all(pages.map(page=>page.evaluate(()=>{
     window.__correctionEvents=[];window.__correctionStage='initial-load';
     for(const [kind,smoother]of [['infantry',__bf.client.smoother],['vehicle',__bf.client.vehicleSmoother]]){
