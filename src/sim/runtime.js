@@ -203,7 +203,7 @@ export class Heap {
   // records' lists hold; put(words, at, item) writes an item.
   items(items, f, at, size, put) {
     const words = this.words, start = words.length, n = items.length;
-    for (let i = 0; i < n * size; i++) words.push(0);
+    for (let i = 0; i < n * size; i++) words[start + i] = 0;
     for (let i = 0; i < n; i++) put(words, start + i * size, items[i]);
     f[at] = start;
     f[at + 1] = n;

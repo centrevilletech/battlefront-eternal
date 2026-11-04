@@ -3,10 +3,39 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { loadSim } from '../src/sim/module.js';
-import { ExportContext, Identity, SimBridge, bridgeFor, exportState, undeclared } from '../src/sim/runtime.js';
+import { ExportContext, Heap, Identity, SimBridge, bridgeFor, exportState, undeclared } from '../src/sim/runtime.js';
 import { KIND_BEAM, KIND_BODY, KIND_BOLT, KIND_EMITTER, KIND_GRENADE, KIND_ORDNANCE, KIND_OWNER_SNAPSHOT, KIND_ROUND, KIND_TABLE, KIND_UNIT, KIND_VEHICLE, BOLT_KEYS,
   CombatMirror, DroidekaMirror, SoldierMirror, UnitMirror, sameCombat, sameUnit } from '../src/sim/gen/index.js';
 import { generate } from '../tools/sim-schema.mjs';
+
+test('private item allocation does not consult an observable array push method', () => {
+  const heap = new Heap(), header = new Float64Array([19, 23]);
+  const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, 'push');
+  let reads = 0;
+  Object.defineProperty(Array.prototype, 'push', { configurable: true, get() { reads++; return descriptor.value; } });
+  try {
+    heap.items([7, 9], header, 0, 3, (words, at, value) => {
+      words[at] = value;
+      heap.items([value, -0], words, at + 1, 1, (target, index, item) => { target[index] = item; });
+    });
+  } finally { Object.defineProperty(Array.prototype, 'push', descriptor); }
+  assert.equal(reads, 0);
+  assert.deepEqual([...header], [0, 2]);
+  assert.deepEqual(heap.words, [7, 6, 2, 9, 8, 2, 7, -0, 9, -0]);
+  for (const error of [undefined, null, false]) {
+    const partial = new Heap(), out = new Float64Array([19, 23]);
+    let caught = false;
+    try {
+      partial.items([7, 9], out, 0, 2, (words, at, value) => {
+        words[at] = value;
+        if (value === 9) throw error;
+      });
+    } catch (actual) { caught = true; assert.equal(actual, error); }
+    assert.equal(caught, true);
+    assert.deepEqual(partial.words, [7, 0, 9, 0]);
+    assert.deepEqual([...out], [19, 23], 'failed item publication keeps the prior header');
+  }
+});
 
 // The entity store (docs/sim-store.md): what JavaScript writes into a
 // battle's instance of the simulation's module comes back out bit for bit
