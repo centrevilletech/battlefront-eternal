@@ -12,7 +12,7 @@ try {
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await page.route('**/@vite/client', route => route.fulfill({ contentType: 'application/javascript', body: '' }));
   await page.addInitScript(() => localStorage.setItem('battlefront-eternal.settings', JSON.stringify({ waterQuality: 'low', antialiasing: 'off', shadows: 'off', renderScale: 0.5 })));
-  await page.goto(`${process.env.RUNTIME_AUDIT_URL || 'http://127.0.0.1:18449'}/?map=nab2&unit=rep_inf_arc_trooper&ai=classic&seed=1&prediction=${native ? 'rust' : 'js'}`);
+  await page.goto(`${process.env.RUNTIME_AUDIT_URL || 'http://localhost:18449'}/?map=nab2&unit=rep_inf_arc_trooper&ai=classic&seed=1&prediction=${native ? 'rust' : 'js'}`);
   await page.waitForFunction(() => window.__bf?.client?.ready, null, { timeout: 180000 });
   await page.evaluate(() => { __bf.graphics.render = () => {}; __bf.controls.locked = true; });
   // Spawns follow simulation time, which can run slower than wall time on
