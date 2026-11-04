@@ -11,6 +11,8 @@
 
 pub mod battlefield;
 pub mod animated;
+#[cfg(target_arch = "wasm32")]
+pub mod animated_module;
 pub mod human;
 pub mod mobile;
 pub mod names;

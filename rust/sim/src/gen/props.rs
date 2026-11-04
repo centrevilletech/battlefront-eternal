@@ -128,6 +128,50 @@ impl PbActionKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PaOperation {
+    #[default] Step = 0,
+    State = 1,
+}
+
+impl PaOperation {
+    pub const NAMES: [&'static str; 2] = ["step", "state"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(PaOperation::Step),
+            1 => Some(PaOperation::State),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PaActionKind {
+    #[default] Sound = 0,
+    LetGo = 1,
+    Damage = 2,
+    Remove = 3,
+    Rider = 4,
+}
+
+impl PaActionKind {
+    pub const NAMES: [&'static str; 5] = ["sound", "letGo", "damage", "remove", "rider"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(PaActionKind::Sound),
+            1 => Some(PaActionKind::LetGo),
+            2 => Some(PaActionKind::Damage),
+            3 => Some(PaActionKind::Remove),
+            4 => Some(PaActionKind::Rider),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PbIdentity {
     pub kind: f64,
@@ -610,6 +654,631 @@ impl PbActionResult {
         Self {
             state: if row[0] == 0.0 { Some(PbState::take(&row[0 + 1..], heap)) } else { None },
             target: if row[8] == 0.0 { Some(PbTarget::take(&row[8 + 1..], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaClip {
+    pub frames: f64,
+    pub fps: f64,
+    pub root_motion: bool,
+    pub tracks: Vec<f64>,
+    pub data: Vec<f64>,
+}
+
+impl PaClip {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        row[0] = self.frames;
+        row[1] = self.fps;
+        row[2] = if self.root_motion { 1.0 } else { 0.0 };
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.tracks.len() as f64; heap.resize(at + self.tracks.len() * 1, 0.0); for (i, e) in self.tracks.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.data.len() as f64; heap.resize(at + self.data.len() * 1, 0.0); for (i, e) in self.data.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            frames: row[0],
+            fps: row[1],
+            root_motion: row[2] != 0.0,
+            tracks: { let (at, n) = (word_u32(row[3]) as usize, word_u32(row[3 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            data: { let (at, n) = (word_u32(row[5]) as usize, word_u32(row[5 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaTrigger {
+    pub slot: f64,
+    pub point: Vec3,
+    pub radius: f64,
+    pub sound: Option<StrId>,
+    pub opens: bool,
+}
+
+impl PaTrigger {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = self.slot;
+        row[1..1 + 3].copy_from_slice(&self.point);
+        row[4] = self.radius;
+        match &self.sound { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v).0 as f64; } None => { row[5] = 1.0; row[5 + 1..5 + 2].fill(0.0); } }
+        row[7] = if self.opens { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            slot: row[0],
+            point: [row[1], row[1 + 1], row[1 + 2]],
+            radius: row[4],
+            sound: if row[5] == 0.0 { Some(StrId(word_u32(row[5 + 1]))) } else { None },
+            opens: row[7] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaGrab {
+    pub slot: f64,
+    pub window: f64,
+    pub radius: f64,
+    pub node: Option<f64>,
+    pub clip: StrId,
+}
+
+impl PaGrab {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.slot;
+        row[1] = self.window;
+        row[2] = self.radius;
+        match &self.node { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v); } None => { row[3] = 1.0; row[3 + 1..3 + 2].fill(0.0); } }
+        row[5] = self.clip.0 as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            slot: row[0],
+            window: row[1],
+            radius: row[2],
+            node: if row[3] == 0.0 { Some(row[3 + 1]) } else { None },
+            clip: StrId(word_u32(row[5])),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaBind {
+    pub q: Quat,
+    pub p: Vec3,
+}
+
+impl PaBind {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        row[0..0 + 4].copy_from_slice(&self.q);
+        row[4..4 + 3].copy_from_slice(&self.p);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            q: [row[0], row[0 + 1], row[0 + 2], row[0 + 3]],
+            p: [row[4], row[4 + 1], row[4 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaSettings {
+    pub door: bool,
+    pub clips: Vec<Option<PaClip>>,
+    pub door_clip: Option<PaClip>,
+    pub door_duration: f64,
+    pub idle_delay: f64,
+    pub open_slots: Vec<bool>,
+    pub triggers: Vec<PaTrigger>,
+    pub grabs: Vec<PaGrab>,
+    pub position: Vec3,
+    pub kill_sound: Option<StrId>,
+    pub root: Mat4,
+    pub parents: Vec<f64>,
+    pub bind: Vec<PaBind>,
+}
+
+impl PaSettings {
+    pub const WORDS: usize = 44;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 44] = (&mut row[..44]).try_into().unwrap();
+        row[0] = if self.door { 1.0 } else { 0.0 };
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.clips.len() as f64; heap.resize(at + self.clips.len() * 8, 0.0); for (i, e) in self.clips.iter().enumerate() { let mut item = [0.0f64; 8]; { let row = &mut item; match &e { Some(v) => { row[0] = 0.0; v.put(&mut row[0 + 1..], heap); } None => { row[0] = 1.0; row[0 + 1..0 + 8].fill(0.0); } } } heap[at + i * 8..at + (i + 1) * 8].copy_from_slice(&item); } }
+        match &self.door_clip { Some(v) => { row[3] = 0.0; v.put(&mut row[3 + 1..], heap); } None => { row[3] = 1.0; row[3 + 1..3 + 8].fill(0.0); } }
+        row[11] = self.door_duration;
+        row[12] = self.idle_delay;
+        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.open_slots.len() as f64; heap.resize(at + self.open_slots.len() * 1, 0.0); for (i, e) in self.open_slots.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[15] = at as f64; row[15 + 1] = self.triggers.len() as f64; heap.resize(at + self.triggers.len() * 8, 0.0); for (i, e) in self.triggers.iter().enumerate() { let mut item = [0.0f64; 8]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 8..at + (i + 1) * 8].copy_from_slice(&item); } }
+        { let at = heap.len(); row[17] = at as f64; row[17 + 1] = self.grabs.len() as f64; heap.resize(at + self.grabs.len() * 6, 0.0); for (i, e) in self.grabs.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
+        row[19..19 + 3].copy_from_slice(&self.position);
+        match &self.kill_sound { Some(v) => { row[22] = 0.0; row[22 + 1] = (*v).0 as f64; } None => { row[22] = 1.0; row[22 + 1..22 + 2].fill(0.0); } }
+        row[24..24 + 16].copy_from_slice(&self.root);
+        { let at = heap.len(); row[40] = at as f64; row[40 + 1] = self.parents.len() as f64; heap.resize(at + self.parents.len() * 1, 0.0); for (i, e) in self.parents.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[42] = at as f64; row[42 + 1] = self.bind.len() as f64; heap.resize(at + self.bind.len() * 7, 0.0); for (i, e) in self.bind.iter().enumerate() { let mut item = [0.0f64; 7]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 7..at + (i + 1) * 7].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 44] = (&row[..44]).try_into().unwrap();
+        Self {
+            door: row[0] != 0.0,
+            clips: { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 8..at + (i + 1) * 8]; out.push(if row[0] == 0.0 { Some(PaClip::take(&row[0 + 1..], heap)) } else { None }); } out },
+            door_clip: if row[3] == 0.0 { Some(PaClip::take(&row[3 + 1..], heap)) } else { None },
+            door_duration: row[11],
+            idle_delay: row[12],
+            open_slots: { let (at, n) = (word_u32(row[13]) as usize, word_u32(row[13 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0] != 0.0); } out },
+            triggers: { let (at, n) = (word_u32(row[15]) as usize, word_u32(row[15 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 8..at + (i + 1) * 8]; out.push(PaTrigger::take(&row[0..], heap)); } out },
+            grabs: { let (at, n) = (word_u32(row[17]) as usize, word_u32(row[17 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(PaGrab::take(&row[0..], heap)); } out },
+            position: [row[19], row[19 + 1], row[19 + 2]],
+            kill_sound: if row[22] == 0.0 { Some(StrId(word_u32(row[22 + 1]))) } else { None },
+            root: { let mut m = [0.0; 16]; m.copy_from_slice(&row[24..24 + 16]); m },
+            parents: { let (at, n) = (word_u32(row[40]) as usize, word_u32(row[40 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            bind: { let (at, n) = (word_u32(row[42]) as usize, word_u32(row[42 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 7..at + (i + 1) * 7]; out.push(PaBind::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaConfiguration {
+    pub props: Vec<PaSettings>,
+}
+
+impl PaConfiguration {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.props.len() as f64; heap.resize(at + self.props.len() * 44, 0.0); for (i, e) in self.props.iter().enumerate() { let mut item = [0.0f64; 44]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 44..at + (i + 1) * 44].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            props: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 44..at + (i + 1) * 44]; out.push(PaSettings::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaPose {
+    pub root: f64,
+    pub q: Vec<f64>,
+    pub t: Vec<f64>,
+    pub w: Vec<f64>,
+}
+
+impl PaPose {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        row[0] = self.root;
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.q.len() as f64; heap.resize(at + self.q.len() * 1, 0.0); for (i, e) in self.q.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.t.len() as f64; heap.resize(at + self.t.len() * 1, 0.0); for (i, e) in self.t.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.w.len() as f64; heap.resize(at + self.w.len() * 1, 0.0); for (i, e) in self.w.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            root: row[0],
+            q: { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            t: { let (at, n) = (word_u32(row[3]) as usize, word_u32(row[3 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            w: { let (at, n) = (word_u32(row[5]) as usize, word_u32(row[5 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaBone {
+    pub p: Vec3,
+    pub q: Quat,
+    pub s: Vec3,
+    pub world: Mat4,
+}
+
+impl PaBone {
+    pub const WORDS: usize = 26;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 26] = (&mut row[..26]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.p);
+        row[3..3 + 4].copy_from_slice(&self.q);
+        row[7..7 + 3].copy_from_slice(&self.s);
+        row[10..10 + 16].copy_from_slice(&self.world);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 26] = (&row[..26]).try_into().unwrap();
+        Self {
+            p: [row[0], row[0 + 1], row[0 + 2]],
+            q: [row[3], row[3 + 1], row[3 + 2], row[3 + 3]],
+            s: [row[7], row[7 + 1], row[7 + 2]],
+            world: { let mut m = [0.0; 16]; m.copy_from_slice(&row[10..10 + 16]); m },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaVictim {
+    pub unit: f64,
+    pub generation: f64,
+    pub grab: f64,
+    pub since: f64,
+}
+
+impl PaVictim {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.generation;
+        row[2] = self.grab;
+        row[3] = self.since;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            generation: row[1],
+            grab: row[2],
+            since: row[3],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaState {
+    pub index: f64,
+    pub slot: f64,
+    pub time: f64,
+    pub weight: f64,
+    pub r#loop: bool,
+    pub hold: f64,
+    pub started: f64,
+    pub start_time: f64,
+    pub victim: Option<PaVictim>,
+    pub openness: f64,
+    pub body_enabled: Option<bool>,
+    pub stand_q: Vec<f64>,
+    pub stand_t: Vec<f64>,
+    pub pose: Option<PaPose>,
+    pub root_world: Mat4,
+    pub bones: Vec<PaBone>,
+}
+
+impl PaState {
+    pub const WORDS: usize = 46;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 46] = (&mut row[..46]).try_into().unwrap();
+        row[0] = self.index;
+        row[1] = self.slot;
+        row[2] = self.time;
+        row[3] = self.weight;
+        row[4] = if self.r#loop { 1.0 } else { 0.0 };
+        row[5] = self.hold;
+        row[6] = self.started;
+        row[7] = self.start_time;
+        match &self.victim { Some(v) => { row[8] = 0.0; v.put(&mut row[8 + 1..], heap); } None => { row[8] = 1.0; row[8 + 1..8 + 5].fill(0.0); } }
+        row[13] = self.openness;
+        match &self.body_enabled { Some(v) => { row[14] = 0.0; row[14 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[14] = 1.0; row[14 + 1..14 + 2].fill(0.0); } }
+        { let at = heap.len(); row[16] = at as f64; row[16 + 1] = self.stand_q.len() as f64; heap.resize(at + self.stand_q.len() * 1, 0.0); for (i, e) in self.stand_q.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[18] = at as f64; row[18 + 1] = self.stand_t.len() as f64; heap.resize(at + self.stand_t.len() * 1, 0.0); for (i, e) in self.stand_t.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        match &self.pose { Some(v) => { row[20] = 0.0; v.put(&mut row[20 + 1..], heap); } None => { row[20] = 1.0; row[20 + 1..20 + 8].fill(0.0); } }
+        row[28..28 + 16].copy_from_slice(&self.root_world);
+        { let at = heap.len(); row[44] = at as f64; row[44 + 1] = self.bones.len() as f64; heap.resize(at + self.bones.len() * 26, 0.0); for (i, e) in self.bones.iter().enumerate() { let mut item = [0.0f64; 26]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 26..at + (i + 1) * 26].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 46] = (&row[..46]).try_into().unwrap();
+        Self {
+            index: row[0],
+            slot: row[1],
+            time: row[2],
+            weight: row[3],
+            r#loop: row[4] != 0.0,
+            hold: row[5],
+            started: row[6],
+            start_time: row[7],
+            victim: if row[8] == 0.0 { Some(PaVictim::take(&row[8 + 1..], heap)) } else { None },
+            openness: row[13],
+            body_enabled: if row[14] == 0.0 { Some(row[14 + 1] != 0.0) } else { None },
+            stand_q: { let (at, n) = (word_u32(row[16]) as usize, word_u32(row[16 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            stand_t: { let (at, n) = (word_u32(row[18]) as usize, word_u32(row[18 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            pose: if row[20] == 0.0 { Some(PaPose::take(&row[20 + 1..], heap)) } else { None },
+            root_world: { let mut m = [0.0; 16]; m.copy_from_slice(&row[28..28 + 16]); m },
+            bones: { let (at, n) = (word_u32(row[44]) as usize, word_u32(row[44 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 26..at + (i + 1) * 26]; out.push(PaBone::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaHeld {
+    pub prop: f64,
+    pub grab: f64,
+    pub since: f64,
+    pub frame: Option<Mat4>,
+    pub time: Option<f64>,
+}
+
+impl PaHeld {
+    pub const WORDS: usize = 22;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 22] = (&mut row[..22]).try_into().unwrap();
+        row[0] = self.prop;
+        row[1] = self.grab;
+        row[2] = self.since;
+        match &self.frame { Some(v) => { row[3] = 0.0; row[3 + 1..3 + 1 + 16].copy_from_slice(&(*v)); } None => { row[3] = 1.0; row[3 + 1..3 + 17].fill(0.0); } }
+        match &self.time { Some(v) => { row[20] = 0.0; row[20 + 1] = (*v); } None => { row[20] = 1.0; row[20 + 1..20 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 22] = (&row[..22]).try_into().unwrap();
+        Self {
+            prop: row[0],
+            grab: row[1],
+            since: row[2],
+            frame: if row[3] == 0.0 { Some({ let mut m = [0.0; 16]; m.copy_from_slice(&row[3 + 1..3 + 1 + 16]); m }) } else { None },
+            time: if row[20] == 0.0 { Some(row[20 + 1]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaBody {
+    pub key: f64,
+    pub id: f64,
+    pub generation: f64,
+    pub soldier: bool,
+    pub walker: bool,
+    pub removed: bool,
+    pub alive: bool,
+    pub dead: bool,
+    pub seated: bool,
+    pub held: Option<PaHeld>,
+    pub combat: bool,
+    pub mounted: bool,
+    pub position: Vec3,
+    pub previous: Option<Vec3>,
+    pub settled: Option<Vec3>,
+    pub velocity: Vec3,
+    pub air: bool,
+    pub dive: f64,
+    pub tick_count: Option<f64>,
+    pub let_go: bool,
+    pub remove: bool,
+    pub rider_clips: Vec<bool>,
+}
+
+impl PaBody {
+    pub const WORDS: usize = 56;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 56] = (&mut row[..56]).try_into().unwrap();
+        row[0] = self.key;
+        row[1] = self.id;
+        row[2] = self.generation;
+        row[3] = if self.soldier { 1.0 } else { 0.0 };
+        row[4] = if self.walker { 1.0 } else { 0.0 };
+        row[5] = if self.removed { 1.0 } else { 0.0 };
+        row[6] = if self.alive { 1.0 } else { 0.0 };
+        row[7] = if self.dead { 1.0 } else { 0.0 };
+        row[8] = if self.seated { 1.0 } else { 0.0 };
+        match &self.held { Some(v) => { row[9] = 0.0; v.put(&mut row[9 + 1..], heap); } None => { row[9] = 1.0; row[9 + 1..9 + 23].fill(0.0); } }
+        row[32] = if self.combat { 1.0 } else { 0.0 };
+        row[33] = if self.mounted { 1.0 } else { 0.0 };
+        row[34..34 + 3].copy_from_slice(&self.position);
+        match &self.previous { Some(v) => { row[37] = 0.0; row[37 + 1..37 + 1 + 3].copy_from_slice(&(*v)); } None => { row[37] = 1.0; row[37 + 1..37 + 4].fill(0.0); } }
+        match &self.settled { Some(v) => { row[41] = 0.0; row[41 + 1..41 + 1 + 3].copy_from_slice(&(*v)); } None => { row[41] = 1.0; row[41 + 1..41 + 4].fill(0.0); } }
+        row[45..45 + 3].copy_from_slice(&self.velocity);
+        row[48] = if self.air { 1.0 } else { 0.0 };
+        row[49] = self.dive;
+        match &self.tick_count { Some(v) => { row[50] = 0.0; row[50 + 1] = (*v); } None => { row[50] = 1.0; row[50 + 1..50 + 2].fill(0.0); } }
+        row[52] = if self.let_go { 1.0 } else { 0.0 };
+        row[53] = if self.remove { 1.0 } else { 0.0 };
+        { let at = heap.len(); row[54] = at as f64; row[54 + 1] = self.rider_clips.len() as f64; heap.resize(at + self.rider_clips.len() * 1, 0.0); for (i, e) in self.rider_clips.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 56] = (&row[..56]).try_into().unwrap();
+        Self {
+            key: row[0],
+            id: row[1],
+            generation: row[2],
+            soldier: row[3] != 0.0,
+            walker: row[4] != 0.0,
+            removed: row[5] != 0.0,
+            alive: row[6] != 0.0,
+            dead: row[7] != 0.0,
+            seated: row[8] != 0.0,
+            held: if row[9] == 0.0 { Some(PaHeld::take(&row[9 + 1..], heap)) } else { None },
+            combat: row[32] != 0.0,
+            mounted: row[33] != 0.0,
+            position: [row[34], row[34 + 1], row[34 + 2]],
+            previous: if row[37] == 0.0 { Some([row[37 + 1], row[37 + 1 + 1], row[37 + 1 + 2]]) } else { None },
+            settled: if row[41] == 0.0 { Some([row[41 + 1], row[41 + 1 + 1], row[41 + 1 + 2]]) } else { None },
+            velocity: [row[45], row[45 + 1], row[45 + 2]],
+            air: row[48] != 0.0,
+            dive: row[49],
+            tick_count: if row[50] == 0.0 { Some(row[50 + 1]) } else { None },
+            let_go: row[52] != 0.0,
+            remove: row[53] != 0.0,
+            rider_clips: { let (at, n) = (word_u32(row[54]) as usize, word_u32(row[54 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0] != 0.0); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaInput {
+    pub op: PaOperation,
+    pub state: PaState,
+    pub bodies: Vec<PaBody>,
+    pub order: Vec<f64>,
+    pub positions: Vec<Vec3>,
+    pub dt: f64,
+    pub tick: f64,
+}
+
+impl PaInput {
+    pub const WORDS: usize = 55;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 55] = (&mut row[..55]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        { let at = heap.len(); row[47] = at as f64; row[47 + 1] = self.bodies.len() as f64; heap.resize(at + self.bodies.len() * 56, 0.0); for (i, e) in self.bodies.iter().enumerate() { let mut item = [0.0f64; 56]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 56..at + (i + 1) * 56].copy_from_slice(&item); } }
+        { let at = heap.len(); row[49] = at as f64; row[49 + 1] = self.order.len() as f64; heap.resize(at + self.order.len() * 1, 0.0); for (i, e) in self.order.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[51] = at as f64; row[51 + 1] = self.positions.len() as f64; heap.resize(at + self.positions.len() * 3, 0.0); for (i, e) in self.positions.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        row[53] = self.dt;
+        row[54] = self.tick;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 55] = (&row[..55]).try_into().unwrap();
+        Self {
+            op: PaOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: PaState::take(&row[1..], heap),
+            bodies: { let (at, n) = (word_u32(row[47]) as usize, word_u32(row[47 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 56..at + (i + 1) * 56]; out.push(PaBody::take(&row[0..], heap)); } out },
+            order: { let (at, n) = (word_u32(row[49]) as usize, word_u32(row[49 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            positions: { let (at, n) = (word_u32(row[51]) as usize, word_u32(row[51 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push([row[0], row[0 + 1], row[0 + 2]]); } out },
+            dt: row[53],
+            tick: row[54],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaResult {
+    pub state: PaState,
+    pub bodies: Vec<PaBody>,
+    pub record: Vec<f64>,
+}
+
+impl PaResult {
+    pub const WORDS: usize = 50;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 50] = (&mut row[..50]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        { let at = heap.len(); row[46] = at as f64; row[46 + 1] = self.bodies.len() as f64; heap.resize(at + self.bodies.len() * 56, 0.0); for (i, e) in self.bodies.iter().enumerate() { let mut item = [0.0f64; 56]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 56..at + (i + 1) * 56].copy_from_slice(&item); } }
+        { let at = heap.len(); row[48] = at as f64; row[48 + 1] = self.record.len() as f64; heap.resize(at + self.record.len() * 1, 0.0); for (i, e) in self.record.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 50] = (&row[..50]).try_into().unwrap();
+        Self {
+            state: PaState::take(&row[0..], heap),
+            bodies: { let (at, n) = (word_u32(row[46]) as usize, word_u32(row[46 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 56..at + (i + 1) * 56]; out.push(PaBody::take(&row[0..], heap)); } out },
+            record: { let (at, n) = (word_u32(row[48]) as usize, word_u32(row[48 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaAction {
+    pub kind: PaActionKind,
+    pub index: f64,
+    pub state: PaState,
+    pub body: Option<PaBody>,
+    pub text: Option<StrId>,
+    pub point: Vec3,
+    pub value: f64,
+}
+
+impl PaAction {
+    pub const WORDS: usize = 111;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 111] = (&mut row[..111]).try_into().unwrap();
+        row[0] = self.kind as u8 as f64;
+        row[1] = self.index;
+        self.state.put(&mut row[2..], heap);
+        match &self.body { Some(v) => { row[48] = 0.0; v.put(&mut row[48 + 1..], heap); } None => { row[48] = 1.0; row[48 + 1..48 + 57].fill(0.0); } }
+        match &self.text { Some(v) => { row[105] = 0.0; row[105 + 1] = (*v).0 as f64; } None => { row[105] = 1.0; row[105 + 1..105 + 2].fill(0.0); } }
+        row[107..107 + 3].copy_from_slice(&self.point);
+        row[110] = self.value;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 111] = (&row[..111]).try_into().unwrap();
+        Self {
+            kind: PaActionKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            index: row[1],
+            state: PaState::take(&row[2..], heap),
+            body: if row[48] == 0.0 { Some(PaBody::take(&row[48 + 1..], heap)) } else { None },
+            text: if row[105] == 0.0 { Some(StrId(word_u32(row[105 + 1]))) } else { None },
+            point: [row[107], row[107 + 1], row[107 + 2]],
+            value: row[110],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaActionResult {
+    pub body: Option<PaBody>,
+    pub found: bool,
+    pub root: Vec3,
+    pub turn: Quat,
+}
+
+impl PaActionResult {
+    pub const WORDS: usize = 65;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 65] = (&mut row[..65]).try_into().unwrap();
+        match &self.body { Some(v) => { row[0] = 0.0; v.put(&mut row[0 + 1..], heap); } None => { row[0] = 1.0; row[0 + 1..0 + 57].fill(0.0); } }
+        row[57] = if self.found { 1.0 } else { 0.0 };
+        row[58..58 + 3].copy_from_slice(&self.root);
+        row[61..61 + 4].copy_from_slice(&self.turn);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 65] = (&row[..65]).try_into().unwrap();
+        Self {
+            body: if row[0] == 0.0 { Some(PaBody::take(&row[0 + 1..], heap)) } else { None },
+            found: row[57] != 0.0,
+            root: [row[58], row[58 + 1], row[58 + 2]],
+            turn: [row[61], row[61 + 1], row[61 + 2], row[61 + 3]],
         }
     }
 

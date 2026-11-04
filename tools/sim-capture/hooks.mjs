@@ -13,6 +13,10 @@ const around = (name, anchor) => ({ anchor, text: `${enter(name)}${anchor}${exit
 const span = (name, from, to) => [{ anchor: from, text: `${enter(name)}${from}` }, { anchor: to, text: `${exit(name)}${to}` }];
 
 export const EDITS = {
+  '/src/props-sim.js': [
+    { anchor: 'found = Boolean(riderPoints(unit.animator, { clip: unit.animator.clips.get(text), pitch: 0, turn: 0, time: value }, this.points));',
+      text: 'found = Boolean(riderPoints(unit.animator, { clip: unit.animator.clips.get(text), pitch: 0, turn: 0, time: value }, this.points)); globalThis.__bfePropsRider?.(unit, text, value, found, this.points.root, this.points.rootTurn);' },
+  ],
   '/src/props.js': [
     { anchor: 'if (!riderPoints(animator, sample, heldScratch.points)) return null;',
       text: 'const sampled = riderPoints(animator, sample, heldScratch.points); globalThis.__bfePropsRider?.(unit, grab.clip, sample.time, Boolean(sampled), heldScratch.points.root, heldScratch.points.rootTurn); if (!sampled) return null;' },

@@ -76,12 +76,12 @@ pub struct Animated {
     pub bind: Vec<(Quaternion, Vector3)>,
 }
 pub trait World {
-    fn sound(&mut self, name: StrId, position: Vector3);
+    fn sound(&mut self, prop: &Animated, name: StrId, position: Vector3);
     fn let_go(&mut self, prop: &Animated, unit: &mut Body);
     fn damage(&mut self, prop: &Animated, unit: &mut Body, amount: f64);
     fn remove(&mut self, prop: &Animated, unit: &mut Body);
     /// The soldier's root from its rider clip, before the prop places it.
-    fn rider_root(&mut self, unit: &Body, clip: StrId, time: f64) -> Option<(Vector3, Quaternion)>;
+    fn rider_root(&mut self, prop: &Animated, unit: &Body, clip: StrId, time: f64) -> Option<(Vector3, Quaternion)>;
 }
 fn length(clip: Option<&Clip>) -> f64 { clip.map_or(0.0, |c| c.frames as f64 / c.fps) }
 fn within(point: Vector3, reach: f64, feet: Vector3) -> bool {
@@ -130,7 +130,7 @@ impl Animated {
                 if trigger.slot < 0 || trigger.slot == self.slot { continue; }
                 if !order.iter().any(|&i| bodies[i].on_foot() && within(trigger.point, trigger.radius, bodies[i].position)) { continue; }
                 self.time = 0.0; self.weight = 0.0; self.play(trigger.slot, false, tick, settings);
-                if let Some(sound) = trigger.sound { world.sound(sound, trigger.point); }
+                if let Some(sound) = trigger.sound { world.sound(self, sound, trigger.point); }
                 break;
             }
         }
@@ -199,7 +199,7 @@ impl Animated {
         if unit.held.is_some() { if unit.let_go { world.let_go(self, unit); } else { unit.held = None; } }
         if unit.alive && unit.combat { world.damage(self, unit, f64::INFINITY); }
         if unit.remove { world.remove(self, unit); }
-        if let Some(sound) = settings.kill_sound { world.sound(sound, settings.position); }
+        if let Some(sound) = settings.kill_sound { world.sound(self, sound, settings.position); }
     }
     pub fn carry(&mut self, tick: f64, bodies: &mut [Body], settings: &Settings, world: &mut impl World) {
         let victim = self.victim.as_ref().expect("carry victim");
@@ -209,7 +209,7 @@ impl Animated {
         let grab = &settings.grabs[unit.held.as_ref().unwrap().grab];
         let Some(node) = grab.node else { return };
         if !unit.rider_clips.get(unit.held.as_ref().unwrap().grab).copied().unwrap_or(false) { return; }
-        let Some((point, turn)) = world.rider_root(unit, grab.clip, max(time, 0.0)) else { return };
+        let Some((point, turn)) = world.rider_root(self, unit, grab.clip, max(time, 0.0)) else { return };
         self.rig.tree.update_matrix_world(self.rig.root, true);
         let mut root = Matrix4::default(); root.compose(&point, &turn, &Vector3::new(1.0, 1.0, 1.0)); root.invert();
         let mut frame = Matrix4::default(); frame.multiply_matrices(&self.rig.tree.node(self.rig.bones[node]).matrix_world, &root);

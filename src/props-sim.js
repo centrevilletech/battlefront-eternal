@@ -6,6 +6,8 @@ import * as THREE from "three";
 import { emitSound } from "./audio/events.js";
 import { bridgeFor } from "./sim/runtime.js";
 import { putPbConfiguration, putPbInput, PbResultMirror, syncPbResult } from "./sim/gen/props.js";
+import { putPaConfiguration, putPaInput, PaResultMirror, syncPaResult } from "./sim/gen/props.js";
+import { makeRiderPoints, riderPoints } from "./rider-pose.js";
 
 const num = value => {
   const n = Number.parseFloat(Array.isArray(value) ? value[0] : value);
@@ -56,6 +58,7 @@ export class PropsSim {
         serve(target) { return command("serve", 0, null, null, [target]).number; },
       });
     });
+    this.animated = new AnimatedPropsSim(bridge, live);
   }
 
   identity(object) {
@@ -139,5 +142,123 @@ export class PropsSim {
     }
     return { state: ["crewDestroyed", "destroyed", "explode", "damaged"].includes(kind) ? this.state(b) : null,
       target: kind === "served" ? this.target(target, targetId) : null };
+  }
+}
+
+export function attachAnimatedPropsSim(instance, live) {
+  return new AnimatedPropsSim(bridgeFor(instance), live);
+}
+
+// Prop clips and their node transforms are native. The soldier package
+// supplies only its rider root sample; Rust places that root on the grab
+// node and moves the held body. Page adoption and interpolation stay with
+// AnimatedProp, which reads these same objects after every command.
+export class AnimatedPropsSim {
+  constructor(bridge, live) {
+    this.bridge = bridge;
+    this.x = bridge.x;
+    this.props = live.animated ?? [];
+    this.contexts = [];
+    this.input = { words: this.x.animated_words(1), put: putPaInput };
+    this.output = { words: this.x.animated_words(2), Mirror: PaResultMirror, sync: syncPaResult };
+    this.points = { ...makeRiderPoints(), root: new THREE.Vector3(), rootTurn: new THREE.Quaternion() };
+    const clip = c => c ? { frames: c.frames, fps: c.fps, rootMotion: c.rootMotion, tracks: c.tracks, data: c.data } : null;
+    const props = this.props.map(p => ({
+      door: p.door, clips: p.slots.map(clip), doorClip: clip(p.doorClip), doorDuration: p.doorClip?.duration ?? 0,
+      idleDelay: p.idleDelay, openSlots: p.names.map(n => n === "open"), position: p.position, killSound: p.killSound,
+      triggers: p.triggers.map(t => ({ slot: t.slot, point: t.point, radius: t.radius, sound: t.sound || null, opens: t.action === "open" })),
+      grabs: p.grabs.map(g => ({ slot: g.slot, window: g.window, radius: g.radius, node: g.node ? p.rig.bones.indexOf(g.node) : null, clip: g.clip })),
+      root: p.rig.root.matrix, parents: p.rig.bones.map(b => p.rig.bones.indexOf(b.parent)), bind: p.rig.bones.map(b => p.rig.bind.get(b)),
+    }));
+    bridge.callArgs({ words: this.x.animated_words(0), put: putPaConfiguration }, { props });
+    this.x.animated_configure();
+    bridge.register({ paAction: a => this.action(a) });
+    this.props.forEach((p, index) => {
+      p.step = (dt, positions, bodies = [], tick = 0) => { this.run(index, "step", dt, positions ?? [], bodies, tick); };
+      p.state = () => this.run(index, "state", 0, [], [], 0).record;
+    });
+  }
+
+  state(p, index, bodies) {
+    return { index, slot: p.slot, time: p.time, weight: p.weight, loop: p.loop, hold: p.hold, started: p.started, startTime: p.startTime,
+      victim: p.victim ? { unit: bodies.indexOf(p.victim.unit), generation: p.victim.generation, grab: p.grabs.indexOf(p.victim.grab), since: p.victim.since } : null,
+      openness: p.openness, bodyEnabled: p.body?.enabled ?? null, standQ: p.standQ, standT: p.standT,
+      pose: p.pose ? { root: p.pose.root, q: p.pose.q, t: p.pose.t, w: p.pose.w } : null, rootWorld: p.rig.root.matrixWorld,
+      bones: p.rig.bones.map(b => ({ p: b.position, q: b.quaternion, s: b.scale, world: b.matrixWorld })) };
+  }
+  body(unit, p, key) {
+    const s = unit.soldier, h = unit.held;
+    return { key, id: unit.id, generation: unit.generation, soldier: Boolean(s), walker: Boolean(unit.walker), removed: Boolean(unit.removed),
+      alive: Boolean(unit.alive), dead: Boolean(unit.dead), seated: Boolean(unit.seat), combat: Boolean(unit.combat), mounted: Boolean(unit.combat?.mounted),
+      held: h ? { prop: this.props.indexOf(h.prop), grab: h.prop.grabs.indexOf(h.grab), since: h.since, frame: h.frame ?? null, time: h.time ?? null } : null,
+      position: unit.position, previous: s?.previous ?? null, settled: s?.settled ?? null, velocity: s?.velocity ?? new THREE.Vector3(),
+      air: Boolean(s?.air), dive: s?.dive ?? 0, tickCount: unit.tickCount ?? null, letGo: typeof unit.letGo === "function", remove: typeof unit.remove === "function",
+      riderClips: p.grabs.map(g => Boolean(unit.animator?.clips?.get(g.clip))) };
+  }
+  syncState(p, value, bodies) {
+    for (const key of ["slot", "time", "weight", "loop", "hold", "started", "startTime", "openness"]) p[key] = value[key];
+    const v = value.victim;
+    if (!v) p.victim = null;
+    else if (p.victim?.unit !== bodies[v.unit] || p.victim.generation !== v.generation || p.victim.grab !== p.grabs[v.grab] || p.victim.since !== v.since) {
+      p.victim = { unit: bodies[v.unit], generation: v.generation, grab: p.grabs[v.grab], since: v.since };
+    }
+    if (p.body && value.bodyEnabled !== null) p.body.enabled = value.bodyEnabled;
+    p.standQ.set(value.standQ); p.standT.set(value.standT);
+    if (p.pose && value.pose) { p.pose.q.set(value.pose.q); p.pose.t.set(value.pose.t); p.pose.w.set(value.pose.w); }
+    p.rig.root.matrixWorld.copy(value.rootWorld);
+    for (let i = 0; i < value.bones.length; i++) {
+      const b = p.rig.bones[i], v = value.bones[i];
+      b.position.copy(v.p); b.quaternion.copy(v.q); b.scale.copy(v.s); b.matrixWorld.copy(v.world);
+    }
+  }
+  syncBody(unit, value) {
+    const h = value.held;
+    if (!h) { if (unit.held) unit.held = null; }
+    else {
+      const prop = this.props[h.prop], grab = prop.grabs[h.grab];
+      if (unit.held?.prop !== prop || unit.held.grab !== grab || unit.held.since !== h.since) unit.held = { prop, grab, since: h.since };
+      if (h.frame) (unit.held.frame ??= new THREE.Matrix4()).copy(h.frame);
+      if (h.time !== null) unit.held.time = h.time;
+    }
+    if (unit.combat && unit.combat.mounted !== value.mounted) unit.combat.mounted = value.mounted;
+    const s = unit.soldier;
+    if (s) {
+      s.position.copy(value.position); s.velocity.copy(value.velocity);
+      if (s.previous && value.previous) s.previous.copy(value.previous);
+      if (s.settled && value.settled) s.settled.copy(value.settled);
+      if (s.air && !value.air) s.air = null;
+      if (!Object.is(s.dive, value.dive)) s.dive = value.dive;
+    }
+    if (value.tickCount !== null) unit.tickCount = value.tickCount;
+  }
+  run(index, op, dt, positions, order, tick) {
+    const p = this.props[index], bodies = [...new Set([...order, ...(p.victim ? [p.victim.unit] : [])])];
+    const args = { op, state: this.state(p, index, bodies), bodies: bodies.map((u, key) => this.body(u, p, key)),
+      order: order.map(u => bodies.indexOf(u)), positions, dt, tick };
+    this.contexts.push(bodies);
+    try {
+      this.bridge.callArgs(this.input, args);
+      const result = this.bridge.callResult(this.output, this.x.animated_run());
+      this.syncState(p, result.state, bodies);
+      for (const b of result.bodies) this.syncBody(bodies[b.key], b);
+      return result;
+    } finally { this.contexts.pop(); }
+  }
+  action(a) {
+    const p = this.props[a.index], bodies = this.contexts.at(-1), unit = a.body ? bodies[a.body.key] : null;
+    const kind = a.kind, key = a.body?.key, text = a.text, value = a.value, point = a.point.clone();
+    this.syncState(p, a.state, bodies);
+    if (a.body) this.syncBody(unit, a.body);
+    let found = false;
+    switch (kind) {
+      case "sound": emitSound("sound", text, point); break;
+      case "letGo": unit.letGo(); break;
+      case "damage": unit.combat.damage(value); break;
+      case "remove": unit.remove(); break;
+      case "rider": found = Boolean(riderPoints(unit.animator, { clip: unit.animator.clips.get(text), pitch: 0, turn: 0, time: value }, this.points)); break;
+      default: throw Error(`unknown animated prop action ${kind}`);
+    }
+    return { body: ["letGo", "damage", "remove"].includes(kind) ? this.body(unit, p, key) : null,
+      found, root: this.points.root, turn: this.points.rootTurn };
   }
 }

@@ -11,6 +11,9 @@ const { observeSounds } = await import('../src/audio/events.js');
 const { animatedOwn, animatedSettings, animatedBody } = await import('./sim-capture/animated.mjs');
 const args = process.argv.slice(2), at = args.indexOf('--out'), out = at < 0 ? null : args[at + 1];
 if (!out) throw Error('animated-twin requires --out DIRECTORY');
+const module = args.includes('--module') ? await import('../src/props-sim.js') : null;
+const instances = module ? await Promise.all(Array.from({ length: 32 }, async () => (await import('../src/sim/module.js')).loadSim())) : [];
+const native = new WeakMap();
 fs.mkdirSync(out, { recursive: true });
 const file = fs.openSync(path.join(out, 'animated.bfecap'), 'w'); fs.writeSync(file, MAGIC);
 const identities = new Map(), defs = new Map(), pending = [], wrapped = new WeakSet();
@@ -59,6 +62,11 @@ const step = AnimatedProp.prototype.step;
 AnimatedProp.prototype.step = function (...args) {
   const p = this;
   if (!game.live.animated.includes(p)) { game.live.animated.push(p); identities.set(p, new Handle('animated', game.live.animated.indexOf(p))); }
+  if (module && !native.has(p)) {
+    const instance = instances.pop(); if (!instance) throw Error('animated twin instance pool exhausted');
+    module.attachAnimatedPropsSim(instance, { animated: [p] });
+    native.set(p, p.step); delete p.step;
+  }
   const order = args[2] ?? [], bodies = [...new Set([...order, ...(p.victim ? [p.victim.unit] : [])])];
   bodies.forEach(wrap);
   const state = () => ({ prop: animatedOwn(p, game), settings: animatedSettings(p), bodies: bodies.map(u => animatedBody(u, p, game)),
@@ -66,7 +74,7 @@ AnimatedProp.prototype.step = function (...args) {
     positionOwners: (args[1] ?? []).map(position => bodies.findIndex(u => u.position === position)) });
   current = { p, tick: ++frames, id: frames };
   write(RECORD.frame, frames, 'AnimatedProp.step', { k: 'enter', f: frames, p: null, t: p, a: args, s: state() });
-  const result = step.apply(p, args);
+  const result = (native.get(p) ?? step).apply(p, args);
   write(RECORD.frame, frames, 'AnimatedProp.step', { k: 'exit', f: frames, d: [], r: result, s: state() });
   current = null; return result;
 };

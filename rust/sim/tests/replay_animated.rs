@@ -135,7 +135,7 @@ impl<'f> Served<'f> {
     }
 }
 impl World for Served<'_> {
-    fn sound(&mut self, name: StrId, position: Vector3) {
+    fn sound(&mut self, _prop: &Animated, name: StrId, position: Vector3) {
         if let Some(c) = self.call("sound") {
             if c.arg(0).str() != Some("sound") { self.fail("sound event type"); }
             let same = match c.arg(1).value { Value::Str(s) => s.encode_utf16().eq(self.strings.units(name).iter().copied()),
@@ -149,7 +149,7 @@ impl World for Served<'_> {
         if let Some(c) = self.callback("damage", p, b) { if let Err(e) = check_num("damage", c.arg(0), amount) { self.fail(e); } }
     }
     fn remove(&mut self, p: &Animated, b: &mut Body) { self.callback("remove", p, b); }
-    fn rider_root(&mut self, unit: &Body, clip: StrId, time: f64) -> Option<(Vector3, Quaternion)> {
+    fn rider_root(&mut self, _prop: &Animated, unit: &Body, clip: StrId, time: f64) -> Option<(Vector3, Quaternion)> {
         let c = self.call("rider")?; self.samples += 1;
         if let Err(e) = check_value("rider unit", c.arg(0), self.unit_source(unit)) { self.fail(e); }
         let text = match c.arg(1).value { Value::Str(s) => s.encode_utf16().eq(self.strings.units(clip).iter().copied()), Value::Str16(s) => s.as_slice() == self.strings.units(clip), _ => false };
