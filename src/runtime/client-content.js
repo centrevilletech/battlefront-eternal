@@ -33,4 +33,3 @@ export function packPredictionWeaponDefinition(words, value, depth = 0) {
     for (const key of keys) { text(words, key); packPredictionWeaponDefinition(words, value[key], depth + 1); }
   } else words.push(0);
 }
-

@@ -67,4 +67,3 @@ export function createPredictionActor(scenario, course, content = null) {
   const callbacks = [soldier.onDeathBlast, soldier.onExploded], arsenal = structuredClone(weapons), kick = structuredClone(combat.kick);
   return { soldier, combat, actor, clips, callbacks, arsenal, kick, deathCalls: () => deathCalls };
 }
-
