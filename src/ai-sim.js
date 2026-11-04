@@ -70,6 +70,7 @@ export class AiSim {
     Object.defineProperty(boundary, 'empty', { configurable: true, get: () => Boolean(this.x.ai_nav_boundary(2, 0, 0, 0, 0)) });
     boundary.contains = (index, point) => Boolean(this.x.ai_nav_boundary(1, index, point.x, point.y, point.z));
     boundary.outside = point => Boolean(this.x.ai_nav_boundary(0, 0, point.x, point.y, point.z));
+    if (nav.graph) this.bindGraph(nav.graph);
     nav.planner = new NativePlanner(this, nav.barriers, options.pools ?? {});
     const hints = nav.hints;
     for (const hint of hints.list) {
@@ -91,6 +92,35 @@ export class AiSim {
     };
     this.navigation = nav;
     return nav;
+  }
+
+  bindGraph(graph) {
+    graph.table = mask => {
+      this.x.ai_nav_graph(0, -1, 0, 0, mask, 0, 0, 0, 0); return this.out()[0];
+    };
+    const route = (op, previous, from, to, mask, random) => {
+      if (!Number.isInteger(random?.state)) throw Error('native AI routing requires the shared ClassicRandom state');
+      this.x.ai_nav_graph(op, previous?.index ?? -1, from.index, to?.index ?? 0, mask, 0, 0, 0, random.state);
+      const answer = this.out().slice(); random.state = answer[1];
+      for (let i = 2; i < answer.length; i += 5) {
+        if (answer[i] === 0) graph.report('routeTable', { mask: answer[i + 1] });
+        else graph.report('routeHang', { hub: answer[i + 1], table: answer[i + 2], destination: answer[i + 3], word: answer[i + 4] });
+      }
+      return answer[0] < 0 ? null : graph.arcs[answer[0]];
+    };
+    graph.select = (previous, from, to, mask, random) => route(1, previous, from, to, mask, random);
+    graph.alternate = (from, previous, mask, random) => route(2, previous, from, null, mask, random);
+    graph.attach = (point, mask, out = { type: 0, hub: null, arc: null }) => {
+      this.x.ai_nav_graph(3, -1, 0, 0, mask, point.x, point.y, point.z, 0);
+      const answer = this.out(); out.type = answer[0];
+      out.hub = answer[1] < 0 ? null : graph.hubs[answer[1]];
+      out.arc = answer[2] < 0 ? null : graph.arcs[answer[2]];
+      return out;
+    };
+    graph.nearestArc = (point, mask) => {
+      this.x.ai_nav_graph(4, -1, 0, 0, mask, point.x, point.y, point.z, 0);
+      const index = this.out()[0]; return index < 0 ? null : graph.arcs[index];
+    };
   }
 }
 

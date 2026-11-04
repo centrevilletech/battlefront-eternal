@@ -5,7 +5,7 @@
 use std::{ptr::addr_of_mut, rc::Rc};
 use bfe_content::{Object, Value};
 use crate::{abi::sim, store::{StrId, Strings, word_u32}};
-use super::{combat::binding::CombatAi, control::Core, nav::{Nav, PlannerOptions, barriers::Work, hints::HintPosts, math::Vec3, planner::PathNode}, vehicles::VehicleAI};
+use super::{combat::binding::CombatAi, control::Core, nav::{Nav, PlannerOptions, barriers::Work, graph::GraphReport, hints::HintPosts, math::Vec3, planner::PathNode}, random::ClassicRandom, vehicles::VehicleAI};
 
 pub struct State {
     pub nav: Nav,
@@ -124,6 +124,32 @@ pub extern "C" fn ai_nav_geometry(op: u32, sx: f64, sy: f64, sz: f64, ex: f64, e
 pub extern "C" fn ai_nav_boundary(op: u32, polygon: u32, x: f64, y: f64, z: f64) -> u32 {
     let b = &state().nav.boundary; let p = Vec3::new(x,y,z);
     (match op { 0 => b.outside(p), 1 => b.contains(polygon as usize,p), 2 => b.empty(), _ => panic!("invalid AI boundary command") }) as u32
+}
+
+/// Graph queries and weighted routing. The caller's shared generator is
+/// advanced only by the source algorithm; its resulting state is returned.
+#[no_mangle]
+pub extern "C" fn ai_nav_graph(op: u32, previous: f64, from: u32, to: u32, mask: u32, x: f64, y: f64, z: f64, seed: u32) {
+    let s=state(); let g=s.nav.graph.as_mut().expect("AI navigation graph");
+    let point=Vec3::new(x,y,z); let mut random=ClassicRandom::from_state(seed);
+    let reports=g.reports.len();
+    s.out.clear();
+    match op {
+        0 => s.out.push(g.table(mask) as f64),
+        1 => s.out.push(g.select(index(previous),from as usize,to as usize,mask,&mut random).map_or(-1.0,|a|a as f64)),
+        2 => s.out.push(g.alternate_opt(from as usize,index(previous),mask,&mut random).map_or(-1.0,|a|a as f64)),
+        3 => { let a=g.attach(point,mask); s.out.extend([a.kind as f64,a.hub.map_or(-1.0,|h|h as f64),a.arc.map_or(-1.0,|a|a as f64)]); return; }
+        4 => { s.out.push(g.nearest_arc(point,mask).map_or(-1.0,|a|a as f64)); return; }
+        _ => panic!("invalid AI graph command"),
+    }
+    s.out.push(random.state as f64);
+    for report in g.reports.drain(reports..) {
+        match report {
+            GraphReport::RouteTable { mask } => s.out.extend([0.0,mask as f64,0.0,0.0,0.0]),
+            GraphReport::RouteHang { hub,table,destination,word } => s.out.extend([1.0,hub as f64,table as f64,destination as f64,word as f64]),
+            GraphReport::ZeroLengthArc { .. } => unreachable!("routing does not build arcs"),
+        }
+    }
 }
 
 #[no_mangle]

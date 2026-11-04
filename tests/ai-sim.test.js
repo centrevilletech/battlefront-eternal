@@ -123,3 +123,31 @@ test('native path mirrors keep executor flag writes and live node arrays', async
   assert.equal(native.planner.pools.nodes.used,js.planner.pools.nodes.used);
   assert.equal(native.planner.pools.paths.used,js.planner.pools.paths.used);
 });
+
+test('native graph routing retains shared RNG draws, identities and diagnostics', async () => {
+  const json=config();
+  json.graph={info:[3,3,5],hubs:[
+    {name:'a',position:[0,0,0],radius:3,arcs:[0,1,255,255,255,255,255,255]},
+    {name:'b',position:[12,0,0],radius:2,arcs:[0,2,255,255,255,255,255,255]},
+    {name:'c',position:[6,0,12],radius:4,arcs:[1,2,255,255,255,255,255,255]},
+  ],arcs:[{name:'ab',hubs:[0,1],mask:31},{name:'ac',hubs:[0,2],mask:31},{name:'bc',hubs:[1,2],mask:31}],
+  routes:{tables:5,count:45,byteOffset:0}};
+  const words=new Uint32Array(45);words.fill((15<<3) | (((16<<3)|1)<<8));
+  const js=new ClassicNav(json,words.buffer),native=new ClassicNav(json,words.buffer);
+  attachAiSim(await loadSim()).bindNavigation(native,json,words.buffer);
+  const jr=new ClassicRandom(367),nr=new ClassicRandom(367),sample=new ClassicRandom(611);
+  const j=js.graph,n=native.graph;
+  for(let i=0;i<512;i++) {
+    const from=i%3,to=(i+1)%3,previous=i%4 ? i%3 : -1,mask=[1,2,4,8,16,0,32][i%7];
+    const ja=j.select(j.arcs[previous]??null,j.hubs[from],j.hubs[to],mask,jr);
+    const na=n.select(n.arcs[previous]??null,n.hubs[from],n.hubs[to],mask,nr);
+    assert.equal(na?.index,ja?.index); assert.equal(nr.state,jr.state);
+    assert.equal(n.alternate(n.hubs[from],n.arcs[previous]??null,mask,nr)?.index,j.alternate(j.hubs[from],j.arcs[previous]??null,mask,jr)?.index);
+    assert.equal(nr.state,jr.state);
+    const p=point(sample.range(-6,18),sample.range(-3,3),sample.range(-6,18));
+    const a=j.attach(p,mask),b=n.attach(p,mask);
+    assert.deepEqual([b.type,b.hub?.index,b.arc?.index],[a.type,a.hub?.index,a.arc?.index]);
+    assert.equal(n.nearestArc(p,mask)?.index,j.nearestArc(p,mask)?.index);
+    assert.deepEqual(native.issues,js.issues);
+  }
+});
