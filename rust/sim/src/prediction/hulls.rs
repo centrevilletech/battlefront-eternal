@@ -268,6 +268,7 @@ impl Session {
                     query,
                     failed: false,
                     environment: Environment::default(),
+                    prefetching: false,
                 };
                 hull.capture_tick();
                 hull.capture_flight_tick();
@@ -350,6 +351,7 @@ struct World<'a, Q> {
     query: &'a mut Q,
     failed: bool,
     environment: Environment,
+    prefetching: bool,
 }
 impl<Q: Query> World<'_, Q> {
     fn ask(&mut self, op: u32, args: &[f64]) -> Vec<f64> {
@@ -631,6 +633,7 @@ impl<Q: Query> FlightWorld for World<'_, Q> {
         }
     }
     fn member_count(&mut self) -> usize {
+        self.prefetching = true;
         num(&self.ask(12, &[]), 0) as usize
     }
     fn member(&mut self, i: usize) -> Member {
@@ -655,6 +658,12 @@ impl<Q: Query> FlightWorld for World<'_, Q> {
         }
     }
     fn relation(&mut self, a: Team, b: Team) -> f64 {
+        // best_target first identifies a batch for worlds that prefetch
+        // native unit poses. Private replay asks aimPoint at its original
+        // call site, so this preparatory pass must not call JS relation.
+        if self.prefetching {
+            return 0.0;
+        }
         num(
             &self.ask(
                 15,
@@ -670,6 +679,9 @@ impl<Q: Query> FlightWorld for World<'_, Q> {
     }
     fn aim_point(&mut self, i: usize) -> Vector3 {
         vec(&self.ask(16, &[i as f64]), 0)
+    }
+    fn prefetch_aim_points(&mut self, _: &[usize]) {
+        self.prefetching = false;
     }
     fn body_is_hull(&mut self, body: BodyId) -> bool {
         flag(&self.ask(17, &[body as f64]), 0)
