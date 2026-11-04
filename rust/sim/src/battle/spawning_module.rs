@@ -11,22 +11,22 @@ use crate::abi::sim;
 use crate::gen::*;
 use crate::store::{Ref, StrId};
 
-fn swap(s: &mut Store) {
+pub(crate) fn swap(s: &mut Store) {
     rules_module::swap(s);
     posts_module::swap(s);
     std::mem::swap(&mut sim().store.spawning, &mut s.spawning);
 }
 
 fn query(op: SpQueryOp, unit: Option<Ref<Unit>>, class_name: Option<StrId>) -> SpQueryResult {
-    import_spawning_query(&SpQueryArgs { op, unit, class_name })
+    import_spawning_query(&SpQueryArgs { op, unit, class_name, character: None })
 }
 
-struct JsDraws;
+pub(crate) struct JsDraws;
 impl Draws for JsDraws {
     fn next(&mut self) -> f64 { query(SpQueryOp::Draw, None, None).number }
 }
 
-struct JsSpawningWorld;
+pub(crate) struct JsSpawningWorld;
 impl JsSpawningWorld {
     fn action(&mut self, s: &mut Store, args: SpActionArgs) -> Option<Ref<Unit>> {
         swap(s);
@@ -45,6 +45,9 @@ impl PostsWorld for JsSpawningWorld {
 }
 
 impl SpawningWorld for JsSpawningWorld {
+    fn spawn_goal(&mut self, character: Ref<Character>) -> Option<[f64; 3]> {
+        import_spawning_query(&SpQueryArgs { op: SpQueryOp::SpawnGoal, character: Some(character), unit: None, class_name: None }).goal
+    }
     fn health(&mut self, unit: Ref<Unit>) -> f64 { query(SpQueryOp::Health, Some(unit), None).number }
     fn hero_name(&mut self, class_name: StrId) -> Option<StrId> { query(SpQueryOp::HeroName, None, Some(class_name)).name }
     fn force_kill(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>) {

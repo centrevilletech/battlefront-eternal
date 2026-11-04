@@ -2,6 +2,7 @@
 // on the world's simulation module. Bodies, objectives and the shared
 // random stream are services until their live phases move over too.
 import { KIND_SPAWNING, SpResultMirror, putSpInput, syncSpResult } from './sim/gen/index.js';
+import { EnhancedSpawning } from './ai/enhanced/objectives.js';
 
 export function attachSpawningSim(source, battleSim, postsSim) {
   const bridge = battleSim.bridge, x = bridge.x;
@@ -18,11 +19,15 @@ export function attachSpawningSim(source, battleSim, postsSim) {
     bridge.sync(KIND_SPAWNING, source);
   }
   bridge.register({
-    spawningQuery({ op, unit, className }) {
-      const out = { number: 0, name: null };
+    spawningQuery({ op, unit, className, character }) {
+      const out = { number: 0, name: null, goal: null };
       if (op === 'draw') out.number = source.random.next();
       else if (op === 'health') out.number = source.health(unit);
       else if (op === 'heroName') out.name = source.heroName?.(className) ?? null;
+      else if (op === 'spawnGoal' && source instanceof EnhancedSpawning) {
+        const p = character.objective?.position;
+        if (p) out.goal = [p.x, p.y, p.z];
+      }
       return out;
     },
     spawningAction({ op, character, className, post, position, yaw }) {

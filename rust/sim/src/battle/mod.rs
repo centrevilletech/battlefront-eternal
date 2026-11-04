@@ -36,6 +36,8 @@ pub mod props;
 pub mod props_module;
 pub mod regions;
 pub mod roster;
+#[cfg(target_arch = "wasm32")]
+pub mod roster_module;
 pub mod rules;
 pub mod spawning;
 pub mod stats;

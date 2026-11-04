@@ -597,8 +597,19 @@ fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Listed, team:
 
 /// choosePost(character) (spawning.js:496).
 pub fn choose_post<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, random: &mut dyn Draws) -> Option<SpawnPost> {
+    let goal = if ch(s, r).human { None } else { world.spawn_goal(r) };
     let list = listed(s, world);
     let c = ch(s, r);
+    if let Some(goal) = goal {
+        let mut best = None;
+        let mut best_distance = f64::INFINITY;
+        for (i, p) in list.views.iter().enumerate() {
+            if !friendly_spawn(&s.spawning, p, c.team) { continue; }
+            let d = v8math::hypot(p.position[0] - goal[0], p.position[2] - goal[2]);
+            if d < best_distance { best_distance = d; best = Some(list.ids[i]); }
+        }
+        if best.is_some() { return best; }
+    }
     let old = spawn_post(sp(c).post);
     if c.human {
         human_spawn_post(&s.spawning, old, &list, c.team)

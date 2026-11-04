@@ -48,6 +48,8 @@ impl<T: BattleWorld + ?Sized> PostsWorld for T {
 /// The spawn manager's foreign actions; its teams, Characters, queues
 /// and class choices remain in the caller's store.
 pub trait SpawningWorld: PostsWorld {
+    /// Enhanced spawning's objective, when its nearest-post rule applies.
+    fn spawn_goal(&mut self, _: Ref<Character>) -> Option<[f64; 3]> { None }
     fn health(&mut self, unit: Ref<Unit>) -> f64;
     fn force_kill(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>);
     fn request_objective(&mut self, s: &mut Store, character: Ref<Character>);
@@ -57,6 +59,7 @@ pub trait SpawningWorld: PostsWorld {
 }
 
 impl<T: BattleWorld + ?Sized> SpawningWorld for T {
+    fn spawn_goal(&mut self, character: Ref<Character>) -> Option<[f64; 3]> { BattleWorld::spawn_goal(self, character) }
     fn health(&mut self, unit: Ref<Unit>) -> f64 { BattleWorld::health(self, unit) }
     fn force_kill(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>) { BattleWorld::force_kill(self, s, character, unit); }
     fn request_objective(&mut self, s: &mut Store, character: Ref<Character>) { BattleWorld::request_objective(self, s, character); }
@@ -68,6 +71,7 @@ impl<T: BattleWorld + ?Sized> SpawningWorld for T {
 }
 
 pub trait BattleWorld {
+    fn spawn_goal(&mut self, _: Ref<Character>) -> Option<[f64; 3]> { None }
     // ---- The registry (src/registry.js).
 
     /// units.relation(a, b).

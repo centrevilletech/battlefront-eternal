@@ -30,7 +30,7 @@ export default {
     PsQueryOp: ['captureTeam', 'buildingAlive', 'pad', 'vehiclePosition', 'classSpawnWorld'],
     PsMobileEventKind: ['lost', 'owner'],
     SpOperation: ['update', 'clock', 'updateCharacters', 'updateCharacter', 'awaitingHuman', 'setClass', 'activate', 'pickClass', 'prepare', 'choosePost', 'reserve', 'release', 'changePost', 'tickets', 'spendTicket', 'waiting', 'spawn', 'onDeath', 'onHumanReady', 'switchTeam', 'padQuotas', 'queueOf'],
-    SpQueryOp: ['draw', 'health', 'heroName'],
+    SpQueryOp: ['draw', 'health', 'heroName', 'spawnGoal'],
     SpActionOp: ['spawnUnit', 'forceKill', 'requestObjective', 'republish'],
   },
   unions: {
@@ -77,8 +77,8 @@ export default {
     PsQueryResult: { number: 'f64', flag: 'bool', position: 'f64x3', pad: 'rec:PsPad|null', points: 'list:f64x4' },
     SpInput: { op: 'enum:SpOperation', dt: 'f64', team: 'f64', character: 'ref:character|null', classIndex: 'f64|null', className: 'str|null', post: 'union:PostRef', hasPost: 'bool', human: 'bool', own: 'bool' },
     SpResult: { number: 'f64', flag: 'bool', post: 'union:PostRef', unit: 'ref:unit|null' },
-    SpQueryArgs: { op: 'enum:SpQueryOp', unit: 'ref:unit|null', className: 'str|null' },
-    SpQueryResult: { number: 'f64', name: 'str|null' },
+    SpQueryArgs: { op: 'enum:SpQueryOp', unit: 'ref:unit|null', className: 'str|null', character: 'ref:character|null' },
+    SpQueryResult: { number: 'f64', name: 'str|null', goal: 'f64x3|null' },
     SpActionArgs: { op: 'enum:SpActionOp', character: 'ref:character', unit: 'ref:unit|null', className: 'str|null', post: 'union:PostRef', position: 'f64x3', yaw: 'f64|undefined' },
     SpActionResult: { unit: 'ref:unit|null' },
     // A team as the mission's table gives it (map.json mission.teams).

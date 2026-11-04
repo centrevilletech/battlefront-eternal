@@ -411,16 +411,18 @@ pub enum SpQueryOp {
     #[default] Draw = 0,
     Health = 1,
     HeroName = 2,
+    SpawnGoal = 3,
 }
 
 impl SpQueryOp {
-    pub const NAMES: [&'static str; 3] = ["draw", "health", "heroName"];
+    pub const NAMES: [&'static str; 4] = ["draw", "health", "heroName", "spawnGoal"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
             0 => Some(SpQueryOp::Draw),
             1 => Some(SpQueryOp::Health),
             2 => Some(SpQueryOp::HeroName),
+            3 => Some(SpQueryOp::SpawnGoal),
             _ => None,
         }
     }
@@ -1636,24 +1638,27 @@ pub struct SpQueryArgs {
     pub op: SpQueryOp,
     pub unit: Option<Ref<Unit>>,
     pub class_name: Option<StrId>,
+    pub character: Option<Ref<Character>>,
 }
 
 impl SpQueryArgs {
-    pub const WORDS: usize = 6;
+    pub const WORDS: usize = 9;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
         row[0] = self.op as u8 as f64;
         match &self.unit { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).slot as f64; row[1 + 1 + 1] = (*v).gen as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 3].fill(0.0); } }
         match &self.class_name { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).0 as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 2].fill(0.0); } }
+        match &self.character { Some(v) => { row[6] = 0.0; row[6 + 1] = (*v).slot as f64; row[6 + 1 + 1] = (*v).gen as f64; } None => { row[6] = 1.0; row[6 + 1..6 + 3].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
         Self {
             op: SpQueryOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             unit: if row[1] == 0.0 { Some(Ref::new(word_u32(row[1 + 1]), word_u32(row[1 + 1 + 1]))) } else { None },
             class_name: if row[4] == 0.0 { Some(StrId(word_u32(row[4 + 1]))) } else { None },
+            character: if row[6] == 0.0 { Some(Ref::new(word_u32(row[6 + 1]), word_u32(row[6 + 1 + 1]))) } else { None },
         }
     }
 
@@ -1663,22 +1668,25 @@ impl SpQueryArgs {
 pub struct SpQueryResult {
     pub number: f64,
     pub name: Option<StrId>,
+    pub goal: Option<[f64; 3]>,
 }
 
 impl SpQueryResult {
-    pub const WORDS: usize = 3;
+    pub const WORDS: usize = 7;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
         row[0] = self.number;
         match &self.name { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).0 as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 2].fill(0.0); } }
+        match &self.goal { Some(v) => { row[3] = 0.0; row[3 + 1..3 + 1 + 3].copy_from_slice(&(*v)); } None => { row[3] = 1.0; row[3 + 1..3 + 4].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
         Self {
             number: row[0],
             name: if row[1] == 0.0 { Some(StrId(word_u32(row[1 + 1]))) } else { None },
+            goal: if row[3] == 0.0 { Some({ let mut a = [0.0; 3]; a.copy_from_slice(&row[3 + 1..3 + 1 + 3]); a }) } else { None },
         }
     }
 
