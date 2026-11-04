@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { loadRenderer } from "./rust-render/failure.js";
 import { FXAAFastShader, FXAAShader } from "./fxaa.js";
 import { Bloom, applyValues, fullScreenPass, ownedFullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
@@ -252,16 +253,18 @@ export class Graphics {
     this.background.material.depthTest = true;
     this.background.renderOrder = 1e9;
     this.scene.add(this.background);
-    // The default battle renderer shares the WebGL context with three,
-    // which draws unsupported items and takes over if Rust is unavailable.
-    // ?rustOff disables Rust drawing for developer comparisons.
+    // Three supplies resource objects and compiled sources to the required
+    // battle renderer. Loading errors propagate to the loading screen.
     this.rust = null;
-    this.rustReady = Promise.resolve();
     this.playerRoot = null;
-    if (typeof location !== "undefined") {
-      this.rustReady = import("./rust-render/index.js").then((m) => m.createRustRender(this)).then((rust) => { this.rust = rust; })
-        .catch((error) => console.warn("Rust renderer unavailable:", error));
-    }
+    this.rustReady = loadRenderer(this, async () => {
+      const { createRustRender } = await import("./rust-render/index.js");
+      this.rust = await createRustRender(this);
+      return this.rust;
+    });
+    // Construction starts the fetch before preparation awaits it. Attach a
+    // rejection handler now without consuming the promise's failure.
+    this.rustReady.catch(() => {});
     this.downsample = ownedFullScreenPass("post-hud/copy",
       { map: { value: this.sceneTarget.texture } },
     );
