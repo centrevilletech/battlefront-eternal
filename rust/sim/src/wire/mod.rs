@@ -14,3 +14,5 @@ pub mod semantic;
 pub mod edges;
 pub mod input;
 pub use module::Runtime;
+pub mod registry;
+pub mod capture;

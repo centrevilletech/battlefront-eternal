@@ -3,6 +3,7 @@ import { createWireBridge } from './wire-sim.js';
 import { createWireHostBridge, createWireStaggerBridge } from './wire-host.js';
 import { createWireCosmeticsBridge } from './wire-cosmetics.js';
 import { createWireSemanticBridge } from './wire-semantic.js';
+import { createWireRegistryBridge } from './wire-registry.js';
 import { attachHitHistoryBridge } from './hit-history-sim.js';
 import { entityPostNames } from './entity-spawn-posts.js';
 import { attachPresentationCapture } from './entity-presentation-events.js';
@@ -154,12 +155,12 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
 
   function ensureRuntime() {
     if (registry) return;
-    registry = createEntityRegistry(game.data, { contentEpoch: epoch, inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES, posts: entityPostNames(game) });
+    registry = createEntityRegistry(game.data, { contentEpoch: epoch, inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES, posts: entityPostNames(game), native: native ? createWireRegistryBridge(game.simBridge) : null });
     shots = new EntityShotCounters(game.simEvents);
     combatCapture = new CombatCapture({ tick: () => game.worldClock.tick, definitionId: registry.combat.definitionId, generation: epoch });
     combatDispose = attachCombatCapture(game, combatCapture);
-    presentationDispose = attachPresentationCapture(game, combatCapture, registry);
-    capture = new EntityWorldCapture(game, registry, { fireCounter: unit => shots.counter(unit) });
+    presentationDispose = attachPresentationCapture(game, combatCapture, registry, nativePresentation);
+    capture = new EntityWorldCapture(game, registry, { fireCounter: unit => shots.counter(unit), bridge: native ? game.simBridge : null });
   }
   function addClient(id) {
     ensureRuntime();
@@ -444,6 +445,6 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
     // them. They stay as no-ops until the server moves to ABI 4.
     ack() {}, admitted() {}, dropped() {},
     advanceEdges, consumedEdges, publish, inspect, staleClients, setLocalInterval,
-    dispose() { for (const id of clients.keys()) removeClient(id); stagger.dispose?.(); nativeHost?.dispose(); nativeCosmetics?.dispose(); nativeSemantic?.dispose(); nativePresentation?.dispose(); native?.dispose(); history?.dispose(); presentationDispose?.(); combatDispose?.(); shots?.dispose(); presentationDispose = combatDispose = null; },
+    dispose() { for (const id of clients.keys()) removeClient(id); capture?.dispose?.(); stagger.dispose?.(); nativeHost?.dispose(); nativeCosmetics?.dispose(); nativeSemantic?.dispose(); nativePresentation?.dispose(); native?.dispose(); history?.dispose(); presentationDispose?.(); combatDispose?.(); shots?.dispose(); presentationDispose = combatDispose = null; },
   };
 }

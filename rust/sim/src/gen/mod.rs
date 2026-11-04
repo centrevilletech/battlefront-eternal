@@ -30,10 +30,14 @@ mod units;
 pub use self::units::*;
 mod vehicles;
 pub use self::vehicles::*;
+mod wire_capture;
+pub use self::wire_capture::*;
 mod wire_edges;
 pub use self::wire_edges::*;
 mod wire_host;
 pub use self::wire_host::*;
+mod wire_registry;
+pub use self::wire_registry::*;
 mod wire;
 pub use self::wire::*;
 #[cfg(feature = "replay")]
