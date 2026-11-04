@@ -34,10 +34,48 @@ pub enum AiCombatAgentOp {
     SwitchShield = 25,
     FireA = 26,
     FireB = 27,
+    EntryStart = 28,
+    CapturedKind = 29,
+    CapturedMode = 30,
+    Stop = 31,
+    InvestigateStart = 32,
+    InvestigateNormal = 33,
+    InvestigateValues = 34,
+    InvestigatePoint = 35,
+    Look = 36,
+    Stance = 37,
+    NextLook = 38,
+    CaptureTarget = 39,
+    Dispatch = 40,
+    StorePattern = 41,
+    HasPattern = 42,
+    InitPattern = 43,
+    Evade = 44,
+    AlongPath = 45,
+    BehaveStart = 46,
+    CapturedTime = 47,
+    Select = 48,
+    AssignWeapon = 49,
+    Alert = 50,
+    JetState = 51,
+    Flying = 52,
+    Interrupt = 53,
+    Aligned = 54,
+    Field = 55,
+    FieldTruthy = 56,
+    FastTurn = 57,
+    PatternUpdate = 58,
+    SensorStart = 59,
+    SensorDistance = 60,
+    SamePattern = 61,
+    SkipFire = 62,
+    RaiseShield = 63,
+    HelperTick = 64,
+    FireControls = 65,
 }
 
 impl AiCombatAgentOp {
-    pub const NAMES: [&'static str; 28] = ["goalMode", "request", "goalPoint", "goalTarget", "cleanup", "base", "mode", "state", "patternExit", "unit", "speed", "mount", "known", "cone", "sourcePoint", "target", "distanceStart", "distanceTarget", "engage", "mountReach", "mountCall", "boarding", "shield", "shieldMax", "shieldValue", "switchShield", "fireA", "fireB"];
+    pub const NAMES: [&'static str; 66] = ["goalMode", "request", "goalPoint", "goalTarget", "cleanup", "base", "mode", "state", "patternExit", "unit", "speed", "mount", "known", "cone", "sourcePoint", "target", "distanceStart", "distanceTarget", "engage", "mountReach", "mountCall", "boarding", "shield", "shieldMax", "shieldValue", "switchShield", "fireA", "fireB", "entryStart", "capturedKind", "capturedMode", "stop", "investigateStart", "investigateNormal", "investigateValues", "investigatePoint", "look", "stance", "nextLook", "captureTarget", "dispatch", "storePattern", "hasPattern", "initPattern", "evade", "alongPath", "behaveStart", "capturedTime", "select", "assignWeapon", "alert", "jetState", "flying", "interrupt", "aligned", "field", "fieldTruthy", "fastTurn", "patternUpdate", "sensorStart", "sensorDistance", "samePattern", "skipFire", "raiseShield", "helperTick", "fireControls"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -69,6 +107,44 @@ impl AiCombatAgentOp {
             25 => Some(AiCombatAgentOp::SwitchShield),
             26 => Some(AiCombatAgentOp::FireA),
             27 => Some(AiCombatAgentOp::FireB),
+            28 => Some(AiCombatAgentOp::EntryStart),
+            29 => Some(AiCombatAgentOp::CapturedKind),
+            30 => Some(AiCombatAgentOp::CapturedMode),
+            31 => Some(AiCombatAgentOp::Stop),
+            32 => Some(AiCombatAgentOp::InvestigateStart),
+            33 => Some(AiCombatAgentOp::InvestigateNormal),
+            34 => Some(AiCombatAgentOp::InvestigateValues),
+            35 => Some(AiCombatAgentOp::InvestigatePoint),
+            36 => Some(AiCombatAgentOp::Look),
+            37 => Some(AiCombatAgentOp::Stance),
+            38 => Some(AiCombatAgentOp::NextLook),
+            39 => Some(AiCombatAgentOp::CaptureTarget),
+            40 => Some(AiCombatAgentOp::Dispatch),
+            41 => Some(AiCombatAgentOp::StorePattern),
+            42 => Some(AiCombatAgentOp::HasPattern),
+            43 => Some(AiCombatAgentOp::InitPattern),
+            44 => Some(AiCombatAgentOp::Evade),
+            45 => Some(AiCombatAgentOp::AlongPath),
+            46 => Some(AiCombatAgentOp::BehaveStart),
+            47 => Some(AiCombatAgentOp::CapturedTime),
+            48 => Some(AiCombatAgentOp::Select),
+            49 => Some(AiCombatAgentOp::AssignWeapon),
+            50 => Some(AiCombatAgentOp::Alert),
+            51 => Some(AiCombatAgentOp::JetState),
+            52 => Some(AiCombatAgentOp::Flying),
+            53 => Some(AiCombatAgentOp::Interrupt),
+            54 => Some(AiCombatAgentOp::Aligned),
+            55 => Some(AiCombatAgentOp::Field),
+            56 => Some(AiCombatAgentOp::FieldTruthy),
+            57 => Some(AiCombatAgentOp::FastTurn),
+            58 => Some(AiCombatAgentOp::PatternUpdate),
+            59 => Some(AiCombatAgentOp::SensorStart),
+            60 => Some(AiCombatAgentOp::SensorDistance),
+            61 => Some(AiCombatAgentOp::SamePattern),
+            62 => Some(AiCombatAgentOp::SkipFire),
+            63 => Some(AiCombatAgentOp::RaiseShield),
+            64 => Some(AiCombatAgentOp::HelperTick),
+            65 => Some(AiCombatAgentOp::FireControls),
             _ => None,
         }
     }
@@ -79,24 +155,27 @@ pub struct AiCombatAgentArgs {
     pub op: AiCombatAgentOp,
     pub id: u32,
     pub number: f64,
+    pub point: [f64; 3],
 }
 
 impl AiCombatAgentArgs {
-    pub const WORDS: usize = 3;
+    pub const WORDS: usize = 6;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
         row[0] = self.op as u8 as f64;
         row[1] = self.id as f64;
         row[2] = self.number;
+        row[3..3 + 3].copy_from_slice(&self.point);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
         Self {
             op: AiCombatAgentOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             id: word_u32(row[1]),
             number: row[2],
+            point: { let mut a = [0.0; 3]; a.copy_from_slice(&row[3..3 + 3]); a },
         }
     }
 

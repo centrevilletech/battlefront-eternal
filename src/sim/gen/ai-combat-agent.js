@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiCombatAgentOp_NAMES = ["goalMode","request","goalPoint","goalTarget","cleanup","base","mode","state","patternExit","unit","speed","mount","known","cone","sourcePoint","target","distanceStart","distanceTarget","engage","mountReach","mountCall","boarding","shield","shieldMax","shieldValue","switchShield","fireA","fireB"];
+export const AiCombatAgentOp_NAMES = ["goalMode","request","goalPoint","goalTarget","cleanup","base","mode","state","patternExit","unit","speed","mount","known","cone","sourcePoint","target","distanceStart","distanceTarget","engage","mountReach","mountCall","boarding","shield","shieldMax","shieldValue","switchShield","fireA","fireB","entryStart","capturedKind","capturedMode","stop","investigateStart","investigateNormal","investigateValues","investigatePoint","look","stance","nextLook","captureTarget","dispatch","storePattern","hasPattern","initPattern","evade","alongPath","behaveStart","capturedTime","select","assignWeapon","alert","jetState","flying","interrupt","aligned","field","fieldTruthy","fastTurn","patternUpdate","sensorStart","sensorDistance","samePattern","skipFire","raiseShield","helperTick","fireControls"];
 export const AiCombatAgentOp_INDEX = new Map(AiCombatAgentOp_NAMES.map((name, i) => [name, i]));
 
 export class AiCombatAgentArgsMirror {
@@ -10,6 +10,7 @@ export class AiCombatAgentArgsMirror {
     this.op = "goalMode";
     this.id = 0;
     this.number = NaN;
+    this.point = [NaN, NaN, NaN];
   }
 }
 
@@ -17,6 +18,7 @@ export function syncAiCombatAgentArgs(b, f, at, h, m) {
   m.op = AiCombatAgentOp_NAMES[f[at + 0]];
   m.id = f[at + 1];
   m.number = f[at + 2];
+  { const a = (m.point ??= new Array(3)); a[0] = f[at + 3]; a[1] = f[at + 4]; a[2] = f[at + 5]; }
   return m;
 }
 
@@ -24,12 +26,14 @@ export function putAiCombatAgentArgs(b, o, f, at, heap) {
   f[at + 0] = AiCombatAgentOp_INDEX.get(o.op);
   f[at + 1] = o.id;
   f[at + 2] = o.number;
+  { const $v = o.point; f[at + 3] = $v[0]; f[at + 4] = $v[1]; f[at + 5] = $v[2]; }
 }
 
 export function sameAiCombatAgentArgs(a, b) {
   if (!Object.is(a.op, b.op)) return ".op";
   if (!Object.is(a.id, b.id)) return ".id";
   if (!Object.is(a.number, b.number)) return ".number";
+  if (!sameArray(a.point, b.point, 3)) return ".point";
   return null;
 }
 
@@ -41,6 +45,7 @@ export function exportAiCombatAgentArgs(o, cx) {
   v.op = o.op;
   v.id = o.id;
   v.number = o.number;
+  v.point = [...o.point];
   return v;
 }
 

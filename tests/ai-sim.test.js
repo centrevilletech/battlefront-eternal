@@ -1735,3 +1735,38 @@ test('native combat-agent policies preserve mount callbacks, source gates and sh
   }
   for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`combat agent policies ${i}`);
 });
+
+test('native combat-agent phases preserve tracker replacement, shared dispatch and tail ordering', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/7,difficulty:{enemySkill:14}},otherWorld={...world,time:999},ai={world};let a;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8400).fill(3));};
+    const c={ai,world,roll:i%6,rangeScale:1},other={ai,world};
+    const unit=c.unit={id:1,kind:[0,1,2,3,5,6,'0'][i%7],alive:i%47!==0,position:new Vector3(i%4,0,0),classDef:{UnitType:'trooper',MaxSpeed:3},
+      origin(p){log('origin');p.copy(unit.position);},forward(p){p.set(0,0,1);}};other.unit=unit;unit.controller=c;
+    const target={id:2,kind:0,alive:true,generation:0,position:new Vector3(0,0,20),velocity:new Vector3(),category:0,sphere:{radius:1},maxHealth:100,aimPoint(p){log('target-aim');p.copy(target.position);}};
+    const weapon={id:0,channel:0,clip:12,reserve:30,rounds:1,def:{base:'rifle',ammo:30,ordnance:{base:'bolt',Damage:20},ai:{minRange:0,optimalRange:20,maxRange:50,extremeRange:80,implicitRange:false,categoryMask:0xffffffff}}};
+    unit.combat={arsenal:{weapons:[weapon],current(ch){log('current',ch);if(i%17===0)unit.position=new Vector3(50,0,3);return weapon;},select(w){log('select-weapon',w.id);return true;}}};
+    c.perception=new Perception(c);if(native)sim.bindPerception(c.perception);other.perception=c.perception;
+    const control=(c,name)=>{c.lookAt=p=>{log('look',name,p.toArray());if(i%19===0)a.point=new Vector3(1,2,3);};c.setStance=n=>{log('stance',name,n);if(i%23===0)a.controller=other;};
+      c.lookAlongPath=()=>log('along',name);c.requestFacing=()=>log('facing',name);};control(c,'first');control(other,'other');
+    const helper={flying:i%3===0,stop(){log('stop');},tick(dt){log('helper-tick',dt);if(i%13===0)a.tracker=tracker2;}};
+    const tracker=name=>({target:i%11===0?null:target,point:new Vector3(0,0,i%29===0?1000:20),
+      select(w){log('track-select',name,w===world);if(i%7===0)a.tracker=tracker2;if(i%31===0)a.world=otherWorld;return i%5===0?'changed':false;},
+      assignWeaponTarget(w){log('assign-weapon',name,w===world);},fireControls(w){log('fire',name,w===world);}});
+    const tracker1=tracker('first'),tracker2=tracker('second');ai.createHelper=()=>helper;ai.combat={initAgent(agent){agent.tracker=tracker1;}};
+    world.vehicles={dispatch(control,u,t,sw,w,out){log('dispatch',control===c,u===unit,t===target,sw,w===world);out.pattern=[0,2,3,'2'][i%4];out.probability=.5;return out;}};
+    a=new UnitCombatAgent(c,null);a.point.set(i%5,0,4);a.hazard.set(3,0,1);
+    a.requestState=n=>{log('request',n);a.pending=n;};a.nextLook=()=>{log('next-look');a.looks+=1;};a.evade=t=>log('evade',t);a.alignedTo=p=>{log('aligned',p===a.point);return i%3!==0;};
+    a.raiseShield=u=>{log('raise-shield',u===unit);return i%2===0;};
+    a.patterns={state:[2,11,'11'][i%3],skipFire:i%7===0?'skip':false,init(p,prob){log('pattern-init',p,prob);},
+      update(dt,alternate){log('pattern-update',dt,alternate);if(i%23===0)unit.kind=3;},onExit(){log('pattern-exit');}};
+    a.interrupts={tick(){log('interrupt');return i%37===0;}};
+    const state=[1,2,3,4,5,6,100,'4'][i%8];a.state=state;a.onEnter();const entered=[a.pending,a.pattern,a.point.toArray(),a.aligned,a.proneUntil];
+    a.controller=c;a.world=world;a.state=state;a.aligned=i%2===0?'yes':false;a.alignAt=[-1,Infinity,'0',NaN][i%4];a.looks=[0,1,'2',3][i%4];
+    a.hazardUntil=a.proneUntil=[-1,'0',Infinity,NaN][i%4];a.pattern=[0,2,3,'2'][i%4];a.stationary=true;
+    a.behave({step:i});
+    return {history,entered,values:[a.state,a.pending,a.alignAt,a.aligned,a.looks,a.pattern,a.stationary,a.hazardUntil,a.proneUntil],point:a.point.toArray(),mode:c.wantedMode,alert:c.alertAnim};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`combat agent phase ${i}`);
+});

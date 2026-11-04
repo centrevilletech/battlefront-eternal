@@ -1,12 +1,12 @@
 import { Vector3 } from 'three';
-import { forwardSpeed, switchWeapon } from './ai/classic/weapons-ai.js';
+import { forwardSpeed, sensorRange, switchWeapon } from './ai/classic/weapons-ai.js';
 const fields=['alignAt','looks','lookAngle','aligned','hazardUntil','proneUntil','pattern','stationary','point','hazard'];
 
 export class NativeCombatAgents {
   constructor(sim) {
     this.sim=sim;this.frames=[];this.agents=new WeakMap();this.vectors=new WeakSet();
     sim.bridge.register({aiCombatAgent:args=>{
-      const op=args.op,id=args.id,number=args.number,frame=this.frames[this.frames.length-1],a=frame.agent;
+      const op=args.op,id=args.id,number=args.number,point=[...args.point],frame=this.frames[this.frames.length-1],a=frame.agent;
       const result={flag:false,number:0,values:[]},strict=value=>typeof value==='number'?value:NaN;
       if(op==='goalMode')result.number=strict(frame.value?.mode);
       else if(op==='request')a.requestState(number);
@@ -36,6 +36,44 @@ export class NativeCombatAgents {
       else if(op==='switchShield')switchWeapon(a.controller,frame.value,1);
       else if(op==='fireA')a.controller.fireA=true;
       else if(op==='fireB')a.controller.fireB=false;
+      else if(op==='entryStart'){frame.controller=a.controller;frame.unit=frame.controller.unit;result.number=a.world?.time??0;}
+      else if(op==='capturedKind')result.number=strict(frame.unit?.kind);
+      else if(op==='capturedMode')frame.controller.wantedMode=number;
+      else if(op==='stop')a.helper?.stop?.();
+      else if(op==='investigateStart'){const p=frame.position=frame.unit.position;result.values=[a.point.x,p.x,a.point.z,p.z];}
+      else if(op==='investigateNormal'){const n=frame.scratch.cn;n.x=point[0];n.y=point[1];n.z=point[2];}
+      else if(op==='investigateValues'){const p=frame.position,n=frame.scratch.cn;result.values=[p.x,n.x,p.y,n.y,p.z,n.z];}
+      else if(op==='investigatePoint')a.point.set(...point);
+      else if(op==='look'){const p=a.point,c=frame.controller;if(c.lookAt)c.lookAt(p);else{c.aimState=1;(c.aimPoint||=new Vector3()).copy(p);}}
+      else if(op==='stance'){const c=frame.controller;if(c.setStance)c.setStance(number);else c.stance=number;}
+      else if(op==='nextLook')a.nextLook();
+      else if(op==='captureTarget'){frame.target=a.tracker.target;result.flag=Boolean(frame.target);}
+      else if(op==='dispatch'){const dispatch=frame.dispatch;frame.selection=dispatch(frame.controller,frame.unit,frame.target,true,id===0?a.world:frame.world,frame.scratch.pick);}
+      else if(op==='storePattern')a.pattern=frame.selection.pattern;
+      else if(op==='hasPattern')result.flag=Boolean(frame.selection.pattern);
+      else if(op==='initPattern')a.patterns.init(frame.selection.pattern,frame.selection.probability);
+      else if(op==='evade')a.evade(number);
+      else if(op==='alongPath'){const c=frame.controller;if(c.lookAlongPath)c.lookAlongPath();else c.aimState=2;}
+      else if(op==='behaveStart'){frame.controller=a.controller;frame.unit=frame.controller.unit;frame.world=a.world;result.flag=Boolean(frame.unit?.alive);}
+      else if(op==='capturedTime')result.number=frame.world?.time??0;
+      else if(op==='select')result.flag=Boolean(a.tracker.select(frame.world));
+      else if(op==='assignWeapon')a.tracker.assignWeaponTarget(frame.world);
+      else if(op==='alert')frame.controller.alertAnim=true;
+      else if(op==='jetState')result.flag=a.patterns.state===11;
+      else if(op==='flying')result.flag=Boolean(a.helper?.flying);
+      else if(op==='interrupt')result.flag=Boolean(a.interrupts?.tick?.());
+      else if(op==='aligned')result.flag=Boolean(a.alignedTo(a.point));
+      else if(op==='field')result.number=a[fields[id]];
+      else if(op==='fieldTruthy')result.flag=Boolean(a[fields[id]]);
+      else if(op==='fastTurn'){const c=frame.controller;if(c.requestFacing)c.requestFacing();else if(c.unit?.kind===0||c.unit?.kind===3)c.facing=true;}
+      else if(op==='patternUpdate')a.patterns.update(frame.value,false);
+      else if(op==='sensorStart'){frame.position=frame.unit.position;frame.targetPoint=a.tracker.point;result.number=sensorRange(frame.unit,frame.controller);}
+      else if(op==='sensorDistance'){const p=frame.position,t=frame.targetPoint;result.values=[t.x,p.x,t.z,p.z];}
+      else if(op==='samePattern')result.flag=frame.selection.pattern===a.pattern;
+      else if(op==='skipFire')result.flag=Boolean(a.patterns.skipFire);
+      else if(op==='raiseShield')result.flag=Boolean(a.raiseShield(frame.unit));
+      else if(op==='helperTick')a.helper?.tick?.(frame.value);
+      else if(op==='fireControls')a.tracker.fireControls(frame.world);
       else throw Error(`unknown combat-agent callback ${op}`);
       return result;
     }});
@@ -65,8 +103,8 @@ export class NativeCombatAgents {
       agent[name]=initial;
     });this.agents.set(agent,id);
   }
-  run(agent,mode,value,point,base,resolve,cone,clear) {
-    this.bind(agent);const frame={agent,value,point,base,resolve,cone,clear};this.frames.push(frame);
-    try {const result=this.sim.x.ai_combat_agent_run(this.agents.get(agent),mode);return mode<3?undefined:result===2?frame.result:Boolean(result);} finally {this.frames.pop();}
+  run(agent,mode,value,point,base,resolve,cone,clear,scratch,dispatch) {
+    this.bind(agent);const frame={agent,value,point,base,resolve,cone,clear,scratch,dispatch};this.frames.push(frame);
+    try {const result=this.sim.x.ai_combat_agent_run(this.agents.get(agent),mode);return mode<3||mode>8?undefined:result===2?frame.result:Boolean(result);} finally {this.frames.pop();}
   }
 }

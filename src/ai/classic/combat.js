@@ -1110,6 +1110,7 @@ const cb = new THREE.Vector3();
 const cn = { x: 0, y: 0, z: 0 };
 const cm = { x: 0, y: 0, z: 0 };
 const pick = {};
+const combatScratch = { ca, cb, cn, cm, pick };
 
 export class UnitCombatAgent extends Agent {
   // goal: the combat source goal (SourceGoal: mode 0 location, 1 target, 2
@@ -1130,7 +1131,7 @@ export class UnitCombatAgent extends Agent {
     this.stationary = false;
     this.world?.aiSim?.combatAgents.bind(this);
     this.state = 1;
-    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,0,goal,null,null,resolve,inForwardCone,boardingClear);
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,0,goal,null,null,resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     switch (goal?.mode) {
       case 0:
         this.requestState(2);
@@ -1157,7 +1158,7 @@ export class UnitCombatAgent extends Agent {
   // Controller state exit: the patterns let go of cover,
   // then the base ends the helper and this machine.
   exit() {
-    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,1,undefined,undefined,()=>super.exit(),resolve,inForwardCone,boardingClear);
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,1,undefined,undefined,()=>super.exit(),resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     this.patterns.cleanup();
     super.exit();
   }
@@ -1170,7 +1171,7 @@ export class UnitCombatAgent extends Agent {
   // while looking around (3), or while fighting (4) when the point is outside
   // the 77.5-degree flat forward cone.
   acceptsAlert(known, point) {
-    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,4,known,point,undefined,resolve,inForwardCone,boardingClear);
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,4,known,point,undefined,resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     const unit = this.controller.unit;
     const k = unit?.kind;
     if (k === 2 || k === 6 || k === 5) return false;
@@ -1183,7 +1184,7 @@ export class UnitCombatAgent extends Agent {
 
   // Grenade danger, unless a flyer or already evading.
   acceptsHazard() {
-    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,3,undefined,undefined,undefined,resolve,inForwardCone,boardingClear);
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,3,undefined,undefined,undefined,resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     return this.controller.unit?.kind !== 5 && this.state !== 5;
   }
 
@@ -1192,7 +1193,7 @@ export class UnitCombatAgent extends Agent {
   // remembered target (squared 0.4356), and the base policy (weapon in slot
   // 0, the dispatcher would engage) agrees.
   acceptsAcoustic(source) {
-    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,5,source,undefined,undefined,resolve,inForwardCone,boardingClear);
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,5,source,undefined,undefined,resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     const unit = this.controller.unit;
     const k = unit?.kind;
     if (!source || k === 2 || k === 6 || k === 5) return false;
@@ -1217,7 +1218,7 @@ export class UnitCombatAgent extends Agent {
   // A boarding candidate only while no hostile target
   // is near it, then the base policy.
   acceptsBoard(candidate) {
-    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,7,candidate,undefined,()=>super.acceptsBoard(candidate),resolve,inForwardCone,boardingClear);
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,7,candidate,undefined,()=>super.acceptsBoard(candidate),resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     return boardingClear(this.world, this.controller.unit, candidate) && super.acceptsBoard(candidate);
   }
 
@@ -1232,7 +1233,7 @@ export class UnitCombatAgent extends Agent {
   }
 
   mountUnreachable(point) {
-    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,6,point,undefined,undefined,resolve,inForwardCone,boardingClear);
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,6,point,undefined,undefined,resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     const reach = this.ai?.vehicles?.mountReach;
     return reach ? !reach(this.controller.unit, point) : false;
   }
@@ -1283,6 +1284,7 @@ export class UnitCombatAgent extends Agent {
   // -- the machine -----------------------------------------------------------------------
 
   onEnter() {
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,9,undefined,undefined,undefined,resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     const c = this.controller;
     const unit = c.unit;
     const t = now(this.world);
@@ -1376,13 +1378,14 @@ export class UnitCombatAgent extends Agent {
   }
 
   onExit() {
-    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,2,undefined,undefined,undefined,resolve,inForwardCone,boardingClear);
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,2,undefined,undefined,undefined,resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     wantMode(this.controller, 2);
     if (this.state === 4) this.patterns.onExit();
   }
 
   // Phase 0: one service's work.
   behave(dt) {
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,10,dt,undefined,undefined,resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     const c = this.controller;
     const unit = c.unit;
     const world = this.world;
@@ -1473,7 +1476,7 @@ export class UnitCombatAgent extends Agent {
   // A droideka with its shield down and more than half its energy selects
   // the shield (inventory index 1) and presses it directly.
   raiseShield(unit) {
-    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,8,unit,undefined,undefined,resolve,inForwardCone,boardingClear);
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.run(this,8,unit,undefined,undefined,resolve,inForwardCone,boardingClear,combatScratch,dispatch);
     const shield = unit.soldier?.shield;
     if (!shield || shield.on) return false;
     if (!(f(f(shield.max ?? 0) * 0.5) < (shield.value ?? 0))) return false;
