@@ -18,6 +18,8 @@ mod combat;
 pub use self::combat::*;
 mod flight;
 pub use self::flight::*;
+mod input;
+pub use self::input::*;
 mod items;
 pub use self::items::*;
 mod nav;

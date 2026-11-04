@@ -37,6 +37,7 @@ mod gen_test;
 #[cfg(test)]
 mod gen_tests;
 pub mod items;
+pub mod input;
 pub mod movement;
 pub mod ordnance;
 pub mod pose;

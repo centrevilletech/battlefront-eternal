@@ -23,6 +23,7 @@ export * from "./battle.js";
 export * from "./battlefield.js";
 export * from "./combat.js";
 export * from "./flight.js";
+export * from "./input.js";
 export * from "./items.js";
 export * from "./nav.js";
 export * from "./ordnance.js";
