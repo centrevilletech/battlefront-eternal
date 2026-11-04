@@ -23,6 +23,8 @@ struct World {
     collision: u8,
     controls: u32,
     kill_entries: usize,
+    nested_destroy: Option<usize>,
+    expected_empty: Option<Ref<Vehicle>>,
 }
 impl SeatWorld for World {
     fn publish_hulls(&mut self, st: &Store, hulls: &bfe_sim::seats::hulls::Hulls) {
@@ -56,10 +58,11 @@ impl SeatWorld for World {
         // This is the synchronous kill-entry contract, before death hooks can
         // reenter. Mutating the seat link here must be detected by the test.
         assert!(st.unit.get(Ref::new(id, 0)).unwrap().seat.is_none());
+        if let Some(v) = self.expected_empty {
+            assert!(st.vehicle.get(v).unwrap().seats.iter().all(|s| s.lease.is_none()));
+        }
         if let Seating::Hulls(h) = seating {
-            for side in &h.hulls {
-                assert!(st.vehicle.get(side.vehicle).unwrap().seats.iter().all(|s| s.lease.is_none()));
-            }
+            if let Some(other) = self.nested_destroy.take() { h.destroyed_crew(st, self, other); }
         }
         let u = st.unit.get_mut(Ref::new(id, 0)).unwrap();
         u.alive = false; u.dead = true; u.combat.dead = true;
@@ -217,6 +220,7 @@ fn destroyed_crews_are_all_released_at_each_kill_entry() {
     let (mut st, mut p, mut w, h) = setup(2);
     let a = unit(&mut st, 1, false); let b = unit(&mut st, 2, false);
     assert!(p.board(&mut st, &mut w, a, h, 0)); assert!(p.board(&mut st, &mut w, b, h, 1));
+    w.expected_empty = Some(h.vehicle);
     assert!(p.destroyed(&mut st, &mut w, h));
     assert_eq!(w.kill_entries, 2);
     assert!(!st.unit.get(a.unit).unwrap().alive); assert!(!st.unit.get(b.unit).unwrap().alive);
@@ -322,4 +326,21 @@ fn warmed_hull_and_turret_phases_allocate_nothing() {
     }
     let allocations = allocation::stop();
     assert_eq!(allocations, 0, "warmed seat phases must reuse their storage");
+}
+
+#[test]
+fn a_nested_crew_death_preserves_the_outer_pending_deaths() {
+    let (mut st, mut p, mut w, h) = setup(2);
+    let other = hull(&mut st, &mut p, 1);
+    let a = unit(&mut st, 1, false); let b = unit(&mut st, 2, false); let c = unit(&mut st, 3, false);
+    assert!(p.board(&mut st, &mut w, a, h, 0));
+    assert!(p.board(&mut st, &mut w, b, h, 1));
+    assert!(p.board(&mut st, &mut w, c, other, 0));
+    w.nested_destroy = Some(1);
+    assert!(p.destroyed(&mut st, &mut w, h));
+    assert_eq!(w.kill_entries, 3);
+    assert!(!st.unit.get(a.unit).unwrap().alive);
+    assert!(!st.unit.get(b.unit).unwrap().alive);
+    assert!(!st.unit.get(c.unit).unwrap().alive);
+    assert_eq!(w.events[w.events.len() - 3..], [Event::Kill(3), Event::Kill(1), Event::Kill(2)]);
 }
