@@ -294,11 +294,12 @@ test('spawn preserves chained receivers, retained identities and current living-
 test('generation uses both live operands, exact maximum semantics and the retained assignment target', async () => {
   const { world } = await native();
   for (const [a, b] of [[-0, 0], [0, -0], [-0, -0], [NaN, 9], [9, NaN], [Infinity, -Infinity], [2 ** 53, 2 ** 53 - 1]]) {
-    twin(world, { setup(f) {
+    const pair = twin(world, { setup(f) {
       f.raw(f.selected).generation = a; f.raw(f.previous).generation = b;
       // Observe the maximum without letting this fixture's spawn increment it.
       f.raw(f.selected).spawn = function (...point) { assert.equal(this, f.selected); f.call('spawn selected', point); };
     } });
+    assert.equal(bits(pair.wasm.raw(pair.wasm.selected).generation), bits(pair.js.raw(pair.js.selected).generation));
   }
   twin(world, { setup(f) {
     f.raw(f.selected).generation = { valueOf() { f.call('coerce selected'); f.raw(f.previous).generation = 99; return 3; } };

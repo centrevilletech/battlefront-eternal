@@ -152,7 +152,7 @@ fn generation_max_preserves_signed_zero_infinities_and_nan() {
         let mut world = World { generations, ..World::default() };
         assert!(lifecycle::spawn(&mut world, 4.0, false, false));
         let actual = world.value(Call::Generation);
-        if expected.is_nan() { assert!(actual.is_nan()); }
+        if expected.is_nan() { assert_eq!(actual.to_bits(), 0xfff8_0000_0000_0000); }
         else { assert_eq!(actual.to_bits(), expected.to_bits()); }
     }
 }

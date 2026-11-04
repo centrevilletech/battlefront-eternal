@@ -37,7 +37,11 @@ pub fn spawn(host: &mut impl Host, respawn: f64, remote: bool, weapons: bool) ->
     host.call(Call::Publish, 0.0);
     if changed {
         let generations = host.call(Call::Generations, 0.0);
-        host.call(Call::Generation, v8math::max(generations.value, generations.second));
+        let maximum = v8math::max(generations.value, generations.second);
+        // Math.max publishes the negative canonical NaN, even for a
+        // positive or payload-bearing operand. Preserve its stored bits.
+        let maximum = if maximum.is_nan() { f64::from_bits(0xfff8_0000_0000_0000) } else { maximum };
+        host.call(Call::Generation, maximum);
     }
     host.call(Call::Spawn, 0.0);
     if weapons {
