@@ -16,7 +16,8 @@ function writeVector(w,array,length){if(!Array.isArray(array)||array.length!==le
 function readVector(r,length){return Array.from({length},()=>r.read());}
 // This block is independent of the own-player envelope. References such as the
 // droid definition and slot/generation belong to its enclosing control mode.
-export function encodeRemoteCorrection(state,droid){
+export function encodeRemoteCorrection(state,droid,native=null){
+ if(typeof native?.recon==='function')return native.recon(state,droid);
  if(state.weapons.length>2||state.weapons.length!==droid.arsenal.weapons.length||state.selected.length!==2)throw Error('unsupported recon arsenal');
  if(!Number.isInteger(state.zoomStep)||state.zoomStep<0||state.zoomStep>1)throw Error('invalid recon zoom');for(let channel=0;channel<2;channel++)if(!Number.isInteger(state.selected[channel])||state.selected[channel]<0||state.selected[channel]>=Math.max(1,droid.arsenal.channels[channel].length))throw Error('invalid recon selected weapon');
  if(typeof state.dead!=='boolean'||typeof state.piloted!=='boolean'||state.dead&&state.piloted)throw Error('invalid recon control state');

@@ -41,6 +41,7 @@ pub mod input;
 pub mod movement;
 pub mod ordnance;
 pub mod pose;
+pub mod prediction;
 pub mod rig;
 pub mod seats;
 pub mod store;

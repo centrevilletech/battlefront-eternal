@@ -1,4 +1,5 @@
 import {EntityRemoteCapture} from './network-entity-remotes.js';
+import {WireEntityCapture} from './wire-capture.js';
 import {EntityItemCapture} from './network-entity-items.js';
 import {captureOwnPlayer} from './network-entity-player.js';
 import {chargeStep} from '../weapons.js';
@@ -41,7 +42,7 @@ export function captureEntityTurret(turret,{tick,building=-1}){
 // Fixed actor roster capture. World summaries use network-entity-summary.js;
 // projectile/effect lifecycle coverage remains separate work.
 export class EntityWorldCapture {
- constructor(game,registry,{maxEntities=256,fireCounter=()=>0}={}){this.game=game;this.classes=reverse(registry.classes);this.weapons=reverse(registry.weapons);this.maxEntities=maxEntities;this.fireCounter=fireCounter;this.known=new Map();this.seats=new Map();this.leaseSerial=0;this.unsupported=[];this.items=game.items?new EntityItemCapture(game.items,registry.combat):null;this.remotes=new EntityRemoteCapture(game,registry.combat);}
+ constructor(game,registry,{maxEntities=256,fireCounter=()=>0,bridge=null}={}){if(bridge)return new WireEntityCapture(game,registry,{maxEntities,fireCounter,bridge});this.game=game;this.classes=reverse(registry.classes);this.weapons=reverse(registry.weapons);this.maxEntities=maxEntities;this.fireCounter=fireCounter;this.known=new Map();this.seats=new Map();this.leaseSerial=0;this.unsupported=[];this.items=game.items?new EntityItemCapture(game.items,registry.combat):null;this.remotes=new EntityRemoteCapture(game,registry.combat);}
  capture(tick){
   const live=new Map(),records=[...(this.items?.capture(tick)??[]),...this.remotes.capture(tick)];this.unsupported=[];
   for(const unit of this.game.units.all()){
@@ -70,13 +71,13 @@ export class EntityWorldCapture {
   this.known=live;for(const id of this.seats.keys())if(!live.has(id)||live.get(id).kind==='tombstone')this.seats.delete(id);return records;
  }
 }
-export function capturePlayerCorrection(game,world,playerId,{tick=game.worldClock.tick,epoch=1,registry,bindingProfileId=0}={}){
+export function capturePlayerCorrection(game,world,playerId,{tick=game.worldClock.tick,epoch=1,registry,bindingProfileId=0,native=null}={}){
  const player=world.players.get(playerId);if(!player?.unit||player.spectator)throw Error('own spectator correction not implemented');
  const unit=player.unit;
  // Authenticated content registries already contain the reverse index. Custom
  // callers may still supply only the forward table; never cache mutable tables.
  const vehicle=unit.seat?.index===0?unit.seat.vehicle||null:null,classId=required(registry.classIds??reverse(registry.classes),unit.className);
- return captureOwnPlayer({unit,vehicle,vehicleId:vehicle?.aiTarget.id||0,vehicleGeneration:vehicle?.aiTarget.generation||0,tick,epoch,registry,classId,bindingProfileId,held:player.mailbox.down,view:player.mailbox.view,discardedInput:player.mailbox.discarded||0});
+ return captureOwnPlayer({unit,vehicle,vehicleId:vehicle?.aiTarget.id||0,vehicleGeneration:vehicle?.aiTarget.generation||0,tick,epoch,registry,classId,bindingProfileId,held:player.mailbox.down,view:player.mailbox.view,discardedInput:player.mailbox.discarded||0,native});
 }
 // Unsupported own actor classes remain explicit. Supported infantry, recon,
 // vehicle and stationary turret controls always receive an exact own checkpoint.

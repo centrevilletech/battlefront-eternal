@@ -1,8 +1,10 @@
 // External edge IDs can arrive out of order. Engine mailboxes deliberately use
 // monotonic internal IDs; retain the translation until simulation consumption.
 import { EntityEdgeReceiver } from './network-entity-edges.js';
+import { WireEntityEdges } from './wire-edges.js';
 export class EntityEdges {
-  constructor({Receiver=EntityEdgeReceiver,actor,world,client,registry,capacity=256}) {
+  constructor({Receiver=EntityEdgeReceiver,actor,world,client,registry,capacity=256,instance=null,bridge=null}) {
+    if((instance||bridge)&&Receiver===EntityEdgeReceiver)return new WireEntityEdges({instance,bridge:bridge??undefined,actor,world,client,registry,capacity});
     this.actor=actor;this.world=world;this.client=client;this.registry=registry;this.capacity=capacity;
     this.receiver=new Receiver({maxFuture:120});this.pending=new Map();this.results=new Map();this.received=[];
     this.dropped={edges:0,results:0};

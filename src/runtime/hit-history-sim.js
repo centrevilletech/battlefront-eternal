@@ -21,9 +21,6 @@ export function attachHitHistoryBridge(bridge, source) {
     if (prior.bridge !== bridge) throw Error('hit history already belongs to another simulation');
     return prior;
   }
-  // Attach at world setup, before its first capture. A populated history
-  // must keep all its rewind samples, so never silently replace it.
-  if (source.tick !== -1 || source.frames.some(frame => frame.tick !== -1)) throw Error('native hit history requires a fresh history');
   const x = bridge.x;
   let handle = x.history_create(source.maxTicks), nextKey = 1;
   const keys = new WeakMap(), refs = new Map(), words = [], types = shapeTypes.slice(), parts = [];
@@ -49,6 +46,35 @@ export function attachHitHistoryBridge(bridge, source) {
     return key;
   };
   const release = key => { const ref = refs.get(key); if (ref && --ref.count === 0) refs.delete(key); };
+  const writeShape = shape => {
+    words.push(token(types, shape.type), token(parts, shape.part)); vec(shape.center);
+    optional(shape.radius); optional(shape.yaw);
+    if (shape.half?.isVector3) { words.push(2); vec(shape.half); }
+    else words.push(shape.half === undefined ? 0 : 1, shape.half === undefined ? 0 : shape.half, 0, 0);
+  };
+  const writeCapture = () => {
+    const ptr = x.history_room(handle, words.length);
+    bridge.views(); bridge.f.set(words, ptr / 8);
+    x.history_capture(handle);
+  };
+
+  function importFrame(frame, index) {
+    const held = [];
+    words.length = 0; words.push(frame.tick, frame.count);
+    try {
+      for (let i = 0; i < frame.count; i++) {
+        const entry = frame.entries[i], key = keep(entry.unit); held.push(key);
+        words.push(key); optional(entry.generation); vec(entry.position); vec(entry.center);
+        words.push(entry.radius, entry.shapeCount);
+        for (let j = 0; j < entry.shapeCount; j++) writeShape(entry.shapes[j]);
+      }
+      writeCapture();
+    } catch (error) {
+      for (const key of held) release(key);
+      throw error;
+    }
+    frameKeys[index] = held;
+  }
 
   function capture(tick) {
     live();
@@ -68,16 +94,11 @@ export function attachHitHistoryBridge(bridge, source) {
         const countAt = words.length; words.push(0);
         if (strikeable(unit)) for (const shape of unit.hitShapes()) {
           words[countAt]++;
-          words.push(token(types, shape.type), token(parts, shape.part)); vec(shape.center);
-          optional(shape.radius); optional(shape.yaw);
-          if (shape.half?.isVector3) { words.push(2); vec(shape.half); }
-          else words.push(shape.half === undefined ? 0 : 1, shape.half === undefined ? 0 : shape.half, 0, 0);
+          writeShape(shape);
         }
       }
       words[1] = held.length;
-      const ptr = x.history_room(handle, words.length);
-      bridge.views(); bridge.f.set(words, ptr / 8);
-      x.history_capture(handle);
+      writeCapture();
     } catch (error) {
       for (const key of held) release(key);
       throw error;
@@ -211,6 +232,22 @@ export function attachHitHistoryBridge(bridge, source) {
   };
   const methods = { capture, frame, sample, shotTick, position, raycast };
   const descriptors = Object.keys(methods).map(name => [name, Object.getOwnPropertyDescriptor(source, name)]);
+  // A host may join an already-running world, or return after disposal.
+  // Import the retained records, including units no longer in the live
+  // registry. Live getters describe the present and cannot rebuild them.
+  // Captures need not be ordered: the latest capture, not the largest
+  // retained tick, determines the rewind limit. Import that frame last.
+  const current = source.tick % source.frames.length;
+  try {
+    for (let i = 0; i < source.frames.length; i++) {
+      if (i !== current && source.frames[i].tick !== -1) importFrame(source.frames[i], i);
+    }
+    if (source.tick !== -1) importFrame(source.frames[current], current);
+  } catch (error) {
+    x.history_drop(handle); handle = 0; refs.clear();
+    throw error;
+  }
+  source.sampledAt = -1;
   for (const [name, value] of Object.entries(methods)) {
     Object.defineProperty(source, name, { value, configurable: true });
   }

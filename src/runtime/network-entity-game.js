@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { attachWireInputBridge } from './wire-input.js';
 import {presentEntityEvent} from './entity-presentation-events.js';
 import {applyUnitState,UNIT_STATE_SCHEMA} from './entity-unit-state.js';
 import {applyWorldPresentation} from './entity-world-state.js';
@@ -69,6 +70,7 @@ function recordsByKind(records) {
 export class EntityGameState {
   constructor(game, registry, { beforeApply = () => {}, onCorrection = () => {}, onApplied = () => {} } = {}) {
     Object.assign(this, { game, registry, beforeApply, onCorrection, onApplied });
+    if (game.simBridge) attachWireInputBridge(registry, game.simBridge);
     this.receiver = new SnapshotClient();
     this.timeline = new SnapshotTimeline(); this.presentation = new SnapshotPresentation(this.timeline);
     const combatRegistry=registry.combat ?? createCombatRegistry(game.data);

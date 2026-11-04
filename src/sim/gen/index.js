@@ -35,6 +35,11 @@ export * from "./store.js";
 export * from "./traps.js";
 export * from "./units.js";
 export * from "./vehicles.js";
+export * from "./wire-capture.js";
+export * from "./wire-combat.js";
+export * from "./wire-edges.js";
+export * from "./wire-host.js";
+export * from "./wire-registry.js";
 export * from "./wire.js";
 
 // By code: name, layout hash (the same as the module's), singleton, key (the
