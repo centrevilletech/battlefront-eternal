@@ -513,25 +513,10 @@ fn internal(a: F2SeatCommand) {
     state().depth -= 1;
 }
 
-/// The unported hull weapon phase receives a transient trigger journal. Taking
-/// one of these triggers never writes a canonical lease from JavaScript.
-pub fn prepare_foreign_fire() {
-    let st = &mut sim().store;
-    let state = state();
-    for side in &state.owner.hulls.hulls {
-        let Some(v) = st.vehicle.get(side.vehicle) else { continue };
-        if !v.alive || v.flying && v.flight_state != Some(FlightState::Flying) { continue; }
-        for (i, seat) in v.seats.iter().enumerate() {
-            if side.weapons[i] == 0 { continue; }
-            let Some(r) = seat.lease else { continue };
-            let Some(l) = st.seat_lease.get_mut(r) else { continue };
-            if l.human { continue; }
-            state.fire_rows.push(F2SeatFire { lease: r,
-                pressed: [if l.input.pressed[0] { 1.0 } else { 0.0 }, if l.input.pressed[1] { 1.0 } else { 0.0 }], reload: l.input.reload });
-            for p in l.input.pressed.iter_mut().take(side.weapons[i]) { *p = false; }
-            l.input.reload = false; if !state.owner.changed.leases.contains(&r) { state.owner.changed.leases.push(r); }
-        }
-    }
+/// Vehicle.fireSeat consumed canonical edges; keep the lease mirror current.
+pub fn changed_lease(unit: Option<Ref<Unit>>, hull: Ref<Vehicle>) {
+    touch_hull(hull);
+    if let Some(unit) = unit { touch_unit(unit); }
 }
 
 /// Retirement removes class sidecars before a reused slab slot can be latched.

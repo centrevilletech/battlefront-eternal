@@ -2,6 +2,7 @@
 //! foreign facts only. No complete vehicle row is imported by an ordinary tick.
 pub use crate::vehicles::f2_seats as seats;
 pub mod live_seats;
+pub mod firing;
 
 use super::*;
 
@@ -22,6 +23,7 @@ fn publication() -> &'static mut crate::vehicles::f2_publication::Publication {
 }
 
 pub fn mark(r: Ref<Vehicle>) { publication().mark(r); }
+pub fn mark_changed(r: Ref<Vehicle>) { mark(r); }
 
 /// Vehicle construction registers its row without rewriting other pads or hulls.
 #[no_mangle]
@@ -59,6 +61,7 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
         *addr_of_mut!(ACC) = acc;
     }
     io().resize(CAPACITY, 0.0);
+    sim().events.reserve(262144, FfShot::WORDS, 1024);
     desc()[0] = io().as_mut_ptr() as usize as f64;
     desc()[1] = CAPACITY as f64;
     desc().as_ptr()
@@ -67,6 +70,7 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
 /// Publish without a getter crossing from JS, also before a synchronous hook.
 /// No reference to the store survives a foreign call.
 pub fn publish() {
+    desc()[14] = firing::phase_ptr() as usize as f64;
     desc()[13] = live_seats::publish() as usize as f64;
     let p = publication();
     p.flush(&mut sim().store);
@@ -190,16 +194,8 @@ fn foreign() {
     let n = data[o] as usize; o += 1;
     let end = o + n * 40;
     input().clear(); input().extend_from_slice(&data[o..end]); o = end; veh_flight_inputs(n as u32);
-    let n = data[o] as usize; o += 1;
-    for _ in 0..n {
-        let r = Ref::new(data[o] as u32, data[o + 1] as u32); o += 2;
-        let Some(v) = sim().store.vehicle.get_mut(r) else { panic!("stale F2 foreign row") };
-        // Tow state is foreign through step 5.
-        v.tow_target = data[o]; v.tow_local.copy_from_slice(&data[o + 1..o + 4]);
-        v.tow_leg = StrId(data[o + 4] as u32); v.tow_angle = data[o + 5]; v.tow_winding = data[o + 6]; o += 7;
-        let p = poses()[r.slot as usize].as_mut().expect("F2 rig");
-        o += posing::inputs(&mut p.pose, &data[o..]);
-    }
+    o += firing::inputs(&data[o..]);
+    assert_eq!(o, data.len(), "F2 foreign input length");
 }
 
 #[no_mangle]
@@ -207,6 +203,7 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
     assert!(active(), "F2 must be initialized");
     let dt = three::clamp(dt, 0.0, 0.1);
     unsafe { *addr_of_mut!(TIME) += dt; *addr_of_mut!(CLOCK) = Some(io()[0]); }
+    sim().events.clear();
     spawns(dt);
     foreign();
     live_seats::latch(unsafe { *addr_of_mut!(TIME) });
@@ -214,8 +211,9 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
     let left = veh_ground(dt, unsafe { *addr_of_mut!(ACC) }, unsafe { *addr_of_mut!(FLIGHT_ACC) }, io()[1], io()[0], flags);
     unsafe { *addr_of_mut!(ACC) = left; }
     desc()[10] = tick;
-    live_seats::prepare_foreign_fire();
     publish_posed();
+    import_f2_posed(&VehNothing {});
+    firing::step(dt, io()[0]);
     import_f2_foreign(&VehNumber { value: dt });
     live_seats::rider_bodies();
     live_seats::turret_tick(dt);
@@ -257,6 +255,7 @@ pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 {
     JsWorld { craft: u32::MAX }.enable_body(body, false);
     let v = sim().store.vehicle.get_mut(r).unwrap();
     v.alive = false; v.visible = false;
+    firing::retire(r);
     live_seats::retire(r);
     if !sim().store.vehicle.retire(r) { return 0; }
     sim().store.vehicles.vehicles.retain(|&x| x != r);

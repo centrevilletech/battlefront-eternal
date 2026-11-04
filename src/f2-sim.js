@@ -1,13 +1,14 @@
 // One whole ground/flight phase. Ordinary ticks import foreign inputs only.
 import * as THREE from 'three';
 import { F2Seats } from './f2-seats.js';
+import { F2Firing } from './f2-firing.js';
 import { makeGround, makeHit } from './collision.js';
 import { Weapon } from './weapons.js';
 import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
 import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, putF2Bodies } from './sim/gen/f2.js';
 import { MirrorPool } from './sim/runtime.js';
 import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, KIND_UNIT, KIND_OWNER_SNAPSHOT, VEHICLE_KEYS } from './sim/gen/index.js';
-import { rigNodes, json, classKeys, giveMapRules, pullPose, poseInputs, applyPose, flightNumbers } from './vehicle-phase-data.js';
+import { rigNodes, json, classKeys, giveMapRules, pullPose, applyPose, flightNumbers } from './vehicle-phase-data.js';
 import { putOrdnanceOwner } from './sim/gen/ordnance.js';
 import { ordnanceTests } from './ordnance-sim.js';
 import { F2Counters, F2MirrorCheck, countedF2Exports } from './f2-contract.js';
@@ -74,7 +75,7 @@ class F2 {
       f2Foreign: a => {
         const dt = a.value;
         this.sync();
-        vehicles.fireCrews(dt); vehicles.updateTethers();
+        this.firing.drain();
         if (vehicles.cosmetic !== false) vehicles.drawTethers(false);
         vehicles.syncCrews(false); this.seats.prepareRiders();
       },
@@ -91,6 +92,7 @@ class F2 {
         // the other hulls' pending look samples until foreignIn consumes them.
         this.sync();
         for (const seat of v.seats) for (const w of seat.weapons) { w.state = new Weapon(w.def); w.barrel = 0; }
+        this.firing.adopt(v);
         this.foreignIn();
       },
     });
@@ -101,6 +103,7 @@ class F2 {
     // Existing identity is retained for union classification and body owners.
     bridge.refs[KIND_VEHICLE] = this.pool;
     this.seats = new F2Seats(this);
+    this.firing = new F2Firing(this);
     this.bodyArgs = { words: this.x.f2_body_words(), put: putF2Bodies }; this.bodyRefs = { bodies: [] };
     for (const v of vehicles.vehicles) this.adopt(v);
     this.bodiesIn();
@@ -130,6 +133,7 @@ class F2 {
     b.f.set(values, at);
     if (!this.x.veh_pull(slot, v.aiTarget.generation, values.length)) throw Error('F2 could not retain a vehicle rig');
     this.seats.adopt(v);
+    this.firing.adopt(v);
     this.record(v);
   }
 
@@ -206,17 +210,12 @@ class F2 {
       values.push(v.simSlot, network ? 1 : 0);
       flightNumbers(l?.input ?? NO_INPUT, values); flightNumbers(network || NO_INPUT, values);
     }
-    values.push(vs.vehicles.length);
-    for (const v of vs.vehicles) {
-      values.push(v.simSlot, v.simGen);
-      values.push(v.towTarget, v.towLocal.x, v.towLocal.y, v.towLocal.z, b.strings.id(v.towLeg), v.towAngle, v.towWinding);
-      poseInputs(v, values);
-    }
     const offset = 3 + vs.slots.length * 2 + 4;
     this.writeInput(values, offset);
     b.f[this.inputBase + this.capacity - 1] = offset;
-    b.f[this.inputBase + this.capacity - 2] = offset + values.length;
-    this.counters.inputFields += 2;
+    const firingWords = this.firing.input(this.inputBase + offset + values.length);
+    b.f[this.inputBase + this.capacity - 2] = offset + values.length + firingWords;
+    this.counters.inputFields += 2 + firingWords;
   }
 
   sync() {
@@ -265,6 +264,7 @@ class F2 {
       }
       this.counters.outputFields += rows * stride + f[base + 3];
     }
+    this.firing.syncDescriptor(b.f[d + 14]);
     this.bodiesOut();
     // Pose output is a compact flat record; retained tree state stays in Rust.
     let o = b.f[d + 5] / 8;
@@ -324,7 +324,11 @@ class F2 {
       else if (value && typeof value === 'object') for (const [k, x] of Object.entries(value)) add(`${path}.${k}`, x);
       else out.push([path, value]);
     };
-    for (const key of OWNED_FIELDS) if (!foreign.has(key)) add(key, v[key]);
+    for (const key of OWNED_FIELDS) if (!foreign.has(key)) {
+      if (key === 'wheels') {
+        for (let i = 0; i < v.wheels.length; i++) for (const k of ['x', 'radius', 'phase', 'previous', 'tickFrom']) add(`wheels.${i}.${k}`, v.wheels[i][k]);
+      } else add(key, v[key]);
+    }
     for (let i = 0; i < v.seats.length; i++) {
       const s = v.seats[i];
       for (const key of ['aimYaw', 'pitch', 'lookYaw', 'lookPitch', 'lease', 'lastYaw', 'yawRate']) out.push([`seats.${i}.${key}`, s[key]]);

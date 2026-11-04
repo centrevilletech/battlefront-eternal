@@ -28,12 +28,7 @@ class LeasePool extends MirrorPool {
     this.Mirror = class extends SeatLease {
       constructor() {
         super();
-        const journal = { pressed: [false, false], reload: false };
-        owner.triggers.set(this, journal);
-        // Vehicle.fireSeat is still foreign until mounted weapons join. Its
-        // transient trigger journal never writes this native lease's input.
-        this.input.take = channel => { const pressed = journal.pressed[channel]; journal.pressed[channel] = false; return pressed; };
-        this.input.takeReload = () => { const reload = journal.reload; journal.reload = false; return reload; };
+
       }
     };
   }
@@ -76,7 +71,7 @@ class LeaseEmitters {
 export class F2Seats {
   constructor(phase) {
     this.phase = phase; this.bridge = phase.bridge; this.x = phase.x; this.vehicles = phase.vehicles;
-    this.units = []; this.seen = []; this.stamp = 0; this.triggers = new WeakMap(); this.emitterIds = new WeakMap();
+    this.units = []; this.seen = []; this.stamp = 0; this.emitterIds = new WeakMap();
     this.leaseRows = new WeakMap();
     this.pool = new LeasePool(this); this.pool.owner = this; this.pool.released = new Map(); this.mounts = new WeakMap(); this.riderClips = new WeakMap(); this.riderSample = { clip: null, pitch: 0, turn: 0, time: null }; this.bridge.refs[KIND_SEAT_LEASE] = this.pool;
     this.emptyHeap = new Heap(); this.header = new F2SeatHeaderMirror(); this.io = new F2SeatIoMirror();
@@ -318,15 +313,6 @@ export class F2Seats {
     if (base) {
       const n = f[base], stride = f[base + 1], heap = base + f[base + 2];
       for (let i = 0; i < n; i++) this.effect(syncF2SeatEffect(b, f, base + 5 + i * stride, heap, this.effectRow));
-      this.phase.counters.outputFields += n * stride + f[base + 3];
-    }
-    base = this.io.fire / 8;
-    if (base) {
-      const n = f[base], stride = f[base + 1], heap = base + f[base + 2];
-      for (let i = 0; i < n; i++) {
-        const row = syncF2SeatFire(b, f, base + 5 + i * stride, heap, this.fireRow), journal = this.triggers.get(row.lease);
-        journal.pressed[0] = row.pressed[0] !== 0; journal.pressed[1] = row.pressed[1] !== 0; journal.reload = row.reload;
-      }
       this.phase.counters.outputFields += n * stride + f[base + 3];
     }
     this.syncTurrets();
