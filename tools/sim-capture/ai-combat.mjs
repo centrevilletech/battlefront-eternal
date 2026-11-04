@@ -65,6 +65,9 @@ function bodyLeases(u) {
 // A unit (a registry member, a seat control, a round's frozen owner). Its
 // arsenal only where the frame reads it (its own unit's).
 function unitView(u, arsenal = false) {
+  // Repair targets are cached plain objects with their own geometry
+  // methods, rather than members of the registry or a shared prototype.
+  if (Object.getPrototypeOf(u) === Object.prototype && typeof u.origin === 'function') forwardGeometry(u);
   const tow = Boolean(u.vehicle) && u.vehicle.towTarget >= 0;
   return {
     self: u, id: u.id, generation: u.generation, alive: Boolean(u.alive), team: u.team, kind: u.kind, human: Boolean(u.human), hero: Boolean(u.hero),
@@ -225,6 +228,11 @@ function ctlUnits(c) {
 }
 function frameState(frame, end) {
   const units = new Set(frame.units);
+  if (frame.los) {
+    for (const h of [world.deferredLos.active, world.deferredLos.scratch]) {
+      for (let i = 1; i <= h.count; i++) if (h.items[i]?.target?.unit) units.add(h.items[i].target.unit);
+    }
+  }
   for (const c of frame.ctls) for (const u of ctlUnits(c)) if (u) units.add(u);
   for (const a of frame.agents) {
     if (a.tracker?.ref?.unit) units.add(a.tracker.ref.unit);
@@ -258,7 +266,7 @@ function frameState(frame, end) {
 // POLICY, HINTS): the boundaries are their methods.
 const ORIGINAL = new Map(); // prototype -> { method: function }
 function original(o, name) {
-  for (let p = Object.getPrototypeOf(o); p; p = Object.getPrototypeOf(p)) {
+  for (let p = o; p; p = Object.getPrototypeOf(p)) {
     const m = ORIGINAL.get(p)?.[name];
     if (m) return m;
   }
@@ -364,7 +372,7 @@ const ctlOfArgs = (name, args) => {
 function spreadPick(name, args) {
   const c = ctlOfArgs(name, args);
   const id = c?.unit?.id ?? 0;
-  return (id + (G.worldClock?.tick ?? 0)) % SPREAD === 0;
+  return (id + Math.trunc((G.worldClock?.tick ?? 0) / SPREAD)) % SPREAD === 0;
 }
 
 let prepared = false;
@@ -518,7 +526,7 @@ const SERVICE_FRAMES = [
   serviceFrame('scan', (f, [c]) => involve(f, { ctls: [c] })),
   serviceFrame('dropLosRequests', (f, [c]) => { involve(f, { ctls: losControllers(c) }); f.los = true; }),
   serviceFrame('serviceLos', (f) => { involve(f, { ctls: losControllers(null) }); f.los = true; }),
-  serviceFrame('broadcastAcoustic', (f, [u]) => { involve(f, { units: [u], own: u }); f.collect = true; }),
+  serviceFrame('broadcastAcoustic', (f, [u]) => { involve(f, { ctls: [u?.controller], units: [u], own: u }); f.collect = true; }),
   serviceFrame('clearCandidate', (f, [c]) => involve(f, { ctls: [c] })),
   serviceFrame('rankTargets', (f, [a]) => { agentArg(f, a); f.los = true; }),
   serviceFrame('updateTarget', (f, [a]) => agentArg(f, a)),

@@ -2,7 +2,12 @@
 use super::*;
 use super::super::enhanced::Profile;
 
-pub(super) trait Exact { fn exact(&self, other: &Self) -> bool; }
+pub(super) trait Exact: std::fmt::Debug {
+    fn exact(&self, other: &Self) -> bool;
+    fn difference(&self, other: &Self) -> Option<String> {
+        (!self.exact(other)).then(|| format!("capture {other:?}; native {self:?}"))
+    }
+}
 impl Exact for f64 { fn exact(&self, other: &Self) -> bool { sim_replay::same_number(*self, *other) } }
 macro_rules! scalar { ($($t:ty),* $(,)?) => { $(impl Exact for $t { fn exact(&self, other: &Self) -> bool { self == other } })* }; }
 scalar!(bool, usize, u64, i32, String, str, ArsenalKind);
@@ -11,7 +16,9 @@ impl<T: Exact> Exact for Vec<T> { fn exact(&self, other: &Self) -> bool { self.l
 impl<T: Exact, const N: usize> Exact for [T;N] { fn exact(&self, other: &Self) -> bool { self.iter().zip(other).all(|(a,b)| a.exact(b)) } }
 impl<T: Exact + ?Sized> Exact for Rc<T> { fn exact(&self, other: &Self) -> bool { (**self).exact(&**other) } }
 impl<A: Exact, B: Exact> Exact for (A,B) { fn exact(&self, other: &Self) -> bool { self.0.exact(&other.0) && self.1.exact(&other.1) } }
-macro_rules! fields { ($t:ty, $($f:ident),+ $(,)?) => { impl Exact for $t { fn exact(&self, other: &Self) -> bool { true $(&& self.$f.exact(&other.$f))+ } } }; }
+macro_rules! fields { ($t:ty, $($f:ident),+ $(,)?) => { impl Exact for $t { fn exact(&self, other: &Self) -> bool { true $(&& self.$f.exact(&other.$f))+ }
+fn difference(&self, other: &Self) -> Option<String> { $(if let Some(d)=self.$f.difference(&other.$f) { return Some(format!("{}.{}", stringify!($f), d)); })+ None }
+} }; }
 fields!(Vector3, x, y, z);
 fields!(JsObj, fields);
 impl Exact for Js { fn exact(&self, other: &Self) -> bool { match (self, other) {

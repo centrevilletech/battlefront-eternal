@@ -67,7 +67,7 @@ struct Host<'a> {
 }
 
 fn equal<T: Exact + std::fmt::Debug>(label: &str, got: &T, want: &T) {
-    assert!(got.exact(want), "{label}: capture {want:?}; native {got:?}");
+    if let Some(d) = got.difference(want) { panic!("{label}.{d}"); }
 }
 
 impl<'a> Host<'a> {

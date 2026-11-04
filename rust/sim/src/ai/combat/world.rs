@@ -191,7 +191,8 @@ pub fn index_of(x: f64) -> Option<usize> {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UnitView {
     pub obj: Obj,
-    pub id: f64,
+    /// Registry id; cached repair targets are plain objects without one.
+    pub id: Option<f64>,
     pub generation: f64,
     pub alive: bool,
     pub team: f64,

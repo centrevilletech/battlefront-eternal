@@ -30,8 +30,14 @@ impl<'a> Read<'a> {
     pub fn new(capture: &'a Capture) -> Self { Self { capture, ids: HashMap::new(), defs: HashMap::new(), tier: 2.0 } }
     pub fn obj(&mut self, v: V) -> Obj { self.opt_obj(v).unwrap_or_else(|| panic!("expected object handle, got {}", v.show())) }
     pub fn opt_obj(&mut self, v: V) -> Option<Obj> {
-        let (kind, key) = v.handle()?;
-        let key = (kind.to_string(), key.show());
+        let key = if let Some((kind, key)) = v.handle() { (kind.to_string(), key.show()) }
+        // ai/services.js keeps one plain target per building in a WeakMap.
+        // It is not a registry member or class instance, so the capture
+        // names its unique backing building rather than inventing a unit id.
+        else if matches!(v.get("kind").opt_num(), Some(8.0 | 9.0)) {
+            let (kind, key) = v.get("building").handle()?;
+            (format!("buildingTarget:{kind}"), key.show())
+        } else { return None; };
         let next = self.ids.len() as Obj + 1;
         Some(*self.ids.entry(key).or_insert(next))
     }
@@ -90,7 +96,7 @@ impl<'a> Read<'a> {
             selected: v.get("selected").items().map(|s| s.num()).collect() })
     }
     pub fn unit(&mut self, v: V) -> UnitView {
-        UnitView { obj: self.obj(v.get("self")), id: v.get("id").num(), generation: v.get("generation").num(), alive: v.get("alive").bool(), team: v.get("team").num(), kind: v.get("kind").num(),
+        UnitView { obj: self.obj(v.get("self")), id: v.get("id").opt_num(), generation: v.get("generation").num(), alive: v.get("alive").bool(), team: v.get("team").num(), kind: v.get("kind").num(),
             human: v.get("human").bool(), hero: v.get("hero").bool(), trap: v.get("trap").bool(), targetable_false: v.get("targetableFalse").bool(), collision_category: v.get("collisionCategory").opt_num(),
             category: v.get("category").opt_num(), position: vec(v.get("position")), velocity: opt_vec(v.get("velocity")), class: self.class(v.get("class")),
             combat_max_health: self.js(v.get("combatMaxHealth")), max_health: self.js(v.get("maxHealth")), soldier: self.soldier(v.get("soldier")), arsenal: self.arsenal(v.get("arsenal")),

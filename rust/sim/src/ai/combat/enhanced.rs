@@ -62,8 +62,9 @@ pub struct EnhancedAimer {
 }
 
 /// `${id}:${generation}` as JavaScript formats it.
-fn key_of(id: f64, generation: f64) -> String {
-    format!("{}:{}", jsrt::numfmt::number_to_string(id), jsrt::numfmt::number_to_string(generation))
+fn key_of(id: Option<f64>, generation: f64) -> String {
+    let id = id.map(jsrt::numfmt::number_to_string).unwrap_or_else(|| "undefined".into());
+    format!("{id}:{}", jsrt::numfmt::number_to_string(generation))
 }
 
 impl EnhancedAimer {
