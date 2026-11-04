@@ -14,7 +14,7 @@ export class NativeAwareness {
         frame.weapon=source.combat?.arsenal?selectedWeapon(source,source.controller)??source.combat.arsenal.current(0):null;
         result.flag=Boolean(frame.weapon);
       } else if(op==='active') {const w=frame.weapon;result.flag=Boolean(w.charging||w.busy||w.wait>1e-6);}
-      else if(op==='mute') result.number=frame.sounds?.(frame.weapon)??frame.weapon.def?.MuteDistance??400;
+      else if(op==='mute') {const sounds=frame.sounds;result.number=sounds?.(frame.weapon)??frame.weapon.def?.MuteDistance??400;}
       else if(op==='query') {
         const units=frame.units=frame.world.units,at=frame.at=source.position;
         units.query(at,number,this.heard,u=>u!==source && units.relation(source.team,u.team)<0);
@@ -49,7 +49,7 @@ export class NativeAwareness {
       else if(op==='dangerLast') result.number=frame.state.lastNotify;
       else if(op==='dangerQuery') {frame.world.units.query(frame.position,7.5,this.danger,u=>u!==frame.owner);result.ids=this.danger.map(u=>sim.id(u));}
       else if(op==='dangerRecipient') {const u=frame.recipient=sim.objects[id],c=frame.controller=u.controller;result.flag=Boolean(c||u.human);if(result.flag)result.number=u.kind;}
-      else if(op==='dangerWarn') frame.onWarn?.(frame.recipient);
+      else if(op==='dangerWarn') {const onWarn=frame.onWarn;onWarn?.(frame.recipient);}
       else if(op==='dangerHasNotify') result.flag=Boolean(frame.controller?.notifyDanger);
       else if(op==='dangerNotify') frame.controller.notifyDanger(frame.position);
       else if(op==='dangerWrite') frame.state.lastNotify=number;

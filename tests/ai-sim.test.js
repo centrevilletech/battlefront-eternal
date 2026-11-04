@@ -666,7 +666,7 @@ test('native acoustic and protection services preserve query reuse, limits and n
         if(tick%19===0)at.y+=.5;
       },
     };
-    function sounds(w){log('sound',weapons.indexOf(w));if(tick%23===0)units[0].velocity.z=9;return [undefined,null,0,-0,22,NaN][tick%6];}
+    function sounds(w){log('sound',weapons.indexOf(w),this===undefined);if(tick%23===0)units[0].velocity.z=9;return [undefined,null,0,-0,22,NaN][tick%6];}
     return {world,units,weapons,history,sounds,setTick:i=>{tick=i;announced=false;}};
   }
   const j=fixture(false),n=fixture(true);
@@ -701,7 +701,7 @@ test('native danger broadcasts preserve shared draws and callback-visible projec
     world.randomA.range=function(lo,hi){log('range',lo,hi);if(tick%23===0)state.lastNotify=-100;return range.call(this,lo,hi);};
     world.units={query(at,radius,out,predicate){log('query',radius);out.length=0;for(const u of units)if(predicate(u))out.push(u);if(nested)out.splice(7);}};
     const dangerRow=()=>{log('row');if(tick%19===0)state.firstContact=-100;return tick%7===0?null:tick%11===0?[]:[.15,.85];};
-    const onWarn=u=>{log('warn',u.id);state.lastNotify=333;if(u.controller && tick%13===0)u.controller.notifyDanger=null;};
+    function onWarn(u){log('warn',u.id,this===undefined);state.lastNotify=333;if(u.controller && tick%13===0)u.controller.notifyDanger=null;}
     return {history,state,position,world,units,dangerRow,onWarn,snapshot,setTick:i=>{tick=i;announced=false;for(const u of units)if(u.controller)u.controller.notifyDanger=p=>notify(u,p);}};
   }
   const j=fixture(false),n=fixture(true);
