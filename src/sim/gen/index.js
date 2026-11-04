@@ -24,6 +24,8 @@ export * from "./seats.js";
 export * from "./store.js";
 export * from "./units.js";
 export * from "./vehicles.js";
+export * from "./wire-edges.js";
+export * from "./wire-host.js";
 export * from "./wire.js";
 
 // By code: name, layout hash (the same as the module's), singleton, key (the
