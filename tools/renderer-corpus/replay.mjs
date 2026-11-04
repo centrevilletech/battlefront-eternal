@@ -34,6 +34,7 @@ export function installReplay() {
     gl.bindTexture(gl.TEXTURE_2D,bound);gl.activeTexture(active);
     if(texture.isDepthTexture){
       if(!depthTarget || depthTarget.width!==w || depthTarget.height!==h){depthTarget?.dispose();depthTarget=new b.THREE.WebGLRenderTarget(w,h,{type:b.THREE.FloatType,depthBuffer:false,minFilter:b.THREE.NearestFilter,magFilter:b.THREE.NearestFilter});}
+      R.initRenderTarget(depthTarget);
       const target=core.byName.post.target(depthTarget),program=core.rust.add_owned_program('post-hud/copy');
       core.views();const saved=core.postInput.slice();core.postInput.fill(0);core.postInput.set([program,target,w,h,1,0,32,id]);postFrame(1);core.views();core.postInput.set(saved);
       return {id,w,h,bytes:4,params,levels:[read(depthTarget).blob]};
@@ -99,6 +100,7 @@ export function installReplay() {
       if(row.kind==='post'){
         input[0]=program;
         if(!row.canvas)target=new b.THREE.WebGLRenderTarget(row.output.w,row.output.h,{type:row.output.bytes===2?b.THREE.HalfFloatType:row.output.bytes===4?b.THREE.FloatType:b.THREE.UnsignedByteType,depthBuffer:false});
+        if(target)R.initRenderTarget(target);
         input[1]=target?core.byName.post.target(target):-1;
         for(let i=0;i<input[4];i++){const at=5+i*UNIFORM;if(input[at+1]===32 && input[at+2]>=0)input[at+2]=ids.get(input[at+2]);}
         core.views();core.postInput.set(input);postFrame(1);
