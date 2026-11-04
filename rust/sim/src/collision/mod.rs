@@ -34,7 +34,7 @@ pub mod install;
 /// 7 Math.hypot(direction.x, direction.z), 8 near; 10 hit distance,
 /// 11-13 point, 14-16 normal; 20-57 a body's bounds, matrix and inverse
 /// (`body_set`); 0-6 a grid's numbers (`grid_new`).
-const IO_LEN: usize = 64;
+pub(crate) const IO_LEN: usize = 64;
 static mut IO: [f64; IO_LEN] = [0.0; IO_LEN];
 /// A cast's candidate bodies (`world_candidates`): their places in the
 /// world's order, and whether each is enabled, which JavaScript writes
@@ -574,9 +574,13 @@ fn transform_ray(ray: &Ray, e: &[f64; 16]) -> Ray {
 /// JavaScript's body loop reads and changes nothing, so making them in two
 /// passes gives the same bodies in the same order.
 pub fn world_candidates_for(s: &State, world: usize, ray: &Ray, ignore: i64, static_only: bool, moving_only: bool) -> usize {
+    world_candidates_into(s, world, ray, ignore, static_only, moving_only, unsafe { &mut *addr_of_mut!(CANDIDATES) })
+}
+
+/// The same ordered candidates in caller-owned storage.
+pub fn world_candidates_into(s: &State, world: usize, ray: &Ray, ignore: i64, static_only: bool, moving_only: bool, out: &mut [u32]) -> usize {
     let w = &s.worlds[world];
     let inv = inverse(ray);
-    let out = unsafe { &mut *addr_of_mut!(CANDIDATES) };
     let mut count = 0;
     for (i, &slot) in w.order.iter().enumerate() {
         let body = &s.bodies[slot as usize];
@@ -591,12 +595,19 @@ pub fn world_candidates_for(s: &State, world: usize, ray: &Ray, ignore: i64, sta
 /// TERRAIN, STATIC or the body's slot) and the hit, its normal facing back
 /// along the ray.
 pub fn world_cast_ray(s: &mut State, world: usize, ray: &Ray, far: f64, hypot_xz: f64, count: usize) -> (i32, Hit) {
+    let candidates = unsafe { &*std::ptr::addr_of!(CANDIDATES) };
+    let enabled = unsafe { &*std::ptr::addr_of!(ENABLED) };
+    world_cast_ray_in(s, world, ray, far, hypot_xz, &candidates[..count], &enabled[..count])
+}
+
+/// Cast using explicit candidate places and their enabled flags.
+pub fn world_cast_ray_in(s: &mut State, world: usize, ray: &Ray, far: f64, hypot_xz: f64, candidates: &[u32], enabled: &[u8]) -> (i32, Hit) {
     let w = &s.worlds[world];
     let mut hit = tree_raycast(s, w.tree, ray, 0.0, far);
     let mut code = STATIC;
-    for c in 0..count {
-        if !enabled(c) { continue; }
-        let slot = w.order[candidate(c)];
+    for c in 0..candidates.len() {
+        if enabled[c] == 0 { continue; }
+        let slot = w.order[candidates[c] as usize];
         let body = &s.bodies[slot as usize];
         let local = if body.moving { transform_ray(ray, &body.inverse) } else { *ray };
         let mut near = tree_raycast(s, body.tree, &local, 0.0, hit.map_or(far, |h| h.distance));
@@ -632,13 +643,20 @@ pub fn world_cast_ray(s: &mut State, world: usize, ray: &Ray, far: f64, hypot_xz
 /// bodies only): the nearest one's hit (MISS or the body's slot), its normal
 /// facing back along the ray.
 pub fn world_cast_moving_ray(s: &State, world: usize, ray: &Ray, far: f64, count: usize) -> (i32, Hit) {
+    let candidates = unsafe { &*std::ptr::addr_of!(CANDIDATES) };
+    let enabled = unsafe { &*std::ptr::addr_of!(ENABLED) };
+    world_cast_moving_ray_in(s, world, ray, far, &candidates[..count], &enabled[..count])
+}
+
+/// Moving-body cast using explicit candidate places and enabled flags.
+pub fn world_cast_moving_ray_in(s: &State, world: usize, ray: &Ray, far: f64, candidates: &[u32], enabled: &[u8]) -> (i32, Hit) {
     let w = &s.worlds[world];
     let mut closest = far;
     let mut code = MISS;
     let mut out = Hit { distance: 0.0, px: 0.0, py: 0.0, pz: 0.0, nx: 0.0, ny: 0.0, nz: 0.0 };
-    for c in 0..count {
-        if !enabled(c) { continue; }
-        let slot = w.order[candidate(c)];
+    for c in 0..candidates.len() {
+        if enabled[c] == 0 { continue; }
+        let slot = w.order[candidates[c] as usize];
         let body = &s.bodies[slot as usize];
         let local = transform_ray(ray, &body.inverse);
         let Some(hit) = tree_raycast(s, body.tree, &local, 0.0, closest) else { continue };

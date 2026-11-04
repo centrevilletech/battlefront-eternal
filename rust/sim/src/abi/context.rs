@@ -17,6 +17,9 @@ mod input;
 #[path = "context_world.rs"]
 mod world;
 pub use world::{NetworkResult, WorldFailure};
+#[path = "context_collision.rs"]
+mod collision;
+pub use collision::{CollisionError, CollisionQuery, CollisionResult};
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -115,6 +118,7 @@ type Handler = dyn Fn(&Context, &Record) -> Reply;
 
 struct Owner {
     sim: RefCell<Option<Sim>>,
+    collision: RefCell<Option<collision::NativeCollision>>,
     exchange: RefCell<ImportExchange>,
     handlers: RefCell<HashMap<u32, Rc<Handler>>>,
     active: Cell<usize>,
@@ -143,6 +147,7 @@ impl Context {
     pub fn new() -> Self {
         Self(Rc::new(Owner {
             sim: RefCell::new(Some(Sim::new())),
+            collision: RefCell::new(None),
             exchange: RefCell::new(ImportExchange::new()),
             handlers: RefCell::new(HashMap::new()),
             active: Cell::new(0),
@@ -176,10 +181,12 @@ impl Context {
             ));
         }
         let sim = self.0.sim.borrow_mut().take();
+        let collision = self.0.collision.borrow_mut().take();
         let handlers = std::mem::take(&mut *self.0.handlers.borrow_mut());
         // Drop user-owned closures only after releasing all owner borrows.
         drop(handlers);
         drop(sim);
+        drop(collision);
         Ok(())
     }
     /// Replacement affects the next invocation. The current handler is cloned
