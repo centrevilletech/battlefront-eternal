@@ -106,7 +106,10 @@ class SpatialMixer extends AudioWorkletProcessor {
   constructor(options) {
     super();
     const o = options.processorOptions || {};
-    this.slots = options.numberOfInputs - (o.master ? 2 : 0);
+    // The browser's inputs feed the first slots; with the master chain the
+    // engine's slots run on past them (processorOptions.slots).
+    this.inputs = options.numberOfInputs - (o.master ? 2 : 0);
+    this.slots = o.slots ?? this.inputs;
     this.channels = o.channels || 2;
     this.law = o.law || "panpot";
     this.decoder = o.decoder || null;
@@ -187,6 +190,7 @@ class SpatialMixer extends AudioWorkletProcessor {
   // The master chain as the page describes it (Renderer.masterOptions).
   dspMaster(m, x86) {
     const { x, h } = this.dsp;
+    x.mixer_inputs(h, this.inputs);
     x.master_new(h, sampleRate, this.channels, m.ceiling, m.release, m.lookahead ?? 0.0015, x86);
     this.dsp.master = {};
     x.master_rooms(h, m.rooms);
@@ -234,10 +238,10 @@ class SpatialMixer extends AudioWorkletProcessor {
     const d = this.dsp;
     const { x, h, master: m } = d;
     if (!m.outs || m.outs[0].byteLength === 0) this.masterViews();
-    const send = inputs[this.slots]?.[0];
+    const send = inputs[this.inputs]?.[0];
     m.flags[0] = send ? 1 : 0;
     if (send) m.bus[0].set(send);
-    const mix = inputs[this.slots + 1];
+    const mix = inputs[this.inputs + 1];
     const channels = mix?.length || 0;
     m.flags[1] = channels ? 1 : 0;
     if (channels) {
@@ -261,14 +265,14 @@ class SpatialMixer extends AudioWorkletProcessor {
     // A view per slot and output channel, made again only if the
     // module's memory grew (which empties the old ones).
     if (!d.ins || d.ins[0].byteLength === 0) {
-      d.ins = dspViews(x, x.mixer_in(h), this.slots);
+      d.ins = dspViews(x, x.mixer_in(h), this.inputs);
       d.outs = dspViews(x, x.mixer_out(h), this.channels + 1);
-      d.present = new Uint8Array(x.memory.buffer, x.mixer_present(h), this.slots);
+      d.present = new Uint8Array(x.memory.buffer, x.mixer_present(h), this.inputs);
       const send = x.mixer_send(h);
       d.send = send ? new Float32Array(x.memory.buffer, send, BLOCK) : null;
     }
     const { ins, outs, present } = d;
-    for (let s = 0; s < this.slots; s++) {
+    for (let s = 0; s < this.inputs; s++) {
       const input = inputs[s];
       if (input && input.length) {
         present[s] = 1;

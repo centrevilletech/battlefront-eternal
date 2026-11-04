@@ -151,6 +151,9 @@ pub struct Engine {
     resonance: f64,
     // Chromium's x86 build fills a setTargetAtTime's values four at a time.
     x86: bool,
+    // The slots from this one on have no input of the browser's (nobody
+    // else says they are empty).
+    inputs: usize,
     voices: Vec<Voice>,
     samples: Vec<Option<Sample>>,
     commands: Vec<f64>,
@@ -266,6 +269,7 @@ impl Engine {
             nyquist: rate / 2.0,
             resonance: v8math::exp(x as f64) as f32 as f64,
             x86,
+            inputs: slots,
             voices: vec![Voice::default(); slots],
             samples: Vec::new(),
             commands: Vec::new(),
@@ -275,6 +279,12 @@ impl Engine {
             sends: [0.0; FRAMES],
             src: [0.0; FRAMES],
         }
+    }
+
+    /// How many of the slots, from the first, have an input of the browser's
+    /// (the rest are the engine's alone).
+    pub fn set_inputs(&mut self, inputs: usize) {
+        self.inputs = inputs.min(self.voices.len());
     }
 
     /// Room for sample `id`'s `frames` at `rate`, to fill before a voice
@@ -374,6 +384,7 @@ impl Engine {
     /// page stops it (the browser's filter rings on until its nodes are
     /// disconnected).
     pub fn render(&mut self, inputs: &mut [f32], present: &mut [u8]) {
+        present[self.inputs..].fill(0);
         self.send.fill(0.0);
         let (rate, x86, nyquist, resonance) = (self.rate, self.x86, self.nyquist, self.resonance);
         let frame = self.frame;

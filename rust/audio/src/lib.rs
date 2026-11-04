@@ -302,6 +302,15 @@ pub extern "C" fn mixer_engine(h: u32, rate: f64, q_db: f64, x86: u32) {
     s.engines[h as usize] = Some(voices::Engine::new(rate, slots, q_db, x86 != 0));
 }
 
+/// How many of the mixer's slots, from the first, the browser's inputs feed
+/// (the worklet stages only those); the rest are the engine's alone.
+#[no_mangle]
+pub extern "C" fn mixer_inputs(h: u32, inputs: u32) {
+    if let Some(e) = &mut state().engines[h as usize] {
+        e.set_inputs(inputs as usize);
+    }
+}
+
 /// Room for sample `id` (`frames` f32 at `rate`) in the mixer's engine, to
 /// fill at the pointer.
 #[no_mangle]

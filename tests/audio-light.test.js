@@ -540,7 +540,8 @@ test("the master chain goes into the mixer's module, and the rest of its graph w
   assert.equal(r.output, r.mixer);
   // Its last two inputs bring what comes through the browser's nodes.
   const inputs = r.mixer.options.numberOfInputs;
-  assert.equal(inputs, 66);
+  assert.equal(inputs, 10, "a few for voices that keep the browser's nodes");
+  assert.equal(r.mixer.options.processorOptions.slots, 64);
   assert.deepEqual(into(ctx, r.reverbIn).map((e) => [e.to, e.input]), [[r.mixer, inputs - 2]]);
   assert.deepEqual(into(ctx, r.mix).map((e) => [e.to, e.input]), [[r.mixer, inputs - 1]]);
   assert.deepEqual(r.mixer.options.outputChannelCount, [6]);
@@ -557,6 +558,18 @@ test("the master chain goes into the mixer's module, and the rest of its graph w
   assert.equal(m.volume, 0.5);
   // A voice in the slots asks for the LFE as ever (update's r.lfe).
   assert.ok(r.lfe);
+  // A voice in the engine takes a slot with no input; one that keeps the
+  // browser's nodes one with an input; and each goes back where it was.
+  const own = r.voice({ mode3D: 1 }, true);
+  own.attach(ctx.createGain());
+  const engineVoice = r.voice({ mode3D: 1 });
+  assert.ok(own.slot >= 0 && own.slot < inputs - 2, `input ${own.slot}`);
+  assert.ok(engineVoice.engine && engineVoice.slot >= inputs - 2, `engine slot ${engineVoice.slot}`);
+  const spare = [r.slots.length, r.nodeSlots.length];
+  own.dispose();
+  engineVoice.dispose();
+  assert.deepEqual([r.slots.length, r.nodeSlots.length], [spare[0] + 1, spare[1] + 1]);
+  assert.ok(r.slots.every((slot) => slot >= inputs - 2) && r.nodeSlots.every((slot) => slot < inputs - 2));
   // The room and the volume reach the worklet.
   const sent = [];
   r.mixer.port.postMessage = (message) => sent.push(message);

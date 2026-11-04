@@ -42,6 +42,11 @@ import { loadAudioDsp, masterRust, voicesRust } from "./wasm-dsp.js";
 // even unused (96 cost about 10 ms a second); past these, a voice falls back
 // to a stereo panner.
 export const SLOTS = 64;
+// With the master chain in the mixer's module, a voice in the engine takes
+// no input of the mixer's, and an input costs the browser something every
+// block; a voice that keeps the browser's nodes takes one of these few (a
+// stream's line said somewhere: a line or two at a time, then a panner).
+const NODE_INPUTS = 8;
 // The headphone decoder's files under the audio root (tools/make_binaural.py).
 const DECODER = "hrtf/sadie2_d1_3oa";
 const AMBI_CHANNELS = 16;
@@ -307,6 +312,7 @@ export class Renderer {
     // (No voice engine without a mixer; set again below when built.)
     this.engine = false;
     this.master = false;
+    this.nodeSlots = null;
     if (this.light) return this.buildLight();
     // Headphones: the ambisonic decoder when enhanced and loaded, else an
     // HRTF panner per voice.
@@ -352,10 +358,11 @@ export class Renderer {
     const master = this.master;
     this.mixer = keep(
       new AudioWorkletNode(ctx, "spatial-mixer", {
-        numberOfInputs: master ? SLOTS + 2 : SLOTS,
+        numberOfInputs: master ? NODE_INPUTS + 2 : SLOTS,
         numberOfOutputs: master ? 1 : this.engine ? 3 : 2,
         outputChannelCount: master ? [feeds] : this.engine ? [feeds, 1, 1] : [feeds, 1],
         processorOptions: {
+          slots: SLOTS,
           channels: feeds,
           law,
           speakers: layout.speakers,
@@ -376,13 +383,15 @@ export class Renderer {
       // through the browser's nodes (a voice's own send, the beds, a voice
       // with no slot) joins there, through its last two inputs; its output
       // is the finished sound.
-      this.reverbIn.connect(this.mixer, 0, SLOTS);
-      this.mix.connect(this.mixer, 0, SLOTS + 1);
+      this.reverbIn.connect(this.mixer, 0, NODE_INPUTS);
+      this.mix.connect(this.mixer, 0, NODE_INPUTS + 1);
       this.mixer.connect(dest);
       this.mixer.port.onmessage = (e) => e.data?.reduction !== undefined && this.onLimiter?.(e.data);
       for (const v of this.voices) v.slot = -1;
       for (const b of this.beds) b.slots = [];
       this.slots = Array.from({ length: SLOTS }, (_, i) => SLOTS - 1 - i);
+      // The slots with an input are the first (the last here).
+      this.nodeSlots = this.slots.splice(SLOTS - NODE_INPUTS);
       this.lfe = layout.lfe >= 0;
       this.reverb = null;
       this.reverbHP = null;
@@ -947,7 +956,7 @@ class VoiceOut {
     } else {
       this.panner = null;
       // On binaural headphones a 2D voice stays plain stereo.
-      this.slot = r.binaural && !this.voice.mode3D ? -1 : (r.slots.pop() ?? -1);
+      this.slot = r.binaural && !this.voice.mode3D ? -1 : ((r.nodeSlots ?? r.slots).pop() ?? -1);
       if (this.slot < 0) {
         // Out of slots: a plain stereo panner.
         this.entry = ctx.createStereoPanner();
@@ -1136,7 +1145,7 @@ class VoiceOut {
       }
     }
     if (this.slot >= 0) {
-      this.r.slots.push(this.slot);
+      (this.engine ? this.r.slots : (this.r.nodeSlots ?? this.r.slots)).push(this.slot);
       this.slot = -1;
     }
   }
