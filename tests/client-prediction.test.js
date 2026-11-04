@@ -27,6 +27,7 @@ const shotValue = (s, tick, sequence, id, held, button, level) => ({tick, sequen
   kind: s.repair ? 1 : s.meleeStart ? 2 : s.meleeHit ? 3 : s.meleeEnd ? 4 : 0,
   yaw: s.yaw ?? 0, pitch: s.pitch ?? 0, charge: s.charge ?? 0, target: s.targetId ?? 0, targetGeneration: s.targetGeneration ?? 0, swing: s.swing ?? 0});
 
+// Reference: 123cb8dc (JavaScript page replay).
 // These reference digests and byte streams were recorded from the frozen JS
 // implementation before its replay and adapters were removed. Fixtures use only
 // synthetic geometry, clips and definitions, so CI needs no game installation.

@@ -13,6 +13,7 @@ import {actorCourse} from './fixtures/client-actors.js';
 const def={class:'seat-cannon',base:'cannon',channel:0,RoundsPerClip:6,ammo:5,ShotDelay:.1,ReloadTime:.3,ShotsPerSalvo:1,HeatPerShot:.3,HeatRecoverRate:.4,HeatThreshold:.2};
 const commands=Array.from({length:90},(_,i)=>({sequence:i+1,tick:i+1,generation:2,down:i<25||i>50?['Mouse0']:[],look:[],actions:i===0?['firePrimary']:i===35?['reload']:[]}));
 
+// Reference: 123cb8dc (JavaScript mounted replay).
 test('one mounted session matches frozen timers, ammo, heat and barrel checkpoints and restores the authority',async()=>{
  const text=gunzipSync(readFileSync(new URL('./fixtures/prediction-reference/mounted.json.gz',import.meta.url))).toString('utf8').trimEnd();
  assert.equal(createHash('sha256').update(text).digest('hex'),'e9dc569aaa66b0ebba9ae9afa57eebbd8f83942fe74e7b81f2abdd6992b23050');

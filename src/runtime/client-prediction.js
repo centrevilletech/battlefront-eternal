@@ -3,7 +3,7 @@
 import { bridgeFor, Heap } from '../sim/runtime.js';
 import { ClientHeld_INDEX, ClientAction_INDEX, putClientFrame, putClientCommand, putClientLook, putClientCrowd,
   putClientMuzzles, putClientMount, syncClientResult, ClientResultMirror, syncClientShot, ClientShotMirror,
-  CLIENT_FRAME_WORDS, CLIENT_COMMAND_WORDS, CLIENT_LOOK_WORDS, CLIENT_CROWD_WORDS, CLIENT_MOUNT_WORDS, CLIENT_SHOT_WORDS } from '../sim/gen/client.js';
+  CLIENT_MUZZLES_WORDS, CLIENT_FRAME_WORDS, CLIENT_COMMAND_WORDS, CLIENT_LOOK_WORDS, CLIENT_CROWD_WORDS, CLIENT_MOUNT_WORDS, CLIENT_SHOT_WORDS } from '../sim/gen/client.js';
 import { putWeapon, syncWeapon, WeaponMirror, WEAPON_WORDS } from '../sim/gen/combat.js';
 import { predictionActorConfig, packPredictionWeaponDefinition } from './client-content.js';
 import { putSoldier, putDroideka, syncSoldier, syncDroideka, SoldierMirror, DroidekaMirror, SOLDIER_WORDS, DROIDEKA_WORDS } from '../sim/gen/units.js';
@@ -103,7 +103,7 @@ export function createClientPrediction(instance, collision) {
       def: {value:null}, muzzleAnimator: {value:undefined}, waterClock: {value:undefined},
     } : { passThrough: {value:null}, mover: {value:-1}, dead: {value:undefined} });
     if (kind) {
-      const heap = new Heap(), words = new Array(2);
+      const heap = new Heap(), words = new Array(CLIENT_MUZZLES_WORDS);
       putClientMuzzles(null, { barrels: s.guns.map((_, i) => s.gunBarrels?.[i]?.length || 1) }, words, 0, heap);
       run(4, words.concat(heap.words));
     }

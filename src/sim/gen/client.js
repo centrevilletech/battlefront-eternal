@@ -45,6 +45,8 @@ export function exportClientMount(o, cx) {
   return v;
 }
 
+export const CLIENT_MUZZLES_WORDS = 2;
+
 export class ClientMuzzlesMirror {
   constructor() {
     this.barrels = [];

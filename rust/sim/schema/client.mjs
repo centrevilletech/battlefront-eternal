@@ -6,7 +6,7 @@ export default {
     ClientAction: ['jump', 'crouch', 'prone', 'use', 'firePrimary', 'fireSecondary', 'reload', 'nextPrimary', 'previousPrimary', 'nextSecondary', 'zoom'] },
   records: {
     ClientMount: { $layout: true, advance: 'bool', tow: 'bool' },
-    ClientMuzzles: { barrels: 'list:u32' },
+    ClientMuzzles: { $layout: true, barrels: 'list:u32' },
     ClientFrame: { $layout: true,
       epoch: 'f64', identity: 'f64', generation: 'f64', source: 'f64', authorityTick: 'f64',
       mode: 'u32', mountsAt: 'u32', mountsCount: 'u32', world: 'u32', ignored: 'f64', movement: 'bool', dead: 'bool', underwater: 'bool', shield: 'bool',
