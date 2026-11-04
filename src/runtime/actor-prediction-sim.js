@@ -199,7 +199,7 @@ export function createActorPredictionBridge(bridge, collision, { trace = null } 
     const at = x.prediction_actors_output(owner.handle) / 8;
     const output = Array.from(bridge.f.subarray(at, at + x.prediction_actors_output_len(owner.handle)));
     const error = ok ? null : new TextDecoder().decode(new Uint8Array(x.memory.buffer, x.prediction_actors_error(owner.handle), x.prediction_actors_error_len(owner.handle)));
-    owner.events.push({ session: owner.serial, op, input: Array.from(input), output: output.slice(), error });
+    if (trace) owner.events.push({ session: owner.serial, op, input: Array.from(input), output: output.slice(), error });
     if (!ok) throw Error(error);
     return output;
   }
