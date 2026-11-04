@@ -105,6 +105,14 @@ fn invalid(message: &'static str) -> CollisionError {
 }
 
 impl NativeCollision {
+    pub(super) fn movement_state(&mut self, world: u32) -> Result<&mut State> {
+        let world = self.valid_world(world)?;
+        if self.state.worlds[world].statics.is_none() {
+            return Err(invalid("collision world has no fixed set"));
+        }
+        Ok(&mut self.state)
+    }
+
     pub(super) fn install(
         &mut self,
         col: &MapCollision,

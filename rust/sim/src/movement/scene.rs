@@ -7,7 +7,7 @@
 
 use super::soldier::{js_hypot2, PART_CACHES, V3};
 use crate::collision::spheres::{closest_point_to_point, gather, ground, overlaps_sphere, GatherCache, Gathered, Polygon, Tri};
-use crate::collision::{candidate, triangle_normal, world_candidates_for, world_cast_ray, State, MISS, TERRAIN};
+use crate::collision::{triangle_normal, world_candidates_into, world_cast_ray_in, State, MAX_BODIES, MISS, TERRAIN};
 use std::ptr::addr_of_mut;
 
 /// What a contact may hurt him on (collision-damage.js): terrain counts in
@@ -33,11 +33,27 @@ pub struct GroundCache {
     z: f64,
     top: f64,
     hit: Option<(f64, V3)>,
+    // Legacy scenes retain the module's candidate/enabled storage. A native
+    // world's scene opts into its own buffers without changing Scene's
+    // construction contract for the existing replay consumers.
+    cast: Option<CastBuffers>,
+}
+
+struct CastBuffers {
+    candidates: Vec<u32>,
+    enabled: Vec<u8>,
 }
 
 impl Default for GroundCache {
     fn default() -> GroundCache {
-        GroundCache { x: f64::NAN, z: f64::NAN, top: f64::NAN, hit: None }
+        GroundCache { x: f64::NAN, z: f64::NAN, top: f64::NAN, hit: None, cast: None }
+    }
+}
+
+impl GroundCache {
+    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+    pub(crate) fn owned() -> Self {
+        Self { cast: Some(CastBuffers { candidates: vec![0; MAX_BODIES], enabled: vec![0; MAX_BODIES] }), ..Self::default() }
     }
 }
 
@@ -72,18 +88,12 @@ impl Scene<'_> {
     /// cast(origin, direction, far, out): the first hit against the
     /// buildings, the enabled bodies and the terrain.
     pub fn cast(&mut self, origin: V3, direction: V3, far: f64) -> Option<CastHit> {
-        let ray = crate::collision::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
-        let count = world_candidates_for(self.s, self.world, &ray, -1, false, false);
-        // The candidates' enabled flags, as rayCandidates writes them.
-        let enabled = unsafe { &mut *addr_of_mut!(crate::collision::ENABLED) };
-        for c in 0..count {
-            enabled[c] = self.flags[candidate(c)];
-        }
-        let (code, hit) = world_cast_ray(self.s, self.world, &ray, far, js_hypot2(direction.x, direction.z), count);
-        if code == MISS {
-            return None;
-        }
-        Some(CastHit { point: V3::new(hit.px, hit.py, hit.pz), normal: V3::new(hit.nx, hit.ny, hit.nz), terrain: code == TERRAIN })
+        let (candidates, enabled) = if let Some(buffers) = self.ground_cache.cast.as_mut() {
+            (&mut buffers.candidates[..], &mut buffers.enabled[..])
+        } else {
+            unsafe { (&mut (*addr_of_mut!(crate::collision::CANDIDATES))[..], &mut (*addr_of_mut!(crate::collision::ENABLED))[..]) }
+        };
+        cast_in(self.s, self.world, self.flags, origin, direction, far, candidates, enabled)
     }
 
     /// gather(center, radius, false, the part's cache, ignore): the polygons
@@ -115,4 +125,18 @@ impl Scene<'_> {
     pub fn overlaps_sphere(&mut self, center: V3, radius: f64) -> bool {
         overlaps_sphere(self.s, self.world, center.arr(), radius, -1, self.flags)
     }
+}
+
+fn cast_in(s: &mut State, world: usize, flags: &[u8], origin: V3, direction: V3, far: f64, candidates: &mut [u32], enabled: &mut [u8]) -> Option<CastHit> {
+        let ray = crate::collision::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
+        let count = world_candidates_into(s, world, &ray, -1, false, false, candidates);
+        // The candidates' enabled flags, as rayCandidates writes them.
+        for c in 0..count {
+            enabled[c] = flags[candidates[c] as usize];
+        }
+        let (code, hit) = world_cast_ray_in(s, world, &ray, far, js_hypot2(direction.x, direction.z), &candidates[..count], &enabled[..count]);
+        if code == MISS {
+            return None;
+        }
+        Some(CastHit { point: V3::new(hit.px, hit.py, hit.pz), normal: V3::new(hit.nx, hit.ny, hit.nz), terrain: code == TERRAIN })
 }
