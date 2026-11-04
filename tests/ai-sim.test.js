@@ -10,7 +10,7 @@ import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/ai
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { FireControl, clusterState, consumeFire, peekClusterState, pressButton } from '../src/ai/classic/weapons-ai.js';
+import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -472,6 +472,170 @@ test('native fire consumption preserves charge, sniper and burst decisions at sh
     assert.deepEqual(n.world.history,j.world.history,`consume callbacks ${i}`);
     assert.deepEqual(n.snapshot(),j.snapshot(),`consume state ${i}`);
   }
+});
+
+test('native weapon guards preserve firing geometry, range bounds and changing protected lists', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const history=[],world={aiSim:native?sim:null},c={ai:{world},unit:null,rangeScale:1},point=new Vector3(),lead=new Vector3();let tick=0;
+    const weapons=['rifle','melee','rifle','repair','cannon'].map((base,id)=>({def:{base,LockOnRange:40,
+      ordnance:{base:id===4?'towcable':'bolt'},ai:{maxRange:60+id*30,extremeRange:200,implicitRange:id%2===0,triggerSingle:id===2,zoomMax:id===2?8:1}}}));
+    const unit=c.unit={kind:0,position:new Vector3(),combat:{arsenal:{current(){history.push(['weapon']);return tick%23===0?null:weapons[tick%weapons.length];}}},
+      origin(out){history.push(['origin']);out.set(.3,1.7,-0);if(tick%17===0)point.y+=.125;},
+      forward(out){history.push(['forward']);out.set(tick%19===0?.31:0,0,1);if(tick%29===0)c.perception.aimer.direction.x=.27;}};
+    const p=c.perception=new Perception(c);if(native)sim.bindPerception(p);
+    unit.controller=c;
+    const target={alive:true,generation:0,position:new Vector3(0,0,20),velocity:new Vector3(.1,0,-.1),
+      aimPoint(out){history.push(['target']);out.copy(this.position);out.y+=1.35;}};
+    const humans=Array.from({length:8},(_,id)=>({id,alive:true,generation:0,get sphere(){
+      history.push(['sphere',id]);
+      if(id===0 && tick%11===0)p.fire.protected.push({unit:humans[7],generation:humans[7].generation});
+      if(native){sim.words(new Array(9000).fill(5));sim.x.ai_nav_boundary(2,0,0,0,0);}
+      return {center:new Vector3((id-2)*.2,1.7,id*4+5),radius:tick%13===0?0:1};
+    }}));
+    return {history,world,c,unit,p,point,lead,weapons,humans,target,setTick:i=>{tick=i;}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<2048;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.unit.kind=i%7;x.c.rangeScale=[0,.5,1,2,8,NaN][i%6];
+      x.point.set((i%19-9)*.17,i%5,10+i%200);x.lead.copy(x.point);x.lead.y+=.03;
+      x.p.aimer.direction.set(i%29===0?.12:0,0,i%31===0?-1:1);
+      x.target.alive=i%31!==0;x.target.generation=Math.floor(i/73);x.target.position.z=10+i%180;
+      x.c.target=i%17===0?null:{unit:x.target,generation:x.target.generation+(i%41===0?1:0)};
+      x.unit.human=i%43===0;
+      for(const w of x.weapons){w.sniperScale=i%37===0?-0:i%53===0?NaN:i/17;w.def.YawSpread=[undefined,0,'0',NaN,.01][i%5];}
+      for(const h of x.humans){h.alive=(h.id+i)%17!==0;h.generation=Math.floor(i/83);}
+      x.p.fire.protected.length=0;
+      for(let k=0;k<i%8;k++)x.p.fire.protected.push({unit:x.humans[k],generation:x.humans[k].generation+(i%41===0?1:0)});
+      x.result=[firingCone(x.c,x.unit,x.lead),facingAndRange(x.c,x.unit,x.lead,x.point),protectedVeto(x.c,x.unit,x.weapons[i%x.weapons.length]),
+        validateFire(x.c,x.unit,i%7===0?x.humans[3]:x.target,x.world)];
+      for(const w of x.weapons)assert.equal(prepareSpread(x.c,x.unit,w),undefined);
+    }
+    assert.deepEqual(n.result,j.result,`weapon geometry ${i}`);
+    assert.deepEqual(n.history,j.history,`weapon queries ${i}`);
+    assert.deepEqual(n.point.toArray(),j.point.toArray());
+    assert.deepEqual(n.p.fire.protected.map(r=>r.unit.id),j.p.fire.protected.map(r=>r.unit.id));
+    assert.deepEqual(n.weapons.map(w=>w.yawSpreadOverride),j.weapons.map(w=>w.yawSpreadOverride));
+  }
+});
+
+test('native weapon selection preserves inventory changes, grenade priority and switch observations', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const history=[],world={aiSim:native?sim:null,time:0},out={retained:9},c={ai:{world},rangeScale:1,roll:0,id:7};let tick=0,changed=false;
+    const snapshot=()=>({...out,weapon:out.weapon?.id??null});
+    const fireSnapshot=()=>[c.perception.fire.channel,c.perception.fire.lastRelease,c.perception.fire.charging,c.perception.fire.sniperActive,c.perception.fire.burst.state];
+    const log=(name,...args)=>{history.push([name,...args,snapshot(),fireSnapshot()]);if(native){sim.words(new Array(10000).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const pool=Array.from({length:8},(_,id)=>({id,channel:id%2,clip:15,reserve:30,rounds:1,bottomless:false,
+      def:{base:['rifle','grenade','cannon','melee'][id%4],ammo:id%3?30:6,
+        ordnance:id===3?null:{base:['bolt','grenade','shell','sticky'][id%4],Damage:5+id*7,VehicleScale:.5,
+          ExplosionImpact:{Damage:10,DamageRadiusInner:1,DamageRadiusOuter:4}},
+        ai:{minRange:id%3,maxRange:20+id*15,extremeRange:180,implicitRange:id%2===0,categoryMask:0xffffffff,action:id%2?3:6}}}));
+    const arsenal={weapons:pool.slice(0,7),selected:0,
+      current(channel){log('current',channel);return tick%37===0?null:this.weapons[this.selected];},
+      select(weapon){log('select',weapon.id);if(tick%29===0)return false;this.selected=this.weapons.indexOf(weapon);return true;}};
+    const unit=c.unit={kind:0,hero:false,combat:{arsenal},classDef:{MaxSpeed:4},
+      origin(p){log('origin');p.set(.25,1.5,-0);if(tick%31===0)nested();}};
+    c.perception=new Perception(c);if(native)sim.bindPerception(c.perception);
+    const target={alive:true,generation:0,kind:0,category:0,maxHealth:100,velocity:new Vector3(),position:new Vector3(),
+      aimPoint(p){log('aim');p.copy(this.position);if(tick%47===0)nested();},
+      get sphere(){log('sphere');if(!changed){changed=true;if(tick%17===0)arsenal.weapons.push(pool[7]);else if(tick%19===0)arsenal.weapons.splice(1,1);}return {radius:1};}};
+    const innerUnit={kind:0,combat:{arsenal:{weapons:[pool[0]]}},classDef:{MaxSpeed:3},origin:p=>{log('nestedOrigin');p.set(1,2,3);}};
+    const innerTarget={kind:0,category:0,maxHealth:5,sphere:{radius:0},aimPoint:p=>{log('nestedAim');p.set(9,8,7);}};
+    function nested(){const value=selectWeapon(c,innerUnit,innerTarget,false,world,{});log('nestedChoice',value.index);}
+    if(native)sim.cluster(target,true);else clusterState(target,true);
+    return {history,world,out,c,unit,target,pool,arsenal,snapshot,fireSnapshot,setTick:i=>{tick=i;changed=false;}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<3072;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.world.time=i%43===0?NaN:i%41===0?-0:i/7;
+      x.unit.kind=[0,2,3,6,8][Math.floor(i/11)%5];x.unit.hero=i%23===0;x.unit.classDef.MaxSpeed=i%71===0?NaN:(i%13)/2;
+      x.c.rangeScale=[0,.5,1,2,8,NaN][i%6];x.c.roll=i%53===0?undefined:(i%21)-10;
+      x.target.generation=Math.floor(i/97);x.target.kind=[0,2,3,6,8,9][i%6];x.target.category=i%5;x.target.trap=i%59===0;
+      x.target.maxHealth=[5,100,1000,Infinity][i%4];x.target.velocity.set(i%2?20:0,0,0);x.target.position.set((i%17)/3,i%5,2+i%210);
+      const cluster=clusterState(x.target,true);cluster.flaggedAt=i%11<3?x.world.time-2:-Infinity;
+      x.arsenal.weapons=x.pool.slice(0,i%79===0?0:7);x.arsenal.selected=i%7;
+      const fire=x.c.perception.fire;fire.channel=i%2;fire.lastRelease=9;fire.charging=true;fire.sniperActive=true;fire.burst.state=2;
+      for(const w of x.pool){w.clip=(i+w.id)%13===0?0:12;w.reserve=(i+w.id)%13===0?0:i%61===0?Infinity:24;w.rounds=i%67===0?0:1+w.id%3;w.bottomless=(i+w.id)%101===0;}
+      const result=selectWeapon(x.c,x.unit,i%73===0?null:x.target,i%3!==0,x.world,x.out);assert.equal(result,x.out);
+    }
+    assert.deepEqual(n.snapshot(),j.snapshot(),`weapon choice ${i}`);
+    assert.deepEqual(n.history,j.history,`weapon callbacks ${i}`);
+    assert.deepEqual(n.fireSnapshot(),j.fireSnapshot(),`switch state ${i}`);
+    assert.deepEqual(n.arsenal.weapons.map(w=>w.id),j.arsenal.weapons.map(w=>w.id));
+    assert.equal(n.arsenal.selected,j.arsenal.selected);
+  }
+});
+
+test('native target and weapon transitions preserve masks, references and selection callbacks', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,reads=0;
+    const history=[],world={aiSim:native?sim:null},c={ai:{world}},fire=new FireControl(),other=new FireControl();
+    const ref=r=>r==null?r:[r.unit.id,r.generation];
+    const fireState=f=>[f.channel,f.lastRelease,f.charging,f.sniperActive,f.burst.state,ref(f.weaponTarget)];
+    const state=()=>[ref(c.target),fireState(fire),fireState(other)];
+    const log=(name,...args)=>{history.push([name,...args,state()]);if(native){sim.words(new Array(8000).fill(2));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapons=Array.from({length:5},(_,id)=>({id,channel:id%2,busy:false,def:{base:'rifle',ai:{relationMask:7,categoryMask:0xffffffff}},
+      deselect(){log('deselect',id);if(tick%7===0)this.channel=1;}}));
+    const arsenal={weapons,selected:[0,0],channels:[weapons.filter(w=>w.channel===0),weapons.filter(w=>w.channel===1)],
+      current(channel){log('current',channel);reads++;if(tick%31===0)c.perception.fire=other;return tick%37===0?null:this.channels[channel]?.[this.selected[channel]];}};
+    const select=weapon=>{log('select',weapon.id);if(tick%17===0)return false;arsenal.selected[weapon.channel]=arsenal.channels[weapon.channel].indexOf(weapon);return tick%11===0?undefined:true;};
+    const unit=c.unit={kind:0,id:1,team:1,combat:{arsenal}};
+    c.perception={fire};if(native){sim.bindFire(fire);sim.bindFire(other);}
+    const target={id:5,kind:0,team:2,generation:0,get category(){log('category');return [0,1,2,3,4,32,-1,NaN][tick%8];}};
+    world.units={relation(a,b){log('relation',a,b);if(tick%13===0)target.generation=null;
+      if(tick%19===0)for(const weapon of weapons)weaponAI(weapon.def).categoryMask=0;
+      return [-1,0,1,NaN,31][tick%5];}};
+    return {history,world,c,fire,other,unit,target,arsenal,weapons,select,state,setTick:i=>{tick=i;reads=0;}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<2048;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.c.perception={fire:i%61===0?null:x.fire};
+      x.arsenal.selected=[i%3,i%2];x.arsenal.select=i%2?x.select:undefined;
+      x.target.generation=[undefined,null,0,-0,i][i%5];
+      for(const w of x.weapons){w.channel=w.id%2;w.busy=(w.id+i)%23===0;const a=weaponAI(w.def);a.relationMask=[7,1,2,4,0][i%5];a.categoryMask=i%3?0xffffffff:1;}
+      for(const f of [x.fire,x.other]){f.channel=i%2;f.lastRelease=7;f.charging=true;f.sniperActive=true;f.burst.state=3;f.weaponTarget={unit:x.unit,generation:0};}
+      assert.equal(setTarget(x.c,i%43===0?null:x.unit,i%41===0?null:x.target,x.world),undefined);
+      x.result=switchWeapon(x.c,i%47===0?null:x.unit,i%53===0?-1:i%5);
+    }
+    assert.equal(n.result,j.result,`switch result ${i}`);
+    assert.deepEqual(n.state(),j.state(),`weapon state ${i}`);
+    assert.deepEqual(n.history,j.history,`transition callbacks ${i}`);
+    assert.deepEqual(n.arsenal.selected,j.arsenal.selected);
+  }
+});
+
+test('native weapon utility preserves exact damage math and callback-visible acceptance', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],out={ok:true,score:-1,retained:7},world={aiSim:native?sim:null},controller={ai:{world}};
+    const owner={kind:[0,1,2,3,6,7,8][i%7],hero:i%17===0,controller};let healthReads=0;
+    const log=name=>{history.push([name,{...out}]);if(native){sim.words(new Array(7000).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const blast=(offset)=>({DamageRadiusInner:[0,1,2,-1,NaN,'1.5'][i%6],DamageRadiusOuter:[0,3,8,Infinity,'5'][i%5],
+      Damage:[-0,5,23,NaN,'11'][i%5],PersonScale:i%11===0?null:.25+offset,VehicleScale:.125,BuildingScale:4});
+    const base=['bolt','beam','missile','shell','grenade','sticky','haywire','beacon','unknown'][i%9];
+    const weapon={def:{base:['rifle','cannon','grenade','melee','repair'][i%5],ammo:[0,-1,2,30,NaN,'12'][i%6],
+      ai:{categoryMask:[0xffffffff,1,8,0,NaN][i%5]},
+      ordnance:i%13===0?null:{base,Damage:[0,5,-5,NaN,Infinity,'31'][i%6],PersonScale:.5,VehicleScale:2,
+        ExplosionImpact:i%7===0?null:blast(0),ExplosionExpire:i%11===0?'none':blast(2)}},
+      bottomless:i%31===0,rounds:[undefined,null,0,1,4,NaN][i%6]};
+    const innerWeapon={def:{base:'melee'},rounds:1},innerTarget={kind:0};
+    const target={kind:[0,2,3,6,8,9,7][Math.floor(i/7)%7],trap:i%37===0,
+      get category(){log('category');return [0,1,2,3,4,32,-1][i%7];},
+      get sphere(){log('sphere');if(i%19===0)owner.kind=6;
+        if(i%23===0)weaponUtility(owner,innerWeapon,innerTarget,out);
+        return {radius:[-1,0,1,4,NaN,'3'][i%6]};},
+      combat:{get maxHealth(){log('health');healthReads++;return [1,100,1000,Infinity,NaN,undefined][(i+healthReads)%6];}},
+      classDef:{MaxHealth:i%17===0?undefined:700},maxHealth:80,
+      get velocity(){log('velocity');return i%43===0?null:point(i%17,0,i%3);}};
+    const result=weaponUtility(owner,i%47===0?null:weapon,i%53===0?null:target,out);assert.equal(result,out);
+    return {out,history,ownerKind:owner.kind};
+  }
+  for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`weapon utility ${i}`);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {
