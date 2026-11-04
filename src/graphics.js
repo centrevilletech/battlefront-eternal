@@ -252,12 +252,12 @@ export class Graphics {
     this.background.material.depthTest = true;
     this.background.renderOrder = 1e9;
     this.scene.add(this.background);
-    // The Rust battle renderer (rust-render/), behind ?rust: it draws the
-    // map's opaque buckets and the soldiers first in the near scene's pass
-    // (from a hook of its own at the start of three's opaque list).
+    // The default battle renderer shares the WebGL context with three,
+    // which draws unsupported items and takes over if Rust is unavailable.
+    // ?rustOff disables Rust drawing for developer comparisons.
     this.rust = null;
     this.playerRoot = null;
-    if (typeof location !== "undefined" && new URLSearchParams(location.search).has("rust")) {
+    if (typeof location !== "undefined") {
       import("./rust-render/index.js").then((m) => m.createRustRender(this)).then((rust) => { this.rust = rust; })
         .catch((error) => console.warn("Rust renderer unavailable:", error));
     }
