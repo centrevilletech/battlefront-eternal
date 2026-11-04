@@ -12,6 +12,21 @@ export const RegionType_INDEX = new Map(RegionType_NAMES.map((name, i) => [name,
 export const HumanPhase_NAMES = ["unspawned","alive","dying","awaiting"];
 export const HumanPhase_INDEX = new Map(HumanPhase_NAMES.map((name, i) => [name, i]));
 
+export const HsOperation_NAMES = ["update","apply","phase","realize","died","spawned","teamChanged","state","authority"];
+export const HsOperation_INDEX = new Map(HsOperation_NAMES.map((name, i) => [name, i]));
+
+export const HsQueryOp_NAMES = ["team","dead","over","roster","classic","characterSpawn","canSpawn"];
+export const HsQueryOp_INDEX = new Map(HsQueryOp_NAMES.map((name, i) => [name, i]));
+
+export const HsActionOp_NAMES = ["setTeam","spawn","ready","kill","cancel","rejected"];
+export const HsActionOp_INDEX = new Map(HsActionOp_NAMES.map((name, i) => [name, i]));
+
+export const HsEventKind_NAMES = ["awaitingSpawn","spawned","teamChanged","playerDied"];
+export const HsEventKind_INDEX = new Map(HsEventKind_NAMES.map((name, i) => [name, i]));
+
+export const HsCommandKind_NAMES = ["team","spawn","suicide","cancel"];
+export const HsCommandKind_INDEX = new Map(HsCommandKind_NAMES.map((name, i) => [name, i]));
+
 export function variantOfPostRef(b, x) {
   if (x === null) return 0;
   if (x === undefined) return 1;
@@ -226,6 +241,575 @@ export function exportHumanAuto(o, cx) {
   v.team = o.team;
   v.className = o.className;
   v.post = o.post;
+  return v;
+}
+
+export class HsOwnedMirror {
+  constructor() {
+    this.auto = null;
+    this.className = '';
+    this.post = null;
+    this.phase = "unspawned";
+    this.canSwitchTeams = false;
+    this.spawnedOnce = false;
+    this.deadTime = NaN;
+    this.pending = null;
+    this.ended = false;
+  }
+}
+
+export function syncHsOwned(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { m.auto = syncHumanAuto(b, f, at + 1, h, m.auto ?? new HumanAutoMirror()); } else m.auto = tag === 1 ? null : undefined; }
+  m.className = b.strings.at(f[at + 5]);
+  { const tag = f[at + 6]; if (tag === 0) { m.post = b.strings.at(f[at + 7]); } else m.post = tag === 1 ? null : undefined; }
+  m.phase = HumanPhase_NAMES[f[at + 8]];
+  m.canSwitchTeams = f[at + 9] !== 0;
+  m.spawnedOnce = f[at + 10] !== 0;
+  m.deadTime = f[at + 11];
+  { const tag = f[at + 12]; if (tag === 0) { m.pending = syncHumanPick(b, f, at + 13, h, m.pending ?? new HumanPickMirror()); } else m.pending = tag === 1 ? null : undefined; }
+  m.ended = f[at + 16] !== 0;
+  return m;
+}
+
+export function putHsOwned(b, o, f, at, heap) {
+  { const $x = o.auto; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 0] = 0; putHumanAuto(b, $x, f, at + 1, heap); } }
+  f[at + 5] = b.strings.id(o.className);
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = b.strings.id($x); } }
+  f[at + 8] = HumanPhase_INDEX.get(o.phase);
+  f[at + 9] = o.canSwitchTeams ? 1 : 0;
+  f[at + 10] = o.spawnedOnce ? 1 : 0;
+  f[at + 11] = o.deadTime;
+  { const $x = o.pending; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; f[at + 15] = 0; } else { f[at + 12] = 0; putHumanPick(b, $x, f, at + 13, heap); } }
+  f[at + 16] = o.ended ? 1 : 0;
+}
+
+export function sameHsOwned(a, b) {
+  { const p = a.auto, q = b.auto; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".auto"; } else { { const d = sameHumanAuto(p, q); if (d) return ".auto" + d; } } }
+  if (!Object.is(a.className, b.className)) return ".className";
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(a.phase, b.phase)) return ".phase";
+  if (!Object.is(a.canSwitchTeams, b.canSwitchTeams)) return ".canSwitchTeams";
+  if (!Object.is(a.spawnedOnce, b.spawnedOnce)) return ".spawnedOnce";
+  if (!Object.is(a.deadTime, b.deadTime)) return ".deadTime";
+  { const p = a.pending, q = b.pending; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".pending"; } else { { const d = sameHumanPick(p, q); if (d) return ".pending" + d; } } }
+  if (!Object.is(a.ended, b.ended)) return ".ended";
+  return null;
+}
+
+export function exportHsOwned(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.auto = ((x) => (x === null || x === undefined ? x : exportHumanAuto(x, cx)))(o.auto);
+  v.className = o.className;
+  v.post = o.post;
+  v.phase = o.phase;
+  v.canSwitchTeams = o.canSwitchTeams;
+  v.spawnedOnce = o.spawnedOnce;
+  v.deadTime = o.deadTime;
+  v.pending = ((x) => (x === null || x === undefined ? x : exportHumanPick(x, cx)))(o.pending);
+  v.ended = o.ended;
+  return v;
+}
+
+export class HsStateMirror {
+  constructor() {
+    this.phase = "unspawned";
+    this.team = NaN;
+    this.className = '';
+    this.classIndex = NaN;
+    this.post = null;
+    this.canSwitchTeams = false;
+    this.over = false;
+  }
+}
+
+export function syncHsState(b, f, at, h, m) {
+  m.phase = HumanPhase_NAMES[f[at + 0]];
+  m.team = f[at + 1];
+  m.className = b.strings.at(f[at + 2]);
+  m.classIndex = f[at + 3];
+  { const tag = f[at + 4]; if (tag === 0) { m.post = b.strings.at(f[at + 5]); } else m.post = tag === 1 ? null : undefined; }
+  m.canSwitchTeams = f[at + 6] !== 0;
+  m.over = f[at + 7] !== 0;
+  return m;
+}
+
+export function putHsState(b, o, f, at, heap) {
+  f[at + 0] = HumanPhase_INDEX.get(o.phase);
+  f[at + 1] = o.team;
+  f[at + 2] = b.strings.id(o.className);
+  f[at + 3] = o.classIndex;
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = b.strings.id($x); } }
+  f[at + 6] = o.canSwitchTeams ? 1 : 0;
+  f[at + 7] = o.over ? 1 : 0;
+}
+
+export function sameHsState(a, b) {
+  if (!Object.is(a.phase, b.phase)) return ".phase";
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.className, b.className)) return ".className";
+  if (!Object.is(a.classIndex, b.classIndex)) return ".classIndex";
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(a.canSwitchTeams, b.canSwitchTeams)) return ".canSwitchTeams";
+  if (!Object.is(a.over, b.over)) return ".over";
+  return null;
+}
+
+export function exportHsState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.phase = o.phase;
+  v.team = o.team;
+  v.className = o.className;
+  v.classIndex = o.classIndex;
+  v.post = o.post;
+  v.canSwitchTeams = o.canSwitchTeams;
+  v.over = o.over;
+  return v;
+}
+
+export class HsEventMirror {
+  constructor() {
+    this.kind = "awaitingSpawn";
+    this.state = null;
+    this.team = NaN;
+    this.previous = NaN;
+    this.className = null;
+    this.post = null;
+  }
+}
+
+export function syncHsEvent(b, f, at, h, m) {
+  m.kind = HsEventKind_NAMES[f[at + 0]];
+  { const tag = f[at + 1]; if (tag === 0) { m.state = syncHsState(b, f, at + 2, h, m.state ?? new HsStateMirror()); } else m.state = tag === 1 ? null : undefined; }
+  m.team = f[at + 10];
+  m.previous = f[at + 11];
+  { const tag = f[at + 12]; if (tag === 0) { m.className = b.strings.at(f[at + 13]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 14]; if (tag === 0) { m.post = b.strings.at(f[at + 15]); } else m.post = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsEvent(b, o, f, at, heap) {
+  f[at + 0] = HsEventKind_INDEX.get(o.kind);
+  { const $x = o.state; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; f[at + 7] = 0; f[at + 8] = 0; f[at + 9] = 0; } else { f[at + 1] = 0; putHsState(b, $x, f, at + 2, heap); } }
+  f[at + 10] = o.team;
+  f[at + 11] = o.previous;
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; } else { f[at + 12] = 0; f[at + 13] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; } else { f[at + 14] = 0; f[at + 15] = b.strings.id($x); } }
+}
+
+export function sameHsEvent(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  { const p = a.state, q = b.state; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".state"; } else { { const d = sameHsState(p, q); if (d) return ".state" + d; } } }
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.previous, b.previous)) return ".previous";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  return null;
+}
+
+export function exportHsEvent(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.state = ((x) => (x === null || x === undefined ? x : exportHsState(x, cx)))(o.state);
+  v.team = o.team;
+  v.previous = o.previous;
+  v.className = o.className;
+  v.post = o.post;
+  return v;
+}
+
+export class HsCommandMirror {
+  constructor() {
+    this.kind = "team";
+    this.team = NaN;
+    this.className = null;
+    this.post = null;
+  }
+}
+
+export function syncHsCommand(b, f, at, h, m) {
+  m.kind = HsCommandKind_NAMES[f[at + 0]];
+  m.team = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { m.className = b.strings.at(f[at + 3]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { m.post = b.strings.at(f[at + 5]); } else m.post = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsCommand(b, o, f, at, heap) {
+  f[at + 0] = HsCommandKind_INDEX.get(o.kind);
+  f[at + 1] = o.team;
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = b.strings.id($x); } }
+}
+
+export function sameHsCommand(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  return null;
+}
+
+export function exportHsCommand(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.team = o.team;
+  v.className = o.className;
+  v.post = o.post;
+  return v;
+}
+
+export class HsAuthorityMirror {
+  constructor() {
+    this.phase = "unspawned";
+    this.className = null;
+    this.post = null;
+    this.spawnedOnce = false;
+    this.ended = false;
+    this.deadTime = NaN;
+    this.pending = null;
+    this.auto = null;
+  }
+}
+
+export function syncHsAuthority(b, f, at, h, m) {
+  m.phase = HumanPhase_NAMES[f[at + 0]];
+  { const tag = f[at + 1]; if (tag === 0) { m.className = b.strings.at(f[at + 2]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 3]; if (tag === 0) { m.post = b.strings.at(f[at + 4]); } else m.post = tag === 1 ? null : undefined; }
+  m.spawnedOnce = f[at + 5] !== 0;
+  m.ended = f[at + 6] !== 0;
+  m.deadTime = f[at + 7];
+  { const tag = f[at + 8]; if (tag === 0) { m.pending = syncHumanPick(b, f, at + 9, h, m.pending ?? new HumanPickMirror()); } else m.pending = tag === 1 ? null : undefined; }
+  { const tag = f[at + 12]; if (tag === 0) { m.auto = syncHumanAuto(b, f, at + 13, h, m.auto ?? new HumanAutoMirror()); } else m.auto = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsAuthority(b, o, f, at, heap) {
+  f[at + 0] = HumanPhase_INDEX.get(o.phase);
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = b.strings.id($x); } }
+  f[at + 5] = o.spawnedOnce ? 1 : 0;
+  f[at + 6] = o.ended ? 1 : 0;
+  f[at + 7] = o.deadTime;
+  { const $x = o.pending; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; f[at + 10] = 0; f[at + 11] = 0; } else { f[at + 8] = 0; putHumanPick(b, $x, f, at + 9, heap); } }
+  { const $x = o.auto; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; f[at + 15] = 0; f[at + 16] = 0; } else { f[at + 12] = 0; putHumanAuto(b, $x, f, at + 13, heap); } }
+}
+
+export function sameHsAuthority(a, b) {
+  if (!Object.is(a.phase, b.phase)) return ".phase";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(a.spawnedOnce, b.spawnedOnce)) return ".spawnedOnce";
+  if (!Object.is(a.ended, b.ended)) return ".ended";
+  if (!Object.is(a.deadTime, b.deadTime)) return ".deadTime";
+  { const p = a.pending, q = b.pending; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".pending"; } else { { const d = sameHumanPick(p, q); if (d) return ".pending" + d; } } }
+  { const p = a.auto, q = b.auto; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".auto"; } else { { const d = sameHumanAuto(p, q); if (d) return ".auto" + d; } } }
+  return null;
+}
+
+export function exportHsAuthority(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.phase = o.phase;
+  v.className = o.className;
+  v.post = o.post;
+  v.spawnedOnce = o.spawnedOnce;
+  v.ended = o.ended;
+  v.deadTime = o.deadTime;
+  v.pending = ((x) => (x === null || x === undefined ? x : exportHumanPick(x, cx)))(o.pending);
+  v.auto = ((x) => (x === null || x === undefined ? x : exportHumanAuto(x, cx)))(o.auto);
+  return v;
+}
+
+export class HsInputMirror {
+  constructor() {
+    this.op = "update";
+    this.dt = NaN;
+    this.commands = [];
+    this.className = null;
+    this.post = null;
+    this.team = NaN;
+    this.previous = NaN;
+    this.authority = null;
+  }
+}
+
+export function syncHsInput(b, f, at, h, m) {
+  m.op = HsOperation_NAMES[f[at + 0]];
+  m.dt = f[at + 1];
+  { const items = (m.commands ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
+  { const tag = f[at + 4]; if (tag === 0) { m.className = b.strings.at(f[at + 5]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.post = b.strings.at(f[at + 7]); } else m.post = tag === 1 ? null : undefined; }
+  m.team = f[at + 8];
+  m.previous = f[at + 9];
+  { const tag = f[at + 10]; if (tag === 0) { m.authority = syncHsAuthority(b, f, at + 11, h, m.authority ?? new HsAuthorityMirror()); } else m.authority = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsInput(b, o, f, at, heap) {
+  f[at + 0] = HsOperation_INDEX.get(o.op);
+  f[at + 1] = o.dt;
+  heap.items(o.commands, f, at + 2, 6, (f, at, v) => { putHsCommand(b, v, f, at + 0, heap); });
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = b.strings.id($x); } }
+  f[at + 8] = o.team;
+  f[at + 9] = o.previous;
+  { const $x = o.authority; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f.fill(0, at + 11, at + 28); } else { f[at + 10] = 0; putHsAuthority(b, $x, f, at + 11, heap); } }
+}
+
+export function sameHsInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!sameEach(a.commands, b.commands, (x, y) => sameHsCommand(x, y) === null)) return ".commands";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.previous, b.previous)) return ".previous";
+  { const p = a.authority, q = b.authority; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".authority"; } else { { const d = sameHsAuthority(p, q); if (d) return ".authority" + d; } } }
+  return null;
+}
+
+export function exportHsInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.dt = o.dt;
+  v.commands = o.commands.map((x) => exportHsCommand(x, cx));
+  v.className = o.className;
+  v.post = o.post;
+  v.team = o.team;
+  v.previous = o.previous;
+  v.authority = ((x) => (x === null || x === undefined ? x : exportHsAuthority(x, cx)))(o.authority);
+  return v;
+}
+
+export class HsResultMirror {
+  constructor() {
+    this.events = [];
+    this.view = null;
+  }
+}
+
+export function syncHsResult(b, f, at, h, m) {
+  { const items = (m.events ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncHsEvent(b, f, at + 0, h, v ?? new HsEventMirror()); } items[i] = v; } }
+  { const tag = f[at + 2]; if (tag === 0) { m.view = syncHsState(b, f, at + 3, h, m.view ?? new HsStateMirror()); } else m.view = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsResult(b, o, f, at, heap) {
+  heap.items(o.events, f, at + 0, 16, (f, at, v) => { putHsEvent(b, v, f, at + 0, heap); });
+  { const $x = o.view; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; f[at + 7] = 0; f[at + 8] = 0; f[at + 9] = 0; f[at + 10] = 0; } else { f[at + 2] = 0; putHsState(b, $x, f, at + 3, heap); } }
+}
+
+export function sameHsResult(a, b) {
+  if (!sameEach(a.events, b.events, (x, y) => sameHsEvent(x, y) === null)) return ".events";
+  { const p = a.view, q = b.view; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".view"; } else { { const d = sameHsState(p, q); if (d) return ".view" + d; } } }
+  return null;
+}
+
+export function exportHsResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.events = o.events.map((x) => exportHsEvent(x, cx));
+  v.view = ((x) => (x === null || x === undefined ? x : exportHsState(x, cx)))(o.view);
+  return v;
+}
+
+export class HsQueryArgsMirror {
+  constructor() {
+    this.op = "team";
+    this.team = NaN;
+    this.className = null;
+  }
+}
+
+export function syncHsQueryArgs(b, f, at, h, m) {
+  m.op = HsQueryOp_NAMES[f[at + 0]];
+  m.team = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { m.className = b.strings.at(f[at + 3]); } else m.className = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsQueryArgs(b, o, f, at, heap) {
+  f[at + 0] = HsQueryOp_INDEX.get(o.op);
+  f[at + 1] = o.team;
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = b.strings.id($x); } }
+}
+
+export function sameHsQueryArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  return null;
+}
+
+export function exportHsQueryArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.team = o.team;
+  v.className = o.className;
+  return v;
+}
+
+export class HsQueryResultMirror {
+  constructor() {
+    this.number = NaN;
+    this.flag = false;
+    this.roster = [];
+    this.present = false;
+    this.hasUnit = false;
+    this.timer = NaN;
+  }
+}
+
+export function syncHsQueryResult(b, f, at, h, m) {
+  m.number = f[at + 0];
+  m.flag = f[at + 1] !== 0;
+  { const items = (m.roster ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  m.present = f[at + 4] !== 0;
+  m.hasUnit = f[at + 5] !== 0;
+  m.timer = f[at + 6];
+  return m;
+}
+
+export function putHsQueryResult(b, o, f, at, heap) {
+  f[at + 0] = o.number;
+  f[at + 1] = o.flag ? 1 : 0;
+  heap.items(o.roster, f, at + 2, 1, (f, at, v) => { f[at + 0] = b.strings.id(v); });
+  f[at + 4] = o.present ? 1 : 0;
+  f[at + 5] = o.hasUnit ? 1 : 0;
+  f[at + 6] = o.timer;
+}
+
+export function sameHsQueryResult(a, b) {
+  if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  if (!sameEach(a.roster, b.roster, (x, y) => Object.is(x, y))) return ".roster";
+  if (!Object.is(a.present, b.present)) return ".present";
+  if (!Object.is(a.hasUnit, b.hasUnit)) return ".hasUnit";
+  if (!Object.is(a.timer, b.timer)) return ".timer";
+  return null;
+}
+
+export function exportHsQueryResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.number = o.number;
+  v.flag = o.flag;
+  v.roster = o.roster.map((x) => x);
+  v.present = o.present;
+  v.hasUnit = o.hasUnit;
+  v.timer = o.timer;
+  return v;
+}
+
+export class HsActionArgsMirror {
+  constructor() {
+    this.op = "setTeam";
+    this.state = new HsOwnedMirror();
+    this.events = [];
+    this.team = NaN;
+    this.className = null;
+    this.post = null;
+  }
+}
+
+export function syncHsActionArgs(b, f, at, h, m) {
+  m.op = HsActionOp_NAMES[f[at + 0]];
+  m.state = syncHsOwned(b, f, at + 1, h, m.state ?? new HsOwnedMirror());
+  { const items = (m.events ??= []), start = h + f[at + 18], n = f[at + 19]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncHsEvent(b, f, at + 0, h, v ?? new HsEventMirror()); } items[i] = v; } }
+  m.team = f[at + 20];
+  { const tag = f[at + 21]; if (tag === 0) { m.className = b.strings.at(f[at + 22]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 23]; if (tag === 0) { m.post = b.strings.at(f[at + 24]); } else m.post = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsActionArgs(b, o, f, at, heap) {
+  f[at + 0] = HsActionOp_INDEX.get(o.op);
+  putHsOwned(b, o.state, f, at + 1, heap);
+  heap.items(o.events, f, at + 18, 16, (f, at, v) => { putHsEvent(b, v, f, at + 0, heap); });
+  f[at + 20] = o.team;
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 21] = $x === null ? 1 : 2; f[at + 22] = 0; } else { f[at + 21] = 0; f[at + 22] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f[at + 24] = 0; } else { f[at + 23] = 0; f[at + 24] = b.strings.id($x); } }
+}
+
+export function sameHsActionArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameHsOwned(a.state, b.state); if (d) return ".state" + d; }
+  if (!sameEach(a.events, b.events, (x, y) => sameHsEvent(x, y) === null)) return ".events";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  return null;
+}
+
+export function exportHsActionArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportHsOwned(o.state, cx);
+  v.events = o.events.map((x) => exportHsEvent(x, cx));
+  v.team = o.team;
+  v.className = o.className;
+  v.post = o.post;
+  return v;
+}
+
+export class HsActionResultMirror {
+  constructor() {
+    this.state = new HsOwnedMirror();
+    this.accepted = false;
+  }
+}
+
+export function syncHsActionResult(b, f, at, h, m) {
+  m.state = syncHsOwned(b, f, at + 0, h, m.state ?? new HsOwnedMirror());
+  m.accepted = f[at + 17] !== 0;
+  return m;
+}
+
+export function putHsActionResult(b, o, f, at, heap) {
+  putHsOwned(b, o.state, f, at + 0, heap);
+  f[at + 17] = o.accepted ? 1 : 0;
+}
+
+export function sameHsActionResult(a, b) {
+  { const d = sameHsOwned(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.accepted, b.accepted)) return ".accepted";
+  return null;
+}
+
+export function exportHsActionResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportHsOwned(o.state, cx);
+  v.accepted = o.accepted;
   return v;
 }
 

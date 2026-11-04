@@ -68,6 +68,141 @@ impl HumanPhase {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HsOperation {
+    #[default] Update = 0,
+    Apply = 1,
+    Phase = 2,
+    Realize = 3,
+    Died = 4,
+    Spawned = 5,
+    TeamChanged = 6,
+    State = 7,
+    Authority = 8,
+}
+
+impl HsOperation {
+    pub const NAMES: [&'static str; 9] = ["update", "apply", "phase", "realize", "died", "spawned", "teamChanged", "state", "authority"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(HsOperation::Update),
+            1 => Some(HsOperation::Apply),
+            2 => Some(HsOperation::Phase),
+            3 => Some(HsOperation::Realize),
+            4 => Some(HsOperation::Died),
+            5 => Some(HsOperation::Spawned),
+            6 => Some(HsOperation::TeamChanged),
+            7 => Some(HsOperation::State),
+            8 => Some(HsOperation::Authority),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HsQueryOp {
+    #[default] Team = 0,
+    Dead = 1,
+    Over = 2,
+    Roster = 3,
+    Classic = 4,
+    CharacterSpawn = 5,
+    CanSpawn = 6,
+}
+
+impl HsQueryOp {
+    pub const NAMES: [&'static str; 7] = ["team", "dead", "over", "roster", "classic", "characterSpawn", "canSpawn"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(HsQueryOp::Team),
+            1 => Some(HsQueryOp::Dead),
+            2 => Some(HsQueryOp::Over),
+            3 => Some(HsQueryOp::Roster),
+            4 => Some(HsQueryOp::Classic),
+            5 => Some(HsQueryOp::CharacterSpawn),
+            6 => Some(HsQueryOp::CanSpawn),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HsActionOp {
+    #[default] SetTeam = 0,
+    Spawn = 1,
+    Ready = 2,
+    Kill = 3,
+    Cancel = 4,
+    Rejected = 5,
+}
+
+impl HsActionOp {
+    pub const NAMES: [&'static str; 6] = ["setTeam", "spawn", "ready", "kill", "cancel", "rejected"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(HsActionOp::SetTeam),
+            1 => Some(HsActionOp::Spawn),
+            2 => Some(HsActionOp::Ready),
+            3 => Some(HsActionOp::Kill),
+            4 => Some(HsActionOp::Cancel),
+            5 => Some(HsActionOp::Rejected),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HsEventKind {
+    #[default] AwaitingSpawn = 0,
+    Spawned = 1,
+    TeamChanged = 2,
+    PlayerDied = 3,
+}
+
+impl HsEventKind {
+    pub const NAMES: [&'static str; 4] = ["awaitingSpawn", "spawned", "teamChanged", "playerDied"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(HsEventKind::AwaitingSpawn),
+            1 => Some(HsEventKind::Spawned),
+            2 => Some(HsEventKind::TeamChanged),
+            3 => Some(HsEventKind::PlayerDied),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HsCommandKind {
+    #[default] Team = 0,
+    Spawn = 1,
+    Suicide = 2,
+    Cancel = 3,
+}
+
+impl HsCommandKind {
+    pub const NAMES: [&'static str; 4] = ["team", "spawn", "suicide", "cancel"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(HsCommandKind::Team),
+            1 => Some(HsCommandKind::Spawn),
+            2 => Some(HsCommandKind::Suicide),
+            3 => Some(HsCommandKind::Cancel),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PostRef {
     Null,
@@ -229,6 +364,398 @@ impl HumanAuto {
             team: row[0],
             class_name: StrId(word_u32(row[1])),
             post: if row[2] == 0.0 { Some(StrId(word_u32(row[2 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsOwned {
+    pub auto: Option<HumanAuto>,
+    pub class_name: StrId,
+    pub post: Option<StrId>,
+    pub phase: HumanPhase,
+    pub can_switch_teams: bool,
+    pub spawned_once: bool,
+    pub dead_time: f64,
+    pub pending: Option<HumanPick>,
+    pub ended: bool,
+}
+
+impl HsOwned {
+    pub const WORDS: usize = 17;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 17] = (&mut row[..17]).try_into().unwrap();
+        match &self.auto { Some(v) => { row[0] = 0.0; v.put(&mut row[0 + 1..], heap); } None => { row[0] = 1.0; row[0 + 1..0 + 5].fill(0.0); } }
+        row[5] = self.class_name.0 as f64;
+        match &self.post { Some(v) => { row[6] = 0.0; row[6 + 1] = (*v).0 as f64; } None => { row[6] = 1.0; row[6 + 1..6 + 2].fill(0.0); } }
+        row[8] = self.phase as u8 as f64;
+        row[9] = if self.can_switch_teams { 1.0 } else { 0.0 };
+        row[10] = if self.spawned_once { 1.0 } else { 0.0 };
+        row[11] = self.dead_time;
+        match &self.pending { Some(v) => { row[12] = 0.0; v.put(&mut row[12 + 1..], heap); } None => { row[12] = 1.0; row[12 + 1..12 + 4].fill(0.0); } }
+        row[16] = if self.ended { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 17] = (&row[..17]).try_into().unwrap();
+        Self {
+            auto: if row[0] == 0.0 { Some(HumanAuto::take(&row[0 + 1..], heap)) } else { None },
+            class_name: StrId(word_u32(row[5])),
+            post: if row[6] == 0.0 { Some(StrId(word_u32(row[6 + 1]))) } else { None },
+            phase: HumanPhase::from_u8(word_u32(row[8]) as u8).unwrap_or_default(),
+            can_switch_teams: row[9] != 0.0,
+            spawned_once: row[10] != 0.0,
+            dead_time: row[11],
+            pending: if row[12] == 0.0 { Some(HumanPick::take(&row[12 + 1..], heap)) } else { None },
+            ended: row[16] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsState {
+    pub phase: HumanPhase,
+    pub team: f64,
+    pub class_name: StrId,
+    pub class_index: f64,
+    pub post: Option<StrId>,
+    pub can_switch_teams: bool,
+    pub over: bool,
+}
+
+impl HsState {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = self.phase as u8 as f64;
+        row[1] = self.team;
+        row[2] = self.class_name.0 as f64;
+        row[3] = self.class_index;
+        match &self.post { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).0 as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 2].fill(0.0); } }
+        row[6] = if self.can_switch_teams { 1.0 } else { 0.0 };
+        row[7] = if self.over { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            phase: HumanPhase::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            team: row[1],
+            class_name: StrId(word_u32(row[2])),
+            class_index: row[3],
+            post: if row[4] == 0.0 { Some(StrId(word_u32(row[4 + 1]))) } else { None },
+            can_switch_teams: row[6] != 0.0,
+            over: row[7] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsEvent {
+    pub kind: HsEventKind,
+    pub state: Option<HsState>,
+    pub team: f64,
+    pub previous: f64,
+    pub class_name: Option<StrId>,
+    pub post: Option<StrId>,
+}
+
+impl HsEvent {
+    pub const WORDS: usize = 16;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
+        row[0] = self.kind as u8 as f64;
+        match &self.state { Some(v) => { row[1] = 0.0; v.put(&mut row[1 + 1..], heap); } None => { row[1] = 1.0; row[1 + 1..1 + 9].fill(0.0); } }
+        row[10] = self.team;
+        row[11] = self.previous;
+        match &self.class_name { Some(v) => { row[12] = 0.0; row[12 + 1] = (*v).0 as f64; } None => { row[12] = 1.0; row[12 + 1..12 + 2].fill(0.0); } }
+        match &self.post { Some(v) => { row[14] = 0.0; row[14 + 1] = (*v).0 as f64; } None => { row[14] = 1.0; row[14 + 1..14 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 16] = (&row[..16]).try_into().unwrap();
+        Self {
+            kind: HsEventKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: if row[1] == 0.0 { Some(HsState::take(&row[1 + 1..], heap)) } else { None },
+            team: row[10],
+            previous: row[11],
+            class_name: if row[12] == 0.0 { Some(StrId(word_u32(row[12 + 1]))) } else { None },
+            post: if row[14] == 0.0 { Some(StrId(word_u32(row[14 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsCommand {
+    pub kind: HsCommandKind,
+    pub team: f64,
+    pub class_name: Option<StrId>,
+    pub post: Option<StrId>,
+}
+
+impl HsCommand {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.kind as u8 as f64;
+        row[1] = self.team;
+        match &self.class_name { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v).0 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
+        match &self.post { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).0 as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            kind: HsCommandKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            team: row[1],
+            class_name: if row[2] == 0.0 { Some(StrId(word_u32(row[2 + 1]))) } else { None },
+            post: if row[4] == 0.0 { Some(StrId(word_u32(row[4 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsAuthority {
+    pub phase: HumanPhase,
+    pub class_name: Option<StrId>,
+    pub post: Option<StrId>,
+    pub spawned_once: bool,
+    pub ended: bool,
+    pub dead_time: f64,
+    pub pending: Option<HumanPick>,
+    pub auto: Option<HumanAuto>,
+}
+
+impl HsAuthority {
+    pub const WORDS: usize = 17;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 17] = (&mut row[..17]).try_into().unwrap();
+        row[0] = self.phase as u8 as f64;
+        match &self.class_name { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).0 as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 2].fill(0.0); } }
+        match &self.post { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v).0 as f64; } None => { row[3] = 1.0; row[3 + 1..3 + 2].fill(0.0); } }
+        row[5] = if self.spawned_once { 1.0 } else { 0.0 };
+        row[6] = if self.ended { 1.0 } else { 0.0 };
+        row[7] = self.dead_time;
+        match &self.pending { Some(v) => { row[8] = 0.0; v.put(&mut row[8 + 1..], heap); } None => { row[8] = 1.0; row[8 + 1..8 + 4].fill(0.0); } }
+        match &self.auto { Some(v) => { row[12] = 0.0; v.put(&mut row[12 + 1..], heap); } None => { row[12] = 1.0; row[12 + 1..12 + 5].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 17] = (&row[..17]).try_into().unwrap();
+        Self {
+            phase: HumanPhase::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            class_name: if row[1] == 0.0 { Some(StrId(word_u32(row[1 + 1]))) } else { None },
+            post: if row[3] == 0.0 { Some(StrId(word_u32(row[3 + 1]))) } else { None },
+            spawned_once: row[5] != 0.0,
+            ended: row[6] != 0.0,
+            dead_time: row[7],
+            pending: if row[8] == 0.0 { Some(HumanPick::take(&row[8 + 1..], heap)) } else { None },
+            auto: if row[12] == 0.0 { Some(HumanAuto::take(&row[12 + 1..], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsInput {
+    pub op: HsOperation,
+    pub dt: f64,
+    pub commands: Vec<HsCommand>,
+    pub class_name: Option<StrId>,
+    pub post: Option<StrId>,
+    pub team: f64,
+    pub previous: f64,
+    pub authority: Option<HsAuthority>,
+}
+
+impl HsInput {
+    pub const WORDS: usize = 28;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 28] = (&mut row[..28]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        row[1] = self.dt;
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.commands.len() as f64; heap.resize(at + self.commands.len() * 6, 0.0); for (i, e) in self.commands.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
+        match &self.class_name { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).0 as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 2].fill(0.0); } }
+        match &self.post { Some(v) => { row[6] = 0.0; row[6 + 1] = (*v).0 as f64; } None => { row[6] = 1.0; row[6 + 1..6 + 2].fill(0.0); } }
+        row[8] = self.team;
+        row[9] = self.previous;
+        match &self.authority { Some(v) => { row[10] = 0.0; v.put(&mut row[10 + 1..], heap); } None => { row[10] = 1.0; row[10 + 1..10 + 18].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 28] = (&row[..28]).try_into().unwrap();
+        Self {
+            op: HsOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            dt: row[1],
+            commands: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(HsCommand::take(&row[0..], heap)); } out },
+            class_name: if row[4] == 0.0 { Some(StrId(word_u32(row[4 + 1]))) } else { None },
+            post: if row[6] == 0.0 { Some(StrId(word_u32(row[6 + 1]))) } else { None },
+            team: row[8],
+            previous: row[9],
+            authority: if row[10] == 0.0 { Some(HsAuthority::take(&row[10 + 1..], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsResult {
+    pub events: Vec<HsEvent>,
+    pub view: Option<HsState>,
+}
+
+impl HsResult {
+    pub const WORDS: usize = 11;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.events.len() as f64; heap.resize(at + self.events.len() * 16, 0.0); for (i, e) in self.events.iter().enumerate() { let mut item = [0.0f64; 16]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 16..at + (i + 1) * 16].copy_from_slice(&item); } }
+        match &self.view { Some(v) => { row[2] = 0.0; v.put(&mut row[2 + 1..], heap); } None => { row[2] = 1.0; row[2 + 1..2 + 9].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 11] = (&row[..11]).try_into().unwrap();
+        Self {
+            events: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 16..at + (i + 1) * 16]; out.push(HsEvent::take(&row[0..], heap)); } out },
+            view: if row[2] == 0.0 { Some(HsState::take(&row[2 + 1..], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsQueryArgs {
+    pub op: HsQueryOp,
+    pub team: f64,
+    pub class_name: Option<StrId>,
+}
+
+impl HsQueryArgs {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        row[1] = self.team;
+        match &self.class_name { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v).0 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            op: HsQueryOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            team: row[1],
+            class_name: if row[2] == 0.0 { Some(StrId(word_u32(row[2 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsQueryResult {
+    pub number: f64,
+    pub flag: bool,
+    pub roster: Vec<StrId>,
+    pub present: bool,
+    pub has_unit: bool,
+    pub timer: f64,
+}
+
+impl HsQueryResult {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        row[0] = self.number;
+        row[1] = if self.flag { 1.0 } else { 0.0 };
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.roster.len() as f64; heap.resize(at + self.roster.len() * 1, 0.0); for (i, e) in self.roster.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        row[4] = if self.present { 1.0 } else { 0.0 };
+        row[5] = if self.has_unit { 1.0 } else { 0.0 };
+        row[6] = self.timer;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            number: row[0],
+            flag: row[1] != 0.0,
+            roster: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(StrId(word_u32(row[0]))); } out },
+            present: row[4] != 0.0,
+            has_unit: row[5] != 0.0,
+            timer: row[6],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsActionArgs {
+    pub op: HsActionOp,
+    pub state: HsOwned,
+    pub events: Vec<HsEvent>,
+    pub team: f64,
+    pub class_name: Option<StrId>,
+    pub post: Option<StrId>,
+}
+
+impl HsActionArgs {
+    pub const WORDS: usize = 25;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 25] = (&mut row[..25]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        { let at = heap.len(); row[18] = at as f64; row[18 + 1] = self.events.len() as f64; heap.resize(at + self.events.len() * 16, 0.0); for (i, e) in self.events.iter().enumerate() { let mut item = [0.0f64; 16]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 16..at + (i + 1) * 16].copy_from_slice(&item); } }
+        row[20] = self.team;
+        match &self.class_name { Some(v) => { row[21] = 0.0; row[21 + 1] = (*v).0 as f64; } None => { row[21] = 1.0; row[21 + 1..21 + 2].fill(0.0); } }
+        match &self.post { Some(v) => { row[23] = 0.0; row[23 + 1] = (*v).0 as f64; } None => { row[23] = 1.0; row[23 + 1..23 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 25] = (&row[..25]).try_into().unwrap();
+        Self {
+            op: HsActionOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: HsOwned::take(&row[1..], heap),
+            events: { let (at, n) = (word_u32(row[18]) as usize, word_u32(row[18 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 16..at + (i + 1) * 16]; out.push(HsEvent::take(&row[0..], heap)); } out },
+            team: row[20],
+            class_name: if row[21] == 0.0 { Some(StrId(word_u32(row[21 + 1]))) } else { None },
+            post: if row[23] == 0.0 { Some(StrId(word_u32(row[23 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HsActionResult {
+    pub state: HsOwned,
+    pub accepted: bool,
+}
+
+impl HsActionResult {
+    pub const WORDS: usize = 18;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[17] = if self.accepted { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
+        Self {
+            state: HsOwned::take(&row[0..], heap),
+            accepted: row[17] != 0.0,
         }
     }
 

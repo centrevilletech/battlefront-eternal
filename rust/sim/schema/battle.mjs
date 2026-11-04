@@ -5,6 +5,12 @@
 // (src/ai/classic/spawning.js). What these objects hold that is content (a
 // mission's team table, a post's rules and regions), the AI's (a post's AI
 // record) or a page's (holograms, colours) is read and not mirrored.
+const humanFields = {
+  auto: 'rec:HumanAuto|null', className: 'str', post: 'str|null',
+  phase: 'enum:HumanPhase', canSwitchTeams: 'bool', spawnedOnce: 'bool',
+  deadTime: 'f64', pending: 'rec:HumanPick|null', ended: 'bool',
+};
+
 export default {
   enums: {
     // A post changing hands (CommandPosts.events: captured, neutralized, or
@@ -13,6 +19,11 @@ export default {
     // A region's TYPE (the world files name no other).
     RegionType: ['sphere', 'box', 'cylinder'],
     HumanPhase: ['unspawned', 'alive', 'dying', 'awaiting'],
+    HsOperation: ['update', 'apply', 'phase', 'realize', 'died', 'spawned', 'teamChanged', 'state', 'authority'],
+    HsQueryOp: ['team', 'dead', 'over', 'roster', 'classic', 'characterSpawn', 'canSpawn'],
+    HsActionOp: ['setTeam', 'spawn', 'ready', 'kill', 'cancel', 'rejected'],
+    HsEventKind: ['awaitingSpawn', 'spawned', 'teamChanged', 'playerDied'],
+    HsCommandKind: ['team', 'spawn', 'suicide', 'cancel'],
   },
   unions: {
     // A post the AI sends a Character to, or one he spawns at: a placed
@@ -27,6 +38,19 @@ export default {
   records: {
     HumanPick: { className: 'str', post: 'str|null' },
     HumanAuto: { team: 'f64', className: 'str', post: 'str|null' },
+    // The live bridge hands owned values across callbacks. Neither the
+    // store nor the string table stays borrowed while JavaScript runs.
+    HsOwned: humanFields,
+    HsState: { phase: 'enum:HumanPhase', team: 'f64', className: 'str', classIndex: 'f64', post: 'str|null', canSwitchTeams: 'bool', over: 'bool' },
+    HsEvent: { kind: 'enum:HsEventKind', state: 'rec:HsState|null', team: 'f64', previous: 'f64', className: 'str|null', post: 'str|null' },
+    HsCommand: { kind: 'enum:HsCommandKind', team: 'f64', className: 'str|null', post: 'str|null' },
+    HsAuthority: { phase: 'enum:HumanPhase', className: 'str|null', post: 'str|null', spawnedOnce: 'bool', ended: 'bool', deadTime: 'f64', pending: 'rec:HumanPick|null', auto: 'rec:HumanAuto|null' },
+    HsInput: { op: 'enum:HsOperation', dt: 'f64', commands: 'list:rec:HsCommand', className: 'str|null', post: 'str|null', team: 'f64', previous: 'f64', authority: 'rec:HsAuthority|null' },
+    HsResult: { events: 'list:rec:HsEvent', view: 'rec:HsState|null' },
+    HsQueryArgs: { op: 'enum:HsQueryOp', team: 'f64', className: 'str|null' },
+    HsQueryResult: { number: 'f64', flag: 'bool', roster: 'list:str', present: 'bool', hasUnit: 'bool', timer: 'f64' },
+    HsActionArgs: { op: 'enum:HsActionOp', state: 'rec:HsOwned', events: 'list:rec:HsEvent', team: 'f64', className: 'str|null', post: 'str|null' },
+    HsActionResult: { state: 'rec:HsOwned', accepted: 'bool' },
     // A team as the mission's table gives it (map.json mission.teams).
     TeamDesc: { units: 'f64|undefined', reinforcements: 'f64|undefined', bleed: 'list:f64x2|undefined' },
     // The kills ring the sprees count in (battle-stats.js BattleStats.ring).
@@ -73,11 +97,7 @@ export default {
     humanSpawn: {
       singleton: true,
       class: 'HumanSpawn',
-      fields: {
-        auto: 'rec:HumanAuto|null', className: 'str', post: 'str|null',
-        phase: 'enum:HumanPhase', canSwitchTeams: 'bool', spawnedOnce: 'bool',
-        deadTime: 'f64', pending: 'rec:HumanPick|null', ended: 'bool',
-      },
+      fields: humanFields,
       skip: {
         world: 'the world callbacks (battle/human.rs World)',
         listeners: 'the screen and HUD observers',
@@ -268,5 +288,9 @@ export default {
         objectives: 'the AI\'s objectives',
       },
     },
+  },
+  imports: {
+    hsQuery: { args: 'HsQueryArgs', result: 'HsQueryResult' },
+    hsAction: { args: 'HsActionArgs', result: 'HsActionResult' },
   },
 };
