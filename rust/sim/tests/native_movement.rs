@@ -86,6 +86,15 @@ fn native_movement_keeps_context_ids_and_per_world_ground_caches_separate() {
     );
     a.movement_load(0, frame(0.)).unwrap();
     b.movement_load(0, frame(5.)).unwrap();
+    let separate = [Context::new(), Context::new()];
+    for (cx, y) in separate.iter().zip([0., 5.]) {
+        install(cx, y as f32);
+        cx.movement_new(0, class()).unwrap();
+        if y == 0. {
+            cx.movement_tick(0, frame(0.2), vec![]).unwrap();
+        }
+        cx.movement_load(0, frame(y)).unwrap();
+    }
     for i in 0..180 {
         let input = Input {
             forward: 0.7,
@@ -96,15 +105,21 @@ fn native_movement_keeps_context_ids_and_per_world_ground_caches_separate() {
         };
         let left = a.movement_advance(0, input, 1. / 60., vec![]).unwrap();
         let right = b.movement_advance(0, input, 1. / 60., vec![]).unwrap();
-        assert_eq!(
-            left.mover.position.x.to_bits(),
-            right.mover.position.x.to_bits()
-        );
-        assert!((right.mover.position.y - left.mover.position.y - 5.).abs() < 1e-12);
+        let expected_a = separate[0]
+            .movement_advance(0, input, 1. / 60., vec![])
+            .unwrap();
+        let expected_b = separate[1]
+            .movement_advance(0, input, 1. / 60., vec![])
+            .unwrap();
+        assert_eq!(bits(&left.io), bits(&expected_a.io));
+        assert_eq!(bits(&right.io), bits(&expected_b.io));
     }
     a.dispose().unwrap();
     b.dispose().unwrap();
     reference.dispose().unwrap();
+    for cx in separate {
+        cx.dispose().unwrap();
+    }
 }
 
 #[test]
@@ -114,6 +129,7 @@ fn native_movement_validates_handles_flags_codes_and_retains_owned_results() {
     install(&cx, 0.);
     let id = cx.movement_new(0, class()).unwrap();
     let original = cx.movement_tick(id, frame(0.), vec![]).unwrap();
+    let original_bits = bits(&original.io);
     let mut bad = frame(12.);
     bad[m::POSTURE] = 17.;
     assert!(matches!(
@@ -172,7 +188,7 @@ fn native_movement_validates_handles_flags_codes_and_retains_owned_results() {
         matches!(alias.movement_snapshot(id),Err(MovementError::Context(e)) if e.kind()==ErrorKind::Disposed)
     );
     assert_eq!(raw.flags, vec![255]);
-    assert_eq!(bits(&original.io), bits(&original.clone().io));
+    assert_eq!(bits(&original.io), original_bits);
 }
 
 #[test]
