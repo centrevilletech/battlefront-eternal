@@ -13,7 +13,7 @@ import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { Agent } from '../src/ai/classic/agents.js';
 import { AttackPatterns, UnitCombatAgent, CoverHelper, boardingClear, inForwardCone, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
-import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
+import { FireControl, clusterState, consumeFire, effectiveRange, expandedRange, forwardSpeed, lowerBand, sensorRange, upperBand, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -1813,4 +1813,40 @@ test('native boarding scans retain the shared query list, eligibility gates and 
     return {history,result,length:shared?.length};
   }
   for(let i=0;i<512;i++)assert.deepEqual(run(true,i),run(false,i),`boarding scan ${i}`);
+});
+
+test('native range policies preserve metadata reads, raw return values and mutable inventory levels', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},c={ai:{world},perception:{fire:{channel:0}}};let maxReads=0,optReads=0,extremeReads=0,defReads=0,appended=false,scale=1;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8700).fill(6));};
+    const def={base:'rifle',ai:{minRange:1,optimalRange:20,maxRange:40,extremeRange:60}},alt={base:'rifle',ai:{minRange:0,optimalRange:10,maxRange:30,extremeRange:50}};
+    const meta=weaponAI(def);weaponAI(alt);
+    const maximum={valueOf(){log('max-coercion');return 25;}},extreme={valueOf(){log('extreme-coercion');return 15;}};
+    Object.defineProperties(meta,{maxRange:{get(){log('max',++maxReads);return [40,'30',maximum,NaN][i%4];}},
+      implicitRange:{get(){log('implicit');return i%3===0;}},minRange:{get(){log('minimum');return [1,'2',NaN,-0][i%4];}},
+      optimalRange:{get(){log('optimal',++optReads);return [20,'10',NaN,5][(i+optReads)%4];}},
+      extremeRange:{get(){log('extreme',++extremeReads);return [60,'10',extreme,NaN][i%4];}}});
+    const levels=[def,alt],weapon={levels,get def(){log('def',++defReads);return i%23===0&&defReads%2===0?alt:def;}};
+    const unit=c.unit={controller:c,kind:[0,2,3,'0'][i%4],combat:{arsenal:{weapons:[weapon,{def:alt}],current(ch){log('current',ch);return i%29===0?null:weapon;}}},
+      get classDef(){log('class');return {get ForwardSpeed(){log('speed');if(i%17===0)scale=2;return i%5===0?'3':2;}};}};
+    Object.defineProperty(c,'rangeScale',{get(){log('scale');return i%7===0?{valueOf(){log('scale-coercion');if(!appended){levels.push(alt);appended=true;}return scale;}}:scale;}});
+    const value=v=>v===maximum?'max-object':v===extreme?'extreme-object':v;
+    const results=[forwardSpeed(unit),effectiveRange(unit,c,def),expandedRange(unit,c,def),maxExpandedRange(unit,c),sensorRange(unit,c),lowerBand(unit,c),upperBand(unit,c,i%11===0?'35':50)].map(value);
+    return {history,results,counts:[maxReads,optReads,extremeReads,defReads],levels:levels.length};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`range policy ${i}`);
+});
+
+test('native range inventory traversal closes nested iterators when a range callback throws', async () => {
+  const {sim}=await pair();
+  function run(native) {
+    const history=[],world={aiSim:native?sim:null},c={ai:{world}},def={base:'rifle',ai:{maxRange:40,extremeRange:80}};let calls=0;
+    const iterable=(name,items)=>({[Symbol.iterator](){history.push([name,'iterator']);let index=0;return {next(){history.push([name,'next',index]);return index<items.length?{value:items[index++],done:false}:{done:true};},return(){history.push([name,'return']);return {done:true};}};}});
+    const weapon={levels:iterable('levels',[def,def])},unit=c.unit={controller:c,kind:0,combat:{arsenal:{weapons:iterable('weapons',[weapon])}}};
+    Object.defineProperty(c,'rangeScale',{get(){history.push(['scale',++calls]);if(calls===2)throw Error('range callback failed');return 1;}});
+    let error;try{maxExpandedRange(unit,c);}catch(e){error=e.message;}
+    return {history,error};
+  }
+  assert.deepEqual(run(true),run(false));
 });

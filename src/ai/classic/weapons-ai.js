@@ -197,6 +197,8 @@ function infantryKind(kind) {
 // The nominal forward speed: a soldier's MaxSpeed,
 // a vehicle's ForwardSpeed.
 export function forwardSpeed(unit) {
+  const native=unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.ranges.run(0,unit,undefined,undefined,undefined);
   const c = unit?.classDef;
   return f(c?.ForwardSpeed ?? c?.MaxSpeed ?? 0);
 }
@@ -228,6 +230,8 @@ export function relationBit(relation) {
 // by the controller's range scale (2 while sniping from a hint); a scaled
 // range above the class's extreme range gives max(extreme, unscaled).
 export function effectiveRange(unit, controller, def) {
+  const native=controller?.ai?.world?.aiSim??unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.ranges.run(1,unit,controller,def,undefined);
   const a = weaponAI(def);
   if (!a) return 0;
   let r = a.maxRange;
@@ -240,12 +244,16 @@ export function effectiveRange(unit, controller, def) {
 
 // The range plus five seconds of the owner's nominal speed.
 export function expandedRange(unit, controller, def) {
+  const native=controller?.ai?.world?.aiSim??unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.ranges.run(2,unit,controller,def,undefined);
   return f(effectiveRange(unit, controller, def) + f(forwardSpeed(unit) * 5));
 }
 
 // The largest expanded range over the inventory and its charge
 // levels (the scanner's radius before its 75..350 clamp).
 export function maxExpandedRange(unit, controller) {
+  const native=controller?.ai?.world?.aiSim??unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.ranges.run(3,unit,controller,undefined,undefined);
   let best = 0;
   for (const weapon of unit?.combat?.arsenal?.weapons || []) {
     for (const level of weapon.levels || [weapon.def]) {
@@ -260,6 +268,8 @@ export function maxExpandedRange(unit, controller) {
 // alert responses and the combat agent's give-up distance call the bot's
 // sensor range.
 export function sensorRange(unit, controller) {
+  const native=controller?.ai?.world?.aiSim??unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.ranges.run(4,unit,controller,undefined,undefined);
   const weapon = selectedWeapon(unit, controller);
   return weapon ? expandedRange(unit, controller, weapon.def) : 0;
 }
@@ -268,6 +278,8 @@ export function sensorRange(unit, controller) {
 // min(Optimal, Min + 10); upper min(max(effective - 10, Optimal), sight range
 // of the target - 10).
 export function lowerBand(unit, controller) {
+  const native=controller?.ai?.world?.aiSim??unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.ranges.run(5,unit,controller,undefined,undefined);
   const a = weaponAI(selectedWeapon(unit, controller)?.def);
   if (!a) return 0;
   const lo = f(a.minRange + 10);
@@ -275,6 +287,8 @@ export function lowerBand(unit, controller) {
 }
 
 export function upperBand(unit, controller, sight) {
+  const native=controller?.ai?.world?.aiSim??unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.ranges.run(6,unit,controller,undefined,sight);
   const weapon = selectedWeapon(unit, controller);
   const a = weaponAI(weapon?.def);
   if (!a) return 0;
