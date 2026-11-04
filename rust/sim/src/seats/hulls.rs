@@ -543,7 +543,7 @@ pub fn lease_views(st: &mut Store, v: Ref<Vehicle>) {
     hull.seat_leases.clear();
     for seat in &hull.seats {
         let view = match seat.lease.and_then(|r| st.seat_lease.get(r)) {
-            Some(lease) if !lease.released => SeatLeaseView {
+            Some(lease) => SeatLeaseView {
                 human: Some(lease.human),
                 unit: match lease.unit {
                     Some(u) => Nullable::Value(u),

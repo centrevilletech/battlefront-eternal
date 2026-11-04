@@ -172,6 +172,7 @@ impl Seats {
 
     /// Vehicles.vacate handles exits, disconnects, death and displacement.
     pub fn vacate<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, world: &mut W, r: Ref<SeatLease>, how: Vacate) -> bool {
+        if st.seat_lease.get(r).is_some_and(|l| l.released) { return true; }
         let Some(v) = self.lease(st, r) else { return false };
         self.changed.lease(st, r);
         self.touch_hull(st, v);
