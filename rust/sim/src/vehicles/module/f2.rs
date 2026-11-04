@@ -313,6 +313,7 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
     unsafe { *addr_of_mut!(TIME) += dt; *addr_of_mut!(CLOCK) = Some(io()[F2Input::CLOCK]); }
     allocation::begin();
     sim().events.clear();
+    live_seats::import_phase_input();
     { let _scope = allocation::enter(allocation::LIFECYCLE); spawns(dt); }
     allocation::stage(allocation::Stage::Foreign);
     foreign();

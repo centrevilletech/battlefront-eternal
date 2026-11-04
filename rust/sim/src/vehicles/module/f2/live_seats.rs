@@ -158,8 +158,13 @@ fn refresh_hulls(hulls: &mut Hulls, st: &Store) {
 }
 
 /// Vehicles.latchCrews runs between native spawn clocks and hull capture.
+/// Freeze JS-owned facts once, before spawn callbacks can issue commands.
+/// Commands import their touched actors separately; they cannot replace the
+/// other crews' pending intent by reusing the command input buffer.
+pub fn import_phase_input() { inputs(); }
+
 pub fn latch(time: f64) {
-    inputs(); state().depth += 1;
+    state().depth += 1;
     let n = state().owner.hulls.hulls.len();
     for i in 0..n {
         let r = state().owner.hulls.hulls[i].vehicle;

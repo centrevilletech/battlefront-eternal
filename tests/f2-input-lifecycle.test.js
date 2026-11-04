@@ -395,3 +395,22 @@ test('warm F2 native collision reuses storage at a later wall contact', async ()
     assert.ok(v.position.z < 2.6, 'the wall still stops the hull');
   } finally { system.dispose(); }
 });
+// A normal lifecycle hook may synchronously board a new occupant. Its scalar
+// command has its own foreign facts; it must not replace another crew's batch.
+test('a pre-latch birth command preserves another crew\'s pending intent', async () => {
+  const { system } = await fleet(true);
+  try {
+    const [pilot, other] = system.vehicles, a = rider(system, 61), b = rider(system, 62);
+    assert.equal(system.board(a, pilot), true); system.update(1 / 60);
+    other.setHealth(0); a.intent.forward = .7;
+    const adopt = system.f2.firing.adopt;
+    let boarded = false;
+    system.f2.firing.adopt = function(v) {
+      adopt.call(this, v);
+      if (v === other && !boarded) { boarded = true; assert.equal(system.board(b, v), true); }
+    };
+    system.update(1 / 60);
+    assert.ok(boarded); assert.equal(b.seat.vehicle, other);
+    assert.equal(a.seat.input.forward, .7, 'the pending batch survives the birth command');
+  } finally { system.dispose(); }
+});
