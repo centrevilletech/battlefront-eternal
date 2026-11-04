@@ -12,6 +12,45 @@ export const RegionType_INDEX = new Map(RegionType_NAMES.map((name, i) => [name,
 export const HumanPhase_NAMES = ["unspawned","alive","dying","awaiting"];
 export const HumanPhase_INDEX = new Map(HumanPhase_NAMES.map((name, i) => [name, i]));
 
+export const HsOperation_NAMES = ["update","apply","phase","realize","died","spawned","teamChanged","state","authority"];
+export const HsOperation_INDEX = new Map(HsOperation_NAMES.map((name, i) => [name, i]));
+
+export const HsQueryOp_NAMES = ["team","dead","over","roster","classic","characterSpawn","canSpawn"];
+export const HsQueryOp_INDEX = new Map(HsQueryOp_NAMES.map((name, i) => [name, i]));
+
+export const HsActionOp_NAMES = ["setTeam","spawn","ready","kill","cancel","rejected"];
+export const HsActionOp_INDEX = new Map(HsActionOp_NAMES.map((name, i) => [name, i]));
+
+export const HsEventKind_NAMES = ["awaitingSpawn","spawned","teamChanged","playerDied"];
+export const HsEventKind_INDEX = new Map(HsEventKind_NAMES.map((name, i) => [name, i]));
+
+export const HsCommandKind_NAMES = ["team","spawn","suicide","cancel"];
+export const HsCommandKind_INDEX = new Map(HsCommandKind_NAMES.map((name, i) => [name, i]));
+
+export const BrOperation_NAMES = ["update","spend","credit","headshot","vehicleDestroyed","point","postDestroyed","score","updateTeam","updateLocals"];
+export const BrOperation_INDEX = new Map(BrOperation_NAMES.map((name, i) => [name, i]));
+
+export const BrQueryOp_NAMES = ["relation","unitAlive","observe","living","owned","statsActive"];
+export const BrQueryOp_INDEX = new Map(BrQueryOp_NAMES.map((name, i) => [name, i]));
+
+export const PsOperation_NAMES = ["update","all","owned","at","mobileEvents","refreshAll","refresh","postUpdate","destroy","contains","remaining"];
+export const PsOperation_INDEX = new Map(PsOperation_NAMES.map((name, i) => [name, i]));
+
+export const PsQueryOp_NAMES = ["captureTeam","buildingAlive","pad","vehiclePosition","classSpawnWorld"];
+export const PsQueryOp_INDEX = new Map(PsQueryOp_NAMES.map((name, i) => [name, i]));
+
+export const PsMobileEventKind_NAMES = ["lost","owner"];
+export const PsMobileEventKind_INDEX = new Map(PsMobileEventKind_NAMES.map((name, i) => [name, i]));
+
+export const SpOperation_NAMES = ["update","clock","updateCharacters","updateCharacter","awaitingHuman","setClass","activate","pickClass","prepare","choosePost","reserve","release","changePost","tickets","spendTicket","waiting","spawn","onDeath","onHumanReady","switchTeam","padQuotas","queueOf"];
+export const SpOperation_INDEX = new Map(SpOperation_NAMES.map((name, i) => [name, i]));
+
+export const SpQueryOp_NAMES = ["draw","health","heroName","spawnGoal"];
+export const SpQueryOp_INDEX = new Map(SpQueryOp_NAMES.map((name, i) => [name, i]));
+
+export const SpActionOp_NAMES = ["spawnUnit","forceKill","requestObjective","republish"];
+export const SpActionOp_INDEX = new Map(SpActionOp_NAMES.map((name, i) => [name, i]));
+
 export function variantOfPostRef(b, x) {
   if (x === null) return 0;
   if (x === undefined) return 1;
@@ -226,6 +265,1648 @@ export function exportHumanAuto(o, cx) {
   v.team = o.team;
   v.className = o.className;
   v.post = o.post;
+  return v;
+}
+
+export class HsOwnedMirror {
+  constructor() {
+    this.auto = null;
+    this.className = '';
+    this.post = null;
+    this.phase = "unspawned";
+    this.canSwitchTeams = false;
+    this.spawnedOnce = false;
+    this.deadTime = NaN;
+    this.pending = null;
+    this.ended = false;
+  }
+}
+
+export function syncHsOwned(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { m.auto = syncHumanAuto(b, f, at + 1, h, m.auto ?? new HumanAutoMirror()); } else m.auto = tag === 1 ? null : undefined; }
+  m.className = b.strings.at(f[at + 5]);
+  { const tag = f[at + 6]; if (tag === 0) { m.post = b.strings.at(f[at + 7]); } else m.post = tag === 1 ? null : undefined; }
+  m.phase = HumanPhase_NAMES[f[at + 8]];
+  m.canSwitchTeams = f[at + 9] !== 0;
+  m.spawnedOnce = f[at + 10] !== 0;
+  m.deadTime = f[at + 11];
+  { const tag = f[at + 12]; if (tag === 0) { m.pending = syncHumanPick(b, f, at + 13, h, m.pending ?? new HumanPickMirror()); } else m.pending = tag === 1 ? null : undefined; }
+  m.ended = f[at + 16] !== 0;
+  return m;
+}
+
+export function putHsOwned(b, o, f, at, heap) {
+  { const $x = o.auto; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 0] = 0; putHumanAuto(b, $x, f, at + 1, heap); } }
+  f[at + 5] = b.strings.id(o.className);
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = b.strings.id($x); } }
+  f[at + 8] = HumanPhase_INDEX.get(o.phase);
+  f[at + 9] = o.canSwitchTeams ? 1 : 0;
+  f[at + 10] = o.spawnedOnce ? 1 : 0;
+  f[at + 11] = o.deadTime;
+  { const $x = o.pending; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; f[at + 15] = 0; } else { f[at + 12] = 0; putHumanPick(b, $x, f, at + 13, heap); } }
+  f[at + 16] = o.ended ? 1 : 0;
+}
+
+export function sameHsOwned(a, b) {
+  { const p = a.auto, q = b.auto; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".auto"; } else { { const d = sameHumanAuto(p, q); if (d) return ".auto" + d; } } }
+  if (!Object.is(a.className, b.className)) return ".className";
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(a.phase, b.phase)) return ".phase";
+  if (!Object.is(a.canSwitchTeams, b.canSwitchTeams)) return ".canSwitchTeams";
+  if (!Object.is(a.spawnedOnce, b.spawnedOnce)) return ".spawnedOnce";
+  if (!Object.is(a.deadTime, b.deadTime)) return ".deadTime";
+  { const p = a.pending, q = b.pending; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".pending"; } else { { const d = sameHumanPick(p, q); if (d) return ".pending" + d; } } }
+  if (!Object.is(a.ended, b.ended)) return ".ended";
+  return null;
+}
+
+export function exportHsOwned(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.auto = ((x) => (x === null || x === undefined ? x : exportHumanAuto(x, cx)))(o.auto);
+  v.className = o.className;
+  v.post = o.post;
+  v.phase = o.phase;
+  v.canSwitchTeams = o.canSwitchTeams;
+  v.spawnedOnce = o.spawnedOnce;
+  v.deadTime = o.deadTime;
+  v.pending = ((x) => (x === null || x === undefined ? x : exportHumanPick(x, cx)))(o.pending);
+  v.ended = o.ended;
+  return v;
+}
+
+export class HsStateMirror {
+  constructor() {
+    this.phase = "unspawned";
+    this.team = NaN;
+    this.className = '';
+    this.classIndex = NaN;
+    this.post = null;
+    this.canSwitchTeams = false;
+    this.over = false;
+  }
+}
+
+export function syncHsState(b, f, at, h, m) {
+  m.phase = HumanPhase_NAMES[f[at + 0]];
+  m.team = f[at + 1];
+  m.className = b.strings.at(f[at + 2]);
+  m.classIndex = f[at + 3];
+  { const tag = f[at + 4]; if (tag === 0) { m.post = b.strings.at(f[at + 5]); } else m.post = tag === 1 ? null : undefined; }
+  m.canSwitchTeams = f[at + 6] !== 0;
+  m.over = f[at + 7] !== 0;
+  return m;
+}
+
+export function putHsState(b, o, f, at, heap) {
+  f[at + 0] = HumanPhase_INDEX.get(o.phase);
+  f[at + 1] = o.team;
+  f[at + 2] = b.strings.id(o.className);
+  f[at + 3] = o.classIndex;
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = b.strings.id($x); } }
+  f[at + 6] = o.canSwitchTeams ? 1 : 0;
+  f[at + 7] = o.over ? 1 : 0;
+}
+
+export function sameHsState(a, b) {
+  if (!Object.is(a.phase, b.phase)) return ".phase";
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.className, b.className)) return ".className";
+  if (!Object.is(a.classIndex, b.classIndex)) return ".classIndex";
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(a.canSwitchTeams, b.canSwitchTeams)) return ".canSwitchTeams";
+  if (!Object.is(a.over, b.over)) return ".over";
+  return null;
+}
+
+export function exportHsState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.phase = o.phase;
+  v.team = o.team;
+  v.className = o.className;
+  v.classIndex = o.classIndex;
+  v.post = o.post;
+  v.canSwitchTeams = o.canSwitchTeams;
+  v.over = o.over;
+  return v;
+}
+
+export class HsEventMirror {
+  constructor() {
+    this.kind = "awaitingSpawn";
+    this.state = null;
+    this.team = NaN;
+    this.previous = NaN;
+    this.className = null;
+    this.post = null;
+  }
+}
+
+export function syncHsEvent(b, f, at, h, m) {
+  m.kind = HsEventKind_NAMES[f[at + 0]];
+  { const tag = f[at + 1]; if (tag === 0) { m.state = syncHsState(b, f, at + 2, h, m.state ?? new HsStateMirror()); } else m.state = tag === 1 ? null : undefined; }
+  m.team = f[at + 10];
+  m.previous = f[at + 11];
+  { const tag = f[at + 12]; if (tag === 0) { m.className = b.strings.at(f[at + 13]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 14]; if (tag === 0) { m.post = b.strings.at(f[at + 15]); } else m.post = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsEvent(b, o, f, at, heap) {
+  f[at + 0] = HsEventKind_INDEX.get(o.kind);
+  { const $x = o.state; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; f[at + 7] = 0; f[at + 8] = 0; f[at + 9] = 0; } else { f[at + 1] = 0; putHsState(b, $x, f, at + 2, heap); } }
+  f[at + 10] = o.team;
+  f[at + 11] = o.previous;
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; } else { f[at + 12] = 0; f[at + 13] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; } else { f[at + 14] = 0; f[at + 15] = b.strings.id($x); } }
+}
+
+export function sameHsEvent(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  { const p = a.state, q = b.state; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".state"; } else { { const d = sameHsState(p, q); if (d) return ".state" + d; } } }
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.previous, b.previous)) return ".previous";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  return null;
+}
+
+export function exportHsEvent(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.state = ((x) => (x === null || x === undefined ? x : exportHsState(x, cx)))(o.state);
+  v.team = o.team;
+  v.previous = o.previous;
+  v.className = o.className;
+  v.post = o.post;
+  return v;
+}
+
+export class HsCommandMirror {
+  constructor() {
+    this.kind = "team";
+    this.team = NaN;
+    this.className = null;
+    this.post = null;
+  }
+}
+
+export function syncHsCommand(b, f, at, h, m) {
+  m.kind = HsCommandKind_NAMES[f[at + 0]];
+  m.team = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { m.className = b.strings.at(f[at + 3]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { m.post = b.strings.at(f[at + 5]); } else m.post = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsCommand(b, o, f, at, heap) {
+  f[at + 0] = HsCommandKind_INDEX.get(o.kind);
+  f[at + 1] = o.team;
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = b.strings.id($x); } }
+}
+
+export function sameHsCommand(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  return null;
+}
+
+export function exportHsCommand(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.team = o.team;
+  v.className = o.className;
+  v.post = o.post;
+  return v;
+}
+
+export class HsAuthorityMirror {
+  constructor() {
+    this.phase = "unspawned";
+    this.className = null;
+    this.post = null;
+    this.spawnedOnce = false;
+    this.ended = false;
+    this.deadTime = NaN;
+    this.pending = null;
+    this.auto = null;
+  }
+}
+
+export function syncHsAuthority(b, f, at, h, m) {
+  m.phase = HumanPhase_NAMES[f[at + 0]];
+  { const tag = f[at + 1]; if (tag === 0) { m.className = b.strings.at(f[at + 2]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 3]; if (tag === 0) { m.post = b.strings.at(f[at + 4]); } else m.post = tag === 1 ? null : undefined; }
+  m.spawnedOnce = f[at + 5] !== 0;
+  m.ended = f[at + 6] !== 0;
+  m.deadTime = f[at + 7];
+  { const tag = f[at + 8]; if (tag === 0) { m.pending = syncHumanPick(b, f, at + 9, h, m.pending ?? new HumanPickMirror()); } else m.pending = tag === 1 ? null : undefined; }
+  { const tag = f[at + 12]; if (tag === 0) { m.auto = syncHumanAuto(b, f, at + 13, h, m.auto ?? new HumanAutoMirror()); } else m.auto = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsAuthority(b, o, f, at, heap) {
+  f[at + 0] = HumanPhase_INDEX.get(o.phase);
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = b.strings.id($x); } }
+  f[at + 5] = o.spawnedOnce ? 1 : 0;
+  f[at + 6] = o.ended ? 1 : 0;
+  f[at + 7] = o.deadTime;
+  { const $x = o.pending; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; f[at + 10] = 0; f[at + 11] = 0; } else { f[at + 8] = 0; putHumanPick(b, $x, f, at + 9, heap); } }
+  { const $x = o.auto; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; f[at + 15] = 0; f[at + 16] = 0; } else { f[at + 12] = 0; putHumanAuto(b, $x, f, at + 13, heap); } }
+}
+
+export function sameHsAuthority(a, b) {
+  if (!Object.is(a.phase, b.phase)) return ".phase";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(a.spawnedOnce, b.spawnedOnce)) return ".spawnedOnce";
+  if (!Object.is(a.ended, b.ended)) return ".ended";
+  if (!Object.is(a.deadTime, b.deadTime)) return ".deadTime";
+  { const p = a.pending, q = b.pending; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".pending"; } else { { const d = sameHumanPick(p, q); if (d) return ".pending" + d; } } }
+  { const p = a.auto, q = b.auto; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".auto"; } else { { const d = sameHumanAuto(p, q); if (d) return ".auto" + d; } } }
+  return null;
+}
+
+export function exportHsAuthority(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.phase = o.phase;
+  v.className = o.className;
+  v.post = o.post;
+  v.spawnedOnce = o.spawnedOnce;
+  v.ended = o.ended;
+  v.deadTime = o.deadTime;
+  v.pending = ((x) => (x === null || x === undefined ? x : exportHumanPick(x, cx)))(o.pending);
+  v.auto = ((x) => (x === null || x === undefined ? x : exportHumanAuto(x, cx)))(o.auto);
+  return v;
+}
+
+export class HsInputMirror {
+  constructor() {
+    this.op = "update";
+    this.dt = NaN;
+    this.commands = [];
+    this.className = null;
+    this.post = null;
+    this.team = NaN;
+    this.previous = NaN;
+    this.authority = null;
+  }
+}
+
+export function syncHsInput(b, f, at, h, m) {
+  m.op = HsOperation_NAMES[f[at + 0]];
+  m.dt = f[at + 1];
+  { const items = (m.commands ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
+  { const tag = f[at + 4]; if (tag === 0) { m.className = b.strings.at(f[at + 5]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.post = b.strings.at(f[at + 7]); } else m.post = tag === 1 ? null : undefined; }
+  m.team = f[at + 8];
+  m.previous = f[at + 9];
+  { const tag = f[at + 10]; if (tag === 0) { m.authority = syncHsAuthority(b, f, at + 11, h, m.authority ?? new HsAuthorityMirror()); } else m.authority = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsInput(b, o, f, at, heap) {
+  f[at + 0] = HsOperation_INDEX.get(o.op);
+  f[at + 1] = o.dt;
+  heap.items(o.commands, f, at + 2, 6, (f, at, v) => { putHsCommand(b, v, f, at + 0, heap); });
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = b.strings.id($x); } }
+  f[at + 8] = o.team;
+  f[at + 9] = o.previous;
+  { const $x = o.authority; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f.fill(0, at + 11, at + 28); } else { f[at + 10] = 0; putHsAuthority(b, $x, f, at + 11, heap); } }
+}
+
+export function sameHsInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!sameEach(a.commands, b.commands, (x, y) => sameHsCommand(x, y) === null)) return ".commands";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.previous, b.previous)) return ".previous";
+  { const p = a.authority, q = b.authority; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".authority"; } else { { const d = sameHsAuthority(p, q); if (d) return ".authority" + d; } } }
+  return null;
+}
+
+export function exportHsInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.dt = o.dt;
+  v.commands = o.commands.map((x) => exportHsCommand(x, cx));
+  v.className = o.className;
+  v.post = o.post;
+  v.team = o.team;
+  v.previous = o.previous;
+  v.authority = ((x) => (x === null || x === undefined ? x : exportHsAuthority(x, cx)))(o.authority);
+  return v;
+}
+
+export class HsResultMirror {
+  constructor() {
+    this.events = [];
+    this.view = null;
+  }
+}
+
+export function syncHsResult(b, f, at, h, m) {
+  { const items = (m.events ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncHsEvent(b, f, at + 0, h, v ?? new HsEventMirror()); } items[i] = v; } }
+  { const tag = f[at + 2]; if (tag === 0) { m.view = syncHsState(b, f, at + 3, h, m.view ?? new HsStateMirror()); } else m.view = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsResult(b, o, f, at, heap) {
+  heap.items(o.events, f, at + 0, 16, (f, at, v) => { putHsEvent(b, v, f, at + 0, heap); });
+  { const $x = o.view; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; f[at + 7] = 0; f[at + 8] = 0; f[at + 9] = 0; f[at + 10] = 0; } else { f[at + 2] = 0; putHsState(b, $x, f, at + 3, heap); } }
+}
+
+export function sameHsResult(a, b) {
+  if (!sameEach(a.events, b.events, (x, y) => sameHsEvent(x, y) === null)) return ".events";
+  { const p = a.view, q = b.view; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".view"; } else { { const d = sameHsState(p, q); if (d) return ".view" + d; } } }
+  return null;
+}
+
+export function exportHsResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.events = o.events.map((x) => exportHsEvent(x, cx));
+  v.view = ((x) => (x === null || x === undefined ? x : exportHsState(x, cx)))(o.view);
+  return v;
+}
+
+export class HsQueryArgsMirror {
+  constructor() {
+    this.op = "team";
+    this.team = NaN;
+    this.className = null;
+  }
+}
+
+export function syncHsQueryArgs(b, f, at, h, m) {
+  m.op = HsQueryOp_NAMES[f[at + 0]];
+  m.team = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { m.className = b.strings.at(f[at + 3]); } else m.className = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsQueryArgs(b, o, f, at, heap) {
+  f[at + 0] = HsQueryOp_INDEX.get(o.op);
+  f[at + 1] = o.team;
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = b.strings.id($x); } }
+}
+
+export function sameHsQueryArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  return null;
+}
+
+export function exportHsQueryArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.team = o.team;
+  v.className = o.className;
+  return v;
+}
+
+export class HsQueryResultMirror {
+  constructor() {
+    this.number = NaN;
+    this.flag = false;
+    this.roster = [];
+    this.present = false;
+    this.hasUnit = false;
+    this.timer = NaN;
+  }
+}
+
+export function syncHsQueryResult(b, f, at, h, m) {
+  m.number = f[at + 0];
+  m.flag = f[at + 1] !== 0;
+  { const items = (m.roster ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  m.present = f[at + 4] !== 0;
+  m.hasUnit = f[at + 5] !== 0;
+  m.timer = f[at + 6];
+  return m;
+}
+
+export function putHsQueryResult(b, o, f, at, heap) {
+  f[at + 0] = o.number;
+  f[at + 1] = o.flag ? 1 : 0;
+  heap.items(o.roster, f, at + 2, 1, (f, at, v) => { f[at + 0] = b.strings.id(v); });
+  f[at + 4] = o.present ? 1 : 0;
+  f[at + 5] = o.hasUnit ? 1 : 0;
+  f[at + 6] = o.timer;
+}
+
+export function sameHsQueryResult(a, b) {
+  if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  if (!sameEach(a.roster, b.roster, (x, y) => Object.is(x, y))) return ".roster";
+  if (!Object.is(a.present, b.present)) return ".present";
+  if (!Object.is(a.hasUnit, b.hasUnit)) return ".hasUnit";
+  if (!Object.is(a.timer, b.timer)) return ".timer";
+  return null;
+}
+
+export function exportHsQueryResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.number = o.number;
+  v.flag = o.flag;
+  v.roster = o.roster.map((x) => x);
+  v.present = o.present;
+  v.hasUnit = o.hasUnit;
+  v.timer = o.timer;
+  return v;
+}
+
+export class HsActionArgsMirror {
+  constructor() {
+    this.op = "setTeam";
+    this.state = new HsOwnedMirror();
+    this.events = [];
+    this.team = NaN;
+    this.className = null;
+    this.post = null;
+  }
+}
+
+export function syncHsActionArgs(b, f, at, h, m) {
+  m.op = HsActionOp_NAMES[f[at + 0]];
+  m.state = syncHsOwned(b, f, at + 1, h, m.state ?? new HsOwnedMirror());
+  { const items = (m.events ??= []), start = h + f[at + 18], n = f[at + 19]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncHsEvent(b, f, at + 0, h, v ?? new HsEventMirror()); } items[i] = v; } }
+  m.team = f[at + 20];
+  { const tag = f[at + 21]; if (tag === 0) { m.className = b.strings.at(f[at + 22]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 23]; if (tag === 0) { m.post = b.strings.at(f[at + 24]); } else m.post = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHsActionArgs(b, o, f, at, heap) {
+  f[at + 0] = HsActionOp_INDEX.get(o.op);
+  putHsOwned(b, o.state, f, at + 1, heap);
+  heap.items(o.events, f, at + 18, 16, (f, at, v) => { putHsEvent(b, v, f, at + 0, heap); });
+  f[at + 20] = o.team;
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 21] = $x === null ? 1 : 2; f[at + 22] = 0; } else { f[at + 21] = 0; f[at + 22] = b.strings.id($x); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f[at + 24] = 0; } else { f[at + 23] = 0; f[at + 24] = b.strings.id($x); } }
+}
+
+export function sameHsActionArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameHsOwned(a.state, b.state); if (d) return ".state" + d; }
+  if (!sameEach(a.events, b.events, (x, y) => sameHsEvent(x, y) === null)) return ".events";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  return null;
+}
+
+export function exportHsActionArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportHsOwned(o.state, cx);
+  v.events = o.events.map((x) => exportHsEvent(x, cx));
+  v.team = o.team;
+  v.className = o.className;
+  v.post = o.post;
+  return v;
+}
+
+export class HsActionResultMirror {
+  constructor() {
+    this.state = new HsOwnedMirror();
+    this.accepted = false;
+  }
+}
+
+export function syncHsActionResult(b, f, at, h, m) {
+  m.state = syncHsOwned(b, f, at + 0, h, m.state ?? new HsOwnedMirror());
+  m.accepted = f[at + 17] !== 0;
+  return m;
+}
+
+export function putHsActionResult(b, o, f, at, heap) {
+  putHsOwned(b, o.state, f, at + 0, heap);
+  f[at + 17] = o.accepted ? 1 : 0;
+}
+
+export function sameHsActionResult(a, b) {
+  { const d = sameHsOwned(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.accepted, b.accepted)) return ".accepted";
+  return null;
+}
+
+export function exportHsActionResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportHsOwned(o.state, cx);
+  v.accepted = o.accepted;
+  return v;
+}
+
+export class BrInputMirror {
+  constructor() {
+    this.op = "update";
+    this.dt = NaN;
+    this.team = NaN;
+    this.count = NaN;
+    this.victim = null;
+    this.killer = null;
+    this.relation = NaN;
+  }
+}
+
+export function syncBrInput(b, f, at, h, m) {
+  m.op = BrOperation_NAMES[f[at + 0]];
+  m.dt = f[at + 1];
+  m.team = f[at + 2];
+  m.count = f[at + 3];
+  { const tag = f[at + 4]; if (tag === 0) { m.victim = b.refs[KIND_CHARACTER].at(f[at + 5], f[at + 6]); } else m.victim = tag === 1 ? null : undefined; }
+  { const tag = f[at + 7]; if (tag === 0) { m.killer = b.refs[KIND_CHARACTER].at(f[at + 8], f[at + 9]); } else m.killer = tag === 1 ? null : undefined; }
+  m.relation = f[at + 10];
+  return m;
+}
+
+export function putBrInput(b, o, f, at, heap) {
+  f[at + 0] = BrOperation_INDEX.get(o.op);
+  f[at + 1] = o.dt;
+  f[at + 2] = o.team;
+  f[at + 3] = o.count;
+  { const $x = o.victim; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 4] = 0; b.refs[KIND_CHARACTER].put($x, f, at + 5); } }
+  { const $x = o.killer; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; f[at + 9] = 0; } else { f[at + 7] = 0; b.refs[KIND_CHARACTER].put($x, f, at + 8); } }
+  f[at + 10] = o.relation;
+}
+
+export function sameBrInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.count, b.count)) return ".count";
+  { const p = a.victim, q = b.victim; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".victim"; } else { if (!Object.is(p, q)) return ".victim"; } }
+  { const p = a.killer, q = b.killer; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".killer"; } else { if (!Object.is(p, q)) return ".killer"; } }
+  if (!Object.is(a.relation, b.relation)) return ".relation";
+  return null;
+}
+
+export function exportBrInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.dt = o.dt;
+  v.team = o.team;
+  v.count = o.count;
+  v.victim = ((x) => (x === null || x === undefined ? x : cx.ref("character", x)))(o.victim);
+  v.killer = ((x) => (x === null || x === undefined ? x : cx.ref("character", x)))(o.killer);
+  v.relation = o.relation;
+  return v;
+}
+
+export class BrNumberMirror {
+  constructor() {
+    this.value = NaN;
+  }
+}
+
+export function syncBrNumber(b, f, at, h, m) {
+  m.value = f[at + 0];
+  return m;
+}
+
+export function putBrNumber(b, o, f, at, heap) {
+  f[at + 0] = o.value;
+}
+
+export function sameBrNumber(a, b) {
+  if (!Object.is(a.value, b.value)) return ".value";
+  return null;
+}
+
+export function exportBrNumber(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.value = o.value;
+  return v;
+}
+
+export class BrFavouriteMirror {
+  constructor() {
+    this.key = null;
+    this.label = null;
+  }
+}
+
+export function syncBrFavourite(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { m.key = b.strings.at(f[at + 1]); } else m.key = tag === 1 ? null : undefined; }
+  { const tag = f[at + 2]; if (tag === 0) { m.label = b.strings.at(f[at + 3]); } else m.label = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putBrFavourite(b, o, f, at, heap) {
+  { const $x = o.key; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = b.strings.id($x); } }
+  { const $x = o.label; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = b.strings.id($x); } }
+}
+
+export function sameBrFavourite(a, b) {
+  { const p = a.key, q = b.key; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".key"; } else { if (!Object.is(p, q)) return ".key"; } }
+  { const p = a.label, q = b.label; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".label"; } else { if (!Object.is(p, q)) return ".label"; } }
+  return null;
+}
+
+export function exportBrFavourite(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.key = o.key;
+  v.label = o.label;
+  return v;
+}
+
+export class BrSeenMirror {
+  constructor() {
+    this.position = null;
+    this.health = null;
+    this.weapon = null;
+    this.vehicle = null;
+    this.classLabel = null;
+  }
+}
+
+export function syncBrSeen(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { { const a = (m.position ??= new Array(3)); a[0] = f[at + 1]; a[1] = f[at + 2]; a[2] = f[at + 3]; } } else m.position = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { m.health = f[at + 5]; } else m.health = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.weapon = syncBrFavourite(b, f, at + 7, h, m.weapon ?? new BrFavouriteMirror()); } else m.weapon = tag === 1 ? null : undefined; }
+  { const tag = f[at + 11]; if (tag === 0) { m.vehicle = syncBrFavourite(b, f, at + 12, h, m.vehicle ?? new BrFavouriteMirror()); } else m.vehicle = tag === 1 ? null : undefined; }
+  { const tag = f[at + 16]; if (tag === 0) { m.classLabel = b.strings.at(f[at + 17]); } else m.classLabel = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putBrSeen(b, o, f, at, heap) {
+  { const $x = o.position; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 0] = 0; { const $v = $x; f[at + 1] = $v[0]; f[at + 2] = $v[1]; f[at + 3] = $v[2]; } } }
+  { const $x = o.health; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = $x; } }
+  { const $x = o.weapon; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; f[at + 8] = 0; f[at + 9] = 0; f[at + 10] = 0; } else { f[at + 6] = 0; putBrFavourite(b, $x, f, at + 7, heap); } }
+  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; f[at + 13] = 0; f[at + 14] = 0; f[at + 15] = 0; } else { f[at + 11] = 0; putBrFavourite(b, $x, f, at + 12, heap); } }
+  { const $x = o.classLabel; if ($x === null || $x === undefined) { f[at + 16] = $x === null ? 1 : 2; f[at + 17] = 0; } else { f[at + 16] = 0; f[at + 17] = b.strings.id($x); } }
+}
+
+export function sameBrSeen(a, b) {
+  { const p = a.position, q = b.position; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".position"; } else { if (!sameArray(p, q, 3)) return ".position"; } }
+  { const p = a.health, q = b.health; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".health"; } else { if (!Object.is(p, q)) return ".health"; } }
+  { const p = a.weapon, q = b.weapon; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".weapon"; } else { { const d = sameBrFavourite(p, q); if (d) return ".weapon" + d; } } }
+  { const p = a.vehicle, q = b.vehicle; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".vehicle"; } else { { const d = sameBrFavourite(p, q); if (d) return ".vehicle" + d; } } }
+  { const p = a.classLabel, q = b.classLabel; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".classLabel"; } else { if (!Object.is(p, q)) return ".classLabel"; } }
+  return null;
+}
+
+export function exportBrSeen(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.position = ((x) => (x === null || x === undefined ? x : [...x]))(o.position);
+  v.health = o.health;
+  v.weapon = ((x) => (x === null || x === undefined ? x : exportBrFavourite(x, cx)))(o.weapon);
+  v.vehicle = ((x) => (x === null || x === undefined ? x : exportBrFavourite(x, cx)))(o.vehicle);
+  v.classLabel = o.classLabel;
+  return v;
+}
+
+export class BrQueryArgsMirror {
+  constructor() {
+    this.op = "relation";
+    this.a = NaN;
+    this.b = NaN;
+    this.unit = null;
+    this.character = null;
+  }
+}
+
+export function syncBrQueryArgs(b, f, at, h, m) {
+  m.op = BrQueryOp_NAMES[f[at + 0]];
+  m.a = f[at + 1];
+  m.b = f[at + 2];
+  { const tag = f[at + 3]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 4], f[at + 5]); } else m.unit = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.character = b.refs[KIND_CHARACTER].at(f[at + 7], f[at + 8]); } else m.character = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putBrQueryArgs(b, o, f, at, heap) {
+  f[at + 0] = BrQueryOp_INDEX.get(o.op);
+  f[at + 1] = o.a;
+  f[at + 2] = o.b;
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; b.refs[KIND_UNIT].put($x, f, at + 4); } }
+  { const $x = o.character; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; f[at + 8] = 0; } else { f[at + 6] = 0; b.refs[KIND_CHARACTER].put($x, f, at + 7); } }
+}
+
+export function sameBrQueryArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.a, b.a)) return ".a";
+  if (!Object.is(a.b, b.b)) return ".b";
+  { const p = a.unit, q = b.unit; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".unit"; } else { if (!Object.is(p, q)) return ".unit"; } }
+  { const p = a.character, q = b.character; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".character"; } else { if (!Object.is(p, q)) return ".character"; } }
+  return null;
+}
+
+export function exportBrQueryArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.a = o.a;
+  v.b = o.b;
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
+  v.character = ((x) => (x === null || x === undefined ? x : cx.ref("character", x)))(o.character);
+  return v;
+}
+
+export class BrQueryResultMirror {
+  constructor() {
+    this.number = NaN;
+    this.optionalNumber = null;
+    this.flag = false;
+    this.values = [];
+    this.seen = null;
+  }
+}
+
+export function syncBrQueryResult(b, f, at, h, m) {
+  m.number = f[at + 0];
+  { const tag = f[at + 1]; if (tag === 0) { m.optionalNumber = f[at + 2]; } else m.optionalNumber = tag === 1 ? null : undefined; }
+  m.flag = f[at + 3] !== 0;
+  { const items = (m.values ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const tag = f[at + 6]; if (tag === 0) { m.seen = syncBrSeen(b, f, at + 7, h, m.seen ?? new BrSeenMirror()); } else m.seen = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putBrQueryResult(b, o, f, at, heap) {
+  f[at + 0] = o.number;
+  { const $x = o.optionalNumber; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = $x; } }
+  f[at + 3] = o.flag ? 1 : 0;
+  heap.items(o.values, f, at + 4, 2, (f, at, v) => { { const $x = v; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = $x; } } });
+  { const $x = o.seen; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 25); } else { f[at + 6] = 0; putBrSeen(b, $x, f, at + 7, heap); } }
+}
+
+export function sameBrQueryResult(a, b) {
+  if (!Object.is(a.number, b.number)) return ".number";
+  { const p = a.optionalNumber, q = b.optionalNumber; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".optionalNumber"; } else { if (!Object.is(p, q)) return ".optionalNumber"; } }
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  if (!sameEach(a.values, b.values, (x, y) => (x === null || x === undefined || y === null || y === undefined ? x === y : Object.is(x, y)))) return ".values";
+  { const p = a.seen, q = b.seen; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".seen"; } else { { const d = sameBrSeen(p, q); if (d) return ".seen" + d; } } }
+  return null;
+}
+
+export function exportBrQueryResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.number = o.number;
+  v.optionalNumber = o.optionalNumber;
+  v.flag = o.flag;
+  v.values = o.values.map((x) => x);
+  v.seen = ((x) => (x === null || x === undefined ? x : exportBrSeen(x, cx)))(o.seen);
+  return v;
+}
+
+export class PsCapturerMirror {
+  constructor() {
+    this.team = NaN;
+    this.position = [NaN, NaN, NaN];
+  }
+}
+
+export function syncPsCapturer(b, f, at, h, m) {
+  m.team = f[at + 0];
+  { const a = (m.position ??= new Array(3)); a[0] = f[at + 1]; a[1] = f[at + 2]; a[2] = f[at + 3]; }
+  return m;
+}
+
+export function putPsCapturer(b, o, f, at, heap) {
+  f[at + 0] = o.team;
+  { const $v = o.position; f[at + 1] = $v[0]; f[at + 2] = $v[1]; f[at + 3] = $v[2]; }
+}
+
+export function samePsCapturer(a, b) {
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!sameArray(a.position, b.position, 3)) return ".position";
+  return null;
+}
+
+export function exportPsCapturer(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.team = o.team;
+  v.position = [...o.position];
+  return v;
+}
+
+export class PsInputMirror {
+  constructor() {
+    this.op = "update";
+    this.dt = NaN;
+    this.team = NaN;
+    this.post = null;
+    this.mobile = null;
+    this.position = [NaN, NaN, NaN];
+    this.soldiers = [];
+  }
+}
+
+export function syncPsInput(b, f, at, h, m) {
+  m.op = PsOperation_NAMES[f[at + 0]];
+  m.dt = f[at + 1];
+  m.team = f[at + 2];
+  { const tag = f[at + 3]; if (tag === 0) { m.post = b.refs[KIND_POST].at(f[at + 4], f[at + 5]); } else m.post = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.mobile = b.refs[KIND_MOBILE_POST].at(f[at + 7], f[at + 8]); } else m.mobile = tag === 1 ? null : undefined; }
+  { const a = (m.position ??= new Array(3)); a[0] = f[at + 9]; a[1] = f[at + 10]; a[2] = f[at + 11]; }
+  { const items = (m.soldiers ??= []), start = h + f[at + 12], n = f[at + 13]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncPsCapturer(b, f, at + 0, h, v ?? new PsCapturerMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putPsInput(b, o, f, at, heap) {
+  f[at + 0] = PsOperation_INDEX.get(o.op);
+  f[at + 1] = o.dt;
+  f[at + 2] = o.team;
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; b.refs[KIND_POST].put($x, f, at + 4); } }
+  { const $x = o.mobile; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; f[at + 8] = 0; } else { f[at + 6] = 0; b.refs[KIND_MOBILE_POST].put($x, f, at + 7); } }
+  { const $v = o.position; f[at + 9] = $v[0]; f[at + 10] = $v[1]; f[at + 11] = $v[2]; }
+  heap.items(o.soldiers, f, at + 12, 4, (f, at, v) => { putPsCapturer(b, v, f, at + 0, heap); });
+}
+
+export function samePsInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  { const p = a.mobile, q = b.mobile; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".mobile"; } else { if (!Object.is(p, q)) return ".mobile"; } }
+  if (!sameArray(a.position, b.position, 3)) return ".position";
+  if (!sameEach(a.soldiers, b.soldiers, (x, y) => samePsCapturer(x, y) === null)) return ".soldiers";
+  return null;
+}
+
+export function exportPsInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.dt = o.dt;
+  v.team = o.team;
+  v.post = ((x) => (x === null || x === undefined ? x : cx.ref("post", x)))(o.post);
+  v.mobile = ((x) => (x === null || x === undefined ? x : cx.ref("mobilePost", x)))(o.mobile);
+  v.position = [...o.position];
+  v.soldiers = o.soldiers.map((x) => exportPsCapturer(x, cx));
+  return v;
+}
+
+export class PsChangeMirror {
+  constructor() {
+    this.kind = "captured";
+    this.from = undefined;
+    this.by = undefined;
+    this.destroyed = undefined;
+  }
+}
+
+export function syncPsChange(b, f, at, h, m) {
+  m.kind = PostChange_NAMES[f[at + 0]];
+  { const tag = f[at + 1]; if (tag === 0) { m.from = f[at + 2]; } else m.from = tag === 1 ? null : undefined; }
+  { const tag = f[at + 3]; if (tag === 0) { m.by = f[at + 4]; } else m.by = tag === 1 ? null : undefined; }
+  { const tag = f[at + 5]; if (tag === 0) { m.destroyed = f[at + 6] !== 0; } else m.destroyed = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putPsChange(b, o, f, at, heap) {
+  f[at + 0] = PostChange_INDEX.get(o.kind);
+  { const $x = o.from; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = $x; } }
+  { const $x = o.by; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = $x; } }
+  { const $x = o.destroyed; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; } else { f[at + 5] = 0; f[at + 6] = $x ? 1 : 0; } }
+}
+
+export function samePsChange(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  { const p = a.from, q = b.from; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".from"; } else { if (!Object.is(p, q)) return ".from"; } }
+  { const p = a.by, q = b.by; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".by"; } else { if (!Object.is(p, q)) return ".by"; } }
+  { const p = a.destroyed, q = b.destroyed; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".destroyed"; } else { if (!Object.is(p, q)) return ".destroyed"; } }
+  return null;
+}
+
+export function exportPsChange(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.from = o.from;
+  v.by = o.by;
+  v.destroyed = o.destroyed;
+  return v;
+}
+
+export class PsMobileEventMirror {
+  constructor() {
+    this.kind = "lost";
+    this.post = null;
+    this.vehicle = null;
+    this.from = NaN;
+    this.to = undefined;
+  }
+}
+
+export function syncPsMobileEvent(b, f, at, h, m) {
+  m.kind = PsMobileEventKind_NAMES[f[at + 0]];
+  m.post = b.refs[KIND_MOBILE_POST].at(f[at + 1], f[at + 2]);
+  { const tag = f[at + 3]; if (tag === 0) { m.vehicle = b.refs[KIND_VEHICLE].at(f[at + 4], f[at + 5]); } else m.vehicle = tag === 1 ? null : undefined; }
+  m.from = f[at + 6];
+  { const tag = f[at + 7]; if (tag === 0) { m.to = f[at + 8]; } else m.to = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putPsMobileEvent(b, o, f, at, heap) {
+  f[at + 0] = PsMobileEventKind_INDEX.get(o.kind);
+  b.refs[KIND_MOBILE_POST].put(o.post, f, at + 1);
+  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 4); } }
+  f[at + 6] = o.from;
+  { const $x = o.to; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
+}
+
+export function samePsMobileEvent(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  if (!Object.is(a.post, b.post)) return ".post";
+  { const p = a.vehicle, q = b.vehicle; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".vehicle"; } else { if (!Object.is(p, q)) return ".vehicle"; } }
+  if (!Object.is(a.from, b.from)) return ".from";
+  { const p = a.to, q = b.to; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".to"; } else { if (!Object.is(p, q)) return ".to"; } }
+  return null;
+}
+
+export function exportPsMobileEvent(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.post = cx.ref("mobilePost", o.post);
+  v.vehicle = ((x) => (x === null || x === undefined ? x : cx.ref("vehicle", x)))(o.vehicle);
+  v.from = o.from;
+  v.to = o.to;
+  return v;
+}
+
+export class PsResultMirror {
+  constructor() {
+    this.list = [];
+    this.post = null;
+    this.mobileEvents = [];
+    this.change = null;
+    this.number = NaN;
+    this.flag = false;
+  }
+}
+
+export function syncPsResult(b, f, at, h, m) {
+  { const items = (m.list ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncSpawnPost(b, f, at + 0, h, v); } items[i] = v; } }
+  { const tag = f[at + 2]; if (tag === 0) { m.post = b.refs[KIND_POST].at(f[at + 3], f[at + 4]); } else m.post = tag === 1 ? null : undefined; }
+  { const items = (m.mobileEvents ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncPsMobileEvent(b, f, at + 0, h, v ?? new PsMobileEventMirror()); } items[i] = v; } }
+  { const tag = f[at + 7]; if (tag === 0) { m.change = syncPsChange(b, f, at + 8, h, m.change ?? new PsChangeMirror()); } else m.change = tag === 1 ? null : undefined; }
+  m.number = f[at + 15];
+  m.flag = f[at + 16] !== 0;
+  return m;
+}
+
+export function putPsResult(b, o, f, at, heap) {
+  heap.items(o.list, f, at + 0, 3, (f, at, v) => { putSpawnPost(b, v, f, at + 0, heap); });
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 2] = 0; b.refs[KIND_POST].put($x, f, at + 3); } }
+  heap.items(o.mobileEvents, f, at + 5, 9, (f, at, v) => { putPsMobileEvent(b, v, f, at + 0, heap); });
+  { const $x = o.change; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; f[at + 9] = 0; f[at + 10] = 0; f[at + 11] = 0; f[at + 12] = 0; f[at + 13] = 0; f[at + 14] = 0; } else { f[at + 7] = 0; putPsChange(b, $x, f, at + 8, heap); } }
+  f[at + 15] = o.number;
+  f[at + 16] = o.flag ? 1 : 0;
+}
+
+export function samePsResult(a, b) {
+  if (!sameEach(a.list, b.list, (x, y) => sameSpawnPost(x, y))) return ".list";
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!sameEach(a.mobileEvents, b.mobileEvents, (x, y) => samePsMobileEvent(x, y) === null)) return ".mobileEvents";
+  { const p = a.change, q = b.change; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".change"; } else { { const d = samePsChange(p, q); if (d) return ".change" + d; } } }
+  if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  return null;
+}
+
+export function exportPsResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.list = o.list.map((x) => exportSpawnPost(x, cx));
+  v.post = ((x) => (x === null || x === undefined ? x : cx.ref("post", x)))(o.post);
+  v.mobileEvents = o.mobileEvents.map((x) => exportPsMobileEvent(x, cx));
+  v.change = ((x) => (x === null || x === undefined ? x : exportPsChange(x, cx)))(o.change);
+  v.number = o.number;
+  v.flag = o.flag;
+  return v;
+}
+
+export class PsClassMirror {
+  constructor() {
+    this.atk = null;
+    this.def = null;
+    this.valueBleed = null;
+    this.points = [];
+  }
+}
+
+export function syncPsClass(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { { const items = (m.atk ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.atk = tag === 1 ? null : undefined; }
+  { const tag = f[at + 3]; if (tag === 0) { { const items = (m.def ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.def = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.valueBleed = f[at + 7]; } else m.valueBleed = tag === 1 ? null : undefined; }
+  { const items = (m.points ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  return m;
+}
+
+export function putPsClass(b, o, f, at, heap) {
+  { const $x = o.atk; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; } else { f[at + 0] = 0; heap.items($x, f, at + 1, 1, (f, at, v) => { f[at + 0] = v; }); } }
+  { const $x = o.def; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; heap.items($x, f, at + 4, 1, (f, at, v) => { f[at + 0] = v; }); } }
+  { const $x = o.valueBleed; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = $x; } }
+  heap.items(o.points, f, at + 8, 4, (f, at, v) => { { const $v = v; f[at + 0] = $v[0]; f[at + 1] = $v[1]; f[at + 2] = $v[2]; f[at + 3] = $v[3]; } });
+}
+
+export function samePsClass(a, b) {
+  { const p = a.atk, q = b.atk; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".atk"; } else { if (!sameEach(p, q, (x, y) => Object.is(x, y))) return ".atk"; } }
+  { const p = a.def, q = b.def; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".def"; } else { if (!sameEach(p, q, (x, y) => Object.is(x, y))) return ".def"; } }
+  { const p = a.valueBleed, q = b.valueBleed; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".valueBleed"; } else { if (!Object.is(p, q)) return ".valueBleed"; } }
+  if (!sameEach(a.points, b.points, (x, y) => sameArray(x, y, 4))) return ".points";
+  return null;
+}
+
+export function exportPsClass(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.atk = ((x) => (x === null || x === undefined ? x : x.map((x) => x)))(o.atk);
+  v.def = ((x) => (x === null || x === undefined ? x : x.map((x) => x)))(o.def);
+  v.valueBleed = o.valueBleed;
+  v.points = o.points.map((x) => [...x]);
+  return v;
+}
+
+export class PsHullMirror {
+  constructor() {
+    this.vehicle = null;
+    this.alive = false;
+    this.command = false;
+    this.generation = NaN;
+    this.team = NaN;
+    this.controllingTeam = NaN;
+    this.seated = false;
+    this.yaw = NaN;
+    this.name = '';
+    this.label = '';
+    this.radius = NaN;
+    this.speed = NaN;
+    this.valueBleed = NaN;
+    this.record = null;
+  }
+}
+
+export function syncPsHull(b, f, at, h, m) {
+  m.vehicle = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
+  m.alive = f[at + 2] !== 0;
+  m.command = f[at + 3] !== 0;
+  m.generation = f[at + 4];
+  m.team = f[at + 5];
+  m.controllingTeam = f[at + 6];
+  m.seated = f[at + 7] !== 0;
+  m.yaw = f[at + 8];
+  m.name = b.strings.at(f[at + 9]);
+  m.label = b.strings.at(f[at + 10]);
+  m.radius = f[at + 11];
+  m.speed = f[at + 12];
+  m.valueBleed = f[at + 13];
+  { const tag = f[at + 14]; if (tag === 0) { m.record = syncPsClass(b, f, at + 15, h, m.record ?? new PsClassMirror()); } else m.record = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putPsHull(b, o, f, at, heap) {
+  b.refs[KIND_VEHICLE].put(o.vehicle, f, at + 0);
+  f[at + 2] = o.alive ? 1 : 0;
+  f[at + 3] = o.command ? 1 : 0;
+  f[at + 4] = o.generation;
+  f[at + 5] = o.team;
+  f[at + 6] = o.controllingTeam;
+  f[at + 7] = o.seated ? 1 : 0;
+  f[at + 8] = o.yaw;
+  f[at + 9] = b.strings.id(o.name);
+  f[at + 10] = b.strings.id(o.label);
+  f[at + 11] = o.radius;
+  f[at + 12] = o.speed;
+  f[at + 13] = o.valueBleed;
+  { const $x = o.record; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f.fill(0, at + 15, at + 25); } else { f[at + 14] = 0; putPsClass(b, $x, f, at + 15, heap); } }
+}
+
+export function samePsHull(a, b) {
+  if (!Object.is(a.vehicle, b.vehicle)) return ".vehicle";
+  if (!Object.is(a.alive, b.alive)) return ".alive";
+  if (!Object.is(a.command, b.command)) return ".command";
+  if (!Object.is(a.generation, b.generation)) return ".generation";
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.controllingTeam, b.controllingTeam)) return ".controllingTeam";
+  if (!Object.is(a.seated, b.seated)) return ".seated";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!Object.is(a.name, b.name)) return ".name";
+  if (!Object.is(a.label, b.label)) return ".label";
+  if (!Object.is(a.radius, b.radius)) return ".radius";
+  if (!Object.is(a.speed, b.speed)) return ".speed";
+  if (!Object.is(a.valueBleed, b.valueBleed)) return ".valueBleed";
+  { const p = a.record, q = b.record; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".record"; } else { { const d = samePsClass(p, q); if (d) return ".record" + d; } } }
+  return null;
+}
+
+export function exportPsHull(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.vehicle = cx.ref("vehicle", o.vehicle);
+  v.alive = o.alive;
+  v.command = o.command;
+  v.generation = o.generation;
+  v.team = o.team;
+  v.controllingTeam = o.controllingTeam;
+  v.seated = o.seated;
+  v.yaw = o.yaw;
+  v.name = o.name;
+  v.label = o.label;
+  v.radius = o.radius;
+  v.speed = o.speed;
+  v.valueBleed = o.valueBleed;
+  v.record = ((x) => (x === null || x === undefined ? x : exportPsClass(x, cx)))(o.record);
+  return v;
+}
+
+export class PsPadMirror {
+  constructor() {
+    this.variants = [];
+    this.vehicle = null;
+  }
+}
+
+export function syncPsPad(b, f, at, h, m) {
+  { const items = (m.variants ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 25; v = syncPsHull(b, f, at + 0, h, v ?? new PsHullMirror()); } items[i] = v; } }
+  { const tag = f[at + 2]; if (tag === 0) { m.vehicle = syncPsHull(b, f, at + 3, h, m.vehicle ?? new PsHullMirror()); } else m.vehicle = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putPsPad(b, o, f, at, heap) {
+  heap.items(o.variants, f, at + 0, 25, (f, at, v) => { putPsHull(b, v, f, at + 0, heap); });
+  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 28); } else { f[at + 2] = 0; putPsHull(b, $x, f, at + 3, heap); } }
+}
+
+export function samePsPad(a, b) {
+  if (!sameEach(a.variants, b.variants, (x, y) => samePsHull(x, y) === null)) return ".variants";
+  { const p = a.vehicle, q = b.vehicle; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".vehicle"; } else { { const d = samePsHull(p, q); if (d) return ".vehicle" + d; } } }
+  return null;
+}
+
+export function exportPsPad(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.variants = o.variants.map((x) => exportPsHull(x, cx));
+  v.vehicle = ((x) => (x === null || x === undefined ? x : exportPsHull(x, cx)))(o.vehicle);
+  return v;
+}
+
+export class PsQueryArgsMirror {
+  constructor() {
+    this.op = "captureTeam";
+    this.number = NaN;
+    this.building = null;
+    this.vehicle = null;
+    this.post = null;
+    this.points = [];
+  }
+}
+
+export function syncPsQueryArgs(b, f, at, h, m) {
+  m.op = PsQueryOp_NAMES[f[at + 0]];
+  m.number = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { m.building = b.refs[KIND_BUILDING].at(f[at + 3], f[at + 4]); } else m.building = tag === 1 ? null : undefined; }
+  { const tag = f[at + 5]; if (tag === 0) { m.vehicle = b.refs[KIND_VEHICLE].at(f[at + 6], f[at + 7]); } else m.vehicle = tag === 1 ? null : undefined; }
+  { const tag = f[at + 8]; if (tag === 0) { m.post = b.refs[KIND_MOBILE_POST].at(f[at + 9], f[at + 10]); } else m.post = tag === 1 ? null : undefined; }
+  { const items = (m.points ??= []), start = h + f[at + 11], n = f[at + 12]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  return m;
+}
+
+export function putPsQueryArgs(b, o, f, at, heap) {
+  f[at + 0] = PsQueryOp_INDEX.get(o.op);
+  f[at + 1] = o.number;
+  { const $x = o.building; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 2] = 0; b.refs[KIND_BUILDING].put($x, f, at + 3); } }
+  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; f[at + 7] = 0; } else { f[at + 5] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 6); } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; f[at + 10] = 0; } else { f[at + 8] = 0; b.refs[KIND_MOBILE_POST].put($x, f, at + 9); } }
+  heap.items(o.points, f, at + 11, 4, (f, at, v) => { { const $v = v; f[at + 0] = $v[0]; f[at + 1] = $v[1]; f[at + 2] = $v[2]; f[at + 3] = $v[3]; } });
+}
+
+export function samePsQueryArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.number, b.number)) return ".number";
+  { const p = a.building, q = b.building; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".building"; } else { if (!Object.is(p, q)) return ".building"; } }
+  { const p = a.vehicle, q = b.vehicle; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".vehicle"; } else { if (!Object.is(p, q)) return ".vehicle"; } }
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!sameEach(a.points, b.points, (x, y) => sameArray(x, y, 4))) return ".points";
+  return null;
+}
+
+export function exportPsQueryArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.number = o.number;
+  v.building = ((x) => (x === null || x === undefined ? x : cx.ref("building", x)))(o.building);
+  v.vehicle = ((x) => (x === null || x === undefined ? x : cx.ref("vehicle", x)))(o.vehicle);
+  v.post = ((x) => (x === null || x === undefined ? x : cx.ref("mobilePost", x)))(o.post);
+  v.points = o.points.map((x) => [...x]);
+  return v;
+}
+
+export class PsQueryResultMirror {
+  constructor() {
+    this.number = NaN;
+    this.flag = false;
+    this.position = [NaN, NaN, NaN];
+    this.pad = null;
+    this.points = [];
+  }
+}
+
+export function syncPsQueryResult(b, f, at, h, m) {
+  m.number = f[at + 0];
+  m.flag = f[at + 1] !== 0;
+  { const a = (m.position ??= new Array(3)); a[0] = f[at + 2]; a[1] = f[at + 3]; a[2] = f[at + 4]; }
+  { const tag = f[at + 5]; if (tag === 0) { m.pad = syncPsPad(b, f, at + 6, h, m.pad ?? new PsPadMirror()); } else m.pad = tag === 1 ? null : undefined; }
+  { const items = (m.points ??= []), start = h + f[at + 34], n = f[at + 35]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  return m;
+}
+
+export function putPsQueryResult(b, o, f, at, heap) {
+  f[at + 0] = o.number;
+  f[at + 1] = o.flag ? 1 : 0;
+  { const $v = o.position; f[at + 2] = $v[0]; f[at + 3] = $v[1]; f[at + 4] = $v[2]; }
+  { const $x = o.pad; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f.fill(0, at + 6, at + 34); } else { f[at + 5] = 0; putPsPad(b, $x, f, at + 6, heap); } }
+  heap.items(o.points, f, at + 34, 4, (f, at, v) => { { const $v = v; f[at + 0] = $v[0]; f[at + 1] = $v[1]; f[at + 2] = $v[2]; f[at + 3] = $v[3]; } });
+}
+
+export function samePsQueryResult(a, b) {
+  if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  if (!sameArray(a.position, b.position, 3)) return ".position";
+  { const p = a.pad, q = b.pad; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".pad"; } else { { const d = samePsPad(p, q); if (d) return ".pad" + d; } } }
+  if (!sameEach(a.points, b.points, (x, y) => sameArray(x, y, 4))) return ".points";
+  return null;
+}
+
+export function exportPsQueryResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.number = o.number;
+  v.flag = o.flag;
+  v.position = [...o.position];
+  v.pad = ((x) => (x === null || x === undefined ? x : exportPsPad(x, cx)))(o.pad);
+  v.points = o.points.map((x) => [...x]);
+  return v;
+}
+
+export class SpInputMirror {
+  constructor() {
+    this.op = "update";
+    this.dt = NaN;
+    this.team = NaN;
+    this.character = null;
+    this.classIndex = null;
+    this.className = null;
+    this.post = null;
+    this.hasPost = false;
+    this.human = false;
+    this.own = false;
+  }
+}
+
+export function syncSpInput(b, f, at, h, m) {
+  m.op = SpOperation_NAMES[f[at + 0]];
+  m.dt = f[at + 1];
+  m.team = f[at + 2];
+  { const tag = f[at + 3]; if (tag === 0) { m.character = b.refs[KIND_CHARACTER].at(f[at + 4], f[at + 5]); } else m.character = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.classIndex = f[at + 7]; } else m.classIndex = tag === 1 ? null : undefined; }
+  { const tag = f[at + 8]; if (tag === 0) { m.className = b.strings.at(f[at + 9]); } else m.className = tag === 1 ? null : undefined; }
+  m.post = syncPostRef(b, f, at + 10, h, m.post);
+  m.hasPost = f[at + 13] !== 0;
+  m.human = f[at + 14] !== 0;
+  m.own = f[at + 15] !== 0;
+  return m;
+}
+
+export function putSpInput(b, o, f, at, heap) {
+  f[at + 0] = SpOperation_INDEX.get(o.op);
+  f[at + 1] = o.dt;
+  f[at + 2] = o.team;
+  { const $x = o.character; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; b.refs[KIND_CHARACTER].put($x, f, at + 4); } }
+  { const $x = o.classIndex; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = $x; } }
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = b.strings.id($x); } }
+  putPostRef(b, o.post, f, at + 10, heap);
+  f[at + 13] = o.hasPost ? 1 : 0;
+  f[at + 14] = o.human ? 1 : 0;
+  f[at + 15] = o.own ? 1 : 0;
+}
+
+export function sameSpInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.character, q = b.character; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".character"; } else { if (!Object.is(p, q)) return ".character"; } }
+  { const p = a.classIndex, q = b.classIndex; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".classIndex"; } else { if (!Object.is(p, q)) return ".classIndex"; } }
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  if (!samePostRef(a.post, b.post)) return ".post";
+  if (!Object.is(a.hasPost, b.hasPost)) return ".hasPost";
+  if (!Object.is(a.human, b.human)) return ".human";
+  if (!Object.is(a.own, b.own)) return ".own";
+  return null;
+}
+
+export function exportSpInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.dt = o.dt;
+  v.team = o.team;
+  v.character = ((x) => (x === null || x === undefined ? x : cx.ref("character", x)))(o.character);
+  v.classIndex = o.classIndex;
+  v.className = o.className;
+  v.post = exportPostRef(o.post, cx);
+  v.hasPost = o.hasPost;
+  v.human = o.human;
+  v.own = o.own;
+  return v;
+}
+
+export class SpResultMirror {
+  constructor() {
+    this.number = NaN;
+    this.flag = false;
+    this.post = null;
+    this.unit = null;
+  }
+}
+
+export function syncSpResult(b, f, at, h, m) {
+  m.number = f[at + 0];
+  m.flag = f[at + 1] !== 0;
+  m.post = syncPostRef(b, f, at + 2, h, m.post);
+  { const tag = f[at + 5]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 6], f[at + 7]); } else m.unit = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpResult(b, o, f, at, heap) {
+  f[at + 0] = o.number;
+  f[at + 1] = o.flag ? 1 : 0;
+  putPostRef(b, o.post, f, at + 2, heap);
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; f[at + 7] = 0; } else { f[at + 5] = 0; b.refs[KIND_UNIT].put($x, f, at + 6); } }
+}
+
+export function sameSpResult(a, b) {
+  if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  if (!samePostRef(a.post, b.post)) return ".post";
+  { const p = a.unit, q = b.unit; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".unit"; } else { if (!Object.is(p, q)) return ".unit"; } }
+  return null;
+}
+
+export function exportSpResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.number = o.number;
+  v.flag = o.flag;
+  v.post = exportPostRef(o.post, cx);
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
+  return v;
+}
+
+export class SpQueryArgsMirror {
+  constructor() {
+    this.op = "draw";
+    this.unit = null;
+    this.className = null;
+    this.character = null;
+  }
+}
+
+export function syncSpQueryArgs(b, f, at, h, m) {
+  m.op = SpQueryOp_NAMES[f[at + 0]];
+  { const tag = f[at + 1]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 2], f[at + 3]); } else m.unit = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { m.className = b.strings.at(f[at + 5]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.character = b.refs[KIND_CHARACTER].at(f[at + 7], f[at + 8]); } else m.character = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpQueryArgs(b, o, f, at, heap) {
+  f[at + 0] = SpQueryOp_INDEX.get(o.op);
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 1] = 0; b.refs[KIND_UNIT].put($x, f, at + 2); } }
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = b.strings.id($x); } }
+  { const $x = o.character; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; f[at + 8] = 0; } else { f[at + 6] = 0; b.refs[KIND_CHARACTER].put($x, f, at + 7); } }
+}
+
+export function sameSpQueryArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const p = a.unit, q = b.unit; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".unit"; } else { if (!Object.is(p, q)) return ".unit"; } }
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.character, q = b.character; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".character"; } else { if (!Object.is(p, q)) return ".character"; } }
+  return null;
+}
+
+export function exportSpQueryArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
+  v.className = o.className;
+  v.character = ((x) => (x === null || x === undefined ? x : cx.ref("character", x)))(o.character);
+  return v;
+}
+
+export class SpQueryResultMirror {
+  constructor() {
+    this.number = NaN;
+    this.name = null;
+    this.goal = null;
+  }
+}
+
+export function syncSpQueryResult(b, f, at, h, m) {
+  m.number = f[at + 0];
+  { const tag = f[at + 1]; if (tag === 0) { m.name = b.strings.at(f[at + 2]); } else m.name = tag === 1 ? null : undefined; }
+  { const tag = f[at + 3]; if (tag === 0) { { const a = (m.goal ??= new Array(3)); a[0] = f[at + 4]; a[1] = f[at + 5]; a[2] = f[at + 6]; } } else m.goal = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpQueryResult(b, o, f, at, heap) {
+  f[at + 0] = o.number;
+  { const $x = o.name; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = b.strings.id($x); } }
+  { const $x = o.goal; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 3] = 0; { const $v = $x; f[at + 4] = $v[0]; f[at + 5] = $v[1]; f[at + 6] = $v[2]; } } }
+}
+
+export function sameSpQueryResult(a, b) {
+  if (!Object.is(a.number, b.number)) return ".number";
+  { const p = a.name, q = b.name; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".name"; } else { if (!Object.is(p, q)) return ".name"; } }
+  { const p = a.goal, q = b.goal; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".goal"; } else { if (!sameArray(p, q, 3)) return ".goal"; } }
+  return null;
+}
+
+export function exportSpQueryResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.number = o.number;
+  v.name = o.name;
+  v.goal = ((x) => (x === null || x === undefined ? x : [...x]))(o.goal);
+  return v;
+}
+
+export class SpActionArgsMirror {
+  constructor() {
+    this.op = "spawnUnit";
+    this.character = null;
+    this.unit = null;
+    this.className = null;
+    this.post = null;
+    this.position = [NaN, NaN, NaN];
+    this.yaw = undefined;
+  }
+}
+
+export function syncSpActionArgs(b, f, at, h, m) {
+  m.op = SpActionOp_NAMES[f[at + 0]];
+  m.character = b.refs[KIND_CHARACTER].at(f[at + 1], f[at + 2]);
+  { const tag = f[at + 3]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 4], f[at + 5]); } else m.unit = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.className = b.strings.at(f[at + 7]); } else m.className = tag === 1 ? null : undefined; }
+  m.post = syncPostRef(b, f, at + 8, h, m.post);
+  { const a = (m.position ??= new Array(3)); a[0] = f[at + 11]; a[1] = f[at + 12]; a[2] = f[at + 13]; }
+  { const tag = f[at + 14]; if (tag === 0) { m.yaw = f[at + 15]; } else m.yaw = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpActionArgs(b, o, f, at, heap) {
+  f[at + 0] = SpActionOp_INDEX.get(o.op);
+  b.refs[KIND_CHARACTER].put(o.character, f, at + 1);
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; b.refs[KIND_UNIT].put($x, f, at + 4); } }
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = b.strings.id($x); } }
+  putPostRef(b, o.post, f, at + 8, heap);
+  { const $v = o.position; f[at + 11] = $v[0]; f[at + 12] = $v[1]; f[at + 13] = $v[2]; }
+  { const $x = o.yaw; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; } else { f[at + 14] = 0; f[at + 15] = $x; } }
+}
+
+export function sameSpActionArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.character, b.character)) return ".character";
+  { const p = a.unit, q = b.unit; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".unit"; } else { if (!Object.is(p, q)) return ".unit"; } }
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  if (!samePostRef(a.post, b.post)) return ".post";
+  if (!sameArray(a.position, b.position, 3)) return ".position";
+  { const p = a.yaw, q = b.yaw; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".yaw"; } else { if (!Object.is(p, q)) return ".yaw"; } }
+  return null;
+}
+
+export function exportSpActionArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.character = cx.ref("character", o.character);
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
+  v.className = o.className;
+  v.post = exportPostRef(o.post, cx);
+  v.position = [...o.position];
+  v.yaw = o.yaw;
+  return v;
+}
+
+export class SpActionResultMirror {
+  constructor() {
+    this.unit = null;
+  }
+}
+
+export function syncSpActionResult(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 1], f[at + 2]); } else m.unit = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpActionResult(b, o, f, at, heap) {
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; } else { f[at + 0] = 0; b.refs[KIND_UNIT].put($x, f, at + 1); } }
+}
+
+export function sameSpActionResult(a, b) {
+  { const p = a.unit, q = b.unit; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".unit"; } else { if (!Object.is(p, q)) return ".unit"; } }
+  return null;
+}
+
+export function exportSpActionResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
   return v;
 }
 

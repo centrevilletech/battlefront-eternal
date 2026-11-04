@@ -83,6 +83,8 @@ const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = a
 const unit = opt('unit', null), mount = Number(opt('mount', -1));
 // --combat rust: a world's combats on the module (?combat=rust, src/combat-sim.js).
 const combat = opt('combat', 'js');
+const battleRules = opt('battle', 'js');
+if (!['rust', 'js'].includes(battleRules)) throw Error(`--battle ${battleRules}: rust or js`);
 if (!['rust', 'js'].includes(combat)) throw Error(`--combat ${combat}: rust or js`);
 // --hulls rust: the ground hulls' phase on the module (?hulls=rust, src/vehicles-sim.js).
 const hulls = opt('hulls', 'js');
@@ -114,14 +116,16 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${sim === 'js' ? '&sim=js' : ''}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, sim, hulls, combat, seats, units, ai, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}&battle=${battleRules}${sim === 'js' ? '&sim=js' : ''}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, sim, hulls, combat, seats, units, battle: battleRules, ai, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 
 async function battle(index) {
   const prefix = index ? `${index + 1}:` : '';
   const game = await headlessGame(query);
+  if ((battleRules === 'rust') !== Boolean(game.battleSim)) throw Error('battle rules do not match the requested module');
+  if (battleRules === 'rust' && (!game.postsSim || !game.battlefieldSim || game.ai?.spawning && !game.spawningSim || game.live && !game.propsSim || game.live?.traps.length && !game.trapsSim)) throw Error('a requested native battle phase was not attached');
   // Each kernel on or off as asked, whatever the environment says (the
   // movement kernel and the units' phase bring the ray kernel with them).
   const raysWanted = rays === 'wasm' || movement === 'wasm' || units === 'rust';

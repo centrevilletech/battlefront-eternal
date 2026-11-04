@@ -29,9 +29,20 @@ pub fn slot_of(team: f64) -> usize {
     }
 }
 
+/// The tallies only test whether a name is empty. A live module reads its
+/// string table for that instant, without borrowing it across a callback
+/// which may intern a new weapon or class label.
+pub trait Text {
+    fn nonempty(&self, id: StrId) -> bool;
+}
+
+impl Text for Strings {
+    fn nonempty(&self, id: StrId) -> bool { !self.units(id).is_empty() }
+}
+
 /// A string field's truthiness (null and "" are false).
-pub fn truthy(strings: &Strings, s: Option<StrId>) -> bool {
-    s.is_some_and(|id| !strings.units(id).is_empty())
+pub fn truthy(strings: &dyn Text, s: Option<StrId>) -> bool {
+    s.is_some_and(|id| strings.nonempty(id))
 }
 
 /// `value & 0xff` on a count (counts stay small integers).
@@ -75,7 +86,7 @@ pub struct Seen {
 }
 
 /// addTime(table, size, key, label, dt) (battle-stats.js:96).
-fn add_time(table: &mut Vec<TimeEntry>, size: usize, key: Option<StrId>, label: Option<StrId>, dt: f64, strings: &Strings) {
+fn add_time(table: &mut Vec<TimeEntry>, size: usize, key: Option<StrId>, label: Option<StrId>, dt: f64, strings: &dyn Text) {
     if !truthy(strings, key) {
         return;
     }
@@ -197,7 +208,7 @@ pub fn tick(
     dt: f64,
     list: &[Ref<Character>],
     characters: &mut Slab<Character>,
-    strings: &Strings,
+    strings: &dyn Text,
     active: impl Fn(Ref<Character>, &Character) -> bool,
     mut see: impl FnMut(Ref<Character>, &Character) -> Option<Seen>,
 ) {

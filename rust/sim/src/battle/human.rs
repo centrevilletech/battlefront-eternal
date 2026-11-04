@@ -76,9 +76,9 @@ pub trait World {
     fn spawn(&mut self, s: &mut HumanSpawn, events: &mut Vec<Event>, choice: &HumanPick);
     fn ready(&mut self, s: &mut HumanSpawn, events: &mut Vec<Event>, choice: &HumanPick) -> bool;
     fn kill(&mut self, s: &mut HumanSpawn, events: &mut Vec<Event>);
-    fn cancel(&mut self);
+    fn cancel(&mut self, s: &mut HumanSpawn, events: &mut Vec<Event>);
     /// The warning when the roster or the world's loaded classes refuse.
-    fn rejected(&mut self, class_name: StrId, team: f64);
+    fn rejected(&mut self, s: &mut HumanSpawn, events: &mut Vec<Event>, class_name: StrId, team: f64);
 }
 
 pub fn new(class_name: StrId, auto: Option<HumanAuto>, post: Option<StrId>) -> HumanSpawn {
@@ -113,13 +113,23 @@ fn truthy(id: Option<StrId>, strings: &Strings) -> Option<StrId> {
 /// applyAuthoritative: accept the server's state, then return the events
 /// that must be dispatched at once (there is no local world tick online).
 pub fn apply_authoritative(
-    s: &mut HumanSpawn, next: Authority, events: &mut Vec<Event>,
+    s: &mut HumanSpawn, mut next: Authority, events: &mut Vec<Event>,
     strings: &Strings, world: &mut dyn World,
+) -> Vec<Event> {
+    next.class_name = truthy(next.class_name, strings);
+    next.post = truthy(next.post, strings);
+    apply_authoritative_normalized(s, next, events, world)
+}
+
+/// The module validates strings before calling the world, so an import
+/// may reenter the module and intern more strings safely.
+pub fn apply_authoritative_normalized(
+    s: &mut HumanSpawn, next: Authority, events: &mut Vec<Event>, world: &mut dyn World,
 ) -> Vec<Event> {
     let was = s.phase;
     let team = world.team();
-    if let Some(class_name) = truthy(next.class_name, strings) { s.class_name = class_name; }
-    if truthy(next.post, strings).is_some() { s.post = next.post; }
+    if let Some(class_name) = next.class_name { s.class_name = class_name; }
+    if next.post.is_some() { s.post = next.post; }
     s.phase = next.phase;
     s.spawned_once = next.spawned_once;
     s.ended = next.ended;
@@ -151,14 +161,21 @@ pub fn spawned(
     s: &mut HumanSpawn, events: &mut Vec<Event>, class_name: StrId,
     post: Option<StrId>, strings: &Strings, world: &mut dyn World,
 ) {
+    spawned_normalized(s, events, class_name, truthy(post, strings), world);
+}
+
+pub fn spawned_normalized(
+    s: &mut HumanSpawn, events: &mut Vec<Event>, class_name: StrId,
+    post: Option<StrId>, world: &mut dyn World,
+) {
     let was = s.phase;
     s.class_name = class_name;
-    if truthy(post, strings).is_some() { s.post = post; }
+    if post.is_some() { s.post = post; }
     s.phase = HumanPhase::Alive;
     s.spawned_once = true;
     s.pending = None;
     if was != HumanPhase::Alive {
-        events.push(Event::Spawned { team: world.team(), class_name, post: truthy(post, strings) });
+        events.push(Event::Spawned { team: world.team(), class_name, post });
     }
 }
 
@@ -177,7 +194,7 @@ pub fn update(s: &mut HumanSpawn, events: &mut Vec<Event>, dt: f64, commands: &[
     if s.auto.is_none() && !s.ended && world.over() {
         s.ended = true;
         s.pending = None;
-        world.cancel();
+        world.cancel(s, events);
     }
     update_phase(s, events, world);
     if s.pending.is_some() && matches!(s.phase, HumanPhase::Unspawned | HumanPhase::Awaiting) {
@@ -200,7 +217,7 @@ pub fn apply(s: &mut HumanSpawn, events: &mut Vec<Event>, entry: &Command, world
         }
         Command::Cancel => {
             s.pending = None;
-            world.cancel();
+            world.cancel(s, events);
         }
         Command::Suicide => unreachable!(),
     }
@@ -232,7 +249,7 @@ pub fn realize(s: &mut HumanSpawn, events: &mut Vec<Event>, world: &mut dyn Worl
     let team = world.team();
     if !world.roster(team).contains(&choice.class_name) || !world.can_spawn(choice.class_name) {
         let team = world.team();
-        world.rejected(choice.class_name, team);
+        world.rejected(s, events, choice.class_name, team);
         s.pending = None;
         return;
     }

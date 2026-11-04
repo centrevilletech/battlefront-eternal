@@ -508,8 +508,11 @@ async function start() {
   // them: ?combat=rust, or under Node BFE_COMBAT=rust. Off by default until
   // units and combat move over together.
   const wantCombat = headless && (params.get("combat") ?? globalThis.process?.env?.BFE_COMBAT) === "rust";
+  // Battle phases migrate together behind this opt-in switch. The player's
+  // spawn state machine is the first live owner (human-spawn-sim.js).
+  const wantBattle = headless && (params.get("battle") ?? globalThis.process?.env?.BFE_BATTLE) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat || wantUnits ? await loadSimInstance() : null;
+  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat || wantUnits || wantBattle ? await loadSimInstance() : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
@@ -1183,6 +1186,7 @@ async function start() {
   });
   // The player's end-of-match record tallies from his spawn until his spawn
   // screen opens, as the original's does.
+  const humanSpawnSim = wantBattle && simInstance ? (await import("./human-spawn-sim.js")).attachHumanSpawnSim(simInstance, humanSpawn) : null;
   battle.statsActive = (character) => !character.human || humanSpawn.phase === "alive" || humanSpawn.phase === "dying";
   if (policy.auto) {
     const choices = spawnPosts();
@@ -3586,6 +3590,7 @@ async function start() {
     // The spawn screen's world side.
     spawnPort,
     humanSpawn,
+    humanSpawnSim,
     bodies,
     policy,
     adopt,
@@ -3747,6 +3752,12 @@ async function start() {
     if (!headless) followBattle({ spawnPort, scoreboardPort: { players: () => game.scoreboardPort?.players() ?? null } });
   };
   chatReady = true;
+  game.postsSim = wantBattle && simInstance ? (await import("./posts-sim.js")).attachPostsSim(simInstance, posts) : null;
+  game.battleSim = wantBattle && simInstance ? (await import("./battle-sim.js")).attachBattleSim(simInstance, battle) : null;
+  game.spawningSim = game.battleSim && ai?.spawning ? (await import("./spawning-sim.js")).attachSpawningSim(ai.spawning, game.battleSim, game.postsSim) : null;
+  game.trapsSim = wantBattle && simInstance && live?.traps.length ? (await import("./traps-sim.js")).attachTrapsSim(simInstance, live.traps) : null;
+  game.battlefieldSim = wantBattle && simInstance ? (await import("./battlefield-sim.js")).attachBattlefieldSim(simInstance, battlefield, leavingWarning) : null;
+  game.propsSim = wantBattle && simInstance && live ? (await import("./props-sim.js")).attachPropsSim(simInstance, live) : null;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();
   return game;

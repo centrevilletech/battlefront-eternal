@@ -13,6 +13,10 @@ const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(`--${name}`); return i < 0 ? fallback : args[i + 1]; };
 const seed = Number(opt('seed', 1));
 const out = opt('out', null);
+const module = opt('module', 'js');
+if (!['js', 'rust'].includes(module)) throw Error('--module must be js or rust');
+const attach = module === 'rust' ? (await import('../src/human-spawn-sim.js')).attachHumanSpawnSim : null;
+const load = attach ? (await import('../src/sim/module.js')).loadSim : null;
 if (!out) throw Error('human-spawn-twin: --out DIR');
 const random = new ClassicRandom(seed);
 const pick = a => a[Math.floor(random.uniform() * a.length)];
@@ -52,6 +56,7 @@ for (let r = 0; r < 24; r++) {
     cancel() { call('cancel'); },
   });
   spawn = new HumanSpawn({ world: w, policy: { className: config.className, auto: config.auto ? { team: 1, className: 'b', post: config.post } : null }, post: config.post });
+  if (attach) attach(await load(), spawn);
   const state = s => [s.phase, s.team, s.className, s.classIndex, s.post, s.canSwitchTeams, s.over];
   const event = (prefix, name, d) => {
     if (name === 'awaitingSpawn') line(prefix, r, k, name, ...state(d));

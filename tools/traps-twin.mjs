@@ -14,6 +14,10 @@ import { ClassicRandom } from '../src/ai/random.js';
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const at = args.indexOf(`--${name}`); return at < 0 ? fallback : args[at + 1]; };
 const out = opt('out', null);
+const module = opt('module', 'js');
+if (!['js', 'rust'].includes(module)) throw Error('--module must be js or rust');
+const attach = module === 'rust' ? (await import('../src/traps-sim.js')).attachTrapsSim : null;
+const load = attach ? (await import('../src/sim/module.js')).loadSim : null;
 if (!out) throw Error('traps-twin: --out DIR');
 const random = new ClassicRandom(Number(opt('seed', 1)));
 const pick = values => values[Math.floor(random.uniform() * values.length)];
@@ -51,8 +55,9 @@ for (let r = 0; r < 32; r++) {
   t.sideOf = team => { call('side', team); return ({ 1: 'all', 2: 'imp', 3: 'ewk' })[team] ?? null; };
   t.onEffect = (name, at) => call('effect', name, ...at.toArray());
   const unobserve = observeSounds((type, name, at) => call(type, name, ...at.toArray()));
+  if (attach) attach(await load(), [t]);
   function makeHull(h, i) {
-    const v = { alive: h.alive, team: number(h.team), position: new THREE.Vector3(...h.position.map(number)),
+    const v = { id: i, alive: h.alive, team: number(h.team), position: new THREE.Vector3(...h.position.map(number)),
       radius: number(h.radius), _dying: number(h.dying), _attacker: true, _visible: h.root ? true : null,
       setHealth(value) {
         call('health', i, value);

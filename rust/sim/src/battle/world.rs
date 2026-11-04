@@ -26,7 +26,52 @@ pub struct Body {
     pub droid: Option<[f64; 3]>,
 }
 
+/// Services the command posts read. Kept separate so the live post phase
+/// can use its own store without taking ownership of the battle's rules,
+/// Characters or spawn manager during a nested query.
+pub trait PostsWorld {
+    fn capture_team(&mut self, team: f64) -> f64;
+    fn building_alive(&mut self, building: Ref<Building>) -> bool;
+    fn pad(&mut self, slot: f64) -> Pad;
+    fn vehicle_position(&mut self, vehicle: Ref<Vehicle>) -> [f64; 3];
+    fn class_spawn_world(&mut self, s: &Store, post: Ref<MobilePost>) -> Vec<[f64; 4]>;
+}
+
+impl<T: BattleWorld + ?Sized> PostsWorld for T {
+    fn capture_team(&mut self, team: f64) -> f64 { BattleWorld::capture_team(self, team) }
+    fn building_alive(&mut self, building: Ref<Building>) -> bool { BattleWorld::building_alive(self, building) }
+    fn pad(&mut self, slot: f64) -> Pad { BattleWorld::pad(self, slot) }
+    fn vehicle_position(&mut self, vehicle: Ref<Vehicle>) -> [f64; 3] { BattleWorld::vehicle_position(self, vehicle) }
+    fn class_spawn_world(&mut self, _: &Store, post: Ref<MobilePost>) -> Vec<[f64; 4]> { BattleWorld::class_spawn_world(self, post) }
+}
+
+/// The spawn manager's foreign actions; its teams, Characters, queues
+/// and class choices remain in the caller's store.
+pub trait SpawningWorld: PostsWorld {
+    /// Enhanced spawning's objective, when its nearest-post rule applies.
+    fn spawn_goal(&mut self, _: Ref<Character>) -> Option<[f64; 3]> { None }
+    fn health(&mut self, unit: Ref<Unit>) -> f64;
+    fn force_kill(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>);
+    fn request_objective(&mut self, s: &mut Store, character: Ref<Character>);
+    fn republish(&mut self, s: &mut Store, character: Ref<Character>);
+    fn hero_name(&mut self, class_name: StrId) -> Option<StrId>;
+    fn spawn_unit(&mut self, s: &mut Store, character: Ref<Character>, class_name: Option<StrId>, post: SpawnPost, at: [f64; 3], yaw: Option<f64>) -> Option<Ref<Unit>>;
+}
+
+impl<T: BattleWorld + ?Sized> SpawningWorld for T {
+    fn spawn_goal(&mut self, character: Ref<Character>) -> Option<[f64; 3]> { BattleWorld::spawn_goal(self, character) }
+    fn health(&mut self, unit: Ref<Unit>) -> f64 { BattleWorld::health(self, unit) }
+    fn force_kill(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>) { BattleWorld::force_kill(self, s, character, unit); }
+    fn request_objective(&mut self, s: &mut Store, character: Ref<Character>) { BattleWorld::request_objective(self, s, character); }
+    fn republish(&mut self, s: &mut Store, character: Ref<Character>) { BattleWorld::republish(self, s, character); }
+    fn hero_name(&mut self, class_name: StrId) -> Option<StrId> { BattleWorld::hero_name(self, class_name) }
+    fn spawn_unit(&mut self, s: &mut Store, character: Ref<Character>, class_name: Option<StrId>, post: SpawnPost, at: [f64; 3], yaw: Option<f64>) -> Option<Ref<Unit>> {
+        BattleWorld::spawn_unit(self, s, character, class_name, post, at, yaw)
+    }
+}
+
 pub trait BattleWorld {
+    fn spawn_goal(&mut self, _: Ref<Character>) -> Option<[f64; 3]> { None }
     // ---- The registry (src/registry.js).
 
     /// units.relation(a, b).

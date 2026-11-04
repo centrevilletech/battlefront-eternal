@@ -6,7 +6,7 @@
 //! his); it is where its vehicle is; its ValueBleed counts for its owner;
 //! it never changes hands by capture; when its vehicle dies it is lost.
 
-use super::world::BattleWorld;
+use super::world::PostsWorld;
 use crate::gen::{MobileAi, MobileDesc, MobilePost, Reported, Store, Vehicle};
 use crate::store::{Ref, StrId, Strings};
 
@@ -127,7 +127,7 @@ fn hull(pad: &Pad) -> Option<&Hull> {
 }
 
 /// refresh() (mobile-posts.js:139).
-pub fn refresh(s: &mut Store, r: Ref<MobilePost>, world: &mut dyn BattleWorld) {
+pub fn refresh<W: PostsWorld + ?Sized>(s: &mut Store, r: Ref<MobilePost>, world: &mut W) {
     let slot = s.mobile_post.get(r).expect("a command vehicle's post").index;
     let pad = world.pad(slot);
     let Some(v) = hull(&pad) else {
@@ -181,7 +181,7 @@ pub enum MobileEvent {
 
 /// The command vehicles' posts as MobilePosts makes them: one a pad whose
 /// classes include a command vehicle, refreshed, each reporting its state.
-pub fn report_all(s: &mut Store, world: &mut dyn BattleWorld) {
+pub fn report_all<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) {
     for i in 0..s.mobile_posts.posts.len() {
         let r = s.mobile_posts.posts[i];
         refresh(s, r, world);
@@ -191,7 +191,7 @@ pub fn report_all(s: &mut Store, world: &mut dyn BattleWorld) {
 }
 
 /// refresh() (mobile-posts.js:183).
-pub fn refresh_all(s: &mut Store, world: &mut dyn BattleWorld) {
+pub fn refresh_all<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) {
     for i in 0..s.mobile_posts.posts.len() {
         let r = s.mobile_posts.posts[i];
         refresh(s, r, world);
@@ -199,7 +199,7 @@ pub fn refresh_all(s: &mut Store, world: &mut dyn BattleWorld) {
 }
 
 /// events() (mobile-posts.js:191).
-pub fn events(s: &mut Store, world: &mut dyn BattleWorld) -> Vec<MobileEvent> {
+pub fn events<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) -> Vec<MobileEvent> {
     let mut out = Vec::new();
     for i in 0..s.mobile_posts.posts.len() {
         let r = s.mobile_posts.posts[i];

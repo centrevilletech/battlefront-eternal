@@ -1,9 +1,11 @@
 import { Character } from '../battle.js';
 import { MAX_TEAM_SIZE } from '../battle-limits.js';
+import { createNativeRoster } from './multiplayer-roster-sim.js';
 // Network connections reserve army slots, replacing bots without spending a
 // reinforcement. Character array positions remain stable for replication.
 export function createMultiplayerRoster(game, armySize = MAX_TEAM_SIZE) {
   if (armySize !== null && (!Number.isInteger(armySize) || armySize < 1 || armySize > MAX_TEAM_SIZE)) throw new Error('invalid army size');
+  if (game.battleSim) return createNativeRoster(game, armySize);
   const spawning = game.ai?.spawning, classic = game.ai?.classic;
   if (!spawning || !classic) {
     // With the AI off nobody fields the mission's armies: the bots
