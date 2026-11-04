@@ -21,7 +21,7 @@
 //! JavaScript's, the flags of the candidates the query's first call names
 //! (as the casts do).
 
-use crate::collision::{apply_matrix4, candidate, dot, enabled, f32_at, grid_raycast, io, js_max, js_min, state, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
+use crate::collision::{apply_matrix4, dot, f32_at, grid_raycast, io, js_max, js_min, state, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
 use std::ptr::addr_of_mut;
 
 /// collision.js BLOCKER_POLYGONS: the vehicle-only barriers' polygon numbers
@@ -526,8 +526,11 @@ pub fn gather(s: &State, world: usize, center: [f64; 3], radius: f64, blockers: 
 /// the query's), as places in the world's order, into CANDIDATES for
 /// JavaScript to flag; their count.
 fn candidates_for(s: &State, world: usize, bounds: &Bounds, ignore: i64, list: Option<&[u32]>) -> usize {
+    candidates_into(s, world, bounds, ignore, list, unsafe { &mut *addr_of_mut!(crate::collision::CANDIDATES) })
+}
+
+pub(crate) fn candidates_into(s: &State, world: usize, bounds: &Bounds, ignore: i64, list: Option<&[u32]>, out: &mut [u32]) -> usize {
     let w = &s.worlds[world];
-    let out = unsafe { &mut *addr_of_mut!(crate::collision::CANDIDATES) };
     let mut count = 0;
     let mut each = |place: usize| {
         let slot = w.order[place] as usize;
@@ -865,19 +868,25 @@ pub extern "C" fn gather_begin(world: u32, cache: i32, blockers: i32, ignore: i3
     let s = state();
     let world = world as usize;
     let blockers = (blockers >= 0).then_some(blockers as usize);
-    let out = gathered();
-    let count = if cache >= 0 {
-        let cache = &mut caches()[cache as usize];
+    let cache = if cache >= 0 { Some(&mut caches()[cache as usize]) } else { None };
+    let candidates = unsafe { &mut *addr_of_mut!(crate::collision::CANDIDATES) };
+    let (bounds, count) = gather_candidates_into(s, world, center, radius, blockers, cache, ignore as i64, gathered(), candidates);
+    unsafe { *addr_of_mut!(QUERY) = bounds; }
+    count as u32
+}
+
+/// Fixed gather and candidate selection, with all scratch owned by the caller.
+pub(crate) fn gather_candidates_into(s: &State, world: usize, center: [f64; 3], radius: f64, blockers: Option<usize>, cache: Option<&mut GatherCache>, ignore: i64, out: &mut Gathered, candidates: &mut [u32]) -> (Bounds, usize) {
+    if let Some(cache) = cache {
         let bounds = gather_fixed(s, world, center, radius, blockers, Some(&mut *cache), out);
-        unsafe { *addr_of_mut!(QUERY) = bounds; }
         let list = cached_bodies(s, world, cache);
-        candidates_for(s, world, &bounds, ignore as i64, Some(list))
+        let count = candidates_into(s, world, &bounds, ignore, Some(list), candidates);
+        (bounds, count)
     } else {
         let bounds = gather_fixed(s, world, center, radius, blockers, None, out);
-        unsafe { *addr_of_mut!(QUERY) = bounds; }
-        candidates_for(s, world, &bounds, ignore as i64, None)
-    };
-    count as u32
+        let count = candidates_into(s, world, &bounds, ignore, None, candidates);
+        (bounds, count)
+    }
 }
 
 /// gather's second call, over the first `count` candidates whose ENABLED is
@@ -888,13 +897,24 @@ pub extern "C" fn gather_end(world: u32, count: u32) -> u32 {
     let s = state();
     let out = gathered();
     let bounds = unsafe { *addr_of_mut!(QUERY) };
-    let order = &s.worlds[world as usize].order;
-    for c in 0..count as usize {
-        if !enabled(c) { continue; }
-        gather_body(s, order[candidate(c)] as usize, &bounds, out);
+    let candidates = unsafe { &*std::ptr::addr_of!(crate::collision::CANDIDATES) };
+    let enabled = unsafe { &*std::ptr::addr_of!(crate::collision::ENABLED) };
+    let w = unsafe { &mut *addr_of_mut!(OUT) };
+    let count = gather_complete(s, world as usize, &bounds, &candidates[..count as usize], &enabled[..count as usize], out, w);
+    let v = io();
+    v[58] = w.as_ptr() as usize as f64;
+    v[59] = w.len() as f64;
+    count as u32
+}
+
+/// Complete and encode the gather without borrowing any module storage.
+pub(crate) fn gather_complete(s: &State, world: usize, bounds: &Bounds, candidates: &[u32], enabled: &[u8], out: &mut Gathered, w: &mut Vec<f64>) -> usize {
+    let order = &s.worlds[world].order;
+    for c in 0..candidates.len() {
+        if enabled[c] == 0 { continue; }
+        gather_body(s, order[candidates[c] as usize] as usize, bounds, out);
     }
     let list = out.list();
-    let w = unsafe { &mut *addr_of_mut!(OUT) };
     w.clear();
     for p in list {
         w.push(p.id);
@@ -911,10 +931,7 @@ pub extern "C" fn gather_end(world: u32, count: u32) -> u32 {
             }
         }
     }
-    let v = io();
-    v[58] = w.as_ptr() as usize as f64;
-    v[59] = w.len() as f64;
-    list.len() as u32
+    list.len()
 }
 
 /// Room for `count` f64s of input; its address.
@@ -983,12 +1000,17 @@ pub extern "C" fn overlap_begin(world: u32, ignore: i32) -> i32 {
 pub extern "C" fn overlap_end(world: u32, count: u32) -> u32 {
     let v = io();
     let (center, radius) = ([v[0], v[1], v[2]], v[3]);
-    let s = state();
-    let order = &s.worlds[world as usize].order;
-    for c in 0..count as usize {
-        if enabled(c) && overlaps_body(s, order[candidate(c)] as usize, center, radius) { return 1; }
+    let candidates = unsafe { &*std::ptr::addr_of!(crate::collision::CANDIDATES) };
+    let enabled = unsafe { &*std::ptr::addr_of!(crate::collision::ENABLED) };
+    overlaps_candidates(state(), world as usize, center, radius, &candidates[..count as usize], &enabled[..count as usize]) as u32
+}
+
+pub(crate) fn overlaps_candidates(s: &State, world: usize, center: [f64; 3], radius: f64, candidates: &[u32], enabled: &[u8]) -> bool {
+    let order = &s.worlds[world].order;
+    for c in 0..candidates.len() {
+        if enabled[c] != 0 && overlaps_body(s, order[candidates[c] as usize] as usize, center, radius) { return true; }
     }
-    0
+    false
 }
 
 /// terrainNear's triangles (the center in IO 0-2, the radius in 3): their

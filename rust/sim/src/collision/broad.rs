@@ -118,9 +118,14 @@ impl Broad {
 /// same bodies in the same order, less fixed bodies wholly clear of its
 /// segment (see above). Into CANDIDATES; returns how many.
 pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, ignore: i64, static_only: bool, moving_only: bool) -> usize {
+    world_candidates_near_into(s, world, ray, far, ignore, static_only, moving_only, unsafe { &mut *addr_of_mut!(CANDIDATES) })
+}
+
+/// The same broad phase with caller-owned candidate storage.
+pub fn world_candidates_near_into(s: &mut State, world: usize, ray: &Ray, far: f64, ignore: i64, static_only: bool, moving_only: bool, out: &mut [u32]) -> usize {
     let length = (ray.dx * ray.dx + ray.dy * ray.dy + ray.dz * ray.dz).sqrt();
     if moving_only || !(far >= 0.0 && far.is_finite() && length > 0.0 && length.is_finite()) {
-        return crate::collision::world_candidates_for(s, world, ray, ignore, static_only, moving_only);
+        return crate::collision::world_candidates_into(s, world, ray, ignore, static_only, moving_only, out);
     }
     let reach = far / length;
     let (o, d) = ([ray.ox, ray.oy, ray.oz], [ray.dx, ray.dy, ray.dz]);
@@ -132,7 +137,7 @@ pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, i
         seg[k + 3] = js_max(o[k], end) + pad;
     }
     if seg.iter().any(|v| !v.is_finite()) {
-        return crate::collision::world_candidates_for(s, world, ray, ignore, static_only, moving_only);
+        return crate::collision::world_candidates_into(s, world, ray, ignore, static_only, moving_only, out);
     }
     let key = Some((s.worlds[world].version, s.fixed_version));
     if s.worlds[world].broad.made_for != key {
@@ -154,7 +159,7 @@ pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, i
     };
     let ((x0, x1), (z0, z1)) = cells;
     if !clear && (x1 - x0 + 1) * (z1 - z0 + 1) > MAX_CELLS {
-        return crate::collision::world_candidates_for(s, world, ray, ignore, static_only, moving_only);
+        return crate::collision::world_candidates_into(s, world, ray, ignore, static_only, moving_only, out);
     }
     let State { worlds, bodies, .. } = s;
     let w = &mut worlds[world];
@@ -180,7 +185,6 @@ pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, i
     }
     // The tests world_candidates_for gives each body, in the world's order.
     let inv = inverse(ray);
-    let out = unsafe { &mut *addr_of_mut!(CANDIDATES) };
     let mut count = 0;
     for (i, &word) in bits.iter().enumerate() {
         let mut word = word;
