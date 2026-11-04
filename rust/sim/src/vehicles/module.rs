@@ -133,6 +133,16 @@ fn poses() -> &'static mut Vec<Option<Posed>> {
     unsafe { &mut *addr_of_mut!(POSES) }
 }
 
+// Geometry commands keep local copies while a clock callback can re-enter.
+// Nothing borrows the retained pose across that callback.
+pub(super) fn firing_pose(slot: u32) -> HullPose {
+    poses()[slot as usize].as_ref().expect("a retained firing rig").pose.clone()
+}
+
+pub(super) fn keep_firing_pose(slot: u32, pose: HullPose) {
+    poses()[slot as usize].as_mut().expect("a retained firing rig").pose = pose;
+}
+
 /// The hull classes' keys the phase has been given (`veh_class`), by name.
 fn classes() -> &'static mut HashMap<String, HullClass> {
     // SAFETY: one thread; nothing holds a reference across a call out.

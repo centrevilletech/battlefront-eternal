@@ -36,6 +36,7 @@
 // and the fire and tow cables stay JavaScript's until they move.
 import * as THREE from "three";
 import { attachWeaponSim } from "./weapon-sim.js";
+import { VehicleFiringSim } from "./vehicle-firing-sim.js";
 import { KIND_VEHICLE, KIND_VEHICLES, KIND_BODY } from "./sim/gen/index.js";
 import { FLIGHT_CLASSES } from "./flight/config.js";
 
@@ -145,6 +146,7 @@ export class VehiclesSim {
       for (const [name, c] of Object.entries(FLIGHT_CLASSES)) for (const [key, value] of Object.entries(c)) this.retune(name, key, value);
     }
     this.flightValues = [];
+    this.firing = new VehicleFiringSim(this, rigNodes);
   }
 
   // FLIGHT_CLASSES[name][key] = value, for the module's crafts (at attach,
@@ -253,6 +255,7 @@ export class VehiclesSim {
       if (this.x.veh_pull(refs.slotOf(v), v.aiTarget.generation, values.length)) this.lives.set(v, v.aiTarget.generation);
       else this.lives.delete(v);
     }
+    for (const v of this.vehicles.vehicles) if (this.posed(v)) this.firing.attach(v);
     const values = this.inputValues;
     values.length = 0;
     for (const v of this.vehicles.vehicles) if (this.posed(v)) { values.push(refs.slotOf(v)); poseInputs(v, values); }

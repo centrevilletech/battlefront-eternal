@@ -29,6 +29,7 @@
 pub mod build;
 pub mod class;
 pub mod firing;
+mod firing_module;
 pub mod hover;
 pub mod hull;
 pub mod native;
