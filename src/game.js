@@ -3769,6 +3769,7 @@ async function start() {
   game.trapsSim = wantBattle && simInstance && live?.traps.length ? (await import("./traps-sim.js")).attachTrapsSim(simInstance, live.traps) : null;
   game.battlefieldSim = wantBattle && simInstance ? (await import("./battlefield-sim.js")).attachBattlefieldSim(simInstance, battlefield, leavingWarning) : null;
   game.propsSim = wantBattle && simInstance && live ? (await import("./props-sim.js")).attachPropsSim(simInstance, live) : null;
+  game.turretSeatsSim = game.propsSim && game.turretSeats ? await (await import("./turret-seats-sim.js")).attachTurretSeatsSim(game.propsSim.bridge, game.turretSeats) : null;
   game.battlePhaseSim = game.battleSim ? (await import("./battle-phase-sim.js")).attachBattlePhaseSim({
     battleSim: game.battleSim, postsSim: game.postsSim, spawningSim: game.spawningSim,
     units, vehicles: () => vehicles?.vehicles ?? [], playerUnit, playerMounted: () => driver?.active || gunner.active,

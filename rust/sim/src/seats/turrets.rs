@@ -33,6 +33,18 @@ const AIM_REACH: f64 = 512.0;
 /// props.js AIMED: a gun this close to its target fires straight at it.
 const AIMED: f64 = std::f64::consts::PI / 180.0;
 
+// Imports must observe the command's writes, including when a death or a
+// shot synchronously comes back into the seats. Default replay hooks are
+// no-ops; the live adapter uses a command-local store across the calls.
+macro_rules! foreign {
+    ($crews:expr, $st:expr, $world:expr, $call:expr) => {{
+        $world.publish_crews($st, $crews);
+        let result = $call;
+        $world.resume_crews($st, $crews);
+        result
+    }};
+}
+
 /// What a turret is for the battle, as the Turret constructor works it out.
 #[derive(Clone, Debug, Default)]
 pub struct TurretDesc {
@@ -549,7 +561,7 @@ impl Crews {
         let u = st.unit.get(unit_ref(unit)).unwrap();
         let tref = self.turrets[turret].turret;
         let lease = new_lease(Some((unit, u.generation)), false, u.team, None, Some(tref), 0.0, SeatRole::Gunner, st.turret_seats.time, st.turret_seats.ticks);
-        let r = st.seat_lease.insert(lease);
+        let r = foreign!(self, st, w, w.crew_lease(st, lease));
         st.seats.leases.push(r);
         self.made.push(r);
         let t = &mut self.turrets[turret];
@@ -557,9 +569,9 @@ impl Crews {
         t.gunner = Some(unit);
         t.yaw_vel = 0.0;
         t.pitch_vel = 0.0;
-        w.seat_policy(Holder::Turret(self.turrets[turret].index), 0, network, true);
+        foreign!(self, st, w, w.seat_policy(Holder::Turret(self.turrets[turret].index), 0, network, true));
         if !network {
-            let c = w.controllable(r, 0, SeatRole::Gunner);
+            let c = foreign!(self, st, w, w.controllable(r, 0, SeatRole::Gunner));
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         let mut combat = self.facts(unit).combat;
@@ -567,10 +579,11 @@ impl Crews {
         u.seat = Some(r);
         seat_body(u, &mut combat);
         self.facts(unit).combat = combat;
-        w.seated(unit);
+        foreign!(self, st, w, w.seated(unit));
         st.turret_seats.leases.push(r);
         self.pose(st, r);
-        w.boarded(unit, Holder::Turret(self.turrets[turret].index), 0);
+        foreign!(self, st, w, w.crew_posed(r));
+        foreign!(self, st, w, w.boarded(unit, Holder::Turret(self.turrets[turret].index), 0));
         true
     }
 
@@ -600,7 +613,7 @@ impl Crews {
         let unit = lease.unit.map(|u| u.slot);
         let died = how.kill || how.reason == Reason::Killed;
         let has_body = unit.and_then(|u| st.unit.get(unit_ref(u))).is_some();
-        let fall = if died && has_body { w.rider_drop(Holder::Turret(self.turrets[turret].index), 0, unit.unwrap()) } else { None };
+        let fall = if died && has_body { foreign!(self, st, w, w.rider_drop(Holder::Turret(self.turrets[turret].index), 0, unit.unwrap())) } else { None };
         let mut yaw: Option<f64> = None;
         let mut spot = ExitSpot::default();
         if how.placement && !died && self.collide && has_body {
@@ -609,7 +622,7 @@ impl Crews {
             let facing = t.desc.facing + t.yaw;
             let view = Vector3::new(math::sin(facing), 0.0, math::cos(facing));
             let frame = ExitFrame { origin: t.desc.position, forward: view, up: UP, center, radius, body: t.desc.body };
-            classic_seat_exit(w, &frame, &mut spot);
+            foreign!(self, st, w, classic_seat_exit(w, &frame, &mut spot));
             yaw = Some(math::atan2(spot.forward.x, spot.forward.z));
         }
         st.seat_lease.get_mut(r).unwrap().released = true;
@@ -630,10 +643,10 @@ impl Crews {
                 // `unit.soldier?.aimYaw ?? 0`.
                 let aim_yaw = super::bodies::soldier(u).map_or(0.0, |s| s.aim_yaw);
                 self.facts(id).combat = combat;
-                w.unseated(id, aim_yaw);
+                foreign!(self, st, w, w.unseated(id, aim_yaw));
                 if let Some(yaw) = yaw {
                     place_on_foot(w, st.unit.get_mut(unit_ref(id)).unwrap(), &spot.position, yaw, false);
-                    w.placed(id, yaw);
+                    foreign!(self, st, w, w.placed(id, yaw));
                 }
             } else {
                 self.facts(id).combat = combat;
@@ -641,18 +654,18 @@ impl Crews {
         }
         if let Some(fall) = fall {
             drop_body(st.unit.get_mut(unit_ref(unit.unwrap())).unwrap(), &fall, None);
-            w.dropped(unit.unwrap(), &fall);
+            foreign!(self, st, w, w.dropped(unit.unwrap(), &fall));
         }
         if how.kill {
             if let Some(id) = unit {
                 let u = st.unit.get(unit_ref(id)).unwrap();
                 if u.alive && !u.combat.dead {
-                    w.kill(st, super::Seating::Crews(self), id, how.attacker);
+                    foreign!(self, st, w, w.kill(st, super::Seating::Crews(self), id, how.attacker));
                 }
             }
         }
         if !how.kill {
-            w.unboarded(unit, Holder::Turret(self.turrets[turret].index), 0, how.post, how.reason);
+            foreign!(self, st, w, w.unboarded(unit, Holder::Turret(self.turrets[turret].index), 0, how.post, how.reason));
         }
     }
 
@@ -722,52 +735,46 @@ impl Crews {
         let view = if aiming { Vector3::new(aim[0], aim[1], aim[2]) } else { t.view_direction(t.yaw, t.pitch) };
         // The gun follows what lies under the aim: a person's from where his
         // own page aims, a bot's from the gun's fire point.
-        let target = if person {
-            turret_aim_point(w, t, facts.combat.first_person, &view, collide, unit)
-        } else {
-            let hit = if collide { w.cast(&muzzle, &view, AIM_REACH, t.desc.body) } else { None };
-            let mut target = muzzle;
-            target.add_scaled_vector(&view, match hit {
-                Some(h) => h.distance,
-                None => AIM_REACH,
-            });
-            target
-        };
-        t.pose(dt, Some(&target));
-        self.pose(st, r);
-        let t = &mut self.turrets[turret];
-        if !t.weapon {
-            return;
+        let from = if person { t.aim_origin(facts.combat.first_person, t.yaw, t.pitch) } else { muzzle };
+        let body = t.desc.body;
+        let hit = if collide { foreign!(self, st, w, w.cast(&from, &view, AIM_REACH, body)) } else { None };
+        let mut far = hit.map_or(AIM_REACH, |hit| hit.distance);
+        if person {
+            if let Some(distance) = foreign!(self, st, w, w.raycast_units(&from, &view, far, unit)) { far = distance; }
         }
+        let mut target = from; target.add_scaled_vector(&view, far);
+        self.turrets[turret].pose(dt, Some(&target));
+        self.pose(st, r);
+        foreign!(self, st, w, w.crew_posed(r));
+        if !self.turrets[turret].weapon { return; }
         let input = &mut st.seat_lease.get_mut(r).unwrap().input;
         let pressed = take(input, 0);
         let held = input.held[0] || pressed;
-        if t.missile_lock {
-            w.update_lock(index, dt, &muzzle, &view, r);
+        if self.turrets[turret].missile_lock {
+            foreign!(self, st, w, w.update_lock(index, dt, &muzzle, &view, r));
         }
         let reload = take_reload(&mut st.seat_lease.get_mut(r).unwrap().input);
-        let shots = w.weapon_update(index, dt, held, pressed, reload);
+        let shots = foreign!(self, st, w, w.weapon_update(index, dt, held, pressed, reload));
         let mut view = view;
         for (k, shot) in shots.iter().enumerate() {
             let t = &mut self.turrets[turret];
             let mut gun_dir = Vector3::default();
             muzzle = t.muzzle(true, Some(&mut gun_dir));
-            if t.rig.gun.is_some() {
-                t.fire_direction(&muzzle, &target, &mut gun_dir);
-            }
-            if super::truthy(shot.yaw) {
-                gun_dir.apply_axis_angle(&UP, shot.yaw);
-            }
+            if t.rig.gun.is_some() { t.fire_direction(&muzzle, &target, &mut gun_dir); }
+            if super::truthy(shot.yaw) { gun_dir.apply_axis_angle(&UP, shot.yaw); }
             if super::truthy(shot.pitch) {
                 view.cross_vectors(&gun_dir, &UP).normalize();
                 gun_dir.apply_axis_angle(&view, shot.pitch);
             }
-            let barrel = t.barrel;
+            let round = foreign!(self, st, w, w.fire(index, &muzzle, &gun_dir, unit, r, k));
+            // A synchronous shot can reenter this turret. JavaScript reads
+            // its barrel after fire returns, when binding the round.
+            let t = &self.turrets[turret];
             let points = t.rig.fire_points.len();
-            let round = w.fire(index, &muzzle, &gun_dir, unit, r, k);
-            w.bind_round(round, index, (barrel - 1.0) % (if points == 0 { 1 } else { points }) as f64);
-            w.sound(index, k);
-            w.fired(index, k, unit, &muzzle, &gun_dir);
+            let barrel = (t.barrel - 1.0) % (if points == 0 { 1 } else { points }) as f64;
+            foreign!(self, st, w, w.bind_round(round, index, barrel));
+            foreign!(self, st, w, w.sound(index, k));
+            foreign!(self, st, w, w.fired(index, k, unit, &muzzle, &gun_dir));
         }
     }
 

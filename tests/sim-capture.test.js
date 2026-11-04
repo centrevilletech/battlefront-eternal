@@ -33,6 +33,41 @@ test('capture specs cannot preload weapons before seeded draws are instrumented'
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('boundary tuples preserve old afterstate and optionally record entry state before mutation', () => {
+  const script = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import os from 'node:os';
+    import path from 'node:path';
+    import * as THREE from 'three';
+    import { SPECS } from './tools/sim-capture/specs.mjs';
+    import { readRecords } from './tools/sim-capture/format.mjs';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'capture-boundary-'));
+    try {
+      const file = path.join(dir, 'fixture.bfecap'), point = new THREE.Vector3(1, 2, 3);
+      let entries = 0;
+      const world = { old(delta) { point.x += delta; return point.x; }, fresh(delta) { point.x += delta; return point.x; } };
+      const fixture = { step(delta) { return world.old(delta) + world.fresh(delta); } };
+      SPECS.boundaryFixture = { frames: [{ method: 'fixture.step', target: () => fixture, state: () => ({ point }), boundaries: () => [
+        ['old', world, 'old', () => ({ point })],
+        ['fresh', world, 'fresh', () => ({ point }), (_game, _cap, args) => { entries++; return { point, delta: args[0] }; }],
+      ] }] };
+      process.argv = ['node', 'capture-test', '--capture-out', file, '--capture-specs', 'boundaryFixture', '--capture-every', '1'];
+      const capture = await import('./tools/sim-capture/plugin.mjs');
+      capture.battle({ game: { units: { all: () => [] }, collision: { bodies: [] }, ordnance: { explosion() {}, explode() {} } }, index: 0, options: {} });
+      capture.tick(1); assert.equal(fixture.step(2), 8); capture.ticked(1, 'fixture'); capture.finish();
+      const records = [...readRecords(new Uint8Array(fs.readFileSync(file)))].map(r => r.value);
+      const oldCall = records.find(r => r.k === 'call' && r.n === 'old'), freshCall = records.find(r => r.k === 'call' && r.n === 'fresh');
+      const oldRet = records.find(r => r.k === 'ret' && r.n === 'old'), freshRet = records.find(r => r.k === 'ret' && r.n === 'fresh');
+      assert.equal(Object.hasOwn(oldCall, 's'), false); assert.equal(oldRet.x.point.x, 3);
+      assert.equal(freshCall.s.point.x, 3); assert.equal(freshCall.s.delta, 2); assert.equal(freshRet.x.point.x, 5);
+      world.fresh(1); assert.equal(entries, 1, 'no entry snapshot outside a sampled frame');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: root, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
 function roundTrip(values, identify) {
   const writer = new Writer({ identify });
   const bytes = new Uint8Array([...new TextEncoder().encode(MAGIC)]);
