@@ -88,6 +88,9 @@ export function createWireSemanticBridge(bridge) {
   function mounted({ mode, id, generation, index, target }) {
     const fields = mode === 4 ? [] : mode === 2 ? ['aimYaw', 'pitch', 'lookYaw', 'lookPitch'] : ['yaw', 'pitch', 'yawVel', 'pitchVel', 'gunYaw', 'gunPitch'];
     const weapons = mode !== 3 ? (target.weapons || []).map(entry => ({ weapon: entry.state, barrel: entry.barrel })) : target.weapon ? [{ weapon: target.weapon, barrel: target.barrel }] : [];
+    // Shape guards precede foreign weapon/default reads, as in the caller's
+    // serializer. The native writer validates the same bounds independently.
+    if (weapons.length > 2) throw Error('mounted weapon count exceeds correction budget');
     const words = [mode, id, generation, index]; list(words, fields.map(key => num(target[key])));
     words.push(weapons.length, +(target.lookYaw !== null), +(target.lookPitch !== null));
     for (const entry of weapons) { const bytes = captureArsenalWeapon(entry.weapon, api); words.push(num(entry.barrel)); list(words, bytes); }
@@ -114,7 +117,8 @@ export function createWireSemanticBridge(bridge) {
     ownPayloads.set(unit, bytes); return bytes;
   }
   function recon(state, droid) {
-    const words = [state.weapons.length, droid.arsenal.weapons.length]; list(words, state.selected);
+    if (state.weapons.length > 2 || state.weapons.length !== droid.arsenal.weapons.length || state.selected.length !== 2) throw Error('unsupported recon arsenal');
+    const words = [state.weapons.length, droid.arsenal.weapons.length]; list(words, Array.from({ length: state.selected.length }, (_, i) => num(state.selected[i])));
     words.push(num(state.zoomStep), droid.arsenal.channels[0].length, droid.arsenal.channels[1].length, flag(state.dead), flag(state.piloted), +!!state.firstPerson);
     for (const key of ['yaw', 'pitch', 'health', 'countdown', 'lookX', 'lookY']) words.push(num(state[key]));
     words.push(num(state.randomSeed)); for (const key of ['position', 'velocity']) list(words, Array.isArray(state[key]) ? state[key].map(num) : []);

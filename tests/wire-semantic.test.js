@@ -151,6 +151,8 @@ test('mounted pilot, passenger and turret weapon checkpoints match their live en
     }
     vehicle.seats[1].weapons[0].barrel = -1; const unit = { seat: { vehicle, index: 1 } };
     sameError(() => captureMountedControl(unit), () => captureMountedControl(unit, native));
+    vehicle.seats[1].weapons = Array(3).fill({ state: null, barrel: 0 });
+    sameError(() => captureMountedControl(unit), () => captureMountedControl(unit, native));
   } finally { native.dispose(); }
 });
 
@@ -193,7 +195,8 @@ test('recon native correction preserves selected weapons, salvo and camera with 
       state.camera = i % 2 ? null : { position: [1, 2, -0], quaternion: [0, 0, 0, 1], aspect: 16 / 9, fov: 50, reach: 99, fresh: i % 3 === 0 };
       assert.deepEqual(encodeRemoteCorrection(state, droid, native), encodeRemoteCorrection(state, droid), `recon ${i}`);
     }
-    for (const change of [{ zoomStep: 2 }, { selected: [99, 0] }, { dead: true }, { position: [0, 0] },
+    for (const change of [{ zoomStep: 2 }, { selected: [99, 0] }, { selected: ['0', 0] }, { selected: '00' }, { selected: [0] },
+      { weapons: [] }, { weapons: [state.weapons[0]] }, { weapons: [null, null, null] }, { dead: true }, { position: [0, 0] },
       { camera: { position: [1, 2, 3], quaternion: [0, 0, 1], aspect: 1, fresh: false } },
       { camera: { position: [1, 2, 3], quaternion: [0, 0, 0, 1], aspect: 1, fresh: 2 } }]) {
       sameError(() => encodeRemoteCorrection({ ...state, ...change }, droid), () => encodeRemoteCorrection({ ...state, ...change }, droid, native));
