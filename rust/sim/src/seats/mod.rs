@@ -113,6 +113,18 @@ impl Reason {
 /// What the seats ask of the rest of the battle (src/seats-world.js), each
 /// call as the JavaScript makes it. Units are named by their registry id.
 pub trait SeatWorld {
+    /// A live crew command publishes its writes before a foreign call and
+    /// reads back that call's changes afterwards. The store passed here
+    /// is command-local, so an import can reenter the shared simulation.
+    /// Native replay worlds need neither bridge operation.
+    fn publish_crews(&mut self, _st: &crate::gen::Store, _crews: &turrets::Crews) {}
+    fn resume_crews(&mut self, _st: &mut crate::gen::Store, _crews: &mut turrets::Crews) {}
+    /// Allocate the identity of a newly computed crew lease. A live host
+    /// supplies its existing SeatLease object and emitter; the lease's
+    /// authoritative fields are the native value passed here.
+    fn crew_lease(&mut self, st: &mut crate::gen::Store, lease: SeatLease) -> Ref<SeatLease> { st.seat_lease.insert(lease) }
+    /// Only the rider's page pose, after native body placement and tick.
+    fn crew_posed(&mut self, _lease: Ref<SeatLease>) {}
     /// CollisionWorld.cast: the first hit along a ray within `far`, leaving
     /// out `ignore` (a collision body, by the store's reference).
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<Ref<Body>>) -> Option<Hit>;
