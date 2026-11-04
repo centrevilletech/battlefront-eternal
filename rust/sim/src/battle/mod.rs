@@ -19,6 +19,8 @@ pub mod rules_module;
 pub mod posts_module;
 #[cfg(target_arch = "wasm32")]
 pub mod spawning_module;
+#[cfg(target_arch = "wasm32")]
+pub mod traps_module;
 pub mod mobile;
 pub mod names;
 pub mod objectives;

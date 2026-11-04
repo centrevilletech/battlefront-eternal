@@ -3,7 +3,8 @@
 //! the cooked class settings. The world keeps the hulls and collision
 //! bodies; animation and page presentation stay outside this state machine.
 
-use crate::store::{StrId, Strings};
+use crate::store::StrId;
+use super::stats::Text;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Phase {
@@ -62,17 +63,17 @@ pub trait World {
     fn alive(&mut self, vehicle: Self::Vehicle) -> bool;
     fn sphere(&mut self, vehicle: Self::Vehicle) -> ([f64; 3], f64);
     fn side(&mut self, vehicle: Self::Vehicle) -> Option<StrId>;
-    fn clear_attacker(&mut self, vehicle: Self::Vehicle);
-    fn set_health(&mut self, vehicle: Self::Vehicle, health: f64);
-    fn set_dying(&mut self, vehicle: Self::Vehicle, time: f64);
-    fn hide_root(&mut self, vehicle: Self::Vehicle);
-    fn show(&mut self, built: bool);
-    fn sound(&mut self, name: StrId, at: [f64; 3]);
-    fn effect(&mut self, name: StrId, at: [f64; 3]);
+    fn clear_attacker(&mut self, trap: &mut Trap, vehicle: Self::Vehicle);
+    fn set_health(&mut self, trap: &mut Trap, vehicle: Self::Vehicle, health: f64);
+    fn set_dying(&mut self, trap: &mut Trap, vehicle: Self::Vehicle, time: f64);
+    fn hide_root(&mut self, trap: &mut Trap, vehicle: Self::Vehicle);
+    fn show(&mut self, trap: &mut Trap, built: bool);
+    fn sound(&mut self, trap: &mut Trap, name: StrId, at: [f64; 3]);
+    fn effect(&mut self, trap: &mut Trap, name: StrId, at: [f64; 3]);
 }
 
-fn text(value: Option<StrId>, strings: &Strings) -> Option<StrId> {
-    value.filter(|&name| !strings.units(name).is_empty())
+fn text(value: Option<StrId>, strings: &dyn Text) -> Option<StrId> {
+    value.filter(|&name| strings.nonempty(name))
 }
 
 impl Trap {
@@ -93,7 +94,7 @@ impl Trap {
         }
         if self.health >= settings.max_health {
             self.built = true;
-            world.show(true);
+            world.show(self, true);
             self.health = settings.max_health;
             self.sprung = false;
             self.begin(Phase::Reset, None);
@@ -110,25 +111,25 @@ impl Trap {
             && (center[2] - settings.point[2]).abs() <= r
     }
 
-    pub fn crush<W: World>(&mut self, settings: &Settings, strings: &Strings, vehicles: &[W::Vehicle], world: &mut W) {
+    pub fn crush<W: World>(&mut self, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W) {
         // Array.filter finishes before the first death callback. One
         // victim's death can change another hull, but not this selection.
         let victims: Vec<_> = vehicles.iter().copied().filter(|&v| self.catches(settings, v, world)).collect();
         let mut killed = 0.0;
         for vehicle in victims {
-            world.clear_attacker(vehicle);
-            world.set_health(vehicle, 0.0);
-            world.set_dying(vehicle, 0.0);
-            world.hide_root(vehicle);
+            world.clear_attacker(self, vehicle);
+            world.set_health(self, vehicle, 0.0);
+            world.set_dying(self, vehicle, 0.0);
+            world.hide_root(self, vehicle);
             killed += 1.0;
         }
         self.crushed += killed;
         if killed != 0.0 {
-            if let Some(name) = text(settings.death_effect, strings) { world.effect(name, settings.effect_at); }
+            if let Some(name) = text(settings.death_effect, strings) { world.effect(self, name, settings.effect_at); }
         }
     }
 
-    pub fn step<W: World>(&mut self, dt: f64, tick: f64, settings: &Settings, strings: &Strings, vehicles: &[W::Vehicle], world: &mut W) {
+    pub fn step<W: World>(&mut self, dt: f64, tick: f64, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W) {
         self.tick = tick;
         if !self.built {
             if self.phase != Phase::Down { self.begin(Phase::Down, Some(tick)); }
@@ -149,7 +150,7 @@ impl Trap {
             });
             if !triggered { return; }
             self.begin(Phase::Swing, Some(tick));
-            if let Some(sound) = text(settings.sound, strings) { world.sound(sound, settings.point); }
+            if let Some(sound) = text(settings.sound, strings) { world.sound(self, sound, settings.point); }
         }
         if settings.death_time > 0.0 && self.time < settings.death_time && self.time + dt >= settings.death_time {
             self.crush(settings, strings, vehicles, world);
@@ -159,7 +160,7 @@ impl Trap {
             self.sprung = false;
             self.health = 0.0;
             self.built = false;
-            world.show(false);
+            world.show(self, false);
             self.begin(Phase::Down, Some(tick));
         }
     }

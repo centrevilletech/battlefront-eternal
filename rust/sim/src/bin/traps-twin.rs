@@ -97,30 +97,30 @@ impl World for Fixture<'_> {
         self.call(["side".into(), bits(team)]);
         if team >= 1.0 && team <= 3.0 && team.fract() == 0.0 { Some(self.sides[team as usize - 1]) } else { None }
     }
-    fn clear_attacker(&mut self, i: usize) {
+    fn clear_attacker(&mut self, _: &mut Trap, i: usize) {
         self.hulls[i].attacker = None;
         self.call(["attacker".into(), bits(i as f64)]);
     }
-    fn set_health(&mut self, i: usize, health: f64) {
+    fn set_health(&mut self, _: &mut Trap, i: usize, health: f64) {
         self.call(["health".into(), bits(i as f64), bits(health)]);
         if !(health > 0.0) { self.hulls[i].alive = false; self.hulls[i].dying = 3.0; }
         if let Some(other) = self.hulls[i].cascade { self.hulls[other].alive = false; self.hulls[other].position[0] += 10000.0; }
     }
-    fn set_dying(&mut self, i: usize, time: f64) {
+    fn set_dying(&mut self, _: &mut Trap, i: usize, time: f64) {
         self.hulls[i].dying = time;
         self.call(["dying".into(), bits(i as f64), bits(time)]);
     }
-    fn hide_root(&mut self, i: usize) {
+    fn hide_root(&mut self, _: &mut Trap, i: usize) {
         if self.hulls[i].visible.is_some() {
             self.hulls[i].visible = Some(false);
             self.call(["visible".into(), bits(i as f64), flag(false)]);
         }
     }
-    fn show(&mut self, built: bool) { self.built = built; self.call(["show".into(), flag(built)]); }
-    fn sound(&mut self, name: StrId, at: [f64; 3]) {
+    fn show(&mut self, _: &mut Trap, built: bool) { self.built = built; self.call(["show".into(), flag(built)]); }
+    fn sound(&mut self, _: &mut Trap, name: StrId, at: [f64; 3]) {
         let mut parts = vec!["sound".into(), self.text(name)]; parts.extend(at.map(bits)); self.call(parts);
     }
-    fn effect(&mut self, name: StrId, at: [f64; 3]) {
+    fn effect(&mut self, _: &mut Trap, name: StrId, at: [f64; 3]) {
         let mut parts = vec!["effect".into(), self.text(name)]; parts.extend(at.map(bits)); self.call(parts);
     }
 }
