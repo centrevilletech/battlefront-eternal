@@ -73,12 +73,15 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
     const serial = nextSession++, definitions = [], classes = new Set(), objects = [predicted], lists = [];
     const mirrors = new WeakMap(), ids = new WeakMap(), weapons = [], streams = [], salvos = [], velocities = [];
     const registered = new Map();
-    let handle = x.prediction_remotes_create(), busy = false, steps = 0, view = context.simulationView;
+    let handle = x.prediction_remotes_create(), busy = false, dropAfter = false, steps = 0, view = context.simulationView;
     const cx = Object.create(bridge);
     cx.defs = { weapon: { id: () => 0, at: id => definitions[id]?.[0] } };
-    const live = () => { alive(); if (!handle) throw Error('remote prediction session is disposed'); };
+    const live = (inFlight = false) => {
+      if (!inFlight || !busy) alive();
+      if (!handle) throw Error('remote prediction session is disposed');
+    };
     function run(op, words) {
-      live();
+      live(true);
       const input = Float64Array.from(words), ptr = x.prediction_remotes_room(handle, input.length);
       bridge.views(); bridge.f.set(input, ptr / 8);
       const ok = x.prediction_remotes_run(handle, op);
@@ -88,6 +91,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       const error = ok ? null : new TextDecoder().decode(new Uint8Array(x.memory.buffer,
         x.prediction_remotes_error(handle), x.prediction_remotes_error_len(handle)));
       trace?.({ session: serial, op, input: Array.from(input), output: output.slice(), error });
+      live(true);
       return { output, error };
     }
     function register(value, kind = 0) {
@@ -303,11 +307,13 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
             const resumed = capture();
             result = run(3, [true, values.length, ...values, resumed.length, ...resumed]);
           }
-        } finally { busy = false; }
+        } finally { busy = false; if (dropAfter) session.dispose(); }
       },
       dispose() {
         if (!handle) return;
-        if (busy) throw Error('remote prediction session is already running');
+        // A callback can close the owner while this step is suspended. Its
+        // continuation still owns the handle until the step finishes.
+        if (busy) { dropAfter = true; return; }
         x.prediction_remotes_drop(handle); handle = 0; sessions.delete(session);
       },
     };
@@ -318,6 +324,6 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
   }
   return {
     bridge, create, get activeSessions() { return sessions.size; },
-    dispose() { if (disposed) return; for (const session of sessions) session.dispose(); disposed = true; },
+    dispose() { if (disposed) return; disposed = true; for (const session of sessions) session.dispose(); },
   };
 }
