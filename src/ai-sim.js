@@ -39,7 +39,7 @@ export class AiSim {
     this.ids = new WeakMap();
     this.objects = [null];
     this.navigation = null;
-    this.perceptions=new WeakMap();this.clusters=new WeakMap();this.sightFrames=[];
+    this.perceptions=new WeakMap();this.clusters=new WeakMap();this.sightFrames=[];this.clusterFound=[];
     bridge.register({aiSight:args=>{
       const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
       const result={number:0,ids:[]},world=frame.world;
@@ -48,7 +48,7 @@ export class AiSim {
       else if(op==='query') {
         frame.attacker=frame.controller.unit;
         const units=world.units;
-        const found=[];
+        const found=this.clusterFound;
         units.query(object.position,9,found,u=>u!==object && units.relation(object.team,u.team)!==0);
         result.ids=found.map(u=>this.id(u));
       }
