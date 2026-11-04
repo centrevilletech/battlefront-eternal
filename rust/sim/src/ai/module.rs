@@ -14,6 +14,7 @@ pub struct State {
     pub(super) scheduler: super::control::scheduler::Scheduler,
     pub combat: CombatAi,
     pub(super) heaps: Vec<super::combat::perception::PriorityHeap<u32>>,
+    pub(super) perceptions: Vec<super::perception_module::CandidateState>,
     pub(super) aimers: Vec<Aimer>,
     pub(super) enhanced_aimers: Vec<EnhancedAimer>,
     pub(super) out: Vec<f64>,
@@ -90,7 +91,7 @@ pub extern "C" fn ai_nav_init() -> u32 {
     };
     nav.publications = Some(Vec::new());
     // SAFETY: initialization is called before AI work begins on this instance.
-    unsafe { *addr_of_mut!(STATE) = Some(State { nav, vehicles: VehicleAI::new(), core: None, scheduler: Default::default(), combat: CombatAi::default(), heaps: Vec::new(), aimers: Vec::new(), enhanced_aimers: Vec::new(), out: Vec::new() }); }
+    unsafe { *addr_of_mut!(STATE) = Some(State { nav, vehicles: VehicleAI::new(), core: None, scheduler: Default::default(), combat: CombatAi::default(), heaps: Vec::new(), perceptions: Vec::new(), aimers: Vec::new(), enhanced_aimers: Vec::new(), out: Vec::new() }); }
     0
 }
 

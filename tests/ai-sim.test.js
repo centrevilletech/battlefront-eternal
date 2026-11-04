@@ -8,8 +8,9 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, recordTarget, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
+import { clusterState, peekClusterState } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -84,6 +85,60 @@ test('native target ranking preserves stale-reference boosts, queue overflow and
     assert.equal(n.perception.heap.values.size,0);
     for(let k=0;k<i%9;k++)assert.deepEqual(request(nq.active.pop()),request(jq.active.pop()));
   }
+});
+
+test('native acquired targets preserve candidate identities and cluster cache lifetimes', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const controller={unit:{team:1}},p=controller.perception=new Perception(controller);
+    const point=p.candidatePoint;
+    if(native)sim.bindPerception(p);
+    assert.equal(p.candidatePoint,point);
+    const owners=[{},{},{}],targets=Array.from({length:18},(_,id)=>({id,kind:id%7===0?6:0,team:2,generation:0,
+      controller:id%3===0?null:owners[id%3],position:new Vector3(id,0,0)}));
+    for(const target of targets) {const c=clusterState(target,true);c.scanAt=-10;c.flaggedAt=-20;}
+    const world={time:0,history:[]};
+    const ref=r=>r==null?r:[r.unit.id,r.generation];
+    world.units={
+      relation(a,b){world.history.push(['relation',a,b]);return a===b?1:a===0||b===0?0:-1;},
+      query(at,radius,out,filter){
+        world.history.push(['query',at.toArray(),radius,ref(p.candidate),p.candidatePoint.toArray(),{...peekClusterState(targets[at.x])}]);
+        for(const u of targets)if(filter(u))out.push(u);
+        // The source uses its out array; no returned array is required.
+      },
+    };
+    return {controller,p,point,targets,world};
+  }
+  const j=fixture(false),n=fixture(true);
+  const snapshot=x=>({candidate:x.p.candidate==null?x.p.candidate:[x.p.candidate.unit.id,x.p.candidate.generation],
+    point:x.p.candidatePoint.toArray(),count:x.p.lastScanCount,
+    clusters:x.targets.map(t=>{const c=peekClusterState(t);return c&&{...c};})});
+  for(let i=0;i<512;i++) {
+    const target=i%18;
+    for(const x of [j,n]) {
+      x.world.time=i*.27;x.world.history.length=0;
+      x.controller.unit.team=i%19===0?2:1;
+      for(const u of x.targets) {u.team=u.id%11===i%11?1:2;u.generation=Math.floor(i/37);}
+      x.p.lastScanCount=i;
+      const previous=x.p.candidate;
+      recordTarget(x.controller,x.targets[target],new Vector3(i%7===0?-0:i/3,2,-i/9),x.world);
+      assert.notEqual(x.p.candidate,previous);
+      assert.equal(x.p.candidate,x.p.candidate,'candidate reference remains stable between publications');
+      assert.equal(x.p.candidatePoint,x.point);
+    }
+    assert.deepEqual(n.world.history,j.world.history,`query ordering ${i}`);
+    assert.deepEqual(snapshot(n),snapshot(j),`candidate/cache ${i}`);
+    if(i%43===0) {j.p.reset();n.p.reset();assert.deepEqual(snapshot(n),snapshot(j));}
+  }
+  for(const generation of [undefined,null,-0,NaN,7]) {
+    for(const x of [j,n]) {
+      const target=x.targets[0];target.generation=generation;
+      recordTarget(x.controller,target,new Vector3(1,2,3),x.world);
+    }
+    assert.deepEqual(snapshot(n),snapshot(j));
+  }
+  const ref={unit:n.targets[1],generation:null};n.p.candidate=ref;assert.equal(n.p.candidate,ref);
+  n.p.candidate=undefined;assert.equal(n.p.candidate,undefined);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

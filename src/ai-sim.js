@@ -5,6 +5,7 @@ import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
+import { bindClusterState, peekClusterState } from './ai/classic/weapons-ai.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -38,6 +39,24 @@ export class AiSim {
     this.ids = new WeakMap();
     this.objects = [null];
     this.navigation = null;
+    this.perceptions=new WeakMap();this.clusters=new WeakMap();this.sightFrames=[];
+    bridge.register({aiSight:args=>{
+      const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
+      const result={number:0,ids:[]},world=frame.world;
+      if(op==='cluster') {this.cluster(object,true);result.number=this.id(object.controller??object);}
+      else if(op==='time') result.number=world.time??0;
+      else if(op==='query') {
+        frame.attacker=frame.controller.unit;
+        const units=world.units;
+        const found=[];
+        units.query(object.position,9,found,u=>u!==object && units.relation(object.team,u.team)!==0);
+        result.ids=found.map(u=>this.id(u));
+      }
+      else if(op==='relation') result.number=world.units.relation(frame.attacker.team,object.team);
+      else if(op==='kind') result.number=object.kind;
+      else throw Error(`unknown sight callback ${op}`);
+      return result;
+    }});
   }
 
   id(object) {
@@ -143,11 +162,39 @@ export class AiSim {
       if(perception.heap.size) throw Error('native perception must bind before scanning');
       perception.heap=this.heap(perception.heap.capacity,perception.heap.priority[0]);
       perception.aimer = this.aimer();
+      this.bindPerception(perception);
       return perception;
     };
   }
 
   scheduler(ai) { return new NativeScheduler(this,ai); }
+  bindPerception(perception) {
+    if(!this.perceptions.has(perception))this.perceptions.set(perception,new NativePerceptionFields(this,perception));
+    return perception;
+  }
+  cluster(target,create=false) {
+    const owner=target?.controller??target;
+    if(!owner)return null;
+    const key=this.id(owner);
+    let view=this.clusters.get(owner);
+    if(!view) {
+      const previous=peekClusterState(target);
+      if(previous && !this.x.ai_cluster_has(key))this.x.ai_cluster_seed(key,previous.scanAt,previous.flaggedAt,previous.generation);
+      view={};
+      ['scanAt','flaggedAt','generation'].forEach((name,index)=>Object.defineProperty(view,name,{enumerable:true,
+        get:()=>this.x.ai_cluster_field(key,index),set:value=>this.x.ai_cluster_write(key,index,value)}));
+      this.clusters.set(owner,view);
+      bindClusterState(target,(unit,create)=>this.cluster(unit,create),()=>this.x.ai_cluster_has(key)?view:null);
+    }
+    return this.x.ai_cluster_lookup(this.id(target),this.id(target.controller),target.generation,Number(create))?view:null;
+  }
+  recordTarget(id,controller,target,point,world) {
+    this.sightFrames.push({controller,target,world});
+    try {
+      this.words([this.id(target),target.generation,target.kind,point.x,point.y,point.z,target.generation===undefined?0:target.generation===null?2:1]);
+      this.x.ai_sight_record(id);
+    } finally {this.sightFrames.pop();}
+  }
   heap(capacity,sentinel) { return new NativePriorityHeap(this,capacity,sentinel); }
   aimer() { return new NativeAimer(this); }
   enhancedAimer(random,profile,skill=1) { return new NativeEnhancedAimer(this,random,profile,skill); }
@@ -155,6 +202,33 @@ export class AiSim {
   words(values) {
     const ptr=this.x.sim_call_room(values.length,0);
     this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
+  }
+}
+
+class NativePerceptionFields {
+  constructor(sim,perception) {
+    this.sim=sim;this.id=sim.x.ai_perception_new();
+    const id=this.id;let candidate=perception.candidate,serial=-1;
+    const setCandidate=value=>{
+      candidate=value;
+      serial=sim.x.ai_perception_candidate(id,value===null?0:value===undefined?1:2,sim.id(value?.unit),value?.generation,value?.generation===undefined?0:value?.generation===null?2:1);
+    };
+    Object.defineProperty(perception,'candidate',{enumerable:true,configurable:true,
+      get:()=>{
+        sim.x.ai_perception_read(id);const v=sim.out();
+        if(v[4]!==serial) {serial=v[4];candidate=v[0]===0?null:v[0]===1?undefined:{unit:sim.objects[v[1]],generation:v[3]===0?undefined:v[3]===2?null:v[2]};}
+        return candidate;
+      },set:setCandidate});
+    setCandidate(candidate);
+    const field=(object,name,index)=>{
+      const old=object[name];
+      Object.defineProperty(object,name,{enumerable:true,configurable:true,
+        get:()=>sim.x.ai_perception_field(id,index),set:value=>sim.x.ai_perception_write(id,index,value)});
+      object[name]=old;
+    };
+    ['x','y','z'].forEach((key,index)=>field(perception.candidatePoint,key,index));
+    field(perception,'lastScanCount',3);
+    Object.defineProperty(perception,'nativeRecordTarget',{value:(controller,target,point,world)=>sim.recordTarget(id,controller,target,point,world)});
   }
 }
 

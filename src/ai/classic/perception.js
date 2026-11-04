@@ -477,6 +477,7 @@ const clusterFound = [];
 
 export function recordTarget(controller, target, point, world) {
   const p = controller.perception;
+  if (p.nativeRecordTarget) return p.nativeRecordTarget(controller, target, point, world);
   p.candidate = refOf(target);
   p.candidatePoint.copy(point);
   if (target.kind !== 0) return;
