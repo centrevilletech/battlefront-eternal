@@ -1,0 +1,291 @@
+import { bridgeFor } from '../sim/runtime.js';
+
+const unsupported = Symbol('observable reconciliation state');
+const hasOwn = Object.hasOwn;
+const typed = Object.getOwnPropertyDescriptors(Object.getPrototypeOf(Float64Array.prototype));
+const floatSlice = Float64Array.prototype.slice, floatSort = Float64Array.prototype.sort;
+const floatSpecies = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Float64Array), Symbol.species);
+const arrayFilter = Array.prototype.filter, arraySlice = Array.prototype.slice;
+const arraySpecies = Object.getOwnPropertyDescriptor(Array, Symbol.species);
+const leadResetFields = ['gapAt', 'gapCount', 'arrivedAt', 'arrivedTick', 'latest', 'lead', 'late', 'worstGap', 'extra', 'cooldown', 'calm', 'measuredKey', 'capped'];
+
+function descriptor(value, key) {
+  for (let at = value; at; at = Object.getPrototypeOf(at)) {
+    const found = Object.getOwnPropertyDescriptor(at, key);
+    if (found) return found;
+  }
+}
+function object(value) { return value !== null && (typeof value === 'object' || typeof value === 'function'); }
+function data(value, key) {
+  if (!object(value)) throw unsupported;
+  const found = descriptor(value, key);
+  if (!found) return undefined;
+  if (!hasOwn(found, 'value')) throw unsupported;
+  return found.value;
+}
+function writable(value, keys, owned = true) {
+  if (!object(value)) throw unsupported;
+  for (const key of keys) {
+    const own = Object.getOwnPropertyDescriptor(value, key), found = own || descriptor(value, key);
+    if (owned && !own || found && (!hasOwn(found, 'value') || !found.writable) || !own && !Object.isExtensible(value)) throw unsupported;
+  }
+}
+function numbers(value, keys, write = false) {
+  if (write) writable(value, keys);
+  return keys.map(key => {
+    const n = data(value, key);
+    if (typeof n !== 'number') throw unsupported;
+    return n;
+  });
+}
+function numeric(...values) { return values.every(value => typeof value === 'number'); }
+// Eligibility only: unusual values keep the original JavaScript phase. This
+// bound leaves room for timing products and sums without overflowing to NaN;
+// it never clamps a caller's state or changes the value used by the fallback.
+function bounded(...values) {
+  return values.every(value => typeof value === 'number' && value >= -Number.MAX_SAFE_INTEGER && value <= Number.MAX_SAFE_INTEGER);
+}
+function arithmetic(value, keys, write = false) {
+  const fields = numbers(value, keys, write);
+  if (!bounded(...fields)) throw unsupported;
+  return fields;
+}
+function optionalNumber(value) {
+  if (value !== null && typeof value !== 'number') throw unsupported;
+  return value === null ? [0, 0] : [1, value];
+}
+function optionalArithmetic(value) {
+  if (value !== null && !bounded(value)) throw unsupported;
+  return optionalNumber(value);
+}
+function metadata(make) {
+  try { return make(); }
+  catch (error) { if (error === unsupported) return null; throw error; }
+}
+function species(value, expected) {
+  const found = descriptor(value, Symbol.species);
+  return found && !hasOwn(found, 'value') && found.get === expected.get && found.set === expected.set;
+}
+function ring(value, memory, sorted = false) {
+  if (!(value instanceof Float64Array) || Object.getPrototypeOf(value) !== Float64Array.prototype
+    || Reflect.apply(typed[Symbol.toStringTag].get, value, []) !== 'Float64Array') throw unsupported;
+  for (const key of ['length', 'buffer', 'byteOffset', 'byteLength']) {
+    const found = descriptor(value, key), expected = typed[key];
+    if (!found || hasOwn(found, 'value') || found.get !== expected.get || found.set !== expected.set) throw unsupported;
+  }
+  if (value.buffer === memory.buffer || typeof SharedArrayBuffer === 'function' && value.buffer instanceof SharedArrayBuffer) throw unsupported;
+  if (sorted && (data(value, 'slice') !== floatSlice || data(value, 'sort') !== floatSort
+    || data(value, 'constructor') !== Float64Array || !species(Float64Array, floatSpecies))) throw unsupported;
+  const copy = new Array(value.length);
+  for (let i = 0; i < copy.length; i++) copy[i] = value[i];
+  return { value, copy };
+}
+function counter(at, count, length) {
+  if (!Number.isSafeInteger(at) || !Number.isSafeInteger(count) || at < 0 || count < 0 || count > length
+    || at >= length && !(at === 0 && length === 0)) throw unsupported;
+}
+function commands(value, sliced = false) {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || data(value, 'filter') !== arrayFilter || data(value, 'constructor') !== Array
+    || !species(Array, arraySpecies) || sliced && data(value, 'slice') !== arraySlice) throw unsupported;
+  const copy = new Array(value.length);
+  for (let i = 0; i < copy.length; i++) {
+    const item = Object.getOwnPropertyDescriptor(value, String(i));
+    if (!item || !hasOwn(item, 'value')) throw unsupported;
+    copy[i] = item.value;
+  }
+  return copy;
+}
+function reader(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength); let at = 0;
+  return () => { const value = view.getFloat64(at, true); at += 8; return value; };
+}
+
+export function createReconcileSim(instance, options) { return createReconcileBridge(bridgeFor(instance), options); }
+
+// The bridge owns one reusable parser. Models, checkpoints and command objects
+// stay with their caller; every native phase copies its result before callbacks.
+export function createReconcileBridge(bridge, { trace = null } = {}) {
+  const x = bridge.x; let handle = 0, calls = 0, disposed = false;
+  const live = () => { if (disposed) throw Error('reconciliation bridge is disposed'); };
+  function prepare(make) { live(); const value = metadata(make); live(); return value; }
+  function run(op, words, unpack) {
+    live();
+    const input = Float64Array.from(words);
+    if (!handle) handle = x.prediction_reconcile_create();
+    const at = x.prediction_reconcile_room(handle, input.length);
+    bridge.views(); bridge.f.set(input, at / 8);
+    const ok = x.prediction_reconcile_run(handle, op); calls++;
+    bridge.views();
+    const output = new Uint8Array(x.memory.buffer, x.prediction_reconcile_output(handle), x.prediction_reconcile_output_len(handle) * 8).slice();
+    const error = ok ? null : new TextDecoder().decode(new Uint8Array(x.memory.buffer, x.prediction_reconcile_error(handle), x.prediction_reconcile_error_len(handle)));
+    const result = ok ? unpack(reader(output)) : null;
+    trace?.({ op, input: Array.from(input), output: Array.from(new Float64Array(output.buffer)), error });
+    if (!ok) throw Error(error);
+    return result;
+  }
+  function selected(op, input, items) {
+    return run(op, input, read => Array.from({ length: read() }, () => items[read()]));
+  }
+  return {
+    bridge,
+    get calls() { return calls; },
+    get handle() { return handle; },
+    estimatorReset(value) {
+      if (!prepare(() => { writable(value, ['at', 'count', 'offset', 'dropped'], false); return true; })) return false;
+      return run(0, [], read => {
+        value.at = read(); value.count = read();
+        const offset = read(), n = read(); value.offset = offset ? n : null;
+        const dropped = read(), d = read(); value.dropped = dropped ? d : null;
+        return true;
+      });
+    },
+    estimatorArrive(value, tick, now, dropped) {
+      const state = prepare(() => {
+        if (!bounded(tick, now, dropped)) throw unsupported;
+        const [hz, window, at, count] = arithmetic(value, ['hz', 'window', 'at', 'count']);
+        const offsets = ring(data(value, 'offsets'), x.memory);
+        if (window !== offsets.copy.length) throw unsupported;
+        counter(at, count, offsets.copy.length);
+        writable(value, ['at', 'count', 'offset', 'dropped']);
+        return { offsets, words: [hz, window, at, count, ...optionalArithmetic(data(value, 'offset')), ...optionalArithmetic(data(value, 'dropped')), tick, now, dropped, offsets.copy.length, ...offsets.copy] };
+      });
+      if (!state) return false;
+      return run(1, state.words, read => {
+        const at = read(), count = read(), present = read(), offset = read();
+        read(); read(); const index = read(), entry = read();
+        // This is an assignment of the original Number, not arithmetic. Keep
+        // its payload when a caller supplied a signaling NaN.
+        value.dropped = dropped;
+        if (index >= 0) state.offsets.value[index] = entry;
+        value.at = at; value.count = count; value.offset = present ? offset : null;
+        return true;
+      });
+    },
+    estimatorEstimate(value, now) {
+      const state = prepare(() => {
+        if (!bounded(now)) throw unsupported;
+        return [arithmetic(value, ['hz'])[0], ...optionalArithmetic(data(value, 'offset')), now];
+      });
+      return state ? run(2, state, read => { const present = read(), value = read(); return { value: present ? value : null }; }) : null;
+    },
+    leadReset(value) {
+      const state = prepare(() => { writable(value, leadResetFields, false); return arithmetic(value, ['margin']); });
+      if (!state) return false;
+      return run(3, state, read => {
+        value.gapAt = read(); value.gapCount = read(); const present = read(), at = read(); value.arrivedAt = present ? at : null;
+        for (const key of ['arrivedTick', 'latest', 'lead', 'late', 'worstGap', 'extra', 'cooldown', 'calm', 'measuredKey']) value[key] = read();
+        value.capped = !!read(); return true;
+      });
+    },
+    leadArrive(value, tick, now) {
+      const state = prepare(() => {
+        if (!bounded(tick, now)) throw unsupported;
+        const [hz, latest, arrivedTick, at, count] = arithmetic(value, ['hz', 'latest', 'arrivedTick', 'gapAt', 'gapCount']);
+        const gaps = ring(data(value, 'gaps'), x.memory); counter(at, count, gaps.copy.length);
+        writable(value, ['latest', 'arrivedAt', 'arrivedTick', 'gapAt', 'gapCount']);
+        return { gaps, words: [hz, latest, ...optionalArithmetic(data(value, 'arrivedAt')), arrivedTick, at, count, tick, now, gaps.copy.length, ...gaps.copy] };
+      });
+      if (!state) return false;
+      return run(4, state.words, read => {
+        const latest = read(); read(); read();
+        const arrivedTick = read(), at = read(), count = read(), index = read(), entry = read();
+        if (tick > value.latest) value.latest = latest;
+        if (index >= 0) state.gaps.value[index] = entry;
+        value.gapAt = at; value.gapCount = count; value.arrivedAt = now; value.arrivedTick = arrivedTick;
+        return true;
+      });
+    },
+    acknowledge(value, late, elapsed, capped) {
+      const state = prepare(() => {
+        if (!bounded(late, elapsed)) throw unsupported;
+        const [maxLead, cooldownAcks, calmAcks] = arithmetic(value, ['maxLead', 'cooldownAcks', 'calmAcks']);
+        const fields = arithmetic(value, ['late', 'extra', 'cooldown', 'calm'], true);
+        return [maxLead, cooldownAcks, calmAcks, +!!data(value, 'recover'), ...fields, late, elapsed, +!!capped];
+      });
+      if (!state) return false;
+      return run(5, state, read => { for (const key of ['late', 'extra', 'cooldown', 'calm']) value[key] = read(); return true; });
+    },
+    measureKey(value) {
+      const state = prepare(() => { writable(value, ['measuredKey']); return arithmetic(value, ['gapCount', 'gapAt', 'measuredKey']); });
+      return state ? run(6, state, read => {
+        const changed = !!read(), key = read();
+        if (changed) value.measuredKey = key;
+        return { changed, key };
+      }) : null;
+    },
+    measure(value) {
+      const state = prepare(() => {
+        const [count] = numbers(value, ['gapCount']), gaps = ring(data(value, 'gaps'), x.memory, true);
+        if (!Number.isSafeInteger(count) || count < 0 || count > gaps.copy.length) throw unsupported;
+        // Keep unusual values, including V8's payload order among distinct
+        // NaNs, in the original slice/sort at this current phase.
+        for (let i = 0; i < count; i++) if (!bounded(gaps.copy[i])) throw unsupported;
+        return [count, gaps.copy.length, ...gaps.copy];
+      });
+      return state ? run(7, state, read => ({ gap: read() })) : null;
+    },
+    target(value, estimate, latest, roundTrip) {
+      const state = prepare(() => {
+        if (!bounded(latest, roundTrip)) throw unsupported;
+        writable(value, ['capped', 'lead']);
+        return [...arithmetic(value, ['hz', 'margin', 'maxLead', 'worstGap', 'extra']), +!!data(value, 'extrapolate'), ...optionalArithmetic(estimate), latest, roundTrip];
+      });
+      return state ? run(8, state, read => { const result = read(); value.capped = !!read(); value.lead = read(); return { value: result }; }) : null;
+    },
+    smootherReset(value) {
+      if (!prepare(() => { writable(value, ['x', 'y', 'z'], false); return true; })) return false;
+      return run(9, [], read => { const x = read(), y = read(), z = read(); value.z = z; value.y = y; value.x = x; return true; });
+    },
+    note(value, ox, oy, oz, nx, ny, nz) {
+      const state = prepare(() => {
+        if (!bounded(ox, oy, oz, nx, ny, nz)) throw unsupported;
+        return [...arithmetic(value, ['x', 'y', 'z', 'count', 'worst'], true), ...arithmetic(value, ['snap']), ox, oy, oz, nx, ny, nz];
+      });
+      if (!state) return null;
+      return run(10, state, read => {
+        const size = read(), changed = !!read(), x = read(), y = read(), z = read(), count = read(), worst = read(), reset = !!read();
+        if (changed) { value.count = count; value.worst = worst; value.x = x; value.y = y; value.z = z; }
+        return { size, reset };
+      });
+    },
+    decay(value, dt) {
+      const state = prepare(() => {
+        if (!bounded(dt)) throw unsupported;
+        const offset = arithmetic(value, ['x', 'y', 'z'], true), [tau] = arithmetic(value, ['tau']);
+        if (!(tau > 0)) throw unsupported;
+        return [...offset, tau, dt];
+      });
+      return state ? run(11, state, read => { value.x = read(); value.y = read(); value.z = read(); return { reset: !!read() }; }) : null;
+    },
+    length(value) {
+      const state = prepare(() => arithmetic(value, ['x', 'y', 'z']));
+      return state ? run(12, state, read => ({ value: read() })) : null;
+    },
+    windowDecision(value, checkpoint, sameLife, authorityTick) {
+      const state = prepare(() => {
+        if (!sameLife) return [0, 0, 0, 0, 0];
+        if (!numeric(authorityTick)) throw unsupported;
+        return [1, authorityTick, ...numbers(checkpoint, ['authorityTick', 'tick']), ...numbers(value, ['limit'])];
+      });
+      return state ? run(13, state, read => ({ mode: read() })) : null;
+    },
+    filterCommands(pending, checkpoint) {
+      const state = prepare(() => {
+        const items = commands(pending), [sequence] = numbers(checkpoint, ['sequence']);
+        return { items, words: [sequence, items.length, ...items.map(command => numbers(command, ['sequence'])[0])] };
+      });
+      return state ? selected(14, state.words, state.items) : null;
+    },
+    retainCommands(pending, tick, generation, epoch, limit) {
+      const state = prepare(() => {
+        if (!numeric(tick, generation, epoch, limit)) throw unsupported;
+        const items = commands(pending, true), words = [tick, generation, epoch, limit, items.length];
+        for (const command of items) words.push(...numbers(command, ['generation', 'epoch', 'tick']));
+        return { items, words };
+      });
+      return state ? selected(15, state.words, state.items) : null;
+    },
+    dispose() { if (disposed) return; disposed = true; if (handle) { x.prediction_reconcile_drop(handle); handle = 0; } },
+  };
+}

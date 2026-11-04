@@ -313,6 +313,8 @@ export class Agent extends Fsm {
   // Controller-facing tick: phase 0 only ticks the current state (behavior);
   // phase 1 drains requested states and ranks targets. Returns "finished".
   tick(dt, phase) {
+    const native=this.ai?.world?.aiSim;
+    if(native)return native.controllerDriver.agent(this,0,{dt,phase});
     this.update(dt, phase === 0);
     return this.state === DONE;
   }
@@ -320,6 +322,8 @@ export class Agent extends Fsm {
   // The machine's tick: behavior in phase 0, the target-ranking pass in
   // phase 1.
   onTick(dt) {
+    const native=this.ai?.world?.aiSim;
+    if(native)return native.controllerDriver.agent(this,1,{dt});
     if (this.controller.phase !== 0) {
       this.ai.combat?.rankTargets?.(this);
       return;
@@ -332,6 +336,8 @@ export class Agent extends Fsm {
 
   // Controller state exit: end the movement helper, then this machine.
   exit() {
+    const native=this.ai?.world?.aiSim;
+    if(native)return native.controllerDriver.agent(this,2);
     if (this.helper) (this.helper.terminate ?? this.helper.stop)?.call(this.helper);
     this.terminate();
   }
@@ -350,6 +356,8 @@ export class Agent extends Fsm {
   // Aim selection with a posture request: the current combat target, else
   // the remembered point, else `look` when given, else along the path.
   aim(stance = 0, look = null) {
+    const native=this.ai?.world?.aiSim;
+    if(native)return native.controllerDriver.agent(this,3,{stance,look});
     const controller = this.controller;
     controller.setStance(stance);
     const combat = this.ai.combat;
@@ -371,6 +379,8 @@ export class Agent extends Fsm {
   // Weapon/tactical eligibility against an entity (Combat): the base target
   // and acoustic policies.
   canEngage(target) {
+    const native=this.ai?.world?.aiSim;
+    if(native)return native.controllerDriver.agent(this,4,{target});
     const engage = this.ai.combat?.canEngage;
     return engage ? Boolean(engage(this.controller, target)) : true;
   }
@@ -379,6 +389,8 @@ export class Agent extends Fsm {
   // one (zero nominal speed) needs retained target memory and the candidate
   // able to fire at it, or StayInTurrets for non-repair roles.
   boardPolicy(candidate) {
+    const native=this.ai?.world?.aiSim;
+    if(native)return native.controllerDriver.agent(this,5,{target:candidate});
     const vehicles = this.ai.vehicles;
     if (vehicles?.boardPolicy) return Boolean(vehicles.boardPolicy(this, candidate));
     return nominalSpeed(candidate) > 0;

@@ -88,12 +88,12 @@ test('spectator notice stays prominent and actionable across periodic connection
 
 test('a page that built another battle than the server plays loads the server\'s from its welcome, before any entity lands', async () => {
  const {otherBattle} = await import('../src/runtime/network-session.js');
- const page = '?map=bes2&side=rep&era=cw&ai=classic&seed=1&network=1&server=abc&address=10.0.0.5&port=18452&prediction=rust';
+ const page = '?map=bes2&side=rep&era=cw&ai=classic&seed=1&network=1&server=abc&address=10.0.0.5&port=18452';
  assert.equal(otherBattle(page, '?map=bes2&side=rep&ai=off&seed=1&match=' + 'a'.repeat(32)), true, 'bots off on the server, on in the page');
  assert.equal(otherBattle(page, '?map=bes2&side=rep&ai=classic&seed=1&match=' + 'b'.repeat(32)), false, 'the same battle: the match token and the page\'s own keys do not count');
  assert.equal(otherBattle(page, '?map=bes2&side=imp&ai=classic&seed=1'), true);
  const visited = [], location = globalThis.location;
- globalThis.location = { search: page, assign: url => visited.push(url) };
+ globalThis.location = { search: page + '&prediction=rust', assign: url => visited.push(url) };
  try {
   const session = new NetworkSession({ lifecycle: null, onEntityRegistry: () => ({ inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES }), onEntities: () => {} });
   session.query = page;

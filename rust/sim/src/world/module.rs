@@ -5,6 +5,7 @@ use crate::gen::{WorldEventState, WorldEventInput, WorldEventOperation, WorldEve
 use crate::gen::{WorldLocalState, WorldLocalInput, WorldLocalOperation, WorldLocalCall, WorldLocalArgs, import_world_local};
 use crate::gen::{WorldStepState, WorldStepInput, WorldStepCall, WorldStepArgs, WorldStepReply, import_world_step};
 use crate::gen::{WorldNetworkState, WorldNetworkInput, WorldNetworkCall, WorldNetworkArgs, import_world_network};
+use crate::gen::{WorldControlsCall, WorldControlsArgs, WorldControlsReply, import_world_controls};
 use std::ptr::addr_of_mut;
 
 static mut SEPARATION: Option<Separation> = None;
@@ -155,4 +156,17 @@ pub extern "C" fn world_network_run() -> f64 {
     let input = { let (row, heap) = sim().calls.args(); WorldNetworkInput::take(row, heap) };
     let mut state = input.state;
     network::step(&mut state, input.tick, input.at, input.grace, input.respawn, &mut NetworkHost)
+}
+
+struct ControlsHost;
+impl super::network_controls::Host for ControlsHost {
+    fn call(&mut self, op: WorldControlsCall, index: f64, value: f64, other: f64) -> WorldControlsReply {
+        import_world_controls(&WorldControlsArgs { op, index, value, other })
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn world_controls_run(stop: u32, tick: f64) {
+    if stop != 0 { super::network_controls::stop(&mut ControlsHost); }
+    else { super::network_controls::apply(tick, &mut ControlsHost); }
 }

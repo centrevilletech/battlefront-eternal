@@ -2,5 +2,6 @@
 pub mod actors;
 pub mod corrections;
 pub mod hulls;
+pub mod reconcile;
 pub mod remotes;
 pub mod weapons;
