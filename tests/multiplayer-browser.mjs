@@ -110,6 +110,7 @@ try {
     // CPU functionality mode skips GPU warmup as well as draw. Assets, the
     // actual scene, Controls, presentation and simulation still load normally.
     if (process.env.BFE_TEST_CPU === '1') query.set('loading', '0');
+    if (process.env.BFE_PREDICTION_SESSION === 'rust') query.set('predictionSession', 'rust');
     if (process.env.BFE_TEST_RELAY === 'always') query.set('relay', 'always');
     await page.goto(`${base}/?${query}`);
   }
@@ -128,6 +129,14 @@ try {
   })));
   const initial = await Promise.all(pages.map(page => page.evaluate(async cpu => { await __bf.ready; if(cpu){__bf.graphics.render=()=>{};__bf.graphics.renderer.render=()=>{};} __bf.begin(); return { id: __bf.playerUnit.id, tick: __bf.worldClock.tick, position: __bf.playerUnit.position.toArray() }; },process.env.BFE_TEST_CPU==='1')));
   console.log('connected', JSON.stringify(initial));
+  if (process.env.BFE_PREDICTION_SESSION === 'rust') {
+    const sessions = await Promise.all(pages.map(page => page.evaluate(() => ({
+      enabled: __bf.predictionSession?.enabled, oldAdapters: Boolean(__bf.predictionSim),
+      calls: __bf.predictionSession?.counters.calls,
+    }))));
+    assert.ok(sessions.every(s => s.enabled && !s.oldAdapters), 'both clients select the whole-session owner');
+    console.log('prediction-sessions', JSON.stringify(sessions));
+  }
   if (process.env.BFE_TEST_SPLIT === '1') {
     // One contract: entity snapshots and split inputs over the native UDP
     // transport. (Binary bulk, journals, fresh profiles and the WebRTC

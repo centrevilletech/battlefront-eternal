@@ -10,7 +10,7 @@ export default {
       actorAt: 'u32', actorWords: 'u32', correctionAt: 'u32', correctionBytes: 'u32',
       weaponsAt: 'u32', weaponsWords: 'u32', flagsAt: 'u32', flagsCount: 'u32',
       commandsAt: 'u32', commandsCount: 'u32', crowdAt: 'u32', crowdCount: 'u32',
-      held: 'u32', mouseScale: 'f64', invert: 'bool', kick: 'f64x3', checkTick: 'f64',
+      held: 'u32', presentedThrough: 'f64', mouseScale: 'f64', invert: 'bool', kick: 'f64x3', checkTick: 'f64',
     },
     ClientCommand: { $layout: true,
       tick: 'f64', generation: 'f64', sequence: 'f64', sent: 'bool', held: 'u32', actions: 'u32',

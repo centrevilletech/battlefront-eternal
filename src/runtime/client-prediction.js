@@ -42,6 +42,8 @@ export function createClientPrediction(instance, collision) {
   const controls = new CommandControls(), config = { signature: null, clips: null };
   const result = new ClientResultMirror(), notice = new ClientShotMirror(), mirrors = [], seeds = [];
   const counters = { frames: 0, calls: 0, ticks: 0, wordsIn: 0, wordsOut: 0, setupCalls: 0, reserves: 0 };
+  const transfers = { headerIn: 0, actorIn: 0, correctionIn: 0, weaponsIn: 0, flagsIn: 0, commandsIn: 0, lookIn: 0, crowdIn: 0,
+    headerOut: 0, poseOut: 0, beforeOut: 0, correctionOut: 0, weaponsOut: 0, shotsOut: 0 };
   const live = () => { if (disposed) throw Error('prediction session is disposed'); };
   function room(n) {
     if (n <= input.length) return;
@@ -127,11 +129,11 @@ export function createClientPrediction(instance, collision) {
   }
   function drop() { if (handle) { x.client_prediction_drop(handle); handle = 0; } }
   return {
-    bridge, counters,
+    bridge, counters, transfers,
     get handle() { return handle; }, get disposed() { return disposed; },
     reset() { live(); if (active) { run(3, []); active = false; } },
     dispose() { if (disposed) return; disposed = true; if (busy) dropAfter = true; else drop(); },
-    predict(unit, pending, { epoch, tick, held = [], view = {}, mouseScale = 1, fireEdges = [], crowd = [], checkTick = 0 } = {}) {
+    predict(unit, pending, { epoch, tick, held = [], view = {}, mouseScale = 1, fireEdges = [], crowd = [], checkTick = 0, presentedThrough = tick } = {}) {
       live(); if (busy) throw Error('prediction session is busy'); busy = true;
       try {
         configure(unit); collision.rayBodies();
@@ -151,8 +153,10 @@ export function createClientPrediction(instance, collision) {
         for (const weapon of combat.arsenal.weapons) { putWeapon(bridge, weapon, input, at, null); at += weaponWords; }
         input[at++] = combat.arsenal.selected[0]; input[at++] = combat.arsenal.selected[1]; input[at++] = combat.zoomStep; input[at] = 0;
         const commandsAt = reserve(pending.length * COMMAND);
+        let lookWords = 0;
         for (let i = 0; i < pending.length; i++) {
           const c = pending[i], look = c.worldLook ?? c.look ?? [], lookAt = reserve(look.length * LOOK);
+          lookWords += look.length * LOOK;
           for (let n = 0; n < look.length; n++) putClientLook(null, { x: look[n][0], y: look[n][1] }, input, lookAt + n * LOOK, null);
           let actions = 0, primaryCount = 0, primaryId = 0, secondaryCount = 0, secondaryId = 0;
           for (const name of c.actions) { const bit = ClientAction_INDEX.get(name); if (bit !== undefined) actions |= 1 << bit; }
@@ -175,10 +179,18 @@ export function createClientPrediction(instance, collision) {
           underwater: Boolean(combat.gunUnderwater), shield: combat.arsenal.current(1)?.def.base === 'shield',
           actorAt, actorWords, correctionAt, correctionBytes: correction.length, weaponsAt, weaponsWords: 1 + combat.arsenal.weapons.length * weaponWords + 4,
           flagsAt, flagsCount: collision.bodies.length, commandsAt, commandsCount: pending.length, crowdAt, crowdCount: crowd.length,
-          held: heldBits(controls, held), mouseScale: view.mouseScale ?? mouseScale, invert: view.invertMouse || false,
+          held: heldBits(controls, held), presentedThrough, mouseScale: view.mouseScale ?? mouseScale, invert: view.invertMouse || false,
           kick: [kick.rate, kick.hold, kick.offset], checkTick }, input, 0, null);
         run(2, input, used); active = true; syncClientResult(null, output, 0, 0, result);
         counters.frames++; counters.ticks += result.ticks;
+        transfers.headerIn += FRAME; transfers.actorIn += actorWords; transfers.correctionIn += correction.length;
+        transfers.weaponsIn += 1 + combat.arsenal.weapons.length * weaponWords + 4;
+        transfers.flagsIn += collision.bodies.length; transfers.commandsIn += pending.length * COMMAND;
+        transfers.lookIn += lookWords; transfers.crowdIn += crowd.length * CROWD;
+        transfers.headerOut += result.actorAt; transfers.poseOut += result.actorWords;
+        transfers.beforeOut += result.ticks ? result.actorWords : 0;
+        transfers.correctionOut += result.correctionBytes; transfers.weaponsOut += result.weaponsWords;
+        transfers.shotsOut += result.shotsCount * (SHOT + result.actorWords);
         publishActor(unit, result.actorAt, kick); publishWeapons(unit, result.weaponsAt);
         return result;
       } finally { busy = false; if (dropAfter) drop(); }

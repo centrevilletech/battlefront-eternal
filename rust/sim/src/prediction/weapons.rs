@@ -151,7 +151,7 @@ impl Session {
                 if n > (r.words.len() - r.at) / Weapon::WORDS {
                     return Err(INVALID);
                 }
-                let mut weapons = Vec::with_capacity(n);
+                let rows = r.at;
                 for _ in 0..n {
                     let w = Weapon::take(&r.words[r.at..r.at + Weapon::WORDS], &[]);
                     r.at += Weapon::WORDS;
@@ -163,7 +163,6 @@ impl Session {
                     {
                         return Err(INVALID);
                     }
-                    weapons.push(w);
                 }
                 let selected = [r.word()?, r.word()?];
                 let zoom = r.word()?;
@@ -171,16 +170,21 @@ impl Session {
                 if count > r.words.len() - r.at {
                     return Err(INVALID);
                 }
-                let mut barrels = Vec::with_capacity(count);
-                for _ in 0..count {
-                    barrels.push(r.word()?);
-                }
+                let barrels = r.at;
+                for _ in 0..count { r.word()?; }
                 r.done()?;
-                self.weapons = weapons;
+                // Validate before replacing state, then refill the retained
+                // storage instead of allocating it on each correction.
+                self.weapons.clear();
+                for row in r.words[rows..rows + n * Weapon::WORDS].chunks_exact(Weapon::WORDS) {
+                    self.weapons.push(Weapon::take(row, &[]));
+                }
                 self.selected = selected;
                 self.zoom = zoom;
-                self.barrels = barrels;
-                self.barrel_writes = vec![false; count];
+                self.barrels.clear();
+                self.barrels.extend_from_slice(&r.words[barrels..barrels + count]);
+                self.barrel_writes.resize(count, false);
+                self.barrel_writes.fill(false);
             }
             2 => {
                 let id = r.word()?;

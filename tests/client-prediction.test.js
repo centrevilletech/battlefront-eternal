@@ -124,3 +124,23 @@ test('session crowd facts move only the own body and callback failure restores t
     assert.throws(()=>session.predict(unit,[],{epoch:1,tick:0}),/disposed/);
   } finally {weapons.dispose();session.dispose();course.dispose();}
 });
+
+test('backend resets retain the cosmetic horizon without replaying an already shown shot', async () => {
+  const instance = await loadSim(), rays = await loadRayKernel(instance), course = actorCourse(rays), unit = fixture('soldier', course);
+  const session = createClientPrediction(instance, course.world), weapons = new WeaponPrediction();
+  const base = capture(unit), command = { tick: 1, generation: unit.generation, sequence: 1, down: ['Mouse0'], actions: ['firePrimary'], look: [] };
+  try {
+    weapons.begin(unit, { tick: 0 });
+    let result = session.predict(unit, [command], { epoch: 1, tick: 0 });
+    assert.ok(result.shotsCount > 0);
+    const expected = session.correction();
+    weapons.restore(); restore(unit, base); session.reset();
+    weapons.begin(unit, { tick: 0 });
+    result = session.predict(unit, [command], { epoch: 1, tick: 0, presentedThrough: 1 });
+    assert.equal(result.shotsCount, 0);
+    assert.deepEqual(session.correction(), expected);
+    const totals = Object.entries(session.transfers).reduce((out, [key, value]) => { out[key.endsWith('In') ? 'input' : 'output'] += value; return out; }, { input: 0, output: 0 });
+    assert.equal(totals.input, session.counters.wordsIn);
+    assert.equal(totals.output, session.counters.wordsOut);
+  } finally { weapons.dispose(); session.dispose(); course.dispose(); }
+});

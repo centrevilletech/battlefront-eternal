@@ -97,6 +97,7 @@ pub struct ClientFrame {
     pub crowd_at: u32,
     pub crowd_count: u32,
     pub held: u32,
+    pub presented_through: f64,
     pub mouse_scale: f64,
     pub invert: bool,
     pub kick: [f64; 3],
@@ -104,10 +105,10 @@ pub struct ClientFrame {
 }
 
 impl ClientFrame {
-    pub const WORDS: usize = 30;
+    pub const WORDS: usize = 31;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 30] = (&mut row[..30]).try_into().unwrap();
+        let row: &mut [f64; 31] = (&mut row[..31]).try_into().unwrap();
         row[0] = self.epoch;
         row[1] = self.identity;
         row[2] = self.generation;
@@ -132,14 +133,15 @@ impl ClientFrame {
         row[21] = self.crowd_at as f64;
         row[22] = self.crowd_count as f64;
         row[23] = self.held as f64;
-        row[24] = self.mouse_scale;
-        row[25] = if self.invert { 1.0 } else { 0.0 };
-        row[26..26 + 3].copy_from_slice(&self.kick);
-        row[29] = self.check_tick;
+        row[24] = self.presented_through;
+        row[25] = self.mouse_scale;
+        row[26] = if self.invert { 1.0 } else { 0.0 };
+        row[27..27 + 3].copy_from_slice(&self.kick);
+        row[30] = self.check_tick;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 30] = (&row[..30]).try_into().unwrap();
+        let row: &[f64; 31] = (&row[..31]).try_into().unwrap();
         Self {
             epoch: row[0],
             identity: row[1],
@@ -165,10 +167,11 @@ impl ClientFrame {
             crowd_at: word_u32(row[21]),
             crowd_count: word_u32(row[22]),
             held: word_u32(row[23]),
-            mouse_scale: row[24],
-            invert: row[25] != 0.0,
-            kick: { let mut a = [0.0; 3]; a.copy_from_slice(&row[26..26 + 3]); a },
-            check_tick: row[29],
+            presented_through: row[24],
+            mouse_scale: row[25],
+            invert: row[26] != 0.0,
+            kick: { let mut a = [0.0; 3]; a.copy_from_slice(&row[27..27 + 3]); a },
+            check_tick: row[30],
         }
     }
 

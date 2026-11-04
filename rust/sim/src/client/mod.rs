@@ -124,7 +124,7 @@ impl ClientPrediction {
             self.sequence = 0.0;
         }
         if !same_life { self.presented = frame.authority_tick; }
-        self.presented = self.presented.max(frame.authority_tick);
+        self.presented = self.presented.max(frame.authority_tick).max(frame.presented_through);
         self.life = Some(life); self.authority_tick = frame.authority_tick;
         let from = self.tick;
         let after = if continued { self.sequence } else { -1.0 };
@@ -316,7 +316,7 @@ fn separate(body: &mut UnitBody, identity: f64, crowd: &[f64]) {
 fn restore(body: &mut UnitBody, bytes: &[u8]) -> Result<(), &'static str> {
     match body {
         UnitBody::Soldier(s) => {
-            let c = corrections::decode_compact_soldier(Some(bytes), &[true; 6])?;
+            let c = corrections::decode_compact_soldier_fixed(Some(bytes), &[true; 6])?;
             s.fuel = c.numbers[0]; s.aim_yaw = c.numbers[1]; s.aim_pitch = c.numbers[2]; s.dive = c.numbers[3]; s.state_time = c.numbers[4]; s.lock = c.numbers[5];
             s.position = c.vectors[0]; s.velocity = c.vectors[1]; s.normal = c.vectors[2];
             s.settled = if c.flags & 1 != 0 { c.vectors[3] } else { s.position }; s.previous = s.position;

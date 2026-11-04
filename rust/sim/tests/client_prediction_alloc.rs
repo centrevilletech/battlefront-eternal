@@ -1,7 +1,7 @@
 #![cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 use bfe_sim::client::ClientPrediction;
 use bfe_sim::collision::{State, Tree, World};
-use bfe_sim::gen::{ClientCommand, ClientFrame, ClientResult, Soldier};
+use bfe_sim::gen::{ClientCommand, ClientFrame, ClientResult, Soldier, Weapon};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -36,14 +36,18 @@ fn input(tick: f64, authority: f64) -> Vec<f64> {
     let correction_at = words.len() as u32;
     words.extend([0.0; 124]);
     let weapons_at = words.len() as u32;
-    words.extend([0.0; 5]);
+    words.push(1.0);
+    let weapon_at = words.len();
+    words.resize(weapon_at + Weapon::WORDS, 0.0);
+    Weapon::default().put(&mut words[weapon_at..], &mut Vec::new());
+    words.extend([0.0; 4]);
     let commands_at = words.len() as u32;
     words.resize(words.len() + ClientCommand::WORDS, 0.0);
     ClientCommand { tick, generation: 1.0, sequence: tick, sent: true, ..ClientCommand::default() }
         .put(&mut words[commands_at as usize..], &mut Vec::new());
     ClientFrame { epoch: 1.0, identity: 7.0, generation: 1.0, source: 1.0, authority_tick: authority,
         ignored: -1.0, actor_at, actor_words: Soldier::WORDS as u32,
-        correction_at, correction_bytes: 124, weapons_at, weapons_words: 5,
+        correction_at, correction_bytes: 124, weapons_at, weapons_words: (Weapon::WORDS + 5) as u32,
         commands_at, commands_count: 1, mouse_scale: 1.0, ..ClientFrame::default() }
         .put(&mut words, &mut Vec::new());
     words
@@ -60,6 +64,18 @@ fn replay_length_does_not_allocate_in_a_warm_infantry_session() {
         version: 0, statics: Some(0), broad: Default::default() });
     let mut session = ClientPrediction::default();
     session.configure_actor(&[0.0], &mut collision).unwrap();
+    // The same definition loader used by the page, with one ordinary weapon.
+    let mut definition = vec![0.0, 7.0, 3.0];
+    for (key, value) in [("base", "cannon"), ("class", "fixture")] {
+        definition.push(key.len() as f64);
+        definition.extend(key.encode_utf16().map(|v| v as f64));
+        definition.extend([5.0, value.len() as f64]);
+        definition.extend(value.encode_utf16().map(|v| v as f64));
+    }
+    definition.push(7.0);
+    definition.extend("channel".encode_utf16().map(|v| v as f64));
+    definition.extend([4.0, 0.0]);
+    session.configure_weapon(&definition).unwrap();
     let short = input(1.0, 0.0); let long = input(120.0, 0.0);
     for _ in 0..4 { session.reset(); session.predict_session(&long, &mut collision).unwrap(); }
     session.reset();
@@ -68,6 +84,7 @@ fn replay_length_does_not_allocate_in_a_warm_infantry_session() {
     let (status, many) = measured(|| session.predict_session(&long, &mut collision)); status.unwrap();
     let result = ClientResult::take(&session.output, &[]);
     assert_eq!(result.ticks, 120);
+    assert_eq!(one, 0, "warm frame restore must retain its storage");
     assert_eq!(many, one, "allocations must belong to frame restore, not individual replay ticks");
     println!("warm empty-scene infantry: one tick {one} allocations, 120 ticks {many} allocations");
 }

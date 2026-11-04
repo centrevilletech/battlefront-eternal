@@ -2834,7 +2834,7 @@ async function start() {
     predictionActive = true;
     let failed = false;
     try {
-      const predicted = replayPrediction();
+      const predicted = client.replayPrediction();
       client.predicted = predicted;
       return predictionDisposed ? false : predicted;
     } catch (error) { failed = true; throw error; }
@@ -2903,7 +2903,7 @@ async function start() {
     client.predictionBodyPending = true;
     // Cosmetic droideka fire advances gun/lastGun inside presentation. Keep
     // that shared cursor on the JS replay path until its checkpoint is owned.
-    if (predictionSession && !walker) {
+    if (predictionSession && predictionSession.enabled && !walker) {
       client.weapons ||= new WeaponPrediction();
       client.weapons.begin(playerUnit, { epoch: commandHistory.epoch, tick: worldClock.tick });
       const fireEdges = [];
@@ -2914,6 +2914,7 @@ async function start() {
         epoch: commandHistory.epoch, tick: worldClock.tick,
         held: client.heldGeneration === playerUnit.generation ? client.held : [],
         view: client.replayView, mouseScale: settings.mouseScale, fireEdges, crowd, checkTick: client.predictedTick,
+        presentedThrough: client.weapons.presentedThrough,
       });
       if (result.checkFound) client.smoother.note(client.predictedPosition.x, client.predictedPosition.y, client.predictedPosition.z,
         result.checkPosition.x, result.checkPosition.y, result.checkPosition.z);
@@ -2927,6 +2928,7 @@ async function start() {
           tick: notice.tick, epoch: commandHistory.epoch, generation: playerUnit.generation,
           ...combat.convergedAim(soldier.aimYaw, soldier.aimPitch) }, playerUnit, command, shot);
       });
+      client.weapons.presentedThrough = Math.max(client.weapons.presentedThrough, result.tick);
       client.predictedTick = result.tick;
       client.predictedPosition.copy(soldier.position);
       return true;
@@ -3013,6 +3015,7 @@ async function start() {
     const { NetworkHost } = await import('./runtime/network-host.js');
     const { LocalTransport } = params.has('network') ? {} : await import('./runtime/local-transport.js');
     client = {
+      replayPrediction,
       seats: new EntitySeats(game),
       running: false, ready: false, batch: [],
       pendingActions: [], ackActions: 0,
@@ -4044,6 +4047,21 @@ async function start() {
   const predictionSession = wantPredictionSession && simInstance && rays
     ? (await import('./runtime/client-prediction.js')).createClientPrediction(simInstance, collision) : null;
   game.predictionSession = predictionSession;
+  if (predictionSession) {
+    let enabled = true;
+    Object.defineProperty(predictionSession, 'enabled', {
+      get: () => enabled,
+      set(value) {
+        const next = Boolean(value);
+        if (next === enabled) return;
+        // A backend switch starts from the same authoritative correction.
+        // Neither backend may resume the other's private continuation.
+        predictionSession.reset();
+        client?.predictionWindow.reset();
+        enabled = next;
+      },
+    });
+  }
   if (!headless) window.__bf = game;
   if (!headless) {
     await prepareGraphics();

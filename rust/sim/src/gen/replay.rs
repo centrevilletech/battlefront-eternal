@@ -2818,6 +2818,7 @@ impl ClientFrame {
             crowd_at: { let p = format!("{path}.crowdAt"); (int(v.get("crowdAt"), &p, 0.0, u32::MAX as f64)? as u32) },
             crowd_count: { let p = format!("{path}.crowdCount"); (int(v.get("crowdCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             held: { let p = format!("{path}.held"); (int(v.get("held"), &p, 0.0, u32::MAX as f64)? as u32) },
+            presented_through: { let p = format!("{path}.presentedThrough"); num(v.get("presentedThrough"), &p)? },
             mouse_scale: { let p = format!("{path}.mouseScale"); num(v.get("mouseScale"), &p)? },
             invert: { let p = format!("{path}.invert"); boolean(v.get("invert"), &p)? },
             kick: { let p = format!("{path}.kick"); numbers::<3>(v.get("kick"), &p)? },
@@ -2827,7 +2828,7 @@ impl ClientFrame {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(28);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(29);
         { let x = Value::Num(self.epoch); fields.push(("epoch", x)); }
         { let x = Value::Num(self.identity); fields.push(("identity", x)); }
         { let x = Value::Num(self.generation); fields.push(("generation", x)); }
@@ -2852,6 +2853,7 @@ impl ClientFrame {
         { let x = Value::Num(self.crowd_at as f64); fields.push(("crowdAt", x)); }
         { let x = Value::Num(self.crowd_count as f64); fields.push(("crowdCount", x)); }
         { let x = Value::Num(self.held as f64); fields.push(("held", x)); }
+        { let x = Value::Num(self.presented_through); fields.push(("presentedThrough", x)); }
         { let x = Value::Num(self.mouse_scale); fields.push(("mouseScale", x)); }
         { let x = Value::Bool(self.invert); fields.push(("invert", x)); }
         { let x = { let items = self.kick.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("kick", x)); }

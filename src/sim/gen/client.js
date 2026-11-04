@@ -8,7 +8,7 @@ export const ClientHeld_INDEX = new Map(ClientHeld_NAMES.map((name, i) => [name,
 export const ClientAction_NAMES = ["jump","crouch","prone","use","firePrimary","fireSecondary","reload","nextPrimary","previousPrimary","nextSecondary","zoom"];
 export const ClientAction_INDEX = new Map(ClientAction_NAMES.map((name, i) => [name, i]));
 
-export const CLIENT_FRAME_WORDS = 30;
+export const CLIENT_FRAME_WORDS = 31;
 
 export class ClientFrameMirror {
   constructor() {
@@ -36,6 +36,7 @@ export class ClientFrameMirror {
     this.crowdAt = 0;
     this.crowdCount = 0;
     this.held = 0;
+    this.presentedThrough = NaN;
     this.mouseScale = NaN;
     this.invert = false;
     this.kick = [NaN, NaN, NaN];
@@ -68,10 +69,11 @@ export function syncClientFrame(b, f, at, h, m) {
   m.crowdAt = f[at + 21];
   m.crowdCount = f[at + 22];
   m.held = f[at + 23];
-  m.mouseScale = f[at + 24];
-  m.invert = f[at + 25] !== 0;
-  { const a = (m.kick ??= new Array(3)); a[0] = f[at + 26]; a[1] = f[at + 27]; a[2] = f[at + 28]; }
-  m.checkTick = f[at + 29];
+  m.presentedThrough = f[at + 24];
+  m.mouseScale = f[at + 25];
+  m.invert = f[at + 26] !== 0;
+  { const a = (m.kick ??= new Array(3)); a[0] = f[at + 27]; a[1] = f[at + 28]; a[2] = f[at + 29]; }
+  m.checkTick = f[at + 30];
   return m;
 }
 
@@ -100,10 +102,11 @@ export function putClientFrame(b, o, f, at, heap) {
   f[at + 21] = o.crowdAt;
   f[at + 22] = o.crowdCount;
   f[at + 23] = o.held;
-  f[at + 24] = o.mouseScale;
-  f[at + 25] = o.invert ? 1 : 0;
-  { const $v = o.kick; f[at + 26] = $v[0]; f[at + 27] = $v[1]; f[at + 28] = $v[2]; }
-  f[at + 29] = o.checkTick;
+  f[at + 24] = o.presentedThrough;
+  f[at + 25] = o.mouseScale;
+  f[at + 26] = o.invert ? 1 : 0;
+  { const $v = o.kick; f[at + 27] = $v[0]; f[at + 28] = $v[1]; f[at + 29] = $v[2]; }
+  f[at + 30] = o.checkTick;
 }
 
 export function sameClientFrame(a, b) {
@@ -131,6 +134,7 @@ export function sameClientFrame(a, b) {
   if (!Object.is(a.crowdAt, b.crowdAt)) return ".crowdAt";
   if (!Object.is(a.crowdCount, b.crowdCount)) return ".crowdCount";
   if (!Object.is(a.held, b.held)) return ".held";
+  if (!Object.is(a.presentedThrough, b.presentedThrough)) return ".presentedThrough";
   if (!Object.is(a.mouseScale, b.mouseScale)) return ".mouseScale";
   if (!Object.is(a.invert, b.invert)) return ".invert";
   if (!sameArray(a.kick, b.kick, 3)) return ".kick";
@@ -167,6 +171,7 @@ export function exportClientFrame(o, cx) {
   v.crowdAt = o.crowdAt;
   v.crowdCount = o.crowdCount;
   v.held = o.held;
+  v.presentedThrough = o.presentedThrough;
   v.mouseScale = o.mouseScale;
   v.invert = o.invert;
   v.kick = [...o.kick];

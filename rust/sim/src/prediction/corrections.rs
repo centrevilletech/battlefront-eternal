@@ -294,8 +294,21 @@ impl SoldierState {
         out
     }
 }
+/// Fixed storage for the page's compact checkpoint reader. Restoring a
+/// soldier does not need the variable-length vectors of the general adapter.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompactSoldierState {
+    pub flags: u8,
+    pub numbers: [f64; 6],
+    pub vectors: [[f64; 3]; 4],
+    pub posture: u8,
+    pub air: u8,
+    pub dive_from: u8,
+    pub grounded: bool,
+}
+
 /// `present` is position, velocity, normal, settled, previous, contactMean.
-pub fn decode_compact_soldier(bytes: Option<&[u8]>, present: &[bool; 6]) -> Result<SoldierState> {
+pub fn decode_compact_soldier_fixed(bytes: Option<&[u8]>, present: &[bool; 6]) -> Result<CompactSoldierState> {
     let bytes = bytes
         .filter(|b| b.len() >= 124 && b[0] <= 3 && b[1] <= 2 && b[2] <= 4 && b[3] <= 1)
         .ok_or("invalid compact Soldier correction")?;
@@ -306,11 +319,11 @@ pub fn decode_compact_soldier(bytes: Option<&[u8]>, present: &[bool; 6]) -> Resu
         return Err("invalid compact Soldier length");
     }
     let mut r = Reader { bytes, at: 4 };
-    let numbers = r.numbers(6, "nonfinite Soldier correction", None)?;
+    let numbers = r.vector::<6>("nonfinite Soldier correction")?;
     if (numbers[3] != 0.0) != diving {
         return Err("inconsistent dive state");
     }
-    let mut vectors = Vec::new();
+    let mut vectors = [[0.0; 3]; 4];
     for (i, error) in [
         "missing Soldier vector position",
         "missing Soldier vector velocity",
@@ -326,14 +339,13 @@ pub fn decode_compact_soldier(bytes: Option<&[u8]>, present: &[bool; 6]) -> Resu
         if !present[i] {
             return Err(error);
         }
-        vectors.push(r.vector("nonfinite Soldier correction")?);
+        vectors[i] = r.vector("nonfinite Soldier correction")?;
     }
     let dive_from = if diving { r.byte() } else { bytes[1] };
     if dive_from > 2 || !present[4] || !present[3] || !present[5] {
         return Err("invalid Soldier prerequisite");
     }
-    Ok(SoldierState {
-        schema: 6,
+    Ok(CompactSoldierState {
         flags,
         numbers,
         vectors,
@@ -341,8 +353,14 @@ pub fn decode_compact_soldier(bytes: Option<&[u8]>, present: &[bool; 6]) -> Resu
         air: bytes[2],
         dive_from,
         grounded: bytes[3] != 0,
-        step_blocked: false,
     })
+}
+pub fn decode_compact_soldier(bytes: Option<&[u8]>, present: &[bool; 6]) -> Result<SoldierState> {
+    let c = decode_compact_soldier_fixed(bytes, present)?;
+    let count = if c.flags & 1 != 0 { 4 } else { 3 };
+    Ok(SoldierState { schema: 6, flags: c.flags, numbers: c.numbers.to_vec(),
+        vectors: c.vectors[..count].to_vec(), posture: c.posture, air: c.air,
+        dive_from: c.dive_from, grounded: c.grounded, step_blocked: false })
 }
 /// Schemas 1 and 4 retain the full and solver-only vector sets respectively.
 pub fn decode_soldier(
