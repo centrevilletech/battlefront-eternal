@@ -1,6 +1,6 @@
 // Awareness uses the same AI instance and preserves host query/notification
 // order while geometry and recipient iteration run in the module.
-import { selectedWeapon } from './ai/classic/weapons-ai.js';
+import { selectedWeapon, weaponAI } from './ai/classic/weapons-ai.js';
 
 export class NativeAwareness {
   constructor(sim) {
@@ -72,6 +72,34 @@ export class NativeAwareness {
       else if(op==='alertLease') {const lease=sim.objects[id];result.values=[Number(Boolean(lease.human)),Number(Boolean(lease.released)),Number(lease.live===false)];}
       else if(op==='alertCrew') {const lease=sim.objects[id];result.number=sim.id(lease.controllable?.controller??lease.unit?.controller);}
       else if(op==='alertNotify') sim.objects[id].notifyShot(frame.source,frame.known,frame.point);
+      else if(op==='hazardStart') {frame.danger=frame.control.danger;result.flag=Boolean(frame.danger?.pending);}
+      else if(op==='responseUnit') {frame.unit=frame.control.unit;result.flag=Boolean(frame.unit);}
+      else if(op==='responseWeapon') result.flag=Boolean(selectedWeapon(frame.control.unit,frame.control));
+      else if(op==='hazardAccept') result.flag=Boolean(frame.agent?.acceptsHazard?.());
+      else if(op==='responseKind') {const kind=frame.unit.kind;result.number=typeof kind==='number'?kind:NaN;}
+      else if(op==='responseDangerRegion') result.flag=Boolean(frame.world.nav?.inDangerRegion?.(frame.unit));
+      else if(op==='hazardPoint') frame.responsePoint=frame.danger.point.clone();
+      else if(op==='responseResult') {
+        frame.response={kind:2,mode:id,point:frame.responsePoint,exit:Boolean(number)};
+        if(other!==0)frame.response.alert=true;
+      }
+      else if(op==='acousticList') result.flag=Boolean(frame.control.acoustic?.length);
+      else if(op==='acousticStart') frame.acoustic=frame.control.acoustic[Symbol.iterator]();
+      else if(op==='acousticNext') {
+        const next=frame.acoustic.next();result.flag=!next.done;
+        if(result.flag){const r=next.value,u=frame.responseSource=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+          result.values=u?.alive?[1,u.generation,tag(u.generation),r.generation,tag(r.generation)]:[0,0,0,0,0];}
+      } else if(op==='acousticAccept') result.flag=Boolean(frame.agent?.acceptsAcoustic?.(frame.responseSource));
+      else if(op==='responseSensor') {
+        const u=frame.unit,w=selectedWeapon(u,frame.control);result.flag=Boolean(w);
+        if(w){const a=weaponAI(w.def);result.values=[u?.kind,frame.control?.rangeScale??1,a?.maxRange??0,Number(Boolean(a?.implicitRange)),a?.extremeRange??0,
+          u?.classDef?.ForwardSpeed??u?.classDef?.MaxSpeed??0,Number(Boolean(a))];}
+      } else if(op==='acousticPoint') frame.responsePoint=frame.responseSource.position.clone();
+      else if(op==='responseHorizontal') {const p=frame.responsePoint,u=frame.unit.position;result.values=[p.x,u.x,p.z,u.z];}
+      else if(op==='responseMountStart') {const u=frame.mountUnit=frame.control.unit;result.flag=Boolean(u);if(u)result.number=u.classDef?.ForwardSpeed??u.classDef?.MaxSpeed??0;}
+      else if(op==='responseStay') {const ai=frame.mountAi=frame.control.ai;result.flag=Boolean(ai?.stayInTurrets?.()??frame.world.mission?.stayInTurrets);}
+      else if(op==='responseReach') {frame.reach=frame.mountAi?.vehicles?.mountReach??frame.world.vehicles?.mountReach;result.flag=Boolean(frame.reach);}
+      else if(op==='responseCanReach') {const reach=frame.reach;result.flag=Boolean(reach(frame.mountUnit,frame.responsePoint));}
       else throw Error(`unknown awareness callback ${op}`);
       return result;
     }});
@@ -95,6 +123,14 @@ export class NativeAwareness {
   damage(world,target,attacker,packet,known,point) {
     this.frames.push({world,target,attacker,packet,known,point});
     try {return Boolean(this.sim.x.ai_notify_alert(1));} finally {this.frames.pop();}
+  }
+  hazardResponse(control,world,agent) {
+    const frame={control,world,agent,response:null};this.frames.push(frame);
+    try {this.sim.x.ai_hazard_response();return frame.response;} finally {this.frames.pop();}
+  }
+  acousticResponse(control,world,agent) {
+    const frame={control,world,agent,response:null};this.frames.push(frame);
+    try {this.sim.x.ai_acoustic_response();return frame.response;} finally {this.frames.pop();}
   }
   rebuild(world) {
     this.frames.push({world});

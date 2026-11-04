@@ -932,6 +932,7 @@ function mountedExit(controller, world, point) {
 // A grenade or sticky charge nearby: a soldier whose agent accepts
 // gets combat goal mode 2 at the danger point.
 export function hazardResponse(controller, world, agent) {
+  if(world?.aiSim)return world.aiSim.awareness.hazardResponse(controller,world,agent);
   const danger = controller.danger;
   if (!danger?.pending) return null;
   const unit = controller.unit;
@@ -945,6 +946,7 @@ export function hazardResponse(controller, world, agent) {
 // within the bot's sensor range (horizontal; half for a droideka) gives
 // combat goal mode 0 at its current position.
 export function acousticResponse(controller, world, agent) {
+  if(world?.aiSim)return world.aiSim.awareness.acousticResponse(controller,world,agent);
   const unit = controller.unit;
   if (!unit || !controller.acoustic?.length) return null;
   if (unit.kind === 5 && world.nav?.inDangerRegion?.(unit)) return null;

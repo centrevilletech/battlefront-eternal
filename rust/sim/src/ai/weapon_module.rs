@@ -6,7 +6,7 @@ use super::combat::weapons_ai::sniper_yaw;
 use super::{module::state,fire_module::ai_fire_ref};
 use crate::gen::{import_ai_weapon,AiWeaponArgs,AiWeaponOp as Op,AiWeaponResult};
 
-fn call(op: Op,index: u32) -> AiWeaponResult {import_ai_weapon(&AiWeaponArgs {op,index,number:0.0})}
+fn call(op: Op,index: u32) -> AiWeaponResult {import_ai_weapon(&AiWeaponArgs {op,index,number:0.0,..Default::default()})}
 fn perp(r: [f64;3],d: [f64;3]) -> f64 {
     let x=f(f(r[1]*f(d[2]))-f(r[2]*f(d[1])));
     let y=f(f(r[2]*f(d[0]))-f(r[0]*f(d[2])));
@@ -83,7 +83,7 @@ fn spread() {
     let v=call(Op::SpreadValues,0).values;
     let d2=length_sq32(f(v[0]-v[3]),f(v[1]-v[4]),f(v[2]-v[5]));
     let value=f(f(v[6])*sniper_yaw(d2))*(180.0/std::f64::consts::PI);
-    import_ai_weapon(&AiWeaponArgs {op:Op::SpreadWrite,index:0,number:value});
+    import_ai_weapon(&AiWeaponArgs {op:Op::SpreadWrite,index:0,number:value,..Default::default()});
 }
 
 #[no_mangle]
@@ -92,7 +92,7 @@ pub extern "C" fn ai_weapon_guard(op: u32) -> u32 {
 }
 
 // weapons-ai.js effectiveRange, shared by geometry and inventory ranking.
-fn effective_range(v: &[f64]) -> f64 {
+pub(super) fn effective_range(v: &[f64]) -> f64 {
     let mut range=v[2];
     if v[3]!=0.0 && v[0]!=0.0 && v[0]!=1.0 && v[0]!=3.0 {range=f(range+range);}
     let scaled=f(f(v[1])*range);
@@ -153,7 +153,7 @@ pub extern "C" fn ai_weapon_select(switch_allowed: u32) {
         if take {best_big=big;best_in_band=true;best_score=score;best=Some(i);}
     }
     let Some(best)=best else {return;};
-    import_ai_weapon(&AiWeaponArgs {op:Op::ChoiceWrite,index:best,number:if best_in_band {1.0} else {0.0}});
+    import_ai_weapon(&AiWeaponArgs {op:Op::ChoiceWrite,index:best,number:if best_in_band {1.0} else {0.0},..Default::default()});
     if switch_allowed!=0 && call(Op::ChoiceSelected,0).values[0]!=best as f64 {call(Op::ChoiceSwitch,best);}
 }
 
@@ -176,7 +176,7 @@ pub extern "C" fn ai_weapon_switch() -> u32 {
     if call(Op::SwitchCurrent,0).flag {return 1;}
     if call(Op::SwitchCurrentAgain,0).flag {return 0;}
     call(Op::SwitchDeselect,0);
-    import_ai_weapon(&AiWeaponArgs {op:Op::SwitchWrite,index:0,number:index});
+    import_ai_weapon(&AiWeaponArgs {op:Op::SwitchWrite,index:0,number:index,..Default::default()});
     1
 }
 
@@ -223,7 +223,7 @@ fn blast(index: u32,radius: f64) -> f64 {
 }
 
 fn accept(score: f64) {
-    import_ai_weapon(&AiWeaponArgs {op:Op::UtilityAccept,index:0,number:f(score)});
+    import_ai_weapon(&AiWeaponArgs {op:Op::UtilityAccept,index:0,number:f(score),..Default::default()});
 }
 
 // weapons-ai.js weaponUtility: immutable content and unit facts are read
@@ -263,4 +263,19 @@ pub extern "C" fn ai_weapon_utility() {
         return;
     }
     if v[1]!=0.0 {accept(damage);}
+}
+
+// aim.js aimPointFor: state selection, target leading and the exact
+// double-precision thirty-unit forward fallback.
+#[no_mangle]
+pub extern "C" fn ai_aim_point() {
+    let state=call(Op::AimState,0).values[0];
+    if state==1.0 {call(Op::AimCopy,0);return;}
+    if state!=0.0 {return;}
+    call(Op::AimResolve,0);
+    if call(Op::AimSelected,0).flag {call(Op::AimLead,0);return;}
+    call(Op::AimOrigin,0);
+    let v=call(Op::AimForward,0).values;
+    let point=[v[0]+v[1]*30.0,v[2]+v[3]*30.0,v[4]+v[5]*30.0];
+    import_ai_weapon(&AiWeaponArgs {op:Op::AimWrite,point,..Default::default()});
 }
