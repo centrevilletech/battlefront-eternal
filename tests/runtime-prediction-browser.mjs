@@ -33,6 +33,7 @@ try {
     assert.ok(result.nativeWeapon, 'ordinary page replay uses a native weapon session');
     assert.ok(result.correctionCalls > 0, 'received corrections use the native reader');
     assert.ok(result.reconcileCalls > 0, 'page timing and windows use the native reconciliation owner');
+    assert.ok(result.replayCalls > 0, 'page commands use the native replay cursor');
     assert.equal(result.shared, true, 'prediction shares the page collision instance');
   }
   assert.equal(result.disposed, true, 'connection disposal stops replay and releases native owners');

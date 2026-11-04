@@ -43,6 +43,7 @@ export async function exercisePredictionPage(native) {
   await sleep(500);
   const weaponSession = c.weapons?.nativeSession, correctionCalls = owner?.corrections.calls ?? 0;
   const reconcileCalls = owner?.reconcile.calls ?? 0;
+  const replayCalls = owner?.replay.calls ?? 0;
   const nativeWeapon = !!weaponSession?.handle, shared = owner ? owner.bridge.x === b.collision.rays.x : false;
   // Close from inside replay, where its temporary arsenal/body are installed.
   const authority = c.weapons.saved?.arsenal ?? b.combat.arsenal, step = c.weapons.step;
@@ -51,7 +52,7 @@ export async function exercisePredictionPage(native) {
   b.controls.hold('KeyW');
   for (let i = 0; i < 120 && !c.host.closed; i++) await sleep(25);
   c.host.dispose(); await sleep(100);
-  const disposed = !c.ready && !c.running && !c.predicted && !c.predictionBodyPending && b.combat.arsenal === authority && (!owner || owner.disposed && !owner.corrections.handle && !owner.reconcile.handle && !weaponSession?.handle && handles.every(session => !session.handle));
+  const disposed = !c.ready && !c.running && !c.predicted && !c.predictionBodyPending && b.combat.arsenal === authority && (!owner || owner.disposed && !owner.corrections.handle && !owner.reconcile.handle && !owner.replay.activeSessions && !weaponSession?.handle && handles.every(session => !session.handle));
   return { named, shown, predicted, missiles, badRotation, restored, tick: b.worldClock.tick,
-    native, nativeActorSteps, nativeWeapon, correctionCalls, reconcileCalls, shared, disposed, closedDuringReplay, hasOwner: !!owner };
+    native, nativeActorSteps, nativeWeapon, correctionCalls, reconcileCalls, replayCalls, shared, disposed, closedDuringReplay, hasOwner: !!owner };
 }

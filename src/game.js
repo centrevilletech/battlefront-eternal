@@ -2960,7 +2960,7 @@ async function start() {
           presentation.previousYaw += lookYaw;
           presentation.afterStep();
         }
-      }, client.replayView);
+      }, client.replayView, { native: predictionSim?.replay });
       {
         const state = walker ? captureDroidekaState(soldier) : captureCompactSoldier(soldier);
         client.predictionWindow.save({ ...context, tick: last, commands, held: predictedHeld, state });
