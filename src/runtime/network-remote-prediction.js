@@ -12,7 +12,7 @@ export const REMOTE_REPLAY_TICKS=120;
 // clock running while the checkpoint stands still) wait for a newer
 // checkpoint: the droid is shown at the window's end, and every frame still
 // draws, rather than each one failing until the packets come back.
-export function predictRemote(source,droid,pending,from,generation,held=[],view={},cache=null) {
+export function predictRemote(source,droid,pending,from,generation,held=[],view={},cache=null,{native=null}={}) {
  pending=pending.filter(command=>command.tick<=from+REMOTE_REPLAY_TICKS);
  const {context,predicted,initialCamera}=cache?cache.acquire(source,droid):createPredictionContext(source,droid);
  context.droids.length=0;context.droids.push(predicted);context.strikes.length=0;
@@ -22,16 +22,19 @@ export function predictRemote(source,droid,pending,from,generation,held=[],view=
  if(!state.camera){context.exit();context.aimCamera.copy(initialCamera);}
  restoreRemoteReplay(context,predicted,state);
  const controls=new CommandControls();
- const tick=replayTicks(pending,from,generation,held,(_tick,command)=>{
+ const nativeSession=native?.create(context,predicted)??null;
+ let tick;
+ try {tick=replayTicks(pending,from,generation,held,(_tick,command)=>{
   controls.accept({...command,epoch:1,sequence:command.tick});
+  if(nativeSession){nativeSession.step(command,controls,view);return;}
   if(typeof command.firstPerson==='boolean')context.firstPerson=command.firstPerson;
   if(Number.isFinite(command.aspect)&&command.aspect>0)context.aimCamera.aspect=command.aspect;
   const scale=Math.min(command.mouseScale??view.mouseScale??1,2);
   for(const [dx,dy] of command.look)if(context.active)context.look(Math.max(-10000,Math.min(10000,dx)),Math.max(-10000,Math.min(10000,dy)),scale,command.invertMouse||false);
   if(context.active)context.updateCamera(1/60,Boolean(context.firstPerson),true);
   context.update(1/60,{forward:controls.axis('forward'),right:controls.axis('right'),turn:controls.axis('turn')},controls);
- },view);
- return {context,droid:predicted,tick,state:captureRemoteReplay(context,predicted)};
+ },view);}finally{nativeSession?.dispose();}
+ return {context,droid:predicted,tick,state:captureRemoteReplay(context,predicted),...(nativeSession?{nativeSession}:{})};
 }
 
 function createPredictionContext(source,droid) {

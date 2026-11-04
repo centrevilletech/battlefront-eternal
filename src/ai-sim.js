@@ -5,9 +5,9 @@ import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
-import { bindClusterState, facingAndRange, maxExpandedRange, peekClusterState, selectedWeapon, setTarget } from './ai/classic/weapons-ai.js';
+import { bindClusterState, chargeWeapon, categoryOf, clusterState, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, switchWeapon, validateFire, weaponAI } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
-import { dropCorrect } from './ai/classic/aim.js';
+import { dropCorrect, isCannon } from './ai/classic/aim.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -45,7 +45,13 @@ export class AiSim {
     this.sightPoint=new Vector3();this.sightEye=new Vector3();this.sightTargetEye=new Vector3();
     this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();
     this.trackers=new WeakMap();this.trackerFrames=[];
+    this.fires=new WeakMap();
+    this.fireFrames=[];
+    this.weaponFrames=[];this.weaponOrigin=new Vector3();this.weaponForward=new Vector3();
+    this.weaponLead=new Vector3();this.weaponPoint=new Vector3();
+    this.choiceOrigin=new Vector3();this.choicePoint=new Vector3();this.choiceUtility={ok:false,score:0};
     this.trackerLead=new Vector3();
+    this.ballisticPoint=new Vector3();this.ballisticOrigin=new Vector3();this.ballisticZero=new Vector3();
     bridge.register({aiSight:args=>{
       const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
       const from=new Vector3(...args.from),point=new Vector3(...args.point);
@@ -165,6 +171,151 @@ export class AiSim {
         try {result.number=this.x.ai_sight_near(frame.id);}
         finally {this.sightFrames.pop();}
       } else throw Error(`unknown target tracker callback ${op}`);
+      return result;
+    }});
+    bridge.register({aiFire:args=>{
+      const op=args.op,number=args.number,other=args.other,frame=this.fireFrames[this.fireFrames.length-1];
+      const {controller:c,unit,world}=frame,w=frame.weapon,result={number:0,flag:false,values:[]};
+      if(op==='start') {result.flag=Boolean(unit);if(unit)result.number=world?.time??0;}
+      else if(op==='selected') {frame.weapon=selectedWeapon(unit,c);result.flag=Boolean(frame.weapon);}
+      else if(op==='requests') result.values=[Number(Boolean(c.fireA)),Number(Boolean(c.fireB))];
+      else if(op==='target') {
+        const r=c.target,u=frame.target=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+        result.values=[Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation)];
+      } else if(op==='validate') result.flag=Boolean(validateFire(c,unit,frame.target,world));
+      else if(op==='charge') result.flag=chargeWeapon(w);
+      else if(op==='single') result.flag=Boolean(weaponAI(w.def).triggerSingle);
+      else if(op==='cannon') result.flag=isCannon(w.def);
+      else if(op==='gravity') result.number=['shell','grenade','sticky','haywire','beacon'].includes(w.def?.ordnance?.base)?-1:0;
+      else if(op==='limit') result.number=w.limit??w.levels?.[0]?.MaxPressedTime??w.def.MaxPressedTime;
+      else if(op==='chargeDraw') result.flag=unit.kind===0 && w.def.base!=='repair';
+      else if(op==='chargeHeld') result.values=[Number(Boolean(w.charging)),w.held];
+      else if(op==='drawRange') result.number=(world.randomA??world.random).range(number,other);
+      else if(op==='drawInt') result.number=(world.randomA??world.random).int(number,other);
+      else if(op==='sniper') result.flag=sniperWeapon(w);
+      else if(op==='idle') result.flag=!w.reloading && !w.charging && !w.busy && !(w.wait>1e-6) && !w.overheated;
+      else if(op==='deployer') result.flag=['dispenser','remote','detonator','shield'].includes(w.def.base);
+      else if(op==='clearRequests') {c.fireA=false;c.fireB=false;}
+      else if(op==='burst') {
+        const a=weaponAI(w.def);result.values=[w.heat,Number(Boolean(w.bottomless)),w.reserve,w.clip,w.rounds,
+          Number(Boolean(a.triggerSingle)),a.barrageMin,a.barrageMax,a.barrageDelay];
+      } else if(op==='burstHeat') result.values=[w.def.ShotsPerSalvo||1,w.def.HeatPerShot||0];
+      else if(op==='protected') result.flag=protectedVeto(c,unit,w);
+      else if(op==='spread') prepareSpread(c,unit,w);
+      else if(op==='buttons') {const buttons=unit.intent?.buttons;if(buttons) {buttons[0]=number;buttons[1]=other;}}
+      else throw Error(`unknown trigger callback ${op}`);
+      return result;
+    }});
+    bridge.register({aiWeapon:args=>{
+      const op=args.op,index=args.index,number=args.number,frame=this.weaponFrames[this.weaponFrames.length-1],{controller:c,unit}=frame;
+      const result={flag:false,values:[],point:[0,0,0]};
+      if(op==='coneStart') {frame.weapon=selectedWeapon(unit,c);frame.aimer=c.perception?.aimer;result.flag=Boolean(frame.weapon && frame.aimer);}
+      else if(op==='origin') {unit.origin(this.weaponOrigin);result.point=this.weaponOrigin.toArray();}
+      else if(op==='forward') {unit.forward(this.weaponForward);result.point=this.weaponForward.toArray();}
+      else if(op==='conePoint') {const p=frame.op===0?frame.point:frame.lead;result.point=[p.x,p.y,p.z];}
+      else if(op==='coneFacts') result.values=[Number(sniperWeapon(frame.weapon)),unit.kind,Number(frame.weapon.def.base==='melee')];
+      else if(op==='aimer') {const p=frame.aimer.direction;result.point=[p.x,p.y,p.z];}
+      else if(op==='range') {
+        const weapon=selectedWeapon(unit,c),def=weapon.def,a=weaponAI(def);
+        result.values=[unit?.kind,c?.rangeScale??1,a.maxRange,Number(Boolean(a.implicitRange)),a.extremeRange,
+          Number(def?.ordnance?.base==='towcable'),def.LockOnRange||0];
+      } else if(op==='rangePoint') {const p=frame.point;result.point=[p.x,p.y,p.z];}
+      else if(op==='protectionStart') {
+        if(!['repair','dispenser','remote','detonator'].includes(frame.weapon?.def?.base)) {
+          frame.fire=c?.perception?.fire;result.flag=Boolean(frame.fire?.protected.length);
+        }
+      } else if(op==='reference') {
+        result.flag=index<frame.fire.protected.length;
+        if(result.flag) {
+          const r=frame.fire.protected[index],u=frame.human=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+          result.values=[Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation)];
+        }
+      } else if(op==='sphere') {const s=frame.human.sphere;result.point=[s.center.x,s.center.y,s.center.z];result.values=[s.radius];}
+      else if(op==='validationStart') {frame.fire=c?.perception?.fire;frame.weapon=selectedWeapon(unit,c);frame.aimer=c.perception?.aimer;result.flag=Boolean(frame.fire && frame.weapon && frame.aimer);}
+      else if(op==='target') {
+        const r=c.target,u=frame.target=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+        result.values=[Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation),Number(u===frame.expected)];
+      } else if(op==='lead') {frame.lead=this.weaponLead;this.leadPoint(0,unit,frame.target,frame.weapon,frame.lead);}
+      else if(op==='targetPoint') {frame.point=this.weaponPoint;frame.target.aimPoint(frame.point);}
+      else if(op==='spreadStart') {
+        if(frame.weapon){frame.weapon.yawSpreadOverride=null;result.flag=!unit.human && (frame.weapon.def.YawSpread||0)===0;}
+      } else if(op==='sniper') result.flag=sniperWeapon(frame.weapon);
+      else if(op==='spreadValues') {const p=unit.position,q=frame.target.position;result.values=[p.x,p.y,p.z,q.x,q.y,q.z,frame.weapon.sniperScale??0];}
+      else if(op==='spreadWrite') frame.weapon.yawSpreadOverride=number;
+      else if(op==='choiceStart') {
+        const out=frame.out;out.ok=false;out.index=-1;out.weapon=null;out.action=6;out.inBand=false;
+        frame.weapons=unit?.combat?.arsenal?.weapons||[];
+        result.flag=Boolean(frame.target && frame.weapons.length);
+        if(result.flag)result.values=[frame.world?.time??0];
+      } else if(op==='choiceOrigin') unit.origin(this.choiceOrigin);
+      else if(op==='choiceAim') {
+        frame.target.aimPoint(this.choicePoint);const p=this.choicePoint,q=this.choiceOrigin;
+        result.values=[p.x,p.y,p.z,q.x,q.y,q.z,unit.kind];
+      } else if(op==='choiceWeapon') {
+        result.flag=index<frame.weapons.length;
+        if(result.flag) {
+          const w=frame.choiceWeapon=frame.weapons[index];
+          result.values=w?[1,Number(Boolean(w.bottomless)),Number(w.reserve===Infinity),w.clip,w.reserve,w.rounds]:[0];
+        }
+      } else if(op==='choiceUtility') {
+        const utility=this.weaponUtility(unit,frame.choiceWeapon,frame.target,this.choiceUtility);
+        result.flag=utility.ok;result.values=[utility.score];
+      } else if(op==='choiceCapacity') {
+        const w=frame.choiceWeapon;result.values=[w?.def?.ammo,Number(Boolean(w?.bottomless)),w?.rounds??1];
+      } else if(op==='choiceRange') {
+        const a=weaponAI(frame.choiceWeapon.def);
+        result.values=[unit?.kind,c?.rangeScale??1,a.maxRange,Number(Boolean(a.implicitRange)),a.extremeRange,a.minRange];
+      } else if(op==='choiceSpeed') result.values=[unit?.classDef?.ForwardSpeed??unit?.classDef?.MaxSpeed??0];
+      else if(op==='choiceGrenade') result.flag=frame.choiceWeapon.def.base==='grenade';
+      else if(op==='choiceCluster') {const cache=clusterState(frame.target);result.flag=Boolean(cache);if(cache)result.values=[cache.flaggedAt];}
+      else if(op==='choiceRoll') result.values=[c?.roll??c?.id??0];
+      else if(op==='choiceWrite') {
+        const out=frame.out;out.ok=true;out.index=index;out.weapon=frame.weapons[index];out.action=weaponAI(out.weapon.def).action;out.inBand=Boolean(number);
+      } else if(op==='choiceSelected') {
+        const weapon=selectedWeapon(unit,c);result.values=[weapon?unit.combat.arsenal.weapons.indexOf(weapon):-1];
+      } else if(op==='choiceSwitch') switchWeapon(c,unit,index);
+      else if(op==='switchStart') {
+        const fire=frame.fire=c?.perception?.fire??null,arsenal=frame.arsenal=unit?.combat?.arsenal,weapon=frame.weapon=arsenal?.weapons[frame.index];
+        result.flag=Boolean(fire && weapon);if(result.flag){this.bindFire(fire);result.values=[this.fires.get(fire).id];}
+      } else if(op==='switchChannel') result.values=[frame.weapon.channel];
+      else if(op==='switchHasSelect') result.flag=Boolean(frame.arsenal.select);
+      else if(op==='switchSelect') result.flag=frame.arsenal.select(frame.weapon)!==false;
+      else if(op==='switchFallbackIndex') result.values=[frame.arsenal.channels[frame.weapon.channel].indexOf(frame.weapon)];
+      else if(op==='switchCurrent') result.flag=frame.arsenal.current(frame.weapon.channel)===frame.weapon;
+      else if(op==='switchCurrentAgain') {frame.oldWeapon=frame.arsenal.current(frame.weapon.channel);result.flag=Boolean(frame.oldWeapon?.busy);}
+      else if(op==='switchDeselect') frame.oldWeapon?.deselect();
+      else if(op==='switchWrite') frame.arsenal.selected[frame.weapon.channel]=number;
+      else if(op==='setTargetStart') {
+        c.target=frame.target?{unit:frame.target,generation:frame.target.generation}:null;
+        const fire=frame.fire=c?.perception?.fire??null;result.flag=Boolean(fire);
+        if(fire){this.bindFire(fire);result.values=[this.fires.get(fire).id,Number(Boolean(frame.target))];}
+      } else if(op==='setTargetSelected') {frame.weapon=selectedWeapon(unit,c);result.flag=Boolean(frame.weapon);}
+      else if(op==='setTargetAi') frame.ai=weaponAI(frame.weapon.def);
+      else if(op==='setTargetRelation') result.values=[frame.world?.units?.relation?frame.world.units.relation(unit.team,frame.target.team):-1];
+      else if(op==='setTargetRelationMask') result.values=[frame.ai.relationMask];
+      else if(op==='setTargetCategory') result.values=[frame.ai.categoryMask,categoryOf(frame.target)];
+      else if(op==='setTargetReference') {const u=frame.target,g=u.generation;result.values=[this.id(u),g,g===undefined?0:g===null?2:1];}
+      else if(op==='utilityStart') {
+        frame.out.ok=false;frame.out.score=0;const def=frame.def=frame.weapon?.def;result.flag=Boolean(def && frame.target);
+        if(result.flag){frame.ordnance=def.ordnance||null;result.values=[Number(unit.kind===0),frame.target.kind,Number(Boolean(frame.ordnance)),Number(def.base==='melee')];}
+      } else if(op==='utilityHero') result.flag=Boolean(unit.hero && isCannon(frame.def));
+      else if(op==='utilityTrap') result.flag=Boolean(frame.target.trap);
+      else if(op==='utilityMask') result.values=[weaponAI(frame.def).categoryMask,categoryOf(frame.target)];
+      else if(op==='utilityBound') {frame.category=categoryOf(frame.target);result.values=[frame.target.sphere?.radius??0];}
+      else if(op==='utilityDamage' || op==='utilityBlast') {
+        const rec=op==='utilityDamage'?frame.ordnance:frame.ordnance[index===0?'ExplosionImpact':'ExplosionExpire'];
+        result.flag=Boolean(rec && typeof rec==='object');
+        if(op==='utilityDamage' || result.flag) {
+          const key=['PersonScale','AnimalScale','DroidScale','VehicleScale','BuildingScale'][frame.category];
+          result.values=op==='utilityDamage'?[rec.Damage||0,key?rec?.[key]??1:1]:[rec.DamageRadiusInner||0,rec.DamageRadiusOuter||0,rec.Damage||0,key?rec?.[key]??1:1];
+        }
+      } else if(op==='utilityCapacity') {const w=frame.weapon;result.values=[w?.def?.ammo,Number(Boolean(w?.bottomless)),w?.rounds??1];}
+      else if(op==='utilityHealth') {const t=frame.target;result.values=[t.combat?.maxHealth??t.classDef?.MaxHealth??t.maxHealth??0];}
+      else if(op==='utilityOwner') result.values=[unit.kind];
+      else if(op==='utilityType') {const base=frame.ordnance.base;result.values=[Number(['grenade','sticky','haywire','beacon'].includes(base)),Number(['beam','missile','shell'].includes(base))];}
+      else if(op==='utilityVelocity') {const v=frame.target.velocity;result.flag=Boolean(v);if(v)result.point=[v.x,v.y,v.z];}
+      else if(op==='utilityAccept') {frame.out.ok=true;frame.out.score=number;}
+      else throw Error(`unknown weapon geometry callback ${op}`);
       return result;
     }});
   }
@@ -294,6 +445,7 @@ export class AiSim {
         perception.heap=this.heap(perception.heap.capacity,perception.heap.priority[0]);
       }
       this.perceptions.set(perception,new NativePerceptionFields(this,perception));
+      this.bindFire(perception.fire);
     }
     return perception;
   }
@@ -310,6 +462,40 @@ export class AiSim {
   bindTracker(tracker) {
     if(!this.trackers.has(tracker))this.trackers.set(tracker,new NativeTrackerFields(this,tracker));
     return tracker;
+  }
+  bindFire(fire) {
+    if(!this.fires.has(fire))this.fires.set(fire,new NativeFireFields(this,fire));
+    return fire;
+  }
+  consumeFire(id,controller,unit,world) {
+    this.fireFrames.push({controller,unit,world});
+    try {return Boolean(this.x.ai_fire_consume(id));}
+    finally {this.fireFrames.pop();}
+  }
+  weaponGuard(op,controller,unit,point,lead=null,weapon=null,expected=null) {
+    this.weaponFrames.push({op,controller,unit,point,lead,weapon,expected});
+    try {return Boolean(this.x.ai_weapon_guard(op));}
+    finally {this.weaponFrames.pop();}
+  }
+  selectWeapon(controller,unit,target,switchAllowed,world,out) {
+    this.weaponFrames.push({controller,unit,target,world,out});
+    try {this.x.ai_weapon_select(Number(Boolean(switchAllowed)));return out;}
+    finally {this.weaponFrames.pop();}
+  }
+  switchWeapon(controller,unit,index) {
+    this.weaponFrames.push({controller,unit,index});
+    try {return Boolean(this.x.ai_weapon_switch());}
+    finally {this.weaponFrames.pop();}
+  }
+  setWeaponTarget(controller,unit,target,world) {
+    this.weaponFrames.push({controller,unit,target,world});
+    try {this.x.ai_weapon_target();}
+    finally {this.weaponFrames.pop();}
+  }
+  weaponUtility(unit,weapon,target,out) {
+    this.weaponFrames.push({unit,weapon,target,out});
+    try {this.x.ai_weapon_utility();return out;}
+    finally {this.weaponFrames.pop();}
   }
   selectTarget(id,tracker,world) {
     this.trackerFrames.push({tracker,world});
@@ -330,6 +516,27 @@ export class AiSim {
     this.trackerFrames.push({id,tracker,world,dispatch});
     try {return this.x.ai_tracker_operation(id,op);}
     finally {this.trackerFrames.pop();}
+  }
+  ballisticWeapon(point,velocity,origin,weapon,out) {
+    const o=weapon?.def?.ordnance;
+    this.words([point.x,point.y,point.z,velocity.x,velocity.y,velocity.z,origin.x,origin.y,origin.z,Number(Boolean(o)),
+      Number(typeof o?.base==='string'),typeof o?.base==='string'?this.bridge.strings.id(o.base):0,
+      Number(o?.Velocity!=null),o?.Velocity,Number(o?.Gravity!=null),o?.Gravity]);
+    const valid=Boolean(this.x.ai_ballistic_weapon(Number(point===out)|Number(velocity===out)<<1|Number(origin===out)<<2));
+    const v=this.out();out.set(v[0],v[1],v[2]);return valid;
+  }
+  leadPoint(h,shooter,target,weapon,out) {
+    target.aimPoint(this.ballisticPoint);
+    const tv=target.velocity??this.ballisticZero,sv=shooter.velocity??this.ballisticZero,p=this.ballisticPoint;
+    this.words([p.x,p.y,p.z,tv.x,tv.y,tv.z,sv.x,sv.y,sv.z,h]);this.x.ai_lead_relative();
+    const v=this.out();p.set(v[0],v[1],v[2]);
+    if(!weapon) {out.copy(p);return true;}
+    shooter.origin(this.ballisticOrigin);
+    return this.ballisticWeapon(p,tv,this.ballisticOrigin,weapon,out);
+  }
+  dropCorrect(point,shooter,weapon,out) {
+    shooter.origin(this.ballisticOrigin);
+    return this.ballisticWeapon(point,this.ballisticZero,this.ballisticOrigin,weapon,out);
   }
   cluster(target,create=false) {
     const owner=target?.controller??target;
@@ -361,6 +568,34 @@ export class AiSim {
   words(values) {
     const ptr=this.x.sim_call_room(values.length,0);
     this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
+  }
+}
+
+class NativeFireFields {
+  constructor(sim,fire) {
+    const id=this.id=sim.x.ai_fire_new();let reference=fire.weaponTarget,serial=-1;
+    const setRef=value=>{
+      reference=value;serial=sim.x.ai_fire_ref(id,value===null?0:value===undefined?1:2,sim.id(value?.unit),value?.generation,
+        value?.generation===undefined?0:value?.generation===null?2:1);
+    };
+    Object.defineProperty(fire,'weaponTarget',{enumerable:true,configurable:true,get:()=>{
+      sim.x.ai_fire_read(id);const v=sim.out();
+      if(v[4]!==serial) {serial=v[4];reference=v[0]===0?null:v[0]===1?undefined:{unit:sim.objects[v[1]],generation:v[3]===0?undefined:v[3]===2?null:v[2]};}
+      return reference;
+    },set:setRef});setRef(reference);
+    const field=(object,name,index,flag=false)=>{
+      const initial=object[name];Object.defineProperty(object,name,{enumerable:true,configurable:true,
+        get:()=>flag?Boolean(sim.x.ai_fire_field(id,index)):sim.x.ai_fire_field(id,index),
+        set:value=>sim.x.ai_fire_write(id,index,flag?Number(Boolean(value)):value)});object[name]=initial;
+    };
+    ['channel','lastRelease','charging','hold','sniperActive','sniperDeadline'].forEach((key,i)=>field(fire,key,i,key==='charging'||key==='sniperActive'));
+    ['state','heatLimit','lastEnd','savedAmmo','count'].forEach((key,i)=>field(fire.burst,key,i+6));
+    for(let i=0;i<2;i++) {
+      const button=fire.buttons[i];field(button,'count',11+i*2);field(button,'code',12+i*2);
+      Object.defineProperty(button,'nativePress',{value:down=>{sim.x.ai_fire_press(id,i,Number(Boolean(down)));return button;}});
+    }
+    Object.defineProperty(fire,'reset',{configurable:true,writable:true,value:()=>{sim.x.ai_fire_reset(id);fire.protected.length=0;}});
+    Object.defineProperty(fire,'nativeConsume',{value:(controller,unit,world)=>sim.consumeFire(id,controller,unit,world)});
   }
 }
 

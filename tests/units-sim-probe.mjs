@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
-let game, server, rust, jsTicks = 0, action = 0;
+let game, server, rust, jsTicks = 0, jsSamples = 0, jsQueries = 0, action = 0;
 const modes = new Set();
 
 export function battle({ game: world, server: local, options }) {
@@ -14,6 +14,18 @@ export function battle({ game: world, server: local, options }) {
   assert.ok(server.actor.unit.walker, 'the player is a droideka');
   const proto = Object.getPrototypeOf(server.actor.unit.soldier), tick = proto.tick;
   proto.tick = function (...args) { jsTicks++; return tick.apply(this, args); };
+  const sample = proto.sampleMuzzles;
+  proto.sampleMuzzles = function (dt) {
+    if (dt > 0 && game.factory.built.some(u => u.soldier === this)) jsSamples++;
+    return sample.call(this, dt);
+  };
+  for (const name of ['nextGun', 'gunAt']) {
+    const query = proto[name];
+    proto[name] = function (...a) {
+      if (game.factory.built.some(u => u.soldier === this)) jsQueries++;
+      return query.apply(this, a);
+    };
+  }
 }
 
 export function tick(tick) {
@@ -35,8 +47,17 @@ export function ticked(tick) {
     numbers.push(unit.id, unit.tickCount, unit.deadTime, +unit.alive, +unit.dead, +unit.removed,
       s.mode, s.time, +s.reverse, s.legs, s.spin, s.roll, s.lean, s.aimYaw, s.aimPitch,
       s.stateTime, +s.grounded, s.blastClock, s.collisionDamage, s.shield?.value ?? 0, +(s.shield?.on ?? false),
+      s.gun, s.lastGun?.index ?? -1, s.lastGun?.barrel ?? -1,
       ...s.position.toArray(), ...s.previous.toArray(), ...s.settled.toArray(), ...s.velocity.toArray(), ...s.avoidance.toArray());
-    for (const barrels of s.physicalBarrels ?? []) for (const barrel of barrels) numbers.push(...barrel.matrixWorld.elements);
+    if (s.muzzleActor) {
+      const a = s.muzzleAnimator;
+      numbers.push(a.facing, a.legs, a.mode, +a.wentUpRolled, a.rollOrigin, a.transition, ...a.pivot.toArray(), ...a.rollCenter.toArray());
+      for (const p of a.from) numbers.push(...p.q.toArray(), ...p.p.toArray());
+      for (const n of [s.muzzleActor.root, ...s.muzzleActor.bones, ...s.physicalBarrels.flat()]) numbers.push(
+        ...n.position.toArray(), ...n.quaternion.toArray(), ...n.scale.toArray(), ...n.matrix.elements, ...n.matrixWorld.elements);
+      if (a.pose.kernel) a.pose.refresh();
+      numbers.push(...a.pose.q, ...a.pose.t, ...a.pose.w);
+    }
   }
   const hash = createHash('sha256').update(Buffer.from(new Float64Array(numbers).buffer)).digest('hex');
   console.error(`droideka-body ${tick} ${hash}`);
@@ -44,6 +65,13 @@ export function ticked(tick) {
 
 export function finish() {
   for (const mode of [11, 12, 13, 3, 4]) assert.ok(modes.has(mode), `the player visits droideka mode ${mode}`);
-  if (rust) assert.equal(jsTicks, 0, 'droideka movement never falls back to JavaScript');
-  else assert.ok(jsTicks > 0, 'the reference exercises JavaScript movement');
+  if (rust) {
+    assert.equal(jsTicks, 0, 'droideka movement never falls back to JavaScript');
+    assert.equal(jsSamples, 0, 'physical muzzle posing never falls back to JavaScript');
+    assert.equal(jsQueries, 0, 'physical gun queries never fall back to JavaScript');
+  } else {
+    assert.ok(jsTicks > 0, 'the reference exercises JavaScript movement');
+    assert.ok(jsSamples > 0, 'the reference exercises physical muzzle posing');
+    assert.ok(jsQueries > 0, 'the reference exercises physical gun queries');
+  }
 }

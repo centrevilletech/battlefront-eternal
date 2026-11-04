@@ -72,7 +72,7 @@ export function captureArsenalWeapon(weapon,native=null){
   else captureCache.set(weapon,{level,flags,values:Float64Array.from(scratch),melee:melee?{...melee}:null,bytes});
   return bytes;
 }
-export function validateArsenalWeapon(weapon,bytes){
+export function validateArsenalWeapon(weapon,bytes,native=null){
   if(!(bytes instanceof Uint8Array)||bytes.length<6)throw Error('invalid arsenal weapon state');
   const mask=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(2,true);
   if(mask>>>WEAPON_STATE_NUMBERS.length)throw Error('invalid arsenal weapon mask');
@@ -89,7 +89,7 @@ export function validateArsenalWeapon(weapon,bytes){
     melee={time,index,active:!!active};at+=10;
   }
   if(at!==bytes.length)throw Error('trailing arsenal weapon state');
-  return {...validateWeaponState(weapon,decodeWeaponState(full)),melee};
+  return {...validateWeaponState(weapon,decodeWeaponState(full,native)),melee};
 }
 export function applyArsenalWeapon(entry){applyValidatedWeaponState(entry);if(entry.melee)entry.weapon.melee.restoreState(entry.melee);}
 export function captureArsenalState(arsenal){
