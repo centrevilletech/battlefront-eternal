@@ -6,7 +6,7 @@ import { createReconcileSim, createReconcileBridge } from '../src/runtime/reconc
 import { createWireBridge } from '../src/runtime/wire-sim.js';
 import { WorldTickEstimator, InputLead, CorrectionSmoother } from '../src/runtime/reconcile.js';
 import { PredictionWindow, retainPredictionCommands } from '../src/runtime/prediction-window.js';
-import { reconcileNumericCases, reconcileCallbackCases, runReconcileCase, ringBytes, leadState, smootherState, estimatorState, attempt, windowFixture } from './fixtures/prediction-reconcile-cases.js';
+import { reconcileNumericCases, reconcileCallbackCases, reconcileArithmeticCases, runReconcileCase, ringBytes, leadState, smootherState, estimatorState, attempt, windowFixture } from './fixtures/prediction-reconcile-cases.js';
 
 const callback = name => reconcileCallbackCases().find(c => c.name === name);
 function twin(scenario, native) {
@@ -90,6 +90,33 @@ test('ring writes preserve untouched payload bits and percentile fallback stays 
     assert.ok(trace.slice(finite).includes(7), 'NaNs outside the sampled prefix do not disable native percentile');
     const lead = new InputLead({ gapWindow: 4 }, { native }); lead.gaps.set([-0, 0, -0, 0]); lead.gapCount = 1;
     lead.measure(); assert.ok(Object.is(lead.worstGap, -0));
+  } finally { native.dispose(); }
+});
+
+test('arithmetic NaN bits match JavaScript and extreme numeric phases retain their fallback', async () => {
+  const phases = [], native = createReconcileSim(await loadSim(), { trace: e => phases.push(e.op) });
+  const raw = n => { const b = Buffer.alloc(8); b.writeDoubleLE(n); return b.toString('hex'); };
+  try {
+    const cases = reconcileArithmeticCases(); assert.equal(cases.length, 40);
+    for (const scenario of cases) twin(scenario, native);
+    for (const margin of [0, -0, 1, Number.MAX_SAFE_INTEGER, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER + 1, Number.MAX_VALUE, -Number.MAX_VALUE, Infinity, -Infinity, NaN]) {
+      const run = native => {
+        const lead = new InputLead({}, { native }); lead.measure = () => {}; lead.estimator.estimate = () => 0; lead.margin = margin;
+        const result = lead.target(0, 0); return { result: raw(result), lead: raw(lead.lead), capped: lead.capped };
+      };
+      const expected = run(null), at = phases.length;
+      assert.deepEqual(run(native), expected, `target margin ${margin}`);
+      assert.equal(phases.slice(at).includes(8), Number.isFinite(margin) && Math.abs(margin) <= Number.MAX_SAFE_INTEGER);
+    }
+    for (const tau of [.03, Number.MIN_VALUE, 0, -0, -.03, Number.MAX_VALUE, Infinity, -Infinity, NaN]) {
+      const run = native => {
+        const smoother = new CorrectionSmoother({ tau }, { native }); smoother.x = .5; smoother.y = -.25; smoother.z = .75; smoother.decay(.01);
+        return { x: raw(smoother.x), y: raw(smoother.y), z: raw(smoother.z), length: raw(smoother.length) };
+      };
+      const expected = run(null), at = phases.length;
+      assert.deepEqual(run(native), expected, `decay tau ${tau}`);
+      assert.equal(phases.slice(at).includes(11), tau > 0 && tau <= Number.MAX_SAFE_INTEGER);
+    }
   } finally { native.dispose(); }
 });
 

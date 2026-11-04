@@ -366,7 +366,87 @@ function retentionCallbackCases() {
   ];
 }
 
-export const reconcileCases = () => [...reconcileNumericCases(), ...reconcileCallbackCases()];
+export function reconcileArithmeticCases() {
+  const storage = new DataView(new ArrayBuffer(8));
+  const number = n => { storage.setBigUint64(0, n, true); return storage.getFloat64(0, true); };
+  const bits = n => { if (typeof n !== 'number') return n; storage.setFloat64(0, n, true); return storage.getBigUint64(0, true).toString(16).padStart(16, '0'); };
+  const fields = (s, keys) => Object.fromEntries(keys.map(k => [k, bits(s[k])]));
+  const patterns = [0x7ff0000000000001n, 0xfff0000000000123n, 0x7ff000000000ff00n, 0x7ff8000000000001n, 0xfff8000000000123n];
+  const cases = [];
+  for (const key of ['ox', 'oy', 'oz', 'nx', 'ny', 'nz', 'x', 'y', 'z', 'tau', 'dt']) {
+    cases.push({ name: `smoother-${key}`, run(native, pattern) {
+      const s = new CorrectionSmoother({ snap: 100 }, { native }); s.x = .5; s.y = -.25; s.z = .75;
+      if (['x', 'y', 'z', 'tau'].includes(key)) s[key] = number(pattern);
+      let result;
+      switch (key) {
+        case 'ox': result = s.note(number(pattern), 2, 3, 4, 5, 6); break;
+        case 'oy': result = s.note(1, number(pattern), 3, 4, 5, 6); break;
+        case 'oz': result = s.note(1, 2, number(pattern), 4, 5, 6); break;
+        case 'nx': result = s.note(1, 2, 3, number(pattern), 5, 6); break;
+        case 'ny': result = s.note(1, 2, 3, 4, number(pattern), 6); break;
+        case 'nz': result = s.note(1, 2, 3, 4, 5, number(pattern)); break;
+        case 'tau': s.decay(.01); break;
+        case 'dt': s.decay(number(pattern)); break;
+        default: result = s.note(1, 2, 3, 4, 5, 6);
+      }
+      return { result: bits(result), ...fields(s, ['x', 'y', 'z', 'count', 'worst', 'snaps']), length: bits(s.length) };
+    } });
+  }
+  for (const key of ['estimate', 'rtt', 'margin', 'extra', 'maxLead', 'hz', 'worstGap', 'latest']) {
+    cases.push({ name: `lead-target-${key}`, run(native, pattern) {
+      const lead = new InputLead({}, { native }); lead.measure = () => {};
+      lead.estimator.estimate = () => key === 'estimate' ? number(pattern) : 16;
+      if (['margin', 'extra', 'maxLead', 'hz', 'worstGap'].includes(key)) lead[key] = number(pattern);
+      const result = key === 'rtt' ? lead.target(.3, 14, number(pattern)) : key === 'latest' ? lead.target(.3, number(pattern), .1) : lead.target(.3, 14, .1);
+      return { result: bits(result), lead: bits(lead.lead), capped: lead.capped };
+    } });
+  }
+  for (const key of ['maxLead', 'cooldownAcks', 'calmAcks', 'extra', 'cooldown', 'calm', 'late', 'elapsed']) {
+    cases.push({ name: `lead-ack-${key}`, run(native, pattern) {
+      const lead = new InputLead({ recover: true }, { native }); lead.extra = 3; lead.calm = 59; lead.cooldown = key === 'elapsed' ? 10 : 0;
+      if (!['late', 'elapsed'].includes(key)) lead[key] = number(pattern);
+      if (key === 'late') lead.acknowledge(number(pattern), 2, false);
+      else if (key === 'elapsed') lead.acknowledge(0, number(pattern), false);
+      else lead.acknowledge(key === 'calmAcks' || key === 'calm' ? 0 : 2, 2, false);
+      return fields(lead, ['late', 'extra', 'cooldown', 'calm']);
+    } });
+  }
+  cases.push({ name: 'lead-reset-margin', run(native, pattern) {
+    const lead = new InputLead({}, { native }); lead.margin = number(pattern); lead.reset(); return fields(lead, ['lead']);
+  } });
+  for (const key of ['tick', 'now', 'hz', 'estimate-now', 'estimate-offset', 'estimate-hz']) {
+    cases.push({ name: `estimator-${key}`, run(native, pattern) {
+      const e = new WorldTickEstimator({ window: 3 }, { native });
+      if (key.startsWith('estimate-')) {
+        e.offset = key === 'estimate-offset' ? number(pattern) : 4;
+        if (key === 'estimate-hz') e.hz = number(pattern);
+        return { result: bits(e.estimate(key === 'estimate-now' ? number(pattern) : .1)) };
+      }
+      if (key === 'hz') e.hz = number(pattern);
+      if (key === 'tick') e.arrive(number(pattern), .1); else if (key === 'now') e.arrive(6, number(pattern)); else e.arrive(6, .1);
+      return { ...fields(e, ['offset', 'at', 'count', 'dropped']), sample: bits(e.offsets[0]), estimate: bits(e.estimate(.2)) };
+    } });
+  }
+  for (const key of ['hz', 'arrivedAt', 'arrivedTick', 'now', 'tick']) {
+    cases.push({ name: `lead-arrive-${key}`, run(native, pattern) {
+      const lead = new InputLead({ window: 3, gapWindow: 3 }, { native }); lead.arrive(1, .1);
+      if (!['now', 'tick'].includes(key)) lead[key] = number(pattern);
+      if (key === 'now') lead.arrive(2, number(pattern)); else if (key === 'tick') lead.arrive(number(pattern), .2); else lead.arrive(2, .2);
+      return { ...fields(lead, ['latest', 'arrivedAt', 'arrivedTick', 'gapAt', 'gapCount']), gap: bits(lead.gaps[0]) };
+    } });
+  }
+  const result = cases.map(c => ({ name: `arithmetic:${c.name}`, group: 'arithmetic', run(native) {
+    return patterns.map(pattern => ({ pattern: pattern.toString(16), result: c.run(native, pattern) }));
+  } }));
+  result.push({ name: 'arithmetic:finite-arrival-overflow', group: 'arithmetic', run(native) {
+    const lead = new InputLead({ hz: 0 }, { native });
+    lead.arrive(-Number.MAX_VALUE, -Number.MAX_VALUE); lead.arrive(Number.MAX_VALUE, Number.MAX_VALUE);
+    return { ...fields(lead, ['latest', 'arrivedAt', 'arrivedTick', 'gapAt', 'gapCount']), gap: bits(lead.gaps[0]) };
+  } });
+  return result;
+}
+
+export const reconcileCases = () => [...reconcileNumericCases(), ...reconcileCallbackCases(), ...reconcileArithmeticCases()];
 export function runReconcileCase(scenario, native = null) {
   const before = native?.calls ?? 0;
   const result = scenario.run(native);
