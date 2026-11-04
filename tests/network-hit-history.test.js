@@ -30,7 +30,7 @@ test('fractional rendered time hits the moving target seen between fixed samples
  assert.equal(f.history.raycast(0,new Vector3(),forward,20,f.shooter),null,'rounding down misses a target moving into the crosshair');
  assert.equal(f.history.raycast(viewTick,new Vector3(),forward,20,f.shooter)?.unit,f.target);
  f.shooter.networkShot={viewTick};
- f.ordnance.fire({LifeSpan:.4,Damage:10},new Vector3(),forward,f.shooter,null);
+ f.ordnance.fire({base:'beam',LifeSpan:.4,Damage:10},new Vector3(),forward,f.shooter,null);
  f.ordnance.update(1/60);assert.equal(f.hits,1);
  assert.equal(renderedViewTick(1.2,1),1);assert.equal(renderedViewTick(NaN,1),0);
 });
@@ -124,7 +124,7 @@ test('future and missing timestamps get no rewind; ancient timestamps are bounde
 test('a beam rewinds only its initial interval and later damage follows current targets',()=>{
  const f=fixture();f.history.capture(0);f.target.position.x=10;f.history.capture(1);
  f.shooter.networkShot={id:1,viewTick:0};
- f.ordnance.fire({LifeSpan:.4,Damage:10},new Vector3(),forward,f.shooter,null);
+ f.ordnance.fire({base:'beam',LifeSpan:.4,Damage:10},new Vector3(),forward,f.shooter,null);
  const beam=f.ordnance.beams[0];f.ordnance.update(1/60);
  assert.equal(f.hits,1);assert.equal(beam.historyTick,null);
  f.ordnance.update(1/60);assert.equal(f.hits,1);

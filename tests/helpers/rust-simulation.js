@@ -14,7 +14,7 @@ function bridge() {
   instance.holder = holder;
   return new SimBridge(instance, { tests: { ...ordnanceTests,
     emitter: value => typeof value?.viewDirection === 'function',
-    unit: value => value != null && ('generation' in value || 'team' in value),
+    unit: value => value != null && !['Vehicle','Turret'].includes(value.constructor?.name) && ('generation' in value || 'team' in value),
     vehicle: value => value?.constructor?.name === 'Vehicle',
     turret: value => value?.constructor?.name === 'Turret',
   } });

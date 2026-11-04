@@ -56,7 +56,7 @@ test('projectile tests moving target at arrival, not its location at fire time',
   assert.equal(hits,1);
   assert.equal(bolt.position.z,3);
   ord.fire(def,new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1),null);
-  const second=ord.bolts[1];
+  const second=ord.bolts.at(-1);
   c.moveBody(body,identity().makeTranslation(20,0,5));
   ord.update(1);
   assert.equal(hits,1);
@@ -71,7 +71,7 @@ test('straight rockets also hit vehicles entering their flight segment',()=>{
   c.moveBody(body,identity().makeTranslation(0,0,5));
   ord.update(.5);
   assert.equal(hits,1);
-  assert.equal(ord.rounds[0].gone,true);
+  assert.equal(ord.rounds.length,0);
 });
 
 test('movement is display-rate independent and parked vehicles sleep',()=>{
@@ -138,9 +138,10 @@ test('beams maintain a continuous segment and integrate damage independent of fr
   const c=collision(),body=c.addMovingBody(shape(c),identity().makeTranslation(0,0,10));let damage=0;
   const ord=rustOrdnance({scene:new THREE.Scene(),collision:c,effects:{play(){}},lights:{add(){}},texture:()=>null,onHit:(b,d)=>{assert.equal(b,body);damage+=d.Damage}});
   ord.fire({base:'beam',Damage:300,LifeSpan:.6},new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1),null);
-  while(ord.beams[0].life>0)ord.update(1/rate);
+  const beam=ord.beams[0];
+  while(beam.life>0)ord.update(1/rate);
   assert.ok(Math.abs(damage-300)<1e-8,`${rate}: ${damage}`);
-  assert.equal(ord.beams[0].end.z,8);
+  assert.equal(beam.end.z,8);
  }
 });
 
@@ -351,7 +352,8 @@ test('tow cable: a bot takes the rear seat looking aft into its arc (YawLimits 8
 test('fatray: the LR1K sonic round strikes everyone within its width along its flight, once each, and stops at a wall; a flak bolt bursts where its flight ends',()=>{
   const c=collision();
   const wall=box(0,3,30,20,6,.2);c.addBody(wall.positions,wall.indices,wall.polygons);
-  const unit=(x,z)=>({alive:true,team:2,sphere:{center:new THREE.Vector3(x,1,z),radius:.6},seat:null,hitShapes:[]});
+  let nextUnitId=1;
+  const unit=(x,z)=>({id:nextUnitId++,generation:1,alive:true,team:2,sphere:{center:new THREE.Vector3(x,1,z),radius:.6},seat:null,hitShapes:[]});
   const near=unit(.8,10),wide=unit(3.5,12),behind=unit(0,40);
   const units={list:[near,wide,behind],query(center,radius,out=[],filter){out.length=0;for(const u of this.list){const reach=radius+u.sphere.radius;if(u.sphere.center.distanceToSquared(center)>reach*reach)continue;if(filter&&!filter(u))continue;out.push(u);}return out;},raycast(){return null;}};
   const struck=[],explosions=[];

@@ -95,6 +95,7 @@ test('vehicle construction, player firing and AI firing preserve secondary missi
   const system = new Vehicles({ scene, collision, data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0),
     texture: () => null, camera: new THREE.PerspectiveCamera(), ordnance, effects });
   const v = system.vehicles[0];
+  Object.assign(v.aiTarget,{id:2,generation:1});
   const target = { id: 7, generation: 2, alive: true, team: 2, kind: 6,
     position: v.seatEye(0, new THREE.Vector3()).addScaledVector(v.seatForward(0, new THREE.Vector3()), 40),
     sphere: { radius: 1 }, aimPoint(out) { return out.copy(this.position); } };
@@ -107,7 +108,7 @@ test('vehicle construction, player firing and AI firing preserve secondary missi
   assert.equal(ordnance.rounds.at(-1).targetId, target.id);
   assert.equal(ordnance.rounds.at(-1).kind, 'missile');
   v.current(1).wait = 0;
-  v.seat.lease = { team: 1, unit: { controller: { perception: { fire: { weaponTarget: { unit: target, generation: target.generation } } } } },
+  v.seat.lease = { team: 1, unit: { id:1,generation:1,controller: { perception: { fire: { weaponTarget: { unit: target, generation: target.generation } } } } },
     input: { takeReload: () => false, take: channel => channel === 1, held: [false, true] } };
   v.fireSeat(0, 1.1);
   assert.equal(ordnance.rounds.length, 2);
@@ -138,6 +139,7 @@ test('a seat locks along its reticle line (through the point under the crosshair
   const system = new Vehicles({ scene, collision, data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0),
     texture: () => null, camera: new THREE.PerspectiveCamera(), ordnance, effects });
   const v = system.vehicles[0];
+  Object.assign(v.aiTarget,{id:2,generation:1});
   assert.equal(hasMissileLock(v.current(1).def), true, 'the IFT-T missile takes the same lock as the IFT-X');
   const eye = v.seatEye(0, new THREE.Vector3()), ahead = v.seatForward(0, new THREE.Vector3());
   // 20 degrees off the eye's forward: where a chase camera's reticle can sit.

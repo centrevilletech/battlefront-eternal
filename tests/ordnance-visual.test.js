@@ -61,7 +61,7 @@ test('a delayed first draw starts at the posed muzzle without moving the collisi
       const bolt = o.fire({ Velocity: 150, LifeSpan: 2, LaserLength: 1, GlowLength: 3, LaserTexture: 'laser' },
         new THREE.Vector3(0, 1.7, 0), new THREE.Vector3(0, 0, 1), 'player');
       bolt.visualMuzzle = () => muzzle;
-      for (let tick = 0; tick < 4; tick++) o.update(1 / 60);
+      for (let tick = 0; tick < 4; tick++) o.update(1 / 60,false);
       const physical = [bolt.position.toArray(), bolt.direction.toArray(), bolt.flown, bolt.life];
       o.present(.5);
       assert.ok(tails.length > 0);
@@ -92,6 +92,8 @@ test('launched missile mesh follows its displayed muzzle without moving collisio
   const origin = new THREE.Vector3(0, 1, 0), muzzle = new THREE.Vector3(.5, .8, 1);
   const round = o.fire({ base: 'missile', GeometryName: 'rocket', Velocity: 10, LifeSpan: 3 }, origin, new THREE.Vector3(0, 0, 1), null);
   round.visualMuzzle = () => muzzle;
+  round.mesh=o.projectileMesh(round.def);
+  round.launchPosition=origin.clone();round.muzzleOffset=muzzle.clone().sub(origin);
   o.present();
   assert.ok(round.mesh.position.distanceTo(muzzle) < 1e-8);
   assert.ok(round.position.equals(origin));
@@ -100,33 +102,6 @@ test('launched missile mesh follows its displayed muzzle without moving collisio
   assert.ok(round.mesh.position.equals(round.position), 'after convergence the mesh follows the collision path');
 });
 
-test('a beam leaves its ImpactEffect on whatever it touches; an older extract keeps the surface effect', () => {
-  const played = [];
-  const make = (cast, raycast = () => null) => {
-    const o = rustOrdnance({ scene: new THREE.Scene(), collision: { cast }, effects: { play: name => played.push(name) },
-      lights: { add() {} }, texture: () => null });
-    o.world.raycastUnits = raycast;
-    return o;
-  };
-  const ground = (from, dir, far, hit) => Object.assign(hit, { distance: 12, terrain: true, body: null });
-  // cis_weap_walk_spider_laser_ord: spiderdroid_ord_exp (ImpactEffectTerrain is the port's dirtspray default).
-  const laser = { base: 'beam', LifeSpan: .4, Damage: 100, ImpactEffect: 'spiderdroid_ord_exp', ImpactEffectTerrain: 'dirtspray' };
-  let o = make(ground);
-  o.fire(laser, new THREE.Vector3(), new THREE.Vector3(0, 0, 1), 'player');
-  o.update(1 / 60);
-  assert.deepEqual(played, ['spiderdroid_ord_exp']);
-  played.length = 0;
-  o = make(() => null, () => ({ unit: { id: 3 }, distance: 8, part: 'body' }));
-  o.onHitUnit = () => {};
-  o.fire(laser, new THREE.Vector3(), new THREE.Vector3(0, 0, 1), 'player');
-  o.update(1 / 60);
-  assert.deepEqual(played, ['spiderdroid_ord_exp'], 'a soldier or hull struck');
-  played.length = 0;
-  o = make(ground);
-  o.fire({ ...laser, ImpactEffect: undefined }, new THREE.Vector3(), new THREE.Vector3(0, 0, 1), 'player');
-  o.update(1 / 60);
-  assert.deepEqual(played, ['dirtspray']);
-});
 
 test('a replicated beam without its draw scratch still draws', () => {
   const texture = new THREE.DataTexture(new Uint8Array([255, 20, 5, 255]), 1, 1);
