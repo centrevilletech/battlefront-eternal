@@ -23,7 +23,9 @@
 //
 // Start Vite separately (or set AUDIO_TEST_URL). Set PLAYWRIGHT_MODULE to an
 // installed Playwright module if it isn't in this project's node path.
-// env: VOICES (24), SECONDS (3), PAGES (6), SEEDS (5)
+// env: VOICES (24), SECONDS (3), PAGES (6), SEEDS (5); MASTER=1 renders the
+// engine's side with its master chain in the module too (?master=rust), and
+// BEDS=1 adds a battle's three stream beds to the scene on both sides.
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.env.AUDIO_TEST_URL || "http://127.0.0.1:18449";
 const VOICES = +(process.env.VOICES || 24);
@@ -31,6 +33,8 @@ const SECONDS = +(process.env.SECONDS || 3);
 const PAGES = Math.max(2, +(process.env.PAGES || 6));
 const SEEDS = Math.max(1, +(process.env.SEEDS || 5));
 const LIMIT_DB = -96;
+const MASTER = Boolean(process.env.MASTER);
+const BEDS = Boolean(process.env.BEDS);
 
 // One render of the scene in a fresh page: `quality` enhanced (reverb on) or
 // original (on stereo: the light mix); `engine` the voice engine (the
@@ -43,9 +47,9 @@ async function render(browser, quality, engine, sceneSeed) {
     if (m.type() === "error" && !m.location()?.url?.includes("/audio/hrtf/")) errors.push(m.text());
   });
   await page.route("**/__engine-gate__*", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><body></body>" }));
-  await page.goto(`${base}/__engine-gate__${engine ? "" : "?voices=native"}`);
+  await page.goto(`${base}/__engine-gate__${engine ? (MASTER ? "?master=rust" : "") : "?voices=native"}`);
   const result = await page.evaluate(
-    async ({ voices, seconds, quality, sceneSeed }) => {
+    async ({ voices, seconds, quality, sceneSeed, beds }) => {
       const { AudioEngine } = await import("/src/audio/engine.js");
       const { SoundData } = await import("/src/audio/data.js");
       const RATE = 48000;
@@ -85,6 +89,20 @@ async function render(browser, quality, engine, sceneSeed) {
         const r = 5 + ((i * 13) % 90);
         engine.play(name(i), { position: { x: r * Math.sin(a), y: 0, z: r * Math.cos(a) }, loop: true, category: "ambience" });
       }
+      // Ambience, music and a voice-over line, each through a stream's gain.
+      for (const [count, kind, freq] of beds ? [[4, "ambience", 90], [2, "music", 180], [1, "voice", 400]] : []) {
+        const buffer = ctx.createBuffer(count, RATE * seconds, RATE);
+        for (let c = 0; c < count; c++) {
+          const d = buffer.getChannelData(c);
+          for (let i = 0; i < d.length; i++) d[i] = 0.1 * Math.sin((2 * Math.PI * freq * (c + 1) * i) / RATE + sceneSeed + c) + 0.02 * rand();
+        }
+        const gain = ctx.createGain();
+        gain.gain.value = 0.6;
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(engine.renderer.bed(count, gain, kind).input);
+        source.start();
+      }
       // Each frame's messages reach the worklet before its block renders.
       const port = engine.renderer.mixer?.port;
       const waits = new Map();
@@ -110,9 +128,9 @@ async function render(browser, quality, engine, sceneSeed) {
       }
       await sync();
       const out = await ctx.startRendering();
-      return { channels: [Array.from(out.getChannelData(0)), Array.from(out.getChannelData(1))], engine: engine.renderer.engine, light: engine.renderer.light };
+      return { channels: [Array.from(out.getChannelData(0)), Array.from(out.getChannelData(1))], engine: engine.renderer.engine, master: engine.renderer.master, light: engine.renderer.light };
     },
-    { voices: VOICES, seconds: SECONDS, quality, sceneSeed },
+    { voices: VOICES, seconds: SECONDS, quality, sceneSeed, beds: BEDS },
   );
   await page.close();
   if (errors.length) throw new Error(errors.join("\n"));
@@ -152,7 +170,7 @@ try {
       const natives = [];
       for (let p = 0; p < PAGES; p++) natives.push(await render(browser, quality, false, seed));
       const engine = await render(browser, quality, true, seed);
-      if (!engine.engine || natives.some((n) => n.engine) || engine.light !== (quality === "original")) throw new Error(`${label}: the engine did not engage as asked`);
+      if (!engine.engine || natives.some((n) => n.engine) || engine.light !== (quality === "original") || engine.master !== (MASTER && quality === "enhanced")) throw new Error(`${label}: the engine did not engage as asked`);
       const all = [];
       for (let i = 0; i < natives.length; i++) for (let j = i + 1; j < natives.length; j++) all.push(largest(natives[i], natives[j]));
       const offs = natives.map((n) => largest(engine, n));
