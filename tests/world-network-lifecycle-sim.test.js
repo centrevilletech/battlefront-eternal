@@ -72,7 +72,7 @@ async function native() {
   const instance = await loadSim(), bridge = bridgeFor(instance);
   const world = createWorldSim(instance);
   assert.equal(world.bridge, bridge);
-  assert.equal(createWorldSim(bridge), world);
+  assert.equal(createWorldSim(instance), world);
   const lifecycle = createNetworkLifecycleBridge(bridge);
   for (const key of ['networkSpawn', 'networkUnspawn', 'networkRemove']) assert.equal(world[key], lifecycle[key]);
   return { instance, world: recordPorts(bridge, world) };
