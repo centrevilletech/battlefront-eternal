@@ -23,12 +23,12 @@ import {PlayoutClock} from '../src/runtime/playout.js';
 import {SnapshotInterval} from '../src/runtime/snapshot-interval.js';
 import {InputLead,advanceInputClock,replayTicks,CorrectionSmoother} from '../src/runtime/reconcile.js';
 
-export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=null,rays=null,start=[0,0,0],yaw=0,quantized=false,lossEvery=0,snapshotLossEvery=0}={}) {
+export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=null,rays=null,start=[0,0,0],yaw=0,quantized=false,lossEvery=0,snapshotLossEvery=0,native=null,observe=null}={}) {
  world??=new CollisionWorld(new Float32Array([-100,0,-100,100,0,-100,100,0,100,-100,0,100]),new Uint32Array([0,2,1,0,3,2]),new Uint32Array([0,1]),undefined,undefined,rays);
  if(world.rays&&!world.movement)world.movement=new MovementKernel(world);
  const digest=createHash('sha1'),ticked=new Float64Array(6);
  const server=new Soldier(world,{}),local=new Soldier(world,{});server.spawn(...start,yaw);local.spawn(...start,yaw);
- const mailbox=new InputMailbox(),input=new FixedClock(),lead=new InputLead({maxLead:24,extrapolate:true,recover:true}),playout=new PlayoutClock({minDelay:6,maxDelay:18}),interval=new SnapshotInterval(),presentation=new SoldierPresentation(local),smoother=new CorrectionSmoother();
+ const mailbox=new InputMailbox(),input=new FixedClock(),lead=new InputLead({maxLead:24,extrapolate:true,recover:true},{native}),playout=new PlayoutClock({minDelay:6,maxDelay:18}),interval=new SnapshotInterval(),presentation=new SoldierPresentation(local),smoother=new CorrectionSmoother({},{native});
  const toServer=[],toClient=[],packets=[],corrections=[],late=[],stampAhead=[];
  let saved;
  let pending=[],held=[],latest=0,applied=0,sequence=0,predicted=false,predictedTick=0,predictedPosition=local.position.clone(),firstCommand=0,firstVisible=null,firstAck=null,firstConsumed=null,serverTick=0;
@@ -36,7 +36,7 @@ export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=
  const transit=(id,direction)=>rttMs/2000+(((id*17+direction*11)%31)/30-.5)*jitterMs/1000;
  const move=now=>presses.some(at=>now>=at&&now<at+.5);
  const queue=(list,item)=>{list.push(item);list.sort((a,b)=>a.at-b.at);};
- const physics=(soldier,command)=>{soldier.tick({forward:command.down.includes('KeyW')?1:0,right:0,turn:0,jump:false,crouch:false,prone:false},1/60);ticked.set([...soldier.position.toArray(),...soldier.velocity.toArray()]);digest.update(ticked);};
+ const physics=(soldier,command)=>{soldier.tick({forward:command.down.includes('KeyW')?1:0,right:0,turn:0,jump:false,crouch:false,prone:false},1/60);ticked.set([...soldier.position.toArray(),...soldier.velocity.toArray()]);digest.update(ticked);observe?.('physics',soldier,command);};
  for(let micro=1;micro<=seconds*7200;micro++) {
   const now=micro/7200;
   while(toServer.length&&toServer[0].at<=now+1e-10)mailbox.push(toServer.shift().command);
@@ -56,6 +56,7 @@ export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=
   advanceInputClock(input,target,dt,(_h,tick)=>{
    const command={epoch:1,generation:1,sequence:++sequence,tick,down:move(now)?['KeyW']:[],actions:[],look:[]};
    pending.push(command);batch.push(command);if(now>=1&&command.down.length&&!firstCommand)firstCommand=command.sequence;
+   observe?.('command',command,now);
    if(now>=1)stampAhead.push(tick-serverTick);
   },target+7,{lock:.9});
   if(batch.length&&(!lossEvery||sequence%lossEvery))queue(toServer,{at:now+transit(sequence,0),command:batch.at(-1)});

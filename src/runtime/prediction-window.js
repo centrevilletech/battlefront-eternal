@@ -2,8 +2,13 @@
 // A locally simulated checkpoint continues through a downstream blackout. A
 // fresh authoritative state replaces it; a snapshot older than the retained
 // replay window cannot rewind it using an incomplete command history.
+const nativeWindows = new WeakMap();
 export class PredictionWindow {
-  constructor(limit = 120) { this.limit = limit; this.reset(); }
+  constructor(limit = 120, { native = null } = {}) {
+    this.limit = limit;
+    if (native) nativeWindows.set(this, native);
+    this.reset();
+  }
   reset() { this.checkpoint = null; }
   // `exact(checkpoint)`: whether the new authoritative state is the one the
   // checkpoint's prediction reached for its tick; the checkpoint then goes on
@@ -11,13 +16,19 @@ export class PredictionWindow {
   select({ source, identity, epoch, generation, authorityTick, pending, held }, exact = null) {
     const c = this.checkpoint;
     const sameLife = c && c.source === source && c.identity === identity && c.epoch === epoch && c.generation === generation;
-    let checkpoint = sameLife && (authorityTick === c.authorityTick || authorityTick < c.tick - this.limit) ? c : null;
-    if (!checkpoint && sameLife && authorityTick > c.authorityTick && authorityTick <= c.tick && exact?.(c)) { c.authorityTick = authorityTick; checkpoint = c; }
+    const native = nativeWindows.get(this), decision = native?.windowDecision(this, c, sameLife, authorityTick);
+    let checkpoint, compare;
+    if (decision) { checkpoint = decision.mode === 1 ? c : null; compare = decision.mode === 2; }
+    else {
+      checkpoint = sameLife && (authorityTick === c.authorityTick || authorityTick < c.tick - this.limit) ? c : null;
+      compare = !checkpoint && sameLife && authorityTick > c.authorityTick && authorityTick <= c.tick;
+    }
+    if (compare && exact?.(c)) { c.authorityTick = authorityTick; checkpoint = c; }
     if (!checkpoint) this.reset();
     return {
       checkpoint, from: checkpoint?.tick ?? authorityTick,
       held: checkpoint?.held ?? held,
-      commands: checkpoint ? pending.filter(command => command.sequence > checkpoint.sequence) : pending,
+      commands: checkpoint ? native?.filterCommands(pending, checkpoint) ?? pending.filter(command => command.sequence > checkpoint.sequence) : pending,
     };
   }
   save({ source, identity, epoch, generation, authorityTick, tick, commands, held, state }) {
@@ -38,6 +49,8 @@ export function resetPredictionIdentity(client) {
   client.held = []; client.heldGeneration = 0;
 }
 
-export function retainPredictionCommands(commands, tick, generation, epoch, limit = 120) {
+export function retainPredictionCommands(commands, tick, generation, epoch, limit = 120, { native = null } = {}) {
+  const retained = native?.retainCommands(commands, tick, generation, epoch, limit);
+  if (retained) return retained;
   return commands.filter(command => command.generation === generation && command.epoch === epoch && command.tick > tick - limit).slice(-limit);
 }
