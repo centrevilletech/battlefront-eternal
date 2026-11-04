@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiTrackerOp_NAMES = ["start","candidate","target","relation","reset","countdown","refresh","cost"];
+export const AiTrackerOp_NAMES = ["start","candidate","target","relation","reset","countdown","refresh","cost","controller","fireStart","setTarget","weaponLead","facing","near","clearShot","writeFire","select","updateReady","dispatch","assign","fire","pointNear"];
 export const AiTrackerOp_INDEX = new Map(AiTrackerOp_NAMES.map((name, i) => [name, i]));
 
 export class AiTrackerArgsMirror {

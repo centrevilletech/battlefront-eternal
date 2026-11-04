@@ -61,3 +61,43 @@ pub extern "C" fn ai_tracker_select(id: u32) -> u32 {
     else {state().trackers[id as usize].data.fresh=false;}
     (before!=resolve(Op::Target)) as u32
 }
+
+#[no_mangle]
+pub extern "C" fn ai_tracker_operation(id: u32,op: u32) -> u32 {
+    match op {
+        0=>{
+            call(Op::Controller,0,0.0);
+            let target=resolve(Op::Target);
+            let memory=!state().trackers[id as usize].data.fresh && target!=0;
+            call(Op::SetTarget,if memory {0} else {target},0.0);
+            memory as u32
+        }
+        1=>{
+            let target=resolve(Op::Target);
+            if target==0 {0} else {call(Op::PointNear,target,0.0).number as u32}
+        }
+        2=>{
+            let unit=call(Op::FireStart,0,0.0).number as u32;
+            let target=resolve(Op::Target);
+            let mut a=0.0;
+            let mut b=0;
+            if target!=0 && unit!=0 {
+                if state().trackers[id as usize].data.fresh {b=1;}
+                else if call(Op::WeaponLead,0,0.0).number!=0.0 && call(Op::Facing,0,0.0).number!=0.0 && call(Op::Near,0,0.0).number!=0.0 {
+                    a=call(Op::ClearShot,target,0.0).number;
+                }
+            }
+            call(Op::WriteFire,b,a);0
+        }
+        3=>{
+            call(Op::Select,0,0.0);
+            let target=resolve(Op::Target);
+            // The controller is read after select, including when the
+            // target is absent and the dispatch condition short-circuits.
+            call(Op::Controller,0,0.0);
+            if target!=0 && call(Op::UpdateReady,0,0.0).number!=0.0 {call(Op::Dispatch,target,0.0);}
+            call(Op::Assign,0,0.0);call(Op::Fire,0,0.0);0
+        }
+        _=>panic!("invalid target operation"),
+    }
+}

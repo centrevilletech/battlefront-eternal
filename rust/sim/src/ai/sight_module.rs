@@ -4,7 +4,7 @@
 use super::module::state;
 use crate::{abi::sim, gen::{import_ai_sight,AiSightArgs,AiSightOp as Op,AiSightResult},store::word_u32};
 use three::Vector3;
-use super::combat::{math::{f, FLT_MAX}, perception::{cone_distance_points, matchup_priority, posture_radius, raw_cost_points, LOCAL_SENTINEL, OBJECTIVE_PRIORITY, SCAN_CAPACITY, TOWED_PRIORITY}};
+use super::combat::{math::{f, length_sq32, FLT_MAX}, perception::{cone_distance_points, matchup_priority, posture_radius, raw_cost_points, LOCAL_SENTINEL, OBJECTIVE_PRIORITY, SCAN_CAPACITY, TOWED_PRIORITY}};
 
 fn call(op: Op,id: u32) -> AiSightResult {import_ai_sight(&AiSightArgs {op,id,..Default::default()})}
 
@@ -46,13 +46,19 @@ fn candidate_live() -> bool {
     v[0]!=0.0 && same_generation(v[1],v[2],v[3],v[4])
 }
 
-fn sight_test() {
+fn sight_point() -> [f64;3] {
     let target=call(Op::TargetPoint,0);
     let mut point=target.point;
     if target.flag {
         let eye=call(Op::TargetOrigin,0).point;
         for axis in 0..3 {point[axis]=v8math::fround(v8math::fround(eye[axis]+point[axis])*0.5);}
     }
+    import_ai_sight(&AiSightArgs {op:Op::SamplePoint,id:0,from:[0.0;3],point});
+    point
+}
+
+fn sight_test() {
+    let point=sight_point();
     let from=call(Op::ShooterOrigin,0).point;
     let answer=import_ai_sight(&AiSightArgs {op:Op::Los,id:0,from,point});
     if answer.flag {
@@ -60,6 +66,13 @@ fn sight_test() {
         // source does. Preserve a write to that object before publication.
         import_ai_sight(&AiSightArgs {op:Op::Record,id:0,from:[0.0;3],point:answer.point});
     }
+}
+
+#[no_mangle]
+pub extern "C" fn ai_sight_near(id: u32) -> u32 {
+    let at=sight_point();
+    let p=state().trackers[id as usize].data.point;
+    (length_sq32(f(p.x-at[0]),f(p.y-at[1]),f(p.z-at[2]))<9.0) as u32
 }
 
 #[no_mangle]

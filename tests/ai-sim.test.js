@@ -313,6 +313,63 @@ test('native target memory preserves retention, identities and state visible to 
   }
 });
 
+test('native tracker firing keeps remembered points, public callbacks and weapon targets', async () => {
+  const {sim}=await pair();
+  const ref=r=>r&&[r.unit.id,r.generation];
+  function fixture(native) {
+    const world={time:0,tick:0,history:[]};let tracker;
+    const weapon={channel:0,def:{base:'rifle',ordnance:{base:'bolt',Velocity:500},ai:{maxRange:100,implicitRange:false,extremeRange:100}}};
+    const arsenal={weapons:[weapon],current(){world.history.push(['weapon']);return world.tick%9===0?null:weapon;}};
+    const unit={id:100,alive:true,generation:0,kind:0,team:1,classDef:{},soldier:{zoomed:false},combat:{arsenal},
+      origin(out){world.history.push(['eye']);out.set(0,1.7,0);},forward(out){world.history.push(['forward']);out.set(0,0,1);}};
+    const controller={unit,fireA:false,fireB:false,target:null};
+    const p=controller.perception=new Perception(controller);p.aimer.reset(new Vector3(0,0,1));if(native)sim.bindPerception(p);
+    tracker=new TargetTracker(controller);if(native)sim.bindTracker(tracker);
+    const targets=Array.from({length:4},(_,id)=>({id,alive:true,generation:0,kind:0,team:2,category:0,position:new Vector3(0,0,20+id),
+      origin(out){world.history.push(['target-eye',id]);out.copy(this.position);out.y+=1.7;},
+      aimPoint(out){world.history.push(['target-aim',id]);out.copy(this.position);out.y+=1;},
+    }));
+    const snapshot=()=>({ref:ref(tracker.ref),fresh:tracker.fresh,point:tracker.point.toArray(),cost:tracker.cost,
+      counting:tracker.counting,deadline:tracker.deadline,fire:[controller.fireA,controller.fireB],target:ref(controller.target),weaponTarget:ref(p.fire.weaponTarget)});
+    for(const key of ['select','assignWeaponTarget','fireControls','pointNearTarget']) {
+      const method=tracker[key];tracker[key]=function(...args){world.history.push(['method',key,snapshot()]);return method.apply(this,args);};
+    }
+    world.units={relation(a,b){world.history.push(['relation',a,b]);return a===b?1:-1;}};
+    world.los=(from,to,owner,target)=>{
+      assert.equal(to,tracker.point);assert.equal(owner,unit);
+      world.history.push(['los',from.toArray(),to.toArray(),target.id,snapshot()]);
+      if(native){sim.words(new Array(10000).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}
+      if(world.tick%11===0)to.x+=.25;
+      return world.tick%7!==0;
+    };
+    const dispatch=(c,u,t,allowed,w)=>{
+      assert.equal(c,controller);assert.equal(u,unit);assert.equal(w,world);
+      world.history.push(['dispatch',t.id,allowed,snapshot()]);
+      if(world.tick%13===0)tracker.fresh=false;
+    };
+    return {world,unit,controller,p,tracker,targets,dispatch,snapshot};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<768;i++) {
+    for(const x of [j,n]) {
+      x.world.tick=i;x.world.time=i*.1;x.world.history.length=0;
+      const target=x.targets[i%4];
+      for(const t of x.targets) {t.alive=(i+t.id)%37!==0;t.generation=Math.floor(i/41);t.position.z=20+t.id+(i%7===0?4:0);}
+      x.tracker.reset(target);x.tracker.fresh=i%5===0;x.tracker.point.set(0,1.35,20+target.id);
+      x.p.candidate=i%3===0?{unit:target,generation:target.generation}:null;x.p.candidatePoint.copy(x.tracker.point);
+      let result;
+      if(i%4===0)result=x.tracker.update(x.world,x.dispatch);
+      else if(i%4===1)result=x.tracker.fireControls(x.world);
+      else if(i%4===2)result=x.tracker.assignWeaponTarget(x.world);
+      else result=x.tracker.pointNearTarget();
+      x.result=result===x.tracker.point?'point':result;
+    }
+    assert.equal(n.result,j.result,`fire result ${i}`);
+    assert.deepEqual(n.world.history,j.world.history,`fire callbacks ${i}`);
+    assert.deepEqual(n.snapshot(),j.snapshot(),`fire tracker ${i}`);
+  }
+});
+
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {
   const {sim}=await pair();
   function fixture(native) {

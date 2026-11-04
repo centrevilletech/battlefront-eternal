@@ -14,10 +14,24 @@ pub enum AiTrackerOp {
     Countdown = 5,
     Refresh = 6,
     Cost = 7,
+    Controller = 8,
+    FireStart = 9,
+    SetTarget = 10,
+    WeaponLead = 11,
+    Facing = 12,
+    Near = 13,
+    ClearShot = 14,
+    WriteFire = 15,
+    Select = 16,
+    UpdateReady = 17,
+    Dispatch = 18,
+    Assign = 19,
+    Fire = 20,
+    PointNear = 21,
 }
 
 impl AiTrackerOp {
-    pub const NAMES: [&'static str; 8] = ["start", "candidate", "target", "relation", "reset", "countdown", "refresh", "cost"];
+    pub const NAMES: [&'static str; 22] = ["start", "candidate", "target", "relation", "reset", "countdown", "refresh", "cost", "controller", "fireStart", "setTarget", "weaponLead", "facing", "near", "clearShot", "writeFire", "select", "updateReady", "dispatch", "assign", "fire", "pointNear"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -29,6 +43,20 @@ impl AiTrackerOp {
             5 => Some(AiTrackerOp::Countdown),
             6 => Some(AiTrackerOp::Refresh),
             7 => Some(AiTrackerOp::Cost),
+            8 => Some(AiTrackerOp::Controller),
+            9 => Some(AiTrackerOp::FireStart),
+            10 => Some(AiTrackerOp::SetTarget),
+            11 => Some(AiTrackerOp::WeaponLead),
+            12 => Some(AiTrackerOp::Facing),
+            13 => Some(AiTrackerOp::Near),
+            14 => Some(AiTrackerOp::ClearShot),
+            15 => Some(AiTrackerOp::WriteFire),
+            16 => Some(AiTrackerOp::Select),
+            17 => Some(AiTrackerOp::UpdateReady),
+            18 => Some(AiTrackerOp::Dispatch),
+            19 => Some(AiTrackerOp::Assign),
+            20 => Some(AiTrackerOp::Fire),
+            21 => Some(AiTrackerOp::PointNear),
             _ => None,
         }
     }

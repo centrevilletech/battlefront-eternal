@@ -37,10 +37,11 @@ pub enum AiSightOp {
     ScanDispatch = 28,
     ScanPriority = 29,
     ScanInsert = 30,
+    SamplePoint = 31,
 }
 
 impl AiSightOp {
-    pub const NAMES: [&'static str; 31] = ["cluster", "time", "query", "relation", "kind", "clearScratch", "hasRequest", "pop", "candidate", "keep", "swap", "targetPoint", "targetOrigin", "shooterOrigin", "los", "record", "scanReady", "scanClear", "scanShared", "scanRange", "scanOrigin", "scanQuery", "scanTarget", "scanRelation", "scanCollision", "scanForward", "scanAim", "scanBounds", "scanDispatch", "scanPriority", "scanInsert"];
+    pub const NAMES: [&'static str; 32] = ["cluster", "time", "query", "relation", "kind", "clearScratch", "hasRequest", "pop", "candidate", "keep", "swap", "targetPoint", "targetOrigin", "shooterOrigin", "los", "record", "scanReady", "scanClear", "scanShared", "scanRange", "scanOrigin", "scanQuery", "scanTarget", "scanRelation", "scanCollision", "scanForward", "scanAim", "scanBounds", "scanDispatch", "scanPriority", "scanInsert", "samplePoint"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -75,6 +76,7 @@ impl AiSightOp {
             28 => Some(AiSightOp::ScanDispatch),
             29 => Some(AiSightOp::ScanPriority),
             30 => Some(AiSightOp::ScanInsert),
+            31 => Some(AiSightOp::SamplePoint),
             _ => None,
         }
     }

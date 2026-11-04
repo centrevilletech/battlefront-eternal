@@ -5,8 +5,9 @@ import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
-import { bindClusterState, maxExpandedRange, peekClusterState } from './ai/classic/weapons-ai.js';
+import { bindClusterState, facingAndRange, maxExpandedRange, peekClusterState, selectedWeapon, setTarget } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
+import { dropCorrect } from './ai/classic/aim.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -44,6 +45,7 @@ export class AiSim {
     this.sightPoint=new Vector3();this.sightEye=new Vector3();this.sightTargetEye=new Vector3();
     this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();
     this.trackers=new WeakMap();this.trackerFrames=[];
+    this.trackerLead=new Vector3();
     bridge.register({aiSight:args=>{
       const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
       const from=new Vector3(...args.from),point=new Vector3(...args.point);
@@ -77,15 +79,15 @@ export class AiSim {
       else if(op==='keep') frame.to.insert(frame.priority,frame.request);
       else if(op==='swap') {frame.los.active=frame.to;frame.los.scratch=frame.from;}
       else if(op==='targetPoint') {
-        frame.unit=frame.request.controller.unit;frame.target=frame.request.target.unit;
+        if(frame.request) {frame.unit=frame.request.controller.unit;frame.target=frame.request.target.unit;}
         frame.target.aimPoint(this.sightPoint);result.point=this.sightPoint.toArray();result.flag=typeof frame.target.origin==='function';
       }
       else if(op==='targetOrigin') {frame.target.origin(this.sightTargetEye);result.point=this.sightTargetEye.toArray();}
       else if(op==='shooterOrigin') {frame.unit.origin(this.sightEye);result.point=this.sightEye.toArray();}
       else if(op==='los') {
-        this.sightEye.copy(from);this.sightPoint.copy(point);
         result.flag=Boolean(world.los(this.sightEye,this.sightPoint,frame.unit,frame.target));result.point=this.sightPoint.toArray();
       }
+      else if(op==='samplePoint') this.sightPoint.copy(point);
       else if(op==='record') recordTarget(frame.request.controller,frame.target,point,world);
       else if(op==='scanReady') result.flag=Boolean(frame.unit?.alive && frame.perception);
       else if(op==='scanClear') frame.perception.heap.clear();
@@ -128,7 +130,7 @@ export class AiSim {
       const op=args.op,object=this.objects[args.id],number=args.number,frame=this.trackerFrames[this.trackerFrames.length-1];
       const t=frame.tracker,result={number:0,values:[]};
       if(op==='start') {
-        frame.unit=t.controller.unit;const now=frame.world.time??0;frame.perception=t.controller.perception;
+        frame.controller=t.controller;frame.unit=frame.controller.unit;const now=frame.world.time??0;frame.perception=frame.controller.perception;
         result.values=[this.id(frame.unit),now];
       } else if(op==='candidate' || op==='target') {
         const r=op==='candidate'?frame.perception?.candidate:t.ref,u=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
@@ -139,7 +141,29 @@ export class AiSim {
       else if(op==='refresh') t.refresh(object,frame.perception.candidatePoint,number);
       else if(op==='cost') {
         const unit=frame.refresh?t.controller.unit:frame.unit;
-        result.number=frame.refresh && (!unit || !object)?10000:this.rawCost(t.controller,unit,object);
+        result.number=frame.refresh && (!unit || !object)?10000:this.rawCost(frame.refresh?t.controller:frame.controller,unit,object);
+      } else if(op==='controller') frame.controller=t.controller;
+      else if(op==='fireStart') {frame.controller=t.controller;frame.unit=frame.controller.unit;result.number=this.id(frame.unit);}
+      else if(op==='setTarget') setTarget(frame.controller,frame.controller.unit,object,frame.world);
+      else if(op==='weaponLead') {
+        const weapon=selectedWeapon(frame.unit,frame.controller);
+        if(weapon)dropCorrect(t.point,frame.unit,weapon,this.trackerLead);else this.trackerLead.copy(t.point);
+        result.number=Number(Boolean(weapon));
+      } else if(op==='facing') result.number=Number(Boolean(facingAndRange(frame.controller,frame.unit,this.trackerLead,t.point)));
+      else if(op==='near') result.number=Number(Boolean(t.pointNearTarget()));
+      else if(op==='clearShot') {
+        frame.unit.origin(this.sightEye);
+        result.number=Number(Boolean(frame.world.los(this.sightEye,t.point,frame.unit,object)));
+      } else if(op==='writeFire') {frame.controller.fireA=Boolean(number);frame.controller.fireB=Boolean(args.id);}
+      else if(op==='select') t.select(frame.world);
+      else if(op==='updateReady') result.number=Number(Boolean(frame.controller.unit?.combat?.arsenal?.weapons?.length));
+      else if(op==='dispatch') frame.dispatch?.(frame.controller,frame.controller.unit,object,true,frame.world);
+      else if(op==='assign') t.assignWeaponTarget(frame.world);
+      else if(op==='fire') t.fireControls(frame.world);
+      else if(op==='pointNear') {
+        this.sightFrames.push({target:object});
+        try {result.number=this.x.ai_sight_near(frame.id);}
+        finally {this.sightFrames.pop();}
       } else throw Error(`unknown target tracker callback ${op}`);
       return result;
     }});
@@ -302,6 +326,11 @@ export class AiSim {
     try {this.x.ai_tracker_transition(id,op,number,now);}
     finally {this.trackerFrames.pop();}
   }
+  targetOperation(id,tracker,op,world,dispatch) {
+    this.trackerFrames.push({id,tracker,world,dispatch});
+    try {return this.x.ai_tracker_operation(id,op);}
+    finally {this.trackerFrames.pop();}
+  }
   cluster(target,create=false) {
     const owner=target?.controller??target;
     if(!owner)return null;
@@ -361,6 +390,10 @@ class NativeTrackerFields {
     tracker.setDelay=(seconds,now)=>sim.transitionTarget(id,tracker,0,seconds,now);
     tracker.freeze=(on,now)=>sim.transitionTarget(id,tracker,1,Number(Boolean(on)),now);
     tracker.select=world=>sim.selectTarget(id,tracker,world);
+    tracker.assignWeaponTarget=world=>sim.targetOperation(id,tracker,0,world)?tracker.point:null;
+    tracker.pointNearTarget=()=>Boolean(sim.targetOperation(id,tracker,1));
+    tracker.fireControls=world=>{sim.targetOperation(id,tracker,2,world);};
+    tracker.update=(world,dispatch)=>{sim.targetOperation(id,tracker,3,world,dispatch);};
   }
 }
 
