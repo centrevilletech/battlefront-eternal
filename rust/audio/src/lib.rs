@@ -15,7 +15,8 @@
 //! itself, and WebAssembly has none unless asked for. What is left is
 //! sin, cos, tan, asin, atan2, exp, pow and log10, whose last bit is the
 //! math library's: this module imports them from its host, so in the
-//! browser they are V8's own, the ones the JavaScript calls. A native
+//! browser they are V8's own, the ones the JavaScript calls (log10 and
+//! powers of 10 also a block's worth at a call, for the compressor). A native
 //! host gives its own (here, the standard library's), whose last bit may
 //! differ; nothing else about a native build changes. Math.min and
 //! Math.max are `js_min` and `js_max` below, which keep JavaScript's
@@ -128,6 +129,8 @@ pub mod host {
             pub fn js_exp(x: f64) -> f64;
             pub fn js_pow(x: f64, y: f64) -> f64;
             pub fn js_log10(x: f64) -> f64;
+            pub fn js_log10s(at: *mut f64, n: u32);
+            pub fn js_pow10s(at: *mut f64, n: u32);
         }
     }
 
@@ -187,6 +190,26 @@ pub mod host {
         unsafe { ffi::js_log10(x) }
         #[cfg(not(target_arch = "wasm32"))]
         x.log10()
+    }
+    /// Each value's log10 in place, in one call out of the module.
+    #[inline(always)]
+    pub fn log10_each(v: &mut [f64]) {
+        #[cfg(target_arch = "wasm32")]
+        unsafe { ffi::js_log10s(v.as_mut_ptr(), v.len() as u32) }
+        #[cfg(not(target_arch = "wasm32"))]
+        for x in v {
+            *x = x.log10();
+        }
+    }
+    /// 10 to each value in place, in one call out of the module.
+    #[inline(always)]
+    pub fn pow10_each(v: &mut [f64]) {
+        #[cfg(target_arch = "wasm32")]
+        unsafe { ffi::js_pow10s(v.as_mut_ptr(), v.len() as u32) }
+        #[cfg(not(target_arch = "wasm32"))]
+        for x in v {
+            *x = 10f64.powf(*x);
+        }
     }
 }
 

@@ -44,6 +44,15 @@ function loadProcessor(file, rate = RATE) {
 const math = {
   js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin,
   js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10,
+  // The compressor's, a block's worth at a call (as limiter.js gives them).
+  js_log10s: (at, n) => {
+    const a = new Float64Array(x.memory.buffer, at, n);
+    for (let i = 0; i < n; i++) a[i] = Math.log10(a[i]);
+  },
+  js_pow10s: (at, n) => {
+    const a = new Float64Array(x.memory.buffer, at, n);
+    for (let i = 0; i < n; i++) a[i] = Math.pow(10, a[i]);
+  },
 };
 const dsp = await WebAssembly.instantiate(Buffer.from(AUDIO_DSP_WASM, "base64"), { env: math });
 const x = dsp.instance.exports;
