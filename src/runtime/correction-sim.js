@@ -94,17 +94,19 @@ function byteInput(bytes, memory, sliced) {
   for (let i = 0; i < copy.length; i++) copy[i] = bytes[i];
   return { valid: 1, bytes: copy };
 }
-function reader(words) {
+function reader(bytes) {
   let at = 0;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const number = () => { const value = view.getFloat64(at, true); at += 8; return value; };
   return {
-    number: () => words[at++],
-    numbers(value, keys) { for (const key of keys) value[key] = words[at++]; },
-    vectors(value, keys, size = 3) { for (const key of keys) { value[key] = words.slice(at, at + size); at += size; } },
-    booleans(value, keys) { for (const key of keys) { const n = words[at++]; value[key] = n === 2 ? undefined : !!n; } },
-    enums(value, fields) { for (const [key, items] of Object.entries(fields)) value[key] = items[words[at++]]; },
+    number,
+    numbers(value, keys) { for (const key of keys) value[key] = number(); },
+    vectors(value, keys, size = 3) { for (const key of keys) value[key] = Array.from({ length: size }, number); },
+    booleans(value, keys) { for (const key of keys) { const n = number(); value[key] = n === 2 ? undefined : !!n; } },
+    enums(value, fields) { for (const [key, items] of Object.entries(fields)) value[key] = items[number()]; },
     seat() {
       const seat = {};
-      for (const key of seatFields) { const tag = words[at++], value = words[at++]; seat[key] = tag === 2 ? undefined : tag === 1 ? null : value; }
+      for (const key of seatFields) { const tag = number(), value = number(); seat[key] = tag === 2 ? undefined : tag === 1 ? null : value; }
       return seat;
     },
   };
@@ -125,12 +127,14 @@ export function createCorrectionBridge(bridge, { trace = null } = {}) {
     bridge.views(); bridge.f.set(words, ptr / 8);
     const ok = x.prediction_corrections_run(handle, op); calls++;
     bridge.views();
-    const at = x.prediction_corrections_output(handle) / 8;
-    const output = Array.from(bridge.f.subarray(at, at + x.prediction_corrections_output_len(handle)));
+    const at = x.prediction_corrections_output(handle), length = x.prediction_corrections_output_len(handle);
+    const output = new Uint8Array(x.memory.buffer, at, length * 8).slice();
     const error = ok ? null : new TextDecoder().decode(new Uint8Array(x.memory.buffer, x.prediction_corrections_error(handle), x.prediction_corrections_error_len(handle)));
-    // Copy and construct the result before a trace can reenter or grow memory.
+    // A packed Number array can quiet signaling NaNs. Read copied float bytes
+    // directly into fields, just as the original DataView reader does.
+    // Construct the result before a trace can reenter or grow memory.
     const result = ok ? unpack(reader(output)) : null;
-    if (trace) trace({ op, input: Array.from(words), output: output.slice(), error });
+    if (trace) trace({ op, input: Array.from(words), output: Array.from(new Float64Array(output.buffer)), error });
     if (!ok) throw Error(error);
     return result;
   }
