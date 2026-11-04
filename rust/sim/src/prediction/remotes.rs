@@ -1171,7 +1171,6 @@ pub struct Session {
     core: Option<Core>,
     job: Option<Job>,
     exchange: Rc<RefCell<Exchange>>,
-    error: Option<&'static str>,
 }
 impl Session {
     pub fn run(&mut self, op: u32) -> Result<(), &'static str> {
@@ -1271,45 +1270,6 @@ impl Session {
             }
         }
     }
-}
-
-#[no_mangle]
-pub extern "C" fn prediction_remotes_create() -> *mut Session {
-    Box::into_raw(Box::new(Session::default()))
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_remotes_drop(p: *mut Session) {
-    if !p.is_null() {
-        drop(Box::from_raw(p));
-    }
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_remotes_room(p: *mut Session, n: usize) -> *mut f64 {
-    let s = &mut *p;
-    s.input.resize(n, 0.0);
-    s.input.as_mut_ptr()
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_remotes_run(p: *mut Session, op: u32) -> u32 {
-    let s = &mut *p;
-    s.error = s.run(op).err();
-    s.error.is_none() as u32
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_remotes_output(p: *const Session) -> *const f64 {
-    (&*p).output.as_ptr()
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_remotes_output_len(p: *const Session) -> usize {
-    (&*p).output.len()
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_remotes_error(p: *const Session) -> *const u8 {
-    (&*p).error.unwrap_or("").as_ptr()
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_remotes_error_len(p: *const Session) -> usize {
-    (&*p).error.unwrap_or("").len()
 }
 
 impl Core {

@@ -6,7 +6,7 @@ use crate::collision::State;
 use crate::combat::defs::K;
 use crate::combat::weapons::{Arsenal, ShotKind};
 use crate::gen::{Air, ClientAction as Action, ClientCommand, ClientCrowd, ClientFrame,
-    ClientLook, ClientResult, ClientShot, ClientHeld, Droideka, Kick, MoveInput, Posture, Soldier, UnitBody, LastGun};
+    ClientLook, ClientResult, ClientShot, ClientMuzzles, ClientMount, ClientHeld, Droideka, Kick, MoveInput, Posture, Soldier, UnitBody, LastGun};
 use crate::movement::soldier::V3;
 use crate::prediction::{actors, corrections, weapons};
 use three::clamp;
@@ -58,6 +58,7 @@ pub struct ClientPrediction {
     held: u32,
     presented: f64,
     flags: Vec<u8>,
+    barrels: Vec<u32>,
     correction: Vec<u8>,
     notices: Vec<f64>,
     before: Vec<f64>,
@@ -78,6 +79,11 @@ impl ClientPrediction {
         self.arsenal.input.clear(); self.arsenal.input.extend_from_slice(input);
         self.arsenal.run(0)
     }
+    pub fn configure_muzzles(&mut self, input: &[f64]) -> Result<(), &'static str> {
+        if input.len() < ClientMuzzles::WORDS { return Err(INVALID); }
+        self.barrels = ClientMuzzles::take(input, &input[ClientMuzzles::WORDS..]).barrels;
+        Ok(())
+    }
     pub fn reset(&mut self) { self.life = None; }
 
     /// game.js replayPrediction: continuation selection, correction restore,
@@ -87,6 +93,7 @@ impl ClientPrediction {
         let frame = ClientFrame::take(words, &[]);
         if !frame.authority_tick.is_finite() || frame.authority_tick.fract() != 0.0
             || !frame.ignored.is_finite() || frame.ignored < -1.0 || frame.ignored.fract() != 0.0 { return Err(INVALID); }
+        if frame.mode == 1 { return self.predict_mounted(&frame, words); }
         let commands = span(words, frame.commands_at, frame.commands_count, ClientCommand::WORDS)?;
         let crowd = span(words, frame.crowd_at, frame.crowd_count, ClientCrowd::WORDS)?;
         let flags = span(words, frame.flags_at, frame.flags_count, 1)?;
@@ -111,9 +118,11 @@ impl ClientPrediction {
                 _ => return Err(INVALID),
             };
             self.correction.clear();
-            for &byte in span(words, frame.correction_at, frame.correction_bytes, 1)? {
-                if !byte.is_finite() || byte < 0.0 || byte > 255.0 || byte.fract() != 0.0 { return Err(INVALID); }
-                self.correction.push(byte as u8);
+            for &word in span(words, frame.correction_at, frame.correction_bytes.div_ceil(4), 1)? {
+                if !word.is_finite() || word < 0.0 || word > u32::MAX as f64 || word.fract() != 0.0 { return Err(INVALID); }
+                for byte in (word as u32).to_le_bytes() {
+                    if self.correction.len() < frame.correction_bytes as usize { self.correction.push(byte); }
+                }
             }
             restore(&mut self.actor.unit.soldier, &self.correction)?;
             self.actor.combat.kick = Kick { rate: frame.kick[0], hold: frame.kick[1], offset: frame.kick[2] };
@@ -126,6 +135,7 @@ impl ClientPrediction {
         if !same_life { self.presented = frame.authority_tick; }
         self.presented = self.presented.max(frame.authority_tick).max(frame.presented_through);
         self.life = Some(life); self.authority_tick = frame.authority_tick;
+        let mut cosmetic_slots = frame.cosmetic_slots;
         let from = self.tick;
         let after = if continued { self.sequence } else { -1.0 };
         let mut last = from;
@@ -225,6 +235,21 @@ impl ClientPrediction {
                         ShotKind::MeleeHit => notice.kind = 3,
                         ShotKind::MeleeEnd => notice.kind = 4,
                     }
+                    if cosmetic_slots > 0 && w.level(self.arsenal.defs.class(w.def)).cosmetic_round {
+                        cosmetic_slots -= 1;
+                        if let UnitBody::Droideka(d) = &mut self.actor.unit.soldier {
+                            // droideka.js nextVisualGun: cosmetic admission is a
+                            // frame fact; the shared checkpoint owns the cursor.
+                            let guns = self.barrels.len() as f64;
+                            if guns != 0.0 {
+                                let index = d.gun % guns;
+                                let barrels = self.barrels[index as usize].max(1) as f64;
+                                let selected = LastGun { index, barrel: (d.gun / guns).floor() % barrels };
+                                d.gun = (d.gun + 1.0) % (guns * 2.0);
+                                d.last_gun = Some(selected.clone()); notice.visual_gun = Some(selected);
+                            }
+                        }
+                    }
                     notice.actor_at = ClientShot::WORDS as u32;
                     append_record(&mut self.notices, ClientShot::WORDS, &notice, ClientShot::put);
                     append_actor(&mut self.notices, &self.actor.unit.soldier);
@@ -247,7 +272,12 @@ impl ClientPrediction {
         result.before_at = self.output.len() as u32; self.output.extend_from_slice(&self.before);
         capture(&self.actor.unit.soldier, &mut self.correction)?;
         result.correction_at = self.output.len() as u32; result.correction_bytes = self.correction.len() as u32;
-        self.output.extend(self.correction.iter().map(|&b| b as f64));
+        // Four unchanged correction bytes per numeric word, with zero padding.
+        // This avoids widening each byte to eight bytes at the phase boundary.
+        for bytes in self.correction.chunks(4) {
+            let mut packed = [0u8; 4]; packed[..bytes.len()].copy_from_slice(bytes);
+            self.output.push(u32::from_le_bytes(packed) as f64);
+        }
         // The final arsenal is the exact continuation, including seeded salvo
         // cursors, while the compact checkpoint keeps the existing wire format.
         result.weapons_at = self.output.len() as u32;
@@ -261,6 +291,55 @@ impl ClientPrediction {
         Ok(())
     }
 
+    /// MountedWeaponPrediction.predict: replay timers, ammunition, heat and
+    /// barrel progression without emitting authoritative rounds or callbacks.
+    fn predict_mounted(&mut self, frame: &ClientFrame, words: &[f64]) -> Result<(), &'static str> {
+        let commands = span(words, frame.commands_at, frame.commands_count, ClientCommand::WORDS)?;
+        let mounts = span(words, frame.mounts_at, frame.mounts_count, ClientMount::WORDS)?;
+        self.arsenal.input.clear();
+        self.arsenal.input.extend_from_slice(span(words, frame.weapons_at, frame.weapons_words, 1)?);
+        self.arsenal.run(1)?;
+        if self.arsenal.weapons.len() != frame.mounts_count as usize { return Err(INVALID); }
+        let mut last = frame.authority_tick;
+        let mut mine = false;
+        for row in commands.chunks_exact(ClientCommand::WORDS) {
+            let c = ClientCommand::take(row, &[]);
+            if c.generation == frame.generation { mine = true; last = last.max(c.tick); }
+        }
+        if mine && last == frame.authority_tick { last += 1.0; }
+        let mut held = frame.held;
+        let mut index = 0;
+        let mut result = ClientResult { tick: frame.authority_tick, ..ClientResult::default() };
+        let mut tick = frame.authority_tick + 1.0;
+        while mine && tick <= last {
+            let mut actions = 0;
+            while index < commands.len() / ClientCommand::WORDS {
+                let c = ClientCommand::take(&commands[index * ClientCommand::WORDS..], &[]);
+                if c.tick > tick { break; }
+                index += 1;
+                if c.generation != frame.generation { continue; }
+                actions |= c.actions;
+                if c.sent { held = c.held; }
+            }
+            self.arsenal.input.clear(); self.arsenal.input.push(frame.mounts_count as f64);
+            for (i, row) in mounts.chunks_exact(ClientMount::WORDS).enumerate() {
+                let m = ClientMount::take(row, &[]);
+                let pressed = action(actions, if i == 0 { Action::FirePrimary } else { Action::FireSecondary });
+                self.arsenal.input.extend([i as f64, i as f64, f64::from(m.advance), f64::from(m.tow),
+                    f64::from(pressed), f64::from(held & if i == 0 { PRIMARY } else { SECONDARY } != 0),
+                    f64::from(action(actions, Action::Reload))]);
+            }
+            self.arsenal.run(3)?;
+            result.tick = tick; result.ticks += 1; tick += 1.0;
+        }
+        self.output.clear(); self.output.resize(ClientResult::WORDS, 0.0);
+        result.weapons_at = self.output.len() as u32;
+        self.output.extend_from_slice(&self.arsenal.output);
+        result.weapons_words = self.arsenal.output.len() as u32;
+        result.shots_at = self.output.len() as u32;
+        result.put(&mut self.output, &mut Vec::new());
+        Ok(())
+    }
     fn zoom(&mut self) -> f64 {
         let a = Arsenal { weapons: &mut self.arsenal.weapons, selected: &mut self.arsenal.selected };
         let Some(i) = a.current(&self.arsenal.defs, 0) else { return 1.0 };
@@ -377,7 +456,7 @@ mod module {
         // Move the exchange buffer out, retaining its capacity across frames.
         let words = std::mem::take(&mut s.input);
         let result = match op { 0 => s.configure_actor(&words, crate::collision::state()), 1 => s.configure_weapon(&words),
-            2 => s.predict_session(&words, crate::collision::state()), 3 => { s.reset(); Ok(()) }, _ => Err(INVALID) };
+            2 => s.predict_session(&words, crate::collision::state()), 3 => { s.reset(); Ok(()) }, 4 => s.configure_muzzles(&words), _ => Err(INVALID) };
         s.input = words; s.error = result.err(); if s.error.is_some() { s.reset(); } u32::from(s.error.is_none())
     }
     /// The hot page boundary. Input storage is reserved separately when its

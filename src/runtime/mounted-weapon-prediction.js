@@ -1,15 +1,8 @@
-import { CommandControls } from './commands.js';
-import { replayTicks } from './reconcile.js';
 import { captureWeaponState, decodeWeaponState, applyValidatedWeaponState } from './network-weapon-state.js';
 
-const aim = Object.freeze({ stick: 0, posture: 'stand', zoomed: false });
-const cosmeticRandom = () => .5;
-
-// Replay eligibility through the shared Weapon rules. Returned shots are never
-// emitted: damage, projectiles, sounds, lock acquisition and admission stay on
-// the authority. Restore before applying a correction or changing the lease.
+// Capture and restore the authoritative mirror around one Rust mounted replay.
 export class MountedWeaponPrediction {
-  constructor({ native = null, replay = null } = {}) { this.saved = []; this.controls = new CommandControls(); this.tick = 0; this.native = native; this.nativeSession = null; this.replay = replay; }
+  constructor(session) { this.session = session; this.saved = []; this.tick = 0; }
   restore() {
     for (const entry of this.saved) {
       applyValidatedWeaponState(entry);
@@ -17,7 +10,6 @@ export class MountedWeaponPrediction {
     }
     this.saved.length = 0;
     this.tick = 0;
-    this.nativeSession?.dispose(); this.nativeSession = null;
   }
   dispose() { this.restore(); }
   predict(unit, pending, from, held, view) {
@@ -35,27 +27,7 @@ export class MountedWeaponPrediction {
       this.saved.push({ weapon, owner, barrel: owner.barrel, advancesBarrel: !vehicle || Boolean(entry.muzzles?.length), towHeld: Boolean(vehicle?.towHeld?.(entry)), state: decodeWeaponState(captureWeaponState(weapon)) });
     }
     try {
-      if (this.native) this.nativeSession = this.native.createMounted(this.saved);
-      this.tick = replayTicks(pending, from, unit.generation, held, (_tick, command) => {
-        this.controls.down.clear();
-        for (const key of command.down) this.controls.down.add(key);
-        for (let channel = 0; channel < this.saved.length; channel++) {
-          const { weapon, owner, advancesBarrel, towHeld } = this.saved[channel];
-          const action = channel ? 'fireSecondary' : 'firePrimary';
-          const pressed = !towHeld && command.actions.includes(action);
-          const random = weapon.random, admission = weapon.admitShot;
-          try {
-            weapon.random = cosmeticRandom;
-            weapon.admitShot = null;
-            const held = !towHeld && (pressed || this.controls.held(action)), reload = command.actions.includes('reload');
-            if (this.nativeSession) this.nativeSession.mounted(this.saved[channel], pressed, held, reload);
-            else {
-              const shots = weapon.update(1 / 60, true, { pressed, held }, reload, aim);
-              if (advancesBarrel) owner.barrel += shots.length;
-            }
-          } finally { weapon.random = random; weapon.admitShot = admission; }
-        }
-      }, view, { native: this.replay });
+      this.tick = this.session.mounted(unit, this.saved, pending, from, held);
       return this.tick;
     } catch (error) { this.restore(); throw error; }
   }

@@ -44,7 +44,7 @@ export default {
     // A weapon (src/weapons.js Weapon): its class's level now, its clip,
     // reserve, heat and kick, its trigger's timers, its salvo and throw,
     // its charge, and a launcher's lock.
-    Weapon: {
+    Weapon: { $layout: true,
       // Its class (the first of its levels; `def` is the level it is at).
       def: { type: 'def:weapon', js: 'levels.0', mirror: false },
       // Which of its levels (the class, then each charge level) it is at.

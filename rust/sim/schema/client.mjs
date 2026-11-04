@@ -1,16 +1,19 @@
 // Page prediction's flat frame blocks. Offsets are Float64 words relative to
-// the frame, so a retained command never contains a JavaScript reference.
+// the frame. Correction blocks pack four little-endian bytes per word.
+// A retained command never contains a JavaScript reference.
 export default {
   enums: { ClientHeld: ['forward', 'backward', 'right', 'left', 'turnRight', 'turnLeft', 'primary', 'secondary'],
     ClientAction: ['jump', 'crouch', 'prone', 'use', 'firePrimary', 'fireSecondary', 'reload', 'nextPrimary', 'previousPrimary', 'nextSecondary', 'zoom'] },
   records: {
+    ClientMount: { $layout: true, advance: 'bool', tow: 'bool' },
+    ClientMuzzles: { barrels: 'list:u32' },
     ClientFrame: { $layout: true,
       epoch: 'f64', identity: 'f64', generation: 'f64', source: 'f64', authorityTick: 'f64',
-      world: 'u32', ignored: 'f64', movement: 'bool', dead: 'bool', underwater: 'bool', shield: 'bool',
+      mode: 'u32', mountsAt: 'u32', mountsCount: 'u32', world: 'u32', ignored: 'f64', movement: 'bool', dead: 'bool', underwater: 'bool', shield: 'bool',
       actorAt: 'u32', actorWords: 'u32', correctionAt: 'u32', correctionBytes: 'u32',
       weaponsAt: 'u32', weaponsWords: 'u32', flagsAt: 'u32', flagsCount: 'u32',
       commandsAt: 'u32', commandsCount: 'u32', crowdAt: 'u32', crowdCount: 'u32',
-      held: 'u32', presentedThrough: 'f64', mouseScale: 'f64', invert: 'bool', kick: 'f64x3', checkTick: 'f64',
+      held: 'u32', presentedThrough: 'f64', cosmeticSlots: 'u32', mouseScale: 'f64', invert: 'bool', kick: 'f64x3', checkTick: 'f64',
     },
     ClientCommand: { $layout: true,
       tick: 'f64', generation: 'f64', sequence: 'f64', sent: 'bool', held: 'u32', actions: 'u32',
@@ -28,7 +31,7 @@ export default {
     ClientShot: { $layout: true,
       tick: 'f64', sequence: 'f64', press: 'f64', held: 'bool', button: 'u32', weapon: 'u32', level: 'f64',
       kind: 'u32', yaw: 'f64', pitch: 'f64', charge: 'f64', target: 'f64', targetGeneration: 'f64', swing: 'f64',
-      actorAt: 'u32',
+      actorAt: 'u32', visualGun: 'rec:LastGun|undefined',
     },
   },
 };

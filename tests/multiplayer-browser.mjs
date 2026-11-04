@@ -110,7 +110,6 @@ try {
     // CPU functionality mode skips GPU warmup as well as draw. Assets, the
     // actual scene, Controls, presentation and simulation still load normally.
     if (process.env.BFE_TEST_CPU === '1') query.set('loading', '0');
-    if (process.env.BFE_PREDICTION_SESSION === 'rust') query.set('predictionSession', 'rust');
     if (process.env.BFE_TEST_RELAY === 'always') query.set('relay', 'always');
     await page.goto(`${base}/?${query}`);
   }
@@ -119,7 +118,7 @@ try {
     window.__correctionEvents=[];window.__correctionStage='initial-load';
     for(const [kind,smoother]of [['infantry',__bf.client.smoother],['vehicle',__bf.client.vehicleSmoother]]){
       const note=smoother.note.bind(smoother);smoother.note=(...coordinates)=>{
-        const c=__bf.client,p=c.predictionWindow.checkpoint;
+        const c=__bf.client,p=null;
         const event={kind,stage:window.__correctionStage,generation:__bf.playerUnit.generation,tick:__bf.worldClock.tick,predicted:c.predictedTick,
           distance:Math.hypot(...coordinates.slice(0,3).map((v,i)=>v-coordinates[i+3])),coordinates,
           checkpoint:p?{generation:p.generation,tick:p.tick,authorityTick:p.authorityTick}:null,pendingFirst:c.pending[0]?.tick,pendingLast:c.pending.at(-1)?.tick,ackInput:c.ackInput,held:[...c.held],firstKeys:c.pending[0]?.down,lastKeys:c.pending.at(-1)?.down,firstSequence:c.pending[0]?.sequence,lastSequence:c.pending.at(-1)?.sequence};
@@ -129,12 +128,12 @@ try {
   })));
   const initial = await Promise.all(pages.map(page => page.evaluate(async cpu => { await __bf.ready; if(cpu){__bf.graphics.render=()=>{};__bf.graphics.renderer.render=()=>{};} __bf.begin(); return { id: __bf.playerUnit.id, tick: __bf.worldClock.tick, position: __bf.playerUnit.position.toArray() }; },process.env.BFE_TEST_CPU==='1')));
   console.log('connected', JSON.stringify(initial));
-  if (process.env.BFE_PREDICTION_SESSION === 'rust') {
+  {
     const sessions = await Promise.all(pages.map(page => page.evaluate(() => ({
-      enabled: __bf.predictionSession?.enabled, oldAdapters: Boolean(__bf.predictionSim),
+      live: Boolean(__bf.predictionSession && !__bf.predictionSession.disposed),
       calls: __bf.predictionSession?.counters.calls,
     }))));
-    assert.ok(sessions.every(s => s.enabled && !s.oldAdapters), 'both clients select the whole-session owner');
+    assert.ok(sessions.every(s => s.live), 'both clients select the whole-session owner');
     console.log('prediction-sessions', JSON.stringify(sessions));
   }
   if (process.env.BFE_TEST_SPLIT === '1') {
@@ -160,7 +159,7 @@ try {
     const {stationaryTurretGate}=await import('./multiplayer-stationary-gate.mjs');await stationaryTurretGate(pages);assert.deepEqual(errors,[]);
   } else if(process.env.BFE_TEST_MOUNTED_ONLY==='1'){
     const {mountedGameGate}=await import('./multiplayer-mounted-gate.mjs');await mountedGameGate(pages);assert.deepEqual(errors,[]);
-    if (process.env.BFE_PREDICTION_SESSION === 'rust') {
+    {
       const counters = await Promise.all(pages.map(page => page.evaluate(() => ({ ...__bf.predictionSession.counters }))));
       assert.ok(counters[0].calls > 0 && counters[0].ticks > 0, 'the mounted actor executed infantry session replay before boarding');
       console.log('mounted-prediction-sessions', JSON.stringify(counters));

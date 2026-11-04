@@ -306,12 +306,17 @@ const KEYS: [&str; 55] = [
 pub struct Level {
     pub obj: Rc<JsObj>,
     vals: Vec<Js>,
+    pub cosmetic_round: bool,
 }
 
 impl Level {
     pub fn new(obj: Rc<JsObj>) -> Level {
         let vals = KEYS.iter().map(|k| obj.get(k).clone()).collect();
-        Level { obj, vals }
+        // PredictedShots.fire admits these ordnance classes before selecting a
+        // droideka barrel. Resolve the content once, outside the replay loop.
+        let ordnance = obj.get("ordnance");
+        let cosmetic_round = ordnance.truthy() && !matches!(ordnance.get("base").str(), Some("sticky" | "grenade" | "emitterordnance"));
+        Level { obj, vals, cosmetic_round }
     }
 
     #[inline]

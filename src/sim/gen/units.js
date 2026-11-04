@@ -663,6 +663,8 @@ export function exportJet(o, cx) {
   return v;
 }
 
+export const SOLDIER_WORDS = 64;
+
 export class SoldierMirror {
   constructor() {
     this.maxSpeed = NaN;
@@ -1573,6 +1575,8 @@ export function exportUnitSplash(o, cx) {
   v.at = o.at.clone();
   return v;
 }
+
+export const DROIDEKA_WORDS = 77;
 
 export class DroidekaMirror {
   constructor() {

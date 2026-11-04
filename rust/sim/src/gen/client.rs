@@ -72,12 +72,62 @@ impl ClientAction {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClientMount {
+    pub advance: bool,
+    pub tow: bool,
+}
+
+impl ClientMount {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = if self.advance { 1.0 } else { 0.0 };
+        row[1] = if self.tow { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            advance: row[0] != 0.0,
+            tow: row[1] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClientMuzzles {
+    pub barrels: Vec<u32>,
+}
+
+impl ClientMuzzles {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.barrels.len() as f64; heap.resize(at + self.barrels.len() * 1, 0.0); for (i, e) in self.barrels.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            barrels: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(word_u32(row[0])); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClientFrame {
     pub epoch: f64,
     pub identity: f64,
     pub generation: f64,
     pub source: f64,
     pub authority_tick: f64,
+    pub mode: u32,
+    pub mounts_at: u32,
+    pub mounts_count: u32,
     pub world: u32,
     pub ignored: f64,
     pub movement: bool,
@@ -98,6 +148,7 @@ pub struct ClientFrame {
     pub crowd_count: u32,
     pub held: u32,
     pub presented_through: f64,
+    pub cosmetic_slots: u32,
     pub mouse_scale: f64,
     pub invert: bool,
     pub kick: [f64; 3],
@@ -105,73 +156,81 @@ pub struct ClientFrame {
 }
 
 impl ClientFrame {
-    pub const WORDS: usize = 31;
+    pub const WORDS: usize = 35;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 31] = (&mut row[..31]).try_into().unwrap();
+        let row: &mut [f64; 35] = (&mut row[..35]).try_into().unwrap();
         row[0] = self.epoch;
         row[1] = self.identity;
         row[2] = self.generation;
         row[3] = self.source;
         row[4] = self.authority_tick;
-        row[5] = self.world as f64;
-        row[6] = self.ignored;
-        row[7] = if self.movement { 1.0 } else { 0.0 };
-        row[8] = if self.dead { 1.0 } else { 0.0 };
-        row[9] = if self.underwater { 1.0 } else { 0.0 };
-        row[10] = if self.shield { 1.0 } else { 0.0 };
-        row[11] = self.actor_at as f64;
-        row[12] = self.actor_words as f64;
-        row[13] = self.correction_at as f64;
-        row[14] = self.correction_bytes as f64;
-        row[15] = self.weapons_at as f64;
-        row[16] = self.weapons_words as f64;
-        row[17] = self.flags_at as f64;
-        row[18] = self.flags_count as f64;
-        row[19] = self.commands_at as f64;
-        row[20] = self.commands_count as f64;
-        row[21] = self.crowd_at as f64;
-        row[22] = self.crowd_count as f64;
-        row[23] = self.held as f64;
-        row[24] = self.presented_through;
-        row[25] = self.mouse_scale;
-        row[26] = if self.invert { 1.0 } else { 0.0 };
-        row[27..27 + 3].copy_from_slice(&self.kick);
-        row[30] = self.check_tick;
+        row[5] = self.mode as f64;
+        row[6] = self.mounts_at as f64;
+        row[7] = self.mounts_count as f64;
+        row[8] = self.world as f64;
+        row[9] = self.ignored;
+        row[10] = if self.movement { 1.0 } else { 0.0 };
+        row[11] = if self.dead { 1.0 } else { 0.0 };
+        row[12] = if self.underwater { 1.0 } else { 0.0 };
+        row[13] = if self.shield { 1.0 } else { 0.0 };
+        row[14] = self.actor_at as f64;
+        row[15] = self.actor_words as f64;
+        row[16] = self.correction_at as f64;
+        row[17] = self.correction_bytes as f64;
+        row[18] = self.weapons_at as f64;
+        row[19] = self.weapons_words as f64;
+        row[20] = self.flags_at as f64;
+        row[21] = self.flags_count as f64;
+        row[22] = self.commands_at as f64;
+        row[23] = self.commands_count as f64;
+        row[24] = self.crowd_at as f64;
+        row[25] = self.crowd_count as f64;
+        row[26] = self.held as f64;
+        row[27] = self.presented_through;
+        row[28] = self.cosmetic_slots as f64;
+        row[29] = self.mouse_scale;
+        row[30] = if self.invert { 1.0 } else { 0.0 };
+        row[31..31 + 3].copy_from_slice(&self.kick);
+        row[34] = self.check_tick;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 31] = (&row[..31]).try_into().unwrap();
+        let row: &[f64; 35] = (&row[..35]).try_into().unwrap();
         Self {
             epoch: row[0],
             identity: row[1],
             generation: row[2],
             source: row[3],
             authority_tick: row[4],
-            world: word_u32(row[5]),
-            ignored: row[6],
-            movement: row[7] != 0.0,
-            dead: row[8] != 0.0,
-            underwater: row[9] != 0.0,
-            shield: row[10] != 0.0,
-            actor_at: word_u32(row[11]),
-            actor_words: word_u32(row[12]),
-            correction_at: word_u32(row[13]),
-            correction_bytes: word_u32(row[14]),
-            weapons_at: word_u32(row[15]),
-            weapons_words: word_u32(row[16]),
-            flags_at: word_u32(row[17]),
-            flags_count: word_u32(row[18]),
-            commands_at: word_u32(row[19]),
-            commands_count: word_u32(row[20]),
-            crowd_at: word_u32(row[21]),
-            crowd_count: word_u32(row[22]),
-            held: word_u32(row[23]),
-            presented_through: row[24],
-            mouse_scale: row[25],
-            invert: row[26] != 0.0,
-            kick: { let mut a = [0.0; 3]; a.copy_from_slice(&row[27..27 + 3]); a },
-            check_tick: row[30],
+            mode: word_u32(row[5]),
+            mounts_at: word_u32(row[6]),
+            mounts_count: word_u32(row[7]),
+            world: word_u32(row[8]),
+            ignored: row[9],
+            movement: row[10] != 0.0,
+            dead: row[11] != 0.0,
+            underwater: row[12] != 0.0,
+            shield: row[13] != 0.0,
+            actor_at: word_u32(row[14]),
+            actor_words: word_u32(row[15]),
+            correction_at: word_u32(row[16]),
+            correction_bytes: word_u32(row[17]),
+            weapons_at: word_u32(row[18]),
+            weapons_words: word_u32(row[19]),
+            flags_at: word_u32(row[20]),
+            flags_count: word_u32(row[21]),
+            commands_at: word_u32(row[22]),
+            commands_count: word_u32(row[23]),
+            crowd_at: word_u32(row[24]),
+            crowd_count: word_u32(row[25]),
+            held: word_u32(row[26]),
+            presented_through: row[27],
+            cosmetic_slots: word_u32(row[28]),
+            mouse_scale: row[29],
+            invert: row[30] != 0.0,
+            kick: { let mut a = [0.0; 3]; a.copy_from_slice(&row[31..31 + 3]); a },
+            check_tick: row[34],
         }
     }
 
@@ -387,13 +446,14 @@ pub struct ClientShot {
     pub target_generation: f64,
     pub swing: f64,
     pub actor_at: u32,
+    pub visual_gun: Option<LastGun>,
 }
 
 impl ClientShot {
-    pub const WORDS: usize = 15;
+    pub const WORDS: usize = 18;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 15] = (&mut row[..15]).try_into().unwrap();
+        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
         row[0] = self.tick;
         row[1] = self.sequence;
         row[2] = self.press;
@@ -409,10 +469,11 @@ impl ClientShot {
         row[12] = self.target_generation;
         row[13] = self.swing;
         row[14] = self.actor_at as f64;
+        match &self.visual_gun { Some(v) => { row[15] = 0.0; v.put(&mut row[15 + 1..], heap); } None => { row[15] = 2.0; row[15 + 1..15 + 3].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 15] = (&row[..15]).try_into().unwrap();
+        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
         Self {
             tick: row[0],
             sequence: row[1],
@@ -429,6 +490,7 @@ impl ClientShot {
             target_generation: row[12],
             swing: row[13],
             actor_at: word_u32(row[14]),
+            visual_gun: if row[15] == 0.0 { Some(LastGun::take(&row[15 + 1..], heap)) } else { None },
         }
     }
 

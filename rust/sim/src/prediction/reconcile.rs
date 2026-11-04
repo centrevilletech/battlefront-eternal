@@ -586,7 +586,6 @@ fn indices_words(indices: Vec<usize>) -> Vec<f64> {
 pub struct Session {
     pub input: Vec<f64>,
     pub output: Vec<f64>,
-    error: Option<&'static str>,
 }
 
 impl Session {
@@ -752,50 +751,4 @@ impl Session {
         self.output = output;
         Ok(())
     }
-}
-
-#[no_mangle]
-pub extern "C" fn prediction_reconcile_create() -> *mut Session {
-    Box::into_raw(Box::new(Session::default()))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_reconcile_drop(p: *mut Session) {
-    if !p.is_null() {
-        drop(Box::from_raw(p));
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_reconcile_room(p: *mut Session, n: usize) -> *mut f64 {
-    let s = &mut *p;
-    s.input.resize(n, 0.0);
-    s.input.as_mut_ptr()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_reconcile_run(p: *mut Session, op: u32) -> u32 {
-    let s = &mut *p;
-    s.error = s.run(op).err();
-    u32::from(s.error.is_none())
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_reconcile_output(p: *const Session) -> *const f64 {
-    (&*p).output.as_ptr()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_reconcile_output_len(p: *const Session) -> usize {
-    (&*p).output.len()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_reconcile_error(p: *const Session) -> *const u8 {
-    (&*p).error.unwrap_or("").as_ptr()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_reconcile_error_len(p: *const Session) -> usize {
-    (&*p).error.unwrap_or("").len()
 }

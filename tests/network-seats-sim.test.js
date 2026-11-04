@@ -8,7 +8,6 @@ import { networkVehicleInput } from '../src/runtime/network-vehicle.js';
 import { CommandControls } from '../src/runtime/commands.js';
 import { commandControlPorts } from '../src/runtime/command-controls-sim.js';
 import { predictionVehicle, predictVehicle } from '../src/runtime/vehicle-prediction.js';
-import { createVehiclePredictionBridge } from '../src/runtime/vehicle-prediction-sim.js';
 import { syntheticHull, hullCommand, hullObservation } from './fixtures/prediction-hull-cases.js';
 
 const instance = await loadSim(), bridge = bridgeFor(instance);
@@ -204,20 +203,4 @@ test('input mutates the actual private clone without publishing authority seats,
       assert.equal(clone.seats[0].weapons,source.seats[0].weapons);
     } finally { f.system.dispose(); }
   }
-});
-
-test('private native prediction stays exact with the live input port attached', () => {
-  const native=createVehiclePredictionBridge(bridge);
-  try {
-    for(const kind of ['hover','springs','walker','flyer']) {
-      const a=syntheticHull(kind),b=syntheticHull(kind);
-      try {
-        attachNetworkSeatsSim(a.system,bridge);
-        const commands=Array.from({length:16},(_,i)=>hullCommand(i+1));
-        const pa=predictVehicle(a.v,commands,0,3,[],{native}),pb=predictVehicle(b.v,commands,0,3);
-        assert.deepEqual(hullObservation(pa),hullObservation(pb),kind);
-        assert.deepEqual(hullObservation(a.v),hullObservation(b.v),`${kind} authority`);
-      } finally {a.system.dispose();b.system.dispose();}
-    }
-  } finally {native.dispose();}
 });

@@ -1,18 +1,16 @@
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { loadSim } from '../src/sim/module.js';
 import { loadRayKernel } from '../src/ray-kernel.js';
+import { PredictionArsenal } from '../src/runtime/prediction-arsenal.js';
 import { createClientPrediction } from '../src/runtime/client-prediction.js';
-import { InfantryPrediction } from '../src/runtime/infantry-prediction.js';
-import { DroidekaPrediction } from '../src/runtime/droideka-prediction.js';
-import { WeaponPrediction, predictedPress } from '../src/runtime/weapon-prediction.js';
-import { PredictionWindow } from '../src/runtime/prediction-window.js';
-import { replayTicks } from '../src/runtime/reconcile.js';
-import { CommandControls } from '../src/runtime/commands.js';
 import { captureCompactSoldier, restoreCompactSoldier } from '../src/runtime/network-entity-soldier-compact.js';
 import { captureDroidekaState, restoreDroidekaState } from '../src/runtime/network-droideka-state.js';
-import { actorCourse, createPredictionActor } from './fixtures/prediction-actor-cases.js';
-import { createWeaponUnit, weaponDefinition, arsenalObservation } from './fixtures/prediction-weapon-cases.js';
+import { actorCourse, createPredictionActor } from './fixtures/client-actors.js';
+import { createWeaponUnit, weaponDefinition, arsenalObservation } from './fixtures/client-weapons.js';
 
 function fixture(kind, course) {
   const actor = createPredictionActor({kind, pattern: kind === 'droideka' ? 'droideka' : 'walk'}, course);
@@ -29,79 +27,67 @@ const shotValue = (s, tick, sequence, id, held, button, level) => ({tick, sequen
   kind: s.repair ? 1 : s.meleeStart ? 2 : s.meleeHit ? 3 : s.meleeEnd ? 4 : 0,
   yaw: s.yaw ?? 0, pitch: s.pitch ?? 0, charge: s.charge ?? 0, target: s.targetId ?? 0, targetGeneration: s.targetGeneration ?? 0, swing: s.swing ?? 0});
 
-for (const kind of ['soldier', 'droideka']) test(`whole ${kind} session matches JS bytes, arsenal and seeded notices across continuations and rollback`, async t => {
-  const instance = await loadSim(), rays = await loadRayKernel(instance), nativeCourse = actorCourse(rays), jsCourse = actorCourse();
-  const a = fixture(kind, nativeCourse), b = fixture(kind, jsCourse);
-  const session = createClientPrediction(instance, nativeCourse.world), wa = new WeaponPrediction(), wb = new WeaponPrediction();
-  const window = new PredictionWindow(), controls = new CommandControls();
-  let baseA = capture(a), baseB = capture(b), authority = 0, pending = [], sequence = 0, epoch = 1;
-  let kick = null, shots = 0, ticks = 0;
-  const edges = [];
+// These reference digests and byte streams were recorded from the frozen JS
+// implementation before its replay and adapters were removed. Fixtures use only
+// synthetic geometry, clips and definitions, so CI needs no game installation.
+const encode=value=>typeof value==='number'?Buffer.from(new Float64Array([value]).buffer).toString('hex'):Array.isArray(value)?value.map(encode):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,encode(value[k])])):value;
+const referenceDigests = {
+  'droideka-roll': '2428c0fdc3d49e9e0ebfaffae4ca9303372ce68071d63ced97cd2b7bc1084154',
+  soldier: '3bbac210fb877e27c6df289b0fc00a1febbd74e53ef5a92ec3124a274811e684',
+  droideka: '0d73e20a08f3015792bf94da61b93a9dea0e2ee8ba22f1a63544041b47904ce8',
+  'droideka-visual': 'b049fcf195a3fcc4f696a9c64d1efff6938ec8db347cc8f795c2b0d1aba415de',
+  'droideka-grenade': '6ba598469b982466b9259f7747c4e5d443c7b8569e3268de1951a8b1546667a9',
+};
+for (const [scenario, digest] of Object.entries(referenceDigests)) test(`${scenario} session matches frozen correction, checkpoint and shot identity`, async () => {
+  const text=gunzipSync(readFileSync(new URL(`./fixtures/prediction-reference/${scenario}.json.gz`,import.meta.url))).toString('utf8').trimEnd();
+  assert.equal(createHash('sha256').update(text).digest('hex'),digest);
+  const frames=JSON.parse(text),kind=scenario==='soldier'?'soldier':'droideka';
+  const instance=await loadSim(),course=actorCourse(await loadRayKernel(instance)),a=fixture(kind,course);
+  if(scenario==='droideka-grenade')a.combat.arsenal.weapons[0].def.ordnance.base='grenade';
+  const session=createClientPrediction(instance,course.world),wa=new PredictionArsenal(),baseA=capture(a);
+  let authority=0,pending=[],sequence=0,epoch=1;
+  const edges=[];
   try {
-    for (let frame = 0; frame < 65; frame++) {
-      restore(a, baseA); restore(b, baseB);
+    for(let frame=0;frame<frames.length;frame++) {
+      restore(a,baseA);
       if (frame === 25 || frame === 47) {
         // A newer authority invalidates the continuation and replays the same
         // still-pending stream, including commands stamped in the past.
         authority += 4;
       }
-      if (frame === 35) { epoch++; a.generation++; b.generation++; pending = []; edges.length = 0; }
+      if (frame === 35) { epoch++; a.generation++; pending = []; edges.length = 0; }
+      if(scenario==='droideka-roll')a.combat.arsenal.weapons[1].def.base='shield';
       for (let n = 0; n < 2; n++) {
         const tick = frame * 3 + n + 1;
         const actions = [...(tick % 19 === 1 ? ['firePrimary'] : []), ...(tick % 31 === 1 ? ['fireSecondary'] : []),
-          ...(tick % 23 === 3 ? ['crouch'] : []), ...(tick % 41 === 7 ? ['prone'] : []), ...(tick % 43 === 9 ? ['jump'] : [])];
+          ...(tick % 23 === 3 ? ['crouch'] : []), ...(tick % 41 === 7 ? ['prone'] : []), ...(tick % 43 === 9 ? ['jump'] : []), ...(scenario==='droideka-roll'&&[55,151].includes(tick)?['use']:[])];
         const c = {tick: frame === 26 ? authority - 1 : tick, sequence: ++sequence, epoch, generation: a.generation,
           down: tick % 10 < 7 ? ['KeyW', 'Mouse0'] : ['KeyD'], actions,
           look: [[tick % 4 - 2, .3]], mouseScale: frame % 4 ? undefined : 1.3, sent: tick % 13 !== 0};
         pending.push(c);
         for (const button of ['firePrimary', 'fireSecondary']) if (actions.includes(button)) edges.push({kind: 'fire', sequence: c.sequence, button, id: c.sequence * 7, pressed: true});
       }
-      const context = {source: b.soldier, identity: b.id, epoch, generation: b.generation, authorityTick: authority, pending, held: ['KeyW']};
-      const continuation = window.select(context);
-      if (continuation.checkpoint) restore(b, continuation.checkpoint.state);
-      wb.begin(b, {epoch, tick: authority, checkpoint: continuation.checkpoint?.weapons});
-      wa.begin(a, {epoch, tick: authority});
-      const actor = new (kind === 'soldier' ? InfantryPrediction : DroidekaPrediction)(b.soldier, b.combat, continuation.checkpoint?.kick ?? b.combat.kick);
-      const expectedShots = [];
-      const last = replayTicks(continuation.commands, continuation.from, b.generation, continuation.held, (tick, c, sequences) => {
-        for (const [dx, dy] of c.look) (b.soldier.lookRaw || b.soldier.look).call(b.soldier, Math.max(-10000,Math.min(10000,dx)) / b.combat.zoom,
-          Math.max(-10000,Math.min(10000,dy)) / b.combat.zoom, Math.min(c.mouseScale ?? 1, 2), c.invertMouse || false);
-        controls.down.clear(); for (const key of c.down) controls.down.add(key);
-        actor.step({forward:controls.axis('forward'),right:controls.axis('right'),turn:controls.axis('turn'),
-          jump:c.actions.includes('jump'),crouch:c.actions.includes('crouch'),prone:c.actions.includes('prone'),use:c.actions.includes('use')},1/60,c.actions.includes('fireSecondary'));
-        const presses = ['firePrimary','fireSecondary'].map(name => c.actions.includes(name) ? predictedPress(edges,sequences,name) : null);
-        wb.step(c,tick,s => {
-          const button=s.weapon.channel, press=presses[button]; if(press===false)return;
-          const source=press?pending.find(p=>p.sequence===press.sequence):pending.find(p=>p.tick===tick);
-          expectedShots.push(shotValue(s,tick,source?.sequence??press?.sequence??0,press?.id||0,!press,button,s.weapon.level));
-        },presses.map(p=>p?p.id:null));
-        const [lo,hi]=b.soldier.pitchRange();b.soldier.aimPitch=Math.max(lo,Math.min(hi,b.soldier.aimPitch));
-      },{});
-      const state=capture(b);window.save({...context,tick:last,commands:continuation.commands,held:continuation.held,state});
-      window.checkpoint.kick=actor.kick;window.checkpoint.weapons=wb.checkpoint();kick=actor.kick;
-      const result=session.predict(a,pending,{epoch,tick:authority,held:['KeyW'],fireEdges:edges});
-      assert.equal(result.tick,last,`frame ${frame} tick`);
-      assert.equal(result.continued,Boolean(continuation.checkpoint),`frame ${frame} continuation`);
-      assert.deepEqual(session.correction(),state,`frame ${frame} correction`);
-      assert.deepEqual(capture(a),state,`frame ${frame} published body`);
-      assert.deepEqual(result.kick,[kick.rate,kick.hold,kick.offset],`frame ${frame} recoil`);
-      assert.deepEqual(arsenalObservation(a.combat.arsenal,a.combat.zoomStep),arsenalObservation(b.combat.arsenal,b.combat.zoomStep),`frame ${frame} arsenal`);
+      wa.begin(a,{epoch,tick:authority});
+      const expected=frames[frame],result=session.predict(a,pending,{epoch,tick:authority,held:['KeyW'],fireEdges:edges,cosmeticSlots:expected.cosmeticSlots});
+      assert.equal(result.tick,expected.tick,`frame ${frame} tick`);
+      assert.equal(result.continued,expected.continued,`frame ${frame} continuation`);
+      assert.equal(Buffer.from(session.correction()).toString('hex'),expected.correction,`frame ${frame} correction`);
+      assert.equal(Buffer.from(capture(a)).toString('hex'),expected.correction,`frame ${frame} published checkpoint`);
+      assert.deepEqual(encode(result.kick),expected.kick,`frame ${frame} kick`);
+      assert.deepEqual(encode(arsenalObservation(a.combat.arsenal,a.combat.zoomStep)),expected.arsenal,`frame ${frame} arsenal`);
       const actualShots=[];
-      session.present(a,null,(notice,w)=>actualShots.push(shotValue({yaw:notice.yaw,pitch:notice.pitch,charge:notice.charge,targetId:notice.target,targetGeneration:notice.targetGeneration},
-        notice.tick,notice.sequence,notice.press,notice.held,notice.button,w.level)));
-      assert.deepEqual(actualShots,expectedShots,`frame ${frame} notices`);
-      shots+=actualShots.length;ticks+=result.ticks;
-      actor.dispose();wa.restore();wb.restore();
+      session.present(a,null,(notice,w)=>actualShots.push(shotValue({yaw:notice.yaw,pitch:notice.pitch,charge:notice.charge,targetId:notice.target,targetGeneration:notice.targetGeneration},notice.tick,notice.sequence,notice.press,notice.held,notice.button,w.level)));
+      assert.deepEqual(encode(actualShots),expected.shots,`frame ${frame} shots`);
+      assert.equal(Buffer.from(capture(a)).toString('hex'),expected.correction,`frame ${frame} presentation keeps checkpoint`);
+      wa.restore();
     }
-    assert.equal(session.counters.calls,65);assert.ok(ticks>150);assert.ok(shots>10);
-    assert.ok(session.counters.wordsIn>0&&session.counters.wordsOut>0);
-    t.diagnostic(JSON.stringify({kind,shots,ticks,...session.counters}));
-  } finally {wa.dispose();wb.dispose();session.dispose();session.dispose();nativeCourse.dispose();jsCourse.dispose();}
+    assert.equal(session.counters.calls,frames.length);
+  } finally {wa.dispose();session.dispose();course.dispose();}
 });
 
 test('session crowd facts move only the own body and callback failure restores the final pose', async () => {
   const instance=await loadSim(),rays=await loadRayKernel(instance),course=actorCourse(rays),unit=fixture('soldier',course);
-  const session=createClientPrediction(instance,course.world),weapons=new WeaponPrediction();
+  const session=createClientPrediction(instance,course.world),weapons=new PredictionArsenal();
   unit.soldier.position.x=1;unit.soldier.settled.copy(unit.soldier.position);
   const other={position:unit.soldier.position.clone().set(0,0,0),hitPosture:'stand'};
   try {
@@ -127,7 +113,7 @@ test('session crowd facts move only the own body and callback failure restores t
 
 test('backend resets retain the cosmetic horizon without replaying an already shown shot', async () => {
   const instance = await loadSim(), rays = await loadRayKernel(instance), course = actorCourse(rays), unit = fixture('soldier', course);
-  const session = createClientPrediction(instance, course.world), weapons = new WeaponPrediction();
+  const session = createClientPrediction(instance, course.world), weapons = new PredictionArsenal();
   const base = capture(unit), command = { tick: 1, generation: unit.generation, sequence: 1, down: ['Mouse0'], actions: ['firePrimary'], look: [] };
   try {
     weapons.begin(unit, { tick: 0 });

@@ -154,6 +154,8 @@ export function exportMelee(o, cx) {
   return v;
 }
 
+export const WEAPON_WORDS = 42;
+
 export class WeaponMirror {
   constructor() {
     this.def = null;

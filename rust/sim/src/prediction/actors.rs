@@ -138,7 +138,6 @@ pub struct Session {
     gathered: Gathered,
     ground: GroundCache,
     parts: Option<DroidekaParts>,
-    error: Option<&'static str>,
 }
 impl Default for Session {
     fn default() -> Self {
@@ -153,7 +152,6 @@ impl Default for Session {
             gathered: Gathered::new(),
             ground: GroundCache::default(),
             parts: None,
-            error: None,
         }
     }
 }
@@ -622,48 +620,5 @@ impl UnitsWorld for ActorWorld<'_> {
     }
     fn release(&mut self, _: u32, _: &Unit) {
         unreachable!()
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-mod module {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn prediction_actors_create() -> *mut Session {
-        Box::into_raw(Box::new(Session::default()))
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_actors_drop(p: *mut Session) {
-        if !p.is_null() {
-            drop(Box::from_raw(p));
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_actors_room(p: *mut Session, n: u32) -> *mut f64 {
-        let s = &mut *p;
-        s.input.resize(n as usize, 0.0);
-        s.input.as_mut_ptr()
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_actors_run(p: *mut Session, op: u32) -> u32 {
-        let s = &mut *p;
-        s.error = s.run(op, collision::state()).err();
-        s.error.is_none() as u32
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_actors_output(p: *const Session) -> *const f64 {
-        (*p).output.as_ptr()
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_actors_output_len(p: *const Session) -> u32 {
-        (*p).output.len() as u32
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_actors_error(p: *const Session) -> *const u8 {
-        (*p).error.unwrap_or("").as_ptr()
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_actors_error_len(p: *const Session) -> u32 {
-        (*p).error.unwrap_or("").len() as u32
     }
 }

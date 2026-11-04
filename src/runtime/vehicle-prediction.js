@@ -82,7 +82,7 @@ export function predictedExactly(prediction, source, tick) {
 // for any tick the page predicted since the last one.
 const HISTORY = 60;
 
-export function predictVehicle(source, pending, from, generation, held = [], { native = null, replay = null } = {}) {
+export function predictVehicle(source, pending, from, generation, held = []) {
   if (!source?.alive) return null;
   const vehicle = predictionVehicle(source), controls = new CommandControls();
   vehicle.predictionTick = from;
@@ -95,14 +95,11 @@ export function predictVehicle(source, pending, from, generation, held = [], { n
   }
   if (vehicle.predictionSource !== source) refreshCrew(vehicle, vehicle.predictionSource);
   const enabled = source.body.enabled;
-  let session = null;
   try {
-    if (native) vehicle.nativeSession = session = native.create(vehicle);
     replayTicks(pending, from, generation, held, (_tick, command) => {
       controls.accept({ ...command, epoch: 1, sequence: command.tick });
       const input = networkVehicleInput(vehicle, 0, controls, command);
-      if (session) session.step(input);
-      else {
+      {
         vehicle.captureTick();
         // The world advances wheeled/repulsor collision at 120 Hz; flyers at 60 Hz.
         if (vehicle.flying) vehicle.tick(1 / 60, input);
@@ -116,9 +113,9 @@ export function predictVehicle(source, pending, from, generation, held = [], { n
       vehicle.predictionPath.set(command.tick, vehicle.position.clone());
       vehicle.predictionStates.set(command.tick, hullState(vehicle));
       vehicle.predictionTick = command.tick;
-    }, undefined, { native: replay });
+    });
   } finally {
-    try { source.body.enabled = enabled; } finally { session?.dispose(); }
+    source.body.enabled = enabled;
   }
   return vehicle;
 }

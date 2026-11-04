@@ -127,7 +127,6 @@ pub struct Session {
     barrels: Vec<f64>,
     barrel_writes: Vec<bool>,
     pub(crate) shots: Vec<Shot>,
-    error: Option<&'static str>,
 }
 
 impl Session {
@@ -318,19 +317,15 @@ impl Session {
             }
             3 => {
                 let n = r.count()?;
-                let mut entries = Vec::with_capacity(n.min(1024));
+                let entries = r.at;
                 for _ in 0..n {
                     let weapon = r.count()?;
                     let owner = r.count()?;
-                    let advance = r.flag()?;
-                    let tow = r.flag()?;
-                    let pressed = r.flag()?;
-                    let held = r.flag()?;
-                    let reload = r.flag()?;
+                    for _ in 0..5 { r.flag()?; }
                     if weapon >= self.weapons.len() || owner >= self.barrels.len() {
                         return Err(INVALID);
                     }
-                    entries.push((weapon, owner, advance, tow, pressed, held, reload));
+
                 }
                 r.done()?;
                 let aim = Aim {
@@ -339,7 +334,9 @@ impl Session {
                     zoomed: false,
                     repair_target: false,
                 };
-                for (index, owner, advance, tow, pressed, held, reload) in entries {
+                for row in self.input[entries..entries + n * 7].chunks_exact(7) {
+                    let (index, owner) = (row[0] as usize, row[1] as usize);
+                    let (advance, tow, pressed, held, reload) = (row[2] != 0.0, row[3] != 0.0, row[4] != 0.0, row[5] != 0.0, row[6] != 0.0);
                     let weapon = &mut self.weapons[index];
                     let random = weapon.random;
                     let admission = weapon.admit_shot;
@@ -430,48 +427,5 @@ impl Session {
             }
             self.output.extend(out);
         }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-mod module {
-    use super::*;
-    #[no_mangle]
-    pub extern "C" fn prediction_weapons_create() -> *mut Session {
-        Box::into_raw(Box::new(Session::default()))
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_weapons_drop(ptr: *mut Session) {
-        if !ptr.is_null() {
-            drop(Box::from_raw(ptr));
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_weapons_room(ptr: *mut Session, count: u32) -> *mut f64 {
-        let s = &mut *ptr;
-        s.input.resize(count as usize, 0.0);
-        s.input.as_mut_ptr()
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_weapons_run(ptr: *mut Session, op: u32) -> u32 {
-        let s = &mut *ptr;
-        s.error = s.run(op).err();
-        s.error.is_none() as u32
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_weapons_output(ptr: *mut Session) -> *const f64 {
-        (*ptr).output.as_ptr()
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_weapons_output_len(ptr: *mut Session) -> u32 {
-        (*ptr).output.len() as u32
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_weapons_error(ptr: *mut Session) -> *const u8 {
-        (*ptr).error.unwrap_or("").as_ptr()
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn prediction_weapons_error_len(ptr: *mut Session) -> u32 {
-        (*ptr).error.unwrap_or("").len() as u32
     }
 }

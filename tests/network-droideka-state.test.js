@@ -134,42 +134,6 @@ test('unseen remote Droideka is built once and death notification fires once per
   assert.deepEqual(events,[['died',2],['died',2]]);
 });
 
-test('production prediction preserves exact rolling checkpoints and private recoil through folding and shield edges', async()=>{
-  const {DroidekaPrediction}=await import('../src/runtime/droideka-prediction.js');
-  const {PlayerCombat}=await import('../src/combat.js');
-  const {infantryFireBlocked}=await import('../src/combat-input.js');
-  const authority=fixture(),predicted=fixture();
-  function combat(soldier){return Object.assign(Object.create(PlayerCombat.prototype),{soldier,kick:{rate:.2,hold:.3,offset:.04},gunUnderwater:false,arsenal:{current:()=>({def:{base:'shield'}})}});}
-  const live=combat(authority),client=combat(predicted),originalKick={...client.kick};
-  let continuation, kick;
-  for(let i=0;i<130;i++){
-    const saved=capture(predicted);
-    if(continuation)restore(predicted,continuation);
-    const replay=new DroidekaPrediction(predicted,client,kick);
-    const input={forward:i<60?1:-.3,right:0,use:i===35||i===85};
-    const press=i===8||i===45||i===100;
-    authority.look(3,-1);predicted.look(3,-1);
-    authority.tick(input,1/60);
-    if(press&&!infantryFireBlocked(authority,false,Math.abs(input.forward)))authority.toggleShield();
-    live.updateKick(1/60);replay.step(input,1/60,press);
-    assert.deepEqual(capture(predicted),capture(authority),`tick ${i}`);
-    continuation=capture(predicted);kick=replay.kick;
-    restore(predicted,saved);assert.deepEqual(capture(predicted),saved,'authority rollback includes nested shield state');
-  }
-  assert.deepEqual(client.kick,originalKick);
-});
-
-test('production Droideka replay suppresses death callbacks and honors shield gating',async()=>{
-  const {DroidekaPrediction}=await import('../src/runtime/droideka-prediction.js');
-  const d=fixture();let callbacks=0;const callback=()=>callbacks++;
-  d.onExploded=d.onDeathBlast=callback;
-  const combat={kick:{},gunUnderwater:true,arsenal:{current:()=>({def:{base:'shield'}})},updateKick(){}};
-  const replay=new DroidekaPrediction(d,combat);
-  replay.step({},1/60,true);assert.equal(d.shield.on,false);
-  d.dead=true;for(let n=0;n<90;n++)replay.step({},1/60);
-  assert.equal(callbacks,0);assert.equal(d.onExploded,callback);assert.equal(d.onDeathBlast,callback);
-});
-
 test('a droideka terminal record latches its dissolve through repeated records and resets on a new life', () => {
   const source = remoteFixture(), client = remoteFixture();
   const adapter = new EntityGameState(client.game, client.registry); adapter.baseline();
