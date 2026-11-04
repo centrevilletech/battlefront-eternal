@@ -715,13 +715,15 @@ rendered with the browser's nodes in six pages and once with the engine.
   time, on any comparison of extremes. So the rule here is a limit: sound
   plays on each player's own machine and feeds nothing back into the
   world, and a difference this far down is under the smallest step of
-  16-bit sound, in bits Chromium does not reproduce itself. Over two runs
-  of twelve seeds every difference is below -108 dBFS, 12 dB under the
-  limit. The gate still reports the comparison like with like (six
-  native pairs drawn at random from the seed against the engine's six,
-  its largest within theirs, its median within 0.5 dB of theirs), and it
-  moves with Chromium's own orders: the largest within the natives' in 4
-  and 8 seeds of the twelve, the medians in 5 and 6, both in 2 and 5.
+  16-bit sound, in bits Chromium does not reproduce itself. Over four
+  runs of twelve seeds, with and without a battle's three beds and with
+  the master chain in the module or not, every difference is below -107
+  dBFS, 11 dB under the limit, and the natives' own pairs reach -107.5.
+  The gate still reports the comparison like with like (six native pairs
+  drawn at random from the seed against the engine's six, its largest
+  within theirs, its median within 0.5 dB of theirs), and it moves with
+  Chromium's own orders: from run to run the largest within the natives'
+  in 4 to 8 seeds of the twelve, the medians in 4 to 7, both in 2 to 5.
 
 ### What it saves
 
@@ -743,9 +745,11 @@ fast for the module's code to reach its optimizing tier), 32 voices moving
 and three beds on a desktop: the audio threads took 26.8% of a core with
 the chain in nodes and 23.0 with it in the module. On the slow-PC emulator
 (Enhanced on stereo, alternating runs), the AudioWorklet thread went from
-28-30% to 23% on Bespin Platforms and from 27-28 to 24-26% on Theed.
-The rest of that thread is mostly the voices' own work, then the reverb,
-clarity and limiter's, spread evenly enough that no one stage stands out.
+28-30% to 23% on Bespin Platforms and from 27-28 to 24-26% on Theed, and
+with the chain switched back and forth inside one battle the frame rate
+stayed within its noise, 1 to 2 fps up if anything. The rest of that
+thread is mostly the voices' own work, then the reverb, clarity and
+limiter's, spread evenly enough that no one stage stands out.
 
 The light mix, offline (the same scene): 110 ms a second of sound down to
 58 with 32 voices, 46 to 34 with 8; with a single voice the worklet costs
