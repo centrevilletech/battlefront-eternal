@@ -46,11 +46,13 @@ test('boundary tuples preserve old afterstate and optionally record entry state 
     try {
       const file = path.join(dir, 'fixture.bfecap'), point = new THREE.Vector3(1, 2, 3);
       let entries = 0;
-      const world = { old(delta) { point.x += delta; return point.x; }, fresh(delta) { point.x += delta; return point.x; } };
+      const world = { old(delta) { point.x += delta; return point.x; }, fresh(delta) { this.geometry(); point.x += delta; return point.x; }, geometry() { return point.length(); } };
       const fixture = { step(delta) { return world.old(delta) + world.fresh(delta); } };
       SPECS.boundaryFixture = { frames: [{ method: 'fixture.step', target: () => fixture, state: () => ({ point }), boundaries: () => [
         ['old', world, 'old', () => ({ point })],
-        ['fresh', world, 'fresh', () => ({ point }), (_game, _cap, args) => { entries++; return { point, delta: args[0] }; }],
+        ['fresh', world, 'fresh', (_game, _cap, args, receiver) => { assert.equal(receiver, world); return { point, delta: args[0] }; },
+          (_game, _cap, args, receiver) => { entries++; assert.equal(receiver, world); return { point, delta: args[0] }; }],
+        ['geometry', world, 'geometry', null, () => { throw Error('nested geometry must belong to its outer boundary'); }],
       ] }] };
       process.argv = ['node', 'capture-test', '--capture-out', file, '--capture-specs', 'boundaryFixture', '--capture-every', '1'];
       const capture = await import('./tools/sim-capture/plugin.mjs');
@@ -61,6 +63,7 @@ test('boundary tuples preserve old afterstate and optionally record entry state 
       const oldRet = records.find(r => r.k === 'ret' && r.n === 'old'), freshRet = records.find(r => r.k === 'ret' && r.n === 'fresh');
       assert.equal(Object.hasOwn(oldCall, 's'), false); assert.equal(oldRet.x.point.x, 3);
       assert.equal(freshCall.s.point.x, 3); assert.equal(freshCall.s.delta, 2); assert.equal(freshRet.x.point.x, 5);
+      assert.equal(freshRet.x.delta, 2); assert.equal(records.some(r => r.n === 'geometry'), false);
       world.fresh(1); assert.equal(entries, 1, 'no entry snapshot outside a sampled frame');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   `;

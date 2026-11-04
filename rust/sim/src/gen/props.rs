@@ -5,6 +5,66 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
+pub enum DbOperation {
+    #[default] Launch = 0,
+    Update = 1,
+    Bounce = 2,
+    Rest = 3,
+    Clear = 4,
+}
+
+impl DbOperation {
+    pub const NAMES: [&'static str; 5] = ["launch", "update", "bounce", "rest", "clear"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(DbOperation::Launch),
+            1 => Some(DbOperation::Update),
+            2 => Some(DbOperation::Bounce),
+            3 => Some(DbOperation::Rest),
+            4 => Some(DbOperation::Clear),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum DbActionKind {
+    #[default] Add = 0,
+    Remove = 1,
+    Cast = 2,
+    Low = 3,
+    Play = 4,
+    Move = 5,
+    Stop = 6,
+    Publish = 7,
+    Out = 8,
+    Vectors = 9,
+}
+
+impl DbActionKind {
+    pub const NAMES: [&'static str; 10] = ["add", "remove", "cast", "low", "play", "move", "stop", "publish", "out", "vectors"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(DbActionKind::Add),
+            1 => Some(DbActionKind::Remove),
+            2 => Some(DbActionKind::Cast),
+            3 => Some(DbActionKind::Low),
+            4 => Some(DbActionKind::Play),
+            5 => Some(DbActionKind::Move),
+            6 => Some(DbActionKind::Stop),
+            7 => Some(DbActionKind::Publish),
+            8 => Some(DbActionKind::Out),
+            9 => Some(DbActionKind::Vectors),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum PbStateName {
     #[default] Unbuilt = 0,
     Built = 1,
@@ -417,6 +477,362 @@ impl PcActionKind {
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DbChunk {
+    pub speed: f64,
+    pub omega: Vec3,
+    pub still: bool,
+    pub terrain_collisions: f64,
+    pub terrain_effect: Option<StrId>,
+    pub trail: Option<StrId>,
+    pub smoke: Option<StrId>,
+}
+
+impl DbChunk {
+    pub const WORDS: usize = 12;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
+        row[0] = self.speed;
+        row[1..1 + 3].copy_from_slice(&self.omega);
+        row[4] = if self.still { 1.0 } else { 0.0 };
+        row[5] = self.terrain_collisions;
+        match &self.terrain_effect { Some(v) => { row[6] = 0.0; row[6 + 1] = (*v).0 as f64; } None => { row[6] = 1.0; row[6 + 1..6 + 2].fill(0.0); } }
+        match &self.trail { Some(v) => { row[8] = 0.0; row[8 + 1] = (*v).0 as f64; } None => { row[8] = 1.0; row[8 + 1..8 + 2].fill(0.0); } }
+        match &self.smoke { Some(v) => { row[10] = 0.0; row[10 + 1] = (*v).0 as f64; } None => { row[10] = 1.0; row[10 + 1..10 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
+        Self {
+            speed: row[0],
+            omega: [row[1], row[1 + 1], row[1 + 2]],
+            still: row[4] != 0.0,
+            terrain_collisions: row[5],
+            terrain_effect: if row[6] == 0.0 { Some(StrId(word_u32(row[6 + 1]))) } else { None },
+            trail: if row[8] == 0.0 { Some(StrId(word_u32(row[8 + 1]))) } else { None },
+            smoke: if row[10] == 0.0 { Some(StrId(word_u32(row[10 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DbSettle {
+    pub from: Quat,
+    pub to: Quat,
+    pub y0: f64,
+    pub y1: f64,
+    pub t: f64,
+}
+
+impl DbSettle {
+    pub const WORDS: usize = 11;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
+        row[0..0 + 4].copy_from_slice(&self.from);
+        row[4..4 + 4].copy_from_slice(&self.to);
+        row[8] = self.y0;
+        row[9] = self.y1;
+        row[10] = self.t;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 11] = (&row[..11]).try_into().unwrap();
+        Self {
+            from: [row[0], row[0 + 1], row[0 + 2], row[0 + 3]],
+            to: [row[4], row[4 + 1], row[4 + 2], row[4 + 3]],
+            y0: row[8],
+            y1: row[9],
+            t: row[10],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DbPiece {
+    pub id: f64,
+    pub chunk: DbChunk,
+    pub position: Vec3,
+    pub previous: Vec3,
+    pub velocity: Vec3,
+    pub omega: Vec3,
+    pub quaternion: Quat,
+    pub hits: f64,
+    pub lift: f64,
+    pub thin: f64,
+    pub settle: Option<DbSettle>,
+    pub ignore: Option<f64>,
+    pub resting: bool,
+    pub flight: f64,
+    pub left: f64,
+    pub trail: Option<f64>,
+    pub smoke: Option<f64>,
+    pub gone: Option<bool>,
+}
+
+impl DbPiece {
+    pub const WORDS: usize = 55;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 55] = (&mut row[..55]).try_into().unwrap();
+        row[0] = self.id;
+        self.chunk.put(&mut row[1..], heap);
+        row[13..13 + 3].copy_from_slice(&self.position);
+        row[16..16 + 3].copy_from_slice(&self.previous);
+        row[19..19 + 3].copy_from_slice(&self.velocity);
+        row[22..22 + 3].copy_from_slice(&self.omega);
+        row[25..25 + 4].copy_from_slice(&self.quaternion);
+        row[29] = self.hits;
+        row[30] = self.lift;
+        row[31] = self.thin;
+        match &self.settle { Some(v) => { row[32] = 0.0; v.put(&mut row[32 + 1..], heap); } None => { row[32] = 1.0; row[32 + 1..32 + 12].fill(0.0); } }
+        match &self.ignore { Some(v) => { row[44] = 0.0; row[44 + 1] = (*v); } None => { row[44] = 1.0; row[44 + 1..44 + 2].fill(0.0); } }
+        row[46] = if self.resting { 1.0 } else { 0.0 };
+        row[47] = self.flight;
+        row[48] = self.left;
+        match &self.trail { Some(v) => { row[49] = 0.0; row[49 + 1] = (*v); } None => { row[49] = 1.0; row[49 + 1..49 + 2].fill(0.0); } }
+        match &self.smoke { Some(v) => { row[51] = 0.0; row[51 + 1] = (*v); } None => { row[51] = 1.0; row[51 + 1..51 + 2].fill(0.0); } }
+        match &self.gone { Some(v) => { row[53] = 0.0; row[53 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[53] = 2.0; row[53 + 1..53 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 55] = (&row[..55]).try_into().unwrap();
+        Self {
+            id: row[0],
+            chunk: DbChunk::take(&row[1..], heap),
+            position: [row[13], row[13 + 1], row[13 + 2]],
+            previous: [row[16], row[16 + 1], row[16 + 2]],
+            velocity: [row[19], row[19 + 1], row[19 + 2]],
+            omega: [row[22], row[22 + 1], row[22 + 2]],
+            quaternion: [row[25], row[25 + 1], row[25 + 2], row[25 + 3]],
+            hits: row[29],
+            lift: row[30],
+            thin: row[31],
+            settle: if row[32] == 0.0 { Some(DbSettle::take(&row[32 + 1..], heap)) } else { None },
+            ignore: if row[44] == 0.0 { Some(row[44 + 1]) } else { None },
+            resting: row[46] != 0.0,
+            flight: row[47],
+            left: row[48],
+            trail: if row[49] == 0.0 { Some(row[49 + 1]) } else { None },
+            smoke: if row[51] == 0.0 { Some(row[51 + 1]) } else { None },
+            gone: if row[53] == 0.0 { Some(row[53 + 1] != 0.0) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DbState {
+    pub pieces: Vec<DbPiece>,
+    pub ray: Vec3,
+    pub start: Vec3,
+    pub out: Vec3,
+}
+
+impl DbState {
+    pub const WORDS: usize = 11;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.pieces.len() as f64; heap.resize(at + self.pieces.len() * 55, 0.0); for (i, e) in self.pieces.iter().enumerate() { let mut item = [0.0f64; 55]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 55..at + (i + 1) * 55].copy_from_slice(&item); } }
+        row[2..2 + 3].copy_from_slice(&self.ray);
+        row[5..5 + 3].copy_from_slice(&self.start);
+        row[8..8 + 3].copy_from_slice(&self.out);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 11] = (&row[..11]).try_into().unwrap();
+        Self {
+            pieces: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 55..at + (i + 1) * 55]; out.push(DbPiece::take(&row[0..], heap)); } out },
+            ray: [row[2], row[2 + 1], row[2 + 2]],
+            start: [row[5], row[5 + 1], row[5 + 2]],
+            out: [row[8], row[8 + 1], row[8 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DbLaunch {
+    pub id: f64,
+    pub chunk: DbChunk,
+    pub matrix: Mat4,
+    pub low: Vec3,
+    pub high: Vec3,
+    pub origin: Vec3,
+    pub velocity: Vec3,
+    pub health: f64,
+    pub ignore: Option<f64>,
+    pub center: bool,
+    pub floor: f64,
+}
+
+impl DbLaunch {
+    pub const WORDS: usize = 46;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 46] = (&mut row[..46]).try_into().unwrap();
+        row[0] = self.id;
+        self.chunk.put(&mut row[1..], heap);
+        row[13..13 + 16].copy_from_slice(&self.matrix);
+        row[29..29 + 3].copy_from_slice(&self.low);
+        row[32..32 + 3].copy_from_slice(&self.high);
+        row[35..35 + 3].copy_from_slice(&self.origin);
+        row[38..38 + 3].copy_from_slice(&self.velocity);
+        row[41] = self.health;
+        match &self.ignore { Some(v) => { row[42] = 0.0; row[42 + 1] = (*v); } None => { row[42] = 1.0; row[42 + 1..42 + 2].fill(0.0); } }
+        row[44] = if self.center { 1.0 } else { 0.0 };
+        row[45] = self.floor;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 46] = (&row[..46]).try_into().unwrap();
+        Self {
+            id: row[0],
+            chunk: DbChunk::take(&row[1..], heap),
+            matrix: { let mut m = [0.0; 16]; m.copy_from_slice(&row[13..13 + 16]); m },
+            low: [row[29], row[29 + 1], row[29 + 2]],
+            high: [row[32], row[32 + 1], row[32 + 2]],
+            origin: [row[35], row[35 + 1], row[35 + 2]],
+            velocity: [row[38], row[38 + 1], row[38 + 2]],
+            health: row[41],
+            ignore: if row[42] == 0.0 { Some(row[42 + 1]) } else { None },
+            center: row[44] != 0.0,
+            floor: row[45],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DbInput {
+    pub op: DbOperation,
+    pub state: DbState,
+    pub launch: Option<DbLaunch>,
+    pub dt: f64,
+    pub id: f64,
+    pub floor: f64,
+}
+
+impl DbInput {
+    pub const WORDS: usize = 62;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 62] = (&mut row[..62]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        match &self.launch { Some(v) => { row[12] = 0.0; v.put(&mut row[12 + 1..], heap); } None => { row[12] = 1.0; row[12 + 1..12 + 47].fill(0.0); } }
+        row[59] = self.dt;
+        row[60] = self.id;
+        row[61] = self.floor;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 62] = (&row[..62]).try_into().unwrap();
+        Self {
+            op: DbOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: DbState::take(&row[1..], heap),
+            launch: if row[12] == 0.0 { Some(DbLaunch::take(&row[12 + 1..], heap)) } else { None },
+            dt: row[59],
+            id: row[60],
+            floor: row[61],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DbAction {
+    pub kind: DbActionKind,
+    pub piece: Option<DbPiece>,
+    pub id: f64,
+    pub point: Vec3,
+    pub turn: Quat,
+    pub shift: Option<Vec3>,
+    pub direction: Vec3,
+    pub far: f64,
+    pub ignore: Option<f64>,
+    pub name: Option<StrId>,
+    pub velocity: Option<Vec3>,
+    pub impact: bool,
+}
+
+impl DbAction {
+    pub const WORDS: usize = 82;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 82] = (&mut row[..82]).try_into().unwrap();
+        row[0] = self.kind as u8 as f64;
+        match &self.piece { Some(v) => { row[1] = 0.0; v.put(&mut row[1 + 1..], heap); } None => { row[1] = 1.0; row[1 + 1..1 + 56].fill(0.0); } }
+        row[57] = self.id;
+        row[58..58 + 3].copy_from_slice(&self.point);
+        row[61..61 + 4].copy_from_slice(&self.turn);
+        match &self.shift { Some(v) => { row[65] = 0.0; row[65 + 1..65 + 1 + 3].copy_from_slice(&(*v)); } None => { row[65] = 1.0; row[65 + 1..65 + 4].fill(0.0); } }
+        row[69..69 + 3].copy_from_slice(&self.direction);
+        row[72] = self.far;
+        match &self.ignore { Some(v) => { row[73] = 0.0; row[73 + 1] = (*v); } None => { row[73] = 1.0; row[73 + 1..73 + 2].fill(0.0); } }
+        match &self.name { Some(v) => { row[75] = 0.0; row[75 + 1] = (*v).0 as f64; } None => { row[75] = 1.0; row[75 + 1..75 + 2].fill(0.0); } }
+        match &self.velocity { Some(v) => { row[77] = 0.0; row[77 + 1..77 + 1 + 3].copy_from_slice(&(*v)); } None => { row[77] = 1.0; row[77 + 1..77 + 4].fill(0.0); } }
+        row[81] = if self.impact { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 82] = (&row[..82]).try_into().unwrap();
+        Self {
+            kind: DbActionKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            piece: if row[1] == 0.0 { Some(DbPiece::take(&row[1 + 1..], heap)) } else { None },
+            id: row[57],
+            point: [row[58], row[58 + 1], row[58 + 2]],
+            turn: [row[61], row[61 + 1], row[61 + 2], row[61 + 3]],
+            shift: if row[65] == 0.0 { Some([row[65 + 1], row[65 + 1 + 1], row[65 + 1 + 2]]) } else { None },
+            direction: [row[69], row[69 + 1], row[69 + 2]],
+            far: row[72],
+            ignore: if row[73] == 0.0 { Some(row[73 + 1]) } else { None },
+            name: if row[75] == 0.0 { Some(StrId(word_u32(row[75 + 1]))) } else { None },
+            velocity: if row[77] == 0.0 { Some([row[77 + 1], row[77 + 1 + 1], row[77 + 1 + 2]]) } else { None },
+            impact: row[81] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DbActionResult {
+    pub hit: bool,
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub low: f64,
+    pub effect: Option<f64>,
+}
+
+impl DbActionResult {
+    pub const WORDS: usize = 10;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
+        row[0] = if self.hit { 1.0 } else { 0.0 };
+        row[1..1 + 3].copy_from_slice(&self.point);
+        row[4..4 + 3].copy_from_slice(&self.normal);
+        row[7] = self.low;
+        match &self.effect { Some(v) => { row[8] = 0.0; row[8 + 1] = (*v); } None => { row[8] = 1.0; row[8 + 1..8 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
+        Self {
+            hit: row[0] != 0.0,
+            point: [row[1], row[1 + 1], row[1 + 2]],
+            normal: [row[4], row[4 + 1], row[4 + 2]],
+            low: row[7],
+            effect: if row[8] == 0.0 { Some(row[8 + 1]) } else { None },
+        }
+    }
+
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
