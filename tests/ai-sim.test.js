@@ -8,7 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, aimPointFor, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
@@ -793,6 +793,26 @@ test('native aim point orchestration preserves state types, aliases and shared f
     assert.deepEqual(n.target.velocity.toArray(),j.target.velocity.toArray());
     assert.deepEqual(n.c.aimPoint.toArray(),j.c.aimPoint.toArray());
   }
+});
+
+test('native hazard responses retain policy effects and the captured danger reference', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},point=new Vector3(i%7,-0,-i%9),danger={pending:i%11!==0,point},c={danger,perception:{fire:{channel:i%2}}};
+    const unit={kind:[0,5,3,null,undefined,'0',0][i%7],combat:{arsenal:{current(channel){
+      history.push(['weapon',channel]);if(i%13===0)c.unit={kind:6};if(native)sim.words(new Array(7000).fill(2));return i%17===0?null:{};
+    }}}};c.unit=i%29===0?null:unit;
+    world.nav={inDangerRegion(u){history.push(['region',u===unit]);if(i%5===0)u.kind=0;return i%3===0;}};
+    const agent={acceptsHazard(){history.push(['accept',this===agent]);point.y+=.25;
+      if(i%19===0)c.danger={pending:true,point:new Vector3(100,200,300)};
+      if(i%23===0)unit.kind=0;
+      return i%31!==0;
+    }};
+    const result=hazardResponse(c,world,i%37===0?null:agent);
+    if(result){assert.notEqual(result.point,point);assert.notEqual(result.point,c.danger.point);}
+    return {result:result?{...result,point:result.point.toArray()}:null,history,kind:unit.kind,danger:c.danger.point.toArray(),point:point.toArray()};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`hazard response ${i}`);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

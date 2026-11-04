@@ -932,6 +932,7 @@ function mountedExit(controller, world, point) {
 // A grenade or sticky charge nearby: a soldier whose agent accepts
 // gets combat goal mode 2 at the danger point.
 export function hazardResponse(controller, world, agent) {
+  if(world?.aiSim)return world.aiSim.awareness.hazardResponse(controller,world,agent);
   const danger = controller.danger;
   if (!danger?.pending) return null;
   const unit = controller.unit;

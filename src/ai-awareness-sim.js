@@ -72,6 +72,17 @@ export class NativeAwareness {
       else if(op==='alertLease') {const lease=sim.objects[id];result.values=[Number(Boolean(lease.human)),Number(Boolean(lease.released)),Number(lease.live===false)];}
       else if(op==='alertCrew') {const lease=sim.objects[id];result.number=sim.id(lease.controllable?.controller??lease.unit?.controller);}
       else if(op==='alertNotify') sim.objects[id].notifyShot(frame.source,frame.known,frame.point);
+      else if(op==='hazardStart') {frame.danger=frame.control.danger;result.flag=Boolean(frame.danger?.pending);}
+      else if(op==='responseUnit') {frame.unit=frame.control.unit;result.flag=Boolean(frame.unit);}
+      else if(op==='responseWeapon') result.flag=Boolean(selectedWeapon(frame.control.unit,frame.control));
+      else if(op==='hazardAccept') result.flag=Boolean(frame.agent?.acceptsHazard?.());
+      else if(op==='responseKind') {const kind=frame.unit.kind;result.number=typeof kind==='number'?kind:NaN;}
+      else if(op==='responseDangerRegion') result.flag=Boolean(frame.world.nav?.inDangerRegion?.(frame.unit));
+      else if(op==='hazardPoint') frame.responsePoint=frame.danger.point.clone();
+      else if(op==='responseResult') {
+        frame.response={kind:2,mode:id,point:frame.responsePoint,exit:Boolean(number)};
+        if(other!==0)frame.response.alert=true;
+      }
       else throw Error(`unknown awareness callback ${op}`);
       return result;
     }});
@@ -95,6 +106,10 @@ export class NativeAwareness {
   damage(world,target,attacker,packet,known,point) {
     this.frames.push({world,target,attacker,packet,known,point});
     try {return Boolean(this.sim.x.ai_notify_alert(1));} finally {this.frames.pop();}
+  }
+  hazardResponse(control,world,agent) {
+    const frame={control,world,agent,response:null};this.frames.push(frame);
+    try {this.sim.x.ai_hazard_response();return frame.response;} finally {this.frames.pop();}
   }
   rebuild(world) {
     this.frames.push({world});

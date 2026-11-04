@@ -134,3 +134,15 @@ pub extern "C" fn ai_notify_alert(kind: u32) -> u32 {
     }
     notified as u32
 }
+
+// perception.js hazardResponse: agent policy remains a callback into its
+// active controller, and may change the observed unit or danger fields.
+#[no_mangle]
+pub extern "C" fn ai_hazard_response() {
+    if !call(Op::HazardStart,0,0.0).flag {return;}
+    if !call(Op::ResponseUnit,0,0.0).flag || !call(Op::ResponseWeapon,0,0.0).flag || !call(Op::HazardAccept,0,0.0).flag {return;}
+    if call(Op::ResponseKind,0,0.0).number==5.0 && call(Op::ResponseDangerRegion,0,0.0).flag {return;}
+    if call(Op::ResponseKind,0,0.0).number!=0.0 {return;}
+    call(Op::HazardPoint,0,0.0);
+    call(Op::ResponseResult,2,0.0);
+}
