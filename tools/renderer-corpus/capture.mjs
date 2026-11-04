@@ -1,6 +1,7 @@
 // Same-state three / bridge / owned / three controls, including a temporal sequence.
 import fs from 'node:fs';
 import { expand } from './manifest.mjs';
+import { shaderSources } from '../../src/render-shaders.js';
 import { connect, loadBattle, settingsFor, GL_STATE, HELPERS_SRC } from './battle.mjs';
 const manifest = expand(JSON.parse(fs.readFileSync(new URL('./manifest.json', import.meta.url))));
 const LABEL = process.env.LABEL || 'enparity', OUT = process.env.OUT || 'renderer-corpus-out';
@@ -139,29 +140,6 @@ if (testCase.camera === 'water') await c.ev(`(() => {
  const reflect=water.reflect;water.reflect=function(c){aim(c);this.reflectFrames=0;return reflect.call(this,c);};
  const render=g.render;g.render=function(...a){aim(g.camera);return render.apply(this,a);};return 1;
 })()`);
-const inputHashes = await c.ev(`(async () => {
- const g=__bf.graphics,R=g.renderer,gl=R.getContext();
- const hash=async data=> {const digest=await crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');};
- const text=s=>new TextEncoder().encode(s);
- const shaders=[],programs=[];
- for(const p of R.info.programs || []) {
-   const attributes=[],uniforms=[];
-   for(let i=0;i<gl.getProgramParameter(p.program,gl.ACTIVE_ATTRIBUTES);i++){const a=gl.getActiveAttrib(p.program,i);attributes.push({name:a.name,type:a.type,size:a.size,location:gl.getAttribLocation(p.program,a.name)});}
-   for(let i=0;i<gl.getProgramParameter(p.program,gl.ACTIVE_UNIFORMS);i++){const u=gl.getActiveUniform(p.program,i);uniforms.push({name:u.name,type:u.type,size:u.size});}
-   const stages=[];
-   for(const shader of gl.getAttachedShaders(p.program) || []){const source=gl.getShaderSource(shader),h=await hash(text(source));shaders.push({stage:gl.getShaderParameter(shader,gl.SHADER_TYPE),hash:h,source});stages.push(h);}
-   programs.push({key:p.cacheKey,stages,attributes,uniforms});
- }
- const textures=new Set();
- const material=m=> {if(!m)return;for(const u of Object.values(m.uniforms || {}))if(u.value?.isTexture)textures.add(u.value);if(m.map)textures.add(m.map);};
- for(const scene of [g.scene,g.farScene,g.viewScene,__bf.hud.scene]) scene?.traverse(o=>{for(const m of (Array.isArray(o.material)?o.material:[o.material]))material(m);});
- const payloads=[];
- for(const t of textures){const parts=[];const images=[t.image,...(t.mipmaps || [])];for(const im of images){if(!im)continue;if(im.data && ArrayBuffer.isView(im.data))parts.push(await hash(im.data));else if(im.width && im.height && !t.isRenderTargetTexture){try{const c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.drawImage(im,0,0);parts.push(await hash(x.getImageData(0,0,c.width,c.height).data));}catch{parts.push('unreadable');}}}payloads.push({format:t.format,type:t.type,wrap:[t.wrapS,t.wrapT],filter:[t.minFilter,t.magFilter],flip:t.flipY,mips:parts});}
- return {shaders,programs,textures:payloads,textureHash:await hash(text(JSON.stringify(payloads)))};
-})()`);
-const shaderDir = `${OUT}/shaders`;
-fs.mkdirSync(shaderDir, { recursive: true });
-for (const shader of inputHashes.shaders) { fs.writeFileSync(`${shaderDir}/${shader.hash}.glsl`, shader.source); delete shader.source; }
 const deathsAtStart = gpuDeaths();
 const points = [];
 let worst = null;
@@ -242,6 +220,29 @@ if (worst) {
   worst.files = ['three', 'rust'].map((v) => `${RGBA}/${LABEL}-${v}-${worst.k}.rgba`);
   ['three', 'rust'].forEach((v, i) => fs.writeFileSync(worst.files[i], Buffer.concat([Buffer.from(new Uint32Array([worst.shots[v].w, worst.shots[v].h]).buffer), worst.shots[v].d])));
 }
+const inputHashes = await c.ev(`(async () => {
+ const g=__bf.graphics,R=g.renderer,gl=R.getContext();
+ const hash=async data=> {const digest=await crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');};
+ const text=s=>new TextEncoder().encode(s);
+ const shaders=[],programs=[];
+ for(const p of R.info.programs || []) {
+   const attributes=[],uniforms=[];
+   for(let i=0;i<gl.getProgramParameter(p.program,gl.ACTIVE_ATTRIBUTES);i++){const a=gl.getActiveAttrib(p.program,i);attributes.push({name:a.name,type:a.type,size:a.size,location:gl.getAttribLocation(p.program,a.name)});}
+   for(let i=0;i<gl.getProgramParameter(p.program,gl.ACTIVE_UNIFORMS);i++){const u=gl.getActiveUniform(p.program,i);uniforms.push({name:u.name,type:u.type,size:u.size});}
+   const stages=[];
+   for(const shader of gl.getAttachedShaders(p.program) || []){const source=gl.getShaderSource(shader),h=await hash(text(source));shaders.push({stage:gl.getShaderParameter(shader,gl.SHADER_TYPE),hash:h,source});stages.push(h);}
+   programs.push({key:p.cacheKey,stages,attributes,uniforms});
+ }
+ const textures=new Set();
+ const material=m=> {if(!m)return;for(const u of Object.values(m.uniforms || {}))if(u.value?.isTexture)textures.add(u.value);if(m.map)textures.add(m.map);};
+ for(const scene of [g.scene,g.farScene,g.viewScene,__bf.hud.scene]) scene?.traverse(o=>{for(const m of (Array.isArray(o.material)?o.material:[o.material]))material(m);});
+ const payloads=[];
+ for(const t of textures){const parts=[];const images=[t.image,...(t.mipmaps || [])];for(const im of images){if(!im)continue;if(im.data && ArrayBuffer.isView(im.data))parts.push(await hash(im.data));else if(im.width && im.height && !t.isRenderTargetTexture){try{const c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.drawImage(im,0,0);parts.push(await hash(x.getImageData(0,0,c.width,c.height).data));}catch{parts.push('unreadable');}}}payloads.push({format:t.format,type:t.type,wrap:[t.wrapS,t.wrapT],filter:[t.minFilter,t.magFilter],flip:t.flipY,mips:parts});}
+ return {shaders,programs,textures:payloads,textureHash:await hash(text(JSON.stringify(payloads)))};
+})()`);
+const shaderDir = `${OUT}/shaders`;
+fs.mkdirSync(shaderDir, { recursive: true });
+for (const shader of inputHashes.shaders) { fs.writeFileSync(`${shaderDir}/${shader.hash}.glsl`, shader.source); delete shader.source; }
 const good = points.filter((p) => p.valid && p.rust && !p.rust.error);
 const sizeOk = setup.buffer[0] === 1600 && setup.buffer[1] === 900 && setup.target[0] === 1600 && setup.target[1] === 900;
 const samplesNote = setup.samples === WANT_SAMPLES ? `${setup.samples} samples` : (setup.supportedSamples || []).includes(WANT_SAMPLES) ? `${setup.samples} samples, not the ${WANT_SAMPLES} asked` : `${setup.samples} samples: the GPU offers ${JSON.stringify(setup.supportedSamples)}, no ${WANT_SAMPLES}`;
@@ -264,10 +265,16 @@ const out = {
 };
 out.valid = good.length >= MIN_VALID && sizeOk;
 out.worstOwnedPixels = good.length ? Math.max(...good.map(p => p.owned.differing)) : null;
+const byHash = new Map(inputHashes.shaders.map(s => [s.hash, fs.readFileSync(`${shaderDir}/${s.hash}.glsl`, 'utf8')]));
+const seen = [...new Set(out.shaderPrograms.filter(p => p.hash && p.accepted).map(p => p.key))];
+out.missingOracles = seen.filter(key => !inputHashes.programs.some(p => {
+  const sources=p.stages.map(h=>byHash.get(h));
+  return sources.some(s=>s.includes(shaderSources[key].vertex.trim())) && sources.some(s=>s.includes(shaderSources[key].fragment.trim()));
+}));
 out.mirrorCovered = testCase.camera !== 'water' || good.every(p => p.meta.rust.rustPhases.includes('mirror') && p.meta.rust.stages.reflection);
 out.exactPairs = good.flatMap(p => p.meta.rust.pairs || []);
 out.worstPairPixels = out.exactPairs.length ? Math.max(...out.exactPairs.map(p => p.differing)) : null;
-out.pass = out.valid && out.mirrorCovered && out.shaderPrograms.some(p => p.accepted && p.hash) && out.shaderPrograms.every(p => p.accepted) && out.exactPairs.length > 0 && out.exactPairs.every(p => p.bridge && p.owned && p.differing === 0);
+out.pass = out.valid && out.missingOracles.length === 0 && out.mirrorCovered && out.shaderPrograms.some(p => p.accepted && p.hash) && out.shaderPrograms.every(p => p.accepted) && out.exactPairs.length > 0 && out.exactPairs.every(p => p.bridge && p.owned && p.differing === 0);
 out.baselinePass = out.valid && good.every(p => p.rust.differing <= (testCase.preset === 'classic' ? 0 : 144) || p.controlResidual.differing === 0 || p.rust2.differing === 0);
 if (testCase.contextLoss) {
   out.contextLoss = await c.ev(`(async () => { const g=__bf.graphics, gl=g.renderer.getContext(), ext=gl.getExtension('WEBGL_lose_context'); if(!ext) return {supported:false}; ext.loseContext(); await new Promise(r=>setTimeout(r,100)); const lost=g.rust.lost; ext.restoreContext(); await new Promise(r=>setTimeout(r,1500)); await __bf.lockstep(0,true); return {supported:true,lost,active:g.rust.active,enabled:g.rust.enabled,restored:!gl.isContextLost()}; })()`);

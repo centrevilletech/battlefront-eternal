@@ -125,3 +125,10 @@ reflection path. Each point records differences outside its control's per-pixel
 amplitude envelope, including differences on pixels where the control was stable.
 Control counts are not used as a blanket pixel budget. Shader pairing compares
 RGB channels, matching the existing presented-frame parity criterion.
+
+Expanded three GLSL and active program layouts are collected after the controls
+have exercised fallback, since a covered program need never be compiled by
+three during loading. The oracle check requires both original shader bodies in
+a captured three program for each observed owned variant. Source fixtures are
+written under the output's `shaders` directory by content hash; they are test
+artifacts, not the permanent source of truth or application assets.
