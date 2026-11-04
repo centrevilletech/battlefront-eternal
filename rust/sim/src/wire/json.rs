@@ -238,3 +238,39 @@ pub fn building_state_team(payload: &[u8]) -> Option<Vec<u16>> {
     out.extend(text(a.get(3))?);
     Some(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn state_tags_preserve_surrogates_array_coercion_and_nullish_values() {
+        assert_eq!(
+            building_state_team(br#"[0,"\ud800",0,"\udfff"]"#),
+            Some(vec![0xd800, 58, 0xdfff])
+        );
+        assert_eq!(
+            building_state_team(br#"[0,[1,null,3],0,{}]"#),
+            Some("1,,3:[object Object]".encode_utf16().collect())
+        );
+        assert_eq!(
+            building_state_team(b"[]"),
+            Some("undefined:undefined".encode_utf16().collect())
+        );
+        assert_eq!(
+            building_state_team(b"[0,-0,0,1e999]"),
+            Some("0:Infinity".encode_utf16().collect())
+        );
+        for bad in [
+            br#"[0,{"toString":7},0,0]"#.as_slice(),
+            b"[0,1,]",
+            b"[0,01]",
+            b"[0,.1]",
+            b"[0,+1]",
+            b"[0,NaN]",
+            b"[0,Infinity]",
+            b"{}",
+        ] {
+            assert_eq!(building_state_team(bad), None);
+        }
+    }
+}

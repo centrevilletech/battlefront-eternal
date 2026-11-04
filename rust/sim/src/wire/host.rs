@@ -532,3 +532,92 @@ pub unsafe extern "C" fn wire_budget_run(
         _ => f64::NAN,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ack_history_requires_both_rings_and_keeps_the_legacy_age_limit() {
+        let mut h = Host::new(false, 20000., 5000., 3.);
+        h.add(1, 0.);
+        h.add(2, 0.);
+        for tick in (2..=300).step_by(2) {
+            let tick = tick as f64;
+            h.captured(tick).unwrap();
+            h.prepare_own(
+                1,
+                WireHostOwn {
+                    tick,
+                    epoch: 3.,
+                    baseline_tick: tick - 2.,
+                    correction: None,
+                    summaries: vec![],
+                },
+            )
+            .unwrap();
+            assert!(!h.accept_ack(2, tick, 3.));
+            assert!(!h.accept_ack(1, tick, 2.));
+            assert!(h.accept_ack(1, tick, 3.));
+            assert!(!h.accept_ack(1, tick, 3.));
+        }
+        assert_eq!(
+            h.held(1, 300.),
+            [300., 298., 296., 294., 292., 290., 288., 286.]
+        );
+        assert_eq!(h.held(1, 426.), [300.]);
+        assert!(h.held(1, 428.).is_empty());
+        h.resync(1);
+        assert_eq!(h.client(1).baseline, 0.);
+        assert!(!h.accept_ack(1, 302., 3.));
+    }
+    #[test]
+    fn capture_gaps_budget_window_and_stale_boundaries_are_independent() {
+        let mut h = Host::new(false, 20000., 5000., 1.);
+        h.add(1, 10.);
+        assert!(!h.due(1.));
+        assert!(h.due(2.));
+        h.captured(5.).unwrap();
+        assert!(!h.due(6.));
+        assert!(h.due(7.));
+        h.client_mut(1).ready = true;
+        assert!(h.eligible(1, 5010., true));
+        assert!(!h.eligible(1, 5010.1, true));
+        h.client_mut(1).charge(1., 20000.);
+        assert_eq!(h.delivery(1, 1.), 1);
+        h.client_mut(1).own_sent_at = 1.;
+        assert_eq!(h.delivery(1, 100.), 0);
+        assert_eq!(h.delivery(1, 101.), 1);
+        assert_eq!(h.delivery(1, 1001.), 2);
+        h.client_mut(1).charge(2000., 10.);
+        h.client_mut(1).charge(1990., 20.);
+        assert_eq!(h.client_mut(1).budget_used(2995.), 30.);
+        assert_eq!(h.client_mut(1).budget_used(3000.), 0.);
+        assert_eq!(h.client(1).metrics[7], 3.);
+        assert_eq!(h.client(1).metrics[9], 1.);
+        h.client_mut(1).started = true;
+        assert_eq!(h.stale(5010., 5.), [1.]);
+    }
+    #[test]
+    fn greedily_shared_baselines_count_each_client_and_break_ties_newest() {
+        let acks = vec![vec![99., 97.], vec![98., 97.], vec![96.], vec![]];
+        assert_eq!(choose_baselines(100., &acks, 1.), [97.]);
+        assert_eq!(choose_baselines(100., &acks, 2.), [97., 96.]);
+        assert_eq!(choose_baselines(100., &acks, 3.), [99., 97., 96.]);
+        assert_eq!(choose_baselines(100., &[vec![99.], vec![98.]], 1.), [99.]);
+    }
+    #[test]
+    fn transport_tokens_refund_only_offered_bytes_and_do_not_rewind_the_clock() {
+        let mut b = EntityBudget::new(1000., 2200., 10.).unwrap();
+        assert!(b.take(1100., 10.).unwrap());
+        assert!(b.take(1100., 10.).unwrap());
+        assert!(!b.take(1., 10.).unwrap());
+        assert_eq!(b.available(11.5).unwrap(), 1.);
+        assert_eq!(b.available(0.).unwrap(), 1.);
+        b.refund(1000., 0.).unwrap();
+        assert_eq!(b.tokens, 1001.5);
+        assert_eq!(b.offered, 1200.);
+        assert_eq!(b.denied, 1.);
+        assert_eq!(b.take(0., f64::NAN), Err("invalid entity message size"));
+        assert_eq!(b.take(1., f64::NAN), Err("invalid budget clock"));
+    }
+}
