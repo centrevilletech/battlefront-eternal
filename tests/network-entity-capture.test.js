@@ -42,8 +42,13 @@ test('a turret occupant stays a soldier whose seat names the turret target; a dr
  unit.walker=false;unit.removed=true;
  assert.equal(capture.capture(5).find(r=>r.id===1).kind,'tombstone');
 });
-test('health overflow fails explicitly',()=>{
+test('health above 16 bits saturates, as Darth Vader\'s does',()=>{
  const {unit,capture}=fixture();
- unit.combat.health=70000;
- assert.throws(()=>capture.capture(1),/health outside/);
+ unit.combat.health=1000000;
+ assert.equal(capture.capture(1).find(r=>r.id===1).health,65535);
+});
+test('health that is not a number fails explicitly',()=>{
+ const {unit,capture}=fixture();
+ unit.combat.health=Number.NaN;
+ assert.throws(()=>capture.capture(1),/not a number/);
 });
