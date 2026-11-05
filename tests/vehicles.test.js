@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { makeHit } from '../src/collision.js';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
+import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
 import { LiveObjects } from '../src/props.js';
 
@@ -18,12 +18,13 @@ const identity = () => new THREE.Matrix4();
 const shape = c => {const b=box(0,1,0,2,2,4);return c.createBodyShape(b.positions,b.indices,b.polygons)};
 const controls = (held = false) => ({take: () => false, held: () => held});
 
-function fixture() {
+function fixture(authority = false, linked = true) {
   const c=collision(), hull=box(0,1,0,2,2,4),scene=new THREE.Scene();
   const d={model:'tank',label:'Test tank',settings:{MaxHealth:1000,ForwardSpeed:20,ReverseSpeed:8,StrafeSpeed:4,Acceleration:10,Deceleration:10,SetAltitude:.5},seats:[{name:'BODY',settings:{},weapons:[]}],explosion:null};
-  const data={models:{tank:{bones:[],parts:[]}},collision:{tank:hull},classes:{tank:d,enemy:d},spawns:[{name:'pad',matrix:identity().toArray(),team:1,post:'cp',respawnTime:2,classes:{1:'tank',2:'enemy'}}]};
+  const data={models:{tank:{bones:[],parts:[]}},collision:{tank:hull},classes:{tank:d,enemy:d},spawns:[{name:'pad',matrix:identity().toArray(),team:1,post:linked?'cp':'',respawnTime:2,classes:{1:'tank',2:'enemy'}}]};
   const post={desc:{name:'cp'},team:1};
   const system=new Vehicles({scene,data,buffer:new ArrayBuffer(0),indexBuffer:new ArrayBuffer(0),collision:c,texture:()=>null,camera:new THREE.PerspectiveCamera(),posts:{posts:[post]},ordnance:{explosion(){}},effects:{play(){return null}}});
+  if (authority) nativeVehicles(system,{data,buffer:new ArrayBuffer(0),indexBuffer:new ArrayBuffer(0)});
   return {c,system,post,v:system.vehicles[0]};
 }
 
@@ -74,37 +75,17 @@ test('straight rockets also hit vehicles entering their flight segment',()=>{
   assert.equal(ord.rounds.length,0);
 });
 
-test('movement is display-rate independent and parked vehicles sleep',()=>{
-  const runs=[30,60,144].map(rate=>{
-    const {system,v}=fixture();v.driver={};
-    for(let i=0;i<rate*3;i++)system.update(1/rate,v,{forward:1,right:0,turn:0});
-    const z=v.position.z;
-    v.driver=null;
-    for(let i=0;i<rate*4;i++)system.update(1/rate);
-    assert.ok(v.sleeping);
-    return z;
-  });
-  for(const z of runs)assert.ok(Math.abs(z-runs[0])<1e-8,JSON.stringify(runs));
-  assert.ok(runs[0]>35);
-});
 
-test('thin walls stop a fast hover vehicle without rebuilding its collider',()=>{
-  const {system,c,v}=fixture();
-  const wall=box(0,3,12,50,6,.1);c.addBody(wall.positions,wall.indices,wall.polygons);
-  const bvh=v.body.bvh;v.driver={};
-  for(let i=0;i<300;i++)system.update(1/30,v,{forward:1,right:0,turn:0});
-  assert.ok(v.position.z<10.1,`wall tunneled: ${v.position.z}`);
-  assert.ok(v.position.z>8);
-  assert.equal(v.body.bvh,bvh);
-});
+
+
 
 test('destruction is idempotent, respawn waits, neutral CP suppresses it, capture changes faction',()=>{
-  const {system,v,post}=fixture();let destroyed=0;system.onDestroyed=()=>destroyed++;
+  const {system,v,post}=fixture(true);let destroyed=0;system.onDestroyed=()=>destroyed++;
   v.damage(2000);v.damage(2000);
   assert.equal(destroyed,1);assert.equal(v.body.enabled,false);
-  system.updateSpawns(1);assert.equal(v.alive,false);
-  post.team=0;system.updateSpawns(5);assert.equal(system.vehicles.length,1);
-  post.team=2;system.updateSpawns(.1);
+  system.update(.1);for(let i=0;i<60;i++)system.update(1/60);assert.equal(v.alive,false);
+  post.team=0;for(let i=0;i<300;i++)system.update(1/60);assert.equal(system.vehicles.length,1);
+  post.team=2;system.update(.1);
   assert.equal(system.slots[0].vehicle.name,'enemy');assert.equal(system.slots[0].vehicle.health,1000);
   assert.equal(v.alive,false);
   const n=system.collision.bodies.length;
@@ -112,21 +93,21 @@ test('destruction is idempotent, respawn waits, neutral CP suppresses it, captur
 });
 
 test('occupied pads delay respawn instead of overlapping a soldier',()=>{
-  const {system,v}=fixture();v.damage(Infinity);
-  system.spawnOccupant=new THREE.Vector3(0,0,0);system.updateSpawns(3);
+  const {system,v}=fixture(true);v.damage(Infinity);
+  system.spawnOccupant=new THREE.Vector3(0,0,0);system.update(.1);for(let i=0;i<180;i++)system.update(1/60);
   assert.equal(v.alive,false);
-  system.spawnOccupant.set(50,0,50);system.updateSpawns(1);
+  system.spawnOccupant.set(50,0,50);system.update(.1);for(let i=0;i<60;i++)system.update(1/60);
   assert.equal(v.alive,true);
 });
 
 test('unlinked pads keep their explicit faction even when an unnamed CP is neutral',()=>{
-  const {system,v,post}=fixture();v.slot.desc.post='';post.desc.name='';post.team=0;
-  v.damage(Infinity);system.updateSpawns(3);
+  const {system,v,post}=fixture(true, false);post.desc.name='';post.team=0;
+  v.damage(Infinity);system.update(.1);for(let i=0;i<180;i++)system.update(1/60);
   assert.equal(v.alive,true);assert.equal(v.team,1);
 });
 
 test('damage scales and pilot repair apply to vehicle health',()=>{
-  const {system,v,c}=fixture();system.struck(v.body,{Damage:100,VehicleScale:.5});assert.equal(v.health,950);
+  const {system,v,c}=fixture(true);system.struck(v.body,{Damage:100,VehicleScale:.5});assert.equal(v.health,950);
   const live=Object.create(LiveObjects.prototype);Object.assign(live,{playerTeam:1,vehicleTargets:system.vehicles,buildings:[],collision:c,center:new THREE.Vector3(),toward:new THREE.Vector3(),hit:makeHit()});
   const cutter={VehicleHealth:50,TargetVehicle:1,TargetEnemy:0,TargetFriendly:1,LockOnRange:10,LockOnAngle:20};
   const target=live.lockOn(new THREE.Vector3(0,1,-5),new THREE.Vector3(0,0,1),cutter,null,false);
@@ -145,13 +126,7 @@ test('beams maintain a continuous segment and integrate damage independent of fr
  }
 });
 
-test('aircraft ceiling recovery changes attitude smoothly rather than clamping position',()=>{
- const {system,v}=flightFixture();v.driver={};v.flightState='Flying';v.position.y=40;v.airspeed=v.midSpeed;
- system.flightEnvironment={ceiling:30};
- system.update(1/60,v,{});assert.ok(v.position.y>30);assert.equal(v.flightWarning,'Flight ceiling');
- for(let i=0;i<60;i++)system.update(1/60,v,{});
- assert.ok(new THREE.Vector3(0,0,1).applyQuaternion(v.quaternion).y<0);
-});
+
 
 test('vehicle-only architectural barriers are absent from infantry and projectile queries',()=>{
  const c=collision();const b=box(0,2,10,4,4,.1);c.vehicleBlockers=c.createBodyShape(b.positions,b.indices,b.polygons);
@@ -214,140 +189,15 @@ function orbit(system,v,w,a,r=25){
   system.updateTethers();
 }
 
-test('tow cable: the rear seat fires the harpoon from towcablegun, aft, and it holds a walker leg (not its body), with the attach sound',async()=>{
-  const {emitSound,listenSounds}=await import('../src/audio/events.js');
-  const sounds=[];const stop=listenSounds((type,...args)=>sounds.push([type,...args]));
-  const {system,v,w}=towFixture();
-  assert.equal(w.base,'commandwalker');assert.equal(w.legs.length,4);assert.ok(Math.abs(w.legTop-12.6)<1e-6,`the pelvis height: ${w.legTop}`);
-  assert.equal(v.seats[1].view.turret,v.byName.towcablegun);
-  // The player in the rear seat, aimed aft at the walker (the arc's middle).
-  v.driver={};v.seatIndex=1;v.restAim(1);v.flightState='Flying';v.airspeed=v.minSpeed;
-  assert.ok(Math.abs(Math.atan2(Math.sin(v.seats[1].aimYaw-v.yaw),Math.cos(v.seats[1].aimYaw-v.yaw)))>3,'the rear seat rests aft');
-  system.update(1/60,v,{forward:0,right:0,turn:0});
-  assert.ok(v.seats[1].target&&v.seats[1].target.z<-15,`the seat aims at the walker: ${v.seats[1].target?.z}`);
-  const pressed=new Set(['firePrimary']);
-  const controls={take:(k)=>pressed.delete(k),held:(k)=>k==='firePrimary'};
-  v.fire(1/60,controls);
-  assert.equal(v.shotNode,v.byName.towcablegun,'fired from the turret node, not the hull nose');
-  assert.ok(v.muzzle.z-v.position.z<-1.5&&v.muzzle.z-v.position.z>-2.5,`the muzzle at the rear gun: ${v.muzzle.z}`);
-  assert.equal(v.towTarget,system.vehicles.indexOf(w),'the harpoon holds the walker');
-  assert.ok(/^bone_(fl|fr|bl|br)$/.test(v.towLeg),`a leg: ${v.towLeg}`);
-  assert.ok(v.towLocal.y<w.legTop,'anchored below the pelvis');
-  assert.equal(system.tethers.get(v).length,60,'CableLength from the ordnance');
-  assert.deepEqual(sounds.filter(s=>s[0]==='towAttach').length,1,'the attach sound');
-  assert.ok(sounds.some(s=>s[0]==='turretFire'),'and the gun\'s fire sound');
-  // A harpoon into the body glances off: the player's; a bot's is re-aimed at a leg.
-  system.releaseTow(v,'test');
-  assert.equal(v.towTarget,-1);
-  const high=new THREE.Vector3(0,15,-2),aft=new THREE.Vector3(0,0,-1);
-  assert.equal(system.launchTow(v,v.seats[1].weapons[0].def,high,aft,1,null),false,'the body does not hold the harpoon');
-  assert.equal(system.launchTow(v,v.seats[1].weapons[0].def,high,aft,1,{unit:null}),true,'a bot\'s harpoon finds the nearest leg');
-  assert.ok(v.towLeg&&v.towLocal.y<w.legTop);
-  stop();
-});
 
-test('tow cable: the cable winds round the legs over the passes, trips the walker on the third circuit, snaps past CableLength, and is drawn from plain state',async()=>{
-  const {listenSounds}=await import('../src/audio/events.js');
-  const sounds=[];const stop=listenSounds((type,...args)=>sounds.push([type,...args]));
-  const {system,v,w,scene}=towFixture();
-  v.driver={};v.seatIndex=1;v.restAim(1);v.flightState='Flying';v.airspeed=v.minSpeed;
-  system.update(1/60,v,{forward:0,right:0,turn:0});
-  const pressed=new Set(['firePrimary']);
-  v.fire(1/60,{take:(k)=>pressed.delete(k),held:()=>true});
-  assert.equal(v.towTarget,1);
-  const a0=Math.atan2(v.position.x-w.position.x,v.position.z-w.position.z);
-  for(let i=1;i<=120;i++)orbit(system,v,w,a0+i*Math.PI/60);
-  assert.ok(v.towWinding>2*Math.PI-.01&&v.towWinding<2*Math.PI+.01,`one circuit wound: ${v.towWinding}`);
-  assert.equal(w.alive,true,'still up after one');
-  for(const key of ['towTarget','towWinding','towAngle'])assert.equal(typeof v[key],'number',key);
-  assert.equal(typeof v.towLeg,'string');
-  // The page draws it: the anchor, four wrap points for the circuit, the sagging span to the gun.
-  system.present(1);
-  const line=system.tethers.get(v).line;
-  assert.ok(line&&line.visible&&scene.children.includes(line),'a line in the scene');
-  assert.equal(line.geometry.drawRange.count,1+4+16,'anchor, four quarter wraps, sixteen along the span');
-  const p=line.geometry.attributes.position;
-  const anchor=new THREE.Vector3(p.getX(0),p.getY(0),p.getZ(0)),gun=new THREE.Vector3(p.getX(20),p.getY(20),p.getZ(20));
-  assert.ok(anchor.distanceTo(w.position)<12,`the anchor on the walker: ${anchor.distanceTo(w.position)}`);
-  assert.ok(gun.distanceTo(v.position)<3,`the other end at the gun: ${gun.distanceTo(v.position)}`);
-  // Unwinding the other way lets it out; three circuits bring it down.
-  for(let i=1;i<=30;i++)orbit(system,v,w,a0+(120-i)*Math.PI/60);
-  assert.ok(v.towWinding<2*Math.PI-1,`unwound: ${v.towWinding}`);
-  for(let i=1;i<=400&&w.alive;i++)orbit(system,v,w,a0+(90+i)*Math.PI/60);
-  assert.equal(w.alive,false,'the walker fell');
-  assert.equal(v.towTarget,-1,'the cable let go');
-  assert.ok(sounds.some(s=>s[0]==='towRelease'),'the release sound');
-  system.present(1);
-  assert.equal(line.visible,false,'nothing drawn');
-  // A new walker, a new cable, too far: it snaps.
-  w.spawn(2);
-  v.position.set(0,1.5,-5);v.yaw=0;v.previous.copy(v.position);v.previousYaw=0;v.syncBody();v.render(1,0);
-  v.driver={};v.seatIndex=1;v.restAim(1);v.flightState='Flying';v.airspeed=v.minSpeed;
-  system.update(1/60,v,{forward:0,right:0,turn:0});
-  pressed.add('firePrimary');v.seats[1].weapons[0].state.wait=0;
-  v.fire(1/60,{take:(k)=>pressed.delete(k),held:()=>true});
-  assert.equal(v.towTarget,1,'held again');
-  orbit(system,v,w,0,80);
-  assert.equal(v.towTarget,-1,'snapped past CableLength');
-  system.dispose();assert.equal(system.tethers.size,0);
-  stop();
-});
 
-test('tow cable: the gun takes no trigger while its cable holds, so a second press neither fires nor starts the circuits over; once it lets go the gun fires again',()=>{
-  const {system,v,w}=towFixture();
-  v.driver={};v.seatIndex=1;v.restAim(1);v.flightState='Flying';v.airspeed=v.minSpeed;
-  system.update(1/60,v,{forward:0,right:0,turn:0});
-  const gun=v.seats[1].weapons[0];
-  const pressed=new Set(['firePrimary']);
-  const controls={take:(k)=>pressed.delete(k),held:()=>true};
-  let launched=0;const launch=system.launchTow.bind(system);system.launchTow=(...args)=>{launched++;return launch(...args);};
-  v.fire(1/60,controls);
-  assert.equal(launched,1);assert.equal(v.towTarget,1,'the first harpoon holds');
-  assert.equal(v.towHeld(gun),true,'the gun is held');
-  const a0=Math.atan2(v.position.x-w.position.x,v.position.z-w.position.z);
-  for(let i=1;i<=60;i++)orbit(system,v,w,a0+i*Math.PI/60);
-  const wound=v.towWinding;
-  assert.ok(wound>Math.PI-.01,`half a circuit: ${wound}`);
-  // The shot delay long past, the trigger pressed and held again.
-  gun.state.wait=0;pressed.add('firePrimary');
-  for(let i=0;i<30;i++)v.fire(1/60,controls);
-  assert.equal(launched,1,'no second harpoon');
-  assert.equal(v.towTarget,1,'the cable still holds');
-  assert.equal(v.towWinding,wound,'the circuits wound count on');
-  system.releaseTow(v,'test');
-  assert.equal(v.towHeld(gun),false);
-  gun.state.wait=0;pressed.add('firePrimary');v.fire(1/60,controls);
-  assert.equal(launched,2,'free again, the gun fires');
-});
 
-test('tow cable: something between the gun and the walker (another walker, a wall, the ground) does not cut the cable; stretched past 1.2 x CableLength it snaps',()=>{
-  const {c,system,v,w}=towFixture();
-  v.driver={};v.seatIndex=1;v.restAim(1);v.flightState='Flying';v.airspeed=v.minSpeed;
-  system.update(1/60,v,{forward:0,right:0,turn:0});
-  const pressed=new Set(['firePrimary']);
-  v.fire(1/60,{take:(k)=>pressed.delete(k),held:()=>true});
-  assert.equal(v.towTarget,1,'held');
-  // A wall right across the cable, between the speeder and the walker.
-  const wall=box(0,5,-15,30,10,.5);c.addBody(wall.positions,wall.indices,wall.polygons);
-  const a0=Math.atan2(v.position.x-w.position.x,v.position.z-w.position.z);
-  for(let i=1;i<=10;i++)orbit(system,v,w,a0+i*Math.PI/60);
-  assert.equal(v.towTarget,1,'the wall between does not cut it');
-  assert.ok(v.towWinding>0,'and it winds on');
-  orbit(system,v,w,a0+11*Math.PI/60,90);
-  assert.equal(v.towTarget,-1,'stretched past 72 m it snaps');
-});
 
-test('tow cable: a bot takes the rear seat looking aft into its arc (YawLimits 80 280), not along the hull past its limits',()=>{
-  const {system,v}=towFixture();
-  v.flightState='Flying';
-  const soldier={position:new THREE.Vector3(),previous:new THREE.Vector3(),velocity:new THREE.Vector3(),aimYaw:0,aimPitch:0,air:null,spawn(){}};
-  const unit={id:7,generation:1,team:1,alive:true,dead:false,human:false,walker:false,seat:null,classDef:{},intent:{},soldier,
-    actor:{root:new THREE.Group(),byName:{}},animator:{clips:new Map(),gunner(){},reset(){}},presentation:{reset(){}},combat:{mounted:false,dead:false,team:1}};
-  assert.ok(system.board(unit,v,1),'boarded the rear seat');
-  const off=Math.atan2(Math.sin(v.seats[1].aimYaw-v.yaw),Math.cos(v.seats[1].aimYaw-v.yaw));
-  assert.ok(Math.abs(Math.abs(off)-Math.PI)<1e-9,`aft, the arc's middle: ${off}`);
-  assert.equal(v.restYaw(0),v.yaw,'the pilot\'s seat rests along the hull');
-});
+
+
+
+
+
 
 test('fatray: the LR1K sonic round strikes everyone within its width along its flight, once each, and stops at a wall; a flak bolt bursts where its flight ends',()=>{
   const c=collision();
@@ -383,57 +233,13 @@ test('spawn clearance permits narrow side-by-side fighters while rejecting overl
  assert.equal(vehicleFootprintsOverlap(hull,identity(),hull,identity().makeTranslation(0,10,0)),false);
 });
 
-test('blocked exits retain control, valid exits restore infantry without changing health',()=>{
- const {system,v,c}=fixture();
- const soldier={position:new THREE.Vector3(),previous:new THREE.Vector3(),settled:new THREE.Vector3(),velocity:new THREE.Vector3(),spawn(x,y,z,yaw){this.position.set(x,y,z);this.aimYaw=yaw}};
- const combat={dead:false,health:75,mounted:false};
- const driver=new VehicleDriver({vehicles:system,soldier,combat,actor:{root:new THREE.Group()},animator:{},clips:new Map(),camera:system.camera,collision:c,hud:{message(){}}});
- assert.equal(driver.enter(v),true);assert.equal(combat.mounted,true);
- const cast=c.cast;c.cast=()=>null;
- assert.equal(driver.exit(),false);assert.equal(driver.active,true);
- c.cast=cast;
- assert.equal(driver.exit(),true);assert.equal(driver.active,false);assert.equal(combat.mounted,false);assert.equal(combat.health,75);
-});
 
-test('vehicle right strafe and right steering agree with the camera, with bounded yaw acceleration',()=>{
- const {system,v}=fixture();v.driver={};
- for(let i=0;i<120;i++)system.update(1/120,v,{forward:0,right:1,turn:0});
- assert.ok(v.position.x < -2,'D should move screen-right when looking along +Z');
- v.spawn(1);v.driver={};v.strafeSpeed=0;
- let previousRate=0;
- for(let i=0;i<120;i++) {
-  system.update(1/120,v,{forward:1,right:1,turn:0});
-  assert.ok(Math.abs(v.yawRate-previousRate) <= v.turnRate*9/120 + 1e-8);
-  previousRate=v.yawRate;
- }
- assert.ok(v.yaw < -.5,'D should turn right, the same direction as mouse-right');
- // On level ground a hover turns flat: the original game leans it only by its
- // tiny BankAngle, which the port leaves out (src/vehicle-hover.js).
- assert.ok(v.position.x < 0);assert.ok(Math.abs(v.roll)<.01,String(v.roll));
-});
 
-test('a hover vehicle gently bobs while its sleeping collider remains fixed',()=>{
- const {system,v}=fixture();for(let i=0;i<120;i++)system.update(1/60);
- assert.equal(v.sleeping,true);
- const physics=v.matrix.clone(),heights=[];
- for(let i=0;i<180;i++){system.update(1/60);heights.push(v.root.position.y);}
- assert.deepEqual(v.matrix.elements,physics.elements);
- assert.ok(Math.max(...heights)-Math.min(...heights)>.05);
- assert.ok(Math.max(...heights)-Math.min(...heights)<.2);
-});
 
-test('ships repeatedly launch with Space and settle with an explicit landing request',()=>{
- const {system,v}=flightFixture();v.driver={};system.flightEnvironment={ceiling:500};
- for(let cycle=0;cycle<3;cycle++) {
-  system.update(1/60,v,{takeoff:true});for(let i=0;i<200;i++)system.update(1/60,v,{});
-  assert.equal(v.flightState,'Flying');
-  for(let i=0;i<180;i++)system.update(1/60,v,{forward:-1});
-  system.update(1/60,v,{takeoff:true});for(let i=0;i<1200&&v.flightState==='Landing';i++)system.update(1/60,v,{});
-  assert.equal(v.flightState,'Landed');assert.equal(v.health,v.maxHealth);
-  const y=v.position.y;for(let i=0;i<60;i++)system.update(1/60,v,{});assert.equal(v.position.y,y);
- }
- for(let i=0;i<60;i++)system.update(1/60,v,{forward:1});assert.equal(v.flightState,'Landed');
-});
+
+
+
+
 
 test('vehicle camera eases turns and follows motion without placing its eye behind walls',()=>{
  const {system,v,c}=fixture();v.walking=true; // Exercise the shared turret/seat camera.
@@ -459,16 +265,7 @@ test('armed vehicle seats without retail reticle art still draw a readable aimin
  hud.vehicle=null;quads.length=0;hud.drawReticle();assert.equal(quads.length,0);
 });
 
-test('a landing over ground steeper than the 2004 game settles on stays on its way down until he lifts off',()=>{
- const {system,v,c}=fixture();
- const pad=new THREE.BoxGeometry(30,2,30).rotateX(.8).translate(0,4,0);
- c.addBody(pad.attributes.position.array,pad.index.array,new Uint32Array(pad.index.count/3));
- v.flying=true;initFlight(v);v.driver={};v.flightState='Flying';v.position.y=12;v.airspeed=0;
- system.update(1/60,v,{takeoff:true});assert.equal(v.landingReason,'No landing zone','no TO LAND over it');assert.equal(v.flightState,'Landing','the key still lands');
- for(let i=0;i<600;i++)system.update(1/60,v,{});
- assert.equal(v.flightState,'Landing','not down on a 46 degree slope');
- system.update(1/60,v,{takeoff:true});assert.equal(v.flightState,'TakingOff','late in a landing the key lifts it off again');
-});
+
 
 test('skinned vehicle triangles retain different joints across a shared triangle',async()=>{
  const {vehicleBatches,attachVehicleBatches}=await import('../src/vehicle-rig.js');

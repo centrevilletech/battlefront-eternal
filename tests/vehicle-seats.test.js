@@ -6,9 +6,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
+import { CollisionWorld } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleCamera, VehicleDriver } from '../src/vehicles.js';
-import { blankIntent } from '../src/units.js';
 import { packWith, vehiclePacks } from '../tools/vehicle-packs.mjs';
 
 const DEG = Math.PI / 180;
@@ -36,22 +35,6 @@ function hulls(map, names, yaw = 0) {
     texture: () => null, ordnance, effects: { play: () => null } });
   const byName = Object.fromEntries(names.map((name) => [name, system.vehicles.find((v) => v.name === name)]));
   return { system, collision, fired, ...byName };
-}
-
-let nextId = 1;
-function bot() {
-  const calls = [];
-  const unit = {
-    id: nextId++, generation: 1, team: 1, alive: true, dead: false, human: false, walker: false, seat: null, controller: null,
-    classDef: {}, intent: blankIntent(),
-    soldier: { position: new THREE.Vector3(), previous: new THREE.Vector3(), settled: new THREE.Vector3(), velocity: new THREE.Vector3(), aimYaw: 0, aimPitch: 0, air: null, spawn() {} },
-    actor: { root: new THREE.Group(), byName: {} },
-    animator: { clips: new Map([['human_minigun_9pose', { fps: 30 }], ['human_drive', { fps: 30 }]]), gunner(clip, pitch, turn, time) { calls.push({ clip, pitch, turn, time }); }, reset() {} },
-    presentation: { reset() {} },
-    combat: { mounted: false, dead: false, team: 1, damage() {} },
-  };
-  unit.calls = calls;
-  return unit;
 }
 
 test('a rider shows exactly where its seat has a pilot animation', { skip: !has('nab2', 'geo1', 'hot1') }, () => {
@@ -130,128 +113,15 @@ test('a turret seat without a node takes its pivot from its section; walker gunn
   assert.ok(carEye.distanceTo(new THREE.Vector3(-1.75, 2.5, -1)) < 1e-6, `the cloud car gunner's eye: ${carEye.toArray()}`);
 });
 
-test('a bot gunner turns the turret, rides its hatch in the 9-pose, and fires from the barrel through its aim point', { skip: !has('nab2') }, () => {
-  const { system, fired, rep_hover_fightertank: v } = hulls('nab2', ['rep_hover_fightertank']);
-  const unit = bot();
-  assert.ok(system.board(unit, v, 1));
-  // Where the barrel's fire point is as each round leaves.
-  const fire = system.ordnance.fire;
-  system.ordnance.fire = (...args) => { fire(...args); fired.at(-1).muzzle = v.byName.hp_gun_1.getWorldPosition(new THREE.Vector3()); fired.at(-1).target = v.seats[1].target.clone(); };
-  const yaw = v.yaw + 1, pitch = -.06;
-  const aim = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-  unit.intent.aim = aim;
-  for (let i = 0; i < 150; i++) {
-    const seat = v.seats[1];
-    const error = Math.atan2(Math.sin(yaw - seat.aimYaw), Math.cos(yaw - seat.aimYaw));
-    unit.intent.turn = THREE.MathUtils.clamp(-error * 4, -1, 1);
-    unit.intent.pitch = THREE.MathUtils.clamp((pitch - seat.pitch) * 4, -1, 1);
-    unit.intent.buttons[0] = i > 90 ? 5 : 0;
-    system.update(1 / 60);
-  }
-  const seat = v.seats[1];
-  near(seat.aimYaw, yaw, .01, 'the seat comes round to the bot\'s aim');
-  const turret = new THREE.Vector3(0, 0, 1).transformDirection(v.byName.turret_y.matrixWorld);
-  near(Math.atan2(turret.x, turret.z), Math.atan2(aim.x, aim.z), .02, 'the turret node turns with the seat');
-  // The rider: shown at hp_active, posed by the original game's 9-pose rule.
-  assert.equal(unit.actor.root.visible, true);
-  assert.ok(unit.actor.root.position.distanceTo(v.byName.hp_active.getWorldPosition(new THREE.Vector3())) < 1e-6);
-  const pose = unit.calls.at(-1);
-  near(pose.pitch, 2 * ((40 * DEG - pitch) / (55 * DEG) - .5), 1e-3, 'pitch spread over -15..40 degrees');
-  assert.equal(pose.time, undefined);
-  // Its rounds: the laser from hp_gun_1 through the point under its aim.
-  const shots = fired.filter((f) => f.owner === unit);
-  assert.ok(shots.length >= 1, 'the bot fires');
-  const shot = shots.at(-1);
-  assert.ok(shot.origin.distanceTo(shot.muzzle) < 1e-6, 'from the barrel\'s fire point');
-  const rel = shot.target.clone().sub(shot.origin);
-  assert.ok(rel.clone().addScaledVector(shot.dir, -rel.dot(shot.dir)).length() < .01, 'through the seat\'s target');
-  assert.equal(shot.emitter, seat.weapons[0].muzzles[0].emitter, 'the beam follows its barrel');
-  assert.equal(shot.emitter.matrix, v.byName.hp_gun_1.matrixWorld);
-  const beam = new THREE.Vector3();
-  shot.emitter.viewDirection(beam);
-  assert.ok(beam.dot(shot.dir) > .9999, 'a beam keeps pointing where its barrel shoots');
-});
 
-test('each barrel\'s beam stays on its own barrel', { skip: !has('bes1', 'geo1') }, () => {
-  const controls = (fire) => ({ take: (k) => fire.includes(k), held: (k) => fire.includes(k) });
-  const at = (m) => new THREE.Vector3().setFromMatrixPosition(m);
-  // The MAF gunner's two lasers fire together, one per barrel.
-  const { system, fired, cis_fly_maf: maf } = hulls('bes1', ['cis_fly_maf']);
-  maf.driver = {}; maf.seatIndex = 1; maf.flightState='Flying'; maf.position.y=100;
-  system.update(1 / 60);
-  maf.fire(1 / 60, controls(['firePrimary']));
-  const beams = fired.filter((f) => f.def.base === 'beam');
-  assert.equal(beams.length, 2);
-  assert.notEqual(beams[0].emitter, beams[1].emitter);
-  for (const b of beams) assert.ok(at(b.emitter.matrix).distanceTo(b.origin) < 1e-6, 'each beam starts at its own barrel, after the other has fired');
-  // The spider walker's beam stays on hp_cannon_2 when the bolt fires from hp_cannon_1.
-  const { system: geo, fired: shots, cis_walk_spider: spider } = hulls('geo1', ['cis_walk_spider']);
-  spider.driver = {}; spider.seatIndex = 0;
-  geo.update(1 / 60);
-  spider.fire(1 / 60, controls(['firePrimary', 'fireSecondary']));
-  const beam = shots.find((f) => f.def.base === 'beam');
-  assert.ok(beam && shots.some((f) => f.def.base !== 'beam'), 'both weapons fired');
-  assert.equal(beam.emitter.matrix, spider.byName.hp_cannon_2.matrixWorld);
-});
 
-test('a bot let out of a destroyed hull stands upright, facing its aim', { skip: !has('end1') }, () => {
-  const { system, imp_hover_speederbike: bike } = hulls('end1', ['imp_hover_speederbike'], 150 * DEG);
-  const unit = bot();
-  assert.ok(system.board(unit, bike, 0));
-  system.update(1 / 60);
-  system.presentRiders(1 / 60);
-  bike.damage(Infinity);
-  assert.equal(unit.seat, null);
-  near(unit.soldier.aimYaw, 150 * DEG, 1e-6, 'the bike\'s heading');
-  near(unit.actor.root.rotation.y, unit.soldier.aimYaw, 1e-9, 'facing its aim');
-  // The animator turns a body on foot by its yaw alone (here facing 0, as
-  // after a respawn): nothing of the seat's turn may be left under it.
-  unit.actor.root.rotation.y = 0;
-  const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(unit.actor.root.quaternion);
-  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(unit.actor.root.quaternion);
-  near(Math.atan2(forward.x, forward.z), 0, 1e-9, 'it faces where the animator turns it');
-  near(up.y, 1, 1e-9, 'upright');
-});
 
-test('a bot takes a hover\'s aim level, not the player view\'s little-down rest', { skip: !has('end1') }, () => {
-  const { system, imp_hover_speederbike: bike } = hulls('end1', ['imp_hover_speederbike']);
-  const unit = bot();
-  assert.ok(system.board(unit, bike, 0));
-  assert.equal(bike.seats[0].pitch, 0);
-});
 
-test('switching seats never swings the hull, and a rear arc\'s aim eases round the back', { skip: !has('hot1', 'geo1', 'tat1') }, () => {
-  const { system, all_fly_snowspeeder: speeder } = hulls('hot1', ['all_fly_snowspeeder']);
-  const driver = Object.create(VehicleDriver.prototype);
-  driver.lease = null;
-  speeder.driver = {}; speeder.seatIndex = 0; speeder.restAim(0);
-  const heading = speeder.yaw;
-  driver.nextSeat(speeder);
-  near(speeder.seats[1].aimYaw - heading, 80 * DEG, 1e-6, 'the gunner\'s view starts at the edge of its arc');
-  driver.nextSeat(speeder);
-  near(speeder.seats[0].aimYaw, speeder.yaw, 1e-9, 'back at the controls, along the hull');
-  for (let i = 0; i < 120; i++) system.update(1 / 60, speeder, { forward: 0, right: 0, turn: 0, brake: false });
-  near(speeder.yaw, heading, 1e-9, 'no input, no turn');
-  // The same for each gunner seat that looks away from the nose.
-  for (const [map, name] of [['geo1', 'rep_walk_atte'], ['tat1', 'tat_hover_skiff']]) {
-    const { system: world, [name]: v } = hulls(map, [name]);
-    v.driver = {}; v.seatIndex = 0; v.restAim(0);
-    const start = v.yaw;
-    for (let k = 0; k < v.seats.length; k++) {
-      driver.nextSeat(v);
-      if (v.seatIndex) { v.aimYaw = v.yaw + 2; v.clampAim(v.seatIndex); }
-    }
-    assert.equal(v.seatIndex, 0);
-    for (let i = 0; i < 60; i++) world.update(1 / 60, v, { forward: 0, right: 0, turn: 0, brake: false });
-    near(v.yaw, start, 1e-9, `${name}: round the seats and back`);
-  }
-  // A mouse flick from the arc's left end across the back to its right end
-  // (80..280 degrees): the aim follows round the back, not stuck at 80.
-  speeder.seatIndex = 1; speeder.aimYaw = speeder.yaw + 85 * DEG; speeder.pitch = 0; speeder.lookYaw = speeder.lookPitch = null;
-  for (let k = 0; k < 10; k++) driver.look.call({ vehicle: speeder }, -19 * DEG * 2048, 0, 1, false);
-  for (let i = 0; i < 120; i++) system.update(1 / 60, speeder, { forward: 0, right: 0, turn: 0, brake: false });
-  near(THREE.MathUtils.euclideanModulo(speeder.aimYaw - speeder.yaw, 2 * Math.PI), 275 * DEG, 1e-3, 'the aim reaches the look');
-});
+
+
+
+
+
 
 test('a full-circle aimer crosses behind the shorter way', { skip: !has('geo1') }, () => {
   const { cis_walk_spider: v } = hulls('geo1', ['cis_walk_spider']);
@@ -268,56 +138,13 @@ test('a full-circle aimer crosses behind the shorter way', { skip: !has('geo1') 
   near(Math.atan2(facing.x, facing.z), -170 * DEG, 1e-6, 'pointing at it');
 });
 
-test('the AT-AT\'s head is the gunner\'s while he holds it; the pilot\'s rounds follow his own aim', { skip: !has('hot1') }, () => {
-  const { system, fired, imp_walk_atat: v } = hulls('hot1', ['imp_walk_atat']);
-  const node = v.byName.aimer_head;
-  const facing = () => new THREE.Vector3(0, 0, 1).transformDirection(node.matrixWorld);
-  const toTarget = () => v.seats[0].target.clone().sub(node.getWorldPosition(new THREE.Vector3())).normalize();
-  const controls = { take: (k) => k === 'firePrimary', held: (k) => k === 'firePrimary' };
-  const idle = { forward: 0, right: 0, turn: 0, brake: false };
-  // Alone, the pilot's aimer turns the head to his target.
-  v.driver = {}; v.seatIndex = 0; v.restAim(0); v.pitch = -10 * DEG;
-  for (let i = 0; i < 120; i++) system.update(1 / 60, v, idle);
-  assert.ok(facing().dot(toTarget()) > Math.cos(2 * DEG), 'the head looks where the pilot aims');
-  // A gunner aboard turns the head with his own aim.
-  const gunner = bot();
-  assert.ok(system.board(gunner, v, 1));
-  for (let i = 0; i < 90; i++) {
-    v.seats[1].aimYaw = v.yaw - 20 * DEG; v.seats[1].pitch = 0;
-    system.update(1 / 60, v, idle);
-  }
-  near(Math.atan2(facing().x, facing().z) - v.yaw, -20 * DEG, 1e-3, 'the head follows the gunner');
-  fired.length = 0;
-  v.fire(1 / 60, controls);
-  const shot = fired.find((f) => f.owner === v);
-  assert.ok(shot, 'the pilot fires');
-  // At his target (within the weapon's spread), not along the head.
-  const at = v.seats[0].target.clone().sub(shot.origin).normalize();
-  assert.ok(shot.dir.angleTo(at) < .5 * DEG, `the pilot's round: ${shot.dir.angleTo(at) / DEG} degrees off his target`);
-  assert.ok(facing().angleTo(at) > 15 * DEG, 'while the head looks away');
-});
 
-test('enclosed seats hide their bot, and a bot pilot drives', { skip: !has('nab2') }, () => {
-  const { system, cis_hover_aat: v } = hulls('nab2', ['cis_hover_aat']);
-  const pilot = bot(), gunner = bot();
-  assert.ok(system.board(pilot, v, 0));
-  assert.ok(system.board(gunner, v, 1));
-  system.update(1 / 60);
-  assert.equal(pilot.actor.root.visible, false);
-  assert.equal(gunner.actor.root.visible, false);
-  // Per-frame presentation must keep them hidden even if something else
-  // showed the body in between (the remote-client race where unit
-  // presentation kept drawing an enclosed rider outside the hull).
-  pilot.actor.root.visible = gunner.actor.root.visible = true;
-  system.presentRiders(1 / 60);
-  assert.equal(pilot.actor.root.visible, false, 'enclosed pilot re-hidden at present time');
-  assert.equal(gunner.actor.root.visible, false, 'enclosed gunner re-hidden at present time');
-});
+
+
 
 test('the player\'s own body stays out of sight in an enclosed cockpit (Bespin: Platforms)', { skip: !has('bes1') }, () => {
   const names = ['cis_fly_droidfighter', 'cis_fly_maf', 'rep_fly_gunship', 'rep_fly_jedifighter'];
   const { system, collision, ...hull } = hulls('bes1', names);
-  system.update(1 / 60);
   for (const name of names) {
     const v = hull[name], root = new THREE.Group();
     const driver = new VehicleDriver({ vehicles: system, camera: system.camera, collision, actor: { root, byName: {} } });

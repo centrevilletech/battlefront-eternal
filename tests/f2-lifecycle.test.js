@@ -7,9 +7,10 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   skip: !existsSync(`${content}/maps/hot1/map.json`) && 'no game files', timeout: 180000,
 }, async () => {
   const { headlessGame } = await import('../tools/headless-world.mjs');
-  const game = await headlessGame('?map=hot1&side=all&era=gcw&seed=1&f2=rust&f2Debug=1');
+  const game = await headlessGame('?map=hot1&side=all&era=gcw&seed=1');
   const vs = game.vehicles, f2 = vs.f2;
   assert.ok(f2);
+  f2.debug = true; for (const v of vs.vehicles) f2.record(v);
   assert.equal(vs.sim, undefined, 'old per-call hull bridge is absent');
   const v = vs.vehicles.find(v => v.walking), target = v.aiTarget, position = v.position;
   const generation = target.generation, slot = v.simSlot, gen = v.simGen;

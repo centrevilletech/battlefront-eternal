@@ -5,22 +5,24 @@ import { rustOrdnance } from './helpers/rust-simulation.js';
 // box hull, a made-up skeleton and clip, no retail content), then the
 // imported battles when an extract is present.
 import test from 'node:test';
+import riderGolden from './fixtures/f2-rider-golden.json' with { type: 'json' };
+import { goldenValue } from './helpers/golden-values.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { Vehicles, Vehicle, VehicleDriver } from '../src/vehicles.js';
+import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
+import { Vehicles, VehicleDriver } from "../src/vehicles.js";
 import { Units, makeUnitHit, segmentCapsule, strikeable } from '../src/registry.js';
-import { Ordnance } from '../src/ordnance.js';
+
 import { HitHistory } from '../src/runtime/hit-history.js';
 import { Unit } from '../src/units.js';
 import { Soldier } from '../src/soldier.js';
-import { attachF2 } from '../src/f2-sim.js';
-import { bridgeFor } from '../src/sim/runtime.js';
-import { loadSim } from '../src/sim/module.js';
-import { loadRayKernel } from '../src/ray-kernel.js';
+
+
+
+
 import { leaveKilled } from '../src/boarding.js';
 
 const same = (actual, expected, message) => assert.ok(actual === expected, message ?? `${typeof actual} !== ${typeof expected}`);
@@ -63,12 +65,9 @@ function rider(team = 1) {
     gunner(clip, pitch, turn, time) { calls.gunner.push({ clip: clip?.name ?? null, time }); },
     reset() { calls.reset++; }, die() { calls.die++; },
   };
-  const soldier = {
-    position: new THREE.Vector3(30, 0, 0), previous: new THREE.Vector3(), settled: new THREE.Vector3(), velocity: new THREE.Vector3(),
-    aimYaw: 0, aimPitch: 0, posture: 'stand', air: null, dive: 0, grounded: true, passThrough: null,
-    spawn(x, y, z, yaw) { this.position.set(x, y, z); this.aimYaw = yaw; this.velocity.set(0, 0, 0); },
-    pitchRange: () => [-1.4, 1.4],
-  };
+  const soldier = new Soldier(null, {});
+  soldier.position.set(30,0,0);
+  soldier.spawn = function(x, y, z, yaw) { this.position.set(x,y,z); this.aimYaw = yaw; this.velocity.set(0,0,0); };
   const combat = { mounted: false, dead: false, team, health: 300, lastAttacker: null,
     damage(amount, onShield, point, attacker) { if (this.dead) return; this.health -= amount; this.lastAttacker = attacker;
       if (this.health <= 0) { this.dead = true; animator.die(); unit.alive = false; unit.dead = true; leaveKilled(unit); } } };
@@ -102,6 +101,7 @@ function mount({ seats = [{}], healthType = null, enclose = false, rays } = {}) 
   if (healthType) v.healthType = healthType;
   const units = new Units();
   system.attachUnits(units);
+  nativeVehicles(system, { data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0) });
   return { collision, system, v, units, pack: { data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0) } };
 }
 
@@ -274,14 +274,14 @@ test('the player killed on an exposed seat leaves it where he rode, his death cl
   const driver = new VehicleDriver({ vehicles: world.system, soldier: player.soldier, combat: { ...player.combat, owner: player, team: 1 }, actor: player.actor,
     animator: player.animator, clips: player.animator.clips, camera: new THREE.PerspectiveCamera(), collision: world.collision,
     hud: { message() {} }, presentation: { reset() {} } });
-  assert.ok(driver.enter(world.v));
+  player.networkHuman = true;
+  assert.ok(world.system.board(player, world.v, 0));
   same(player.seat?.vehicle, world.v);
   player.tickCount++;
   assert.equal(player.seat.exposed, true);
   assert.equal(player.hitShapes().length, 6, 'his body is struck as a bot\'s is');
   const resets = player.calls.reset;
   assert.ok(leaveKilled(player));
-  assert.equal(driver.active, false);
   assert.equal(player.seat, null);
   assert.equal(player.calls.reset, resets, 'his death clip is not cut short');
   near(player.soldier.position.y - nodeOf(world).y, 0, 0.03, 'his body falls from the seat');
@@ -393,14 +393,11 @@ test('a crewman hidden inside a hull that is destroyed stays out of sight in tha
 // This is the live phase over a complete invented rider, rather than a
 // sampler-only twin. It also exercises lazy bounds after native body writes.
 test('live F2 retains exposed rider samples and body timing without game files', async () => {
-  async function run(native, animal) {
-    const instance = await loadSim();
-    const world = mount({ healthType: animal ? 'animal' : null, rays: await loadRayKernel(instance) });
+  async function run(animal) {
+    const world = mount({ healthType: animal ? 'animal' : null });
     const { system, collision, v } = world;
     system.clock = () => system.time;
     try {
-      if (native) attachF2(system, bridgeFor(instance, { classes: { Unit, Vehicle } }),
-        { killY: -300, deathRegions: [], scripted: [] }, world.pack, Unit);
       const u = rider(); u.id = 41;
       u.soldier = new Soldier(collision, {}); u.soldier.position.set(30, 0, 0);
       seat(world, u); u.intent.forward = .5;
@@ -408,12 +405,12 @@ test('live F2 retains exposed rider samples and body timing without game files',
       const before = u.tickCount;
       for (let i = 0; i < 120; i++) {
         system.update(1 / 60);
-        if (native) assert.equal(system.f2.x.f2_allocations(), 0, `rider allocation at tick ${i}`);
+        assert.equal(system.f2.x.f2_allocations(), 0, `rider allocation at tick ${i}`);
       }
       return { ticks: u.tickCount - before, position: u.position.toArray(), velocity: u.velocity.toArray(),
         shapes: u.hitShapes().map(s => [s.type, s.part, s.center.toArray(), s.halfSize?.toArray(), s.radius]),
         drop: v.riderDrop(0, u, new THREE.Vector3()).toArray() };
     } finally { system.dispose(); }
   }
-  for (const animal of [false, true]) assert.deepEqual(await run(true, animal), await run(false, animal));
+  for (const animal of [false, true]) assert.deepEqual(await run(animal), goldenValue(riderGolden[Number(animal)]));
 });

@@ -1,3 +1,4 @@
+import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Turret } from '../src/props.js';
@@ -92,7 +93,7 @@ test('turret baseline restores filtered steering velocity before shared pending-
     for (const [dx, dy] of command.look) {
       x += dx * command.mouseScale; y += (command.invertMouse ? dy : -dy) * command.mouseScale;
     }
-    source.turret.steer(1 / 60, -x * 60 / 2048, y * 60 / 2048, 1);
+    stepTurretPreview(source.turret, 1 / 60, -x * 60 / 2048, y * 60 / 2048, 1);
   }
   const before = captureMountedControl(client.unit);
   const predicted = previewSteer(client.turret, { ...client.turret }, commands);

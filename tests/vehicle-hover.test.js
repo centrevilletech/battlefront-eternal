@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 // A hover hull on the ground (src/vehicle-hover.js): its springs carry it
 // over the terrain and buildings, pitching and rolling it with the ground,
 // gravity and its grip limit what it climbs, and without springs it rides
@@ -79,7 +80,7 @@ test('a hover set down level on a slope comes to lie with it, facing up the slop
     const slope = degrees * DEG, collision = slopeWorld(slope);
     const { system, v } = hull(collision, tank, yaw);
     v.tilt = v.roll = 0; v.syncBody(); v.driver = {};
-    for (let i = 0; i < 240; i++) system.update(1 / 60);
+    for (let i = 0; i < 240; i++) stepPrediction(system, 1 / 60);
     const want = planeAngles(slope, yaw);
     assert.ok(Math.abs(v.tilt - want.tilt) < 3 * DEG, `${degrees}deg yaw ${yaw}: tilt ${v.tilt / DEG} vs ${want.tilt / DEG}`);
     assert.ok(Math.abs(v.roll - want.roll) < 3 * DEG, `${degrees}deg yaw ${yaw}: roll ${v.roll / DEG} vs ${want.roll / DEG}`);
@@ -96,9 +97,9 @@ test('the drive climbs what its grip beats gravity on and slides back down steep
     const slope = degrees * DEG, collision = slopeWorld(slope);
     const { system, v } = hull(collision, tank, 0);
     v.driver = {};
-    for (let i = 0; i < 60; i++) system.update(1 / 60);
+    for (let i = 0; i < 60; i++) stepPrediction(system, 1 / 60);
     const z = v.position.z;
-    for (let i = 0; i < 300; i++) system.update(1 / 60, v, { forward: 1, right: 0, turn: 0 });
+    for (let i = 0; i < 300; i++) stepPrediction(system, 1 / 60, v, { forward: 1, right: 0, turn: 0 });
     const climbed = v.position.z - z;
     system.dispose();
     return climbed;
@@ -119,7 +120,7 @@ test('a hover runs up a ramp on its springs, and a wall holds it off', () => {
   v.driver = {};
   let most = 0;
   for (let i = 0; i < 600; i++) {
-    system.update(1 / 60, v, { forward: .6, right: 0, turn: 0 });
+    stepPrediction(system, 1 / 60, v, { forward: .6, right: 0, turn: 0 });
     if (v.position.z > 24 && v.position.z < 36) most = Math.max(most, v.tilt);
   }
   assert.ok(most > 7 * DEG && most < 17 * DEG, `on the 12 degree ramp: ${most / DEG}`);
@@ -134,17 +135,17 @@ test('off a ledge it falls at GravityScale times 9.8 and lands on its springs', 
   const collision = new CollisionWorld(positions, indices, new Uint32Array(indices.length / 3).map((_, i) => i));
   const { system, v } = hull(collision, tank, 0, 40);
   v.driver = {};
-  for (let i = 0; i < 60; i++) system.update(1 / 60);
+  for (let i = 0; i < 60; i++) stepPrediction(system, 1 / 60);
   assert.ok(Math.abs(v.position.y - 40 - restHeight(tank)) < .05, String(v.position.y));
   v.position.z = 30; v.previous.copy(v.position); v.syncBody();
   // Its ground factor runs out in a second off the ground, and gravity
   // grows from 9.8 to GravityScale times that.
-  for (let i = 0; i < 90 && v.support > 0; i++) system.update(1 / 60);
+  for (let i = 0; i < 90 && v.support > 0; i++) stepPrediction(system, 1 / 60);
   assert.equal(v.support, 0);
   const before = v.velocity.y;
-  system.update(1 / 60);
+  stepPrediction(system, 1 / 60);
   assert.ok(Math.abs(before - v.velocity.y - 4 * 9.8 / 60) < .01, String((before - v.velocity.y) * 60));
-  for (let i = 0; i < 600; i++) system.update(1 / 60);
+  for (let i = 0; i < 600; i++) stepPrediction(system, 1 / 60);
   assert.ok(Math.abs(v.position.y - restHeight(tank)) < .1, String(v.position.y));
   assert.ok(v.support > .9);
   system.dispose();
@@ -157,7 +158,7 @@ test('without springs a hover rides its lift spring at SetAltitude', () => {
   const { system, v } = hull(collision, bare);
   v.driver = {};
   v.position.y += 1.5; v.previous.copy(v.position);
-  for (let i = 0; i < 600; i++) system.update(1 / 60);
+  for (let i = 0; i < 600; i++) stepPrediction(system, 1 / 60);
   // The 120 Hz integrator applies gravity before damping. At rest the
   // damping cancels part of that step, leaving this small height bias.
   const expected = .5 + (9.8 * 3 / 120) / (10 + 9.8 / (9 * .5));
@@ -181,7 +182,7 @@ test('every extracted hover class carries its springs, and the stock fighter tan
   const slope = 18 * DEG, collision = slopeWorld(slope);
   const { system, v } = hull(collision, { ...def, model: 'hull', label: 'Stock' }, 0);
   v.tilt = v.roll = 0; v.driver = {};
-  for (let i = 0; i < 240; i++) system.update(1 / 60);
+  for (let i = 0; i < 240; i++) stepPrediction(system, 1 / 60);
   assert.ok(Math.abs(v.tilt - slope) < 3 * DEG, String(v.tilt / DEG));
   system.dispose();
 });

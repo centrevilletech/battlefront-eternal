@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 // How a craft handles and how its pilot sees it, from its own ODF as the
 // 2004 game reads it (docs/vehicles.md "Movement" and "Camera"): the
 // turn and pitch rates and their filters, the flat turn and the drawn lean,
@@ -18,7 +19,7 @@ import { setting } from '../src/seats.js';
 import { vehiclePacks } from '../tools/vehicle-packs.mjs';
 
 const DT = 1 / 60;
-const run = (f, ticks, input = {}) => { for (let i = 0; i < ticks; i++) f.system.update(DT, f.v, input); };
+const run = (f, ticks, input = {}) => { for (let i = 0; i < ticks; i++) stepPrediction(f.system, DT, f.v, input); };
 const near = (a, b, tolerance, what) => assert.ok(Math.abs(a - b) <= tolerance, `${what}: ${a} is not ${b}`);
 const DEG = Math.PI / 180;
 // The snowspeeder's body section, its hashed keys as the import keeps them
@@ -108,7 +109,7 @@ test('a player pitches at TurnRate, a bot at PitchRate, each following at PitchF
   const human = cruising(), bot = cruising();
   run(human, 300, { stickY: .5 }); run(bot, 1, {});
   bot.v.quaternion.identity();
-  for (let i = 0; i < 300; i++) bot.system.update(DT, bot.v, { stickY: .5, bot: true });
+  for (let i = 0; i < 300; i++) stepPrediction(bot.system, DT, bot.v, { stickY: .5, bot: true });
   // A half stick (the response curve, exponent 1.35, softens it).
   const half = Math.pow(.5, 1.35);
   near(human.v.tiltRate, 1.5 * half, 1e-6, 'the player');
@@ -173,7 +174,7 @@ test('the pilot\'s chase camera is his section\'s: TrackCenter, TrackOffset in i
 test('the snowspeeder\'s camera eases each axis at its MoveTension and turns at its AimTension, and does not lean with the hull', () => {
   const f = cruising(), v = f.v;
   const cam = new THREE.PerspectiveCamera(70, 16 / 10, .1, 5000), view = new VehicleCamera(cam, f.c);
-  v.velocity.set(0, 0, 0); v.airspeed = 0; f.system.update(DT, v, { forward: 0 }); // hold still
+  v.velocity.set(0, 0, 0); v.airspeed = 0; stepPrediction(f.system, DT, v, { forward: 0 }); // hold still
   v.position.set(0, 300, 0); v.quaternion.identity(); v.captureTick(); v.present(1);
   view.update(v, DT, false);
   // At rest at TrackCenter (0, 3, -8) in the frame, looking along the nose.
@@ -225,7 +226,7 @@ test('every imported flyer turns flat at its own TurnRate and is seen at its own
     system.cosmetic = false;
     for (const name of names) {
       const v = system.vehicles.find((x) => x.name === name), def = v.def;
-      const fly = (ticks, input) => { for (let i = 0; i < ticks; i++) system.update(DT, v, input); };
+      const fly = (ticks, input) => { for (let i = 0; i < ticks; i++) stepPrediction(system, DT, v, input); };
       v.driver = {};
       v.position.y += 200; v.syncBody();
       fly(1, { takeoff: true }); fly(480, {});

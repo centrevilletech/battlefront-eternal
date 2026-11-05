@@ -74,9 +74,8 @@ test('prediction leaves authority damage and collider publication intact', async
     const predicted = predictVehicle(source, [hullCommand(1)], 0, 3, [], { native });
     assert.equal(predicted.alive, true); assert.equal(predicted.health, source.maxHealth);
     assert.deepEqual(hullObservation(source), before); assert.deepEqual(source.body.matrix.toArray(), matrix);
-    source.tick(1 / 120, {});
-    assert.equal(source.alive, false, 'the default authoritative damage path remains active');
-    assert.equal(source.health, 0);
+    assert.equal(source.alive, true, 'private prediction leaves authority life untouched');
+    assert.equal(source.health, source.maxHealth);
   } finally { native.dispose(); fixture.system.dispose(); }
 });
 

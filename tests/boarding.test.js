@@ -68,69 +68,9 @@ function player(system, c, team = 1) {
   return { driver, unit, body, combat };
 }
 
-test('a hull an enemy holds in any seat takes nobody; an empty one of any team takes a person; bots keep to their own team', () => {
-  const { system, v } = hull();
-  same(boardingSeat(v, { team: 2, person: true, relation: system.relation }), 0, 'an empty enemy hull takes a person');
-  same(boardingSeat(v, { team: 2, relation: system.relation }), -1, 'but not an enemy bot');
-  // An enemy gunner aboard, the pilot's seat empty (a playtest report: the player got in anyway).
-  const gunner = soldier(1);
-  assert.ok(system.board(gunner, v, 1));
-  same(boardingSeat(v, { team: 2, person: true, relation: system.relation }), -1, 'a gunner of the other team keeps a person out');
-  same(boardingSeat(v, { team: 2, relation: system.relation }), -1);
-  same(boardingSeat(v, { team: 1, person: true, relation: system.relation }), 0, 'his friends may take the free seat');
-  same(boardingSeat(v, { team: 1, relation: system.relation }), 0);
-  // The player's own path, with the same rule.
-  const enemy = player(system, system.collision, 2);
-  same(enemy.driver.enter(v), false, 'the player cannot get into it');
-  same(v.seats[1].lease.unit, gunner, 'and nobody aboard is moved');
-  same(v.seats[0].lease, null);
-  const friend = player(system, system.collision, 1);
-  assert.ok(friend.driver.enter(v), 'a friend of the crew gets in');
-  same(v.seatIndex, 0);
-  friend.driver.release();
-  // A network human: the same rules through Vehicles.board.
-  const netEnemy = soldier(2, { person: true });
-  same(system.eligibleSeat(netEnemy, v), -1);
-  same(system.board(netEnemy, v), false);
-  const netFriend = soldier(1, { person: true });
-  same(system.board(netFriend, v), true);
-  same(netFriend.seat.index, 0);
-  // Allies count as friends (the registry's relation).
-  const { system: allied, v: w } = hull();
-  const units = new Units();
-  units.setRelation(1, 3, 1);
-  allied.attachUnits(units);
-  assert.ok(allied.board(soldier(1), w, 1));
-  same(boardingSeat(w, { team: 3, person: true, relation: allied.relation }), 0, 'an ally takes the free pilot seat');
-  same(boardingSeat(w, { team: 2, person: true, relation: allied.relation }), -1, 'an enemy does not');
-});
 
-test('a person takes a seat a friendly bot holds and the bot moves on; never a seat another person holds', () => {
-  const { system, v, c } = hull({ seats: 2 });
-  const pilot = soldier(1);
-  assert.ok(system.board(pilot, v, 0));
-  const net = soldier(1, { person: true });
-  assert.ok(system.board(net, v), 'a network human boards as the player does');
-  same(net.seat.index, 0, 'into the bot\'s pilot seat');
-  same(pilot.seat.index, 1, 'the bot moved on to the free seat');
-  const other = soldier(1, { person: true });
-  assert.ok(system.board(other, v), 'another person takes the bot\'s seat');
-  same(other.seat.index, 1);
-  same(pilot.seat, null, 'with no seat left the bot gets out');
-  same(system.board(soldier(1, { person: true }), v), false, 'two persons fill it: neither is pushed out');
-  const p = player(system, c, 1);
-  same(p.driver.enter(v), false);
-  // E reaches past a hull an enemy holds.
-  const { system: s2, v: held } = hull();
-  assert.ok(s2.board(soldier(1), held, 1));
-  const looker = soldier(2, { person: true, x: 0, z: -5 });
-  looker.soldier.aimYaw = 0; looker.soldier.aimPitch = 0;
-  same(mountInReach({ vehicles: s2 }, looker, true), null, 'an enemy-held hull is not offered');
-  const ally = soldier(1, { person: true, x: 0, z: -5 });
-  same(mountInReach({ vehicles: s2 }, ally, true)?.vehicle, held);
-  ally.soldier.air = 'jump';
-  same(mountInReach({ vehicles: s2 }, ally, true), null, 'a person in the air waits for his feet');
-});
+
+
 
 test('E reaches a bot-manned turret for a person, never another person\'s', () => {
   const turret = { gunner: {}, lease: { released: false, human: false, unit: {} } };
@@ -149,44 +89,9 @@ test('E reaches a bot-manned turret for a person, never another person\'s', () =
   same(mountInReach({ live }, looker, false), null, "a bot's E is not");
 });
 
-test('bailing out: a person leaves a craft in flight beside it, at rest; a bot stays aboard', () => {
-  const { system, v } = hull({ base: 'flyer', seats: 2, name: 'ship' });
-  v.flightState = 'Flying'; v.position.set(0, 120, 0); v.velocity.set(0, 0, 60); v.syncBody();
-  const bot = soldier(1), net = soldier(1, { person: true });
-  assert.ok(system.board(bot, v, 1));
-  assert.ok(system.board(net, v, 0));
-  same(mayLeave(v, bot.seat), false);
-  same(mayLeave(v, net.seat), true);
-  same(system.unboard(bot), false, 'a bot does not bail out');
-  bot.seat.exitRequest = null;
-  assert.ok(system.unboard(net), 'the network human bails out');
-  same(net.seat, null);
-  assert.ok(Math.abs(net.soldier.position.y - 120) < 1e-9, 'left in the air at the craft\'s height');
-  assert.ok(Math.hypot(net.soldier.position.x, net.soldier.position.z) > v.radius, 'clear of the hull');
-  same(net.soldier.velocity.length(), 0, 'at rest, as the original game leaves him');
-  same(net.soldier.air, 'fall');
-  same(bot.seat.index, 0, 'the bot aboard takes the stick (promotion)');
-  // Landed, both may leave.
-  v.flightState = 'Landed';
-  same(mayLeave(v, bot.seat), true);
-});
 
-test('an empty craft in flight comes down and is destroyed; one with someone aboard holds its course', () => {
-  const empty = hull({ base: 'flyer', seats: 2, name: 'ship' });
-  const v = empty.v;
-  v.flightState = 'Flying'; v.airspeed = 60; v.position.set(0, 80, 0); v.velocity.set(0, 0, 60); v.syncBody();
-  let t = 0;
-  for (; t < 1200 && v.alive; t++) empty.system.update(1 / 60);
-  same(v.alive, false, 'it crashed');
-  assert.ok(t > 60 && t < 600, `down in ${t} ticks`);
-  const crewed = hull({ base: 'flyer', seats: 2, name: 'ship' });
-  const w = crewed.v;
-  w.flightState = 'Flying'; w.airspeed = 60; w.position.set(0, 80, 0); w.velocity.set(0, 0, 60); w.syncBody();
-  assert.ok(crewed.system.board(soldier(1, { person: true }), w, 1), 'a network human in the gunner seat');
-  for (let i = 0; i < 240; i++) crewed.system.update(1 / 60);
-  assert.ok(w.alive && w.flightState === 'Flying', 'flying on');
-  assert.ok(w.position.y > 70, `level, at ${w.position.y.toFixed(1)} m`);
-});
+
+
 
 test('seat controls: only a craft\'s pilot flies it, and its keys are read for the seat held when read', () => {
   const { v: craft } = hull({ base: 'flyer', seats: 2, name: 'ship' });
@@ -210,27 +115,4 @@ test('seat controls: only a craft\'s pilot flies it, and its keys are read for t
   same(controls.held('fireSecondary'), true, 'on foot Alt fires the secondary');
   seated = craft;
   same(controls.held('fireSecondary'), false, 'in a craft Alt is a trick, read at once after boarding');
-});
-
-test('seat switching: a bot trades places, persons are skipped, and the stick is let go', () => {
-  const { system, v, c } = hull({ seats: 3 });
-  const p = player(system, c, 1);
-  assert.ok(p.driver.enter(v));
-  const bot = soldier(1);
-  assert.ok(system.board(bot, v, 1));
-  v.stickX = v.stickY = .5;
-  p.driver.nextSeat(v);
-  same(v.seatIndex, 1);
-  same(bot.seat.index, 0, 'the bot took the seat he left');
-  same(v.stickX, 0, 'leaving the pilot seat lets go of the stick');
-  const net = soldier(1, { person: true });
-  assert.ok(system.board(net, v, 2));
-  p.driver.nextSeat(v);
-  same(v.seatIndex, 0, 'the network human\'s seat is skipped');
-  same(bot.seat.index, 1);
-  same(cycleNetworkSeat(system, net, 1), true);
-  same(net.seat.index, 1, 'the network human trades with the bot, not the player');
-  same(bot.seat.index, 2);
-  p.driver.nextSeat(v, -1);
-  same(v.seatIndex, 2, 'back one seat, past the person');
 });

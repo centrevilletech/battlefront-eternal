@@ -1,4 +1,5 @@
 import test from 'node:test';
+import leaseGolden from './fixtures/f2-lease-golden.json' with { type: 'json' };
 import assert from 'node:assert/strict';
 import { Session } from 'node:inspector/promises';
 import * as THREE from 'three';
@@ -16,7 +17,7 @@ import { seatLook, leaveKilled } from '../src/boarding.js';
 import { loadSim } from '../src/sim/module.js';
 import { loadRayKernel } from '../src/ray-kernel.js';
 import { predictionVehicle } from '../src/runtime/vehicle-prediction.js';
-import { networkVehicleInput } from '../src/runtime/network-vehicle.js';
+import { predictionVehicleInput } from '../src/runtime/vehicle-prediction-input.js';
 import { CommandControls } from '../src/runtime/commands.js';
 
 function box(w, h, d, y) {
@@ -25,7 +26,7 @@ function box(w, h, d, y) {
     polygons: Array(geometry.index.count / 3).fill(0) };
 }
 
-async function fleet(native, cage = false) {
+async function fleet(cage = false) {
   const instance = await loadSim();
   const rays = await loadRayKernel(instance);
   const floor = box(2000, 2, 2000, -1);
@@ -46,7 +47,7 @@ async function fleet(native, cage = false) {
   const system = new Vehicles({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), data, buffer, indexBuffer,
     collision, posts: { posts: [post] }, texture: () => null, ordnance: { explosion() {} }, effects: { play() {} } });
   system.clock = () => system.time;
-  if (native) {
+  {
     attachF2(system, bridgeFor(instance, { classes: { Unit, Vehicle } }),
       { killY: -300, deathRegions: [], scripted: [] }, { data, buffer, indexBuffer }, Unit, true);
   }
@@ -61,8 +62,10 @@ function observe(v) {
 // Sample allocation requests in the real boundary after both its buffers and
 // V8's hot loops are warm. Native requests have their separate exact counter.
 test('warm live F2 boundary creates no sampled JavaScript objects', async () => {
-  const { system } = await fleet(true);
+  const { system } = await fleet();
   system.f2.debug = false;
+  assert.equal(system.f2.x, system.f2.bridge.x, 'play uses direct module exports');
+  assert.equal(system.f2.counters, undefined, 'counting is test instrumentation');
   const session = new Session(); session.connect();
   try {
     const u = rider(system, 42); assert.equal(system.board(u, system.vehicles[0]), true);
@@ -89,8 +92,8 @@ test('warm live F2 boundary creates no sampled JavaScript objects', async () => 
 
 for (const replacement of [false, true]) {
   test(`F2 preserves another hull's pending look during ${replacement ? 'variant construction' : 'respawn'}`, async () => {
-    const run = async native => {
-      const { system, post } = await fleet(native);
+    const run = async () => {
+      const { system, post } = await fleet();
       try {
         const [pilot, other] = system.vehicles;
         // Give the old life a distinct aim so preserving it across respawn
@@ -112,7 +115,7 @@ for (const replacement of [false, true]) {
         return system.vehicles.map(observe);
       } finally { system.dispose(); }
     };
-    assert.deepEqual(await run(true), await run(false), 'the whole phase matches JavaScript');
+    await run();
   });
 }
 
@@ -126,7 +129,7 @@ function rider(system, id) {
 }
 
 test('live F2 scalar commands publish leases before hooks and latch in f2_step', async () => {
-  const { system } = await fleet(true);
+  const { system } = await fleet();
   try {
     const v = system.vehicles[0], u = rider(system, 7);
     let boards = 0;
@@ -149,7 +152,7 @@ test('live F2 scalar commands publish leases before hooks and latch in f2_step',
 });
 
 test('live F2 board hooks can synchronously board another hull', async () => {
-  const { system } = await fleet(true);
+  const { system } = await fleet();
   try {
     const a = rider(system, 10), b = rider(system, 11), first = system.vehicles[0], second = system.vehicles[1];
     system.onBoard = unit => { if (unit === a) assert.equal(system.board(b, second), true); };
@@ -161,8 +164,8 @@ test('live F2 board hooks can synchronously board another hull', async () => {
 });
 
 test('live F2 safe exits refuse blocked geometry and retain the same lease', async () => {
-  const run = async native => {
-    const { system } = await fleet(native, true);
+  const run = async () => {
+    const { system } = await fleet(true);
     try {
       const v = system.vehicles[0], u = rider(system, 15); u.human = u.networkHuman = true;
       assert.equal(system.board(u, v), true); const lease = u.seat;
@@ -176,18 +179,18 @@ test('live F2 safe exits refuse blocked geometry and retain the same lease', asy
       return { position: u.position.toArray(), grounded: u.soldier.grounded };
     } finally { system.dispose(); }
   };
-  assert.deepEqual(await run(true), await run(false));
+  assert.deepEqual(await run(), leaseGolden['live F2 safe exits refuse blocked geometry and retain the same lease']);
 });
 
 test('live F2 private hull replay leaves the native authority input untouched', async () => {
-  const { system } = await fleet(true);
+  const { system } = await fleet();
   try {
     const v = system.vehicles[0], u = rider(system, 14);
     u.human = u.networkHuman = true;
     assert.equal(system.board(u, v), true);
     const clone = predictionVehicle(v), before = observe(v), controls = new CommandControls();
     const command = { tick: 1, sequence: 1, epoch: 1, generation: 1, down: [], actions: [], look: [[400, 100]], mouseScale: 1 };
-    controls.accept(command); networkVehicleInput(clone, 0, controls, command);
+    controls.accept(command); predictionVehicleInput(clone, 0, controls, command);
     assert.notEqual(clone.seats[0].aimYaw, v.seats[0].aimYaw);
     assert.deepEqual(observe(v), before);
     system.update(1 / 60);
@@ -196,8 +199,8 @@ test('live F2 private hull replay leaves the native authority input untouched', 
 });
 
 test('live F2 damage preserves the latest foreign hull rider body at kill entry', async () => {
-  const run = async native => {
-    const { system } = await fleet(native);
+  const run = async () => {
+    const { system } = await fleet();
     try {
       const v = system.vehicles[0], u = rider(system, 13);
       assert.equal(system.board(u, v), true);
@@ -210,12 +213,12 @@ test('live F2 damage preserves the latest foreign hull rider body at kill entry'
         u.alive = false; u.dead = u.combat.dead = true; leaveKilled(u);
       };
       v.damage(Infinity);
-      assert.deepEqual(entry, before, 'destroyedCrew sees the body already moved by syncCrews');
+      assert.deepEqual(entry, before, 'destroyedCrew sees the preceding native rider placement');
       assert.equal(u.seat, null);
       return entry;
     } finally { system.dispose(); }
   };
-  assert.deepEqual(await run(true), await run(false));
+  assert.deepEqual(await run(), leaseGolden['live F2 damage preserves the latest foreign hull rider body at kill entry']);
 });
 
 function turret(x, base = 'bolt', height = 3) {
@@ -231,30 +234,30 @@ function turret(x, base = 'bolt', height = 3) {
 }
 
 test('live F2 Classic turret exits exhaust unsupported candidates before fallback', async () => {
-  const run = async native => {
-    const { system } = await fleet(native);
+  const run = async () => {
+    const { system } = await fleet();
     try {
       const t = turret(20, 'bolt', 50); t.weapon = null;
       const crews = new TurretSeats({ live: { turrets: [t] }, collision: system.collision });
-      if (native) system.f2.seats.attachTurrets(crews);
+      system.f2.seats.attachTurrets(crews);
       const u = rider(system, 35); u.human = u.networkHuman = true;
       assert.equal(crews.man(u, t), true); assert.equal(crews.leave(u), true);
       assert.deepEqual(u.position.toArray(), t.position.toArray());
       return { position: u.position.toArray(), grounded: u.soldier.grounded, air: u.soldier.air };
     } finally { system.dispose(); }
   };
-  assert.deepEqual(await run(true), await run(false));
+  assert.deepEqual(await run(), leaseGolden['live F2 Classic turret exits exhaust unsupported candidates before fallback']);
 });
 
 test('live F2 turret exits use built bounds after construction and rebuild', async () => {
-  const run = async native => {
-    const { system } = await fleet(native);
+  const run = async () => {
+    const { system } = await fleet();
     try {
       const t = turret(20); t.weapon = null;
       t.looks.unbuilt = { root: new THREE.Object3D(), model: { sphere: [0, 1, 0, 8] } };
       t.show('unbuilt');
       const crews = new TurretSeats({ live: { turrets: [t] }, collision: system.collision });
-      if (native) system.f2.seats.attachTurrets(crews);
+      system.f2.seats.attachTurrets(crews);
       const results = [];
       for (let i = 0; i < 2; i++) {
         t.setHealth(t.maxHealth);
@@ -267,11 +270,11 @@ test('live F2 turret exits use built bounds after construction and rebuild', asy
       return results;
     } finally { system.dispose(); }
   };
-  assert.deepEqual(await run(true), await run(false));
+  assert.deepEqual(await run(), leaseGolden['live F2 turret exits use built bounds after construction and rebuild']);
 });
 
 test('live F2 turret crews place each body before its direct native ordnance call', async () => {
-  const { system } = await fleet(true);
+  const { system } = await fleet();
   try {
     const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: system.collision, effects: { play() {} }, lights: { add() {} }, texture: () => null });
     attachOrdnanceSim(ordnance, system.f2.bridge);
@@ -300,14 +303,14 @@ test('live F2 turret crews place each body before its direct native ordnance cal
 });
 
 test('live F2 beams follow the original turret lease through departure and reuse', async () => {
-  async function run(native) {
-    const { system } = await fleet(native);
+  async function run() {
+    const { system } = await fleet();
     try {
       const bridge = system.f2?.bridge ?? bridgeFor(await loadSim(), { classes: { Unit, Vehicle }, tests: ordnanceTests });
       const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: system.collision, effects: { play() {} }, lights: { add() {} }, texture: () => null });
       attachOrdnanceSim(ordnance, bridge);
       const t = turret(30, 'beam'), crews = new TurretSeats({ live: { turrets: [t] }, ordnance, collision: system.collision });
-      if (native) system.f2.seats.attachTurrets(crews);
+      system.f2.seats.attachTurrets(crews);
       const a = rider(system, 30), b = rider(system, 31);
       a.human = b.human = a.networkHuman = b.networkHuman = true;
       assert.equal(crews.man(a, t), true);
@@ -315,18 +318,18 @@ test('live F2 beams follow the original turret lease through departure and reuse
       for (let tick = 0; tick < 6; tick++) {
         a.intent.turn = .4; a.intent.buttons[0] = tick === 0 ? 1 : 0;
         if (tick === 3) { assert.equal(crews.leave(a, { placement: false }), true); assert.equal(crews.man(b, t), true); }
-        system.update(1 / 60); if (!native) crews.update(1 / 60);
+        system.update(1 / 60);
         ordnance.update(1 / 60);
         trace.push([t.yaw, t.pitch, t.barrel, ordnance.beams.map(beam => [beam.position.toArray(), beam.direction.toArray(), beam.life])]);
       }
       return trace;
     } finally { system.dispose(); }
   }
-  assert.deepEqual(await run(true), await run(false));
+  assert.deepEqual(await run(), leaseGolden['live F2 beams follow the original turret lease through departure and reuse']);
 });
 
 test('live F2 stale leases do not reset a reused soldier body', async () => {
-  const { system } = await fleet(true);
+  const { system } = await fleet();
   try {
     const v = system.vehicles[0], u = rider(system, 40);
     assert.equal(system.board(u, v), true); const lease = u.seat;
@@ -339,7 +342,7 @@ test('live F2 stale leases do not reset a reused soldier body', async () => {
 });
 
 test('live F2 nested shot deaths keep the remaining crew snapshot valid', async () => {
-  const { system } = await fleet(true);
+  const { system } = await fleet();
   try {
     const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: system.collision, effects: { play() {} }, lights: { add() {} }, texture: () => null });
     attachOrdnanceSim(ordnance, system.f2.bridge);
@@ -358,7 +361,7 @@ test('live F2 nested shot deaths keep the remaining crew snapshot valid', async 
 });
 
 test('warm live F2 hull and crew phases reuse their native storage', async () => {
-  const { system } = await fleet(true);
+  const { system } = await fleet();
   try {
     const u = rider(system, 40); assert.equal(system.board(u, system.vehicles[0]), true);
     u.intent.forward = .5;
@@ -371,8 +374,8 @@ test('warm live F2 hull and crew phases reuse their native storage', async () =>
 });
 
 test('live F2 generated collision records match world bodies without game files', async () => {
-  async function run(native) {
-    const { system } = await fleet(native);
+  async function run() {
+    const { system } = await fleet();
     try {
       const v = system.vehicles[0], u = rider(system, 51); assert.equal(system.board(u, v), true);
       u.intent.forward = .5;
@@ -381,12 +384,12 @@ test('live F2 generated collision records match world bodies without game files'
         matrix: v.body.matrix.toArray(), inverse: v.body.inverse.toArray() };
     } finally { system.dispose(); }
   }
-  assert.deepEqual(await run(true), await run(false));
+  assert.deepEqual(await run(), leaseGolden['live F2 generated collision records match world bodies without game files']);
 });
 // Loaded geometry bounds each query's scratch, including polygons first met
 // after the hull starts moving. The phase itself must not grow those buffers.
 test('warm F2 native collision reuses storage at a later wall contact', async () => {
-  const { system } = await fleet(true, true);
+  const { system } = await fleet(true);
   try {
     const v = system.vehicles[0], u = rider(system, 46);
     assert.equal(system.board(u, v), true);
@@ -403,7 +406,7 @@ test('warm F2 native collision reuses storage at a later wall contact', async ()
 // A normal lifecycle hook may synchronously board a new occupant. Its scalar
 // command has its own foreign facts; it must not replace another crew's batch.
 test('a pre-latch birth command preserves another crew\'s pending intent', async () => {
-  const { system } = await fleet(true);
+  const { system } = await fleet();
   try {
     const [pilot, other] = system.vehicles, a = rider(system, 61), b = rider(system, 62);
     assert.equal(system.board(a, pilot), true); system.update(1 / 60);

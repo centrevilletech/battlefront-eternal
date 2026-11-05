@@ -1,31 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mountedFleet } from './fixtures/f2-mounted.js';
+import { weaponDefinition } from './fixtures/prediction-weapon-cases.js';
 import { cycleNetworkSeat } from '../src/runtime/network-seat.js';
 import { IntentControls, blankIntent } from '../src/units.js';
 
-function fixture() {
-  const vehicle={alive:true,seats:Array.from({length:3},()=>({lease:null,aimYaw:1,pitch:.1,lookYaw:1,lookPitch:.1})),stickX:1,stickY:1,
-    restAim(index){this.rested=index;},clampAim(index){this.clamped=index;}};
-  const human={networkHuman:true,intent:blankIntent()},bot={networkHuman:false};
-  const lease={vehicle,index:0,unit:human}, botLease={vehicle,index:1,unit:bot};
-  human.seat=lease;bot.seat=botLease;
-  vehicle.seats[0].lease=lease;vehicle.seats[1].lease=botLease;
-  const system={move(occupant,index){if(vehicle.seats[occupant.index].lease===occupant)vehicle.seats[occupant.index].lease=null;vehicle.seats[index].lease=occupant;occupant.index=index;}};
-  return {vehicle,human,bot,system};
-}
-test('network seat cycling swaps bots into the vacated seat and preserves other humans',()=>{
-  const {vehicle,human,bot,system}=fixture();
-  assert.equal(cycleNetworkSeat(system,human),true);
-  assert.equal(human.seat.index,1);assert.equal(bot.seat.index,0);
-  assert.equal(vehicle.seats[0].lease.unit,bot);assert.equal(vehicle.seats[1].lease.unit,human);
-  assert.equal(vehicle.stickX,0);assert.equal(vehicle.stickY,0);
-  vehicle.seats[2].lease={unit:{networkHuman:true}};
-  assert.equal(cycleNetworkSeat(system,human),true);
-  assert.equal(human.seat.index,0,'skip the occupied human seat');assert.equal(vehicle.rested,0);
-  assert.equal(cycleNetworkSeat(system,human,-1),true);
-  assert.equal(human.seat.index,1,'reverse cycling also skips humans');
-  vehicle.seats[0].lease={unit:{networkHuman:true}};
-  assert.equal(cycleNetworkSeat(system,human),false,'a full human crew cannot steal seats');
+test('native network seat cycling swaps bots and preserves other humans', async () => {
+  const { vs, v, crew } = await mountedFleet(weaponDefinition('fixture-seat-cycle'), { seats: 3, network: true });
+  try {
+    const bot = vs.units.add(new crew.constructor(vs.collision));
+    const other = vs.units.add(new crew.constructor(vs.collision)); other.networkHuman = true;
+    assert.equal(vs.board(bot, v, 1), true);
+    assert.equal(vs.board(other, v, 2), true);
+    const first = crew.seat;
+    assert.equal(cycleNetworkSeat(vs, crew), true);
+    assert.equal(crew.seat.index, 1); assert.equal(bot.seat.index, 0);
+    assert.equal(other.seat.index, 2);
+    assert.equal(cycleNetworkSeat(vs, crew), true);
+    assert.equal(crew.seat.index, 0, 'the other human keeps seat 2');
+    assert.equal(cycleNetworkSeat(vs, crew, -1), true);
+    assert.equal(crew.seat.index, 1);
+    assert.equal(vs.vacate(crew.seat, { placement: false }), true, 'disconnect publishes before returning');
+    assert.equal(crew.seat, null); assert.equal(v.seats[1].lease, null);
+    assert.equal(first.released, true);
+    assert.equal(vs.vacate(first, { placement: false }), false, 'an old occupancy cannot release its promoted replacement');
+    assert.equal(bot.seat.index, 0); assert.equal(other.seat.index, 2);
+  } finally { vs.dispose(); }
 });
 test('previous weapon cycling passes through network intent once',()=>{
   const unit={intent:blankIntent()}, controls=new IntentControls(unit);
