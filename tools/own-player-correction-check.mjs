@@ -1,7 +1,7 @@
 // Owned-content functional correction/replay proof. Does not measure transport,
 // rendering performance or player capacity; no retail data is emitted.
 // Soldiers always use the required Rust movement kernel.
-import assert from 'node:assert/strict';import {createHash} from 'node:crypto';import {readFile} from 'node:fs/promises';import {resolve,sep} from 'node:path';import {execFileSync} from 'node:child_process';
+import assert from 'node:assert/strict';import {createHash} from 'node:crypto';import {readFile} from 'node:fs/promises';import {resolve,sep} from 'node:path';import {sourceState} from './lib/source-provenance.mjs';
 import {createGame} from '../src/game.js';import {createMultiplayerWorld} from '../src/runtime/multiplayer-world.js';
 import {captureOwnPlayer,applyOwnPlayer} from '../src/runtime/network-entity-player.js';
 import {captureCompactSoldier as captureSoldierCorrection} from '../src/runtime/network-entity-soldier-compact.js';
@@ -24,7 +24,7 @@ for(let tick=1;tick<=180;tick++){
  if(u.combat.arsenal.current(0).clip<beforeClip)fired=true;
 }
 assert.ok(fired,'actual grounded authoritative shot consumes ammunition');assert.ok(u.combat.zoom>1,'actual scoped weapon zoom applied');assert.equal(u.soldier.posture,'crouch');const capturedZoom=u.combat.zoom;
-const registry={contentEpoch:1,classes:new Map([[1,className]]),weapons:new Map(u.combat.arsenal.weapons.map((w,i)=>[i+1,w.name])),inputCodes:['KeyW','Mouse0','KeyS'],bindingProfiles:new Map([[0,{}]])};
+const registry={contentEpoch:1,classes:new Map([[1,className]]),weapons:new Map(u.combat.arsenal.weapons.map((w,i)=>[i+1,w.name])),inputCodes:['KeyW','Mouse0','KeyS','KeyD'],bindingProfiles:new Map([[0,{}]])};
 const target={id:u.id,generation:u.generation,className,soldier:local.soldier,combat:local.combat};
 const copyCombat=()=>{reference.combat.arsenal.selected=[...u.combat.arsenal.selected];reference.combat.zoomStep=u.combat.zoomStep;reference.combat.kick={...u.combat.kick};};
 const full=captureCompactSoldier(u.soldier);restoreCompactSoldier(reference.soldier,full);copyCombat();
@@ -56,4 +56,4 @@ try {
 } finally {flight.dispose();b?.dispose();}
 const generation=u.generation;game.vehicles.unboard(u,{force:true,placement:false});target.seat=null;u.spawn(...u.soldier.position.toArray(),u.soldier.aimYaw);target.generation=u.generation;
 const spawned=captureOwnPlayer({unit:u,tick:500,epoch:1,registry,classId:1,held:[],view});assert.ok(applyOwnPlayer({unit:target,epoch:1,registry,record:spawned,previous:context}).reset);assert.ok(u.generation>generation);
-console.log(JSON.stringify({source:{revision:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),dirty:!!execFileSync('git',['status','--porcelain'],{encoding:'utf8'}).trim()},map:'bes1',className,vehicle:a.name,authoritativeShot:fired,capturedZoom,infantryPacketBytes:wire.length,flightPacketBytes:flightBytes,infantryReplayTicks:180,flightReplayTicks:210,generationReset:true,movement:movement?'wasm':'js',infantryReplayDigest:infantryDigest.digest('hex'),flightReplayDigest:flightDigest.digest('hex'),scope:'owned-content correction and physics replay, not transport/render/capacity'},null,2));
+console.log(JSON.stringify({source:sourceState(),map:'bes1',className,vehicle:a.name,authoritativeShot:fired,capturedZoom,infantryPacketBytes:wire.length,flightPacketBytes:flightBytes,infantryReplayTicks:180,flightReplayTicks:210,generationReset:true,movement:movement?'wasm':'js',infantryReplayDigest:infantryDigest.digest('hex'),flightReplayDigest:flightDigest.digest('hex'),scope:'owned-content correction and physics replay, not transport/render/capacity'},null,2));

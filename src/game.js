@@ -1331,6 +1331,14 @@ async function start() {
         { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) },
         Unit);
     }
+    if (!headless) {
+      // Replicas have no F2 authority phase. Their immutable rig/collision pack
+      // still constructs the private native hull used by page prediction.
+      const [{ bridgeFor }, { ClientHullContent }] = await Promise.all([import('./sim/runtime.js'), import('./runtime/client-hull-content.js')]);
+      vehicles.predictionContent = new ClientHullContent(vehicles, bridgeFor(simInstance, { classes: { Unit, Vehicle } }),
+        { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
+        { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) });
+    }
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;

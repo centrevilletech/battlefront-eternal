@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {resolve,sep} from 'node:path';
-import {execFileSync} from 'node:child_process';
+import {sourceState} from './lib/source-provenance.mjs';
 import {createGame} from '../src/game.js';
 import {HullReplay,hullInput} from './hull-replay-fixture.mjs';
 import {captureFlightCorrection,flightCorrectionBytes} from '../src/runtime/network-entity-flight.js';
@@ -27,4 +27,4 @@ try {
  }
  assert.ok(states.has('Flying'));assert.equal(maxPositionError,0);
 } finally {replay.dispose();resumed?.dispose();}
-console.log(JSON.stringify({source:{revision:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),dirty:!!execFileSync('git',['status','--porcelain'],{encoding:'utf8'}).trim()},node:process.version,map:'bes1',vehicle:a.name,ticks:360,checkpoints,states:[...states],payloadBytes:flightCorrectionBytes,packetBytes:bytes,maxPositionError,alive:a.alive,scope:'exact semantic correction with owned geometry; not transport or player capacity'},null,2));
+console.log(JSON.stringify({source:sourceState(),node:process.version,map:'bes1',vehicle:a.name,ticks:360,checkpoints,states:[...states],payloadBytes:flightCorrectionBytes,packetBytes:bytes,maxPositionError,alive:a.alive,scope:'exact semantic correction with owned geometry; not transport or player capacity'},null,2));

@@ -6,7 +6,7 @@
 // transition alongside latest state. It expires after24ticks (400ms), ACK, or
 // life/epoch change. Offered JSON bytes include messages lost by this model.
 import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
+import {sourceState,runtimeSourceFiles} from './lib/source-provenance.mjs';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {resolve,sep} from 'node:path';
@@ -22,8 +22,8 @@ import {PlayoutClock} from '../src/runtime/playout.js';
 import {SnapshotInterval} from '../src/runtime/snapshot-interval.js';
 import {DEFAULTS} from '../src/settings.js';
 
-const revision=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
-const sourceFiles=[...new Set(execFileSync('git',['ls-files','-co','--exclude-standard','-z','src','package-lock.json'],{encoding:'utf8'}).split('\0').filter(Boolean))].sort();
+const {revision}=sourceState();
+const sourceFiles=[...new Set(runtimeSourceFiles())].sort();
 const sourceHash=createHash('sha256');for(const file of sourceFiles){sourceHash.update(file+'\0');sourceHash.update(await readFile(file));}
 const runtimeSourceSha256=sourceHash.digest('hex');
 const root=resolve(process.env.BFE_DATA_DIR||'public');
@@ -58,7 +58,8 @@ const sender=new NetworkInputs({transitionBackups:redundantTransitions,state:mes
 },events:message=>{queue(toWorld,{at:now+delay(message.id,1),kind:'actions',message});return true;},fire:()=>true});
 // Keep the page owner's source identity stable while delayed snapshots arrive.
 // The tool's forecast copies are diagnostic storage, outside the live replay.
-const predictionBase=presentationHull(aircraft),replay=createHullReplay(predictionBase,player.generation);
+const predictionBase=presentationHull(aircraft);predictionBase.resetPresentationHistory();
+const replay=createHullReplay(predictionBase,player.generation);
 const oldPose=new Vector3();let oldTick=0;
 const quantize=v=>{
  for(const[key,scale]of [['position',256],['velocity',128],['quaternion',8192]])for(const axis of key==='quaternion'?['x','y','z','w']:['x','y','z'])v[key][axis]=Math.round(v[key][axis]*scale)/scale;
@@ -94,10 +95,10 @@ for(let micro=1;micro<=seconds*7200;micro++){
  if(previous){oldPose.copy(previous.position);oldTick=previous.predictionTick;}
  const current=replay.predict(commands,applied,held),predicted=commands.length?current:null;
  if(predicted&&previous&&replay.session.result.checkFound){
-  const check=replay.session.result.checkPosition,distance=oldPose.distanceTo(new Vector3(...check));
+  const check=replay.session.result.checkPosition,distance=oldPose.distanceTo(check);
   if(distance>1e-6)corrections.push(distance);
   if(distance>.05&&outliers.length<16)outliers.push({at:now,meters:distance,appliedTick:applied,predictedTick:predicted.predictionTick,oldPredictionTick:oldTick,state:predicted.flightState});
-  smoother.note(oldPose.x,oldPose.y,oldPose.z,check[0],check[1],check[2]);
+  smoother.note(oldPose.x,oldPose.y,oldPose.z,check.x,check.y,check.z);
  }
  const visual=current.tickFrom.clone().lerp(current.position,predicted?input.alpha:interval.alpha(clock));visual.x+=smoother.x;visual.y+=smoother.y;visual.z+=smoother.z;
  if(now>=1&&takeoffModeVisible===null&&current.flightState==='TakingOff')takeoffModeVisible=now;

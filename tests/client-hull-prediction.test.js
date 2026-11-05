@@ -7,6 +7,7 @@ import { loadSim } from '../src/sim/module.js';
 import { loadRayKernel } from '../src/ray-kernel.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { attachF2 } from '../src/f2-sim.js';
+import { ClientHullContent } from '../src/runtime/client-hull-content.js';
 import { Unit } from '../src/units.js';
 import { hullFixture, hullCommand } from './fixtures/client-hull.js';
 import { createClientPrediction } from '../src/runtime/client-prediction.js';
@@ -29,8 +30,12 @@ for (const [name, digest, continuation] of corpora) {
     const instance = await loadSim(), kernel = await loadRayKernel(instance);
     const f = hullFixture(kind, kernel), { system, vehicle: v } = f;
     v.resetPresentationHistory();
-    attachF2(system, bridgeFor(instance, { classes: { Unit, Vehicle: f.Vehicle } }),
-      { killY: -300, deathRegions: [], scripted: [] }, f, Unit);
+    const bridge = bridgeFor(instance, { classes: { Unit, Vehicle: f.Vehicle } });
+    const map = { killY: -300, deathRegions: [], scripted: [] };
+    // Fresh replay also exercises the actual page: content plus replicas,
+    // without a canonical F2 fleet or its world lifecycle in this instance.
+    if (continuation) attachF2(system, bridge, map, f, Unit);
+    else system.predictionContent = new ClientHullContent(system, bridge, map, f);
     const session = createClientPrediction(instance, system.collision);
     const lease = { vehicle: v, index: 0 }, unit = { id: 1, generation: 1, seat: lease, alive: true, combat: { dead: false } };
     let pending = [], held = [], authority = 0;
@@ -114,4 +119,23 @@ test('native compact flight correction matches the full checkpoint through maneu
       }
     }
   } finally { full.dispose(); compact.dispose(); f.system.dispose(); }
+});
+
+// A passenger/infantry detour can rebuild the arsenal without a new hull life.
+// Cold actor setup clears the native hull too; reboarding must configure it.
+test('a replacement lease reconfigures the same live hull', async () => {
+  const instance = await loadSim(), f = hullFixture('hover', await loadRayKernel(instance)), v = f.vehicle;
+  v.resetPresentationHistory();
+  f.system.predictionContent = new ClientHullContent(f.system,
+    bridgeFor(instance, { classes: { Unit, Vehicle: f.Vehicle } }),
+    { killY: -300, deathRegions: [], scripted: [] }, f);
+  const session = createClientPrediction(instance, f.system.collision);
+  const unit = { id: 1, generation: 1, seat: { vehicle: v, index: 0 } }, pending = [hullCommand(1)], bytes = captureGroundCorrection(v);
+  try {
+    session.mounted(unit, [], pending, 0, [], v, 1, bytes, 10);
+    const before = session.correction();
+    unit.seat = { vehicle: v, index: 0 };
+    session.mounted(unit, [], pending, 0, [], v, 1, bytes, 10);
+    assert.deepEqual(session.correction(), before);
+  } finally { session.dispose(); f.system.dispose(); }
 });

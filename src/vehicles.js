@@ -400,7 +400,6 @@ export class Vehicle {
     this.supportProbes = this.creature
       ? [-1, 0, 1].map(x => new THREE.Vector3(x * this.size.x * .3, 0, 0)) : this.probes;
     this.supportNormal = new THREE.Vector3(0, 1, 0);
-    this.ownStart = new THREE.Quaternion(); this.probeStart = new THREE.Vector3(); // a walker's probe a step ago (pushWalls)
     // Each seat also keeps its own aim and its lease (src/seats.js): the
     // player's look moves the aim of the seat he is in (seatIndex, through
     // the aimYaw/pitch/lookYaw/lookPitch accessors below), a bot's analogs

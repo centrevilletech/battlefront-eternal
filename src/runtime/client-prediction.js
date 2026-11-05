@@ -68,6 +68,7 @@ export function createClientPrediction(instance, collision) {
   let disposed = false, busy = false, dropAfter = false, active = false;
   let input = new Float64Array(4096), output = new Float64Array(4096), used = 0;
   let inputPtr = 0, inputCapacity = 0;
+  let outputBuffer = null, outputPointer = 0, outputViews = [];
   let actorView, lastGun;
   // These belong to the prediction owner, rather than to a frame or command.
   // Neither an authority correction nor presentation may retain a scratch row.
@@ -110,7 +111,8 @@ export function createClientPrediction(instance, collision) {
       inputCapacity = 0;
     }
     bridge.views();
-    for (let i = 0; i < count; i++) bridge.f[ptr / 8 + i] = words[i];
+    const destination = bridge.f, start = ptr / Float64Array.BYTES_PER_ELEMENT;
+    for (let i = 0; i < count; i++) destination[start + i] = words[i];
     // A frame calls the complete session export. All other operations are
     // cold configuration or explicit reset, never a per-method tick adapter.
     const published = op === PREDICT ? x.client_predict_session(handle, count) : 0;
@@ -129,7 +131,14 @@ export function createClientPrediction(instance, collision) {
     // Copy before callbacks can grow module memory or start another owner.
     // This is one retained result block, not a view per replayed actor tick.
     if (output.length < length) output = new Float64Array(Math.max(length, output.length * 2));
-    for (let i = 0; i < length; i++) output[i] = bridge.f[at + i];
+    // Cache each exact output span at its high-water mark. Copying through
+    // TypedArray.set avoids boxing every float in a generic indexed loop.
+    if (outputBuffer !== x.memory.buffer || outputPointer !== at) {
+      outputBuffer = x.memory.buffer; outputPointer = at; outputViews = [];
+    }
+    let view = outputViews[length];
+    if (!view) view = outputViews[length] = new Float64Array(outputBuffer, at * Float64Array.BYTES_PER_ELEMENT, length);
+    output.set(view);
   }
 
   // restorePrediction used the body's class and its arsenal as prerequisites.
@@ -138,6 +147,7 @@ export function createClientPrediction(instance, collision) {
   function configure(unit) {
     const s = unit.soldier, authority = unit.combat.arsenal;
     if (body === s && source === authority) return;
+    hull.invalidate();
     body = s; source = authority; kind = s instanceof Droideka ? DROIDEKA : SOLDIER; sourceId++;
     run(CONFIGURE_ACTOR, predictionActorConfig(s, kind).words);
     actorView = Object.create(s);
@@ -363,7 +373,7 @@ export function createClientPrediction(instance, collision) {
         // MountedWeaponPrediction had an arsenal per lease. Seat changes must
         // reload definitions, even when the same unit remains in the vehicle.
         if (body !== lease) {
-          body = lease; source = null; run(CONFIGURE_ACTOR, [SOLDIER]);
+          body = lease; source = null; hull.invalidate(); run(CONFIGURE_ACTOR, [SOLDIER]);
           mountedWeapons.length = 0;
         }
         // A flyer can start replay while takeoff freezes all weapon timers.
@@ -381,7 +391,6 @@ export function createClientPrediction(instance, collision) {
         if (vehicle && hull.configure(vehicle)) {
           // Late replicas/variants must register their collider before the
           // private owner copies immutable collider and gather-cache handles.
-          vehicle.system.f2.bodiesIn();
           run(CONFIGURE_HULL, hull.setup);
         }
         used = FRAME;

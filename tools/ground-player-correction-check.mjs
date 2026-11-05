@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {resolve,sep} from 'node:path';
-import {execFileSync} from 'node:child_process';
+import {sourceState} from './lib/source-provenance.mjs';
 import {createGame} from '../src/game.js';
 import {HullReplay,hullInput} from './hull-replay-fixture.mjs';
 import {captureGroundCorrection,groundCorrectionBytes} from '../src/runtime/network-entity-ground.js';
@@ -22,7 +22,7 @@ for(const source of sources){
   for(let tick=1;tick<=240;tick++){
    const command=hullInput(tick,false),current=a.step(command);
    if([10,80,155,210].includes(tick)){
-    b?.dispose();b=new HullReplay(source);const collider=b.source.body.matrix.toArray();
+    b?.dispose();b=new HullReplay(current);const collider=b.source.body.matrix.toArray();
     b.restore(captureGroundCorrection(current),tick,command.down);assert.deepEqual(b.source.body.matrix.toArray(),collider);
    }else if(b)b.step(command);
    if(b){maxPositionError=Math.max(maxPositionError,current.position.distanceTo(b.current.position));const replayed=captureGroundCorrection(b.current);assert.deepEqual(replayed,captureGroundCorrection(current),`${source.name} tick${tick}`);digest.update(replayed);}
@@ -30,4 +30,4 @@ for(const source of sources){
   results.push({vehicle:source.name,base:source.base,ticks:240,maxPositionError,payloadBytes:groundCorrectionBytes,replayDigest:digest.digest('hex')});
  } finally {a.dispose();b?.dispose();}
 }
-console.log(JSON.stringify({source:{revision:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),dirty:!!execFileSync('git',['status','--porcelain'],{encoding:'utf8'}).trim()},map,movement:movement?'wasm':'js',results,scope:'owned-content correction and physics replay, not transport/render/capacity'},null,2));
+console.log(JSON.stringify({source:sourceState(),map,movement:movement?'wasm':'js',results,scope:'owned-content correction and physics replay, not transport/render/capacity'},null,2));

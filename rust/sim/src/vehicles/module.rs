@@ -473,11 +473,15 @@ fn flight_keys(name: &str) -> (Config, Option<GearClip>) {
 /// working row out of the authoritative phase's reentrant pool.
 pub(crate) fn prediction_hull(r: Ref<Vehicle>) -> Option<crate::client::hulls::Session> {
     let s = sim();
+    // F2 normally interns these enum messages at fleet construction. A page
+    // has only resource rows, so resolve the same IDs before cloning strings.
+    // Published message handles must remain valid in the shared bridge table.
+    let _ = crate::flight::store::FlightTextIds::new(&mut s.strings);
     let v = s.store.vehicle.get(r)?;
     let name = String::from_utf16_lossy(s.strings.units(v.name));
     let class = classes().get(&name)?;
     let mut hull = Hull::from_store(r, v, class, 0, &s.strings);
-    let (config, gear) = f2::flight_keys_for(r);
+    let (config, gear) = if f2::active() { f2::flight_keys_for(r) } else { flight_keys(&name) };
     hull.flight = Flight::from_store(v, &s.strings, config, gear).ok()?;
     hull.pose = Some(poses().get(r.slot as usize)?.as_ref()?.pose.clone());
     Some(crate::client::hulls::Session::new(hull, v.clone(), s.strings.clone(),

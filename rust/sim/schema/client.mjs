@@ -34,7 +34,7 @@ export default {
     // predictVehicle imported mutable solver state separately from class data.
     // Flat fields retain the existing wire enum/string handles and IEEE bits.
     // Seats, wheels and leg support use separately bounded, retained ranges.
-    ClientHullState: { $layout: true,
+    ClientHullState: { $layout: true, $view: true,
       position: 'vec3',
       previous: 'vec3',
       velocity: 'vec3',
@@ -109,12 +109,12 @@ export default {
       trickHeld: 'bool|undefined',
       immelmannHeld: 'bool|undefined',
     },
-    ClientHull: { $layout: true, slot: 'u32', generation: 'u32', stateAt: 'u32',
+    ClientHull: { $layout: true, $view: true, slot: 'u32', generation: 'u32', stateAt: 'u32',
       seatsAt: 'u32', seatsCount: 'u32', wheelsAt: 'u32', wheelsCount: 'u32',
       legsAt: 'u32', legsCount: 'u32', hasLegs: 'bool', walkPhase: 'f64', walkBlend: 'f64',
       walkFromPhase: 'f64', walkFromBlend: 'f64', level: 'f64', assists: 'bool', correctionSchema: 'u32', checkTick: 'f64',
       membersAt: 'u32', membersCount: 'u32', teamsAt: 'u32', teamsCount: 'u32', relationsAt: 'u32' },
-    ClientHullSeat: { $layout: true, aimYaw: 'f64', pitch: 'f64', lookYaw: 'f64|null', lookPitch: 'f64|null',
+    ClientHullSeat: { $layout: true, $view: true, aimYaw: 'f64', pitch: 'f64', lookYaw: 'f64|null', lookPitch: 'f64|null',
       yawRate: 'f64', lastYaw: 'f64|null' },
     ClientHullMember: { $layout: true, id: 'f64', generation: 'f64|undefined', alive: 'bool',
       team: 'f64|undefined', own: 'bool', unit: 'bool', body: 'f64', point: 'vec3' },

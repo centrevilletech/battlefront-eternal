@@ -754,6 +754,16 @@ export function syncClientHullState(b, f, at, h, m) {
 }
 
 export function putClientHullState(b, o, f, at, heap) {
+  putClientHullStatePart0(b, o, f, at, heap);
+  putClientHullStatePart1(b, o, f, at, heap);
+  putClientHullStatePart2(b, o, f, at, heap);
+  putClientHullStatePart3(b, o, f, at, heap);
+  putClientHullStatePart4(b, o, f, at, heap);
+  putClientHullStatePart5(b, o, f, at, heap);
+  putClientHullStatePart6(b, o, f, at, heap);
+}
+
+function putClientHullStatePart0(b, o, f, at, heap) {
   { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
   { const $v = o.previous; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
   { const $v = o.velocity; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
@@ -766,6 +776,9 @@ export function putClientHullState(b, o, f, at, heap) {
   f[at + 15] = o.yawRate;
   f[at + 16] = o.tiltRate;
   f[at + 17] = o.rollRate;
+}
+
+function putClientHullStatePart1(b, o, f, at, heap) {
   f[at + 18] = o.support;
   f[at + 19] = o.forwardInput;
   f[at + 20] = o.rightInput;
@@ -778,6 +791,9 @@ export function putClientHullState(b, o, f, at, heap) {
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 31 + i] = e[i]; }
   { const $v = o.itemCenter; f[at + 47] = $v.x; f[at + 48] = $v.y; f[at + 49] = $v.z; }
   { const $v = o.supportNormal; f[at + 50] = $v.x; f[at + 51] = $v.y; f[at + 52] = $v.z; }
+}
+
+function putClientHullStatePart2(b, o, f, at, heap) {
   { const $x = o.tickFrom; if ($x === null || $x === undefined) { f[at + 53] = $x === null ? 1 : 2; f[at + 54] = 0; f[at + 55] = 0; f[at + 56] = 0; } else { f[at + 53] = 0; { const $v = $x; f[at + 54] = $v.x; f[at + 55] = $v.y; f[at + 56] = $v.z; } } }
   { const $x = o.tickFromYaw; if ($x === null || $x === undefined) { f[at + 57] = $x === null ? 1 : 2; f[at + 58] = 0; } else { f[at + 57] = 0; f[at + 58] = $x; } }
   { const $x = o.tickFromTilt; if ($x === null || $x === undefined) { f[at + 59] = $x === null ? 1 : 2; f[at + 60] = 0; } else { f[at + 59] = 0; f[at + 60] = $x; } }
@@ -790,6 +806,9 @@ export function putClientHullState(b, o, f, at, heap) {
   f[at + 69] = o.stateTime;
   f[at + 70] = o.floorY;
   f[at + 71] = o.bank;
+}
+
+function putClientHullStatePart3(b, o, f, at, heap) {
   { const $x = o.team; if ($x === null || $x === undefined) { f[at + 72] = $x === null ? 1 : 2; f[at + 73] = 0; } else { f[at + 72] = 0; f[at + 73] = $x; } }
   { const $x = o.power; if ($x === null || $x === undefined) { f[at + 74] = $x === null ? 1 : 2; f[at + 75] = 0; } else { f[at + 74] = 0; f[at + 75] = $x; } }
   { const $x = o.stickX; if ($x === null || $x === undefined) { f[at + 76] = $x === null ? 1 : 2; f[at + 77] = 0; } else { f[at + 76] = 0; f[at + 77] = $x; } }
@@ -802,6 +821,9 @@ export function putClientHullState(b, o, f, at, heap) {
   { const $x = o.trickCooldown; if ($x === null || $x === undefined) { f[at + 90] = $x === null ? 1 : 2; f[at + 91] = 0; } else { f[at + 90] = 0; f[at + 91] = $x; } }
   { const $x = o.trickPending; if ($x === null || $x === undefined) { f[at + 92] = $x === null ? 1 : 2; f[at + 93] = 0; } else { f[at + 92] = 0; f[at + 93] = $x; } }
   { const $x = o.trickDirection; if ($x === null || $x === undefined) { f[at + 94] = $x === null ? 1 : 2; f[at + 95] = 0; } else { f[at + 94] = 0; f[at + 95] = $x; } }
+}
+
+function putClientHullStatePart4(b, o, f, at, heap) {
   { const $x = o.gear; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f[at + 97] = 0; } else { f[at + 96] = 0; f[at + 97] = $x; } }
   { const $x = o.landingMessage; if ($x === null || $x === undefined) { f[at + 98] = $x === null ? 1 : 2; f[at + 99] = 0; } else { f[at + 98] = 0; f[at + 99] = b.strings.id($x); } }
   { const $x = o.landingMessageTime; if ($x === null || $x === undefined) { f[at + 100] = $x === null ? 1 : 2; f[at + 101] = 0; } else { f[at + 100] = 0; f[at + 101] = $x; } }
@@ -814,6 +836,9 @@ export function putClientHullState(b, o, f, at, heap) {
   { const $x = o.flightAssistId; if ($x === null || $x === undefined) { f[at + 116] = $x === null ? 1 : 2; f[at + 117] = 0; } else { f[at + 116] = 0; f[at + 117] = $x; } }
   { const $x = o.flightLockId; if ($x === null || $x === undefined) { f[at + 118] = $x === null ? 1 : 2; f[at + 119] = 0; } else { f[at + 118] = 0; f[at + 119] = $x; } }
   { const $x = o.flightLockGeneration; if ($x === null || $x === undefined) { f[at + 120] = $x === null ? 1 : 2; f[at + 121] = 0; } else { f[at + 120] = 0; f[at + 121] = $x; } }
+}
+
+function putClientHullStatePart5(b, o, f, at, heap) {
   { const $x = o.flightLockTimer; if ($x === null || $x === undefined) { f[at + 122] = $x === null ? 1 : 2; f[at + 123] = 0; } else { f[at + 122] = 0; f[at + 123] = $x; } }
   { const $x = o.flightLostLOS; if ($x === null || $x === undefined) { f[at + 124] = $x === null ? 1 : 2; f[at + 125] = 0; } else { f[at + 124] = 0; f[at + 125] = $x; } }
   { const $x = o.flightLockState; if ($x === null || $x === undefined) { f[at + 126] = $x === null ? 1 : 2; f[at + 127] = 0; } else { f[at + 126] = 0; f[at + 127] = b.strings.id($x); } }
@@ -826,7 +851,115 @@ export function putClientHullState(b, o, f, at, heap) {
   { const $x = o.flightTickQ; if ($x === null || $x === undefined) { f[at + 156] = $x === null ? 1 : 2; f[at + 157] = 0; f[at + 158] = 0; f[at + 159] = 0; f[at + 160] = 0; } else { f[at + 156] = 0; { const $v = $x; f[at + 157] = $v.x; f[at + 158] = $v.y; f[at + 159] = $v.z; f[at + 160] = $v.w; } } }
   { const $x = o.flightActionHeld; if ($x === null || $x === undefined) { f[at + 161] = $x === null ? 1 : 2; f[at + 162] = 0; } else { f[at + 161] = 0; f[at + 162] = $x ? 1 : 0; } }
   { const $x = o.trickHeld; if ($x === null || $x === undefined) { f[at + 163] = $x === null ? 1 : 2; f[at + 164] = 0; } else { f[at + 163] = 0; f[at + 164] = $x ? 1 : 0; } }
+}
+
+function putClientHullStatePart6(b, o, f, at, heap) {
   { const $x = o.immelmannHeld; if ($x === null || $x === undefined) { f[at + 165] = $x === null ? 1 : 2; f[at + 166] = 0; } else { f[at + 165] = 0; f[at + 166] = $x ? 1 : 0; } }
+}
+
+const ClientHullStateViewFields = new Set(["position","previous","velocity","yaw","previousYaw","tilt","roll","previousTilt","previousRoll","yawRate","tiltRate","rollRate","support","forwardInput","rightInput","alive","sleeping","health","dying","waterClock","quaternion","matrix","itemCenter","supportNormal","tickFrom","tickFromYaw","tickFromTilt","tickFromRoll","flightState","grounded","altitude","throttle","airspeed","stateTime","floorY","bank","team","power","stickX","stickY","flightRollRate","rollLock","boosting","trick","trickTime","trickCooldown","trickPending","trickDirection","gear","landingMessage","landingMessageTime","flightTrickRight","flightClock","boostExhausted","landingReason","flightWarning","terrainWarning","flightAssistId","flightLockId","flightLockGeneration","flightLockTimer","flightLostLOS","flightLockState","flightStart","flightEnd","flightStartQ","flightTrickLoopQ","flightTrickEndQ","flightPreviousQ","flightTickQ","flightActionHeld","trickHeld","immelmannHeld"]);
+export function createClientHullStateView(b, source) {
+  const words = new Float64Array(167);
+  putClientHullState(b, source, words, 0, null);
+  const view = Object.create(Object.getPrototypeOf(source));
+  Object.defineProperties(view, {
+    predictionWords: { value: words },
+    position: { enumerable: true, writable: true, value: source.position?.clone() ?? source.position },
+    previous: { enumerable: true, writable: true, value: source.previous?.clone() ?? source.previous },
+    velocity: { enumerable: true, writable: true, value: source.velocity?.clone() ?? source.velocity },
+    yaw: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 9]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 9] = value; } },
+    previousYaw: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 10]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 10] = value; } },
+    tilt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 11]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 11] = value; } },
+    roll: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 12]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 12] = value; } },
+    previousTilt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 13]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 13] = value; } },
+    previousRoll: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 14]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 14] = value; } },
+    yawRate: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 15]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 15] = value; } },
+    tiltRate: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 16]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 16] = value; } },
+    rollRate: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 17]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 17] = value; } },
+    support: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 18]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 18] = value; } },
+    forwardInput: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 19]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 19] = value; } },
+    rightInput: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 20]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 20] = value; } },
+    alive: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 21] !== 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 21] = value ? 1 : 0; } },
+    sleeping: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 22]; if (tag === 0) { value = f[at + 23] !== 0; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 22] = $x === null ? 1 : 2; f[at + 23] = 0; } else { f[at + 22] = 0; f[at + 23] = $x ? 1 : 0; } } } },
+    health: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 24]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 24] = value; } },
+    dying: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 25]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 25] = value; } },
+    waterClock: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 26]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 26] = value; } },
+    quaternion: { enumerable: true, writable: true, value: source.quaternion?.clone() ?? source.quaternion },
+    matrix: { enumerable: true, writable: true, value: source.matrix?.clone() ?? source.matrix },
+    itemCenter: { enumerable: true, writable: true, value: source.itemCenter?.clone() ?? source.itemCenter },
+    supportNormal: { enumerable: true, writable: true, value: source.supportNormal?.clone() ?? source.supportNormal },
+    tickFrom: { enumerable: true, writable: true, value: source.tickFrom?.clone() ?? source.tickFrom },
+    tickFromYaw: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 57]; if (tag === 0) { value = f[at + 58]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 57] = $x === null ? 1 : 2; f[at + 58] = 0; } else { f[at + 57] = 0; f[at + 58] = $x; } } } },
+    tickFromTilt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 59]; if (tag === 0) { value = f[at + 60]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 59] = $x === null ? 1 : 2; f[at + 60] = 0; } else { f[at + 59] = 0; f[at + 60] = $x; } } } },
+    tickFromRoll: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 61]; if (tag === 0) { value = f[at + 62]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 61] = $x === null ? 1 : 2; f[at + 62] = 0; } else { f[at + 61] = 0; f[at + 62] = $x; } } } },
+    flightState: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 63]; if (tag === 0) { value = FlightState_NAMES[f[at + 64]]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 63] = $x === null ? 1 : 2; f[at + 64] = 0; } else { f[at + 63] = 0; f[at + 64] = FlightState_INDEX.get($x); } } } },
+    grounded: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 65] !== 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 65] = value ? 1 : 0; } },
+    altitude: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 66]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 66] = value; } },
+    throttle: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 67]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 67] = value; } },
+    airspeed: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 68]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 68] = value; } },
+    stateTime: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 69]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 69] = value; } },
+    floorY: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 70]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 70] = value; } },
+    bank: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 71]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 71] = value; } },
+    team: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 72]; if (tag === 0) { value = f[at + 73]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 72] = $x === null ? 1 : 2; f[at + 73] = 0; } else { f[at + 72] = 0; f[at + 73] = $x; } } } },
+    power: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 74]; if (tag === 0) { value = f[at + 75]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 74] = $x === null ? 1 : 2; f[at + 75] = 0; } else { f[at + 74] = 0; f[at + 75] = $x; } } } },
+    stickX: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 76]; if (tag === 0) { value = f[at + 77]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 76] = $x === null ? 1 : 2; f[at + 77] = 0; } else { f[at + 76] = 0; f[at + 77] = $x; } } } },
+    stickY: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 78]; if (tag === 0) { value = f[at + 79]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 78] = $x === null ? 1 : 2; f[at + 79] = 0; } else { f[at + 78] = 0; f[at + 79] = $x; } } } },
+    flightRollRate: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 80]; if (tag === 0) { value = f[at + 81]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 80] = $x === null ? 1 : 2; f[at + 81] = 0; } else { f[at + 80] = 0; f[at + 81] = $x; } } } },
+    rollLock: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 82]; if (tag === 0) { value = f[at + 83] !== 0; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 82] = $x === null ? 1 : 2; f[at + 83] = 0; } else { f[at + 82] = 0; f[at + 83] = $x ? 1 : 0; } } } },
+    boosting: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 84]; if (tag === 0) { value = f[at + 85] !== 0; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 84] = $x === null ? 1 : 2; f[at + 85] = 0; } else { f[at + 84] = 0; f[at + 85] = $x ? 1 : 0; } } } },
+    trick: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 86]; if (tag === 0) { value = b.strings.at(f[at + 87]); } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 86] = $x === null ? 1 : 2; f[at + 87] = 0; } else { f[at + 86] = 0; f[at + 87] = b.strings.id($x); } } } },
+    trickTime: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 88]; if (tag === 0) { value = f[at + 89]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 88] = $x === null ? 1 : 2; f[at + 89] = 0; } else { f[at + 88] = 0; f[at + 89] = $x; } } } },
+    trickCooldown: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 90]; if (tag === 0) { value = f[at + 91]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 90] = $x === null ? 1 : 2; f[at + 91] = 0; } else { f[at + 90] = 0; f[at + 91] = $x; } } } },
+    trickPending: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 92]; if (tag === 0) { value = f[at + 93]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 92] = $x === null ? 1 : 2; f[at + 93] = 0; } else { f[at + 92] = 0; f[at + 93] = $x; } } } },
+    trickDirection: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 94]; if (tag === 0) { value = f[at + 95]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 94] = $x === null ? 1 : 2; f[at + 95] = 0; } else { f[at + 94] = 0; f[at + 95] = $x; } } } },
+    gear: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 96]; if (tag === 0) { value = f[at + 97]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f[at + 97] = 0; } else { f[at + 96] = 0; f[at + 97] = $x; } } } },
+    landingMessage: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 98]; if (tag === 0) { value = b.strings.at(f[at + 99]); } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 98] = $x === null ? 1 : 2; f[at + 99] = 0; } else { f[at + 98] = 0; f[at + 99] = b.strings.id($x); } } } },
+    landingMessageTime: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 100]; if (tag === 0) { value = f[at + 101]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 100] = $x === null ? 1 : 2; f[at + 101] = 0; } else { f[at + 100] = 0; f[at + 101] = $x; } } } },
+    flightTrickRight: { enumerable: true, writable: true, value: source.flightTrickRight?.clone() ?? source.flightTrickRight },
+    flightClock: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 106]; if (tag === 0) { value = f[at + 107]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 106] = $x === null ? 1 : 2; f[at + 107] = 0; } else { f[at + 106] = 0; f[at + 107] = $x; } } } },
+    boostExhausted: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 108]; if (tag === 0) { value = f[at + 109] !== 0; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 108] = $x === null ? 1 : 2; f[at + 109] = 0; } else { f[at + 108] = 0; f[at + 109] = $x ? 1 : 0; } } } },
+    landingReason: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 110]; if (tag === 0) { value = b.strings.at(f[at + 111]); } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 110] = $x === null ? 1 : 2; f[at + 111] = 0; } else { f[at + 110] = 0; f[at + 111] = b.strings.id($x); } } } },
+    flightWarning: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 112]; if (tag === 0) { value = b.strings.at(f[at + 113]); } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 112] = $x === null ? 1 : 2; f[at + 113] = 0; } else { f[at + 112] = 0; f[at + 113] = b.strings.id($x); } } } },
+    terrainWarning: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 114]; if (tag === 0) { value = f[at + 115] !== 0; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 114] = $x === null ? 1 : 2; f[at + 115] = 0; } else { f[at + 114] = 0; f[at + 115] = $x ? 1 : 0; } } } },
+    flightAssistId: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 116]; if (tag === 0) { value = f[at + 117]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 116] = $x === null ? 1 : 2; f[at + 117] = 0; } else { f[at + 116] = 0; f[at + 117] = $x; } } } },
+    flightLockId: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 118]; if (tag === 0) { value = f[at + 119]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 118] = $x === null ? 1 : 2; f[at + 119] = 0; } else { f[at + 118] = 0; f[at + 119] = $x; } } } },
+    flightLockGeneration: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 120]; if (tag === 0) { value = f[at + 121]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 120] = $x === null ? 1 : 2; f[at + 121] = 0; } else { f[at + 120] = 0; f[at + 121] = $x; } } } },
+    flightLockTimer: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 122]; if (tag === 0) { value = f[at + 123]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 122] = $x === null ? 1 : 2; f[at + 123] = 0; } else { f[at + 122] = 0; f[at + 123] = $x; } } } },
+    flightLostLOS: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 124]; if (tag === 0) { value = f[at + 125]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 124] = $x === null ? 1 : 2; f[at + 125] = 0; } else { f[at + 124] = 0; f[at + 125] = $x; } } } },
+    flightLockState: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 126]; if (tag === 0) { value = b.strings.at(f[at + 127]); } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 126] = $x === null ? 1 : 2; f[at + 127] = 0; } else { f[at + 126] = 0; f[at + 127] = b.strings.id($x); } } } },
+    flightStart: { enumerable: true, writable: true, value: source.flightStart?.clone() ?? source.flightStart },
+    flightEnd: { enumerable: true, writable: true, value: source.flightEnd?.clone() ?? source.flightEnd },
+    flightStartQ: { enumerable: true, writable: true, value: source.flightStartQ?.clone() ?? source.flightStartQ },
+    flightTrickLoopQ: { enumerable: true, writable: true, value: source.flightTrickLoopQ?.clone() ?? source.flightTrickLoopQ },
+    flightTrickEndQ: { enumerable: true, writable: true, value: source.flightTrickEndQ?.clone() ?? source.flightTrickEndQ },
+    flightPreviousQ: { enumerable: true, writable: true, value: source.flightPreviousQ?.clone() ?? source.flightPreviousQ },
+    flightTickQ: { enumerable: true, writable: true, value: source.flightTickQ?.clone() ?? source.flightTickQ },
+    flightActionHeld: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 161]; if (tag === 0) { value = f[at + 162] !== 0; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 161] = $x === null ? 1 : 2; f[at + 162] = 0; } else { f[at + 161] = 0; f[at + 162] = $x ? 1 : 0; } } } },
+    trickHeld: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 163]; if (tag === 0) { value = f[at + 164] !== 0; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 163] = $x === null ? 1 : 2; f[at + 164] = 0; } else { f[at + 163] = 0; f[at + 164] = $x ? 1 : 0; } } } },
+    immelmannHeld: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 165]; if (tag === 0) { value = f[at + 166] !== 0; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 165] = $x === null ? 1 : 2; f[at + 166] = 0; } else { f[at + 165] = 0; f[at + 166] = $x ? 1 : 0; } } } },
+  });
+  for (const key of Object.keys(source)) if (!ClientHullStateViewFields.has(key)) view[key] = source[key];
+  return view;
+}
+
+export function syncClientHullStateViewMath(b, view) {
+  const f = view.predictionWords, at = 0, h = 0;
+  { const $v = (view.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (view.previous ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
+  { const $v = (view.velocity ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
+  { const $q = (view.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 27]; $q._y = f[at + 28]; $q._z = f[at + 29]; $q._w = f[at + 30]; $q._onChangeCallback(); }
+  { const e = (view.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 31 + i]; }
+  { const $v = (view.itemCenter ??= new THREE.Vector3()); $v.x = f[at + 47]; $v.y = f[at + 48]; $v.z = f[at + 49]; }
+  { const $v = (view.supportNormal ??= new THREE.Vector3()); $v.x = f[at + 50]; $v.y = f[at + 51]; $v.z = f[at + 52]; }
+  { const tag = f[at + 53]; if (tag === 0) { { const $v = (view.tickFrom ??= new THREE.Vector3()); $v.x = f[at + 54]; $v.y = f[at + 55]; $v.z = f[at + 56]; } } else view.tickFrom = tag === 1 ? null : undefined; }
+  { const tag = f[at + 102]; if (tag === 0) { { const $v = (view.flightTrickRight ??= new THREE.Vector3()); $v.x = f[at + 103]; $v.y = f[at + 104]; $v.z = f[at + 105]; } } else view.flightTrickRight = tag === 1 ? null : undefined; }
+  { const tag = f[at + 128]; if (tag === 0) { { const $v = (view.flightStart ??= new THREE.Vector3()); $v.x = f[at + 129]; $v.y = f[at + 130]; $v.z = f[at + 131]; } } else view.flightStart = tag === 1 ? null : undefined; }
+  { const tag = f[at + 132]; if (tag === 0) { { const $v = (view.flightEnd ??= new THREE.Vector3()); $v.x = f[at + 133]; $v.y = f[at + 134]; $v.z = f[at + 135]; } } else view.flightEnd = tag === 1 ? null : undefined; }
+  { const tag = f[at + 136]; if (tag === 0) { { const $q = (view.flightStartQ ??= new THREE.Quaternion()); $q._x = f[at + 137]; $q._y = f[at + 138]; $q._z = f[at + 139]; $q._w = f[at + 140]; $q._onChangeCallback(); } } else view.flightStartQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 141]; if (tag === 0) { { const $q = (view.flightTrickLoopQ ??= new THREE.Quaternion()); $q._x = f[at + 142]; $q._y = f[at + 143]; $q._z = f[at + 144]; $q._w = f[at + 145]; $q._onChangeCallback(); } } else view.flightTrickLoopQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 146]; if (tag === 0) { { const $q = (view.flightTrickEndQ ??= new THREE.Quaternion()); $q._x = f[at + 147]; $q._y = f[at + 148]; $q._z = f[at + 149]; $q._w = f[at + 150]; $q._onChangeCallback(); } } else view.flightTrickEndQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 151]; if (tag === 0) { { const $q = (view.flightPreviousQ ??= new THREE.Quaternion()); $q._x = f[at + 152]; $q._y = f[at + 153]; $q._z = f[at + 154]; $q._w = f[at + 155]; $q._onChangeCallback(); } } else view.flightPreviousQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 156]; if (tag === 0) { { const $q = (view.flightTickQ ??= new THREE.Quaternion()); $q._x = f[at + 157]; $q._y = f[at + 158]; $q._z = f[at + 159]; $q._w = f[at + 160]; $q._onChangeCallback(); } } else view.flightTickQ = tag === 1 ? null : undefined; }
 }
 
 export function sameClientHullState(a, b) {
@@ -1072,6 +1205,45 @@ export function putClientHull(b, o, f, at, heap) {
   f[at + 22] = o.relationsAt;
 }
 
+const ClientHullViewFields = new Set(["slot","generation","stateAt","seatsAt","seatsCount","wheelsAt","wheelsCount","legsAt","legsCount","hasLegs","walkPhase","walkBlend","walkFromPhase","walkFromBlend","level","assists","correctionSchema","checkTick","membersAt","membersCount","teamsAt","teamsCount","relationsAt"]);
+export function createClientHullView(b, source) {
+  const words = new Float64Array(23);
+  putClientHull(b, source, words, 0, null);
+  const view = Object.create(Object.getPrototypeOf(source));
+  Object.defineProperties(view, {
+    predictionWords: { value: words },
+    slot: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 0]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 0] = value; } },
+    generation: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 1]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 1] = value; } },
+    stateAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 2]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 2] = value; } },
+    seatsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 3]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 3] = value; } },
+    seatsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 4]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 4] = value; } },
+    wheelsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 5]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 5] = value; } },
+    wheelsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 6]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 6] = value; } },
+    legsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 7]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 7] = value; } },
+    legsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 8]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 8] = value; } },
+    hasLegs: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 9] !== 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 9] = value ? 1 : 0; } },
+    walkPhase: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 10]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 10] = value; } },
+    walkBlend: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 11]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 11] = value; } },
+    walkFromPhase: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 12]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 12] = value; } },
+    walkFromBlend: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 13]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 13] = value; } },
+    level: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 14]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 14] = value; } },
+    assists: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 15] !== 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 15] = value ? 1 : 0; } },
+    correctionSchema: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 16]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 16] = value; } },
+    checkTick: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 17]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 17] = value; } },
+    membersAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 18]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 18] = value; } },
+    membersCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 19]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 19] = value; } },
+    teamsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 20]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 20] = value; } },
+    teamsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 21]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 21] = value; } },
+    relationsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 22]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 22] = value; } },
+  });
+  for (const key of Object.keys(source)) if (!ClientHullViewFields.has(key)) view[key] = source[key];
+  return view;
+}
+
+export function syncClientHullViewMath(b, view) {
+  const f = view.predictionWords, at = 0, h = 0;
+}
+
 export function sameClientHull(a, b) {
   if (!Object.is(a.slot, b.slot)) return ".slot";
   if (!Object.is(a.generation, b.generation)) return ".generation";
@@ -1162,6 +1334,28 @@ export function putClientHullSeat(b, o, f, at, heap) {
   { const $x = o.lookPitch; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = $x; } }
   f[at + 6] = o.yawRate;
   { const $x = o.lastYaw; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
+}
+
+const ClientHullSeatViewFields = new Set(["aimYaw","pitch","lookYaw","lookPitch","yawRate","lastYaw"]);
+export function createClientHullSeatView(b, source) {
+  const words = new Float64Array(9);
+  putClientHullSeat(b, source, words, 0, null);
+  const view = Object.create(Object.getPrototypeOf(source));
+  Object.defineProperties(view, {
+    predictionWords: { value: words },
+    aimYaw: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 0]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 0] = value; } },
+    pitch: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 1]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 1] = value; } },
+    lookYaw: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 2]; if (tag === 0) { value = f[at + 3]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = $x; } } } },
+    lookPitch: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 4]; if (tag === 0) { value = f[at + 5]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = $x; } } } },
+    yawRate: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 6]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 6] = value; } },
+    lastYaw: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; { const tag = f[at + 7]; if (tag === 0) { value = f[at + 8]; } else value = tag === 1 ? null : undefined; } return value; }, set(value) { const f = words, at = 0, heap = null; { const $x = value; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } } } },
+  });
+  for (const key of Object.keys(source)) if (!ClientHullSeatViewFields.has(key)) view[key] = source[key];
+  return view;
+}
+
+export function syncClientHullSeatViewMath(b, view) {
+  const f = view.predictionWords, at = 0, h = 0;
 }
 
 export function sameClientHullSeat(a, b) {
