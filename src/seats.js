@@ -195,52 +195,6 @@ export class SeatInput {
 
 }
 
-// The 2004 game's seat exit placement (the soldier's exit callback), for
-// Classic bots. Nine candidates around the vehicle in the occupied
-// seat's frame, at R = the vehicle's bounding radius + 0.684: behind, left,
-// right, the four diagonals (0.7071 R each way), in front, and the vehicle's
-// own spot, each 1 m up. The first eight need a clear line from the
-// vehicle's bounding centre (the vehicle itself left out of that line).
-// A candidate is accepted if any of five support samples (itself, then
-// +-0.72 m along the world axes) finds a floor: a 5 m ray up (the sample
-// rises to just under what it meets, or 4.9 m), then a 10 m ray down that
-// must hit. The soldier goes to the candidate's X/Z at the highest support
-// found (the first sample wins ties). If no candidate has support, the
-// vehicle's origin. The geometry rays see terrain, buildings, props and
-// vehicles, not water; nothing checks for drowning, falls or death
-// regions, which is the Classic behaviour (the Enhanced safe exit is a
-// different policy). Arithmetic is float32 where the 2004 game's constants
-// are, so the candidate layout matches it bit for bit.
-//
-// frame: { origin, forward, up? } the occupied seat's frame; center/radius:
-// the vehicle's bounding sphere; body: its collision body (left out of the
-// radial lines only). Returns out = { position, forward, candidate } where
-// candidate is the accepted index 0..8, or -1 for the fallback.
-// Foreign soldier presentation hooks still used by unit and replica readers.
-// Exit choice and canonical body placement belong to the native seat owner.
-export function placeOnFoot(unit, position, yaw, { midair = false, world = null } = {}) {
-  const s = unit.soldier;
-  const fuel = s.fuel;
-  if (world) world.standUp(unit, position.x, position.y, position.z, yaw);
-  else s.spawn(position.x, position.y, position.z, yaw);
-  if (midair && (!s.grounded || s.position.y < position.y - 0.5)) {
-    s.position.copy(position);
-    s.previous?.copy(position);
-    s.settled?.copy(position);
-    s.grounded = false;
-    s.setAir?.("fall");
-  }
-  if (fuel !== undefined) s.fuel = fuel;
-  s.velocity?.set(0, 0, 0);
-  unit.presentation?.reset?.();
-  unit.animator?.gunner?.(null);
-  unit.animator?.reset?.(yaw);
-  if (unit.actor?.root) {
-    unit.actor.root.visible = true;
-    unit.actor.root.rotation?.set?.(0, yaw, 0);
-  }
-}
-
 // A body let go where it rode (a rider killed on his seat, src/boarding.js
 // leaveKilled), its feet at `position`: at rest, falling from there, drawn
 // there at once. unseatBody has let go of the seat's pose already. mount:
@@ -639,16 +593,9 @@ export function turretAimPoint(turret, firstPerson, direction, collision, units,
   return out.copy(aimFrom).addScaledVector(direction, far);
 }
 
-// The bots who man turrets (props.js armed buildings). The player keeps the
-// Gunner adapter (src/gunner.js); this is the same turret driven from a
-// unit's intent: the turn and pitch analogs turn the drum at its
-// MaxTurnSpeed (as the mouse rates do), the gun follows the point the bot
-// aims at (its intent.aim, else the drum's view) at the gun's own rates,
-// and the trigger fires the turret's weapon from its fire point along the
-// gun, credited to the unit.
-//
-// One update per rendered frame, after LiveObjects.update (main.js wiring
-// in docs/ai-vehicles.md).
+// Stationary crew facades and page presentation. The native seat owner installs
+// scalar commands at adoption and runs each crew's aim, pose and fire in order.
+// This object retains the registry, foreign hooks and replicated lease views.
 const AIM_REACH = 512;
 
 export class TurretSeats {

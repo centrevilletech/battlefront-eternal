@@ -75,8 +75,9 @@ for (const pack of vehiclePacks(pathToFileURL(mapsDir + '/'))) {
         for (const [seat, s] of vehicle.seats.entries()) for (const w of s.weapons) {
           const entry = { seat, weapon: w.def.class, barrels: w.muzzles.length, anchors: [] }; row.weapons.push(entry);
           for (let i = 0; i < Math.max(1, w.muzzles.length); i++) {
-            const p = new THREE.Vector3(); vehicle.muzzleOfSeat(seat, w, p);
-            const node = vehicle.shotNode;
+            const aimer = w.muzzles[i] || w.aimers[0];
+            const node = aimer?.fireNode || vehicle.byName[(aimer?.FirePointName || aimer?.node || w.def.FirePointName || '').toLowerCase()] || s.view.turret;
+            const p = new THREE.Vector3(); if (node) node.getWorldPosition(p); else vehicle.nose(p);
             const name = Object.keys(vehicle.byName).find(n => vehicle.byName[n] === node);
             entry.anchors.push(name || (node ? 'mesh mouth' : 'hull fallback'));
             check(node && p.toArray().every(Number.isFinite), `${vehicle.name}/${seat}/${w.def.class}: hull fallback`);

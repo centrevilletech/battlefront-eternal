@@ -1,29 +1,11 @@
-//! The hull phase on the module, behind its switch (src/vehicles-sim.js;
-//! off unless a world asks for it): the ground hulls' tick start and their
-//! 120 Hz substeps (src/vehicles.js Vehicles.update), run on the hulls as
-//! the store holds them, JavaScript writing them in before the phase and
-//! syncing its Vehicle objects from the store after it.
+//! Native hull scheduling for the required F2 world phase. Vehicle.tick's
+//! ground substeps, flight and retained posing share canonical store rows.
+//! Collision, water, death regions and clocks are native; foreign unit
+//! targeting, damage and effects retain their synchronous hook positions.
 //!
-//! What the hulls ask of the battle is answered here where the module holds
-//! it (native.rs): the collision world's queries from the module's own copy
-//! of it, when the battle's collision runs on it (src/ray-kernel.js), and
-//! the map's water and death regions. The rest (hooks, explosions, effects,
-//! the units, the clock) comes back as the imports of
-//! rust/sim/schema/vehicles.mjs, served by the same VehiclesWorld
-//! (src/vehicles-world.js) the JavaScript hulls call; so does the
-//! collision in a battle whose collision is JavaScript's.
-//!
-//! As the rounds' module does (rust/sim/src/ordnance/module.rs), the store
-//! is reached through short borrows taken from the instance's one `Sim` and
-//! never held across an import: a hook JavaScript serves (a hull destroyed,
-//! its blast) can reach every hull. Before such a hook the hull whose method
-//! calls it goes back into the store and JavaScript syncs its hulls from it;
-//! after it JavaScript writes its hulls back and the hull is read again
-//! (`current`, `reload`), so a hook sees and changes the hulls as it does
-//! when the hulls are JavaScript's. The bodies' flags and places the hulls
-//! changed go to JavaScript before a hook and after the phase
-//! (`veh_changes`), and JavaScript gives every body's flag again after a
-//! hook (`veh_flags`), for the same reason.
+//! Working hulls and pose storage are reused. No mutable store borrow crosses
+//! a foreign hook: publish the touched rows first, then resume from canonical
+//! state so nested damage or boarding cannot be overwritten by outer scratch.
 
 pub mod f2;
 
@@ -50,22 +32,18 @@ use three::{Matrix4, Quaternion, Vector3};
 const FIXED_STEP: f64 = 1.0 / 120.0;
 
 static mut CLASSES: Option<HashMap<String, HullClass>> = None;
-/// The collision world the hulls query here (none: the battle's collision
-/// is JavaScript's, and the imports answer), the map's water and death
-/// regions, what JavaScript hands over in numbers (`veh_input`) and the
-/// changes it takes back (`veh_changes`).
+/// Required collision/map context, reusable lifecycle input and changed body
+/// rows. F2 publishes body changes before a foreign hook reads their mirrors.
 static mut COLLISION: Option<Collision> = None;
 static mut MAP: Option<MapRules> = None;
 static mut INPUT: Vec<f64> = Vec::new();
 static mut CHANGES: Vec<f64> = Vec::new();
 /// The vehicle pack's templates by model and its classes by name
 /// (`veh_pack`), each ground hull's pose by its slot in the store with the
-/// life it was taken for (posing.rs), what the last phase's poses left for
-/// JavaScript, and this phase's clock (the barrels' kick).
+/// life it was taken for (posing.rs), and the clock used for barrel kick.
 static mut TEMPLATES: Option<HashMap<String, VehicleTemplate>> = None;
 static mut DEFS: Option<HashMap<String, Value>> = None;
 static mut POSES: Vec<Option<Posed>> = Vec::new();
-static mut RIDERS: Vec<f64> = Vec::new();
 
 /// A ground hull's pose kept in the module: the life it was taken for, the
 /// pose, and its seats' turn rates (seatView's turnRate, the 9-pose's).
@@ -74,7 +52,6 @@ struct Posed {
     pose: HullPose,
     turn_rates: Vec<f64>,
 }
-static mut POSED: Vec<f64> = Vec::new();
 static mut CLOCK: Option<f64> = None;
 static mut BYTES: Vec<u8> = Vec::new();
 /// Flight's view of the battle: its environment and the classes' live
@@ -134,16 +111,6 @@ fn poses() -> &'static mut Vec<Option<Posed>> {
     unsafe { &mut *addr_of_mut!(POSES) }
 }
 
-// Geometry commands keep local copies while a clock callback can re-enter.
-// Nothing borrows the retained pose across that callback.
-pub(super) fn firing_pose(slot: u32) -> HullPose {
-    poses()[slot as usize].as_ref().expect("a retained firing rig").pose.clone()
-}
-
-pub(super) fn keep_firing_pose(slot: u32, pose: HullPose) {
-    poses()[slot as usize].as_mut().expect("a retained firing rig").pose = pose;
-}
-
 /// The hull classes' keys the phase has been given (`veh_class`), by name.
 fn classes() -> &'static mut HashMap<String, HullClass> {
     // SAFETY: one thread; nothing holds a reference across a call out.
@@ -178,15 +145,11 @@ pub extern "C" fn veh_map(json: u32, kill_y: f64) {
 
 /// The battle's collision as the module holds it: the kernel's world
 /// (collision.js rayWorld) and the vehicle-only barriers' fixed set (-1
-/// none). A world below 0: the battle's collision is JavaScript's, and the
-/// imports answer. What it knows of the bodies stays while the world does.
+/// none). The world is required; body mappings stay with its lifetime.
 #[no_mangle]
 pub extern "C" fn veh_collision(world: i32, blockers: i32) {
     let slot = unsafe { &mut *addr_of_mut!(COLLISION) };
-    if world < 0 {
-        *slot = None;
-        return;
-    }
+    assert!(world >= 0, "vehicles require native collision");
     let blockers = (blockers >= 0).then_some(blockers as usize);
     match slot {
         Some(c) if c.world == world as usize => c.blockers = blockers,
@@ -308,8 +271,7 @@ fn new_pose(name: &str) -> Option<(HullPose, Vec<f64>)> {
 /// A hull's whole pose state from JavaScript (posing::pull), `count`
 /// numbers in the input, for the hull in store slot `slot` on life
 /// `generation`: its pose is the module's from now until its next life.
-/// Returns 1, or 0 where it cannot be (no pack, or counts that disagree:
-/// JavaScript keeps posing it).
+/// Returns 1 on adoption; 0 rejects a missing pack or mismatched node count.
 #[no_mangle]
 pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32) -> u32 {
     let s = sim();
@@ -330,92 +292,6 @@ pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32) -> u32 {
     if f2::active() { pose.rig.tree.update_matrix_world(pose.rig.root, true); }
     all[slot as usize] = Some(Posed { generation: if ok { generation } else { f64::NAN }, pose, turn_rates });
     ok as u32
-}
-
-/// The pose inputs JavaScript changed since the last poses (posing::inputs),
-/// `count` numbers in the input: for each hull the module poses, its slot
-/// and then its inputs.
-#[no_mangle]
-pub extern "C" fn veh_pose_inputs(count: u32) {
-    let v = &input()[..count as usize];
-    let all = poses();
-    let mut i = 0;
-    while i < v.len() {
-        let slot = v[i] as usize;
-        i += 1;
-        let Some(Some(p)) = all.get_mut(slot) else { panic!("pose inputs for a hull the module does not pose") };
-        i += posing::inputs(&mut p.pose, &v[i..]);
-    }
-}
-
-/// What the last phase's poses left (posing::out), for JavaScript: the
-/// number of hulls posed, then for each its slot, how many numbers follow
-/// and those numbers. Returns its address.
-#[no_mangle]
-pub extern "C" fn veh_posed() -> *const f64 {
-    unsafe { (*addr_of_mut!(POSED)).as_ptr() }
-}
-
-/// Vehicles.syncCrews' part for the hulls the module poses: for each live
-/// posed hull in the battle's order, each seat a bot holds (a lease not a
-/// person's), its rider as
-/// poseRider places him: the hull slot and seat, the point he rides at
-/// (his seat's rider node in the world, else the hull's middle), the
-/// seat's aim, the hull's velocity, whether he shows (a rider node), and a
-/// 9-pose's pitch and turn (riderSample: ninePose for a turret seat, the
-/// pitch alone for the pilot's); JavaScript picks his clip, poses him and
-/// counts his tick (src/vehicles.js syncRiderFrom). Returns the list's
-/// address: [riders, then 13 numbers each].
-#[no_mangle]
-pub extern "C" fn veh_riders() -> *const f64 {
-    let out = unsafe { &mut *addr_of_mut!(RIDERS) };
-    out.clear();
-    out.push(0.0);
-    let mut count = 0;
-    for (i, &r) in hull_refs().iter().enumerate() {
-        let v = sim().store.vehicle.get(r).expect("a hull the store holds");
-        if !v.alive {
-            continue;
-        }
-        let generation = v.target_generation;
-        let Some(Some(p)) = poses().get_mut(r.slot as usize) else { continue };
-        if p.generation != generation {
-            continue;
-        }
-        let hull = load(r, i);
-        for (k, seat) in hull.seats.iter().enumerate() {
-            match seat.lease {
-                Some(lease) if !lease.human => {}
-                _ => continue,
-            }
-            let rider = p.pose.rig.seats.get(k).and_then(|s| s.rider.as_ref());
-            let node = rider.and_then(|r| r.node);
-            let point = match node {
-                Some(node) => {
-                    let mut at = Vector3::default();
-                    p.pose.rig.tree.get_world_position(node, &mut at)
-                }
-                None => {
-                    let mut at = hull.position;
-                    at.add_scaled_vector(&super::hull::UP, hull.size.y * 0.5);
-                    at
-                }
-            };
-            let (pitch, turn) = match rider {
-                Some(r) if r.nine_pose && k > 0 => {
-                    let yaw_rate = super::hull::or_zero(p.pose.seats[k].yaw_rate);
-                    let turn_rate = p.turn_rates.get(k).copied().unwrap_or(f64::NAN);
-                    super::pose::nine_pose(seat.pitch_limits, seat.yaw_limits, seat.wrap_yaw, turn_rate, super::hull::angle(seat.aim_yaw - hull.yaw), seat.pitch, yaw_rate)
-                }
-                Some(r) if r.nine_pose => (-seat.pitch / 0.7, 0.0),
-                _ => (0.0, 0.0),
-            };
-            out.extend_from_slice(&[r.slot as f64, k as f64, point.x, point.y, point.z, seat.aim_yaw, seat.pitch, hull.velocity.x, hull.velocity.y, hull.velocity.z, if node.is_some() { 1.0 } else { 0.0 }, pitch, turn]);
-            count += 1;
-        }
-    }
-    out[0] = count as f64;
-    out.as_ptr()
 }
 
 fn opt(flag: f64, x: f64) -> Option<f64> {
@@ -514,7 +390,7 @@ pub extern "C" fn veh_relations(count: u32) {
     }
 }
 
-/// A pilot's input as numbers (src/vehicles-sim.js flightNumbers): 19 each.
+/// Lifecycle flight input layout, also used by independent native fixtures.
 fn flight_input(v: &[f64]) -> FlightInput {
     FlightInput {
         forward: v[0],
@@ -768,9 +644,6 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
         }
         acc -= FIXED_STEP;
     }
-    let out = unsafe { &mut *addr_of_mut!(POSED) };
-    out.clear();
-    out.push(0.0);
     if poses_on == 0 {
         unsafe { *addr_of_mut!(PHASE_REFS) = refs; }
         return acc;
@@ -821,18 +694,9 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
             store_hull(&hull); recycle_hull(hull);
         }
     }
-    let mut count = 0;
-
-    for (k, &(_, r)) in mine.iter().enumerate() {
-        if !posed[k] {
-            continue;
-        }
-        out.push(r.slot as f64); let length = out.len(); out.push(0.0); let start = out.len();
-        if f2::active() { f2::mark(r); } else { posing::out(&mut poses()[r.slot as usize].as_mut().expect("the hull's pose").pose, out); }
-        out[length] = (out.len() - start) as f64;
-        count += 1;
-    }
-    out[0] = count as f64;
+    // Render leaves native poses in place. Mark only hulls that actually
+    // posed; the generated delta publication omits unchanged mirror words.
+    for (k, &(_, r)) in mine.iter().enumerate() { if posed[k] { f2::mark(r); } }
     unsafe { *addr_of_mut!(PHASE_REFS) = refs; *addr_of_mut!(PHASE_MINE) = mine; *addr_of_mut!(PHASE_POSED) = posed; }
     acc
 }

@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 // Walkers on their legs and their guns' barrels, as the original game has them
 // (docs/vehicles.md "Standing on the ground", "Aimers and barrels"), on the
 // prepared Hoth and Geonosis packs (skipped without them).
@@ -35,7 +36,7 @@ test('a four-legged walker pitches with the slope under its feet; the AT-ST stay
     if (!has(name, map)) continue;
     const { system, v } = walker(name, map, slope);
     assert.ok(v.def.fx.legs?.pairs.length >= 1, `${name} has leg pairs`);
-    for (let t = 0; t < 600; t++) system.update(1 / 60, v, t < 30 ? {} : { forward: 1 });
+    for (let t = 0; t < 600; t++) stepPrediction(system, 1 / 60, v, t < 30 ? {} : { forward: 1 });
     // The plane rises toward -z; walking +z goes downhill: nose down.
     if (pitched) assert.ok(Math.abs(v.tilt + slope) < 0.01, `${name} pitched ${v.tilt}`);
     else assert.ok(Math.abs(v.tilt) < 1e-6, `${name} level`);
@@ -62,24 +63,14 @@ test('the AT-AT pilot fires both chin barrels, the AT-ST both chin guns, each fr
   system.dispose();
 });
 
-test('a barrel held at its aimer\'s limit fires nothing without FireOutsideLimits', { skip: !has('imp_walk_atst_snow', 'hot1') }, () => {
-  const { system, v } = walker('imp_walk_atst_snow', 'hot1');
-  const [rear] = v.seats[1].weapons[0].aimers;
-  rear.inLimits = false;
-  assert.equal(v.heldByLimits(1, rear), true);
-  rear.FireOutsideLimits = '1';
-  assert.equal(v.heldByLimits(1, rear), false);
-  rear.inLimits = true; delete rear.FireOutsideLimits;
-  assert.equal(v.heldByLimits(1, rear), false);
-  system.dispose();
-});
+
 
 test('another hull driving into a walker does not bulldoze it', { skip: !has('rep_walk_atte', 'geo1') }, () => {
   // A hailfire stopped by an AT-TE's body still sat inside the AT-TE's probe
   // spheres, which reach past it, and the AT-TE pushed itself fully out of
   // it every step: driven across Geonosis at the hailfire's 8 m/s.
   const { system, v } = walker('rep_walk_atte', 'geo1');
-  for (let t = 0; t < 60; t++) system.update(1 / 60, v, {});
+  for (let t = 0; t < 60; t++) stepPrediction(system, 1 / 60, v, {});
   const c = system.collision;
   const g = new THREE.BoxGeometry(4, 3, 4);
   const shape = c.createBodyShape(g.attributes.position.array, g.index.array, new Uint32Array(g.index.count / 3));
@@ -91,12 +82,12 @@ test('another hull driving into a walker does not bulldoze it', { skip: !has('re
   for (let t = 0; t < 120; t++) {
     x = Math.min(x + 0.14, v.position.x - v.size.x / 2 + 1.5);
     c.moveBody(body, m.makeTranslation(x, 1.5, v.position.z));
-    system.update(1 / 60, v, {});
+    stepPrediction(system, 1 / 60, v, {});
   }
   assert.ok(Math.hypot(v.position.x - start.x, v.position.z - start.z) < 0.05, `pushed from ${start.toArray()} to ${v.position.toArray()}`);
   // Walking into a hull still stops it there.
   c.moveBody(body, m.makeTranslation(v.position.x, 1.5, v.position.z + v.size.z / 2 + 3));
-  for (let t = 0; t < 600; t++) system.update(1 / 60, v, { forward: 1 });
+  for (let t = 0; t < 600; t++) stepPrediction(system, 1 / 60, v, { forward: 1 });
   assert.ok(v.position.z - start.z < 3, `walked through it to ${v.position.z}`);
   system.dispose();
 });

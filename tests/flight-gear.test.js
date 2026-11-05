@@ -360,11 +360,11 @@ test('an X-wing\'s lasers leave the foil tips where its gear has the foils, in t
   const world = craft({ rig: FOIL_RIG, tracks: FOIL_TRACKS, weapons: [LASER] }), v = world.v;
   const page = craft({ rig: FOIL_RIG, tracks: FOIL_TRACKS, weapons: [LASER] }).v;
   v.driver = {}; v.seatIndex = 0;
-  const w = v.seats[0].weapons[0], muzzle = new THREE.Vector3();
+  const muzzle = new THREE.Vector3();
   for (const gear of [1, .5, 0]) {
     v.gear = gear; v.flightState = gear === 1 ? 'Landed' : gear === 0 ? 'Flying' : 'TakingOff';
     v.captureTick(); v.sleeping = false; v.present(1, 1 / 60);
-    v.muzzleOfSeat(0, w, muzzle);
+    v.byName.hp_laser_01.getWorldPosition(muzzle);
     const angle = gear === .5 ? OPEN / 2 : gear === 1 ? 0 : OPEN;
     assert.ok(muzzle.distanceTo(tip(v.position, angle)) < 1e-5, `replica, gear ${gear}: from the tip with the foil ${THREE.MathUtils.radToDeg(angle)} degrees open (${muzzle.distanceTo(tip(v.position, angle))})`);
     // The pilot's page: his craft drawn at its replayed gear, his shot drawn

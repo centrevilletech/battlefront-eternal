@@ -57,7 +57,6 @@ const RAYS = Object.freeze([0, 0, 1, 1, 1, -1, -1, 1, -1, -1]); // the centre ra
 const CAMERA_SKIN = .08; // m: keeps the near plane off what the rays hit
 const RETURN_RATE = 6; // 1/s: a camera pulled in by a wall eases back out
 const FOV_RATE = 25; // 1/s
-const AIM_REACH = 512; // m along a seat's aim to the point its guns turn to
 const TO_LOCAL = new THREE.Matrix4(), DECOMPOSED_AT = new THREE.Vector3(), DECOMPOSED_SCALE = new THREE.Vector3();
 // m a wall probe's or spring's cached triangles reach past its sphere: a
 // hull at 30 m/s moves 0.25 m a 120 Hz step.
@@ -594,21 +593,12 @@ export class Vehicle {
       a.owner = this.seats.findIndex((other) => other !== seat && other.view.turret !== null && other.view.turret === a.bone);
     }
     this.frameScratch = { q: new THREE.Quaternion(), q2: new THREE.Quaternion(), v: new THREE.Vector3(), m: new THREE.Matrix4(), frame: new THREE.Matrix4(), up: new THREE.Vector3() };
-    this.aimHit = makeHit();
-    this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
     this.beamFrom = new THREE.Vector3();
-    this.shotNode = null; this.shotEmitter = null; // the last muzzleOf's
     this.aimQ = new THREE.Quaternion(); this.aimQ2 = new THREE.Quaternion();
-    this.point = new THREE.Vector3();
-    this.normal = new THREE.Vector3();
-    this.nearest = new THREE.Vector3();
     this.from = new THREE.Vector3();
     this.legEuler = new THREE.Euler(0, 0, 0, "YXZ");
     this.recoilAxis = new THREE.Vector3();
     this.recoilPoint = new THREE.Vector3();
-    this.direction = new THREE.Vector3();
-    this.target = new THREE.Vector3();
-    this.muzzle = new THREE.Vector3();
     this.hit = makeHit();
     this.q = new THREE.Quaternion();
     // The bounding sphere (half the collision box's diagonal): the registry's
@@ -774,42 +764,6 @@ export class Vehicle {
     const arc = this.seats[i]?.view.yawLimits;
     return this.yaw + (arc && (arc[0] > 0 || arc[1] < 0) ? (arc[0] + arc[1]) / 2 : 0);
   }
-  // The leg a point (world) on this walker is on, for the tow cable: the
-  // nearest leg's column at that height, below the pelvis; null for a
-  // point on the body or a hull with no legs. Writes the anchor in the
-  // hull's frame to out and returns the leg's name.
-  legAt(point, out) {
-    if (!this.legs.length) return null;
-    const local = this.frameScratch.v.copy(point).applyMatrix4(this.body.inverse);
-    if (local.y > this.legTop) return null;
-    let best = null, span = Infinity;
-    for (const leg of this.legs) {
-      const column = leg.calf || leg.thigh;
-      const d = Math.hypot(local.x - column.x, local.z - column.z);
-      if (d < span) { span = d; best = leg; }
-    }
-    const column = best.calf || best.thigh;
-    const low = best.foot?.y ?? this.bounds.min.y, high = best.thigh?.y ?? this.legTop;
-    out.set(column.x, THREE.MathUtils.clamp(local.y, low, high), column.z);
-    return best.name;
-  }
-  // The point a leg's column stands at in the world, for a harpoon aimed at
-  // it: the leg's calf (or thigh) in the hull's frame now.
-  legPoint(name, out) {
-    const leg = this.legs.find((l) => l.name === name);
-    if (!leg) return null;
-    return out.copy(leg.calf || leg.thigh).applyMatrix4(this.matrix);
-  }
-
-  // The frame a seat lets its occupant out in: a turret seat's own heading,
-  // otherwise the hull's (the occupied control's frame forward; which seats
-  // carry their own frame is provisional).
-  seatFrameForward(i, out) {
-    const seat = this.seats[i] || this.seats[0];
-    const yaw = i > 0 && seat.settings.TurretNodeName ? seat.aimYaw : this.yaw;
-    return out.set(Math.sin(yaw), 0, Math.cos(yaw));
-  }
-
   spawn(team) {
     this.team = team;
     this.position.setFromMatrixPosition(this.slot.matrix);
@@ -1547,42 +1501,6 @@ export class Vehicle {
   // Someone holds seat i: the player or a lease.
   held(i) { return Boolean(this.seats[i]?.lease) || Boolean(this.driver) && this.seatIndex === i; }
 
-  // Seat i's reticle line from `from` (its eye): through the point under the
-  // reticle (aimSeats: from the player's camera, a bot's eye), else along
-  // the seat's aim. A launcher's lock cone runs along it.
-  reticleRay(i, from, out) {
-    const target = this.seats[i].target;
-    if (target && out.subVectors(target, from).lengthSq() > 1e-6) return out.normalize();
-    return this.seatForward(i, out);
-  }
-
-  // The weapon's next muzzle (barrels take turns): writes its fire point in
-  // the world to out, keeps its node (this.shotNode) and what a beam from it
-  // follows (this.shotEmitter; null: the seat's own), and returns its aimer.
-  muzzleOf(w, out) {
-    const aimers = w.muzzles;
-    const aimer = aimers.length ? aimers[w.barrel++ % aimers.length] : w.aimers[0];
-    if (aimer?.barrel) aimer.kickAt = this.system.world.clock();
-    const node = aimer?.fireNode || this.byName[(aimer?.FirePointName || aimer?.node || w.def.FirePointName || '').toLowerCase()];
-    this.shotNode = node || null;
-    this.shotEmitter = aimer?.emitter ?? w.emitter;
-    if (node) node.getWorldPosition(out);
-    else this.nose(out);
-    return aimer?.sourceAimer || (aimer?.bone ? aimer : null);
-  }
-  // A seat's weapon's muzzle (muzzleOf), or, for a weapon with no fire point
-  // on the model, the seat's own turret node: the snowspeeder's rear gun
-  // fires from towcablegun, aft, not from the hull's nose.
-  muzzleOfSeat(i, w, out) {
-    const aimer = this.muzzleOf(w, out);
-    const turret = this.seats[i]?.view.turret;
-    if (!this.shotNode && turret) { this.shotNode = turret; turret.getWorldPosition(out); }
-    return aimer;
-  }
-  // A bot firing the tow cable aims the harpoon at the nearest leg of the
-  // walker it is after (its seat's target, else the walker its tow pattern
-  // circles); null when the shot is not a tow or there is no walker.
-  
   // Where a weapon with no fire point node fires from: the hull's nose.
   nose(out) {
     return out.set(this.center.x, this.center.y + .5, this.center.z + this.size.z * .5).applyMatrix4(this.matrix);
@@ -1641,12 +1559,9 @@ export class Vehicles {
     // s: the clock barrels kick back on. A page's wall clock; a world's is
     // its tick clock (src/game.js), as no step reads a clock of its own.
     this.clock = clockSeconds;
-    this.pendingExits = [];
-    this.exitSpot = { position: new THREE.Vector3(), forward: new THREE.Vector3(), candidate: -1 };
     this.riderPoint = new THREE.Vector3();
     this.rider = { point: new THREE.Vector3(), riderOffset: new THREE.Vector3(), riderQuaternion: new THREE.Quaternion(),
       points: makeRiderPoints(), frame: new THREE.Matrix4(), sample: { clip: null, pitch: 0, turn: 0, time: null } };
-    this.safeScratch = { hit: makeHit(), target: new THREE.Vector3(), direction: new THREE.Vector3() };
     this.templates = new Map();
     const pack = modelPack(Object.fromEntries(Object.entries(data.models).map(([k, m]) => [k, m.parts])), buffer, indexBuffer);
     for (const [name, rig] of Object.entries(data.models)) {

@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 // A walker's legs and feet as a page draws them (src/vehicles.js
 // Vehicle.present, src/vehicle-feet.js, src/runtime/vehicle-prediction.js):
 // the hull he drives is posed though no record poses it, its predicted walk
@@ -87,7 +88,7 @@ test('every walker\'s feet come down by its class rules, at most once a cycle, t
       const g = gait(v), feet = v.def.fx.feet, steps = feet.map(() => []), footfalls = new Footfalls();
       let walkingFrom = null, travelled = 0, phase = v.walkPhase;
       for (let tick = 0; tick < 60 * 14; tick++) {
-        system.update(1 / 60, v, tick < 30 ? {} : { forward: 1 });
+        stepPrediction(system, 1 / 60, v, tick < 30 ? {} : { forward: 1 });
         if (walkingFrom === null && v.walkBlend > .01) walkingFrom = tick;
         travelled += ((v.walkPhase - phase) % v.walkLength + v.walkLength) % v.walkLength;
         phase = v.walkPhase;
@@ -123,7 +124,7 @@ test('the AT-AT and AT-ST stomp at the foot, level with the root, turned as the 
   const fx = new VehicleEffects({ effects });
   const { system, v } = walker('imp_walk_atat', 'hot1');
   for (let tick = 0; tick < 60 * 8; tick++) {
-    system.update(1 / 60, v, tick < 30 ? {} : { forward: 1 });
+    stepPrediction(system, 1 / 60, v, tick < 30 ? {} : { forward: 1 });
     fx.update([v], 1 / 60);
   }
   assert.ok(played.length >= 6, String(played.length));

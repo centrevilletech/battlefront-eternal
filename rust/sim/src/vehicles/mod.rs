@@ -33,7 +33,6 @@ pub mod firing;
 #[path = "module/f2/firing.rs"]
 mod firing_phase;
 #[cfg(target_arch = "wasm32")]
-mod firing_module;
 pub mod hover;
 pub mod hull;
 #[path = "module/f2/seats.rs"]

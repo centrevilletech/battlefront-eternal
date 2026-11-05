@@ -1,5 +1,6 @@
 // Store snapshots rather than references to mutable vectors. The caller supplies
-// only the fields owned by F2; foreign seat/weapon/tether state is excluded.
+// only canonical fields owned by F2; foreign AI intent and presentation
+// scratch are excluded. Lease and mounted-weapon mirrors have their own checks.
 export class F2MirrorCheck {
   constructor() { this.values = new Map(); }
   published(object, fields) {

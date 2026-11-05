@@ -51,7 +51,6 @@ import { liveObjects } from './live.mjs';
 import { turrets } from './turrets.mjs';
 import { debris } from './debris.mjs';
 import { weapons } from './weapons.mjs';
-import { vehicleFiring } from './vehicle-firing.mjs';
 
 export class Expand {
   constructor(value) { this.value = value; }
@@ -344,4 +343,4 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 // steering, the vehicle patterns, the notifier and decay, and the boarding
 // and flyer agents (tools/sim-capture/vehicle-ai.mjs).
 const f2 = f2Spec({ hullExport, seatState, crewState, poseState, tetherState, boundaries: spawnBoundaries });
-export const SPECS = { f2, ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats, battle, battlePhase, vehicleAI, humanSpawn, ai, aiPolicy, aiCombat, traps, props, animated, liveObjects, turrets, debris, weapons, vehicleFiring };
+export const SPECS = { f2, ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats, battle, battlePhase, vehicleAI, humanSpawn, ai, aiPolicy, aiCombat, traps, props, animated, liveObjects, turrets, debris, weapons };

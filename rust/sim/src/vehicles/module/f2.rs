@@ -241,12 +241,7 @@ fn spawns(dt: f64) {
         }
         store_flight(&hull);
         // Spawn's render is observable by boarding in the following latch.
-        let out = unsafe { &mut *addr_of_mut!(POSED) };
-        if out.is_empty() { out.push(0.0); }
-        out[0] += 1.0; out.push(r.slot as f64);
-        let length = out.len(); out.push(0.0); let start = out.len();
         geometry::mark(r);
-        out[length] = (out.len() - start) as f64;
         publish_posed();
         recycle(hull);
         import_f2_life(&VehHull { hull: index as f64 });
@@ -397,7 +392,7 @@ pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 {
     }
     if let Some(p) = poses().get_mut(slot as usize) { *p = None; }
     // The last pose belongs to its retired life and cannot be reused.
-    unsafe { (*addr_of_mut!(POSED)).clear(); (*addr_of_mut!(LOCKS)).clear(); }
+    unsafe { (*addr_of_mut!(LOCKS)).clear(); }
     publish();
     1
 }

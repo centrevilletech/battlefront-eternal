@@ -1,4 +1,3 @@
-
 import { bindMountedRound } from "./muzzles.js";
 import { emitSound } from "./audio/events.js";
 import { SeatUnit } from "./seats.js";
@@ -42,12 +41,6 @@ export class SeatsWorld {
   // with its alliances, where the system has one.
   relation(a, b) {
     return this.system.relation(a, b);
-  }
-
-  // A body stood up at a point, facing yaw (Soldier.spawn: on whatever lies
-  // below, at rest, out of the air).
-  standUp(unit, x, y, z, yaw) {
-    unit.soldier.spawn(x, y, z, yaw);
   }
 
   // A unit killed outright, credited to attacker (its combat's damage).
