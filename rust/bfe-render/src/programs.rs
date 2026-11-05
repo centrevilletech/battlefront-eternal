@@ -8,6 +8,8 @@ mod catalog;
 pub struct Spec {
     pub key: &'static str,
     pub kind: Kind,
+    pub vertex_prefix: &'static str,
+    pub fragment_prefix: &'static str,
     pub expanded: bool,
     pub lamps: bool,
     pub vertex: &'static str,
@@ -29,7 +31,7 @@ pub fn spec(key: &str) -> Result<&'static Spec, String> {
 }
 
 pub fn sources(s: &Spec) -> (String, String) {
-    if s.expanded { return (s.vertex.to_string(), s.fragment.to_string()); }
+    if s.expanded { return (format!("{}{}", s.vertex_prefix, s.vertex), format!("{}{}", s.fragment_prefix, s.fragment)); }
     (format!("{PREFIX}{VERTEX}{}", s.vertex), format!("{PREFIX}{FRAGMENT}{}", s.fragment))
 }
 
@@ -100,7 +102,7 @@ mod tests {
     use super::*;
     #[test]
     fn expanded_world_sources_keep_their_vocabulary_and_use_frame_rewrite() {
-        let s = Spec { key: "world/test", kind: Kind::World, expanded: true, lamps: false,
+        let s = Spec { key: "world/test", vertex_prefix: "", fragment_prefix: "", kind: Kind::World, expanded: true, lamps: false,
             vertex: "#version 300 es\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nin vec3 position;\nvoid main() { gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0); }\n",
             fragment: "#version 300 es\nprecision highp float;\nout vec4 color;\nvoid main() { color = vec4(1.0); }\n",
             attributes: &[("position", 0)], uniforms: &[], uniform_sizes: &[] };
