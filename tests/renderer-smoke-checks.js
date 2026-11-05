@@ -360,7 +360,7 @@ export async function checkRenderer(backend, manifests) {
       const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(positions,3));
       geometry.setAttribute('color',new THREE.Float32BufferAttribute([1,0,0,0,1,0,0,0,1],3));
       if(i===2)geometry.setIndex([0,1,2]);
-      const material=new THREE.LineBasicMaterial({color:0xffffff,vertexColors:i===1,transparent:i===2,opacity:.8,depthTest:false});
+      const material=new THREE.LineBasicMaterial({color:0xffffff,vertexColors:i===1,transparent:i===2,opacity:.8,depthTest:i===0});
       const object=new Type(geometry,material);object.frustumCulled=false;lineGroup.add(object);lineObjects.push(object);
     }
     const withLines=compare('tow cable and flight helper topologies');
