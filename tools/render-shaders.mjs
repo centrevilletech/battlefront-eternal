@@ -24,12 +24,17 @@ export function generate(check = false) {
       if (source === 'body' && /#[ \t]*version/.test(vertex + fragment)) throw Error('Body declares version');
       if (source === 'expanded' && ![vertex, fragment].every(s => s.startsWith('#version 300 es\n'))) throw Error('Expanded source must declare GLSL ES 3.00');
       const attributes = Object.entries(p.attributes);
-      const uniforms = Object.entries(p.uniforms).map(([name, type]) => ({ name, type }));
+      const uniforms = Object.entries(p.uniforms).map(([name, value]) => {
+        const type = typeof value === 'number' ? value : value.type;
+        const size = typeof value === 'number' ? 1 : value.size;
+        if (!Number.isInteger(type) || !Number.isInteger(size) || size < 1) throw Error('Invalid uniform ' + name);
+        return size === 1 ? { name, type } : { name, type, size };
+      });
       const hash = createHash('sha256').update(JSON.stringify({ vertex, fragment, attributes, uniforms, kind, source, lamps })).digest('hex');
       sources[p.key] = { attributes, uniforms, hash, kind, source, lamps };
       if (p.key === "post-hud/hud") interfaceShader = { vertex, fragment };
       const pairs = (xs) => xs.map(([n,v]) => `(${JSON.stringify(n)}, ${v})`).join(', ');
-      rows.push(`    Spec { key: ${JSON.stringify(p.key)}, vertex: include_str!("../shaders/${family}/${p.vertex}"), fragment: include_str!("../shaders/${family}/${p.fragment}"), kind: Kind::${kind}, expanded: ${source === "expanded"}, lamps: ${lamps}, attributes: &[${pairs(attributes)}], uniforms: &[${pairs(Object.entries(p.uniforms))}] },`);
+      rows.push(`    Spec { key: ${JSON.stringify(p.key)}, vertex: include_str!("../shaders/${family}/${p.vertex}"), fragment: include_str!("../shaders/${family}/${p.fragment}"), kind: Kind::${kind}, expanded: ${source === "expanded"}, lamps: ${lamps}, attributes: &[${pairs(attributes)}], uniforms: &[${pairs(uniforms.map(u => [u.name, u.type]))}], uniform_sizes: &[${pairs(uniforms.filter(u => u.size).map(u => [u.name, u.size]))}] },`);
     }
   }
   const outputs = {

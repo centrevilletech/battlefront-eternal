@@ -14,6 +14,7 @@ pub struct Spec {
     pub fragment: &'static str,
     pub attributes: &'static [(&'static str, u32)],
     pub uniforms: &'static [(&'static str, u32)],
+    pub uniform_sizes: &'static [(&'static str, u32)],
 }
 
 // These programs use ShaderMaterial's small, explicit GLSL vocabulary. No
@@ -36,7 +37,7 @@ fn uniform_type(ty: u32) -> u32 {
     match ty {
         glow::FLOAT => 1, glow::FLOAT_VEC2 => 2, glow::FLOAT_VEC3 => 3, glow::FLOAT_VEC4 => 4,
         glow::INT | glow::BOOL => 5, glow::FLOAT_MAT3 => 9, glow::FLOAT_MAT4 => 16,
-        glow::SAMPLER_2D => 32, glow::SAMPLER_3D => 33, _ => 0,
+        glow::SAMPLER_2D => 32, glow::SAMPLER_3D => 33, glow::SAMPLER_2D_SHADOW => 34, _ => 0,
     }
 }
 
@@ -56,9 +57,18 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
             for i in 0..gl.get_active_uniforms(program) {
                 // Block members are validated by the shared frame/shadow rewrite,
                 // not material slots. Standalone inputs still require declarations.
-                if gl.get_active_uniforms_parameter(program, &[i], glow::UNIFORM_BLOCK_INDEX)[0] >= 0 { continue; }
+                let block = gl.get_active_uniforms_parameter(program, &[i], glow::UNIFORM_BLOCK_INDEX)[0];
+                if block >= 0 {
+                    let name = gl.get_active_uniform_block_name(program, block as u32);
+                    if s.kind != Kind::World || !matches!(name.as_str(), "BfeFrame" | "BfeShadow") {
+                        return Err(format!("{key}: undeclared uniform block {name}"));
+                    }
+                    continue;
+                }
                 let u = gl.get_active_uniform(program, i).ok_or("missing active uniform")?;
-                if u.size != 1 || !s.uniforms.iter().any(|(n, t)| *n == u.name && *t == uniform_type(u.utype)) {
+                let name = u.name.strip_suffix("[0]").unwrap_or(&u.name);
+                let size = s.uniform_sizes.iter().find(|(n, _)| *n == name).map_or(1, |(_, size)| *size);
+                if u.size != size as i32 || !s.uniforms.iter().any(|(n, t)| *n == name && *t == uniform_type(u.utype)) {
                     return Err(format!("{key}: undeclared uniform {}", u.name));
                 }
             }
@@ -88,7 +98,7 @@ mod tests {
         let s = Spec { key: "world/test", kind: Kind::World, expanded: true, lamps: false,
             vertex: "#version 300 es\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nin vec3 position;\nvoid main() { gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0); }\n",
             fragment: "#version 300 es\nprecision highp float;\nout vec4 color;\nvoid main() { color = vec4(1.0); }\n",
-            attributes: &[("position", 0)], uniforms: &[] };
+            attributes: &[("position", 0)], uniforms: &[], uniform_sizes: &[] };
         let (v, f) = sources(&s);
         assert_eq!(v, s.vertex);
         assert_eq!(f, s.fragment);

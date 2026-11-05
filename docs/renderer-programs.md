@@ -10,7 +10,8 @@ message naming the variant. Unported shader families still borrow three programs
 Each variant has a unique `<family>/<name>` key, self-contained vertex and
 fragment bodies, explicit attribute locations, and named uniform slots with the
 renderer types (float/vector 1..4, integer/bool 5, mat3 9, mat4 16, sampler2D 32,
-sampler3D 33).
+sampler3D 33, sampler2DShadow 34). Arrays declare `{ "type": N, "size": N }`
+instead of a numeric type, using the base uniform name without `[0]`.
 Order in the uniform object defines slot order. Include every active input;
 inactive declared inputs may remain. The linker validates active uniforms and
 attribute locations against the declaration. Unknown keys, incompatible layouts
