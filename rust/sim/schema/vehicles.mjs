@@ -71,24 +71,11 @@ export default {
       variants: 'map:ref:vehicle',
     },
 
-    // The hull phase's calls into the battle while JavaScript serves them
-    // (src/vehicles-sim.js: rust/sim/src/vehicles/module.rs's world), one
-    // record each way per VehicleWorld method. A body is its slot in the
-    // bridge's identity of bodies (-1: none); a hull its place in the
-    // battle's list.
+    // VehicleWorld's remaining foreign unit ray names bodies by bridge slot
+    // (-1 means none). Hull and map collision never cross this boundary.
     VehRay: { origin: 'vec3', direction: 'vec3', far: 'f64', ignore: 'f64' },
     VehHit: { found: 'bool', distance: 'f64', point: 'vec3', normal: 'vec3', terrain: 'bool', body: 'f64' },
-    VehPush: { hull: 'f64', probes: 'list:vec3', radius: 'f64', q: 'quat', own: 'quat|null', previous: 'vec3', position: 'vec3', velocity: 'vec3', terrain: 'bool' },
-    VehPushed: { undo: 'bool', position: 'vec3', velocity: 'vec3' },
-    VehColumn: { x: 'f64', z: 'f64', top: 'f64' },
-    VehGround: { found: 'bool', height: 'f64', normal: 'vec3' },
-    VehSpring: { hull: 'f64', index: 'f64', center: 'vec3', radius: 'f64' },
-    VehTriangle: { $layout: true, a: 'vec3', b: 'vec3', c: 'vec3' },
-    VehPolygon: { $layout: true, id: 'f64', moving: 'bool', triangles: 'list:rec:VehTriangle' },
-    VehPolygons: { $layout: true, polygons: 'list:rec:VehPolygon' },
-    VehBody: { body: 'f64', matrix: 'mat4', enabled: 'bool' },
     VehPoint: { position: 'vec3' },
-    VehFlag: { value: 'bool' },
     VehNumber: { value: 'f64' },
     VehNothing: {},
     F2Variant: { pad: 'f64', name: 'str' },
@@ -224,32 +211,15 @@ export default {
     vehicleDriver: {},
   },
 
-  // The hull phase on the module asks the battle these while it is
-  // JavaScript's (src/vehicles-sim.js serves them with src/vehicles-world.js).
-  // A hook that hands JavaScript a hull (damaged, destroyedCrew, destroyed,
-  // explosion) sees every hull as the phase has left it, and what it does to
-  // any hull comes back before the phase goes on.
+  // Vehicle.tick and emitShot retain only foreign unit queries and gameplay
+  // hooks. Collision, water and clocks are read natively; hook arguments name
+  // the touched hull so a reentrant command cannot overwrite another life.
   imports: {
     f2Variant: { args: 'F2Variant', result: null },
     f2Life: { args: 'VehHull', result: null },
-    vehCast: { args: 'VehRay', result: 'VehHit' },
-    vehPushWalls: { args: 'VehPush', result: 'VehPushed' },
-    vehGround: { args: 'VehColumn', result: 'VehGround' },
-    vehSpringPolygons: { borrow: true, args: 'VehSpring', result: 'VehPolygons' },
-    vehMoveBody: { args: 'VehBody', result: null },
-    vehEnableBody: { args: 'VehBody', result: null },
-    vehBodyEnabled: { args: 'VehBody', result: 'VehFlag' },
-    vehHasWater: { args: 'VehNothing', result: 'VehFlag' },
-    vehWaterOver: { args: 'VehColumn', result: 'VehFlag' },
-    vehWaterLevel: { args: 'VehNothing', result: 'VehNumber' },
-    vehInDeathRegion: { args: 'VehPoint', result: 'VehFlag' },
     vehRaycastUnits: { args: 'VehRay', result: 'VehHit' },
-    vehClock: { args: 'VehNothing', result: 'VehNumber' },
     vehDamaged: { args: 'VehDamaged', result: null },
-    vehDestroyedCrew: { args: 'VehHull', result: null },
     vehDestroyed: { args: 'VehHull', result: null },
-    vehRespawnClock: { args: 'VehHull', result: null },
-    vehReleaseCrew: { args: 'VehHull', result: null },
     vehExplosion: { args: 'VehBlast', result: null },
     vehEffect: { args: 'VehEffect', result: null },
     // A unit's aim point (Unit.aimPoint: its hit shapes' middle, worked
