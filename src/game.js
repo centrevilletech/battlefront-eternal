@@ -452,7 +452,7 @@ async function start() {
   if (!headless) buildWorld(graphics, world, geomBuf, indexBuf, mapTexture);
   onProgress?.("world");
   // Theed's flower beds and creepers.
-  const foliage = !headless && world.foliage ? new Foliage(scene, world.foliage, { texture: mapTexture, nearEnd: () => lighting.fade.value.y, gpu: true }) : null;
+  const foliage = !headless && world.foliage ? new Foliage(scene, world.foliage, { texture: mapTexture, nearEnd: () => lighting.fade.value.y }) : null;
   // The terrain's water, where the map has some.
   const water = world.water ? (headless ? new WaterState(world.water) : new Water({ data: world.water, texture: mapTexture, graphics, weather: world.weather })) : null;
   const waterContact = {};

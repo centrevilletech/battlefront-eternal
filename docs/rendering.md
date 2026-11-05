@@ -379,7 +379,7 @@ individual sprays do not add shadow draws. The native foliage textures remain
 the source-detail limit, and headless validation is not a hardware FPS claim.
 
 Checks: `node tests/foliage.mjs`, `node --test tests/tree-canopies.mjs`,
-`python3 tests/test_foliage_export.py`, and `node tests/foliage-browser.mjs`
+`python3 tests/test_foliage_export.py`, and `node tools/renderer-corpus.mjs`
 (with `PLAYWRIGHT_MODULE` when needed). GPU pixel checks verify a glow behind
 leaves is occluded, a glow in front remains visible, and transparent leaf holes
 remain open. Canopy checks cover footprint containment, the draw budget,
@@ -513,7 +513,7 @@ work while walking or spinning the camera without changing vertex output.
 
 Checks: `node --test tests/animation-continuity.test.js tests/view-motion.test.js
 tests/camera.test.js tests/soldier-presentation.test.js
-tests/movement-continuity.test.js tests/foliage-buffers.test.js`.
+tests/movement-continuity.test.js tests/foliage-import.test.js`.
 With Vite and local assets, `tests/animation-browser.mjs` and
 `tests/movement-browser.mjs` exercise the integrated game. The latter checks
 60 Hz physics with 60/120/144 Hz presentation and both views on Theed/Bespin
@@ -780,7 +780,7 @@ in a worker instead (runtime-architecture.md).
 Checks: `node --test tests/*.test.js` (510), `tests/rendering.mjs` (138),
 `tests/environment-render.mjs`,
 `ocean-storm-browser`, `rain-enhanced-browser`, `weather-browser`,
-`visual-assets`, `bolt-render`, `effects-gpu-browser`, `foliage-browser`,
+`visual-assets`, `bolt-render`, `effects-gpu-browser`, `renderer-corpus`,
 `runtime-cadence-browser`, `runtime-profiler-browser`, `theed-camera-browser`,
 `droideka-shield-render`, `jetpack-volume-render`, `vehicles-browser`,
 `vehicle-motion-render`, `tauntaun-browser`. Updated expectations: static culling

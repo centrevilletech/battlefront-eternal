@@ -31,12 +31,10 @@ for (const leaf of kind.cards) {
   assert(height >= 0 && height <= 13, 'authored canopy height is retained');
   if (height > 5) assert(Math.hypot(leaf.p.x, leaf.p.z) <= 1.3 * (13 - height) / 8 + 1e-6, 'taper in world-height space');
 }
-const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 250);
-camera.position.set(0, 6, 0);
-camera.lookAt(0, 6, -20);
-foliage.update(0, camera);
-assert.equal(kind.batch.count, 50, 'visible crown draws all its authored leaf clusters');
-camera.lookAt(0, 6, 20);
-foliage.update(0, camera);
-assert.equal(kind.batch.count, 0, 'off-screen crowns do not rebuild cards');
-console.log('Foliage depth, canopy shape, and culling checks passed.');
+// Selection and drawing use the Rust foliage phase. Construction retains all
+// authored clusters and creates no browser shader or scene draw.
+assert.equal(scene.children.length, 0);
+assert.equal(kind.batch.geometry.attributes.position.count, 200);
+assert.equal(kind.batch.material.isShaderMaterial, undefined);
+assert.equal(kind.batch.material.vertexShader, undefined);
+console.log('foliage source resources passed');

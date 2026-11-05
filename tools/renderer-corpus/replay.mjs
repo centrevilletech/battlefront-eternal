@@ -32,7 +32,15 @@ export function installReplay() {
     const active=gl.getParameter(gl.ACTIVE_TEXTURE);gl.activeTexture(gl.TEXTURE0);
     const bound=gl.getParameter(gl.TEXTURE_BINDING_2D);gl.bindTexture(gl.TEXTURE_2D,handle);
     const params=[gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER,gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T].map(p=>[p,gl.getTexParameter(gl.TEXTURE_2D,p)]);
+    const aniso=gl.getExtension('EXT_texture_filter_anisotropic');
+    if(aniso)params.push([aniso.TEXTURE_MAX_ANISOTROPY_EXT,gl.getTexParameter(gl.TEXTURE_2D,aniso.TEXTURE_MAX_ANISOTROPY_EXT)]);
     gl.bindTexture(gl.TEXTURE_2D,bound);gl.activeTexture(active);
+    if(texture.isCompressedTexture){
+      if(texture.colorSpace && texture.colorSpace!==b.THREE.NoColorSpace)throw Error('Compressed replay needs explicit colour-space format');
+      const format=texture.format;
+      if(!Array.from(gl.getParameter(gl.COMPRESSED_TEXTURE_FORMATS)).includes(format))throw Error('Unsupported compressed replay format '+format);
+      return {id,w,h,compressed:format,params,levels:texture.mipmaps.map(level=>store(level.data.slice()))};
+    }
     if(texture.isDepthTexture){
       if(!depthTarget || depthTarget.width!==w || depthTarget.height!==h){depthTarget?.dispose();depthTarget=new b.THREE.WebGLRenderTarget(w,h,{type:b.THREE.FloatType,depthBuffer:false,minFilter:b.THREE.NearestFilter,magFilter:b.THREE.NearestFilter});}
       R.initRenderTarget(depthTarget);
@@ -53,6 +61,40 @@ export function installReplay() {
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER,old);
     const error=gl.getError();if(error)throw Error('Texture replay read GL '+error);
     return {id,w,h,bytes,params,levels};
+  };
+  // Isolate the canopy program using the real near-phase API and a fresh
+  // multisampled target. Other near draws are suppressed at submission only;
+  // no alternate shader implementation is selected. This preserves sample
+  // coverage instead of reconstructing a resolved depth image as an MSAA input.
+  const nearFrame=core.rust.frame.bind(core.rust);
+  const canopyTarget=new b.THREE.WebGLRenderTarget(g.sceneTarget.width,g.sceneTarget.height,
+    {type:g.sceneTarget.texture.type,depthBuffer:true,samples:g.sceneTarget.samples});
+  const canopyDraw=(row,blobs,texture)=>{
+    const before=R.getRenderTarget(),clearColor=R.getClearColor(new b.THREE.Color()).clone(),clearAlpha=R.getClearAlpha();R.initRenderTarget(canopyTarget);
+    R.resetState();R.setRenderTarget(canopyTarget);R.setClearColor(0,0);R.clear(true,true,true);
+    core.views();core.input.set(blobs[row.frame]);
+    core.canopiesLeaves.set(blobs[row.leaves]);core.canopiesInput.set(row.input);
+    core.canopiesInput[1]=core.byName.canopies.entry.program.id;
+    core.canopiesInput[2]=texture;core.canopiesInput[4]=0;core.canopiesInput[5]=core.byName.canopies.entry.max;
+    const methods=['drawElements','drawArrays','drawElementsInstanced','drawArraysInstanced','drawRangeElements'];
+    const saved=methods.map(name=>[name,gl[name]]),ext=gl.getExtension('WEBGL_multi_draw');
+    const multi=ext?['multiDrawElementsWEBGL','multiDrawArraysWEBGL','multiDrawElementsInstancedWEBGL','multiDrawArraysInstancedWEBGL'].filter(n=>ext[n]).map(n=>[n,ext[n]]):[];
+    let draws=0;
+    for(const [name,fn] of saved)gl[name]=function(...args){const p=gl.getParameter(gl.CURRENT_PROGRAM);if(p && gl.getAttribLocation(p,'leafCenter')>=0){draws++;return fn.apply(this,args);}};
+    for(const [name] of multi)ext[name]=()=>{};
+    try{nearFrame(0);core.resolve(canopyTarget);if(row.input[0] && row.input[3] && !draws)throw Error('Canopy replay did not draw');return read(canopyTarget);}
+    finally{for(const [name,fn] of saved)gl[name]=fn;for(const [name,fn] of multi)ext[name]=fn;R.resetState();R.setRenderTarget(before);R.setClearColor(clearColor,clearAlpha);}
+  };
+  core.rust.frame=function(records){
+    if(!T.want || !T.captureReplay || !core.byName.canopies.entry)return nearFrame(records);
+    core.views();const input=Array.from(core.canopiesInput),frame=store(core.input.slice(0,core.recordsAt)),leaves=store(core.canopiesLeaves.slice());
+    const material=g.treeCanopies.mesh.material,objects=textures([material.uniforms.map.value]);
+    const data=[snapshot(input[2],objects)];core.views();core.input.set(T.blobs[frame]);core.canopiesInput.set(input);
+    const result=nearFrame(records);
+    const row={kind:'canopies',key:'world/canopies',input,frame,leaves,resources:data,samples:g.sceneTarget.samples};
+    row.output=canopyDraw(row,T.blobs,input[2]);T.records.push(row);
+    core.views();core.input.set(T.blobs[frame]);core.canopiesInput.set(input);
+    return result;
   };
   const resources=(ids,objects)=>[...new Set(ids.filter(id=>id>=0))].map(id=>snapshot(id,objects));
   const post=core.post;
@@ -86,18 +128,28 @@ export function installReplay() {
     const handle=gl.createTexture();gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,handle);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
     for(const [p,v] of s.params)gl.texParameteri(gl.TEXTURE_2D,p,v);
-    for(let level=0;level<s.levels.length;level++)gl.texImage2D(gl.TEXTURE_2D,level,s.bytes===2?gl.RGBA16F:s.bytes===4?gl.RGBA32F:gl.RGBA8,Math.max(1,s.w>>level),Math.max(1,s.h>>level),0,gl.RGBA,s.bytes===2?gl.HALF_FLOAT:s.bytes===4?gl.FLOAT:gl.UNSIGNED_BYTE,blobs[s.levels[level]]);
+    for(let level=0;level<s.levels.length;level++)if(s.compressed)gl.compressedTexImage2D(gl.TEXTURE_2D,level,s.compressed,Math.max(1,s.w>>level),Math.max(1,s.h>>level),0,blobs[s.levels[level]]);else gl.texImage2D(gl.TEXTURE_2D,level,s.bytes===2?gl.RGBA16F:s.bytes===4?gl.RGBA32F:gl.RGBA8,Math.max(1,s.w>>level),Math.max(1,s.h>>level),0,gl.RGBA,s.bytes===2?gl.HALF_FLOAT:s.bytes===4?gl.FLOAT:gl.UNSIGNED_BYTE,blobs[s.levels[level]]);
     return {handle,id:core.rust.add_texture(handle)};
   };
   T.replay=(records,blobs)=>{
     const metrics=[];T.want=false;
-    core.views();const savedPost=core.postInput.slice(),savedHud=core.hudInput.slice();
+    core.views();const savedPost=core.postInput.slice(),savedHud=core.hudInput.slice(),savedFrame=core.input.slice(0,core.recordsAt),savedCanopy=core.canopiesInput?.slice(),savedLeaves=core.canopiesLeaves?.slice();
     const savedArrays=Object.fromEntries(['hudPosition','hudUv','hudMaskUv','hudTint'].map(n=>[n,core[n].slice()]));
     const before=R.getRenderTarget();
     for(const row of records){
       const created=row.resources.map(s=>[s.id,upload(s,blobs)]),ids=new Map(created.map(([old,s])=>[old,s.id]));
-      const input=Float64Array.from(row.input),program=core.rust.add_owned_program(row.key);
+      const input=Float64Array.from(row.input),program=row.kind==='canopies'?null:core.rust.add_owned_program(row.key);
       let target=null;
+      if(row.kind==='canopies'){
+        if(!core.byName.canopies.entry)throw Error('Missing canopy replay geometry');
+        if(row.samples!==g.sceneTarget.samples)throw Error('Canopy sample count differs');
+        const output=canopyDraw(row,blobs,ids.get(row.input[2]));
+        const a=T.blobs[output.blob],e=blobs[row.output.blob];let differing=0,maxDelta=0;
+        for(let i=0;i<a.length;i+=4){let d=0;for(let j=0;j<4;j++)d=Math.max(d,Math.abs(a[i+j]-e[i+j]));if(d){differing++;maxDelta=Math.max(maxDelta,d);}}
+        delete T.blobs[output.blob];metrics.push({key:row.key,differing,maxDelta,pixels:a.length/4,samples:row.samples,instances:row.input[3]});
+        for(const [,s] of created)gl.deleteTexture(s.handle);
+        continue;
+      }
       if(row.kind==='post'){
         input[0]=program;
         if(!row.canvas){
@@ -122,7 +174,7 @@ export function installReplay() {
       delete T.blobs[actual.blob];metrics.push({key:row.key,differing,maxDelta,pixels:a.length/4});
       for(const [,s] of created)gl.deleteTexture(s.handle);
     }
-    core.views();core.postInput.set(savedPost);core.hudInput.set(savedHud);for(const [n,a] of Object.entries(savedArrays))core[n].set(a);core.byName.hud.full=true;
+    core.views();core.input.set(savedFrame);if(savedCanopy){core.canopiesInput.set(savedCanopy);core.canopiesLeaves.set(savedLeaves);core.canopiesInput[4]=0;core.canopiesInput[5]=core.byName.canopies.entry.max;}core.postInput.set(savedPost);core.hudInput.set(savedHud);for(const [n,a] of Object.entries(savedArrays))core[n].set(a);core.byName.hud.full=true;
     R.resetState();R.setRenderTarget(before);const error=gl.getError();if(error)throw Error('Phase replay GL '+error);
     return metrics;
   };

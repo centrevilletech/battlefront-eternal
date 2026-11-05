@@ -437,5 +437,469 @@ export const programLayouts = {
     "kind": "World",
     "source": "expanded",
     "lamps": false
+  },
+  "world/foliage-leaves": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "foliageCorner",
+        4
+      ],
+      [
+        "foliageShape",
+        5
+      ],
+      [
+        "foliageRate",
+        6
+      ],
+      [
+        "foliagePatch",
+        7
+      ],
+      [
+        "foliageTint",
+        8
+      ],
+      [
+        "foliageAxisX",
+        9
+      ],
+      [
+        "foliageAxisY",
+        10
+      ],
+      [
+        "foliageAxisZ",
+        11
+      ],
+      [
+        "foliageDistance",
+        12
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "modelViewMatrix",
+        "type": 16
+      },
+      {
+        "name": "foliageEye",
+        "type": 3
+      },
+      {
+        "name": "foliageRight",
+        "type": 3
+      },
+      {
+        "name": "foliageUp",
+        "type": 3
+      },
+      {
+        "name": "foliageBack",
+        "type": 3
+      },
+      {
+        "name": "foliageTime",
+        "type": 1
+      },
+      {
+        "name": "foliageEnd",
+        "type": 1
+      },
+      {
+        "name": "foliageWiggle",
+        "type": 1
+      },
+      {
+        "name": "mapTransform",
+        "type": 9
+      },
+      {
+        "name": "foliageFogRange",
+        "type": 2
+      },
+      {
+        "name": "foliageFogColor",
+        "type": 3
+      },
+      {
+        "name": "diffuse",
+        "type": 3
+      },
+      {
+        "name": "opacity",
+        "type": 1
+      },
+      {
+        "name": "alphaTest",
+        "type": 1
+      },
+      {
+        "name": "map",
+        "type": 32
+      }
+    ],
+    "hash": "166a7fb9088842cbb9b009022720b56c152142ee236f741c7402111d5cbc5d6d",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false
+  },
+  "world/foliage-grass": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "foliageCorner",
+        4
+      ],
+      [
+        "foliageShape",
+        5
+      ],
+      [
+        "foliageRate",
+        6
+      ],
+      [
+        "foliagePatch",
+        7
+      ],
+      [
+        "foliageTint",
+        8
+      ],
+      [
+        "foliageAxisX",
+        9
+      ],
+      [
+        "foliageAxisY",
+        10
+      ],
+      [
+        "foliageAxisZ",
+        11
+      ],
+      [
+        "foliageDistance",
+        12
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "modelViewMatrix",
+        "type": 16
+      },
+      {
+        "name": "foliageEye",
+        "type": 3
+      },
+      {
+        "name": "foliageRight",
+        "type": 3
+      },
+      {
+        "name": "foliageBack",
+        "type": 3
+      },
+      {
+        "name": "foliageTime",
+        "type": 1
+      },
+      {
+        "name": "foliageEnd",
+        "type": 1
+      },
+      {
+        "name": "mapTransform",
+        "type": 9
+      },
+      {
+        "name": "foliageFogRange",
+        "type": 2
+      },
+      {
+        "name": "foliageFogColor",
+        "type": 3
+      },
+      {
+        "name": "diffuse",
+        "type": 3
+      },
+      {
+        "name": "opacity",
+        "type": 1
+      },
+      {
+        "name": "alphaTest",
+        "type": 1
+      },
+      {
+        "name": "map",
+        "type": 32
+      }
+    ],
+    "hash": "2dcaedd00f3d726fa0f225518dd831cef0c65bf35e9bfd381ed2cfa173538dc6",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false
+  },
+  "world/foliage-grass-shadows": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "foliageCorner",
+        4
+      ],
+      [
+        "foliageShape",
+        5
+      ],
+      [
+        "foliageRate",
+        6
+      ],
+      [
+        "foliagePatch",
+        7
+      ],
+      [
+        "foliageTint",
+        8
+      ],
+      [
+        "foliageAxisX",
+        9
+      ],
+      [
+        "foliageAxisY",
+        10
+      ],
+      [
+        "foliageAxisZ",
+        11
+      ],
+      [
+        "foliageDistance",
+        12
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "modelMatrix",
+        "type": 16
+      },
+      {
+        "name": "modelViewMatrix",
+        "type": 16
+      },
+      {
+        "name": "foliageEye",
+        "type": 3
+      },
+      {
+        "name": "foliageRight",
+        "type": 3
+      },
+      {
+        "name": "foliageBack",
+        "type": 3
+      },
+      {
+        "name": "foliageTime",
+        "type": 1
+      },
+      {
+        "name": "foliageEnd",
+        "type": 1
+      },
+      {
+        "name": "mapTransform",
+        "type": 9
+      },
+      {
+        "name": "foliageFogRange",
+        "type": 2
+      },
+      {
+        "name": "foliageFogColor",
+        "type": 3
+      },
+      {
+        "name": "diffuse",
+        "type": 3
+      },
+      {
+        "name": "opacity",
+        "type": 1
+      },
+      {
+        "name": "alphaTest",
+        "type": 1
+      },
+      {
+        "name": "map",
+        "type": 32
+      }
+    ],
+    "hash": "c8be2e29825914b5f31ff535b32df38b0a1703eb81b6aa64430a5a00fe3c5863",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false
+  },
+  "world/foliage-leaves-shadows": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "foliageCorner",
+        4
+      ],
+      [
+        "foliageShape",
+        5
+      ],
+      [
+        "foliageRate",
+        6
+      ],
+      [
+        "foliagePatch",
+        7
+      ],
+      [
+        "foliageTint",
+        8
+      ],
+      [
+        "foliageAxisX",
+        9
+      ],
+      [
+        "foliageAxisY",
+        10
+      ],
+      [
+        "foliageAxisZ",
+        11
+      ],
+      [
+        "foliageDistance",
+        12
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "modelMatrix",
+        "type": 16
+      },
+      {
+        "name": "modelViewMatrix",
+        "type": 16
+      },
+      {
+        "name": "foliageEye",
+        "type": 3
+      },
+      {
+        "name": "foliageRight",
+        "type": 3
+      },
+      {
+        "name": "foliageUp",
+        "type": 3
+      },
+      {
+        "name": "foliageBack",
+        "type": 3
+      },
+      {
+        "name": "foliageTime",
+        "type": 1
+      },
+      {
+        "name": "foliageEnd",
+        "type": 1
+      },
+      {
+        "name": "foliageWiggle",
+        "type": 1
+      },
+      {
+        "name": "mapTransform",
+        "type": 9
+      },
+      {
+        "name": "foliageFogRange",
+        "type": 2
+      },
+      {
+        "name": "foliageFogColor",
+        "type": 3
+      },
+      {
+        "name": "diffuse",
+        "type": 3
+      },
+      {
+        "name": "opacity",
+        "type": 1
+      },
+      {
+        "name": "alphaTest",
+        "type": 1
+      },
+      {
+        "name": "map",
+        "type": 32
+      }
+    ],
+    "hash": "002ac7718b200b0cf8cfa879a39d1acdfa587869bffbd3d939ea54696b257dbf",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false
   }
 };

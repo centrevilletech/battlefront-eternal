@@ -17,6 +17,156 @@
       "uniforms": {
         "map": 32
       }
+    },
+    {
+      "key": "world/foliage-leaves",
+      "kind": "World",
+      "source": "expanded",
+      "vertex": "foliage-leaves.vert",
+      "fragment": "foliage-leaves.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "color": 3,
+        "foliageCorner": 4,
+        "foliageShape": 5,
+        "foliageRate": 6,
+        "foliagePatch": 7,
+        "foliageTint": 8,
+        "foliageAxisX": 9,
+        "foliageAxisY": 10,
+        "foliageAxisZ": 11,
+        "foliageDistance": 12
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "foliageEye": 3,
+        "foliageRight": 3,
+        "foliageUp": 3,
+        "foliageBack": 3,
+        "foliageTime": 1,
+        "foliageEnd": 1,
+        "foliageWiggle": 1,
+        "mapTransform": 9,
+        "foliageFogRange": 2,
+        "foliageFogColor": 3,
+        "diffuse": 3,
+        "opacity": 1,
+        "alphaTest": 1,
+        "map": 32
+      }
+    },
+    {
+      "key": "world/foliage-grass",
+      "kind": "World",
+      "source": "expanded",
+      "vertex": "foliage-grass.vert",
+      "fragment": "foliage-grass.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "color": 3,
+        "foliageCorner": 4,
+        "foliageShape": 5,
+        "foliageRate": 6,
+        "foliagePatch": 7,
+        "foliageTint": 8,
+        "foliageAxisX": 9,
+        "foliageAxisY": 10,
+        "foliageAxisZ": 11,
+        "foliageDistance": 12
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "foliageEye": 3,
+        "foliageRight": 3,
+        "foliageBack": 3,
+        "foliageTime": 1,
+        "foliageEnd": 1,
+        "mapTransform": 9,
+        "foliageFogRange": 2,
+        "foliageFogColor": 3,
+        "diffuse": 3,
+        "opacity": 1,
+        "alphaTest": 1,
+        "map": 32
+      }
+    },
+    {
+      "key": "world/foliage-grass-shadows",
+      "kind": "World",
+      "source": "expanded",
+      "vertex": "foliage-grass-shadows.vert",
+      "fragment": "foliage-grass-shadows.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "color": 3,
+        "foliageCorner": 4,
+        "foliageShape": 5,
+        "foliageRate": 6,
+        "foliagePatch": 7,
+        "foliageTint": 8,
+        "foliageAxisX": 9,
+        "foliageAxisY": 10,
+        "foliageAxisZ": 11,
+        "foliageDistance": 12
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "foliageEye": 3,
+        "foliageRight": 3,
+        "foliageBack": 3,
+        "foliageTime": 1,
+        "foliageEnd": 1,
+        "mapTransform": 9,
+        "foliageFogRange": 2,
+        "foliageFogColor": 3,
+        "diffuse": 3,
+        "opacity": 1,
+        "alphaTest": 1,
+        "map": 32
+      }
+    },
+    {
+      "key": "world/foliage-leaves-shadows",
+      "kind": "World",
+      "source": "expanded",
+      "vertex": "foliage-leaves-shadows.vert",
+      "fragment": "foliage-leaves-shadows.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "color": 3,
+        "foliageCorner": 4,
+        "foliageShape": 5,
+        "foliageRate": 6,
+        "foliagePatch": 7,
+        "foliageTint": 8,
+        "foliageAxisX": 9,
+        "foliageAxisY": 10,
+        "foliageAxisZ": 11,
+        "foliageDistance": 12
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "foliageEye": 3,
+        "foliageRight": 3,
+        "foliageUp": 3,
+        "foliageBack": 3,
+        "foliageTime": 1,
+        "foliageEnd": 1,
+        "foliageWiggle": 1,
+        "mapTransform": 9,
+        "foliageFogRange": 2,
+        "foliageFogColor": 3,
+        "diffuse": 3,
+        "opacity": 1,
+        "alphaTest": 1,
+        "map": 32
+      }
     }
   ]
 }

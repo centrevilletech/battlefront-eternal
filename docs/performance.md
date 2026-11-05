@@ -72,7 +72,7 @@ location. Providing a reference adds interleaved A/B timing and output checks.
 Behavior regressions do not need reference files:
 
 ```sh
-node --test tests/collision-queries.test.js tests/foliage-equivalence.test.js tests/foliage-buffers.test.js tests/movement-continuity.test.js
+node --test tests/collision-queries.test.js tests/foliage-import.test.js tests/movement-continuity.test.js
 node tests/collision.mjs
 node tests/foliage.mjs
 ```
