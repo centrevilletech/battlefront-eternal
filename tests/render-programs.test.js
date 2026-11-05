@@ -16,7 +16,7 @@ test('post and HUD register without a three program or shader reflection', () =>
     assert.ok(entry);
     assert.equal(ownedProgram(core, key, layout), entry);
   }
-  assert.equal(calls.length, 12);
+  assert.equal(calls.length, Object.keys(programLayouts).filter(key=>key.startsWith("post-hud/")).length);
   assert.deepEqual(core.errors, []);
 });
 test('unknown variants and link failures are reported without a source bridge', () => {

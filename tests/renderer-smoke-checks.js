@@ -13,8 +13,8 @@ import { writeScreenStep } from '../src/rust-render/screen.js';
 import { programLayouts } from '../src/render-programs.js';
 
 // All pixels, meshes and textures here are generated. No game loader runs.
-export async function checkRenderer(backend) {
-  const results = [], draws = {}, links = [], programKinds = new Set(), ownedIds = new Map(), ownedDraws = new Set();
+export async function checkRenderer(backend, manifests) {
+  const results = [], draws = {}, links = [], shaderFamilies = [], compiledShaders = [], programKinds = new Set(), ownedIds = new Map(), ownedDraws = new Set();
   const assert = (name, ok, detail) => {
     results.push({ name, ok: Boolean(ok), detail });
   };
@@ -39,14 +39,19 @@ export async function checkRenderer(backend) {
     return ext;
   };
   const originals = new Map();
-  for (const name of ['linkProgram', 'drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
+  let compilingKey=null;
+  for (const name of ['compileShader', 'linkProgram', 'drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
     const original = proto[name]; originals.set(name, original);
     proto[name] = function (...args) {
       const result = original.apply(this, args);
-      if (name === 'linkProgram') {
+      if(name==='compileShader'){
+        const ok=this.getShaderParameter(args[0],this.COMPILE_STATUS);
+        compiledShaders.push({key:compilingKey,ok});
+        if(!ok)throw Error(`${compilingKey || 'fixture'}: shader compile: ${this.getShaderInfoLog(args[0])}`);
+      } else if (name === 'linkProgram') {
         const ok = this.getProgramParameter(args[0], this.LINK_STATUS);
         links.push(ok);
-        if (!ok) throw new Error(`Program link: ${this.getProgramInfoLog(args[0])}`);
+        if (!ok) throw new Error(`${compilingKey || "fixture"}: program link: ${this.getProgramInfoLog(args[0])}`);
       } else {
         if(name.startsWith('draw')) draws[name] = (draws[name] ?? 0) + 1;
         const error = this.getError();
@@ -63,6 +68,26 @@ export async function checkRenderer(backend) {
     const gl = g.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
     const renderer = debug && gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
     assert('Requested ANGLE backend selected', backend === 'warp' ? /Direct3D11/i.test(renderer) && /Microsoft|WARP|Basic Render/i.test(renderer) : backend === 'gl' ? /ANGLE.*OpenGL/i.test(renderer) : /SwiftShader/i.test(renderer), renderer);
+    // Every family is discovered by the launcher from its manifest at runtime.
+    // Register before fixture draws, so the Rust cache is cold for every key.
+    for(const {family,programs} of manifests){
+      const started=performance.now(),variants=[];
+      for(const {key} of programs){
+        const start=performance.now(),linkStart=links.length,shaderStart=compiledShaders.length;compilingKey=key;
+        try {
+          const id=g.rust.rust.add_owned_program(key);
+          const error=gl.getError();if(error)throw Error(`WebGL 0x${error.toString(16)}`);
+          variants.push({key,id,ms:performance.now()-start,accepted:true,shaders:compiledShaders.length-shaderStart,links:links.length-linkStart,cached:links.length===linkStart});
+        } catch(error){variants.push({key,ms:performance.now()-start,accepted:false,error:String(error.message||error)});}
+        finally {compilingKey=null;}
+      }
+      const row={family,compileMs:variants.filter(v=>!v.cached).reduce((sum,v)=>sum+v.ms,0),ms:performance.now()-started,variants};shaderFamilies.push(row);
+      for(const variant of variants)assert(`${variant.key}: compiles and links`,variant.accepted,variant);
+      console.log(`renderer smoke: shader family ${family}: ${variants.length} variants in ${row.ms.toFixed(3)} ms`);
+    }
+    assert('All manifest families were checked',shaderFamilies.length>0);
+    if(shaderFamilies.some(f=>f.variants.some(v=>!v.accepted)))return {ok:false,backend,renderer,results,shaderFamilies,compiledShaders};
+
     const texture = (rgba) => {
       const t = new THREE.DataTexture(new Uint8Array(rgba), 1, 1);
       t.needsUpdate = true; return t;
@@ -284,7 +309,7 @@ export async function checkRenderer(backend) {
       g.renderer.setRenderTarget(retainedTarget);g.renderer.clear();
       const target=g.rust.byName.post.target(retainedTarget);
       writeScreenStep(g.rust,0,retainedProgram,retainedMaterial,retainedMesh,tintCamera,{target,size:[32,32],geometry:{id:retainedId,count:6}});
-      g.rust.rust.underwater_frame(1);g.rust.stale=true;
+      g.rust.rust.screen_frame(1);g.rust.stale=true;
       const pixels=new Uint8Array(32*32*4);g.renderer.readRenderTargetPixels(retainedTarget,0,0,32,32,pixels);return pixels;
     };
     const retainedBefore=retainedPixels();
@@ -318,9 +343,9 @@ export async function checkRenderer(backend) {
     assert('Every shader rewrite kind links', [0,1,2,3,4,9].every(k => programKinds.has(k)), [...programKinds]);
     assert('All Rust passes draw', passDraws.every(n => n > 0), { names: ['world','instances','far','terrain','transparent','effects','foliage','view','post','hud','water','shadow','motion','canopies','screen'], counts: passDraws });
     assert('Multi-draw path exercised', fallback ? multiDraws === 0 : multiDraws > 0, { fallback, multiDraws });
-    assert('Every declared Rust post and HUD program draws',Object.keys(programLayouts).every(key=>ownedIds.has(key)&&ownedDraws.has(ownedIds.get(key))), {registered:[...ownedIds.keys()],drawn:[...ownedDraws]});
+    assert('Every declared Rust post and HUD program draws',Object.keys(programLayouts).filter(key=>key.startsWith('post-hud/')).every(key=>ownedIds.has(key)&&ownedDraws.has(ownedIds.get(key))), {registered:[...ownedIds.keys()],drawn:[...ownedDraws]});
     assert('Every compiled program links', links.length > 0 && links.every(Boolean), { count: links.length });
-    return { ok: results.every(r => r.ok), backend, fallback, multiDraws, renderer, results, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };
+    return { ok: results.every(r => r.ok), backend, fallback, multiDraws, renderer, results, shaderFamilies, compiledShaders, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };
   } catch (error) {
     const stopped=g.rust.byName.near.stopped;
     throw new Error(`${error.stack}\nCause: ${error.cause?.stack || "none"}\nStopped: ${JSON.stringify(stopped && {name:stopped.name,material:stopped.material?.name,uniforms:Object.keys(stopped.material?.uniforms||{}),background:stopped===g.background,layer:stopped.layers.mask})}`);

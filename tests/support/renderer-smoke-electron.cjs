@@ -7,6 +7,7 @@ if (!process.versions.electron || !app) throw new Error('Renderer smoke requires
 console.log(`Electron app runtime ${process.versions.electron}, Chromium ${process.versions.chrome}`);
 // A URL followed by another argument is rejected by Electron on Windows.
 const url = process.env.BFE_SMOKE_URL, backend = process.env.BFE_SMOKE_BACKEND;
+const manifests=JSON.parse(fs.readFileSync(process.env.BFE_SMOKE_MANIFESTS,'utf8'));
 app.commandLine.appendSwitch('use-gl', 'angle');
 app.commandLine.appendSwitch('use-angle', backend === 'warp' ? 'd3d11-warp' : backend);
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -26,7 +27,7 @@ app.whenReady().then(async () => {
     report({ stage: 'fixtures', backend });
     for (const query of ['', '?noMulti']) {
       await window.loadURL(`${url}tests/support/renderer-smoke.html${query}`);
-      result.push(await window.webContents.executeJavaScript(`import('/tests/renderer-smoke-checks.js').then(m => m.checkRenderer(${JSON.stringify(backend)}))`));
+      result.push(await window.webContents.executeJavaScript(`import('/tests/renderer-smoke-checks.js').then(m => m.checkRenderer(${JSON.stringify(backend)},${JSON.stringify(manifests)}))`));
     }
     if (errors.length) throw new Error(errors.join('\n'));
     report({ versions: process.versions, runs: result });

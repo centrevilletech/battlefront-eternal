@@ -13,11 +13,21 @@ command with `swiftshader` selects ANGLE SwiftShader. A Linux installation
 without a configured Electron sandbox can set `BFE_SMOKE_NO_SANDBOX=1` for
 this isolated test process.
 
-Each backend runs with WEBGL_multi_draw, then with that extension hidden to
-exercise the repeated-draw fallback. A successful run requires:
+At startup the launcher reads every `rust/bfe-render/shaders/*/manifest.json`.
+It passes the discovered keys through a temporary catalog to Electron, which
+registers every variant through Rust before drawing the fixtures. No family or
+variant list is hardcoded. Reports include each variant's compile/link result,
+shader/link call counts, cache status and elapsed milliseconds, plus compile
+milliseconds per family. Rejected variants are reported by key. CI retains the
+JSON-lines report as `renderer-smoke-<backend>`; local runs can save it with
+`BFE_SMOKE_OUTPUT`.
 
-- Every declared post/HUD program links and draws; all other programs instantiated
-  by the fixture link. Every observed draw and frame is free of
+Each backend runs with WEBGL_multi_draw, then with that extension hidden to
+exercise repeated Rust draws. The driver process has a twelve-minute limit
+within the CI job's fifteen-minute limit. A successful run requires:
+
+- Every manifest variant compiles and links. Every declared post/HUD program
+  also draws; all other programs instantiated by the fixture link. Every observed draw and frame is free of
   WebGL errors, and the required Rust renderer reports no errors.
 - All 15 Rust pass counters report actual draws: world, instances, far,
   terrain, transparent, effects, foliage, view, post, HUD, water, shadow,
@@ -37,9 +47,10 @@ The report prints the renderer, Electron/Chromium versions, program count,
 pass counters, multi-draw count and individual assertions. Pixel failures
 remain failures; the report can contain passing assertions alongside them.
 
-This checks the programs instantiated by these fixtures. It cannot enumerate
-every game material, shader define combination, effect, texture format or
-rendering configuration. The scene covers bump on/off, shadows, alpha
+The catalog check covers every declared Rust-owned source variant, including
+families added later. Generated draws exercise a smaller set of material and
+phase contracts; they cannot enumerate unported game materials, shader define
+combinations, effects, texture formats or rendering configurations. The scene covers bump on/off, shadows, alpha
 blending, skinned and rigid instances, bloom and soft focus, including settings changes, but does not qualify all game scenes. A renderer and its fixtures
 can share a shader bug: stable pixels alone cannot detect an
 unwanted texture fetch hoisted by a compiler. WARP exercises the Windows
