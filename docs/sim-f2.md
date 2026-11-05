@@ -94,8 +94,18 @@ The ownership and publication gates run without game files over synthetic
 hulls, crews, turret rebuilds, exits and exposed riders. Mounted-fire and rider
 samples are golden results recorded before removal of the JavaScript authority.
 The full battle gate compares all three world-hash columns with the frozen
-55-battle reference, including player-mounted battles and hero rows. Native
-replays and prediction checks retain independent coverage of operation order.
+reference for the standing matrix, including player-mounted battles, hero rows
+and mounted Hoth crews through death and respawn. Native replays and prediction
+checks retain independent coverage of operation order.
+
+Node battle hashes do not exercise a page applying leases or presenting riders.
+A desktop release also runs `tools/desktop-world-advance.mjs` against a loaded,
+resumed real desktop battle on each performance map. Pass its remote-debugging
+port as `CDP_PORT` and use `--seconds 40`; `--minimum-tps` sets a measured rate
+floor for the machine and map. The check samples both clocks against wall time,
+records player life and pause/load/running flags, and rejects stopped clocks,
+lockstep, suspension and page or worker errors. Run interleaved control timings
+alongside it: a stopped world must never qualify as a cheaper page frame.
 
 The page's private hull prediction still uses JavaScript physics, flight control
 and walk/gear presentation. Its input decoder is separate from authoritative
