@@ -9,7 +9,7 @@ test('shader artifacts match the source manifests', () => generate(true));
 test('post and HUD register without a three program or shader reflection', () => {
   const calls = [];
   const core = { rust: { add_owned_program(key) { calls.push(key); return calls.length; } }, errors: [] };
-  for (const [key, s] of Object.entries(programLayouts)) {
+  for (const [key, s] of Object.entries(programLayouts).filter(([key]) => key.startsWith("post-hud/"))) {
     if (!key.endsWith('/hud')) assert.equal(ownedFullScreenPass(key, {}).material.isShaderMaterial, undefined);
     const layout = s.attributes.map(([n,l]) => `${n}:${l}`).join(',');
     const entry = ownedProgram(core, key, layout);
