@@ -352,7 +352,11 @@ export class F2Seats {
         out.soldier = unit.soldier; out.intent = unit.intent;
         const words = this.unitWords.get(unit); applyDelta(f, at, heap, words);
         syncF2SeatUnitOut(b, words, 5, words[2] | 0, out);
-        if (unit.seat?.turret) this.mounts.set(unit, unit.seat.turret);
+        // TurretSeats.vacate may show a hidden gunner on departure. Track
+        // the current holder before clearing its lease, including hulls: an
+        // earlier turret must never show a corpse leaving an enclosed hull.
+        const holder = unit.seat?.turret || unit.seat?.vehicle;
+        if (holder) this.mounts.set(unit, holder);
         unit.seat = out.seat; unit.targetable = out.targetable; unit.tickCount = out.tickCount;
         if (unit.combat) { unit.combat.mounted = out.mounted; unit.combat.gunUnderwater = out.gunUnderwater; unit.combat.aimOverride = out.aimOverride; }
         const a = this.soldierIn; a.unit = unit; a.soldier = unit.soldier;

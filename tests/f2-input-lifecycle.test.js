@@ -422,3 +422,23 @@ test('a pre-latch birth command preserves another crew\'s pending intent', async
     assert.equal(a.seat.input.forward, .7, 'the pending batch survives the birth command');
   } finally { system.dispose(); }
 });
+
+// TurretSeats.vacate restores a hidden gunner's body. That exception belongs
+// to the mount being left, never a turret the same unit occupied earlier.
+test('leaving a hidden hull keeps a former turret gunner corpse hidden', async () => {
+  const { system } = await fleet();
+  try {
+    const t = turret(20); t.weapon = null;
+    const crews = new TurretSeats({ live: { turrets: [t] }, collision: system.collision });
+    system.f2.seats.attachTurrets(crews);
+    const u = rider(system, 63); u.human = u.networkHuman = true;
+    assert.ok(crews.man(u, t));
+    assert.ok(crews.leave(u, { placement: false }));
+    assert.equal(u.actor.root.visible, true);
+    assert.ok(system.board(u, system.vehicles[0]));
+    assert.equal(u.actor.root.visible, false);
+    u.combat.damage();
+    assert.equal(u.seat, null);
+    assert.equal(u.actor.root.visible, false);
+  } finally { system.dispose(); }
+});
