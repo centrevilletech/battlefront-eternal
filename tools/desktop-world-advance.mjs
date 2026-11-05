@@ -12,9 +12,11 @@ const port = Number(process.env.CDP_PORT || option('port', 9222));
 const info = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
 const ws = new WebSocket(info.webSocketDebuggerUrl), pending = new Map(), errors = [];
 await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
-let serial = 0;
+let serial = 0, pageSession = null;
+const attached = [];
 ws.onmessage = ({ data }) => {
   const m = JSON.parse(data);
+  if (m.method === 'Target.attachedToTarget') attached.push(m.params);
   if (m.id && pending.has(m.id)) { const request = pending.get(m.id); pending.delete(m.id); if (m.error) request.reject(Error(JSON.stringify(m.error))); else request.resolve(m.result); }
   if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text);
   if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') errors.push(m.params.args.map(a => a.value ?? a.description).join(' '));
@@ -37,15 +39,16 @@ try {
   if (!page) throw Error('A loaded desktop battle is required');
   const { sessionId: p } = await send('Target.attachToTarget', { targetId: page.targetId, flatten: true });
   await send('Runtime.enable', {}, p);
-  // Electron can report a module worker with an empty target URL. Identify
-  // the world by its server after attachment, rather than its bundle name.
+  // Workers belong to the page's target. Page auto-attachment also finds
+  // module workers whose browser-level target URL is empty in Electron.
+  pageSession = p;
+  await send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, p);
+  await new Promise(resolve => setTimeout(resolve, 500));
   let w = null;
-  for (const target of targetInfos) {
-    if (target.type !== 'worker' || target.parentId !== page.targetId) continue;
-    const { sessionId } = await send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
-    await send('Runtime.enable', {}, sessionId);
-    if (await evaluate(sessionId, 'Boolean(self.__server)')) { w = sessionId; break; }
-    await send('Target.detachFromTarget', { sessionId });
+  for (const target of attached) {
+    if (target.targetInfo.type !== 'worker') continue;
+    await send('Runtime.enable', {}, target.sessionId);
+    if (await evaluate(target.sessionId, 'Boolean(self.__server)')) { w = target.sessionId; break; }
   }
   if (!w) throw Error('A loaded world worker is required');
   const samples = [], started = performance.now();
@@ -61,4 +64,7 @@ try {
   console.log(JSON.stringify(result, null, 2));
   const output = option('output', null); if (output) fs.writeFileSync(output, JSON.stringify(result, null, 2));
   if (result.failures.length) process.exitCode = 1;
-} finally { ws.close(); }
+} finally {
+  if (pageSession) await send('Target.setAutoAttach', { autoAttach: false, waitForDebuggerOnStart: false, flatten: true }, pageSession).catch(() => {});
+  ws.close();
+}
