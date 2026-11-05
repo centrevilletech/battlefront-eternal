@@ -27,7 +27,7 @@ impl WeaponDraws for Draws {
 const INPUT_CAPACITY: usize = 262144;
 struct State {
     owner: crate::vehicles::f2_seats::Seats,
-    depth: usize,
+    depth: usize, command_depth: usize,
     input: Vec<f64>,
     io: [f64; F2SeatIo::WORDS],
     lease_cache: Vec<super::delta::Cache>, unit_cache: Vec<super::delta::Cache>,
@@ -35,6 +35,7 @@ struct State {
     body_effects: Vec<F2SeatEffect>,
     ordnance_output: Block, ordnance_dirty: bool,
     body_refs: Vec<Option<Ref<Body>>>,
+    command_relations: Vec<F2SeatRelation>,
     actors: Vec<bool>, rider_sides: Vec<bool>, rider_posed: Vec<bool>,
     turret_lives: Vec<f64>, posed: Vec<bool>, timed: Vec<bool>, weapons: Vec<Option<TurretWeapon>>, turret_rows: Vec<F2TurretOut>, turret_output: Block,
     event_rows: Vec<F2TurretEvent>, event_output: Block, rounds: Vec<Option<crate::ordnance::world::Shot>>,
@@ -42,11 +43,11 @@ struct State {
 static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
     unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(|| State {
-        owner: Default::default(), depth: 0, input: vec![0.0; INPUT_CAPACITY], io: [0.0; F2SeatIo::WORDS],
+        owner: Default::default(), depth: 0, command_depth: 0, input: vec![0.0; INPUT_CAPACITY], io: [0.0; F2SeatIo::WORDS],
         lease_cache: Vec::with_capacity(512), unit_cache: Vec::with_capacity(512),
         leases: Block::default(), units: Block::default(), controls: Block::default(), effects: Block::default(),
         ordnance_output: Block { words: Vec::with_capacity(32768), heap: Vec::with_capacity(32768) }, ordnance_dirty: false,
-        body_effects: Vec::with_capacity(512), body_refs: Vec::with_capacity(4096),
+        body_effects: Vec::with_capacity(512), body_refs: Vec::with_capacity(4096), command_relations: Vec::with_capacity(256),
         actors: Vec::with_capacity(512), rider_sides: Vec::with_capacity(512), rider_posed: Vec::with_capacity(512),
         turret_lives: Vec::with_capacity(128), posed: Vec::with_capacity(128), timed: Vec::with_capacity(128), weapons: Vec::with_capacity(128), turret_rows: Vec::with_capacity(128), turret_output: Block::default(),
         event_rows: Vec::with_capacity(512), event_output: Block::default(), rounds: Vec::with_capacity(32),
@@ -120,6 +121,15 @@ pub fn reserve_riders(count: usize) {
 /// fixed width: decoding neither clones a table nor allocates a temporary list.
 fn inputs() {
     let h = F2SeatHeader::take(&state().input, &[]);
+    // Scalar commands may precede the first phase or introduce a new team.
+    // Retain just their affected relation pairs; phase latching uses its own
+    // complete team table, sampled with the foreign registry at phase entry.
+    for i in 0..h.relation_count as usize {
+        let a = F2SeatRelation::take(&state().input[h.relations as usize + i * F2SeatRelation::WORDS..], &[]);
+        if let Some(old) = state().command_relations.iter_mut().find(|v| v.a == a.a && v.b == a.b) { *old = a; }
+        else { state().command_relations.push(a); }
+    }
+
     for i in 0..h.unit_count as usize {
         let start = h.units as usize + i * F2SeatUnitIn::WORDS;
         let a = F2SeatUnitIn::take(&state().input[start..start + F2SeatUnitIn::WORDS], &[]);
@@ -338,23 +348,29 @@ impl SeatWorld for World {
     fn resume_hulls(&mut self, st: &mut Store, hulls: &mut Hulls) {
         std::mem::swap(st, &mut sim().store); std::mem::swap(hulls, &mut state().owner.hulls);
     }
+    // SeatsWorld.cast and overlapsSphere run against the shared native world.
+    // Keeping them here lets each exit observe the preceding crew's placement.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<Ref<Body>>) -> Option<SeatHit> {
-        if let Some(hit) = collision_world().and_then(|c| c.cast(crate::collision::state(), origin, direction, far, ignore.map(|b| b.slot))) {
-            return hit.map(|h| SeatHit { point: h.point, normal: h.normal, distance: h.distance,
-                body: h.body.and_then(|b| state().body_refs[b as usize]) });
-        }
-        let h = import_seat_cast(&SeatRay { origin: v3(origin), direction: v3(direction), far, ignore });
-        h.found.then(|| SeatHit { point: vec(&h.point), normal: vec(&h.normal), distance: h.distance, body: h.body })
+        collision_world().expect("the vehicle collision world")
+            .cast(crate::collision::state(), origin, direction, far, ignore.map(|b| b.slot))
+            .expect("named collision bodies").map(|h| SeatHit { point: h.point, normal: h.normal, distance: h.distance,
+                body: h.body.and_then(|b| state().body_refs[b as usize]) })
     }
     fn overlaps_sphere(&mut self, center: &Vector3, radius: f64, ignore: Option<Ref<Body>>) -> bool {
-        import_seat_overlaps(&SeatSphere { center: v3(center), radius, ignore }).value
+        collision_world().expect("the vehicle collision world")
+            .overlaps_sphere(crate::collision::state(), center, radius, ignore.map(|b| b.slot))
     }
     fn raycast_units(&mut self, from: &Vector3, direction: &Vector3, far: f64, unit: Option<u32>) -> Option<f64> {
         super::publish();
         self.action(F2SeatAction { kind: F2SeatActionKind::Raycast, unit: unit.map(unit_ref), point: v3(from),
             direction: v3(direction), yaw: far, ..Default::default() }).value
     }
-    fn relation(&mut self, a: f64, b: f64) -> f64 { FlightWorld::relation(&mut super::JsWorld { craft: u32::MAX }, Some(a), Some(b)) }
+    fn relation(&mut self, a: f64, b: f64) -> f64 {
+        if state().command_depth > 0 || unsafe { (&*addr_of_mut!(TEAMS)).is_empty() } {
+            if let Some(r) = state().command_relations.iter().find(|r| r.a == a && r.b == b) { return r.value; }
+        }
+        FlightWorld::relation(&mut super::JsWorld { craft: u32::MAX }, Some(a), Some(b))
+    }
     fn stand_up(&mut self, u: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
         crate::seats::module::stand_up(u, x, y, z, yaw);
     }
@@ -429,7 +445,10 @@ impl SeatWorld for World {
 /// Scalar arguments are decoded before taking native ownership from the instance.
 pub fn command(a: F2SeatCommand) -> F2SeatResult {
     inputs();
-    run(a)
+    state().command_depth += 1;
+    let result = run(a);
+    state().command_depth -= 1;
+    result
 }
 fn run(a: F2SeatCommand) -> F2SeatResult {
     state().depth += 1;

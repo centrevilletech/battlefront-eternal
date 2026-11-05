@@ -7,7 +7,7 @@ import { Building } from './props.js';
 import { MirrorPool, Heap } from './sim/runtime.js';
 import { makeHit } from './collision.js';
 import { COMMAND_F2_SEAT, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
-import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatUnitInMirror, F2SeatUnitOutMirror, F2SeatCommandMirror, F2SeatResultMirror,
+import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatRelationLayout, putF2SeatRelation, F2SeatUnitInMirror, F2SeatUnitOutMirror, F2SeatCommandMirror, F2SeatResultMirror,
   F2SeatSoldierMirror, F2SeatSoldierLayout, putF2SeatSoldier, F2SeatAnswerMirror, F2SeatEffectMirror, F2LatchedMirror,
   F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2TurretTargetMirror, syncF2TurretHeader, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
   syncF2SeatIo, putF2SeatHeader, putF2SeatUnitIn, syncF2SeatUnitOut, syncF2SeatEffect, syncF2Latched, putF2SeatSample } from './sim/gen/f2.js';
@@ -83,16 +83,17 @@ export class F2Seats {
     this.leaseRows = new WeakMap();
     this.pool = new LeasePool(this); this.pool.owner = this; this.pool.released = new Map(); this.mounts = new WeakMap(); this.riderClips = new WeakMap(); this.riderSample = { clip: null, pitch: 0, turn: 0, time: null }; this.bridge.refs[KIND_SEAT_LEASE] = this.pool;
     this.emptyHeap = new Heap(); this.header = new F2SeatHeaderMirror(); this.io = new F2SeatIoMirror();
+    this.relationTeams = []; this.relationRow = { a: 0, b: 0, value: 0 };
     this.unitWords = new WeakMap(); this.soldierWords = new WeakMap();
     this.soldierIn = new F2SeatSoldierMirror(); this.soldierScratch = new Float64Array(F2SeatSoldierLayout.words);
     this.unitIn = new F2SeatUnitInMirror(); this.unitOut = new F2SeatUnitOutMirror();
     this.controlIn = { seatUnit: null, driven: false, intent: null };
     this.command = new F2SeatCommandMirror(); this.result = new F2SeatResultMirror();
     this.answer = new F2SeatAnswerMirror(); this.effectRow = new F2SeatEffectMirror(); this.controlRow = new F2LatchedMirror();
+    this.lookSettings = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
     this.lookSamples = [[0, 0]]; this.networkScales = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
     this.sample = { dx: 0, dy: 0 }; this.drop = new THREE.Vector3(); this.hit = makeHit();
-    this.castResult = { found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
-    this.flag = { value: false }; this.drawAnswer = { value: 0 };
+    this.drawAnswer = { value: 0 };
     this.ioBase = (this.x.f2_seats_init() / 8) | 0; this.bridge.views(); this.readIo();
     this.inputBase = (this.io.input / 8) | 0; this.capacity = this.io.capacity;
     this.bridge.refs[KIND_EMITTER] = new LeaseEmitters(this, this.bridge.refs[KIND_EMITTER]);
@@ -112,13 +113,6 @@ export class F2Seats {
       f2SeatAction: a => this.action(a),
       f2TurretDraw: a => { const w = this.crews.turrets[a.turret].weapon; this.drawAnswer.value = w.random ? w.random() : this.legacySpread(); return this.drawAnswer; },
       f2TurretTarget: a => this.target(a),
-      seatCast: a => {
-        const hit = vs.seatsWorld.cast(a.origin, a.direction, a.far, this.hit, a.ignore), out = this.castResult;
-        out.found = Boolean(hit); out.distance = hit?.distance ?? 0; out.terrain = Boolean(hit?.terrain); out.body = hit?.body ?? null;
-        if (hit) { out.point.copy(hit.point); out.normal.copy(hit.normal); }
-        return out;
-      },
-      seatOverlaps: a => { this.flag.value = vs.seatsWorld.overlapsSphere(a.center, a.radius, a.ignore); return this.flag; },
     });
     // These are authoritative writes, not method adapters. The phase itself
     // calls none of them; its latch and crew work run inside f2_step.
@@ -191,6 +185,23 @@ export class F2Seats {
     // A driven SeatUnit has its own intent rather than the soldier's. Import
     // that source as a separate generated row, and let native latching decide
     // which source owns the current occupancy.
+    // A command can arrive before the first phase. Import relation pairs for
+    // its touched crew so boarding and promotion need no query callback.
+    h.relations = o; h.relationCount = 0;
+    if (!all) {
+      const teams = this.relationTeams; let count = 0;
+      for (let i = 0; i <= this.unitCount; i++) {
+        const team = i === this.unitCount ? hull?.team : this.units[i].team;
+        if (team == null) continue;
+        let known = false;
+        for (let j = 0; j < count; j++) if (teams[j] === team) { known = true; break; }
+        if (!known) teams[count++] = team;
+      }
+      for (let i = 0; i < count; i++) for (let j = 0; j < count; j++) {
+        const row = this.relationRow; row.a = teams[i]; row.b = teams[j]; row.value = this.vehicles.relation(row.a, row.b);
+        putF2SeatRelation(b, row, f, this.inputBase + o, this.emptyHeap); o += F2SeatRelationLayout.words; h.relationCount++;
+      }
+    }
     h.controls = o; h.controlCount = 0;
     for (let ui = 0; ui < this.unitCount; ui++) {
       const unit = this.units[ui];
@@ -269,7 +280,10 @@ export class F2Seats {
   // Mouse samples are commands rather than a per-tick rig import. Keep the
   // individual sample order: clamping once after summing deltas would change
   // limited arcs and pitch at their boundaries.
-  look(vehicle, index, dx, dy, scales) {
+  look(vehicle, index, dx, dy, settings) {
+    const scales = this.lookSettings;
+    scales.scale = settings?.scale ?? 1; scales.invert = settings?.invert ?? false;
+    scales.flightScale = settings?.flightScale ?? 1; scales.flightInvert = settings?.flightInvert ?? false;
     const samples = this.lookSamples;
     samples[0][0] = dx; samples[0][1] = dy;
     this.invoke('look', vehicle.seats[index]?.lease?.unit, vehicle, vehicle.seats[index]?.lease, index, null, 1, samples, scales);

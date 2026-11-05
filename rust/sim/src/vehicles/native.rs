@@ -240,6 +240,13 @@ impl Collision {
         self.placed.clear();
     }
 
+    /// CollisionWorld.overlapsSphere for the Classic exit search. Use the
+    /// same enabled order as casts; a candidate must see earlier crew exits.
+    pub fn overlaps_sphere(&mut self, s: &mut State, center: &Vector3, radius: f64, ignore: Option<BodyId>) -> bool {
+        let ignore = ignore.map_or(-1, |b| self.kernel(b).expect("a named seat body") as i64);
+        spheres::overlaps_sphere(s, self.world, [center.x, center.y, center.z], radius, ignore, &self.flags)
+    }
+
     /// CollisionWorld.cast(origin, direction, far, out, ignoreBody) as its
     /// ray path runs it (rayCast): the candidates through the broad phase,
     /// each one's enabled flag, then the cast.

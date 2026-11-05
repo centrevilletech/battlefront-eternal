@@ -245,8 +245,9 @@ struct Ground;
 
 impl UnitsWorld for Ground {
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit> {
-        let h = import_seat_cast(&SeatRay { origin: a3(origin), direction: a3(direction), far, ignore: None });
-        h.found.then(|| CastHit { point: v3(&h.point), normal: v3(&h.normal), distance: h.distance, terrain: h.terrain })
+        crate::vehicles::module::collision_world().expect("the seat collision world")
+            .cast(crate::collision::state(), origin, direction, far, None).expect("named collision bodies")
+            .map(|h| CastHit { point: h.point, normal: h.normal, distance: h.distance, terrain: h.terrain })
     }
     fn gather(&mut self, _id: u32, _center: &Vector3, _radius: f64, _cache: usize, _out: &mut Vec<GatherPolygon>) {
         unreachable!("a spawn gathers nothing")

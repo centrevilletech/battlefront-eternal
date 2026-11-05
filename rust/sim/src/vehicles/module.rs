@@ -667,7 +667,6 @@ fn input_of(hull: &Hull) -> Input {
 /// hull), at the tick's alpha. Returns what is left over. `level`: the
 /// water's level this phase (`water.level`), for a map with water;
 static mut AIM_WANTED: Vec<f64> = Vec::new();
-static mut POLYGON_SPARES: Vec<Polygon> = Vec::new();
 static mut PHASE_REFS: Vec<Ref<Vehicle>> = Vec::new();
 static mut PHASE_MINE: Vec<(usize, Ref<Vehicle>)> = Vec::new();
 static mut PHASE_POSED: Vec<bool> = Vec::new();
@@ -846,15 +845,6 @@ fn vec(a: &Vec3) -> Vector3 {
     Vector3::new(a[0], a[1], a[2])
 }
 
-fn body_word(body: Option<BodyId>) -> f64 {
-    body.map_or(-1.0, |b| b as f64)
-}
-
-fn hit_of(h: VehHit) -> Option<Hit> {
-    h.found.then(|| Hit { distance: h.distance, point: vec(&h.point), normal: vec(&h.normal), terrain: h.terrain, body: (h.body >= 0.0).then_some(h.body as BodyId) })
-}
-
-/// The hull's body (its number in the store), by its place in the list.
 fn body_of(hull: usize) -> BodyId {
     let s = sim();
     let r = s.store.vehicles.vehicles[hull];
@@ -864,123 +854,60 @@ fn body_of(hull: usize) -> BodyId {
 /// The battle: the module's own collision world, water and death regions
 /// where it holds them (native.rs), the imports for the rest. `craft`: the
 /// craft whose flight steps now (its store slot), for its registry entry.
-static mut PUSH_PROBES: Vec<Vec3> = Vec::new();
 
 pub struct JsWorld {
     craft: u32,
 }
 
 impl VehicleWorld for JsWorld {
+    // VehiclesWorld's spatial queries share the battle's native kernel. No
+    // query round-trip can interleave a stale JavaScript collider mirror.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> {
-        if let Some(hit) = collision_world().and_then(|c| c.cast(crate::collision::state(), origin, direction, far, ignore)) {
-            return hit;
-        }
-        hit_of(import_veh_cast(&VehRay { origin: v3(origin), direction: v3(direction), far, ignore: body_word(ignore) }))
+        collision_world().expect("the vehicle collision world")
+            .cast(crate::collision::state(), origin, direction, far, ignore).expect("named collision bodies")
     }
 
     fn push_walls(&mut self, hull: usize, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> bool {
-        if let Some(c) = collision_world() {
-            if let Some(undo) = c.push_walls(crate::collision::state(), body_of(hull), probes, radius, q, own, previous, position, velocity, terrain) {
-                return undo;
-            }
-        }
-        let mut points = unsafe { std::mem::take(&mut *addr_of_mut!(PUSH_PROBES)) };
-        points.clear(); points.extend(probes.iter().map(v3));
-        let args = VehPush {
-            hull: hull as f64,
-            probes: points,
-            radius,
-            q: [q.x, q.y, q.z, q.w],
-            own: own.map(|o| [o.x, o.y, o.z, o.w]),
-            previous: v3(previous),
-            position: v3(position),
-            velocity: v3(velocity),
-            terrain,
-        };
-        let r = import_veh_push_walls(&args);
-        unsafe { *addr_of_mut!(PUSH_PROBES) = args.probes; }
-        *position = vec(&r.position);
-        *velocity = vec(&r.velocity);
-        r.undo
+        collision_world().expect("the vehicle collision world")
+            .push_walls(crate::collision::state(), body_of(hull), probes, radius, q, own, previous, position, velocity, terrain)
+            .expect("a hull collider")
     }
 
     fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<Ground> {
-        if let Some(c) = collision_world() {
-            return c.ground(crate::collision::state(), x, z, top);
-        }
-        let g = import_veh_ground(&VehColumn { x, z, top });
-        g.found.then(|| Ground { height: g.height, normal: vec(&g.normal) })
+        collision_world().expect("the vehicle collision world").ground(crate::collision::state(), x, z, top)
     }
 
     fn spring_polygons(&mut self, hull: usize, index: usize, center: &Vector3, radius: f64, out: &mut Vec<Polygon>) {
         let _allocation = f2::allocation::nested(f2::allocation::Stage::Polygons);
-        if let Some(c) = collision_world() {
-            if c.spring_polygons(crate::collision::state(), body_of(hull), index, center, radius, out).is_some() {
-                return;
-            }
-        }
-        import_veh_spring_polygons_read(&VehSpring { hull: hull as f64, index: index as f64, center: v3(center), radius }, |row, heap| {
-            let polygons = VehPolygons::polygons_rows(row, heap);
-            let spare = unsafe { &mut *addr_of_mut!(POLYGON_SPARES) };
-            while out.len() > polygons.len() { spare.push(out.pop().unwrap()); }
-            for (i, words) in polygons.enumerate() {
-                if i == out.len() { out.push(spare.pop().unwrap_or_default()); }
-                let p = &mut out[i]; p.id = words[VehPolygon::ID]; p.moving = words[VehPolygon::MOVING] != 0.0;
-                p.triangles.clear();
-                for t in VehPolygon::triangles_rows(words, heap) {
-                    let t = VehTriangle::take(t, heap); p.triangles.push([vec(&t.a), vec(&t.b), vec(&t.c)]);
-                }
-            }
-        });
+        collision_world().expect("the vehicle collision world")
+            .spring_polygons(crate::collision::state(), body_of(hull), index, center, radius, out).expect("a hull spring");
     }
 
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4) {
-        if collision_world().and_then(|c| c.move_body(crate::collision::state(), body, matrix)).is_some() {
-            return;
-        }
-        import_veh_move_body(&VehBody { body: body as f64, matrix: matrix.elements, enabled: false });
+        collision_world().expect("the vehicle collision world")
+            .move_body(crate::collision::state(), body, matrix).expect("a hull body");
     }
 
     fn enable_body(&mut self, body: BodyId, enabled: bool) {
-        if collision_world().and_then(|c| c.enable_body(crate::collision::state(), body, enabled)).is_some() {
-            return;
-        }
-        import_veh_enable_body(&VehBody { body: body as f64, matrix: [0.0; 16], enabled });
+        collision_world().expect("the vehicle collision world")
+            .enable_body(crate::collision::state(), body, enabled).expect("a hull body");
     }
 
     fn body_enabled(&mut self, body: BodyId) -> bool {
-        if let Some(on) = collision_world().and_then(|c| c.body_enabled(crate::collision::state(), body)) {
-            return on;
-        }
-        import_veh_body_enabled(&VehBody { body: body as f64, matrix: [0.0; 16], enabled: false }).value
+        collision_world().expect("the vehicle collision world")
+            .body_enabled(crate::collision::state(), body).expect("a hull body")
     }
 
     fn water_over(&mut self, x: f64, z: f64) -> bool {
-        if let Some(m) = map() {
-            return m.water.as_ref().is_some_and(|w| w.over(x, z));
-        }
-        import_veh_water_over(&VehColumn { x, z, top: 0.0 }).value
+        map().expect("the vehicle map rules").water.as_ref().is_some_and(|w| w.over(x, z))
     }
 
-    fn water_level(&mut self) -> f64 {
-        if let Some(m) = map() {
-            return m.level;
-        }
-        import_veh_water_level(&VehNothing {}).value
-    }
+    fn water_level(&mut self) -> f64 { map().expect("the vehicle map rules").level }
 
-    fn has_water(&mut self) -> bool {
-        if let Some(m) = map() {
-            return m.water.is_some();
-        }
-        import_veh_has_water(&VehNothing {}).value
-    }
+    fn has_water(&mut self) -> bool { map().expect("the vehicle map rules").water.is_some() }
 
     fn in_death_region(&mut self, position: &Vector3) -> bool {
-        if let Some(m) = map() {
-            return m.in_death_region(position);
-        }
-        import_veh_in_death_region(&VehPoint { position: v3(position) }).value
+        map().expect("the vehicle map rules").in_death_region(position)
     }
 
     fn damaged(&mut self, hull: usize, amount: f64, attacker: &OrdnanceOwner) {
@@ -989,8 +916,7 @@ impl VehicleWorld for JsWorld {
     }
 
     fn destroyed_crew(&mut self, hull: usize) {
-        if f2::active() { f2::live_seats::destroyed(hull); return; }
-        import_veh_destroyed_crew(&VehHull { hull: hull as f64 });
+        f2::live_seats::destroyed(hull);
     }
 
     fn destroyed(&mut self, hull: usize) {
@@ -999,13 +925,11 @@ impl VehicleWorld for JsWorld {
     }
 
     fn respawn_clock(&mut self, hull: usize) {
-        if f2::active() { f2::respawn_clock(hull); }
-        else { import_veh_respawn_clock(&VehHull { hull: hull as f64 }); }
+        f2::respawn_clock(hull);
     }
 
     fn release_crew(&mut self, hull: usize) {
-        if f2::active() { f2::live_seats::release(hull); return; }
-        import_veh_release_crew(&VehHull { hull: hull as f64 });
+        f2::live_seats::release(hull);
     }
 
     fn explosion(&mut self, hull: usize, final_explosion: bool, position: &Vector3) {
@@ -1024,14 +948,12 @@ impl VehicleWorld for JsWorld {
     }
 
     fn clock(&mut self) -> f64 {
-        if let Some(clock) = unsafe { *addr_of_mut!(CLOCK) } {
-            return clock;
-        }
-        import_veh_clock(&VehNothing {}).value
+        unsafe { (*addr_of_mut!(CLOCK)).expect("the vehicle phase clock") }
     }
 
     fn tow_released(&mut self, _hull: usize, _reason: &str) {
-        unreachable!("the tow cables are JavaScript's in this phase")
+        // Hull cleanup never releases a cable; the native tow phase does.
+        unreachable!("tow release belongs to the mounted weapon owner")
     }
 
     fn current(&mut self, hull: &Hull) {

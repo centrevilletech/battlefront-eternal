@@ -5086,11 +5086,34 @@ impl F2Pose {
     }
 }
 
+impl F2SeatRelation {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatRelation {
+            a: { let p = format!("{path}.a"); num(v.get("a"), &p)? },
+            b: { let p = format!("{path}.b"); num(v.get("b"), &p)? },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Num(self.a); fields.push(("a", x)); }
+        { let x = Value::Num(self.b); fields.push(("b", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        a.object("", fields)
+    }
+}
+
 impl F2SeatHeader {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         object(v, path)?;
         Ok(F2SeatHeader {
+            relations: { let p = format!("{path}.relations"); (int(v.get("relations"), &p, 0.0, u32::MAX as f64)? as u32) },
+            relation_count: { let p = format!("{path}.relationCount"); (int(v.get("relationCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             units: { let p = format!("{path}.units"); (int(v.get("units"), &p, 0.0, u32::MAX as f64)? as u32) },
             unit_count: { let p = format!("{path}.unitCount"); (int(v.get("unitCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             controls: { let p = format!("{path}.controls"); (int(v.get("controls"), &p, 0.0, u32::MAX as f64)? as u32) },
@@ -5108,7 +5131,9 @@ impl F2SeatHeader {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(12);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        { let x = Value::Num(self.relations as f64); fields.push(("relations", x)); }
+        { let x = Value::Num(self.relation_count as f64); fields.push(("relationCount", x)); }
         { let x = Value::Num(self.units as f64); fields.push(("units", x)); }
         { let x = Value::Num(self.unit_count as f64); fields.push(("unitCount", x)); }
         { let x = Value::Num(self.controls as f64); fields.push(("controls", x)); }

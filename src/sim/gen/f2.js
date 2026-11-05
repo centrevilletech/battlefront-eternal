@@ -969,8 +969,49 @@ export function exportF2Pose(o, cx) {
   return v;
 }
 
+export class F2SeatRelationMirror {
+  constructor() {
+    this.a = NaN;
+    this.b = NaN;
+    this.value = NaN;
+  }
+}
+
+export function syncF2SeatRelation(b, f, at, h, m) {
+  m.a = f[at + 0];
+  m.b = f[at + 1];
+  m.value = f[at + 2];
+  return m;
+}
+
+export function putF2SeatRelation(b, o, f, at, heap) {
+  f[at + 0] = o.a;
+  f[at + 1] = o.b;
+  f[at + 2] = o.value;
+}
+
+export function sameF2SeatRelation(a, b) {
+  if (!Object.is(a.a, b.a)) return ".a";
+  if (!Object.is(a.b, b.b)) return ".b";
+  if (!Object.is(a.value, b.value)) return ".value";
+  return null;
+}
+
+export function exportF2SeatRelation(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.a = o.a;
+  v.b = o.b;
+  v.value = o.value;
+  return v;
+}
+
 export class F2SeatHeaderMirror {
   constructor() {
+    this.relations = 0;
+    this.relationCount = 0;
     this.units = 0;
     this.unitCount = 0;
     this.controls = 0;
@@ -987,37 +1028,43 @@ export class F2SeatHeaderMirror {
 }
 
 export function syncF2SeatHeader(b, f, at, h, m) {
-  m.units = f[at + 0];
-  m.unitCount = f[at + 1];
-  m.controls = f[at + 2];
-  m.controlCount = f[at + 3];
-  m.looks = f[at + 4];
-  m.lookCount = f[at + 5];
-  m.mouseScale = f[at + 6];
-  m.invert = f[at + 7] !== 0;
-  m.flightScale = f[at + 8];
-  m.flightInvert = f[at + 9] !== 0;
-  m.soldiers = f[at + 10];
-  m.soldierCount = f[at + 11];
+  m.relations = f[at + 0];
+  m.relationCount = f[at + 1];
+  m.units = f[at + 2];
+  m.unitCount = f[at + 3];
+  m.controls = f[at + 4];
+  m.controlCount = f[at + 5];
+  m.looks = f[at + 6];
+  m.lookCount = f[at + 7];
+  m.mouseScale = f[at + 8];
+  m.invert = f[at + 9] !== 0;
+  m.flightScale = f[at + 10];
+  m.flightInvert = f[at + 11] !== 0;
+  m.soldiers = f[at + 12];
+  m.soldierCount = f[at + 13];
   return m;
 }
 
 export function putF2SeatHeader(b, o, f, at, heap) {
-  f[at + 0] = o.units;
-  f[at + 1] = o.unitCount;
-  f[at + 2] = o.controls;
-  f[at + 3] = o.controlCount;
-  f[at + 4] = o.looks;
-  f[at + 5] = o.lookCount;
-  f[at + 6] = o.mouseScale;
-  f[at + 7] = o.invert ? 1 : 0;
-  f[at + 8] = o.flightScale;
-  f[at + 9] = o.flightInvert ? 1 : 0;
-  f[at + 10] = o.soldiers;
-  f[at + 11] = o.soldierCount;
+  f[at + 0] = o.relations;
+  f[at + 1] = o.relationCount;
+  f[at + 2] = o.units;
+  f[at + 3] = o.unitCount;
+  f[at + 4] = o.controls;
+  f[at + 5] = o.controlCount;
+  f[at + 6] = o.looks;
+  f[at + 7] = o.lookCount;
+  f[at + 8] = o.mouseScale;
+  f[at + 9] = o.invert ? 1 : 0;
+  f[at + 10] = o.flightScale;
+  f[at + 11] = o.flightInvert ? 1 : 0;
+  f[at + 12] = o.soldiers;
+  f[at + 13] = o.soldierCount;
 }
 
 export function sameF2SeatHeader(a, b) {
+  if (!Object.is(a.relations, b.relations)) return ".relations";
+  if (!Object.is(a.relationCount, b.relationCount)) return ".relationCount";
   if (!Object.is(a.units, b.units)) return ".units";
   if (!Object.is(a.unitCount, b.unitCount)) return ".unitCount";
   if (!Object.is(a.controls, b.controls)) return ".controls";
@@ -1038,6 +1085,8 @@ export function exportF2SeatHeader(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
+  v.relations = o.relations;
+  v.relationCount = o.relationCount;
   v.units = o.units;
   v.unitCount = o.unitCount;
   v.controls = o.controls;

@@ -27,7 +27,8 @@ export default {
     F2PoseSeat: { lastYaw: 'f64|null', yawRate: 'f64', hasTarget: 'bool', target: 'vec3', aimers: 'list:rec:F2Aimer', eye: 'vec3', forward: 'vec3', frame: 'mat4' },
     F2Pose: { hull: 'ref:vehicle', age: 'f64', walkPhase: 'f64', walkBlend: 'f64', visual: 'vec3', rootQ: 'quat', rootEuler: 'vec3', seats: 'list:rec:F2PoseSeat' },
     // Flat rows let the phase decode one input at a time without temporary lists.
-    F2SeatHeader: { units: 'u32', unitCount: 'u32', controls: 'u32', controlCount: 'u32', looks: 'u32', lookCount: 'u32', mouseScale: 'f64', invert: 'bool', flightScale: 'f64', flightInvert: 'bool', soldiers: 'u32', soldierCount: 'u32' },
+    F2SeatRelation: { a: 'f64', b: 'f64', value: 'f64' },
+    F2SeatHeader: { relations: 'u32', relationCount: 'u32', units: 'u32', unitCount: 'u32', controls: 'u32', controlCount: 'u32', looks: 'u32', lookCount: 'u32', mouseScale: 'f64', invert: 'bool', flightScale: 'f64', flightInvert: 'bool', soldiers: 'u32', soldierCount: 'u32' },
     F2SeatSample: { dx: 'f64', dy: 'f64' },
     F2SeatUnitIn: { unit: 'ref:unit', generation: 'f64', alive: 'bool', dead: 'bool', human: 'bool', networkHuman: 'bool|undefined', walker: 'bool', team: 'f64', removed: 'bool', hasActor: 'bool', tickCount: 'f64', intent: 'rec:Intent', noEnter: 'f64', zoomStep: 'f64', zoom: 'f64', firstPerson: 'bool', blowApart: 'bool', combatDead: 'bool', targetable: 'bool|undefined', mounted: 'bool|undefined', gunUnderwater: 'bool', aimOverride: 'vec3|null|undefined' },
     F2SeatSoldier: { $layout: true, unit: 'ref:unit', soldier: 'rec:Soldier' },

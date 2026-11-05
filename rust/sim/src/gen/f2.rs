@@ -871,7 +871,37 @@ impl F2Pose {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct F2SeatRelation {
+    pub a: f64,
+    pub b: f64,
+    pub value: f64,
+}
+
+impl F2SeatRelation {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.a;
+        row[1] = self.b;
+        row[2] = self.value;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            a: row[0],
+            b: row[1],
+            value: row[2],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct F2SeatHeader {
+    pub relations: u32,
+    pub relation_count: u32,
     pub units: u32,
     pub unit_count: u32,
     pub controls: u32,
@@ -887,39 +917,43 @@ pub struct F2SeatHeader {
 }
 
 impl F2SeatHeader {
-    pub const WORDS: usize = 12;
+    pub const WORDS: usize = 14;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
-        row[0] = self.units as f64;
-        row[1] = self.unit_count as f64;
-        row[2] = self.controls as f64;
-        row[3] = self.control_count as f64;
-        row[4] = self.looks as f64;
-        row[5] = self.look_count as f64;
-        row[6] = self.mouse_scale;
-        row[7] = if self.invert { 1.0 } else { 0.0 };
-        row[8] = self.flight_scale;
-        row[9] = if self.flight_invert { 1.0 } else { 0.0 };
-        row[10] = self.soldiers as f64;
-        row[11] = self.soldier_count as f64;
+        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
+        row[0] = self.relations as f64;
+        row[1] = self.relation_count as f64;
+        row[2] = self.units as f64;
+        row[3] = self.unit_count as f64;
+        row[4] = self.controls as f64;
+        row[5] = self.control_count as f64;
+        row[6] = self.looks as f64;
+        row[7] = self.look_count as f64;
+        row[8] = self.mouse_scale;
+        row[9] = if self.invert { 1.0 } else { 0.0 };
+        row[10] = self.flight_scale;
+        row[11] = if self.flight_invert { 1.0 } else { 0.0 };
+        row[12] = self.soldiers as f64;
+        row[13] = self.soldier_count as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
+        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
         Self {
-            units: word_u32(row[0]),
-            unit_count: word_u32(row[1]),
-            controls: word_u32(row[2]),
-            control_count: word_u32(row[3]),
-            looks: word_u32(row[4]),
-            look_count: word_u32(row[5]),
-            mouse_scale: row[6],
-            invert: row[7] != 0.0,
-            flight_scale: row[8],
-            flight_invert: row[9] != 0.0,
-            soldiers: word_u32(row[10]),
-            soldier_count: word_u32(row[11]),
+            relations: word_u32(row[0]),
+            relation_count: word_u32(row[1]),
+            units: word_u32(row[2]),
+            unit_count: word_u32(row[3]),
+            controls: word_u32(row[4]),
+            control_count: word_u32(row[5]),
+            looks: word_u32(row[6]),
+            look_count: word_u32(row[7]),
+            mouse_scale: row[8],
+            invert: row[9] != 0.0,
+            flight_scale: row[10],
+            flight_invert: row[11] != 0.0,
+            soldiers: word_u32(row[12]),
+            soldier_count: word_u32(row[13]),
         }
     }
 
