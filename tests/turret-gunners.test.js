@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
+import { CollisionWorld, nativeTurrets } from './helpers/native-vehicles.js';
 import { Turret } from '../src/props.js';
 import { SeatLease, TurretSeats } from '../src/seats.js';
 import { Gunner } from '../src/gunner.js';
@@ -80,12 +80,8 @@ function soldierUnit(team = 1, { arms = false } = {}) {
     gunner(clip, pitch, turn, time, seat = null) { calls.gunner.push({ clip: clip?.name ?? null, pitch, turn, time, seat: seat?.clone() ?? null }); },
     reset() { calls.reset++; }, die() { calls.die++; },
   };
-  const soldier = {
-    position: new THREE.Vector3(0, 0, 8), previous: new THREE.Vector3(), settled: new THREE.Vector3(), velocity: new THREE.Vector3(),
-    aimYaw: 0, aimPitch: 0, posture: 'stand', air: null, dive: 0, grounded: true, passThrough: null,
-    spawn(x, y, z, yaw) { calls.spawns++; this.position.set(x, y, z); this.aimYaw = yaw; this.velocity.set(0, 0, 0); },
-    pitchRange: () => [-1.4, 1.4],
-  };
+  const soldier = new Soldier(null, {}); soldier.position.set(0,0,8);
+  soldier.spawn = function(x,y,z,yaw) { calls.spawns++;this.position.set(x,y,z);this.aimYaw=yaw;this.velocity.set(0,0,0); };
   const combat = { mounted: false, dead: false, team, health: 300, lastAttacker: null, blowApart: false,
     damage(amount, onShield, point, attacker) { if (this.dead) return; this.health -= amount; this.lastAttacker = attacker;
       if (this.health <= 0) { this.dead = true; animator.die(); unit.alive = false; unit.dead = true; leaveKilled(unit); } } };
@@ -101,7 +97,7 @@ function soldierUnit(team = 1, { arms = false } = {}) {
 // tall that the turret's collision fills, the gun 1.3 m up. settings: its
 // class's, over a minigun turret's. drumTurn: a turn about the vertical the
 // drum's bind pose has (the barge turret's is half round).
-function emplacement(settings = {}, { drumTurn = 0 } = {}) {
+function emplacement(settings = {}, { drumTurn = 0, authority = true } = {}) {
   const floor = box(0, -1, 0, 400, 2, 400);
   const collision = new CollisionWorld(floor.positions, floor.indices, floor.polygons);
   const rig = { root: new THREE.Group(), byName: {} };
@@ -109,10 +105,11 @@ function emplacement(settings = {}, { drumTurn = 0 } = {}) {
   rig.root.add(rig.byName.drum); rig.byName.drum.add(rig.byName.gun); rig.byName.gun.add(rig.byName.hp_fire); rig.byName.drum.add(rig.byName.seat);
   rig.byName.gun.position.set(0, 1.3, 0.4); rig.byName.hp_fire.position.z = 1; rig.byName.seat.position.set(0, 0.2, -0.5);
   rig.byName.drum.quaternion.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, drumTurn);
+  rig.bones = Object.values(rig.byName);
   rig.model = { box: [[-1, 0, -1], [1, 2, 1]] };
   rig.root.updateMatrixWorld(true);
   const desc = { base: 'armedbuilding', class: 'test_gunturret', matrix: new THREE.Matrix4().toArray(),
-    settings: { TurretNodeName: 'drum', AimerNodeName: 'gun', PilotPosition: 'seat', FirePointName: 'hp_fire', MaxTurnSpeed: 2, MaxHealth: 300, Pilot9Pose: 'minigun_9pose', ...settings }, weapon: null };
+    settings: { TurretNodeName: 'drum', AimerNodeName: 'gun', PilotPosition: 'seat', FirePointName: 'hp_fire', MaxTurnSpeed: 2, MaxHealth: 300, PitchTurnFactor: 0, Pilot9Pose: 'minigun_9pose', ...settings }, weapon: null };
   const bodies = {};
   const turret = new Turret(desc, { built: rig }, bodies, null);
   const tub = box(0, 0.5, -0.5, 1.4, 1, 1.4);
@@ -121,7 +118,9 @@ function emplacement(settings = {}, { drumTurn = 0 } = {}) {
   const units = new Units();
   const unboarded = [];
   const crews = new TurretSeats({ live: { turrets: [turret] }, collision, units, onUnboard: (unit, object, seat, post, reason) => unboarded.push({ unit, reason }) });
-  return { collision, rig, turret, units, crews, unboarded };
+  turret.present();
+  const system = authority ? nativeTurrets(crews) : null;
+  return { collision, rig, turret, units, crews, unboarded, system };
 }
 
 // Rounds through the shared Ordnance, struck units and bodies recorded.
@@ -142,10 +141,21 @@ function man(world, unit = soldierUnit(1)) {
   assert.ok(world.crews.man(unit, world.turret), 'mans it');
   return unit;
 }
-const seatPoint = (world) => world.rig.byName.seat.getWorldPosition(new THREE.Vector3());
+const seatPoint = world => world.turret.seatPoint(new THREE.Vector3());
 // A point given in the gunner's frame (x left, y up, z ahead) in the world:
 // at the seat, turned with the drum.
 const fromSeat = (world, x, y, z) => new THREE.Vector3(x, y, z).applyAxisAngle(THREE.Object3D.DEFAULT_UP, world.turret.facing + world.turret.yaw).add(seatPoint(world));
+
+// Drive the real native crew with a desktop-rate input, then let ordinary
+// bot flags resume. This avoids mutating the canonical turret's aim mirror.
+function aim(world, unit, yaw, pitch = world.turret.pitch) {
+  const t = world.turret, dt = .1, k = Math.min(1, t.filter * dt), person = unit.networkHuman;
+  unit.networkHuman = true;
+  unit.intent.turn = -(((yaw - t.yaw) / dt - t.yawVel) / k + t.yawVel) / t.turnRate;
+  unit.intent.pitch = (((pitch - t.pitch) / dt - t.pitchVel) / k + t.pitchVel) / t.turnRate;
+  world.system.update(dt);
+  unit.networkHuman = person; unit.intent.turn = unit.intent.pitch = 0;
+}
 
 test("a network human takes a bot-manned turret over; another bot cannot", () => {
   const world = emplacement();
@@ -176,14 +186,11 @@ test("a turret's shown gunner is struck where he is drawn, turning and tipping w
   // Drawn and struck in one pose: the turret's sample, the 9-pose.
   assert.equal(unit.calls.gunner.at(-1).clip, 'human_minigun_9pose');
   // The drum a quarter turn left: the seat and the gunner go round with it.
-  world.turret.yaw = Math.PI / 2;
-  world.turret.present();
-  world.crews.pose(unit.seat, 0);
+  aim(world, unit, Math.PI / 2);
   assert.ok(headAt().distanceTo(fromSeat(world, 0.05, 1.71, 0.2)) < 1e-5, 'turned with the drum');
   near(seatPoint(world).x, -0.5, 1e-9, 'the seat went round');
   // The gun raised all the way: the 9-pose's top frame, 0.1 m higher here.
-  world.turret.pitch = Math.PI / 4;
-  world.crews.pose(unit.seat, 0);
+  aim(world, unit, Math.PI / 2, Math.PI / 4);
   assert.ok(headAt().distanceTo(fromSeat(world, 0.05, 1.81, 0.2)) < 1e-5, 'up with the gun');
   near(unit.calls.gunner.at(-1).pitch, -1, 1e-9, 'drawn in the same frame');
   // Rays: a round's meets him; a sight test passes him by, as anyone seated.
@@ -206,9 +213,7 @@ test("a drum bound turned (the barge turret's) still points its gun along the fa
   assert.ok(unit.calls.gunner.at(-1).seat?.angleTo(new THREE.Quaternion()) < 1e-6, 'drawn turned as the seat node is');
   assert.ok(unit.hitShapes()[0].center.distanceTo(fromSeat(world, 0.05, 1.71, 0.2)) < 1e-5, 'struck there');
   // Turned, he goes round with the drum, still facing along the gun.
-  world.turret.yaw = Math.PI / 2;
-  world.turret.present();
-  world.crews.pose(unit.seat, 0);
+  aim(world, unit, Math.PI / 2);
   world.turret.muzzle(muzzle, direction);
   near(unit.soldier.aimYaw, Math.PI / 2, 1e-6, 'turned with the gun');
   near(Math.atan2(direction.x, direction.z), Math.PI / 2, 1e-6, 'the gun turned the same way');
@@ -238,7 +243,7 @@ test("a gunner's arms are struck too, from the shoulder to the middle of the han
 
 test("a page draws its own player's gunner at the seat in the gunner's pose, at the aim it previews, and lets him go with the turret", () => {
   // The drum turns but doesn't tip, as the gun turret's (PitchTurnFactor 0).
-  const world = emplacement({ PitchTurnFactor: 0 }, { drumTurn: Math.PI });
+  const world = emplacement({ PitchTurnFactor: 0 }, { drumTurn: Math.PI, authority: false });
   const player = soldierUnit(1);
   const gunner = new Gunner({ camera: new THREE.PerspectiveCamera(), collision: world.collision, ordnance: null, combat: player.combat, animator: player.animator });
   // A page showing a worker's or a server's battle: the seat packet sets
@@ -336,9 +341,7 @@ test('killed at the gun, a bot or a network human leaves it at once, his body fa
     const unit = soldierUnit(1);
     unit.networkHuman = networkHuman;
     man(world, unit);
-    world.turret.yaw = Math.PI / 2;
-    world.turret.present();
-    world.crews.pose(unit.seat, 0);
+    aim(world, unit, Math.PI / 2);
     const lease = unit.seat;
     unit.combat.damage(Infinity, 0, null, enemy);
     assert.equal(unit.seat, null);
@@ -366,7 +369,7 @@ test('killed at the gun, a bot or a network human leaves it at once, his body fa
 test('a turret destroyed under its gunner kills him there, credited to its destroyer', () => {
   const world = emplacement();
   const unit = man(world);
-  const killer = { id: 2, generation: 1, team: 2, alive: true };
+  const killer = world.units.add(soldierUnit(2));
   world.turret.damage(1000, killer);
   assert.equal(unit.alive, false);
   same(unit.combat.lastAttacker, killer);
@@ -380,10 +383,11 @@ test('the player killed at the gun leaves it the same way, his death clip kept',
   player.human = true;
   world.units.add(player);
   const gunner = new Gunner({ camera: new THREE.PerspectiveCamera(), collision: world.collision, ordnance: null, combat: player.combat, animator: player.animator });
-  gunner.enter(world.turret, player.soldier);
+  player.networkHuman = true;
+  assert.equal(world.crews.man(player, world.turret), true);
   same(player.seat, world.turret.lease);
-  same(world.turret.humanGunner, gunner);
-  gunner.update(1 / 60, player.soldier, { take: () => false, held: () => false });
+
+  world.system.update(1 / 60);
   assert.equal(player.seat.exposed, true);
   assert.equal(player.hitShapes().length, 6, "his body is struck as a bot's is");
   assert.ok(player.hitShapes()[0].center.distanceTo(fromSeat(world, 0.05, 1.71, 0.2)) < 1e-5);
@@ -423,13 +427,16 @@ test('a turret that names no pilot animation hides its gunner: no rounds, no bla
   const player = soldierUnit(1);
   player.human = true;
   const gunner = new Gunner({ camera: new THREE.PerspectiveCamera(), collision: world.collision, ordnance: null, combat: player.combat, animator: player.animator });
-  gunner.enter(world.turret, player.soldier);
-  gunner.update(1 / 60, player.soldier, { take: () => false, held: () => false });
+  player.networkHuman = true;
+  world.units.add(player);
+  assert.equal(world.crews.man(player, world.turret), true);
+  world.system.update(1 / 60);
   assert.equal(player.seat.exposed, false);
   assert.equal(player.actor.root.visible, false);
-  gunner.exit(player.soldier);
+  world.crews.leave(player);
   assert.equal(player.actor.root.visible, true);
-  assert.equal(player.calls.spawns, 1, 'set down beside it');
+  assert.equal(player.soldier.grounded, true, 'native exit stands him on the floor');
+  assert.ok(player.position.distanceTo(world.turret.position) > 1, 'set down beside the turret');
   // A shootable class can still keep its gunner out of reach (hash 2b60e217 0).
   assert.equal(emplacement({ '2b60e217': '0' }).turret.exposedSeat(), false);
 });

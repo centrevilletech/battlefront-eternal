@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Soldier } from '../src/soldier.js';
 import { PlayerCombat } from '../src/combat.js';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
+import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles } from '../src/vehicles.js';
 import { LiveObjects } from '../src/props.js';
 import { RemoteDroids } from '../src/remote.js';
@@ -102,6 +102,7 @@ test('a hull is measured from its model\'s bounding sphere, takes friendly fire\
     classes: { tank: d }, spawns: [{ name: 'pad', matrix: new THREE.Matrix4().toArray(), team: 1, post: 'cp', respawnTime: 2, classes: { 1: 'tank', 2: 'tank' } }] };
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0), collision: w, texture: () => null,
     camera: new THREE.PerspectiveCamera(), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } } });
+  nativeVehicles(system, { data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0) });
   const v = system.vehicles[0];
   // 4 m from the sphere's centre less 1.5: 2.5 m, halfway from 1 to 4.
   const blast = { Damage: 400, DamageRadiusInner: 1, DamageRadiusOuter: 4, VehicleScale: 0.5 };

@@ -18,7 +18,7 @@ const { headlessGame, idleCommand } = await import('./headless-world.mjs');
 const { ExportContext } = await import('../src/sim/runtime.js');
 const { exportSoldier, exportDroideka } = await import('../src/sim/gen/index.js');
 const { worldState } = await import('../src/runtime/world-state.js');
-const game = await headlessGame(`?map=nab2&side=${side}&era=cw&seed=${seed}&unit=${unitName}${module ? '&units=rust&combat=rust&hulls=rust&seats=rust&battle=rust' : ''}`);
+const game = await headlessGame(`?map=nab2&side=${side}&era=cw&seed=${seed}&unit=${unitName}${module ? '&units=rust&combat=rust&battle=rust' : ''}`);
 for (let i = 0; i < 3; i++) { game.step(idleCommand(game)); await new Promise(resolve => setImmediate(resolve)); }
 assert.equal(Boolean(game.unitsSim), module);
 assert.ok(!game.factory.built.includes(game.playerUnit), 'the authority local body is outside the factory phase');

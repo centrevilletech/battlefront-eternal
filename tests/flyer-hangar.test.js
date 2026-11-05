@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 // Bots out of a hangar and over the terrain as the 2004 game's AI flies them
 // (docs/ai-vehicles.md "UnitFlyAgent" and "Vehicle input conversion"): the
 // pilot lifts off only while his movement helper is moving him; the climb out
@@ -27,7 +28,7 @@ const slowOf = (c) => throttleFor(c, Math.max(c.minSpeed, .25 * c.maxSpeed));
 
 test('a bot pilot stays on his pad while his movement helper stands him still, and lifts off once it moves him', () => {
   const f = fixture();
-  f.system.update(DT, f.v, {});
+  stepPrediction(f.system, DT, f.v, {});
   assert.equal(f.v.flightState, 'Landed');
   const unit = { vehicle: f.v, steer: {} };
   f.v.stateTime = 0;
@@ -38,7 +39,7 @@ test('a bot pilot stays on his pad while his movement helper stands him still, a
   assert.equal(input(unit, request(at(0, 1, 200), 1)).up, 1, 'at the start of a path');
   assert.equal(input(unit, request(at(0, 1, 200), 2)).up, 1, 'along it');
   // And the craft lifts.
-  for (let i = 0; i < 30; i++) f.system.update(DT, f.v, { takeoff: input(unit, request(at(0, 1, 200), 2)).up });
+  for (let i = 0; i < 30; i++) stepPrediction(f.system, DT, f.v, { takeoff: input(unit, request(at(0, 1, 200), 2)).up });
   assert.equal(f.v.flightState, 'TakingOff');
 });
 
@@ -48,8 +49,8 @@ function flying(roof = false) {
   const f = fixture();
   f.system.flightEnvironment.bounds = null;
   f.v.position.set(0, 50, 0); f.v.syncBody();
-  f.system.update(DT, f.v, { takeoff: true });
-  for (let i = 0; i < 240; i++) f.system.update(DT, f.v, {});
+  stepPrediction(f.system, DT, f.v, { takeoff: true });
+  for (let i = 0; i < 240; i++) stepPrediction(f.system, DT, f.v, {});
   assert.equal(f.v.flightState, 'Flying');
   f.v.quaternion.identity(); f.v.position.set(0, 50, 0); f.v.syncBody();
   if (roof) {

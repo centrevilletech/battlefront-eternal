@@ -206,7 +206,7 @@ export function buildModel(files) {
       const where = `${file} command ${name}`;
       if (model.commands.has(name)) fail(where, 'declared twice');
       if (!spec || typeof spec.args !== 'string' || typeof spec.rust !== 'string') fail(where, 'a command is { args: Record, result: Record or null, rust: "module::function" }');
-      model.commands.set(name, { name, file, args: spec.args, result: spec.result ?? null, rust: spec.rust, where });
+      model.commands.set(name, { name, file, args: spec.args, result: spec.result ?? null, rust: spec.rust, detached: spec.detached === true, where });
     }
     for (const [name, spec] of Object.entries(schema.events || {})) {
       const where = `${file} event ${name}`;
@@ -218,7 +218,7 @@ export function buildModel(files) {
       const where = `${file} import ${name}`;
       if (model.imports.has(name)) fail(where, 'declared twice');
       if (!spec || typeof spec.args !== 'string') fail(where, 'an import is { args: Record, result: Record or null }');
-      model.imports.set(name, { name, file, args: spec.args, result: spec.result ?? null, where });
+      model.imports.set(name, { name, file, args: spec.args, result: spec.result ?? null, borrow: spec.borrow === true, where });
     }
     for (const [name, values] of Object.entries(schema.enums || {})) {
       const where = `${file} enum ${name}`;
@@ -598,7 +598,7 @@ const sameLayout = (a, b) => a.stride === b.stride && a.fields.length === b.fiel
 function rustRecord(model, rec) {
   let at = 0;
   const placed = rec.fields.map((f) => { const p = { field: f, at }; at += words(model, f.type); return p; });
-  return [...rustStruct(model, rec.name, rec.fields), `impl ${rec.name} {`, `    pub const WORDS: usize = ${at};`, '', ...rustRows(model, placed, at, 'put', 'take', false), '}', ''];
+  return [...rustStruct(model, rec.name, rec.fields), `impl ${rec.name} {`, `    pub const WORDS: usize = ${at};`, ...(rec.layout ? placed.map(p => `    pub const ${upper(p.field.name)}: usize = ${p.at};`) : []), ...(rec.layout ? placed.filter(p => p.field.type.base === 'list').map(p => `    pub fn ${snake(p.field.name)}_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[${p.at}] as usize; let length = row[${p.at + 1}] as usize; heap[start..start + length * ${words(model, p.field.type.value)}].chunks_exact(${words(model, p.field.type.value)}) }`) : []), '', ...rustRows(model, placed, at, 'put', 'take', false), '}', ''];
 }
 
 function rustEnum(e) {
@@ -760,6 +760,9 @@ function rustCalls(model) {
   consts('IMPORT', model.importsList);
   lines.push('/// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,', '/// its result written there after it; false for no such command.', 'pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {', ...(!model.target.test ? ['    if !crate::abi::command_available(code) { return false; }'] : []), '    match code {');
   for (const c of model.commandsList) {
+    // A detached command has only a scalar export. The generic dispatcher
+    // borrows Sim, which must not survive its synchronous foreign hooks.
+    if (c.detached) { lines.push(`        COMMAND_${upper(c.name)} => return false,`); continue; }
     lines.push(`        COMMAND_${upper(c.name)} => {`, `            let args = { let (row, heap) = sim.calls.args(); ${c.args}::take(row, heap) };`);
     if (c.result) lines.push(`            let result = crate::${c.rust}(sim, args);`, `            sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`);
     else lines.push(`            crate::${c.rust}(sim, args);`, '            sim.calls.result(0, |_, _| {});');
@@ -775,7 +778,16 @@ function rustCalls(model) {
     const n = recordWords(model, c.args);
     const params = Array.from({ length: n }, (_, i) => `w${i}: f64`).join(', ');
     lines.push(`/// The command ${c.name}, its arguments' words as parameters.`, '#[no_mangle]', `pub extern "C" fn cmd_${snake(c.name).replace(/^r#/, '')}(${params}) -> *const f64 {`, `    if !crate::abi::command_available(COMMAND_${upper(c.name)}) { return std::ptr::null(); }`, `    let row: [f64; ${n}] = [${Array.from({ length: n }, (_, i) => `w${i}`).join(', ')}];`, `    let args = ${c.args}::take(&row, &[]);`, '    let sim = crate::abi::sim();');
-    if (c.result) lines.push(`    let result = crate::${c.rust}(sim, args);`, `    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
+    if (c.detached) {
+      // Decode the scalar record on the stack and acquire Sim only after the
+      // command returns. Reentrant commands can use the canonical instance.
+      lines.pop();
+      const call = `    let result = crate::${c.rust}(args);`;
+      lines.push(call, '    let sim = crate::abi::sim();');
+      if (c.result) lines.push(`    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
+      else lines.push('    std::ptr::null()');
+    }
+    else if (c.result) lines.push(`    let result = crate::${c.rust}(sim, args);`, `    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
     else lines.push(`    crate::${c.rust}(sim, args);`, '    std::ptr::null()');
     lines.push('}', '');
   }
@@ -791,6 +803,9 @@ function rustCalls(model) {
       lines.push(`/// Asks JavaScript (the import ${c.name}): its arguments go out in the import block,`, '/// its result comes back there (store::calls). The module only (a native build serves', '/// its boundary from elsewhere: the replay harness, or Rust).', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}(args: &${c.args}) -> ${c.result ?? '()'} {`, `    crate::store::calls::import_out(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`);
       if (c.result) lines.push(`    crate::store::calls::import_in(|row, heap| ${c.result}::take(row, heap))`);
       lines.push('}', '');
+      if (c.borrow && c.result) {
+        lines.push('/// Read a variable result into retained caller storage.', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}_read<T>(args: &${c.args}, read: impl FnOnce(&[f64], &[f64]) -> T) -> T {`, `    crate::store::calls::import_out(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`, '    crate::store::calls::import_in(read)', '}', '');
+      }
       if (!model.target.test) {
         lines.push('/// Calls the explicitly owned native host; no context borrow spans dispatch.', '#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]', `pub fn import_${fn}_in(context: &crate::abi::context::Context, args: &${c.args}) -> Result<${c.result ?? '()'}, crate::abi::context::Failure> {`, `    let args = crate::abi::context::Record::new(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    let reply = context.call_import(IMPORT_${upper(c.name)}, args)?;`);
         lines.push(c.result ? `    Ok(reply.read(${c.result}::take))` : '    Ok(())');
@@ -1010,11 +1025,14 @@ function jsSync(model, t, target, k) {
     case 'f64': case 'f32': case 'i32': case 'u32': case 'u8': return `${target} = f[at + ${k}];`;
     case 'index': return `${target} = ${target.replace(/\.[A-Za-z_$][\w$]*$/, '')}.${t.of}[f[at + ${k}]];`;
     case 'bool': return `${target} = f[at + ${k}] !== 0;`;
-    case 'vec3': return `(${target} ??= new THREE.Vector3()).set(f[at + ${k}], f[at + ${k + 1}], f[at + ${k + 2}]);`;
-    case 'quat': return `(${target} ??= new THREE.Quaternion()).set(f[at + ${k}], f[at + ${k + 1}], f[at + ${k + 2}], f[at + ${k + 3}]);`;
+    // Scalar stores avoid boxing float arguments at Vector3.set and
+    // Quaternion.set call sites in large phase readers. Keep the quaternion's
+    // one change callback after all four components, exactly as set does.
+    case 'vec3': return `{ const $v = (${target} ??= new THREE.Vector3()); $v.x = f[at + ${k}]; $v.y = f[at + ${k + 1}]; $v.z = f[at + ${k + 2}]; }`;
+    case 'quat': return `{ const $q = (${target} ??= new THREE.Quaternion()); $q._x = f[at + ${k}]; $q._y = f[at + ${k + 1}]; $q._z = f[at + ${k + 2}]; $q._w = f[at + ${k + 3}]; $q._onChangeCallback(); }`;
     case 'mat4': return `{ const e = (${target} ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + ${k} + i]; }`;
     case 'f64xN': return `{ const a = (${target} ??= new Array(${t.n})); ${Array.from({ length: t.n }, (_, i) => `a[${i}] = f[at + ${k + i}];`).join(' ')} }`;
-    case 'typed': return `(${target} ??= new ${t.class}(${t.n})).set(f.subarray(at + ${k}, at + ${k + t.n}));`;
+    case 'typed': return `{ const $a = (${target} ??= new ${t.class}(${t.n})); for (let i = 0; i < ${t.n}; i++) $a[i] = f[at + ${k} + i]; }`;
     case 'str': return `${target} = b.strings.at(f[at + ${k}]);`;
     case 'enum': return `${target} = ${jsEnum(model.enums.get(t.of))}[f[at + ${k}]];`;
     case 'def': return `${target} = b.defs.${t.of}.at(f[at + ${k}]);`;
@@ -1280,7 +1298,7 @@ function jsRecord(model, rec) {
   let at = 0;
   const placed = rec.fields.map((f) => { const p = { field: f, at }; at += words(model, f.type); return p; });
   return [
-    ...(rec.layout ? [`export const ${upper(rec.name)}_WORDS = ${at};`, `export const ${upper(rec.name)}_OFFSETS = Object.freeze({ ${placed.map(p => `${p.field.name}: ${p.at}`).join(', ')} });`, ''] : []),
+    ...(rec.layout ? [`export const ${rec.name}Layout = Object.freeze({ words: ${at}, ${placed.flatMap(p => p.field.type.base === 'list' ? [`${p.field.name}: ${p.at}`, `${p.field.name}Length: ${p.at + 1}`] : [`${p.field.name}: ${p.at}`]).join(', ')} });`, `export const ${upper(rec.name)}_WORDS = ${rec.name}Layout.words;`, `export const ${upper(rec.name)}_OFFSETS = ${rec.name}Layout;`, ''] : []),
     ...jsMirror(model, `${rec.name}Mirror`, rec.fields, false),
     ...jsSyncFn(model, `sync${rec.name}`, placed),
     ...jsPutFn(model, `put${rec.name}`, placed),

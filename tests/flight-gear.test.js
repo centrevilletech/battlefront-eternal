@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 // A flyer's landing gear, gear doors and S-foils: its bank's takeoff clip
 // posed at the flight state (src/flight/gear.js), the gear its own on the
 // host that steps or corrects its flight and its replicated flight state's
@@ -90,7 +91,7 @@ function craft({ clip = true, parts = [], rig = RIG, tracks = TRACKS, collisionB
 }
 const bone = (v, name) => v.bones[v.bones.findIndex((b) => b.name === name)];
 const angleOf = (b, q) => b.quaternion.angleTo(new THREE.Quaternion().fromArray(q));
-const run = (f, n, input = {}) => { for (let i = 0; i < n; i++) f.system.update(1 / 60, f.v, input); };
+const run = (f, n, input = {}) => { for (let i = 0; i < n; i++) stepPrediction(f.system, 1 / 60, f.v, input); };
 
 test('a flyer is drawn in its takeoff clip at its gear: down landed, stowed flying, DummyRoot left where the hull is seated', () => {
   const { v } = craft();
@@ -359,13 +360,13 @@ test('an X-wing\'s lasers leave the foil tips where its gear has the foils, in t
   const world = craft({ rig: FOIL_RIG, tracks: FOIL_TRACKS, weapons: [LASER] }), v = world.v;
   const page = craft({ rig: FOIL_RIG, tracks: FOIL_TRACKS, weapons: [LASER] }).v;
   v.driver = {}; v.seatIndex = 0;
-  const w = v.seats[0].weapons[0], muzzle = new THREE.Vector3();
+  const muzzle = new THREE.Vector3();
   for (const gear of [1, .5, 0]) {
     v.gear = gear; v.flightState = gear === 1 ? 'Landed' : gear === 0 ? 'Flying' : 'TakingOff';
-    v.aimTick(1, 1 / 60);
-    v.muzzleOfSeat(0, w, muzzle);
+    v.captureTick(); v.sleeping = false; v.present(1, 1 / 60);
+    v.byName.hp_laser_01.getWorldPosition(muzzle);
     const angle = gear === .5 ? OPEN / 2 : gear === 1 ? 0 : OPEN;
-    assert.ok(muzzle.distanceTo(tip(v.position, angle)) < 1e-5, `world, gear ${gear}: from the tip with the foil ${THREE.MathUtils.radToDeg(angle)} degrees open (${muzzle.distanceTo(tip(v.position, angle))})`);
+    assert.ok(muzzle.distanceTo(tip(v.position, angle)) < 1e-5, `replica, gear ${gear}: from the tip with the foil ${THREE.MathUtils.radToDeg(angle)} degrees open (${muzzle.distanceTo(tip(v.position, angle))})`);
     // The pilot's page: his craft drawn at its replayed gear, his shot drawn
     // from its drawn tip, which is where the world's round leaves.
     page.position.copy(v.position); page.quaternion.copy(v.quaternion); page.gear = gear; page.flightState = 'Flying';

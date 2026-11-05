@@ -690,15 +690,25 @@ fn compute_min_run_length(mut n: i64) -> i64 {
 
 /// `array.sort(comparefn)`: V8's TimSort over the values, in place.
 /// The comparator returns a JavaScript Number; NaN counts as +0.
+#[derive(Clone, Debug)]
+pub struct SortScratch<T> { tmp: Vec<T>, runs: Vec<(i64, i64)> }
+impl<T> SortScratch<T> {
+    pub fn reserve(&mut self, length: usize) {
+        if self.tmp.capacity() < length { self.tmp.reserve(length.saturating_sub(self.tmp.len())); }
+        if self.runs.capacity() < K_MAX_MERGE_PENDING { self.runs.reserve(K_MAX_MERGE_PENDING.saturating_sub(self.runs.len())); }
+    }
+}
+impl<T> Default for SortScratch<T> { fn default() -> Self { Self { tmp: Vec::new(), runs: Vec::new() } } }
+
+/// ArrayTimSort with caller-owned merge storage. Reset minGallop each call,
+/// as a fresh JS sort does, while retaining capacity between phase ticks.
+pub fn js_sort_reuse<T: Clone>(a: &mut Vec<T>, cmp: &mut impl FnMut(&T, &T) -> f64, scratch: &mut SortScratch<T>) {
+    scratch.tmp.clear(); scratch.runs.clear();
+    let mut sorter = TimSort { a, cmp, tmp: std::mem::take(&mut scratch.tmp), min_gallop: K_MIN_GALLOP_WINS, runs: std::mem::take(&mut scratch.runs) };
+    sorter.sort(); scratch.tmp = sorter.tmp; scratch.runs = sorter.runs;
+}
 pub fn js_sort<T: Clone>(a: &mut Vec<T>, cmp: &mut impl FnMut(&T, &T) -> f64) {
-    let mut sorter = TimSort {
-        a,
-        cmp,
-        tmp: Vec::new(),
-        min_gallop: K_MIN_GALLOP_WINS,
-        runs: Vec::new(),
-    };
-    sorter.sort();
+    js_sort_reuse(a, cmp, &mut SortScratch::default());
 }
 
 /// `array.sort(comparefn)` over a possibly sparse array: the values

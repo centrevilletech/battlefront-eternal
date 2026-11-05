@@ -18,6 +18,7 @@
 //!   bobs with the battle's clock, comes in with each phase) and the death
 //!   regions (game.js inDeathRegion over src/regions.js inRegion).
 
+use crate::gen::{F2BodyHeader, F2BodyToggle, F2BodyPlaced};
 use super::{BodyId, Ground, Hit, Polygon};
 use crate::collision::spheres::{self, box_apply_matrix4, Bounds, GatherCache, Gathered, Probes, Pushed};
 use crate::collision::{self, broad, candidate, State, MAX_BODIES, MISS, TERRAIN};
@@ -82,6 +83,8 @@ pub struct Collision {
     placed: Vec<u32>,
     marks: Vec<u8>,
     gathered: Gathered,
+    prepared: Option<u64>,
+    polygons: Vec<Polygon>,
     near: Vec<u32>,
     points: Vec<[f64; 3]>,
 }
@@ -105,6 +108,8 @@ impl Collision {
             placed: Vec::new(),
             marks: Vec::new(),
             gathered: Gathered::new(),
+            prepared: None,
+            polygons: Vec::new(),
             near: Vec::new(),
             points: Vec::new(),
         }
@@ -136,6 +141,30 @@ impl Collision {
             self.colliders.resize(b + 1, None);
         }
         self.colliders[b] = Some(collider);
+    }
+
+    /// CollisionWorld construction sizes native wall-query storage from the
+    /// loaded level. A new part of the map must not allocate on first contact.
+    pub fn prepare(&mut self, s: &State) {
+        let w = &s.worlds[self.world];
+        if self.prepared != Some(w.version) {
+            self.gathered.prepare(s,self.world,self.blockers);
+            let n = s.bodies.len();
+            self.near.reserve(self.gathered.capacity().saturating_sub(self.near.len()));
+            self.placed.reserve(n.saturating_sub(self.placed.len()));
+            self.toggled.reserve(n.saturating_sub(self.toggled.len()));
+            self.place_of.reserve(n.saturating_sub(self.place_of.len()));
+            self.marks.reserve(n.saturating_sub(self.marks.len()));
+            self.prepared = Some(w.version);
+        }
+        let statics = w.statics.map_or(0, |set| s.sets[set].polygons.len());
+        let blockers = self.blockers.map_or(0, |set| s.sets[set].polygons.len());
+        for c in self.colliders.iter().flatten() {
+            self.points.reserve(c.walls.len().saturating_sub(self.points.len()));
+            for &id in c.walls.iter().chain(&c.springs) {
+                if id >= 0 { spheres::caches()[id as usize].reserve(statics,blockers,w.order.len()); }
+            }
+        }
     }
 
     pub fn collider(&self, body: BodyId) -> Option<&Collider> {
@@ -189,29 +218,33 @@ impl Collision {
     pub fn take_changes(&mut self, s: &mut State, out: &mut Vec<f64>) {
         out.clear();
         let (toggled, placed) = (self.toggled.len(), self.placed.len());
-        out.push(toggled as f64);
-        out.push(placed as f64);
+        let mut heap = Vec::new();
+        out.resize(F2BodyHeader::WORDS,0.0);
+        F2BodyHeader { toggled: toggled as u32, placed: placed as u32 }.put(out,&mut heap);
         for i in 0..toggled {
             let k = self.toggled[i] as usize;
-            let flag = match self.place(s, k) {
-                Some(p) => self.flags[p],
-                None => 0,
-            };
-            out.push(k as f64);
-            out.push(flag as f64);
+            let enabled = self.place(s,k).is_some_and(|p| self.flags[p] != 0);
+            let at = out.len(); out.resize(at + F2BodyToggle::WORDS,0.0);
+            F2BodyToggle { kernel: k as u32, enabled }.put(&mut out[at..],&mut heap);
         }
         for &k in &self.placed {
             let b = &s.bodies[k as usize];
-            out.push(k as f64);
-            out.extend_from_slice(&b.bounds);
-            out.extend_from_slice(&b.matrix);
-            out.extend_from_slice(&b.inverse);
+            let at = out.len(); out.resize(at + F2BodyPlaced::WORDS,0.0);
+            F2BodyPlaced { kernel: k, min: [b.bounds[0],b.bounds[1],b.bounds[2]], max: [b.bounds[3],b.bounds[4],b.bounds[5]],
+                matrix: b.matrix, inverse: b.inverse }.put(&mut out[at..],&mut heap);
         }
         for &k in self.toggled.iter().chain(&self.placed) {
             self.marks[k as usize] = 0;
         }
         self.toggled.clear();
         self.placed.clear();
+    }
+
+    /// CollisionWorld.overlapsSphere for the Classic exit search. Use the
+    /// same enabled order as casts; a candidate must see earlier crew exits.
+    pub fn overlaps_sphere(&mut self, s: &mut State, center: &Vector3, radius: f64, ignore: Option<BodyId>) -> bool {
+        let ignore = ignore.map_or(-1, |b| self.kernel(b).expect("a named seat body") as i64);
+        spheres::overlaps_sphere(s, self.world, [center.x, center.y, center.z], radius, ignore, &self.flags)
     }
 
     /// CollisionWorld.cast(origin, direction, far, out, ignoreBody) as its
@@ -256,20 +289,23 @@ impl Collision {
     /// flags now. None: the hull's body is not one this knows.
     #[allow(clippy::too_many_arguments)]
     pub fn push_walls(&mut self, s: &mut State, body: BodyId, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> Option<bool> {
-        let walls = self.collider(body)?.walls.clone();
+        let walls = &self.colliders.get(body as usize)?.as_ref()?.walls;
         if walls.len() < probes.len() {
             return None;
         }
         let all = spheres::caches();
         let base = all.as_mut_ptr();
         // Each probe's own cache (distinct per probe, as a hull keeps them).
-        let mut caches: Vec<Option<&mut GatherCache>> = walls[..probes.len()].iter().map(|&id| if id >= 0 { Some(unsafe { &mut *base.add(id as usize) }) } else { None }).collect();
+        let mut caches: [Option<&mut GatherCache>; 256] = [const { None }; 256];
+        for (i, &id) in walls.iter().take(probes.len()).enumerate() {
+            if id >= 0 { caches[i] = Some(unsafe { &mut *base.add(id as usize) }); }
+        }
         self.points.clear();
         self.points.extend(probes.iter().map(|p| [p.x, p.y, p.z]));
         let p = Probes { points: &self.points, radius, q: [q.x, q.y, q.z, q.w], own: own.map(|o| [o.x, o.y, o.z, o.w]), previous: [previous.x, previous.y, previous.z], terrain };
         let mut h = Pushed { position: [position.x, position.y, position.z], velocity: [velocity.x, velocity.y, velocity.z], undo_turn: false };
         let n = s.worlds[self.world].order.len();
-        spheres::push_walls(s, self.world, &p, &mut caches, self.blockers, &self.flags[..n], &mut h, &mut self.gathered, &mut self.near);
+        spheres::push_walls(s, self.world, &p, &mut caches[..probes.len()], self.blockers, &self.flags[..n], &mut h, &mut self.gathered, &mut self.near);
         position.set(h.position[0], h.position[1], h.position[2]);
         velocity.set(h.velocity[0], h.velocity[1], h.velocity[2]);
         Some(h.undo_turn)
@@ -297,10 +333,10 @@ impl Collision {
         let cache = if id >= 0 { Some(unsafe { &mut *spheres::caches().as_mut_ptr().add(id as usize) }) } else { None };
         let n = s.worlds[self.world].order.len();
         let count = spheres::gather(s, self.world, [center.x, center.y, center.z], radius, self.blockers, cache, -1, &self.flags[..n], &mut self.gathered);
-        out.truncate(count);
+        while out.len() > count { self.polygons.push(out.pop().unwrap()); }
         for (k, p) in self.gathered.list().iter().enumerate() {
             if k == out.len() {
-                out.push(Polygon::default());
+                out.push(self.polygons.pop().unwrap_or_default());
             }
             let o = &mut out[k];
             o.id = p.id;

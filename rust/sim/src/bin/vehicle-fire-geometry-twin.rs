@@ -98,6 +98,7 @@ fn hull(c: &Value) -> Hull {
         }],
     };
     let pose = HullPose {
+        work: Default::default(),
         rig,
         visual: Vector3::default(),
         age: 0.0,

@@ -27,7 +27,7 @@
 import * as THREE from "three";
 import { bridgeFor } from "./sim/runtime.js";
 import { KIND_BODY, KIND_UNIT, UNIT_EXPORT_STRIDE, putMoveInput, putUnitsCombatViews, putUnitsPhase, syncCombat, syncUnit } from "./sim/gen/index.js";
-import { giveMapRules } from "./vehicles-sim.js";
+import { giveMapRules } from "./vehicle-phase-data.js";
 import { droidekaWaterDepth, waterDamageRule } from "./vehicle-water.js";
 import { unitWatch } from "./units.js";
 import { AnimKernel } from "./anim-kernel.js";

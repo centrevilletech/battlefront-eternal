@@ -135,8 +135,8 @@ export class ImpactMirror {
 }
 
 export function syncImpact(b, f, at, h, m) {
-  (m.point ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   m.terrain = f[at + 6] !== 0;
   { const tag = f[at + 7]; if (tag === 0) { m.body = b.refs[KIND_BODY].at(f[at + 8], f[at + 9]); } else m.body = tag === 1 ? null : undefined; }
   { const tag = f[at + 10]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 11], f[at + 12]); } else m.unit = tag === 1 ? null : undefined; }
@@ -268,7 +268,7 @@ export class PointAnswerMirror {
 
 export function syncPointAnswer(b, f, at, h, m) {
   m.found = f[at + 0] !== 0;
-  (m.point ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   return m;
 }
 
@@ -305,8 +305,8 @@ export class CastArgsMirror {
 }
 
 export function syncCastArgs(b, f, at, h, m) {
-  (m.origin ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   m.far = f[at + 6];
   m.behind = f[at + 7] !== 0;
   { const tag = f[at + 8]; if (tag === 0) { m.ignoreBody = b.refs[KIND_BODY].at(f[at + 9], f[at + 10]); } else m.ignoreBody = tag === 1 ? null : undefined; }
@@ -361,8 +361,8 @@ export class CastAnswerMirror {
 export function syncCastAnswer(b, f, at, h, m) {
   m.found = f[at + 0] !== 0;
   m.distance = f[at + 1];
-  (m.point ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   m.terrain = f[at + 8] !== 0;
   { const tag = f[at + 9]; if (tag === 0) { m.body = b.refs[KIND_BODY].at(f[at + 10], f[at + 11]); } else m.body = tag === 1 ? null : undefined; }
   return m;
@@ -414,8 +414,8 @@ export class UnitCastArgsMirror {
 }
 
 export function syncUnitCastArgs(b, f, at, h, m) {
-  (m.origin ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   m.far = f[at + 6];
   m.owner = syncOrdnanceOwner(b, f, at + 7, h, m.owner);
   { const tag = f[at + 10]; if (tag === 0) { m.historyTick = f[at + 11]; } else m.historyTick = tag === 1 ? null : undefined; }
@@ -475,8 +475,8 @@ export function syncUnitCastAnswer(b, f, at, h, m) {
   m.found = f[at + 0] !== 0;
   { const tag = f[at + 1]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 2], f[at + 3]); } else m.unit = tag === 1 ? null : undefined; }
   m.distance = f[at + 4];
-  (m.point ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 8]; $v.y = f[at + 9]; $v.z = f[at + 10]; }
   { const tag = f[at + 11]; if (tag === 0) { m.part = HitPart_NAMES[f[at + 12]]; } else m.part = tag === 1 ? null : undefined; }
   return m;
 }
@@ -598,7 +598,7 @@ export class NearArgsMirror {
 }
 
 export function syncNearArgs(b, f, at, h, m) {
-  (m.center ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
   m.radius = f[at + 3];
   m.owner = syncOrdnanceOwner(b, f, at + 4, h, m.owner);
   m.struck = b.set(KIND_UNIT, f, h + f[at + 7], f[at + 8], m.struck ?? new Set());
@@ -709,7 +709,7 @@ export class SphereAnswerMirror {
 
 export function syncSphereAnswer(b, f, at, h, m) {
   m.found = f[at + 0] !== 0;
-  (m.center ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   m.radius = f[at + 4];
   return m;
 }
@@ -776,7 +776,7 @@ export class SourceArgsMirror {
 
 export function syncSourceArgs(b, f, at, h, m) {
   m.source = syncBeamSource(b, f, at + 0, h, m.source);
-  (m.origin ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   return m;
 }
 
@@ -812,9 +812,9 @@ export class BeamPoseArgsMirror {
 
 export function syncBeamPoseArgs(b, f, at, h, m) {
   m.source = syncBeamSource(b, f, at + 0, h, m.source);
-  (m.localOrigin ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
-  (m.position ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
+  { const $v = (m.localOrigin ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
   return m;
 }
 
@@ -853,8 +853,8 @@ export class BeamPoseAnswerMirror {
 }
 
 export function syncBeamPoseAnswer(b, f, at, h, m) {
-  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   return m;
 }
 
@@ -1027,8 +1027,8 @@ export class SeekArgsMirror {
 }
 
 export function syncSeekArgs(b, f, at, h, m) {
-  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   { const tag = f[at + 6]; if (tag === 0) { m.flightClass = b.strings.at(f[at + 7]); } else m.flightClass = tag === 1 ? null : undefined; }
   m.targetId = f[at + 8];
   m.targetGeneration = f[at + 9];
@@ -1077,7 +1077,7 @@ export class SeekAnswerMirror {
 }
 
 export function syncSeekAnswer(b, f, at, h, m) {
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
   m.targetId = f[at + 3];
   return m;
 }
@@ -1111,8 +1111,8 @@ export class SegmentArgsMirror {
 }
 
 export function syncSegmentArgs(b, f, at, h, m) {
-  (m.from ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.to ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.from ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.to ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   return m;
 }
 
@@ -1149,7 +1149,7 @@ export class BlastArgsMirror {
 export function syncBlastArgs(b, f, at, h, m) {
   m.defTag = f[at + 0];
   m.def = f[at + 1];
-  (m.position ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
   m.owner = syncOrdnanceOwner(b, f, at + 5, h, m.owner);
   return m;
 }
@@ -1198,7 +1198,7 @@ export function syncStrikeArgs(b, f, at, h, m) {
   { const tag = f[at + 3]; if (tag === 0) { m.beam = b.refs[KIND_BEAM].at(f[at + 4], f[at + 5]); } else m.beam = tag === 1 ? null : undefined; }
   { const tag = f[at + 6]; if (tag === 0) { m.damage = f[at + 7]; } else m.damage = tag === 1 ? null : undefined; }
   m.owner = syncOrdnanceOwner(b, f, at + 8, h, m.owner);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 11], f[at + 12], f[at + 13]);
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 11]; $v.y = f[at + 12]; $v.z = f[at + 13]; }
   return m;
 }
 
@@ -1257,10 +1257,10 @@ export function syncUnitStrikeArgs(b, f, at, h, m) {
   m.beamDef = f[at + 6] !== 0;
   { const tag = f[at + 7]; if (tag === 0) { m.damage = f[at + 8]; } else m.damage = tag === 1 ? null : undefined; }
   m.at = f[at + 9];
-  (m.point ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
   m.owner = syncOrdnanceOwner(b, f, at + 13, h, m.owner);
   { const tag = f[at + 16]; if (tag === 0) { m.part = HitPart_NAMES[f[at + 17]]; } else m.part = tag === 1 ? null : undefined; }
-  (m.direction ??= new THREE.Vector3()).set(f[at + 18], f[at + 19], f[at + 20]);
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 18]; $v.y = f[at + 19]; $v.z = f[at + 20]; }
   return m;
 }
 
@@ -1389,8 +1389,8 @@ export class ImpactArgsMirror {
 
 export function syncImpactArgs(b, f, at, h, m) {
   m.kind = f[at + 0];
-  (m.point ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   m.surface = f[at + 7];
   { const tag = f[at + 8]; if (tag === 0) { m.struck = syncImpact(b, f, at + 9, h, m.struck ?? new ImpactMirror()); } else m.struck = tag === 1 ? null : undefined; }
   return m;
@@ -1465,7 +1465,7 @@ export class BounceArgsMirror {
 
 export function syncBounceArgs(b, f, at, h, m) {
   m.def = b.defs.ordnance.at(f[at + 0]);
-  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   m.speed = f[at + 4];
   return m;
 }
@@ -1511,10 +1511,10 @@ export class FireArgsMirror {
 
 export function syncFireArgs(b, f, at, h, m) {
   m.def = b.defs.ordnance.at(f[at + 0]);
-  (m.origin ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   m.owner = syncOrdnanceOwner(b, f, at + 7, h, m.owner);
-  { const tag = f[at + 10]; if (tag === 0) { (m.visual ??= new THREE.Vector3()).set(f[at + 11], f[at + 12], f[at + 13]); } else m.visual = tag === 1 ? null : undefined; }
+  { const tag = f[at + 10]; if (tag === 0) { { const $v = (m.visual ??= new THREE.Vector3()); $v.x = f[at + 11]; $v.y = f[at + 12]; $v.z = f[at + 13]; } } else m.visual = tag === 1 ? null : undefined; }
   { const tag = f[at + 14]; if (tag === 0) { m.ignoreBody = b.refs[KIND_BODY].at(f[at + 15], f[at + 16]); } else m.ignoreBody = tag === 1 ? null : undefined; }
   m.emitter = syncBeamSource(b, f, at + 17, h, m.emitter);
   m.channel = f[at + 20];
@@ -1647,10 +1647,10 @@ export function syncBeam(b, f, at, h, m) {
   m.life = f[at + 15];
   m.duration = f[at + 16];
   m.effectTime = f[at + 17];
-  (m.position ??= new THREE.Vector3()).set(f[at + 18], f[at + 19], f[at + 20]);
-  (m.end ??= new THREE.Vector3()).set(f[at + 21], f[at + 22], f[at + 23]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 24], f[at + 25], f[at + 26]);
-  { const tag = f[at + 27]; if (tag === 0) { (m.localOrigin ??= new THREE.Vector3()).set(f[at + 28], f[at + 29], f[at + 30]); } else m.localOrigin = tag === 1 ? null : undefined; }
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 18]; $v.y = f[at + 19]; $v.z = f[at + 20]; }
+  { const $v = (m.end ??= new THREE.Vector3()); $v.x = f[at + 21]; $v.y = f[at + 22]; $v.z = f[at + 23]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 24]; $v.y = f[at + 25]; $v.z = f[at + 26]; }
+  { const tag = f[at + 27]; if (tag === 0) { { const $v = (m.localOrigin ??= new THREE.Vector3()); $v.x = f[at + 28]; $v.y = f[at + 29]; $v.z = f[at + 30]; } } else m.localOrigin = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -1665,10 +1665,10 @@ export function syncFullBeam(b, f, at, h, m) {
   m.life = f[at + 15];
   m.duration = f[at + 16];
   m.effectTime = f[at + 17];
-  (m.position ??= new THREE.Vector3()).set(f[at + 18], f[at + 19], f[at + 20]);
-  (m.end ??= new THREE.Vector3()).set(f[at + 21], f[at + 22], f[at + 23]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 24], f[at + 25], f[at + 26]);
-  { const tag = f[at + 27]; if (tag === 0) { (m.localOrigin ??= new THREE.Vector3()).set(f[at + 28], f[at + 29], f[at + 30]); } else m.localOrigin = tag === 1 ? null : undefined; }
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 18]; $v.y = f[at + 19]; $v.z = f[at + 20]; }
+  { const $v = (m.end ??= new THREE.Vector3()); $v.x = f[at + 21]; $v.y = f[at + 22]; $v.z = f[at + 23]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 24]; $v.y = f[at + 25]; $v.z = f[at + 26]; }
+  { const tag = f[at + 27]; if (tag === 0) { { const $v = (m.localOrigin ??= new THREE.Vector3()); $v.x = f[at + 28]; $v.y = f[at + 29]; $v.z = f[at + 30]; } } else m.localOrigin = tag === 1 ? null : undefined; }
   { const tag = f[at + 31]; if (tag === 0) { (m.damageDef ??= {}).Damage = f[at + 32]; } else (m.damageDef ??= {}).Damage = tag === 1 ? null : undefined; }
   return m;
 }
@@ -1808,13 +1808,13 @@ export function syncBolt(b, f, at, h, m) {
   m.networkFireUnit = f[at + 8];
   m.networkFireGeneration = f[at + 9];
   { const tag = f[at + 10]; if (tag === 0) { m.ignoreBody = b.refs[KIND_BODY].at(f[at + 11], f[at + 12]); } else m.ignoreBody = tag === 1 ? null : undefined; }
-  (m.position ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; }
   m.speed = f[at + 19];
   m.life = f[at + 20];
   m.drawn = f[at + 21];
   m.flown = f[at + 22];
-  { const tag = f[at + 23]; if (tag === 0) { (m.offset ??= new THREE.Vector3()).set(f[at + 24], f[at + 25], f[at + 26]); } else m.offset = tag === 1 ? null : undefined; }
+  { const tag = f[at + 23]; if (tag === 0) { { const $v = (m.offset ??= new THREE.Vector3()); $v.x = f[at + 24]; $v.y = f[at + 25]; $v.z = f[at + 26]; } } else m.offset = tag === 1 ? null : undefined; }
   m.merge = f[at + 27];
   { const tag = f[at + 28]; if (tag === 0) { m.impact = syncImpact(b, f, at + 29, h, m.impact ?? new ImpactMirror()); } else m.impact = tag === 1 ? null : undefined; }
   { const tag = f[at + 44]; if (tag === 0) { m.previousFlown = f[at + 45]; } else m.previousFlown = tag === 1 ? null : undefined; }
@@ -1831,13 +1831,13 @@ export function syncFullBolt(b, f, at, h, m) {
   m.networkFireUnit = f[at + 8];
   m.networkFireGeneration = f[at + 9];
   { const tag = f[at + 10]; if (tag === 0) { m.ignoreBody = b.refs[KIND_BODY].at(f[at + 11], f[at + 12]); } else m.ignoreBody = tag === 1 ? null : undefined; }
-  (m.position ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; }
   m.speed = f[at + 19];
   m.life = f[at + 20];
   m.drawn = f[at + 21];
   m.flown = f[at + 22];
-  { const tag = f[at + 23]; if (tag === 0) { (m.offset ??= new THREE.Vector3()).set(f[at + 24], f[at + 25], f[at + 26]); } else m.offset = tag === 1 ? null : undefined; }
+  { const tag = f[at + 23]; if (tag === 0) { { const $v = (m.offset ??= new THREE.Vector3()); $v.x = f[at + 24]; $v.y = f[at + 25]; $v.z = f[at + 26]; } } else m.offset = tag === 1 ? null : undefined; }
   m.merge = f[at + 27];
   { const tag = f[at + 28]; if (tag === 0) { m.impact = syncImpact(b, f, at + 29, h, m.impact ?? new ImpactMirror()); } else m.impact = tag === 1 ? null : undefined; }
   { const tag = f[at + 44]; if (tag === 0) { m.previousFlown = f[at + 45]; } else m.previousFlown = tag === 1 ? null : undefined; }
@@ -1996,17 +1996,17 @@ export function syncGrenade(b, f, at, h, m) {
   m.networkFireChannel = f[at + 2];
   m.def = b.defs.ordnance.at(f[at + 3]);
   m.owner = syncOrdnanceOwner(b, f, at + 4, h, m.owner);
-  (m.position ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]);
-  (m.launchPosition ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
+  { const $v = (m.launchPosition ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; }
   m.gravity = f[at + 19];
   m.slow = f[at + 20];
   m.resting = f[at + 21] !== 0;
   m.flight = f[at + 22];
   { const tag = f[at + 23]; if (tag === 0) { m.fuse = f[at + 24]; } else m.fuse = tag === 1 ? null : undefined; }
-  (m.spin ??= new THREE.Vector3()).set(f[at + 25], f[at + 26], f[at + 27]);
-  (m.quaternion ??= new THREE.Quaternion()).set(f[at + 28], f[at + 29], f[at + 30], f[at + 31]);
+  { const $v = (m.spin ??= new THREE.Vector3()); $v.x = f[at + 25]; $v.y = f[at + 26]; $v.z = f[at + 27]; }
+  { const $q = (m.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 28]; $q._y = f[at + 29]; $q._z = f[at + 30]; $q._w = f[at + 31]; $q._onChangeCallback(); }
   { const tag = f[at + 32]; if (tag === 0) { m.sinking = f[at + 33] !== 0; } else m.sinking = tag === 1 ? null : undefined; }
   { const tag = f[at + 34]; if (tag === 0) { m.touched = f[at + 35] !== 0; } else m.touched = tag === 1 ? null : undefined; }
   { const tag = f[at + 36]; if (tag === 0) { m.gone = f[at + 37] !== 0; } else m.gone = tag === 1 ? null : undefined; }
@@ -2018,17 +2018,17 @@ export function syncFullGrenade(b, f, at, h, m) {
   m.networkFireChannel = f[at + 2];
   m.def = b.defs.ordnance.at(f[at + 3]);
   m.owner = syncOrdnanceOwner(b, f, at + 4, h, m.owner);
-  (m.position ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]);
-  (m.launchPosition ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
+  { const $v = (m.launchPosition ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; }
   m.gravity = f[at + 19];
   m.slow = f[at + 20];
   m.resting = f[at + 21] !== 0;
   m.flight = f[at + 22];
   { const tag = f[at + 23]; if (tag === 0) { m.fuse = f[at + 24]; } else m.fuse = tag === 1 ? null : undefined; }
-  (m.spin ??= new THREE.Vector3()).set(f[at + 25], f[at + 26], f[at + 27]);
-  (m.quaternion ??= new THREE.Quaternion()).set(f[at + 28], f[at + 29], f[at + 30], f[at + 31]);
+  { const $v = (m.spin ??= new THREE.Vector3()); $v.x = f[at + 25]; $v.y = f[at + 26]; $v.z = f[at + 27]; }
+  { const $q = (m.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 28]; $q._y = f[at + 29]; $q._z = f[at + 30]; $q._w = f[at + 31]; $q._onChangeCallback(); }
   { const tag = f[at + 32]; if (tag === 0) { m.sinking = f[at + 33] !== 0; } else m.sinking = tag === 1 ? null : undefined; }
   { const tag = f[at + 34]; if (tag === 0) { m.touched = f[at + 35] !== 0; } else m.touched = tag === 1 ? null : undefined; }
   { const tag = f[at + 36]; if (tag === 0) { m.gone = f[at + 37] !== 0; } else m.gone = tag === 1 ? null : undefined; }
@@ -2168,7 +2168,7 @@ export function syncOrdnance(b, f, at, h, m) {
   { const items = (m.beams ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_BEAM].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const items = (m.grenades ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_GRENADE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const items = (m.rounds ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_ROUND].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  (m.start ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]);
+  { const $v = (m.start ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
   return m;
 }
 
@@ -2178,7 +2178,7 @@ export function syncFullOrdnance(b, f, at, h, m) {
   { const items = (m.beams ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_BEAM].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const items = (m.grenades ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_GRENADE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const items = (m.rounds ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_ROUND].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  (m.start ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]);
+  { const $v = (m.start ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
   return m;
 }
 
@@ -2275,20 +2275,20 @@ export function syncRound(b, f, at, h, m) {
   { const tag = f[at + 4]; if (tag === 0) { m.ignoreBody = b.refs[KIND_BODY].at(f[at + 5], f[at + 6]); } else m.ignoreBody = tag === 1 ? null : undefined; }
   m.def = b.defs.ordnance.at(f[at + 7]);
   m.owner = syncOrdnanceOwner(b, f, at + 8, h, m.owner);
-  (m.position ??= new THREE.Vector3()).set(f[at + 11], f[at + 12], f[at + 13]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 14], f[at + 15], f[at + 16]);
-  (m.launchPosition ??= new THREE.Vector3()).set(f[at + 17], f[at + 18], f[at + 19]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 20], f[at + 21], f[at + 22]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 11]; $v.y = f[at + 12]; $v.z = f[at + 13]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 14]; $v.y = f[at + 15]; $v.z = f[at + 16]; }
+  { const $v = (m.launchPosition ??= new THREE.Vector3()); $v.x = f[at + 17]; $v.y = f[at + 18]; $v.z = f[at + 19]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 20]; $v.y = f[at + 21]; $v.z = f[at + 22]; }
   m.life = f[at + 23];
   { const tag = f[at + 24]; if (tag === 0) { m.impact = syncImpact(b, f, at + 25, h, m.impact ?? new ImpactMirror()); } else m.impact = tag === 1 ? null : undefined; }
   m.dead = f[at + 40] !== 0;
   m.gravity = f[at + 41];
   m.ramp = f[at + 42];
-  (m.desired ??= new THREE.Vector3()).set(f[at + 43], f[at + 44], f[at + 45]);
+  { const $v = (m.desired ??= new THREE.Vector3()); $v.x = f[at + 43]; $v.y = f[at + 44]; $v.z = f[at + 45]; }
   { const tag = f[at + 46]; if (tag === 0) { m.targetId = f[at + 47]; } else m.targetId = tag === 1 ? null : undefined; }
   { const tag = f[at + 48]; if (tag === 0) { m.targetGeneration = f[at + 49]; } else m.targetGeneration = tag === 1 ? null : undefined; }
   { const a = (m.phase ??= new Array(2)); a[0] = f[at + 50]; a[1] = f[at + 51]; }
-  (m.quaternion ??= new THREE.Quaternion()).set(f[at + 52], f[at + 53], f[at + 54], f[at + 55]);
+  { const $q = (m.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 52]; $q._y = f[at + 53]; $q._z = f[at + 54]; $q._w = f[at + 55]; $q._onChangeCallback(); }
   { const tag = f[at + 56]; if (tag === 0) { m.struck = b.set(KIND_UNIT, f, h + f[at + 57], f[at + 58], m.struck ?? new Set()); } else m.struck = tag === 1 ? null : undefined; }
   { const tag = f[at + 59]; if (tag === 0) { m.gone = f[at + 60] !== 0; } else m.gone = tag === 1 ? null : undefined; }
   { const tag = f[at + 61]; if (tag === 0) { m.flightMissile = f[at + 62] !== 0; } else m.flightMissile = tag === 1 ? null : undefined; }
@@ -2303,20 +2303,20 @@ export function syncFullRound(b, f, at, h, m) {
   { const tag = f[at + 4]; if (tag === 0) { m.ignoreBody = b.refs[KIND_BODY].at(f[at + 5], f[at + 6]); } else m.ignoreBody = tag === 1 ? null : undefined; }
   m.def = b.defs.ordnance.at(f[at + 7]);
   m.owner = syncOrdnanceOwner(b, f, at + 8, h, m.owner);
-  (m.position ??= new THREE.Vector3()).set(f[at + 11], f[at + 12], f[at + 13]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 14], f[at + 15], f[at + 16]);
-  (m.launchPosition ??= new THREE.Vector3()).set(f[at + 17], f[at + 18], f[at + 19]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 20], f[at + 21], f[at + 22]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 11]; $v.y = f[at + 12]; $v.z = f[at + 13]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 14]; $v.y = f[at + 15]; $v.z = f[at + 16]; }
+  { const $v = (m.launchPosition ??= new THREE.Vector3()); $v.x = f[at + 17]; $v.y = f[at + 18]; $v.z = f[at + 19]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 20]; $v.y = f[at + 21]; $v.z = f[at + 22]; }
   m.life = f[at + 23];
   { const tag = f[at + 24]; if (tag === 0) { m.impact = syncImpact(b, f, at + 25, h, m.impact ?? new ImpactMirror()); } else m.impact = tag === 1 ? null : undefined; }
   m.dead = f[at + 40] !== 0;
   m.gravity = f[at + 41];
   m.ramp = f[at + 42];
-  (m.desired ??= new THREE.Vector3()).set(f[at + 43], f[at + 44], f[at + 45]);
+  { const $v = (m.desired ??= new THREE.Vector3()); $v.x = f[at + 43]; $v.y = f[at + 44]; $v.z = f[at + 45]; }
   { const tag = f[at + 46]; if (tag === 0) { m.targetId = f[at + 47]; } else m.targetId = tag === 1 ? null : undefined; }
   { const tag = f[at + 48]; if (tag === 0) { m.targetGeneration = f[at + 49]; } else m.targetGeneration = tag === 1 ? null : undefined; }
   { const a = (m.phase ??= new Array(2)); a[0] = f[at + 50]; a[1] = f[at + 51]; }
-  (m.quaternion ??= new THREE.Quaternion()).set(f[at + 52], f[at + 53], f[at + 54], f[at + 55]);
+  { const $q = (m.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 52]; $q._y = f[at + 53]; $q._z = f[at + 54]; $q._w = f[at + 55]; $q._onChangeCallback(); }
   { const tag = f[at + 56]; if (tag === 0) { m.struck = b.set(KIND_UNIT, f, h + f[at + 57], f[at + 58], m.struck ?? new Set()); } else m.struck = tag === 1 ? null : undefined; }
   { const tag = f[at + 59]; if (tag === 0) { m.gone = f[at + 60] !== 0; } else m.gone = tag === 1 ? null : undefined; }
   { const tag = f[at + 61]; if (tag === 0) { m.flightMissile = f[at + 62] !== 0; } else m.flightMissile = tag === 1 ? null : undefined; }

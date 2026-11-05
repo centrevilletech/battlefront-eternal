@@ -14,7 +14,7 @@ export class EchoMirror {
 
 export function syncEcho(b, f, at, h, m) {
   m.value = f[at + 0];
-  (m.at ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.at ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   m.count = f[at + 4];
   { const tag = f[at + 5]; if (tag === 0) { m.note = b.strings.at(f[at + 6]); } else m.note = tag === 1 ? null : undefined; }
   m.events = f[at + 7];

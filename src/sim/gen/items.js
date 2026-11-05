@@ -59,8 +59,8 @@ export class ItemCastArgsMirror {
 }
 
 export function syncItemCastArgs(b, f, at, h, m) {
-  (m.origin ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   m.far = f[at + 6];
   return m;
 }
@@ -97,8 +97,8 @@ export class BlockedArgsMirror {
 }
 
 export function syncBlockedArgs(b, f, at, h, m) {
-  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.target ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.target ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   return m;
 }
 
@@ -163,7 +163,7 @@ export class ModelAnswerMirror {
 export function syncModelAnswer(b, f, at, h, m) {
   m.mesh = f[at + 0] !== 0;
   m.radius = f[at + 1];
-  { const tag = f[at + 2]; if (tag === 0) { (m.center ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]); } else m.center = tag === 1 ? null : undefined; }
+  { const tag = f[at + 2]; if (tag === 0) { { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; } } else m.center = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -261,7 +261,7 @@ export class ItemBlastArgsMirror {
 export function syncItemBlastArgs(b, f, at, h, m) {
   m.defTag = f[at + 0];
   m.def = f[at + 1];
-  (m.position ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
   m.owner = syncItemOwner(b, f, at + 5, h, m.owner);
   return m;
 }
@@ -303,10 +303,10 @@ export class TargetStateMirror {
 }
 
 export function syncTargetState(b, f, at, h, m) {
-  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.center ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   m.radius = f[at + 6];
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
   return m;
 }
 
@@ -467,7 +467,7 @@ export class PickupArgsMirror {
 
 export function syncPickupArgs(b, f, at, h, m) {
   m.def = b.defs.item.at(f[at + 0]);
-  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   return m;
 }
 
@@ -505,8 +505,8 @@ export class SpawnArgsMirror {
 
 export function syncSpawnArgs(b, f, at, h, m) {
   m.def = b.defs.item.at(f[at + 0]);
-  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   m.yaw = f[at + 7];
   m.owner = syncItemOwner(b, f, at + 8, h, m.owner);
   m.team = f[at + 11];
@@ -563,8 +563,8 @@ export function syncDispenseArgs(b, f, at, h, m) {
   m.weapon = b.strings.at(f[at + 0]);
   m.maxItems = f[at + 1];
   m.def = b.defs.item.at(f[at + 2]);
-  (m.position ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
   m.yaw = f[at + 9];
   m.owner = syncItemOwner(b, f, at + 10, h, m.owner);
   m.team = f[at + 13];
@@ -660,8 +660,8 @@ export class DropArgsMirror {
 
 export function syncDropArgs(b, f, at, h, m) {
   { const items = (m.drops ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncDropEntry(b, f, at + 0, h, v ?? new DropEntryMirror()); } items[i] = v; } }
-  (m.position ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   m.yaw = f[at + 8];
   return m;
 }
@@ -702,7 +702,7 @@ export class ItemsBlastArgsMirror {
 
 export function syncItemsBlastArgs(b, f, at, h, m) {
   m.explosion = f[at + 0];
-  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   return m;
 }
 
@@ -794,16 +794,16 @@ export const ITEM_EXPORT_STRIDE = 38, ITEM_IMPORT_STRIDE = 38, ITEM_FULL_STRIDE 
 export function syncItem(b, f, at, h, m) {
   m.def = b.defs.item.at(f[at + 2]);
   m.mine = f[at + 3] !== 0;
-  (m.position ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
   m.yaw = f[at + 13];
-  (m.up ??= new THREE.Vector3()).set(f[at + 14], f[at + 15], f[at + 16]);
+  { const $v = (m.up ??= new THREE.Vector3()); $v.x = f[at + 14]; $v.y = f[at + 15]; $v.z = f[at + 16]; }
   m.landed = f[at + 17] !== 0;
   m.sinking = f[at + 18] !== 0;
   m.radius = f[at + 19];
-  { const tag = f[at + 20]; if (tag === 0) { (m.center ??= new THREE.Vector3()).set(f[at + 21], f[at + 22], f[at + 23]); } else m.center = tag === 1 ? null : undefined; }
-  { const tag = f[at + 24]; if (tag === 0) { (m.turn ??= new THREE.Quaternion()).set(f[at + 25], f[at + 26], f[at + 27], f[at + 28]); } else m.turn = tag === 1 ? null : undefined; }
+  { const tag = f[at + 20]; if (tag === 0) { { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 21]; $v.y = f[at + 22]; $v.z = f[at + 23]; } } else m.center = tag === 1 ? null : undefined; }
+  { const tag = f[at + 24]; if (tag === 0) { { const $q = (m.turn ??= new THREE.Quaternion()); $q._x = f[at + 25]; $q._y = f[at + 26]; $q._z = f[at + 27]; $q._w = f[at + 28]; $q._onChangeCallback(); } } else m.turn = tag === 1 ? null : undefined; }
   m.owner = syncItemOwner(b, f, at + 29, h, m.owner);
   m.team = f[at + 32];
   m.age = f[at + 33];
@@ -817,16 +817,16 @@ export function syncItem(b, f, at, h, m) {
 export function syncFullItem(b, f, at, h, m) {
   m.def = b.defs.item.at(f[at + 2]);
   m.mine = f[at + 3] !== 0;
-  (m.position ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
   m.yaw = f[at + 13];
-  (m.up ??= new THREE.Vector3()).set(f[at + 14], f[at + 15], f[at + 16]);
+  { const $v = (m.up ??= new THREE.Vector3()); $v.x = f[at + 14]; $v.y = f[at + 15]; $v.z = f[at + 16]; }
   m.landed = f[at + 17] !== 0;
   m.sinking = f[at + 18] !== 0;
   m.radius = f[at + 19];
-  { const tag = f[at + 20]; if (tag === 0) { (m.center ??= new THREE.Vector3()).set(f[at + 21], f[at + 22], f[at + 23]); } else m.center = tag === 1 ? null : undefined; }
-  { const tag = f[at + 24]; if (tag === 0) { (m.turn ??= new THREE.Quaternion()).set(f[at + 25], f[at + 26], f[at + 27], f[at + 28]); } else m.turn = tag === 1 ? null : undefined; }
+  { const tag = f[at + 20]; if (tag === 0) { { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 21]; $v.y = f[at + 22]; $v.z = f[at + 23]; } } else m.center = tag === 1 ? null : undefined; }
+  { const tag = f[at + 24]; if (tag === 0) { { const $q = (m.turn ??= new THREE.Quaternion()); $q._x = f[at + 25]; $q._y = f[at + 26]; $q._z = f[at + 27]; $q._w = f[at + 28]; $q._onChangeCallback(); } } else m.turn = tag === 1 ? null : undefined; }
   m.owner = syncItemOwner(b, f, at + 29, h, m.owner);
   m.team = f[at + 32];
   m.age = f[at + 33];

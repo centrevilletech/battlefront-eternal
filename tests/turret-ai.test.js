@@ -5,7 +5,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
+import { CollisionWorld, nativeTurrets } from './helpers/native-vehicles.js';
+import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
+import { Soldier } from '../src/soldier.js';
 import { Turret } from '../src/props.js';
 import { TurretSeats } from '../src/seats.js';
 import { stationaryInput } from '../src/ai/classic/vehicles/steering.js';
@@ -27,6 +29,7 @@ function turretAt({ heading = 0, drumBind = 0, settings = {} } = {}) {
   rig.root.add(rig.byName.drum); rig.byName.drum.add(rig.byName.gun); rig.byName.gun.add(rig.byName.hp_fire); rig.byName.drum.add(rig.byName.seat);
   rig.byName.drum.position.y = 1.5; rig.byName.drum.quaternion.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, drumBind);
   rig.byName.hp_fire.position.z = 1; rig.byName.seat.position.z = -0.6;
+  rig.bones = Object.values(rig.byName);
   rig.model = { box: [[-1, 0, -1], [1, 2, 1]] };
   const matrix = new THREE.Matrix4().makeRotationY(heading);
   rig.root.applyMatrix4(matrix);
@@ -60,13 +63,13 @@ test("a turret's gun points along its view, whatever its drum's bind turn", () =
 
 test('the drum turns no further than YawLimits either way of its rest', () => {
   const turret = turretAt({ settings: { YawLimits: '-70 70' } });
-  for (let i = 0; i < 120; i++) turret.steer(1 / 60, 1, 0);
+  for (let i = 0; i < 120; i++) stepTurretPreview(turret, 1 / 60, 1, 0);
   assert.ok(Math.abs(turret.yaw - 70 * DEG) < 1e-9, `held at 70: ${turret.yaw / DEG}`);
   assert.equal(turret.yawVel, 0);
-  for (let i = 0; i < 240; i++) turret.steer(1 / 60, -1, 0);
+  for (let i = 0; i < 240; i++) stepTurretPreview(turret, 1 / 60, -1, 0);
   assert.ok(Math.abs(turret.yaw + 70 * DEG) < 1e-9);
   const free = turretAt({ settings: { YawLimits: '-180 180' } });
-  for (let i = 0; i < 120; i++) free.steer(1 / 60, 1, 0);
+  for (let i = 0; i < 120; i++) stepTurretPreview(free, 1 / 60, 1, 0);
   assert.ok(Math.abs(wrap(free.yaw - 2 * 2.85)) < 0.3, 'all the way round');
 });
 
@@ -77,13 +80,15 @@ test('the drum turns no further than YawLimits either way of its rest', () => {
 function botAt(turret) {
   const collision = floor();
   const crews = new TurretSeats({ live: { turrets: [turret] }, collision, ordnance: { fire() { return null; } } });
-  const soldier = { position: new THREE.Vector3(0, 0, 5), previous: new THREE.Vector3(), settled: new THREE.Vector3(), velocity: new THREE.Vector3(), aimYaw: 0, aimPitch: 0 };
+  const soldier = new Soldier(collision, {}); soldier.position.set(0, 0, 5);
   const unit = { id: 9, generation: 1, team: 1, alive: true, dead: false, human: false, walker: false, seat: null, controller: null, classDef: {},
     intent: { forward: 0, right: 0, turn: 0, pitch: 0, aim: new THREE.Vector3(), buttons: [0, 0] }, soldier,
     actor: { root: new THREE.Group(), byName: {} }, animator: { clips: new Map(), gunner() {}, reset() {} }, presentation: { reset() {} },
     combat: { mounted: false, dead: false, team: 1, damage() {} } };
+  turret.present();
+  const system = nativeTurrets(crews);
   assert.ok(crews.man(unit, turret));
-  return { crews, unit, seat: turret.lease.controllable };
+  return { crews, system, unit, seat: turret.lease.controllable };
 }
 
 for (const [label, heading, drumBind] of [['an ordinary turret', 0, 0], ['a drum bound backward', 0.7, Math.PI]]) {
@@ -93,7 +98,7 @@ for (const [label, heading, drumBind] of [['an ordinary turret', 0, 0], ['a drum
   test(`a bot turns ${label} onto a target behind, beside and ahead of it`, () => {
     for (const bearing of [175, -170, 90, -120, 10]) {
       const turret = turretAt({ heading, drumBind });
-      const { crews, unit, seat } = botAt(turret);
+      const { system, unit, seat } = botAt(turret);
       const yaw = turret.facing + bearing * DEG;
       const target = new THREE.Vector3(Math.sin(yaw) * 30, 2, Math.cos(yaw) * 30);
       const out = { forward: 0, right: 0, turn: 0, pitch: 0 };
@@ -105,7 +110,7 @@ for (const [label, heading, drumBind] of [['an ordinary turret', 0, 0], ['a drum
         unit.intent.pitch = out.pitch;
         seat.origin(origin);
         unit.intent.aim.subVectors(target, origin).normalize();
-        crews.update(1 / 60);
+        system.update(1 / 60);
         const { p, d } = barrel(turret);
         if (within === null && d.angleTo(target.clone().sub(p)) < 2 * DEG) within = n / 60;
       }

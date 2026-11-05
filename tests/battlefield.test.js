@@ -82,6 +82,9 @@ test('in a hull, the hull counts: when the time is up it goes, crediting nobody,
   const { unit } = soldier(0, 0);
   const destroyed = [];
   const vehicle = { position: new THREE.Vector3(0, 30, 160), lastAttacker: { someone: true }, damage(amount) { destroyed.push([amount, this.lastAttacker]); } };
+  // The boundary delegates attribution to the native vehicle owner. This
+  // fixture observes that scalar seam rather than keeping JS hull authority.
+  vehicle.system = { f2: { command(v, op) { assert.equal(op, 3); v.lastAttacker = null; } } };
   unit.seat = { vehicle };
   const c = character(unit);
   for (let i = 0; i < 599; i++) field.update(TICK, [c]);

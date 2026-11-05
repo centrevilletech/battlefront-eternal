@@ -45,8 +45,21 @@ impl Strings {
     }
 
     pub fn intern_str(&mut self, s: &str) -> StrId {
-        let units: Vec<u16> = s.encode_utf16().collect();
-        self.intern(&units)
+        // Repeated scalar writes normally name a string interned at load.
+        // Probe the existing table over UTF-16 directly, without a temporary.
+        if !self.table.is_empty() {
+            let mut hash = 0x811c_9dc5u32;
+            for unit in s.encode_utf16() { hash ^= unit as u32; hash = hash.wrapping_mul(0x0100_0193); }
+            let mask = self.table.len() - 1; let mut bucket = hash as usize & mask;
+            loop {
+                match self.table[bucket] {
+                    0 => break,
+                    id if self.list[id as usize - 1].iter().copied().eq(s.encode_utf16()) => return StrId(id - 1),
+                    _ => bucket = (bucket + 1) & mask,
+                }
+            }
+        }
+        self.intern(&s.encode_utf16().collect::<Vec<_>>())
     }
 
     pub fn units(&self, id: StrId) -> &[u16] { &self.list[id.0 as usize] }

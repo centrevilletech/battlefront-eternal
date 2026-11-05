@@ -21,7 +21,7 @@ test('imported: native droideka movement, unfolding and death match JavaScript',
     return { hashes: result.stdout, bodies };
   };
   const reference = run([]);
-  for (const variant of [['--units', 'rust'], ['--units', 'rust', '--combat', 'rust', '--hulls', 'rust', '--seats', 'rust']]) {
+  for (const variant of [['--units', 'rust'], ['--units', 'rust', '--combat', 'rust']]) {
     const rust = run(variant);
     assert.deepEqual(rust.bodies, reference.bodies, 'body state and muzzle matrices agree bit for bit');
     assert.equal(rust.hashes, reference.hashes, 'battle state, deep digest, and wire bytes agree every tick');

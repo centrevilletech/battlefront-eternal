@@ -45,10 +45,11 @@ impl Hull {
         }
         let Some(clip) = self.flight.gear_clip.clone() else { return };
         let p = self.pose.as_mut().expect("a posed hull's rig");
-        let mut pose = Pose::new(p.rig.bones.len(), -1);
+        let mut pose = p.work.gear.take().unwrap_or_else(|| Pose::new(p.rig.bones.len(), -1));
         pose.clear();
         pose.add(&clip.clip, (1.0 - clamp01(gear)) * clip.duration, 1.0, false);
         apply(&mut pose, &mut p.rig);
+        p.work.gear = Some(pose);
         if clip.root >= 0 {
             let i = clip.root as usize;
             let (position, quaternion) = (p.rig.bind_p[i], p.rig.bind_q[i]);

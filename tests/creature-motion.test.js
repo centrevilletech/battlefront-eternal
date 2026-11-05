@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 // Optional retail regression: exercise the actual rig and gait, not just a
 // moving collider. Retail geometry/animation stays ignored under public/.
 import test from 'node:test';
@@ -31,7 +32,7 @@ test('tauntaun idle feet stay planted throughout breathing, on flat and sloped g
     const {system, v, normal} = fixture(x, z), point = new THREE.Vector3();
     const ranges = [[], []];
     for (let i = 0; i < 480; i++) {
-      system.update(1 / 60);
+      stepPrediction(system, 1 / 60, v, {});
       ['bone_l_pad', 'bone_r_pad'].forEach((name, side) => {
         v.byName[name].getWorldPosition(point);
         ranges[side].push(point.dot(normal));
@@ -58,7 +59,7 @@ test('tauntaun runs at its authored cadence, reverses its gait, and stops withou
     assert.ok(Math.abs(v.speed - clip.stride * 30 / clip.frames) < .001);
     let cycles = 0, previous = v.walkPhase, planted = null, contactSamples = 0;
     for (let i = 0; i < rate * 3; i++) {
-      system.update(1 / rate, v, {forward: 1});
+      stepPrediction(system, 1 / rate, v, {forward: 1});
       if (v.walkPhase < previous) cycles++;
       previous = v.walkPhase;
       // During the middle of a half-stride, the supporting pad must stay
@@ -76,14 +77,14 @@ test('tauntaun runs at its authored cadence, reverses its gait, and stops withou
     assert.ok(contactSamples > 5);
     assert.ok(v.position.z > 55, `travel=${v.position.z}`);
     distances.push(v.position.z);
-    for (let i = 0; i < rate * 2; i++) system.update(1 / rate, v, {forward: -1});
+    for (let i = 0; i < rate * 2; i++) stepPrediction(system, 1 / rate, v, {forward: -1});
     const phase = v.walkPhase;
-    system.update(1 / rate, v, {forward: -1});
+    stepPrediction(system, 1 / rate, v, {forward: -1});
     const duration = clip.duration + v.clips.get('walk_rightfoot_leftfoot').duration;
     const backwards = (phase - v.walkPhase + duration) % duration;
     // Backward is the same gallop played in reverse: under a tick of clip time.
     assert.ok(backwards > 0 && backwards < 1 / rate, `backwards=${backwards}`);
-    for (let i = 0; i < rate * 2; i++) system.update(1 / rate, v, {});
+    for (let i = 0; i < rate * 2; i++) stepPrediction(system, 1 / rate, v, {});
     assert.ok(v.velocity.length() < .001); assert.ok(v.walkBlend < .001);
     system.dispose();
   }

@@ -93,7 +93,7 @@ pub fn stand_on_legs<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, legs: &s
     let k = dt * 60.0;
     let mut q = Quaternion::default();
     q.set_from_euler(&Euler::new(-v.tilt, v.yaw, v.roll, EulerOrder::YXZ));
-    let mut heights: Vec<f64> = Vec::with_capacity(legs.pairs.len());
+    let mut heights = std::mem::take(&mut v.support_heights); heights.clear();
     let created = v.leg_side.is_none();
     if created {
         v.leg_side = Some(vec![0.0; legs.pairs.len()]);
@@ -128,7 +128,7 @@ pub fn stand_on_legs<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, legs: &s
         if !heights.iter().any(|&h| h > -0.01) {
             v.velocity.y -= 29.4 * dt;
             v.position.y += v.velocity.y * dt;
-            return;
+            v.support_heights = heights; return;
         }
         v.velocity.y = 0.0;
         const MAX: f64 = 0.2955;
@@ -144,7 +144,7 @@ pub fn stand_on_legs<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, legs: &s
         }
         let rise = (max(heights[0], -0.1 * k) + max(heights[1], -0.1 * k)) / 2.0;
         v.position.y += rise;
-        return;
+        v.support_heights = heights; return;
     }
     // One pair (the AT-ST); none at all reads undefined, NaN here.
     let h = heights.first().copied().unwrap_or(f64::NAN);
@@ -155,4 +155,5 @@ pub fn stand_on_legs<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, legs: &s
         v.velocity.y -= 29.4 * dt;
         v.position.y += max(v.velocity.y * dt, h);
     }
+    v.support_heights = heights;
 }

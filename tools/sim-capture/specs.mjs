@@ -35,7 +35,8 @@
 // unless the state asks for it whole: expand(object).
 import * as THREE from 'three';
 import { units } from './units.mjs';
-import { seats } from './seats.mjs';
+import { seats, hullExport, seatState, crewState } from './seats.mjs';
+import { f2Spec } from './f2.mjs';
 import { vehicleAI } from './vehicle-ai.mjs';
 import { combat } from './combat.mjs';
 import { battle, battlePhase } from './battle.mjs';
@@ -50,7 +51,6 @@ import { liveObjects } from './live.mjs';
 import { turrets } from './turrets.mjs';
 import { debris } from './debris.mjs';
 import { weapons } from './weapons.mjs';
-import { vehicleFiring } from './vehicle-firing.mjs';
 
 export class Expand {
   constructor(value) { this.value = value; }
@@ -342,4 +342,5 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 // The AI in vehicles (P14): the vehicle service's calls, the seats'
 // steering, the vehicle patterns, the notifier and decay, and the boarding
 // and flyer agents (tools/sim-capture/vehicle-ai.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats, battle, battlePhase, vehicleAI, humanSpawn, ai, aiPolicy, aiCombat, traps, props, animated, liveObjects, turrets, debris, weapons, vehicleFiring };
+const f2 = f2Spec({ hullExport, seatState, crewState, poseState, tetherState, boundaries: spawnBoundaries });
+export const SPECS = { f2, ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats, battle, battlePhase, vehicleAI, humanSpawn, ai, aiPolicy, aiCombat, traps, props, animated, liveObjects, turrets, debris, weapons };

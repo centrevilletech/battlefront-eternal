@@ -505,8 +505,8 @@ export class EntityGameState {
       if (slot.lease && slot.lease.unit !== unit) { const other = slot.lease.unit; if (other) this.clearSeat(other); else { slot.lease.released = true; slot.lease = null; } }
       reader.setLease(null, vehicle, [id, own ? 1 : 0, seat.seatIndex === 0 ? 'pilot' : 'gunner', generation], value => { slot.lease = value; }, seat.seatIndex);
       unit.targetable = false; if (unit.combat) unit.combat.mounted = true;
-      if (own) { vehicle.seatIndex = seat.seatIndex; reader.setDriver(g.vehicles.vehicles.indexOf(vehicle)); g.driver?.sync?.(); }
-      else g.vehicles.syncRider?.(slot.lease);
+      if (own) { vehicle.seatIndex = seat.seatIndex; reader.setDriver(g.vehicles.vehicles.indexOf(vehicle)); g.driver?.syncReplica?.(); }
+      else g.vehicles.placeReplicaRider(slot.lease);
       return;
     }
     const turret = (g.turretSeats?.turrets || []).find(t => t.aiTarget?.id === seat.vehicleId && t.aiTarget.generation === seat.vehicleGeneration);
@@ -522,7 +522,7 @@ export class EntityGameState {
       g.client.seats.setGunner?.(g.live.buildings.indexOf(turret));
     } else {
       reader.setLease(turret, null, [id, 0, 'gunner', generation], value => { turret.lease = value; });
-      if (turret.lease) { turret.lease.generation = generation; g.turretSeats.pose?.(turret.lease, 0); }
+      if (turret.lease) { turret.lease.generation = generation; g.turretSeats.placeReplica(turret.lease); }
     }
     this.presentation.unbind(unit.id);
   }
@@ -579,12 +579,12 @@ export class EntityGameState {
     // Vehicle.present reads the frame's dt from the pose to turn the aimers.
     for (const vehicle of g.vehicles?.vehicles || []) if (vehicle.networkPose) vehicle.networkPose.dt = dt;
     // Manned turrets: the drum and gun at the replicated angles, the body in the
-    // seat (TurretSeats.pose). The own gunner's are the Gunner's to pose.
+    // seat (TurretSeats.placeReplica). The own gunner's are the Gunner's to pose.
     for (const turret of g.turretSeats?.turrets || []) {
       const lease = turret.lease; if (!lease || lease.human || !turret.alive) continue;
       turret.settleTurn?.(tick);
       poseTurret(turret, turret.yaw);
-      if (lease.unit?.soldier) g.turretSeats.pose(lease, 0);
+      if (lease.unit?.soldier) g.turretSeats.placeReplica(lease);
     }
   }
 }

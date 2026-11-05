@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {ENTITY_POSTURES,ENTITY_SOLDIER_STATES} from './runtime/network-entity-codec.js';
 
+const NETWORK_POSE = ['posture', 'air', 'dive', 'dead'];
 const WALKER_POSE = ["roll", "lean", "legs", "time"];
 
 // Dedicated servers never interpolate a rendered frame. Keep the interface
@@ -66,7 +67,7 @@ export class SoldierPresentation {
   }
 
   clearNetworkState() {
-    for (const key of ['posture','air','dive','dead']) delete this.state[key];
+    for (const key of NETWORK_POSE) delete this.state[key];
     this.networkState = false;
   }
 

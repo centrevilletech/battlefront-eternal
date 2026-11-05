@@ -121,6 +121,7 @@ pub struct LegPairs {
 /// What a hull's pose keeps beside its tick's state.
 #[derive(Clone, Debug)]
 pub struct HullPose {
+    pub work: PoseWork,
     pub rig: HullRig,
     pub visual: Vector3,
     pub age: f64,
@@ -137,6 +138,16 @@ pub struct HullPose {
     /// Its clips (None: `this.clips` null) and its legs (a walker's).
     pub clips: Option<WalkClips>,
     pub leg_pairs: Option<LegPairs>,
+}
+
+/// applyPose, liftLegs and poseGearAt each retain their sampler. Leg bone
+/// membership is compiled once; drawn poses never walk names or allocate it.
+#[derive(Clone, Debug, Default)]
+pub struct PoseWork {
+    pub walk: Option<Pose>,
+    pub lift: Option<Pose>,
+    pub gear: Option<Pose>,
+    leg_bones: Option<Vec<Vec<usize>>>,
 }
 
 /// `aimVector(yaw, pitch, out)`: a direction from a yaw (positive to the
@@ -183,9 +194,6 @@ impl Hull {
     }
 
     /// `held(i)`: someone holds seat i (a lease, or the player).
-    fn held(&self, i: i32) -> bool {
-        i >= 0 && (self.seats.get(i as usize).is_some_and(|s| s.lease.is_some()) || self.driver && self.seat_index == i as usize)
-    }
 
     /// vehicles.js aimTick: the tick's part of the pose (a ground hull's).
     pub fn aim_tick<W: VehicleWorld>(&mut self, w: &mut W, alpha: f64, dt: f64) {
@@ -386,7 +394,7 @@ impl Hull {
     /// aimers turned toward its target (a turn only with time, dt > 0).
     fn pose_seat(&mut self, i: usize, dt: f64) {
         let (aim_yaw, pitch) = (self.seats[i].aim_yaw, self.seats[i].pitch);
-        let held: Vec<bool> = (0..self.seats.len() as i32).map(|k| self.held(k)).collect();
+        let seats = &self.seats; let driver = self.driver; let seat_index = self.seat_index;
         let p = self.pose.as_mut().unwrap();
         let root = p.rig.root;
         let turret = p.seats[i].turret;
@@ -455,7 +463,7 @@ impl Hull {
                 turn.multiply(&q2);
                 let parent_world = p.rig.tree.node(parent).matrix_world;
                 a.facing.set(0.0, 0.0, 1.0).apply_quaternion(&turn).transform_direction(&parent_world);
-                a.posed = a.owner < 0 || !held[a.owner as usize];
+                a.posed = a.owner < 0 || !(seats[a.owner as usize].lease.is_some() || driver && seat_index == a.owner as usize);
                 if a.posed {
                     p.rig.tree.node_mut(bone).copy_quaternion(&turn);
                     p.rig.tree.update_matrix_world(bone, true);
@@ -532,7 +540,7 @@ impl Hull {
         let (phase, blend, age) = (p.walk_phase, p.walk_blend, p.age);
         let count = p.rig.bones.len();
         let root = p.rig.pose_root.unwrap_or(-1);
-        let mut pose = Pose::new(count, root);
+        let mut pose = p.work.walk.take().unwrap_or_else(|| Pose::new(count, root));
         let clips = p.clips.as_ref();
         let (left, right) = (clips.and_then(|c| c.left.as_ref()), clips.and_then(|c| c.right.as_ref()));
         let length = left.map_or(0.0, |c| or_zero(c.duration)) + right.map_or(0.0, |c| or_zero(c.duration));
@@ -543,19 +551,20 @@ impl Hull {
             add(&mut pose, Some(clip), time, blend, false);
         }
         apply(&mut pose, &mut p.rig);
+        p.work.walk = Some(pose);
         self.lift_legs();
     }
 
     /// vehicles.js liftLegs: each leg pair's legs drawn toward the pose with
     /// the foot on the higher ground lifted, by how much higher it is.
     fn lift_legs(&mut self) {
-        let Some(sides) = self.leg_side.clone() else { return };
+        let Some(sides) = self.leg_side.as_ref() else { return };
         let p = self.pose.as_mut().unwrap();
         let (Some(legs), Some(clips)) = (p.leg_pairs.as_ref(), p.clips.as_ref()) else { return };
         let (Some(up_left), Some(up_right)) = (clips.lift_left.as_ref(), clips.lift_right.as_ref()) else { return };
         let count = p.rig.bones.len();
         // legBones: the bones under each pair's two leg bones, in bone order.
-        let leg_bones: Vec<Vec<usize>> = legs
+        let leg_bones = p.work.leg_bones.get_or_insert_with(|| legs
             .names
             .iter()
             .map(|pair| {
@@ -567,8 +576,8 @@ impl Hull {
                 }
                 (0..count).filter(|&i| under.contains(&p.rig.bones[i])).collect()
             })
-            .collect();
-        let mut lp = Pose::new(count, p.rig.pose_root.unwrap_or(-1));
+            .collect());
+        let mut lp = p.work.lift.take().unwrap_or_else(|| Pose::new(count, p.rig.pose_root.unwrap_or(-1)));
         for (n, bones) in leg_bones.iter().enumerate() {
             let side = or_zero(sides.get(n).copied().unwrap_or(f64::NAN));
             let weight = v8math::min(1.0, v8math::abs(side));
@@ -590,21 +599,21 @@ impl Hull {
                 bone.position.lerp(&target, weight);
             }
         }
+        p.work.lift = Some(lp);
     }
 
     /// vehicles.js feelLegs: each leg pair's ground under its feet as drawn
     /// (legSide, from the placed root), the hull's own body out of the casts.
     fn feel_legs<W: VehicleWorld>(&mut self, w: &mut W, dt: f64) {
-        let p = self.pose.as_ref().unwrap();
-        let Some(legs) = p.leg_pairs.clone() else { return };
+        let p = self.pose.as_mut().unwrap();
+        let Some(legs) = p.leg_pairs.as_ref() else { return };
         if self.creature || !(dt > 0.0) {
             return;
         }
         let l = legs.ray_length;
         let root = p.rig.root;
-        let mut tree_root = p.rig.tree.node(root).clone();
-        let r = tree_root.rotation();
-        let root_position = tree_root.position;
+        let r = p.rig.tree.node_mut(root).rotation();
+        let root_position = p.rig.tree.node(root).position;
         let mut q = Quaternion::default();
         q.set_from_euler(&three::Euler::new(r.x, r.y, r.z, EulerOrder::YXZ));
         if self.leg_side.is_none() {

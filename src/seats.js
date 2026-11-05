@@ -1,6 +1,6 @@
-import { personLease } from "./boarding.js";
+
 import { makeUnitHit } from "./registry.js";
-import { hasMissileLock } from "./weapon-targeting.js";
+
 import * as THREE from "three";
 import { SeatsWorld } from "./seats-world.js";
 
@@ -193,181 +193,6 @@ export class SeatInput {
     this.exit = false;
   }
 
-  // Freeze the unit's intent for this batch. Held analogs and buttons are
-  // copied; edges are taken from the intent (cleared there) so they happen
-  // once. Edges a seat has no use for (jump, crouch, prone, weapon cycling,
-  // zoom) are dropped rather than left to fire when the unit is on foot.
-  latch(lease) {
-    const intent = lease.intent;
-    this.forward = clamp(intent.forward || 0, -1, 1);
-    this.right = clamp(intent.right || 0, -1, 1);
-    const aimLimit = lease.turret && lease.unit?.networkHuman ? 16 : 1;
-    this.turn = clamp(intent.turn || 0, -aimLimit, aimLimit);
-    this.pitch = clamp(intent.pitch || 0, -aimLimit, aimLimit);
-    this.brake = Boolean(intent.brake);
-    this.trick = Boolean(intent.trick); this.immelmann = Boolean(intent.immelmann); this.boost = Boolean(intent.boost);
-    this.up = intent.up ? 1 : 0;
-    this.down = intent.down ? 1 : 0;
-    const aim = intent.aim;
-    this.aiming = Boolean(aim && aim.lengthSq() > 1e-12);
-    if (this.aiming) this.aim.copy(aim).normalize();
-    const buttons = intent.buttons || ZERO_BUTTONS;
-    for (let c = 0; c < 2; c++) {
-      const held = buttons[c] > 0;
-      this.held[c] = held;
-      this.pressed[c] = held && !(lease.was[c] > 0);
-      lease.was[c] = buttons[c];
-    }
-    this.reload = Boolean(intent.reload);
-    this.exit = Boolean(intent.use || intent.exit);
-    intent.reload = intent.use = intent.exit = false;
-    intent.jump = intent.crouch = intent.prone = false;
-    intent.nextPrimary = intent.previousPrimary = intent.nextSecondary = intent.zoom = false;
-    return this;
-  }
-
-  // A trigger press, once.
-  take(channel) {
-    const pressed = this.pressed[channel];
-    this.pressed[channel] = false;
-    return pressed;
-  }
-
-  takeReload() {
-    const reload = this.reload;
-    this.reload = false;
-    return reload;
-  }
-}
-
-// The 2004 game's seat exit placement (the soldier's exit callback), for
-// Classic bots. Nine candidates around the vehicle in the occupied
-// seat's frame, at R = the vehicle's bounding radius + 0.684: behind, left,
-// right, the four diagonals (0.7071 R each way), in front, and the vehicle's
-// own spot, each 1 m up. The first eight need a clear line from the
-// vehicle's bounding centre (the vehicle itself left out of that line).
-// A candidate is accepted if any of five support samples (itself, then
-// +-0.72 m along the world axes) finds a floor: a 5 m ray up (the sample
-// rises to just under what it meets, or 4.9 m), then a 10 m ray down that
-// must hit. The soldier goes to the candidate's X/Z at the highest support
-// found (the first sample wins ties). If no candidate has support, the
-// vehicle's origin. The geometry rays see terrain, buildings, props and
-// vehicles, not water; nothing checks for drowning, falls or death
-// regions, which is the Classic behaviour (the Enhanced safe exit is a
-// different policy). Arithmetic is float32 where the 2004 game's constants
-// are, so the candidate layout matches it bit for bit.
-//
-// frame: { origin, forward, up? } the occupied seat's frame; center/radius:
-// the vehicle's bounding sphere; body: its collision body (left out of the
-// radial lines only). Returns out = { position, forward, candidate } where
-// candidate is the accepted index 0..8, or -1 for the fallback.
-const EXIT_EXTRA = f32(0.6840001);
-const EXIT_DIAGONAL = f32(0.7071);
-const SUPPORT_STEP = f32(0.72);
-const SUPPORT_UP = 5;
-const SUPPORT_DOWN = 10;
-
-export function exitCandidates(radius, out = []) {
-  const r = f32(f32(radius) + EXIT_EXTRA);
-  const d = f32(EXIT_DIAGONAL * r);
-  const rows = [[0, 1, -r], [-r, 1, 0], [r, 1, 0], [-d, 1, -d], [d, 1, -d], [d, 1, d], [-d, 1, d], [0, 1, r], [0, 1, 0]];
-  out.length = 0;
-  for (const row of rows) out.push(row);
-  return out;
-}
-
-export function exitSupportOffsets() {
-  const s = SUPPORT_STEP;
-  return [[0, 0, 0], [s, 0, s], [s, 0, -s], [-s, 0, s], [-s, 0, -s]];
-}
-
-// Of support heights (null where a sample found none), the index of the
-// highest; equal heights keep the earlier sample. -1 when none.
-export function highestSupport(heights) {
-  let best = -1;
-  for (let i = 0; i < heights.length; i++) {
-    if (heights[i] === null || heights[i] === undefined) continue;
-    if (best < 0 || heights[i] > heights[best]) best = i;
-  }
-  return best;
-}
-
-const exitScratch = {
-  right: new THREE.Vector3(), up: new THREE.Vector3(), forward: new THREE.Vector3(),
-  point: new THREE.Vector3(), sample: new THREE.Vector3(), dir: new THREE.Vector3(),
-  hit: { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null },
-  candidates: [], heights: [0, 0, 0, 0, 0],
-};
-
-export function classicSeatExit(collision, { origin, forward, up = UP, center, radius, body = null }, out = { position: new THREE.Vector3(), forward: new THREE.Vector3(), candidate: -1 }) {
-  const s = exitScratch;
-  // The orthonormal frame: up, right = up x forward, forward = right x up.
-  s.up.copy(up).normalize();
-  s.right.crossVectors(s.up, forward);
-  if (s.right.lengthSq() < 1e-12) s.right.set(1, 0, 0);
-  s.right.normalize();
-  s.forward.crossVectors(s.right, s.up);
-  out.forward.copy(s.forward);
-  out.candidate = -1;
-  out.position.copy(origin);
-  const offsets = exitSupportOffsets();
-  const candidates = exitCandidates(radius, s.candidates);
-  for (let k = 0; k < candidates.length; k++) {
-    const [x, y, z] = candidates[k];
-    s.point.copy(origin).addScaledVector(s.right, x).addScaledVector(s.up, y).addScaledVector(s.forward, z);
-    if (k < 8) {
-      s.dir.subVectors(s.point, center);
-      const span = s.dir.length();
-      if (span > 1e-6 && collision.cast(center, s.dir.divideScalar(span), span, s.hit, body)) continue;
-    }
-    let found = false;
-    for (let i = 0; i < offsets.length; i++) {
-      const [dx, , dz] = offsets[i];
-      s.sample.set(s.point.x + dx, s.point.y, s.point.z + dz);
-      const above = collision.cast(s.sample, UP, SUPPORT_UP, s.hit);
-      s.sample.y += (above ? s.hit.distance : SUPPORT_UP) - 0.1;
-      const below = collision.cast(s.sample, DOWN, SUPPORT_DOWN, s.hit);
-      if (below && s.hit.distance < SUPPORT_DOWN) {
-        s.heights[i] = s.sample.y - s.hit.distance;
-        found = true;
-      } else s.heights[i] = null;
-    }
-    if (!found) continue;
-    out.position.set(s.point.x, s.heights[highestSupport(s.heights)], s.point.z);
-    out.candidate = k;
-    return out;
-  }
-  return out;
-}
-
-// Puts a unit's body down where a seat let it out: standing, at rest
-// (the original game zeroes the exit velocity), facing yaw. Its jet fuel is
-// kept: leaving a seat is not a respawn. midair: out of a craft in flight,
-// it is left where it was put, falling, unless the ground is right there
-// (Soldier.spawn would set it on whatever lies below). world: the seats'
-// (src/seats-world.js), which stands the body up; the player's own (a page's
-// VehicleDriver) is stood up directly.
-export function placeOnFoot(unit, position, yaw, { midair = false, world = null } = {}) {
-  const s = unit.soldier;
-  const fuel = s.fuel;
-  if (world) world.standUp(unit, position.x, position.y, position.z, yaw);
-  else s.spawn(position.x, position.y, position.z, yaw);
-  if (midair && (!s.grounded || s.position.y < position.y - 0.5)) {
-    s.position.copy(position);
-    s.previous?.copy(position);
-    s.settled?.copy(position);
-    s.grounded = false;
-    s.setAir?.("fall");
-  }
-  if (fuel !== undefined) s.fuel = fuel;
-  s.velocity?.set(0, 0, 0);
-  unit.presentation?.reset?.();
-  unit.animator?.gunner?.(null);
-  unit.animator?.reset?.(yaw);
-  if (unit.actor?.root) {
-    unit.actor.root.visible = true;
-    unit.actor.root.rotation?.set?.(0, yaw, 0);
-  }
 }
 
 // A body let go where it rode (a rider killed on his seat, src/boarding.js
@@ -740,6 +565,7 @@ const ZERO = new THREE.Vector3();
 // A turret's gun pivot: the gun node, else its fire point, else the drum's
 // bounding centre.
 export function turretOrigin(turret, out) {
+  if (turret.f2Seats) return out.copy(turret.f2Pose.origin);
   const node = turret.gun || turret.firePoint;
   if (node) {
     turret.rig?.root?.updateMatrixWorld?.(true);
@@ -767,16 +593,9 @@ export function turretAimPoint(turret, firstPerson, direction, collision, units,
   return out.copy(aimFrom).addScaledVector(direction, far);
 }
 
-// The bots who man turrets (props.js armed buildings). The player keeps the
-// Gunner adapter (src/gunner.js); this is the same turret driven from a
-// unit's intent: the turn and pitch analogs turn the drum at its
-// MaxTurnSpeed (as the mouse rates do), the gun follows the point the bot
-// aims at (its intent.aim, else the drum's view) at the gun's own rates,
-// and the trigger fires the turret's weapon from its fire point along the
-// gun, credited to the unit.
-//
-// One update per rendered frame, after LiveObjects.update (main.js wiring
-// in docs/ai-vehicles.md).
+// Stationary crew facades and page presentation. The native seat owner installs
+// scalar commands at adoption and runs each crew's aim, pose and fire in order.
+// This object retains the registry, foreign hooks and replicated lease views.
 const AIM_REACH = 512;
 
 export class TurretSeats {
@@ -792,16 +611,11 @@ export class TurretSeats {
     this.time = 0;
     this.ticks = 0;
     this.seatRandom = null; // () => [0, 1): the world's seat stream (seatWeaponPolicy)
-    this.exit = { position: new THREE.Vector3(), forward: new THREE.Vector3(), candidate: -1 };
+    // placeReplica still positions received riders on the page. Its scratch
+    // survives the removal of world crew posing and is reused across packets.
     this.seatPoint = new THREE.Vector3();
-    this.dropPoint = new THREE.Vector3();
-    this.riderPose = { clip: null, pitch: 0, turn: 0, time: null };
     this.seatTurn = new THREE.Quaternion();
-    this.view = new THREE.Vector3();
-    this.muzzle = new THREE.Vector3();
-    this.gunDir = new THREE.Vector3();
-    this.target = new THREE.Vector3();
-    this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
+    this.riderPose = { clip: null, pitch: 0, turn: 0, time: null };
     // Everything the crews ask of the rest of the battle (src/seats-world.js).
     this.world = new SeatsWorld(this);
     for (const turret of this.turrets) turret.crew = this;
@@ -835,155 +649,12 @@ export class TurretSeats {
       && turret.alive && !turret.gunner && !turret.lease);
   }
 
-  man(unit, turret) {
-    // A person takes a bot's turret over, as he takes a vehicle's seat
-    // (boarding.js claimSeat): the bot is set down beside it first.
-    if (unit?.networkHuman && turret?.lease && !turret.lease.released && !personLease(turret.lease)) this.vacate(turret.lease);
-    if (!this.canMan(unit, turret)) return false;
-    const lease = new SeatLease({ unit, team: unit.team, turret, index: 0, role: GUNNER, time: this.time, tick: this.ticks });
-    turret.lease = lease;
-    turret.gunner = unit.soldier;
-    turret.crew = this;
-    turret.yawVel = turret.pitchVel = 0;
-    seatWeaponPolicy(turret.weapon, Boolean(unit.networkHuman), this.seatRandom);
-    if (!unit.networkHuman) lease.controllable = this.world.controllable(lease);
-    unit.seat = lease;
-    seatBody(unit);
-    this.leases.push(lease);
-    this.pose(lease, 0);
-    this.world.boarded(unit, turret, 0);
-    return true;
-  }
-
-  // The unit's exit request, taken at the next update (as in the 2004 game).
-  requestExit(unit, { post = null, placement = true } = {}) {
-    const lease = this.seatOf(unit);
-    if (!lease) return false;
-    lease.exitRequest = { post, placement };
-    return true;
-  }
-
-  // Out of the turret now. placement false leaves the body where it is.
-  leave(unit, { placement = true, post = null } = {}) {
-    const lease = this.seatOf(unit);
-    if (!lease) return false;
-    this.vacate(lease, { placement, post });
-    return true;
-  }
-
-  // Out now. kill: the turret was destroyed under him, and he dies,
-  // credited to attacker. reason 'killed' (src/boarding.js leaveKilled): he
-  // died at the gun. Either way his body falls from where he stood, as a
-  // vehicle rider's does (Vehicles.vacate), and shows again if the turret
-  // hid it (Turret.hidesGunner).
-  vacate(lease, { placement = true, post = null, kill = false, attacker = null, reason = "exit" } = {}) {
-    if (lease.released) return;
-    const turret = lease.turret;
-    const unit = lease.unit;
-    const died = kill || reason === "killed";
-    const fall = died && unit?.soldier ? this.world.riderDrop(turret, 0, unit, this.dropPoint) : null;
-    let yaw = null;
-    if (placement && !died && this.collision && unit?.soldier) {
-      const radius = turret.sphere(scratchCenter);
-      const facing = turret.facing + turret.yaw;
-      this.view.set(Math.sin(facing), 0, Math.cos(facing));
-      classicSeatExit(this.world, { origin: turret.position, forward: this.view, center: scratchCenter, radius, body: turret.bodies?.built || null }, this.exit);
-      yaw = Math.atan2(this.exit.forward.x, this.exit.forward.z);
-    }
-    lease.released = true;
-    if (turret.lease === lease) {
-      turret.lease = null;
-      turret.gunner = null;
-    }
-    const i = this.leases.indexOf(lease);
-    if (i >= 0) this.leases.splice(i, 1);
-    if (unit && unit.seat === lease) {
-      unit.seat = null;
-      unseatBody(unit);
-      if (yaw !== null) placeOnFoot(unit, this.exit.position, yaw, { world: this.world });
-      else if (turret.hidesGunner && unit.actor?.root && !unit.removed && !unit.combat?.blowApart) unit.actor.root.visible = true;
-    }
-    if (fall) dropBody(unit, fall);
-    if (kill && unit && unit.alive && !unit.combat?.dead) this.world.kill(unit, attacker);
-    if (!kill) this.world.unboarded(unit, turret, 0, post, reason);
-  }
-
-  // A manned turret destroyed: whoever mans it dies, credited to whoever
-  // destroyed it (props.js Building.destroyed calls this first).
-  destroyed(turret) {
-    const lease = turret.lease;
-    if (!lease || lease.human) return;
-    this.vacate(lease, { placement: false, kill: true, attacker: turret.lastAttacker ?? null });
-  }
-
-  update(dt) {
-    this.time += dt;
-    this.ticks += 1;
-    for (const lease of [...this.leases]) {
-      if (!lease.turret.alive) {
-        this.vacate(lease, { placement: false, kill: true, attacker: lease.turret.lastAttacker ?? null });
-        continue;
-      }
-      if (!lease.live) {
-        this.vacate(lease, { placement: false });
-        continue;
-      }
-      const input = lease.input.latch(lease);
-      if (input.exit || lease.exitRequest) {
-        const request = lease.exitRequest || {};
-        this.vacate(lease, { placement: request.placement ?? true, post: request.post ?? null });
-        continue;
-      }
-      this.drive(lease, dt);
-    }
-  }
-
-  // One frame of a bot or a network human at the gun: the drum, the gun,
-  // the body, the trigger.
-  drive(lease, dt) {
-    const turret = lease.turret;
-    const input = lease.input;
-    const person = Boolean(lease.unit?.networkHuman);
-    // A positive turn analog turns right (yaw down), as for soldiers.
-    turret.steer(dt, -input.turn, input.pitch, person ? lease.unit.combat?.zoom || 1 : 1);
-    turret.present?.();
-    turret.rig.root.updateMatrixWorld(true);
-    turret.muzzle(this.muzzle);
-    if (input.aiming) this.view.copy(input.aim);
-    else turret.viewDirection(this.view);
-    // The gun follows what lies under the aim. A person's runs from where
-    // his own page aims (Turret.aimOrigin: his eye in first person, else his
-    // chase camera's rest brought to the eye's plane), so the point it turns
-    // to is the one under his crosshair; a bot's from the gun's fire point.
-    if (person && turret.aimOrigin) turretAimPoint(turret, Boolean(lease.unit.combat?.firstPerson), this.view, this.collision ? this.world : null, this.world, lease.unit, this.target, this.hit);
-    else {
-      const hit = this.collision ? this.world.cast(this.muzzle, this.view, AIM_REACH, this.hit, turret.bodies?.built || null) : undefined;
-      this.target.copy(this.muzzle).addScaledVector(this.view, hit ? hit.distance : AIM_REACH);
-    }
-    turret.pose(dt, this.target);
-    this.pose(lease, dt);
-    const weapon = turret.weapon;
-    if (!weapon) return;
-    const pressed = input.take(0);
-    const trigger = { held: input.held[0] || pressed, pressed };
-    if (hasMissileLock(weapon.def)) this.world.updateLock(weapon, dt, this.muzzle, this.view, turret.aiTarget, turret.bodies?.built, lease);
-    for (const shot of this.world.weaponUpdate(weapon, dt, true, trigger, input.takeReload(), { stick: 0, posture: "stand", zoomed: false })) {
-      turret.muzzle(this.muzzle, this.gunDir, true);
-      turret.fireDirection?.(this.muzzle, this.target, this.gunDir, this.gunDir);
-      if (shot.yaw) this.gunDir.applyAxisAngle(UP, shot.yaw);
-      if (shot.pitch) this.gunDir.applyAxisAngle(this.view.crossVectors(this.gunDir, UP).normalize(), shot.pitch);
-      const round = this.world.fire(weapon.def.ordnance, this.muzzle, this.gunDir, lease.unit, turret.bodies?.built || null, lease.emitter, shot);
-      this.world.bindRound(round, turret, -1, -1, (turret.barrel - 1) % (turret.firePoints?.length || 1));
-      this.world.sound("turretFire", turret, shot);
-      this.world.fired(turret, 0, shot, lease.unit, this.muzzle, this.gunDir);
-    }
-  }
-
-  // The body at the drum's seat, turned as the seat node is (facing along
-  // the gun, Turret.seatTurn), in the gunner's pose (Turret.riderSample),
-  // out of sight where the turret hides its gunner. His hit shapes follow
-  // the drum (Unit.updateSpheres) in the same pose and frame.
-  pose(lease, dt) {
+  // EntitySeats supplies the bot's replicated lease and angles. Only the
+  // rendered drum and gun are posed here; the local Gunner previews its own.
+  // EntityGameState installs a page lease before its next rendered frame.
+  // Attach that replica's body to the drawn drum; the native world uses its
+  // own retained rig and never calls this presentation placement method.
+  placeReplica(lease) {
     const turret = lease.turret;
     const unit = lease.unit;
     const s = unit.soldier;
@@ -1003,14 +674,8 @@ export class TurretSeats {
     const pose = turret.riderSample?.(unit.animator?.clips, this.riderPose);
     unit.animator?.gunner?.(pose?.clip ?? null, pose?.pitch, pose?.turn, pose?.time, turret.seatTurn?.(this.seatTurn) ?? null);
     if (unit.tickCount !== undefined) unit.tickCount += 1;
-    return dt;
   }
 
-  // The bots' turrets as a page showing a worker's battle draws them: the
-  // drum and gun at the angles the tick gave (replicated with the turret's
-  // state; the page never runs drive(), and its leases come with the seat
-  // packet, onto the turrets). Once a frame, after the ticks. The player's
-  // own is the Gunner's to pose, with his look preview.
   present() {
     for (const turret of this.turrets) if (turret.lease && !turret.lease.human) poseTurret(turret, turret.yaw);
   }
