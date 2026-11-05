@@ -22,6 +22,7 @@ test('the parity corpus includes every map in every preset with valid spawn quer
   for (const key of Object.keys(programLayouts).filter(key => key.startsWith("post-hud/"))) assert.ok(manifest.programs.includes(key));
   for (const key of manifest.programs) assert.ok(programLayouts[key]);
   assert.equal(manifest.contextLossOwner, 'renderer lifecycle gate');
+  assert.equal(manifest.cases.find(c=>c.id==='restore-nab2').contextLoss,true);
   for (const c of manifest.cases) if (c.settings.renderScale < 1) assert.notEqual(c.settings.upscaler, "off", "scaled cases retain the native canvas for HUD capture");
   for (const map of ['kas1','kas2','kam1']) assert.equal(manifest.cases.find(c=>c.id===`mirror-${map}`).settings.waterQuality,'ultra');
 });
