@@ -81,7 +81,6 @@ function patchDepth(material) {
     shader.uniforms.fabricTime = lighting.time;
     shader.vertexShader = DECLARATIONS + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>\ntransformed += ${DIRECTION} * fabricOffset(position);`);
-
   };
   material.customProgramCacheKey = () => "fabric-v1-false";
   material.needsUpdate = true;

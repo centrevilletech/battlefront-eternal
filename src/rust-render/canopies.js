@@ -13,8 +13,7 @@ class CanopiesPass {
     this.name = "canopies";
     this.phase = "near";
     this.canopies = null;
-    // { program, attributes: [{ attribute, size, at }], max }, null when the
-    // renderer can't draw the mesh, undefined until three has drawn it.
+    // Geometry and instance layout, registered before the first native draw.
     this.entry = undefined;
   }
 
@@ -22,8 +21,6 @@ class CanopiesPass {
     const core = this.core, canopies = core.graphics.treeCanopies;
     if (!canopies) return;
     if (canopies !== this.canopies) { this.canopies = canopies; this.entry = undefined; }
-    // Taken now: three has listed the mesh in this render and draws it; the
-    // renderer draws it from the next one.
     if (this.entry === undefined) this.take(canopies);
     const entry = this.entry;
     if (!entry) return;
@@ -47,6 +44,8 @@ class CanopiesPass {
     // and its parents shown, on the camera's layers (never culled).
     let shown = canopies.drawn && mesh.layers.test(ctx.camera.layers);
     for (let n = mesh.parent; shown && n && n !== ctx.scene; n = n.parent) if (!n.visible) shown = false;
+    const shadows=Boolean(core.graphics.csm);
+    if(entry.shadows!==shadows){entry.program=ownedGeometryProgram(core,shadows?"world/canopies":"world/canopies-no-shadows");entry.shadows=shadows;}
     input[C.PROGRAM] = entry.program.id;
     input[C.TEXTURE] = texture;
     input[C.INSTANCES] = Math.min(mesh.geometry.instanceCount ?? 0, entry.max);
@@ -70,7 +69,7 @@ class CanopiesPass {
     for (const a of attributes) { a.size = a.attribute.itemSize; a.at = at; at += max * a.size; }
     core.addView("canopiesInput", Float64Array, () => core.rust.canopies_input_ptr(), () => core.rust.canopies_input_len());
     core.addView("canopiesLeaves", Float32Array, () => core.rust.canopies_leaves_ptr(), () => core.rust.canopies_leaves_len());
-    this.entry = { program, attributes, max };
+    this.entry = { program, attributes, max, shadows:Boolean(core.graphics.csm) };
     canopies.dirtyFirst = 0;
     canopies.dirtyEnd = max;
   }

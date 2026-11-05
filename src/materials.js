@@ -129,12 +129,6 @@ const vertexShader = /* glsl */ `
     varying vec3 vTangent;
     varying vec3 vBinormal;
   #endif
-  #ifdef TERRAIN_LAYERS
-    attribute vec4 weights0;
-    attribute vec4 weights1;
-    varying vec4 vWeights0;
-    varying vec4 vWeights1;
-  #endif
   varying vec2 vUv;
   varying vec4 vColor;
   varying vec3 vAmbient;
@@ -145,20 +139,8 @@ const vertexShader = /* glsl */ `
   varying float vDepth;
 
   void main() {
-    #ifdef TERRAIN_LAYERS
-      vWeights0 = weights0;
-      vWeights1 = weights1;
-    #endif
     #include <beginnormal_vertex>
-    #ifdef WORLD_SPACE
-      // The map's own meshes (world.js): vertices already in the world and
-      // a model matrix of identity, so the model-view matrix is the view
-      // matrix itself and the model and normal matrices are skipped. Older
-      // GPUs read every uniform a vertex uses from memory, a read each row.
-      #include <begin_vertex>
-      vec4 mvPosition = viewMatrix * vec4( transformed, 1.0 );
-      gl_Position = projectionMatrix * mvPosition;
-    #elif defined( USE_SKINNING ) && defined( RIGID_SKIN )
+    #if defined( USE_SKINNING ) && defined( RIGID_SKIN )
       // One bone a vertex at full weight and a bind matrix of identity (the
       // 2004 game's soldiers, actor.js). three's blend of four bones reduces
       // to this term for term: the other weights are zero and multiplying by
@@ -192,17 +174,11 @@ const vertexShader = /* glsl */ `
     #else
       vColor = vec4(1.0);
     #endif
-    #ifdef WORLD_SPACE
-      vec3 n = normalize(objectNormal);
-      vNormalW = n;
-      vWorld = transformed;
-    #else
       // transformedNormal includes skinning and the inverse-transpose normal
       // matrix. A plain modelMatrix multiplication breaks nonuniform scales.
       vec3 n = inverseTransformDirection(transformedNormal, viewMatrix);
       vNormalW = n;
       vWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
-    #endif
     vDepth = -mvPosition.z;
     #ifdef DYNAMIC
       vAmbient = mix(ambientTop, ambientBottom, 0.5 * (1.0 - n.y));
@@ -219,13 +195,8 @@ const vertexShader = /* glsl */ `
         tangentObject = mat3(skinMatrix) * tangentObject;
         binormalObject = mat3(skinMatrix) * binormalObject;
       #endif
-      #ifdef WORLD_SPACE
-        vTangent = tangentObject;
-        vBinormal = binormalObject;
-      #else
         vTangent = mat3(modelMatrix) * tangentObject;
         vBinormal = mat3(modelMatrix) * binormalObject;
-      #endif
     #endif
     // Point lights: max(0, N.toLight) * (1 - d^2 / r^2) * colour, for the
     // lights that are on and within reach of what is drawn (point-lights.js),
@@ -288,76 +259,6 @@ const fragmentShader = /* glsl */ `
     uniform sampler2D bumpMap;
     varying vec3 vTangent;
     varying vec3 vBinormal;
-  #endif
-  #ifdef TERRAIN
-    uniform sampler2D layer1Map;
-    uniform sampler2D detailMap;
-    uniform vec2 layerScales;
-    uniform vec2 farOrigin;
-    uniform vec3 bakedLit;
-  #endif
-  #ifdef TERRAIN_LAYERS
-    // Every map layer a patch paints with, summed by per-vertex weight.
-    uniform vec4 layerScale0;
-    uniform vec4 layerScale1;
-    varying vec4 vWeights0;
-    varying vec4 vWeights1;
-    uniform sampler2D layerMap0;
-    #if TERRAIN_LAYERS > 1
-      uniform sampler2D layerMap1;
-    #endif
-    #if TERRAIN_LAYERS > 2
-      uniform sampler2D layerMap2;
-    #endif
-    #if TERRAIN_LAYERS > 3
-      uniform sampler2D layerMap3;
-    #endif
-    #if TERRAIN_LAYERS > 4
-      uniform sampler2D layerMap4;
-    #endif
-    #if TERRAIN_LAYERS > 5
-      uniform sampler2D layerMap5;
-    #endif
-    #if TERRAIN_LAYERS > 6
-      uniform sampler2D layerMap6;
-    #endif
-    #if TERRAIN_LAYERS > 7
-      uniform sampler2D layerMap7;
-    #endif
-    // Gradients come from the shared world position, so a layer can be
-    // skipped where it has no weight without breaking its mip selection.
-    void paint(inout vec4 sum, sampler2D layer, float weight, float scale, vec2 ground, vec2 dx, vec2 dy) {
-      if (weight > 0.002) sum += weight * textureGrad(layer, ground / scale, dx / scale, dy / scale);
-    }
-    vec4 paintedGround(vec2 ground) {
-      vec2 dx = dFdx(ground);
-      vec2 dy = dFdy(ground);
-      vec4 sum = vec4(0.0);
-      paint(sum, layerMap0, vWeights0.x, layerScale0.x, ground, dx, dy);
-      #if TERRAIN_LAYERS > 1
-        paint(sum, layerMap1, vWeights0.y, layerScale0.y, ground, dx, dy);
-      #endif
-      #if TERRAIN_LAYERS > 2
-        paint(sum, layerMap2, vWeights0.z, layerScale0.z, ground, dx, dy);
-      #endif
-      #if TERRAIN_LAYERS > 3
-        paint(sum, layerMap3, vWeights0.w, layerScale0.w, ground, dx, dy);
-      #endif
-      #if TERRAIN_LAYERS > 4
-        paint(sum, layerMap4, vWeights1.x, layerScale1.x, ground, dx, dy);
-      #endif
-      #if TERRAIN_LAYERS > 5
-        paint(sum, layerMap5, vWeights1.y, layerScale1.y, ground, dx, dy);
-      #endif
-      #if TERRAIN_LAYERS > 6
-        paint(sum, layerMap6, vWeights1.z, layerScale1.z, ground, dx, dy);
-      #endif
-      #if TERRAIN_LAYERS > 7
-        paint(sum, layerMap7, vWeights1.w, layerScale1.w, ground, dx, dy);
-      #endif
-      float total = dot(vWeights0, vec4(1.0)) + dot(vWeights1, vec4(1.0));
-      return sum / max(total, 0.004);
-    }
   #endif
   varying vec2 vUv;
   varying vec4 vColor;
@@ -495,26 +396,7 @@ const fragmentShader = /* glsl */ `
         // Reject the hidden near portion before any material texture fetches.
         if (vDepth < fade.x) discard;
       #endif
-      #ifdef TERRAIN
-        vec2 ground = vWorld.xz;
-        #ifdef FAR
-          vec4 texel = texture2D(map, (ground - farOrigin) / layerScales);
-        #else
-          #ifdef TERRAIN_LAYERS
-            vec4 texel = paintedGround(ground);
-          #else
-            vec4 texel = mix(texture2D(map, ground / layerScales.x), texture2D(layer1Map, ground / layerScales.y), vColor.a);
-          #endif
-          float detail = 1.0 - smoothstep(30.0, 80.0, vDepth);
-          // The detail texture is neutral past 80 m: no fetch there. Its
-          // gradients come from outside the branch, for a defined mip level.
-          vec2 groundDx = dFdx(ground);
-          vec2 groundDy = dFdy(ground);
-          texel.rgb *= detail > 0.0 ? mix(vec3(0.5), textureGrad(detailMap, ground / 2.0, groundDx / 2.0, groundDy / 2.0).rgb, detail) * 2.0 : vec3(1.0);
-        #endif
-      #else
         vec4 texel = texture2D(map, vUv);
-      #endif
       #ifdef ALPHA_TEST
         // Coverage AA smooths texture silhouettes (fences/leaves), which
         // ordinary MSAA cannot touch after a binary shader discard.
@@ -564,31 +446,6 @@ const fragmentShader = /* glsl */ `
       vec3 light;
       #if defined( UNLIT )
         light = tint;
-      #elif defined( TERRAIN )
-        #ifdef FAR
-          light = vColor.rgb * 2.0;
-          #ifdef TERRAIN_RELIGHT
-            // The same slope shading as the near ground, without shadows.
-            if (terrainShade > 0.5) light *= 0.5 + 0.5 * clamp(1.0 + (dot(normal, -sunDirection) / max(-sunDirection.y, 0.25) - 1.0) * 2.2, 0.0, 1.3);
-          #endif
-        #else
-          light = min(vColor.rgb, bakedLit * mix(0.5, 1.0, shadow)) * 2.0;
-          #ifdef TERRAIN_RELIGHT
-            // Enhanced shading for ground baked flat (no sun in its vertex
-            // colours, as on Hoth): the sun by the slope, scaled so open
-            // flat ground keeps its baked value and shadow stays at half.
-            // Slopes facing away fall toward the shadow level; slopes facing
-            // the sun brighten a little. Shaded snow takes the sky's chill.
-            if (terrainShade > 0.5) {
-              // Twice the slope's own change, so gentle drifts still read.
-              float slope = clamp(1.0 + (dot(normal, -sunDirection) / max(-sunDirection.y, 0.25) - 1.0) * 2.2, 0.0, 1.3);
-              float sun = 0.5 + 0.5 * slope * shadow;
-              light = min(vColor.rgb * max(sun, 1.0), bakedLit * sun) * 2.0;
-              float snow = smoothstep(0.62, 0.85, min(texel.r, min(texel.g, texel.b)));
-              light *= mix(vec3(1.0), vec3(0.9, 0.95, 1.05), snow * (1.0 - min(slope * shadow, 1.0)));
-            }
-          #endif
-        #endif
       #elif defined( BAKED )
         light = clamp(vColor.rgb + vPoint, 0.0, 1.0);
       #else
