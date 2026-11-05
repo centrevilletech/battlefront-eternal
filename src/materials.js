@@ -728,6 +728,7 @@ function materialFor(kind, options, create) {
     defines,
     uniforms,
     lights: true,
+    forceSinglePass: true,
     transparent: blended,
     depthWrite: !blended && kind !== "sky",
     depthTest: kind !== "sky",

@@ -86,7 +86,7 @@ export function installReplay() {
     finally{for(const [name,fn] of saved)gl[name]=fn;for(const [name,fn] of multi)ext[name]=fn;R.resetState();R.setRenderTarget(before);R.setClearColor(clearColor,clearAlpha);}
   };
   core.rust.frame=function(records){
-    if(!T.want || !T.captureReplay || !core.byName.canopies.entry)return nearFrame(records);
+    if(T.worldReplayEnabled || !T.want || !T.captureReplay || !core.byName.canopies.entry)return nearFrame(records);
     core.views();const input=Array.from(core.canopiesInput),frame=store(core.input.slice(0,core.recordsAt)),leaves=store(core.canopiesLeaves.slice());
     const material=g.treeCanopies.mesh.material,objects=textures([material.uniforms.map.value]);
     const data=[snapshot(input[2],objects)];core.views();core.input.set(T.blobs[frame]);core.canopiesInput.set(input);

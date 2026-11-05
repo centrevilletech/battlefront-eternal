@@ -3,6 +3,8 @@
 import fs from 'node:fs';
 import { expand } from './manifest.mjs';
 import { installReplay } from './replay.mjs';
+import { installWorldTrace, installWorldReplay } from './world-replay.mjs';
+import { programLayouts } from '../../src/render-programs.js';
 import { connect, loadBattle, GL_STATE, HELPERS_SRC } from './battle.mjs';
 const manifest = expand(JSON.parse(fs.readFileSync(new URL('./manifest.json', import.meta.url))));
 const id = process.env.BFE_CORPUS_CASE, out = process.env.OUT;
@@ -19,7 +21,7 @@ const gpuDeaths = () => log && fs.existsSync(log) ? fs.readFileSync(log, 'utf8')
 const c = await connect();
 const result = { role, id, contract: manifest.version, points: [] };
 try {
-  result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query });
+  result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query, extraSrc: `(${installWorldTrace.toString()})()` });
   if (result.loaded.error || !result.loaded.spawned) throw Error(result.loaded.error || 'player not spawned');
   await c.ev(HELPERS_SRC);
   result.setup = await c.ev(`(() => {
@@ -43,7 +45,8 @@ try {
     return {buffer:[gl.drawingBufferWidth,gl.drawingBufferHeight],target:[g.sceneTarget.width,g.sceneTarget.height],samples:g.sceneTarget.samples,supportedSamples:g.supportedSamples,upscaling:g.upscaling};
   })()`);
   await c.ev(`(${installReplay.toString()})()`);
-  await c.ev(`window.__corpus.captureReplay=${role === 'reference'}`);
+  await c.ev(`(${installWorldReplay.toString()})(${JSON.stringify(programLayouts)})`);
+  await c.ev(`window.__corpus.captureReplay=${role === 'reference'};window.__corpus.role=${JSON.stringify(role)}`);
   if (testCase.camera === 'water') await c.ev(`(() => {
     const b=__bf,g=b.graphics,water=g.scene.userData.water,T=window.__corpus,V=b.THREE.Vector3;
     if(!water || water.ocean)throw Error('No planar mirror water');
@@ -82,7 +85,7 @@ try {
       }
       point.replayFile=`${rawDir}/${k}-replay.json`;fs.writeFileSync(point.replayFile,JSON.stringify(payload));
       point.selfReplay=await c.ev(`window.__corpus.replay(window.__corpus.records,window.__corpus.blobs)`);
-    } else if(role==='candidate') {
+    } else if(role==='candidate'||role==='control') {
       const payload=JSON.parse(fs.readFileSync(`${process.env.BFE_CORPUS_RAW || out}/${id}-reference/${k}-replay.json`));
       await c.ev(`window.__corpus.payload={records:${JSON.stringify(payload.records)},blobs:{}};1`);
       for(const [key,blob] of Object.entries(payload.blobs)) {

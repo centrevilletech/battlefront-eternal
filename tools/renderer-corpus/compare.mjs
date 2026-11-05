@@ -31,7 +31,8 @@ export function compareCase(out,id) {
   report.baselinePass=report.valid && report.complete && report.points.every(p=>Object.values(p.stages).every(s=>s.residual===0));
   report.pairs=runs.candidate.points.flatMap(p=>p.replay || []);
   report.selfPairs=runs.reference.points.flatMap(p=>p.selfReplay || []);
-  report.pass=report.valid && report.complete && report.pairs.length>0 && report.pairs.length===report.selfPairs.length && [...report.pairs,...report.selfPairs].every(p=>p.differing===0);
+  report.controlPairs=runs.control.points.flatMap(p=>p.replay || []);
+  report.pass=report.valid && report.complete && report.pairs.length>0 && report.pairs.length===report.selfPairs.length && report.pairs.length===report.controlPairs.length && [...report.pairs,...report.selfPairs,...report.controlPairs].every(p=>p.differing===0);
   fs.writeFileSync(`${out}/${id}.json`,JSON.stringify(report,null,2));
   // Retail-derived buffers are transient; keep only compact metrics.
   for(const role of roles)for(const point of runs[role].points){

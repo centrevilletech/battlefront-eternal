@@ -1,4 +1,4 @@
-import { compileUnowned } from "./rust-render/world-programs.js";
+import { compileUnowned, prewarmWorldPrograms } from "./rust-render/world-programs.js";
 import { loadRustRenderer } from "./rust-render/load.js";
 import * as THREE from "three";
 import { Bloom, applyValues, fullScreenPass, ownedFullScreenPass } from "./render-passes.js";
@@ -480,6 +480,7 @@ export class Graphics {
   // battle, whose incoming entity records must never wait behind the work.
   async prepareRenderer(settle, draw) {
     await this.rustReady;
+    prewarmWorldPrograms(this.rust);
     for (let i = 0; i < 2; i++) {
       this.render(0);
       draw();
