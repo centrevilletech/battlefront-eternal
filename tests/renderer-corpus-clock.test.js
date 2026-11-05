@@ -1,3 +1,7 @@
+// The capture clock must target authority ticks, not elapsed browser time.
+// Its synthetic source checks the exact warm/readback sequence used by the
+// cross-build runner so session load time cannot shift the compared frames.
+// This is a harness contract; it does not introduce a player renderer switch.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';

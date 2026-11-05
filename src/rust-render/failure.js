@@ -2,6 +2,8 @@
 // shader error can be reported without exposing shader source to the player.
 export function rendererFailure(renderer, cause) {
   if (cause?.rendererFailure) return cause;
+  // Driver details can be withheld by the browser. Keep the original cause
+  // even when only its generic renderer string is available to identify it.
   let gpu = "unknown GPU";
   try {
     const gl = renderer.getContext();
@@ -13,6 +15,8 @@ export function rendererFailure(renderer, cause) {
   return error;
 }
 
+// Loading uses the same error format as link/rebuild failures. Rejection is
+// preserved for the loading screen; success cannot select another drawer.
 export async function loadRenderer(graphics, load) {
   try {
     return await load(graphics);
@@ -24,6 +28,8 @@ export async function loadRenderer(graphics, load) {
 // Three compiles material shells until shader ownership moves to Rust. Its
 // diagnostic callback must stop loading too, rather than only logging a link.
 export function requireLinkedPrograms(renderer) {
+  // Three owns compilation of remaining material shells. Its default logging
+  // would allow loading to finish with an unusable program, so throw here.
   renderer.debug.checkShaderErrors = true;
   renderer.debug.onShaderError = (gl, program) => {
     throw rendererFailure(renderer, new Error(`Shader program failed to link: ${gl.getProgramInfoLog(program) || "driver rejected program"}`));

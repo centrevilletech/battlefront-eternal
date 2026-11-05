@@ -35,6 +35,10 @@ export class NearPass {
   }
 
   // Validate full ownership, clear, draw opaque geometry and ordered transparency.
+  // WebGLRenderer.render's near-scene role: update the scene and invoke its
+  // hooks, then validate every drawable before submitting the required phase.
+  // A rejected item is an error at its owner, never an instruction to draw it
+  // through the interface renderer. Reflections use the same ownership check.
   cover(renderer, scene, camera) {
     const core = this.core, graphics = core.graphics;
     if (core.contextLost) return false;
@@ -89,6 +93,10 @@ export class NearPass {
   // layers is not listed, but its children may be; a group's render order
   // orders what is listed below it; an LOD picks its level. False at the
   // first item three would list that the renderer doesn't draw.
+  // Match projectObject's visibility, layer and Group render-order rules.
+  // Claimed world/instance/effect/line objects already have retained Rust records;
+  // only remaining blended mesh/sprite objects need transient sort items.
+  // Hidden subtrees stay hidden even if a child retains an old registration.
   walk(object, camera, groupOrder) {
     if (object.visible === false) return true;
     if (object.layers.test(camera.layers)) {
@@ -142,6 +150,10 @@ export class NearPass {
   // The far scene's image as a post step into the target bound now (post.rs):
   // three's program for its material and every uniform it reads; false when
   // one has no value the renderer can set.
+  // The far image belongs after opaque depth and before transparent copies.
+  // It must use the active camera, including a mirror, and must not write depth.
+  // Submitting it earlier changes MSAA edge samples even when all RGB values
+  // look equivalent in an ordinary single-sample capture.
   writeImage(camera) {
     const core=this.core,background=core.graphics.background;
     const program=plainProgram(core,background.material,ATTRIBUTES);

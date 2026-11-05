@@ -1,7 +1,12 @@
+// GPU query/fence handles belong to one context only. This fixture dispatches
+// loss/restore events without a GL driver to verify the profiler drops pending
+// work and reacquires the extension instead of polling invalid old objects.
+// Renderer pixel recovery is exercised separately by the generated driver test.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RenderProfiler } from '../src/render-profiler.js';
 
+// No driver query is allowed to survive into the restored context.
 test('restoration discards GPU queries and fences from the lost context', () => {
   const canvas=new EventTarget(), extension={TIME_ELAPSED_EXT:1,GPU_DISJOINT_EXT:2};
   let extensions=0;

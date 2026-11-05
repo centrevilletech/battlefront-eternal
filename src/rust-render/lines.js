@@ -11,16 +11,23 @@ import { GL_TYPES } from "./geometry-types.js";
 const MAX_STEPS = 8; // post.rs MAX_STEPS; each batch uses the existing step ABI.
 const opaqueOrder=(a,b)=>a.key[0]-b.key[0]||a.key[1]-b.key[1]||a.material.id-b.material.id||a.key[2]-b.key[2]||a.key[3]-b.key[3];
 class LinesPass {
+  // Equivalent to WebGLRenderer.projectObject plus renderBufferDirect for
+  // Line/LineSegments/LineLoop: keep CPU scene inputs, but submit only in Rust.
+  // Records survive camera changes; per-view arrays are cleared and reused.
   constructor(core){
     this.core=core;this.name="lines";this.phase="lines";
     this.records=new Map();this.pending=new Set();this.opaque=[];this.transparent=[];
     this.frustum=new THREE.Frustum();this.screen=new THREE.Matrix4();this.point=new THREE.Vector4();
     this.batch={rows:null,first:0,count:0};this.single=[];this.stats=null;
   }
+  // An empty flight helper is already claimed. Its first positions arrive
+  // later, so pending ownership must not be mistaken for an unsupported draw.
   owns(object){return this.records.has(object)||this.pending.has(object);}
   beforeSort(renderer,scene,camera,target,added){
     const g=this.core.graphics;
     if(scene!==g.scene || (camera!==g.camera||target!==g.sceneTarget)&&camera.userData?.mirror!==true)return;
+    // A new cable may first appear in the reflected camera. Compile it before
+    // either near walk validates ownership, without a warm-up native draw.
     for(const root of added||[])root.traverse(object=>{if(object.isLine)this.discover(object,camera,scene);});
     for(const object of this.pending)if(object.geometry.attributes.position){this.discover(object,camera,scene);this.pending.delete(object);}
     this.opaque.length=this.transparent.length=0;
@@ -29,6 +36,8 @@ class LinesPass {
     for(const [object,old] of this.records){
       const material=object.material;
       if(!object.visible||!material.visible||!object.layers.test(camera.layers))continue;
+      // Like projectObject, hidden ancestors and detached subtrees suppress
+      // submission even when the leaf itself is marked visible.
       let parent=object;while(parent.parent&&parent.visible)parent=parent.parent;
       if(!parent.visible||parent!==scene)continue;
       const record=old.material!==material||old.version!==material.version?this.discover(object,camera,scene):old;
@@ -40,11 +49,16 @@ class LinesPass {
       const first=Math.max(0,geometry.drawRange.start),available=geometry.index?.count??geometry.attributes.position.count;
       record.count=Math.max(0,Math.min(available-first,geometry.drawRange.count));
       if(!record.count)continue;
+      // Topology/range configuration belongs to the retained Rust geometry.
+      // Count stays a frame value because a tow cable changes its used points.
       const indexed=Boolean(geometry.index),width=material.linewidth||1;
       if(record.first!==first||record.indexed!==indexed||record.width!==width){
         this.core.rust.geometry_primitive(record.geometry,object.isLineSegments?1:object.isLineLoop?2:3,first,indexed,width);
         record.first=first;record.indexed=indexed;record.width=width;
       }
+      // The bundled WebGLRenderer sorts mesh/line sphere centres in clip z.
+      // Do not divide by W: transparent mesh keys use the same convention.
+      // Group order and render order precede depth; object id breaks ties.
       if(!geometry.boundingSphere)geometry.computeBoundingSphere();
       const c=geometry.boundingSphere.center;this.point.set(c.x,c.y,c.z,1).applyMatrix4(object.matrixWorld).applyMatrix4(this.screen);
       let group=object.parent;while(group&&!group.isGroup)group=group.parent;
@@ -53,6 +67,9 @@ class LinesPass {
     }
     this.opaque.sort(opaqueOrder);
   }
+  // compileFor supplies the built-in basic/vertex-colour program. Retaining
+  // its explicit bindings lets Rust draw and relink it after context loss.
+  // Unsupported authored state fails the battle rather than escaping to Three.
   discover(object,camera,scene){
     const core=this.core,renderer=core.renderer,material=object.material;
     if(!material?.isLineBasicMaterial||!material.colorWrite||material.stencilWrite||material.polygonOffset||material.alphaToCoverage)core.fail(Error(`Unsupported battle line material: ${material?.type}`));
@@ -66,6 +83,9 @@ class LinesPass {
     record.command={line:record,key:record.key};this.records.set(object,record);
     this.upload(record);core.stale=true;return record;
   }
+  // WebGLAttributes.update's role: upload only a new array or changed version.
+  // Flight helpers replace geometries; cables mutate one position attribute.
+  // Both reuse Rust buffers and the journal's retained byte storage.
   upload(record){
     const core=this.core,geometry=record.object.geometry;
     for(let i=0;i<record.program.attributes.length;i++){
@@ -77,6 +97,8 @@ class LinesPass {
         if(buffer.array!==array){buffer.array=array;buffer.bytes=new Uint8Array(array.buffer,array.byteOffset,array.byteLength);}
         core.rust.geometry_buffer_data(record.geometry,buffer.slot,buffer.bytes);buffer.version=source.version;core.stale=true;
       }
+      // Attribute offsets/strides are bytes at the GL boundary. Cache scalar
+      // descriptors so unchanged frames do not allocate pointer-key strings.
       const stride=attribute.isInterleavedBufferAttribute?source.stride*array.BYTES_PER_ELEMENT:0,offset=attribute.isInterleavedBufferAttribute?attribute.offset*array.BYTES_PER_ELEMENT:0;
       const type=GL_TYPES[array.constructor.name];
       if(buffer.location!==location||buffer.size!==attribute.itemSize||buffer.type!==type||buffer.normalized!==attribute.normalized||buffer.stride!==stride||buffer.offset!==offset){
@@ -90,6 +112,8 @@ class LinesPass {
       else if(record.index.array!==index.array||record.index.version!==index.version){if(record.index.array!==index.array)record.index.bytes=new Uint8Array(index.array.buffer,index.array.byteOffset,index.array.byteLength);core.rust.geometry_index_data(record.geometry,record.index.bytes);record.index.array=index.array;record.index.version=index.version;}
     }
   }
+  // Pack existing screen-step records, not a second line-specific ABI.
+  // Rust's own-geometry bit selects the retained VAO and primitive topology.
   draw(ctx){
     const {rows,first,count}=this.batch;
     for(let i=0;i<count;i++){const record=rows[first+i];
@@ -98,6 +122,8 @@ class LinesPass {
     }
     ctx.steps=count;
   }
+  // A phase returns statistics per batch. Accumulate them for the whole view,
+  // including transparent lines interleaved between other transparent draws.
   raster(rows,first,count,ctx){
     this.batch.rows=rows;this.batch.first=first;this.batch.count=count;
     this.core.phase("lines",ctx.renderer,ctx.scene,ctx.camera,true);
@@ -108,6 +134,8 @@ class LinesPass {
     for(let i=0;i<count;i++){const r=rows[first+i];r.object.onAfterRender(ctx.renderer,ctx.scene,ctx.camera,r.object.geometry,r.material,null);}
   }
   drawOpaque(ctx){for(let first=0;first<this.opaque.length;first+=MAX_STEPS)this.raster(this.opaque,first,Math.min(MAX_STEPS,this.opaque.length-first),ctx);}
+  // TransparentPass has already sorted this command against depth/colour
+  // copies and blended buckets; submitting it here preserves that position.
   drawOne(record,ctx){this.single[0]=record;this.raster(this.single,0,1,ctx);}
 }
 export function linesPass(core){return new LinesPass(core);}

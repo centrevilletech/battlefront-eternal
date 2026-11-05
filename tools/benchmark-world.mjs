@@ -13,6 +13,9 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const integer = (name, fallback, minimum) => Math.max(minimum, Math.floor(Number(process.env[name]) || fallback));
 const rounds = integer('PERF_ROUNDS', 7, 3);
 const cycles = integer('PERF_CYCLES', 10, 1);
+// References are external frozen modules supplied by the caller, not a live
+// engine switch. Loading them cannot re-enable a deleted battle drawer.
+// The benchmark only compares the surviving collision/movement workload.
 async function variants(name, symbol, current) {
   const path = process.env[name];
   return path ? [['reference', (await import(pathToFileURL(resolve(path))))[symbol]], ['current', current]] : [['current', current]];
@@ -21,6 +24,9 @@ function quantiles(values) {
   values.sort((a, b) => a - b);
   return { medianMs: values[Math.floor(values.length * .5)], p95Ms: values[Math.floor(values.length * .95)], samples: values.length };
 }
+// Build the collision scene before timing. File loading and body creation
+// must not be charged to a phase that only performs movement and aim rays.
+// Only the authored built/destroyed/unbuilt state is enabled for each prop.
 function mapWorld(name, Kind) {
   const dir = `${root}public/maps/${name}/`;
   const load = (file, Type) => {
@@ -42,8 +48,14 @@ function mapWorld(name, Kind) {
   }
   return world;
 }
+// This report deliberately excludes rendering and GPU completion. Foliage
+// selection is measured in drawn Rust frames rather than by resurrecting a
+// CPU selector merely to preserve an offline timing entry.
 const report = { scope: 'CPU only; excludes map loading, renderer, GPU, audio, and frame pacing.', collision: {} };
 const collisionVariants = await variants('PERF_REFERENCE_COLLISION', 'CollisionWorld', CollisionWorld);
+// Use two different scene densities so one friendly collision arrangement
+// cannot dominate the conclusion. Identical final positions are required
+// before timings from an optional frozen reference are comparable.
 for (const map of ['nab2', 'bes2']) {
   const subjects = collisionVariants.map(([name, Kind]) => ({ name, world: mapWorld(map, Kind), timings: [], position: null }));
   const route = map === 'nab2' ? [-168, -49, -25, Math.PI] : [-163.068, -41, 81.088, Math.PI / 2];
@@ -60,6 +72,8 @@ for (const map of ['nab2', 'bes2']) {
           subject.world.cast(eye, new THREE.Vector3(Math.sin(tick * .07), -.1, Math.cos(tick * .07)).normalize(), 500, makeHit());
         }
       }
+// The first two passes warm JIT and retained query storage for both modules.
+// Record only later samples while preserving their alternating order.
       if (pass >= 2) subject.timings.push(performance.now() - start);
       subject.position = soldier.position.toArray();
     }

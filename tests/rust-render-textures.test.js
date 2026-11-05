@@ -1,3 +1,10 @@
+// Native texture ownership can change handles after asynchronous decode or a
+// sampler revision. Rust records refer to logical ids and must observe those
+// handle changes without rebuilding every mesh. Shared image data does not
+// imply shared logical ownership: cloned textures may later diverge.
+// The memory-growth fixtures check another resource boundary hazard: registering
+// a sampler can detach already acquired WASM views. Register before writing
+// frame/HUD/post records, then reacquire views so their values reach Rust.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -5,6 +12,9 @@ import {standinModule,standinThree} from './support/rust-standin.mjs';
 globalThis.location ??= {search:''};
 const {RustRender}=await import('../src/rust-render/index.js');
 
+// A retained draw can outlive image decode. Its sampler id must not move when
+// the transparent placeholder is replaced by the texture owner's real handle.
+// Checking only the texture registry size would miss a stale bound sampler.
 test('a lazy image keeps its Rust texture id when its transparent sample is replaced', () => {
  const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,handle){calls.push(['replace_sample_texture',id,handle]);}}});
  const {renderer,graphics}=standinThree(calls),image=new THREE.Texture();
@@ -22,6 +32,9 @@ test('a lazy image keeps its Rust texture id when its transparent sample is repl
  assert.equal(core.textures.has(oldHandle),false);
 });
 
+// Grow actual WebAssembly.Memory inside add_texture, detaching old views.
+// The HUD group and index count prove the fresh view received its record.
+// This is the failure that can otherwise leave a drawn world with an empty HUD.
 test('registering a new HUD sampler cannot detach the frame inputs being written', async()=>{
  const {Batch}=await import('../src/interface/batch.js');
  const {BfeRenderer,memory,calls}=standinModule(),{renderer,graphics}=standinThree(calls);
@@ -37,6 +50,9 @@ test('registering a new HUD sampler cannot detach the frame inputs being written
  assert.equal(core.hudInput[46],6,'its six indices survive the refreshed shared view');
 });
 
+// The same hazard applies to a source-owned post step, not just HUD batches.
+// A valid step must retain its dimensions/uniform count after sampler growth.
+// The material itself deliberately carries no native shader source.
 test('a post sampler is registered before its shared step record is written',async()=>{
  const {ownedFullScreenPass}=await import('../src/render-passes.js');
  const {BfeRenderer,memory,calls}=standinModule(),{renderer,graphics}=standinThree(calls);
@@ -48,6 +64,9 @@ test('a post sampler is registered before its shared step record is written',asy
  core.views();assert.equal(core.postInput[2],800);assert.equal(core.postInput[4],1);
 });
 
+// A pending-image placeholder can allocate even when the requested image is
+// not ready. Prepare that sampler before acquiring post-input typed views.
+// A successful return with a detached view would be a silent missing draw.
 test('a screen pass prepares a pending image before taking shared views',async()=>{
  const {writeScreenStep}=await import('../src/rust-render/screen.js');
  const {BfeRenderer,memory,calls}=standinModule(),{renderer,graphics}=standinThree(calls);
@@ -62,6 +81,9 @@ test('a screen pass prepares a pending image before taking shared views',async()
 });
 
 
+// The resource owner may initially deduplicate two clones onto one GL handle.
+// Changing one sampler can split them later, so ids belong to texture objects.
+// Only the changed clone's retained binding may be replaced.
 test('texture clones keep independent Rust bindings when a sampler change replaces one native handle', () => {
  const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,handle){calls.push(['replace_sample_texture',id,handle]);}}});
  const {renderer,graphics}=standinThree(calls),first=new THREE.Texture({width:1,height:1}),second=first.clone();
@@ -78,6 +100,9 @@ test('texture clones keep independent Rust bindings when a sampler change replac
  assert.deepEqual(calls.filter(c=>c[0]==='replace_sample_texture'),[['replace_sample_texture',b,replacement]]);
 });
 
+// A filtering revision may replace handles without changing source images.
+// Refresh registered samples before submitting any phase that still uses them.
+// The already retained ids and geometry must remain usable across that epoch.
 test('an anisotropy revision uploads and rebinds retained static texture samples before drawing', () => {
  const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,handle){calls.push(['replace_sample_texture',id,handle]);}}});
  const {renderer,graphics}=standinThree(calls),texture=new THREE.Texture({width:1,height:1});

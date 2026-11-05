@@ -111,6 +111,9 @@ function stamp(skeleton, info) {
 // for: what a first draw would have given them. entries: [mesh, materials]
 // (those of its materials it draws with: a body's array also holds its
 // guns', never drawn on it), the mesh holding them alone while compiled.
+// WebGLRenderer.compile supplies programs without issuing a first draw.
+// Temporarily expose the requested shells, restore their authored materials,
+// and let Rust registration import the linked sources and explicit bindings.
 export function compileFor(renderer, entries, camera, scene) {
   const each = (fn) => { for (const [mesh] of entries) fn(mesh); };
   const held = entries.map(([mesh, materials]) => { const own = mesh.material; mesh.material = materials; return own; });
@@ -185,6 +188,9 @@ class InstancePass {
   // now (as a struck body's glow will want them), and the stand-in kept from
   // three, its count of frames run here as three's draws would run it (it
   // takes itself away at the end of it).
+  // New effects can first be visible in a mirror. Discover and compile their
+  // stand-ins there too, but advance warm-up lifetime only on the main frame.
+  // Otherwise a reflection can consume the stand-in before its first main view.
   standIn(renderer, scene, camera, added, advance = true) {
     for (const root of added || []) root.traverse((o) => { if (o.isSkinnedMesh && o.name === "arc-shock-warm") this.warm = o; });
     const warm = this.warm;
@@ -316,6 +322,10 @@ class InstancePass {
   // The scene's other skinned meshes (vehicle-rig.js: hulls, walkers,
   // animated props), looked for again now and then; soldiers' bodies are
   // found through their roots.
+  // Shadow-only crowd/body parts are not colour rigs. Asking the colour policy
+  // to bind their diffuse uniform produced the per-session diagnostic even when
+  // no visible object was missing. Their caster registration stays independent.
+  // Keep filtering by role before compiling colour programs for these parts.
   findRigs() {
     const found = [];
     // Shadow-only meshes belong to the shadow pass, not colour rigs. The

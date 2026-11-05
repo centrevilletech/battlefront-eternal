@@ -3,8 +3,8 @@
 // perspective camera, as three draws the batch's mesh: each run of quads
 // with one texture (and mask), in the batch's order, alpha blended, neither
 // depth tested nor written, both sides at once (a ShaderMaterial is drawn in
-// one pass, even double-sided and blended). Three's program for the batch's
-// material is used as three compiled it (Kind::Plain).
+// one pass, even double-sided and blended). The catalog's post-hud/hud source
+// supplies the program; the interface material supplies values, not shader text.
 //
 // The batch's vertex arrays are mirrored here (`position`, `uv`, `mask_uv`,
 // `tint`, as batch.js lays them out); the page copies the vertices that
@@ -48,6 +48,10 @@ pub struct HudPass<C: HasContext> {
 
 impl<C: HasContext> HudPass<C> {
     // A restored context has fresh buffers but the CPU mirrors are current.
+    // BfeRenderer.rebuild moves the old CPU mirrors into this pass first.
+    // The new VAO/buffers have different GL handles but the index/vertex contents
+    // must describe the same HUD. Upload without drawing or consuming a frame;
+    // ordinary HudPass.draw resumes only after reconstruction succeeds.
     pub fn reupload<M: MultiDraw>(&self, core: &mut Core<C, M>) {
         for (k, data) in [&self.position, &self.uv, &self.mask_uv, &self.tint].iter().enumerate() {
             if let Some(buffer) = self.buffers.get(k) { unsafe {
@@ -67,10 +71,16 @@ impl<C: HasContext> HudPass<C> {
     }
 
     // The batch's index (batch.js: two triangles a quad), once.
+// Batch.init's resource role: allocate one index buffer and four attribute
+// buffers. Their order matches SIZES/LOCATIONS and reupload's mirror list.
+// The optional VAO marks allocation, not a runtime choice of drawer.
+// Repeated initialisation must not append another set of GPU resources.
     pub fn init<M: MultiDraw>(&mut self, core: &mut Core<C, M>, index: &[u32]) {
         if self.vao.is_some() {
             return;
         }
+// Reupload deliberately ignores old dirty spans: every vertex needed by the
+// next HUD may have lived only in a lost GPU buffer before reconstruction.
         let gl = &core.gl;
         unsafe {
             let vao = gl.create_vertex_array().unwrap();
@@ -93,6 +103,10 @@ impl<C: HasContext> HudPass<C> {
         }
     }
 
+// BattleHud.render publishes groups in batch order over the completed canvas.
+// Upload only the changed vertex span on ordinary frames. Rebuild instead
+// uses reupload because the entire new GPU allocation starts uninitialised.
+// The shared input still selects current camera matrices and sampler slots.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
         let Some(vao) = self.vao else { return };
         let input = &self.input;
@@ -111,6 +125,8 @@ impl<C: HasContext> HudPass<C> {
             unsafe { gl.bind_buffer(glow::ARRAY_BUFFER, None) };
             core.stats.gl_calls += 1;
         }
+// An empty batch legitimately submits no fragments after any needed upload.
+// It must not leave a previous batch's group count active in the next HUD.
         if groups == 0 {
             return;
         }

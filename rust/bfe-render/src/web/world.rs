@@ -6,6 +6,8 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 impl BfeRenderer {
     // bounds: sphere centre and radius, then box min and max (world space).
+    // WorldPass.register creates the geometry/program first. The returned bucket
+    // id is retained by JS, so recovery must replay those allocations in order.
     pub fn add_world(&mut self, geometry: u32, program: u32, order: u32, flags: u32, bounds: &[f64]) -> u32 {
         self.remember_add_world(geometry, program, order, flags, bounds); // recovery
  self.r.world.add_world(geometry, program, order, flags, bounds)
@@ -13,6 +15,8 @@ impl BfeRenderer {
     pub fn world_texture(&mut self, w: u32, unit: u32, texture: u32) {
         self.remember_world_texture(w, unit, texture); // recovery
  self.r.world.world_texture(&self.r.core, w, unit, texture) }
+    // The slice is borrowed only for this call. Recovery keeps an owned copy of
+    // the latest named value, including whether it uses an integer uniform.
     pub fn world_uniform(&mut self, w: u32, name: &str, values: &[f32], int: bool) -> bool {
         self.remember_world_uniform(w, name, values, int); // recovery
  self.r.world.world_uniform(&self.r.core, w, name, values, int) }
@@ -26,6 +30,8 @@ impl BfeRenderer {
     pub fn world_runs(&mut self, w: u32, ranges: &[u32], boxes: &[f64]) {
         self.remember_world_runs(w, ranges, boxes); // recovery
  self.r.world.world_runs(w, ranges, boxes) }
+    // Visibility is authored state: reconstructing a bucket must not reveal one
+    // that the page had already hidden before the context was lost.
     pub fn world_shown(&mut self, w: u32, shown: bool) {
         self.remember_world_shown(w, shown); // recovery
  self.r.world.world_shown(w, shown) }

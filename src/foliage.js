@@ -180,19 +180,34 @@ function buildLeaves(def) {
   });
 }
 
+// Asset-facing foliage construction keeps the authored card definitions and
+// texture requests. FoliagePass registers their Rust classes and placements.
+// No constructor option selects a CPU drawer: the supplied renderer is required.
+// Changing this resource shell must preserve seeded card construction order.
 export class Foliage {
   // data: map.json's foliage; texture(name) a texture; nearEnd() the near
   // scene's far end (leaves are drawn that far).
   constructor(scene, data, { texture, nearEnd, drawer }) {
     this.nearEnd = nearEnd;
+    // Class definitions are shared by placements. Register each once so a frame
+    // can select instance rows without reconstructing card vertices or materials.
+    // The cached bounds are inputs to Rust culling, including invisible classes.
     this.kinds = new Map();
     this.time = 0;
     const counts = new Map();
+// Each placement keeps its original import order and seeded tint consumption.
+// That order is shared with the retained Rust class/placement registration.
+// Do not use camera visibility to decide which placements are registered;
+// a hidden placement can become visible in a later main or reflected view.
     for (const inst of data.instances || []) counts.set(inst.class, (counts.get(inst.class) || 0) + 1);
     for (const [name, def] of Object.entries(data.classes || {})) {
       const grass = def.base === "grasspatch";
       const cards = grass ? buildGrass(def) : buildLeaves(def);
       const batch = new FoliageGpuBatch(scene, texture(def.Texture), cards, def, grass, counts.get(name) || 0);
+// Bounds cover the complete animated card reach, not just its anchor.
+// Rust uses them to reject placements before expanding their instance rows.
+// Keeping authored HeightScale here prevents tall leaves from vanishing at
+// the edge of a view while their base card would still intersect it.
       const bounds = new THREE.Box3();
       if (grass) for (const card of cards) {
         const center = new THREE.Vector3(card.x, card.y, card.z);
@@ -239,6 +254,9 @@ export class Foliage {
     scene.userData.foliage = this;
   }
 
+  // Only presentation time advances here. Selection and drawing belong to the
+  // required Rust foliage phase, which reads the active view's frame block.
+  // A mirrored view must not advance the same wind clock a second time.
   update(dt, camera) {
     this.time += dt;
     camera.updateMatrixWorld();

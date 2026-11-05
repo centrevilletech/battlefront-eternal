@@ -200,6 +200,11 @@ export class FountainWater {
       graphics.scene.add(this.tier);fountainWaters.set(this.tier,this);
     }
   }
+// This setting changes the basin's authored material, not its drawer.
+// The original material and hooks are retained for the disabled appearance.
+// Whichever appearance is selected still has to be claimed by Rust before
+// the near scene can draw; changing water quality cannot enable a native pass.
+// Tier pools share that material and participate in the same ordered capture.
   setEnabled(enabled){
     if(enabled===this.enabled)return;this.enabled=enabled;this.reflectionUniforms.hasReflection.value=0;
     for(const o of this.original){o.mesh.material=enabled?this.material:o.material;o.mesh.renderOrder=enabled?-17:o.order;
@@ -209,6 +214,11 @@ export class FountainWater {
   }
   update(time){this.time=time;this.material.uniforms.waterTime.value=time;this.captured=false;
     const top=lighting.ambientTop.value;this.sky.set(Math.min(1,top.x*1.4+.15),Math.min(1,top.y*1.4+.16),Math.min(1,top.z*1.4+.2));}
+  // The composite samples the opaque colour/depth at its ordered boundary.
+  // Copy only once for this frame and only from the main scene target; mirrors
+  // have their own inputs and cannot reuse a partially drawn main surface.
+  // Target binding is still owned by Three, while the eventual composite draw
+  // belongs to the required Rust transparent pass.
   capture(renderer,camera){
     const source=renderer.getRenderTarget();if(this.captured||source!==this.graphics.sceneTarget)return;
     this.captured=true;this.surface.setSize(source.width,source.height);
@@ -219,8 +229,8 @@ export class FountainWater {
     renderer.setRenderTarget(source);this.material.uniforms.waterResolution.value.set(source.width,source.height);
     this.material.uniforms.cameraRange.value.set(camera.near,camera.far);
   }
-  // Start another frame's opaque copy. Basin reflection uses that copy;
-  // the retired planar-mirror branch had no caller enabling it.
+  // Start another frame's opaque copy. Basin reflection samples that copy;
+  // its analytic surface has no separate planar scene camera.
   reflect() {this.captured=false;this.reflectionUniforms.hasReflection.value=0;}
   // The meshes drawn with the water's material now (the basins' while it is
   // on, the tiers' pools).

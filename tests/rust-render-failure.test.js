@@ -1,3 +1,8 @@
+// Compilation has two owners: Rust links its programs, while Three still
+// compiles unowned material shells. Both failures must stop the same required
+// drawer and identify the GPU. Failed program ids must never enter caches.
+// The injected failure avoids relying on a particular driver's error wording.
+// Assertions also reject the old activation/material-restoration handback API.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -17,6 +22,8 @@ function fixture(method) {
   return { core: new RustRender(graphics, { memory }, BfeRenderer), cause };
 }
 
+// A failed link must leave no cached null/program entry that later frames
+// could mistake for an intentionally unsupported item and silently omit.
 test('a rewritten program link error names the GPU and never caches a skipped program', () => {
   const { core, cause } = fixture('add_program');
   const native = fakeProgram([['projectionMatrix', GL.FLOAT_MAT4]], ['position']);
@@ -29,6 +36,8 @@ test('a rewritten program link error names the GPU and never caches a skipped pr
   assert.equal(core.restore, undefined);
 });
 
+// Catalog keys must be retained in diagnostics as well as the GPU identity.
+// A source-free material has no native compilation path to recover through.
 test('an owned program link error uses the same required-renderer failure path', () => {
   const { core } = fixture('add_owned_program');
   const material = new THREE.ShaderMaterial();material.userData.bfeProgram = 'post-hud/copy';
@@ -36,6 +45,9 @@ test('an owned program link error uses the same required-renderer failure path',
   assert.equal(core.ownedPrograms.has('post-hud/copy'), false);
 });
 
+// The native compiler remains a resource dependency, so its link callback
+// must fail just as loudly as a link performed directly by the Rust core.
+// Merely enabling Three's default console diagnostics would not stop loading.
 test('the retained native compiler reports link rejection with its GPU', () => {
  const gl={getExtension:()=>null,getParameter:()=>"Fixture GPU",getProgramInfoLog:()=>"invalid interface"};
  const renderer={debug:{},getContext:()=>gl};

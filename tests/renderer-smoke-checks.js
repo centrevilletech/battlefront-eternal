@@ -13,6 +13,10 @@ import { writeScreenStep } from '../src/rust-render/screen.js';
 import { programLayouts } from '../src/render-programs.js';
 
 // All pixels, meshes and textures here are generated. No game loader runs.
+// This is a Rust-only driver test, not a parity comparison with Three.
+// Owned post/HUD shells intentionally have no browser shader source, so a
+// native draw would test an unsupported path and can fail before Rust links.
+// Keep fixture construction synthetic so the Windows runner needs no game files.
 export async function checkRenderer(backend, manifests) {
   const results = [], draws = {}, links = [], shaderFamilies = [], compiledShaders = [], programKinds = new Set(), ownedIds = new Map(), ownedDraws = new Set();
   const assert = (name, ok, detail) => {
@@ -23,6 +27,9 @@ export async function checkRenderer(backend, manifests) {
   const proto = WebGL2RenderingContext.prototype;
   const getExtension = proto.getExtension;
   let multiDraws = 0, multiAvailable = false;
+  // Both modes still draw through Rust. Withholding WEBGL_multi_draw exercises
+  // the required repeated-draw implementation on a backend without that extension.
+  // Extension availability is reported rather than assumed from the platform.
   const fallback = new URLSearchParams(location.search).has('noMulti');
   proto.getExtension = function (name) {
     if (name === 'WEBGL_multi_draw' && fallback) return null;
@@ -41,6 +48,9 @@ export async function checkRenderer(backend, manifests) {
   };
   const originals = new Map();
   let compilingKey=null;
+  // Hook the context prototype before initialization so Rust's WASM imports
+  // and the remaining native compiler both pass through the same diagnostics.
+  // The current catalog key tags even a failure inside a driver's compile call.
   for (const name of ['compileShader', 'linkProgram', 'drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
     const original = proto[name]; originals.set(name, original);
     proto[name] = function (...args) {
@@ -61,6 +71,9 @@ export async function checkRenderer(backend, manifests) {
       return result;
     };
   }
+  // Start from a deterministic low-effects frame, then change one setting at
+  // a time. Off/on/off comparisons below detect both ignored settings and
+  // state that remains accidentally enabled after a material revision.
   const settings = new Settings({ shadows: 'low', waterQuality: 'low', antialiasing: 'off', bloom: false, softFocus: false, renderScale: 1, upscaler: 'off' });
   const g = new Graphics(document.body, settings);
   try {
@@ -71,6 +84,9 @@ export async function checkRenderer(backend, manifests) {
     assert('Requested ANGLE backend selected', backend === 'warp' ? /Direct3D11/i.test(renderer) && /Microsoft|WARP|Basic Render/i.test(renderer) : backend === 'gl' ? /ANGLE.*OpenGL/i.test(renderer) : /SwiftShader/i.test(renderer), renderer);
     // Every family is discovered by the launcher from its manifest at runtime.
     // Register before fixture draws, so the Rust cache is cold for every key.
+    // Register before any fixture draws so each manifest key reaches a cold
+    // Rust program cache. The manifest list comes from disk at launch time.
+    // Stream progress before compilation: a driver hang must identify its variant.
     for(const {family,programs} of manifests){
       const started=performance.now(),variants=[];
       for(const {key} of programs){
@@ -92,6 +108,9 @@ export async function checkRenderer(backend, manifests) {
     assert('All manifest families were checked',shaderFamilies.length>0);
     if(shaderFamilies.some(f=>f.variants.some(v=>!v.accepted)))return {ok:false,backend,renderer,results,shaderFamilies,compiledShaders};
 
+    // One-pixel textures provide known output colours without decoding assets.
+    // They also make blank frames distinguishable from a correctly sampled HUD.
+    // No network or prepared-content request is necessary for these samplers.
     const texture = (rgba) => {
       const t = new THREE.DataTexture(new Uint8Array(rgba), 1, 1);
       t.needsUpdate = true; return t;
@@ -99,6 +118,9 @@ export async function checkRenderer(backend, manifests) {
     const white = texture([200, 150, 90, 255]), normal = texture([128, 128, 255, 100]);
     // A material can appear before a lazy image has uploaded. Its Rust id
     // must survive the transition from the transparent sample to real pixels.
+    // Delay this sampler's native handle deliberately. The battle must retain a
+    // transparent placeholder under the same Rust id and later adopt the upload.
+    // A missing first-use handle cannot justify skipping or redrawing in Three.
     const pendingImage = new THREE.DataTexture(new Uint8Array([80,130,200,255]),1,1);
     g.setMap({ post: { blur: { enabled: true, blend: .25, downsize: .25 } }, lighting: { sunDirection: [.4, -1, .2], ambient: [70, 70, 70], sunColor: [180, 180, 180] }, distance: { nearScene: [40, 40, 80, 80] } });
     g.camera.position.set(0, 0, 8); g.camera.lookAt(0, 0, 0);
@@ -113,6 +135,9 @@ export async function checkRenderer(backend, manifests) {
     const pendingMaterial=zeroMaterial('unlit',{map:pendingImage});pendingMaterial.defines.WORLD_SPACE='';
     const pendingMesh=new THREE.Mesh(new THREE.PlaneGeometry(.7,.7).translate(-2,2,1),pendingMaterial);
     pendingMesh.matrixAutoUpdate=false;g.scene.add(pendingMesh);
+    // A minimal rigid-skinned plane activates bone/instance shader rewriting.
+    // It is small enough to generate here but still exercises the real binding
+    // and program-link path used by animated battle bodies.
     const skinGeometry = new THREE.PlaneGeometry(.7, .7);
     skinGeometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(16),4));
     skinGeometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute([1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],4));
@@ -120,6 +145,9 @@ export async function checkRenderer(backend, manifests) {
     const body = new THREE.SkinnedMesh(skinGeometry, skinMaterial), bone = new THREE.Bone();
     body.add(bone); body.bind(new THREE.Skeleton([bone])); body.position.set(1.5,1,0); body.frustumCulled = false;
     const root = new THREE.Group(); root.userData.parts = { body }; root.add(body); g.scene.add(root); g.cullRoots.push(root);
+    // A coloured far plane is composited behind near depth. It gives the post
+    // chain a visible background and makes stale target/viewport state detectable.
+    // The held-view plane separately exercises the first-person frame block.
     const far = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), zeroMaterial('unlit', { map: texture([20, 40, 80, 255]), far: true }));
     far.position.z = -90; g.farScene.add(far);
     const transparent = new THREE.Mesh(new THREE.PlaneGeometry(.7, .7), new THREE.MeshBasicMaterial({ color: 0x2277aa, transparent: true, opacity: .5 }));
@@ -134,6 +162,9 @@ export async function checkRenderer(backend, manifests) {
     groundGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(Array(9).fill([0,0,1]).flat(), 3));
     groundGeometry.setAttribute('weights0', new THREE.Float32BufferAttribute(Array(9).fill([.5,0,.5,0]).flat(),4));
     groundGeometry.setIndex([0,1,2,3,4,5,6,7,8]);
+    // Keep the zero-weight middle sampler active. A driver validates all active
+    // samplers even when their contribution to this fragment happens to be zero.
+    // Rust must supply a valid empty texture rather than inherit another binding.
     const groundMaterial = new THREE.ShaderMaterial({ defines: { TERRAIN: '', WORLD_SPACE: '', TERRAIN_LAYERS: 3 }, uniforms: { ...lighting,
       layerMap0: { value: white }, layerMap1: { value: null }, layerMap2: { value: texture([100, 180, 60, 255]) },
     }, vertexShader: 'attribute vec4 weights0; varying vec3 paint; varying vec2 vUv; void main(){paint=weights0.xyz; vUv=uv; gl_Position=projectionMatrix*viewMatrix*vec4(position,1.0);}',
@@ -189,6 +220,9 @@ export async function checkRenderer(backend, manifests) {
       };
     } });
     g.warmup();
+    // Every comparison draws the required battle path and then reads its canvas.
+    // Draw counts, renderer errors and GL status reject an empty successful call.
+    // Known UI colour assertions catch a correctly sized but incorrectly bound target.
     const capture = () => {
       g.camera.updateMatrixWorld(true);
       if (foliage.drawer) foliage.drawer.select(foliage,g.camera);
@@ -202,6 +236,10 @@ export async function checkRenderer(backend, manifests) {
       const error = gl.getError(); if (error) throw new Error(`Frame: WebGL 0x${error.toString(16)}`);
       return pixels;
     };
+    // Warm the same configuration before collecting two independent draws.
+    // Exact repetition is expected because fixtures have no moving wall-clock input.
+    // Visibility and known colour are checked as well as equality: two blank images
+    // must never be accepted as stable rendered output.
     const compare = (name) => {
       console.log(`renderer smoke: ${name}`);
       for (let i = 0; i < 4; i++) capture();
@@ -217,6 +255,9 @@ export async function checkRenderer(backend, manifests) {
       assert(`${name}: generated HUD colour`, [200,150,90].every((v,k) => Math.abs(a[at+k]-v) <= 1), [...a.slice(at,at+4)]);
       return a;
     };
+    // Settings checks compare against actual pixels, not only uniform values.
+    // Returning to the baseline tests that shader/material revisions and target
+    // changes do not leave stale enabled state in a retained Rust program.
     const baseline=compare('opaque, far, terrain, transparent, view and composite');
     lighting.bump.value = 0; compare('bump switched off'); lighting.bump.value = 1;
     settings.set('bloom', true); settings.set('softFocus', true); g.setVehicleMotion(.8,.2); const effects=compare('bloom, soft focus and speed blur');
@@ -258,6 +299,9 @@ export async function checkRenderer(backend, manifests) {
     assert('Unpainted terrain taken by Rust', groundMaterial.visible === false);
     for (const name of ['frame', 'far_frame', 'transparent_frame', 'view_frame', 'post_frame']) assert(`${name} issues Rust programs`, phaseDraws[name] > 0, phaseDraws);
     // Motion has its own target and depth input, separate from post history.
+    // Use real motion tracking with synthetic depth and two distinct view matrices.
+    // Nonzero velocity proves the shader did work; exact repetition detects stale
+    // previous-frame data or target state without requiring any animated game asset.
     const proxy = motionVectors.track(body);
     const motionTarget = new THREE.WebGLRenderTarget(64,64,{type:THREE.HalfFloatType,depthBuffer:false});
     const depthValues = new Float32Array(64*64).fill((g.camera.far - g.camera.near*g.camera.far/8)/(g.camera.far-g.camera.near));
@@ -275,6 +319,9 @@ export async function checkRenderer(backend, manifests) {
     motionVectors.release(proxy); motionTarget.dispose();
     // Water's far copies and transparent surface have their own programs,
     // checked after the other fixture's independent comparisons.
+    // The small generated pool supplies the actual Water and underwater paths.
+    // Its data is intentionally sufficient for reflection and fog construction,
+    // so this checks the battle renderer integration rather than an isolated shader.
     const water = new Water({ data: { height:-2,cell:12,offset:[6,6],grid:2,cells:[[0,0]],look:{PatchDivisions:[2]} }, texture: () => null, graphics: g });
     g.scene.userData.water = water;
     water.update(0,g.camera);
@@ -302,6 +349,9 @@ export async function checkRenderer(backend, manifests) {
     settings.set('waterQuality','low');
     g.camera.position.copy(cameraAt);g.camera.quaternion.copy(cameraRotation);g.camera.updateMatrixWorld(true);water.update(0,g.camera);water.reflect(g.camera);
 
+    // After readiness changes, all retained draws must still sample the same id.
+    // Reallocating the logical id would leave previously registered program rows
+    // pointing at the transparent placeholder despite a successful native upload.
     const pendingId=g.rust.texture(pendingImage);
     pendingImage.needsUpdate=true;
     const uploaded=capture();
@@ -325,6 +375,9 @@ export async function checkRenderer(backend, manifests) {
     g.rust.cover('underwater',g.renderer,tintScene,tintCamera);
     g.renderer.autoClear=true;
     // Overlapping partial writes of different lengths must survive restoration.
+    // A direct retained geometry isolates journal byte ordering from scene updates.
+    // Overlapping VBO/EBO writes include shorter suffix-preserving ranges; replay
+    // must reproduce the final contents, not merely the latest call per offset.
     const retainedGeometry=new THREE.PlaneGeometry(2,2);
     const retainedMaterial=new THREE.ShaderMaterial({
       vertexShader:'void main(){gl_Position=vec4(position,1.0);}',
@@ -341,6 +394,9 @@ export async function checkRenderer(backend, manifests) {
     g.rust.rust.geometry_index_sub_data(retainedId,0,bytes(Uint16Array.of(0,2,1,1,2,3)));
     g.rust.rust.geometry_index_sub_data(retainedId,0,bytes(Uint16Array.of(0,1,2)));
     const retainedTarget=new THREE.WebGLRenderTarget(32,32,{depthBuffer:false});
+    // Draw the same retained ids before and after loss. Rebuilding a separate
+    // fixture would conceal a broken logical-id contract or lost buffer contents.
+    // The small target makes exact recovery independent of the full post chain.
     const retainedPixels=()=>{
       g.renderer.setRenderTarget(retainedTarget);g.renderer.clear();
       const target=g.rust.byName.post.target(retainedTarget);
@@ -352,6 +408,9 @@ export async function checkRenderer(backend, manifests) {
     assert('Partial-update fixture draws visible pixels',retainedBefore.some((v,i)=>i%4===0&&v===255));
     // Tow cables (strip), vertex-colour helpers (segments), and indexed loops
     // use dynamic retained Rust buffers, including after context recovery.
+    // Line topologies are retained primitive state, not converted triangle meshes.
+    // The opaque cable uses its real depth state so the later far image cannot
+    // cover the pixels that demonstrate a dynamic position upload.
     const withoutLines=capture(),lineGroup=new THREE.Group();g.scene.add(lineGroup);
     const lineObjects=[];
     for(const [i,Type] of [THREE.Line,THREE.LineSegments,THREE.LineLoop].entries()){
@@ -369,11 +428,17 @@ export async function checkRenderer(backend, manifests) {
     const position=cable.geometry.attributes.position;
     position.array[0]+=.3;position.needsUpdate=true;
     lineObjects[1].geometry=lineObjects[1].geometry.clone();
+    // A visible change proves the versioned buffer reached the driver. Geometry
+    // identity checks ensure that changing the cable does not allocate a replacement
+    // Rust geometry instead of updating the existing resource and journal entry.
     const movedLines=compare('dynamic tow cable positions');
     assert('Dynamic line updates change visible pixels',movedLines.some((v,i)=>i%4!==3&&v!==withLines[i]));
     assert('Dynamic cables keep the retained Rust geometry',g.rust.byName.lines.records.get(cable).geometry===cableGeometry);
     assert('Every line topology is owned by Rust',lineObjects.every(object=>g.rust.byName.lines.owns(object)));
     assert('Every line topology issues a Rust draw',g.rust.phaseStats.lines.at(-1)===lineObjects.length,[...g.rust.phaseStats.lines]);
+    // Keep every live resource and logical id across the forced loss. The browser
+    // invalidates the old GL objects; only a reconstruction can reproduce this frame.
+    // Comparing after several warm draws also lets invalidated histories settle.
     const beforeLoss = capture();
     const loss = gl.getExtension('WEBGL_lose_context');
     if (!loss) throw new Error('Context-loss extension unavailable');
@@ -387,6 +452,9 @@ export async function checkRenderer(backend, manifests) {
       const timer=setTimeout(()=>reject(new Error(`Context restore timeout: ${g.rust.failure?.stack || "no renderer error"}`)),30000);
       canvas.addEventListener("webglcontextrestored",()=>{clearTimeout(timer);resolve();},{once:true});
     });
+    // The loss event must have finished before restoration is requested.
+    // Calling restoreContext in its event microtask is rejected by WebGL, which
+    // would test an illegal harness sequence instead of renderer recovery.
     loss.restoreContext();
     await restored;
     {const error=gl.getError();if(error)throw Error(`After restore: GL ${error}`);}
@@ -394,6 +462,9 @@ export async function checkRenderer(backend, manifests) {
     {const error=gl.getError();if(error)throw Error(`After poison: GL ${error}`);}
     g.renderer.resetState();
     for (let i=0;i<4;i++) capture();
+    // Restoration must preserve visible output and the partial-update fixture.
+    // A successful context event alone does not prove programs, VAOs, indices,
+    // textures, target handles and shared CPU inputs were all reconstructed.
     const afterLoss = capture();
     assert('Restored Rust frame matches its generated fixture', beforeLoss.every((v,i) => v === afterLoss[i]));
     const retainedAfter=retainedPixels();
@@ -404,7 +475,12 @@ export async function checkRenderer(backend, manifests) {
     assert('All Rust passes draw', passDraws.every(n => n > 0), { names: ['world','instances','far','terrain','transparent','effects','foliage','view','post','hud','water','shadow','motion','canopies','screen'], counts: passDraws });
     assert('Available Rust draw path exercised', fallback || !multiAvailable ? multiDraws === 0 : multiDraws > 0, { fallback, multiAvailable, multiDraws });
     assert('Every declared Rust post and HUD program draws',Object.keys(programLayouts).filter(key=>key.startsWith('post-hud/')).every(key=>ownedIds.has(key)&&ownedDraws.has(ownedIds.get(key))), {registered:[...ownedIds.keys()],drawn:[...ownedDraws]});
+    // Count actual successful links, including reconstructed programs. Program
+    // registration without a driver link, or a swallowed compile failure, cannot
+    // stand in for backend coverage even when another pass produced visible pixels.
     assert('Every compiled program links', links.length > 0 && links.every(Boolean), { count: links.length });
+// Return all family and phase evidence, including the backend/draw mode,
+// so CI cannot confuse a successful subset with full driver coverage.
     return { ok: results.every(r => r.ok), backend, fallback, multiAvailable, multiDraws, renderer, results, shaderFamilies, compiledShaders, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };
   } catch (error) {
     const stopped=g.rust ? g.rust.byName.near.stopped : null;

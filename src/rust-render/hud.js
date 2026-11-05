@@ -32,6 +32,10 @@ class HudPass {
     return this.drawBatch(renderer, hud);
   }
 
+// BattleHud.render and its overlay batch share one retained Rust allocation.
+// Switching batch identities requires a full upload even if neither batch
+// reports dirty attributes: the previous batch owns the current GPU contents.
+// The owned HUD shader key never depends on a source-bearing Three material.
   drawBatch(renderer, hud) {
     const core = this.core;
     const batch = hud.batch;
@@ -57,6 +61,10 @@ class HudPass {
     return this.complete;
   }
 
+// Pack only after sampler registration has completed. add_texture may grow
+// WASM memory, detaching every previously acquired input and vertex view.
+// Reacquiring here keeps camera/group records and copied vertices together.
+// Otherwise registration can succeed while the HUD silently submits zero groups.
   draw() {
     const hud = this.pending;
     if (!hud) return;
@@ -80,6 +88,10 @@ class HudPass {
     input[IN.SLOTS] = slots[0]; input[IN.SLOTS + 1] = slots[1]; input[IN.SLOTS + 2] = slots[2];
     // The vertices that changed: the batch's update range (the same in
     // every array), or all of them.
+// Batch.updateRanges describes one vertex span in position-float units.
+// Convert that span to vertex indices before applying the different strides
+// of position, UV, mask UV and tint. Restoration forces the full active span.
+// Unchanged batches retain their existing GPU bytes rather than recopying all.
     let start = 0, end = batch.count * 4;
     if (!this.full) {
       const ranges = geometry.attributes.position.updateRanges;

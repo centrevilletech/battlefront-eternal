@@ -875,6 +875,8 @@ export class Graphics {
 
   render(time = 0) {
     if (this.rust.contextLost) return;
+// A prior fatal renderer error remains visible. Re-entering frame rendering
+// must not hide it by clearing the canvas or selecting a different drawer.
     if (this.rust.failure) throw this.rust.failure;
     const { renderer, camera } = this;
     renderer.info.reset();

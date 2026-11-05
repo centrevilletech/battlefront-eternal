@@ -6,6 +6,10 @@ const LEAF_TURNS = [0,-1,2,-3,4,0,1,-2,3,-4];
 const ATLAS = [[0,.5,.5,1],[.5,.5,1,1],[0,0,.5,.5],[.5,0,1,.5]];
 const CORNERS = [[-.5,-.5],[.5,-.5],[-.5,.5],[.5,.5]];
 
+// Resource shell for FoliagePass.registerClass: the page still authors the
+// card mesh and compiler inputs, while Rust selects placements and draws it.
+// The instance attributes describe the retained layout, not a CPU draw list.
+// Keeping one layout for grass and leaves makes their shader bindings stable.
 export class FoliageGpuBatch {
   constructor(scene, map, cards, def, grass, capacity) {
     this.grass = grass; this.def = def; this.cardCount = cards.length;
@@ -17,6 +21,10 @@ export class FoliageGpuBatch {
     const shapes = new Float32Array(vertices * 4), rates = new Float32Array(vertices);
     const indices = new Uint32Array(cards.length * 6);
     const scale = def.HeightScale ?? 1, atlas = grass ? (def.NumParts ?? 4) !== 1 : (def.NumParts ?? 4) === 4;
+    // Grass uses world-aligned anchors; leaves carry their local authored shape.
+    // The atlas part and mirroring affect UVs independently of card orientation.
+    // Bake those choices once so the frame selector only publishes placements.
+    // HeightScale applies to leaf geometry before instance transforms.
     cards.forEach((card, i) => {
       const [u0,v0,u1,v1] = atlas ? ATLAS[card.part] : [0,0,1,1];
       const mirror = !atlas && (card.part & 1) === 1;
@@ -34,15 +42,25 @@ export class FoliageGpuBatch {
       }
       indices.set([i*4,i*4+2,i*4+1,i*4+1,i*4+2,i*4+3],i*6);
     });
+    // The renderer reflects these names from the compiled material. Attribute
+    // sizes must match the Rust base mesh even when the page never draws it.
+    // Indices retain the authored winding of both halves of each card.
     for (const [name,array,size] of [['position',positions,3],['color',colors,4],['uv',uvs,2],
       ['foliageCorner',corners,2],['foliageShape',shapes,4],['foliageRate',rates,1]]) {
       geometry.setAttribute(name,new THREE.BufferAttribute(array,size));
     }
     geometry.setIndex(new THREE.BufferAttribute(indices,1));
+    // Capacity provides stable attribute buffers for the compiler/resource owner.
+    // A zero Three instanceCount prevents it from inventing a second population.
+    // Rust owns the selected placement rows; there is no JS selector to refill
+    // these attributes as an alternate frame renderer.
     this.patch = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1,capacity)*3),3).setUsage(THREE.DynamicDrawUsage);
     this.tint = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1,capacity)*3),3).setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('foliagePatch',this.patch); geometry.setAttribute('foliageTint',this.tint);
     geometry.instanceCount = 0;
+    // A placement can be rotated or scaled in its parent. Three axis attributes
+    // name the full instance basis instead of assuming upright world geometry.
+    // The distance attribute allows authored per-placement fade ranges.
     this.axes = ['foliageAxisX', 'foliageAxisY', 'foliageAxisZ'].map(name => {
       const attribute = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, capacity) * 3), 3).setUsage(THREE.DynamicDrawUsage);
       geometry.setAttribute(name, attribute);
@@ -55,11 +73,17 @@ export class FoliageGpuBatch {
       foliageUp:{value:new THREE.Vector3()}, foliageBack:{value:new THREE.Vector3()},
       foliageTime:{value:0}, foliageEnd:{value:100}, foliageWiggle:{value:def.WiggleAmount ?? .11},
     };
+    // The material remains a real compiler dependency until its source is owned
+    // by Rust. The atmosphere hook adds the same frame lighting/fog inputs as
+    // other foliage, and the renderer imports the compiled program's bindings.
     const material = this.material = foliageAtmosphere(new THREE.MeshBasicMaterial({map,vertexColors:true,alphaTest:.25,side:THREE.DoubleSide}));
     const atmosphere = material.onBeforeCompile;
     material.onBeforeCompile = shader => {
       atmosphere(shader);
       Object.assign(shader.uniforms,this.uniforms);
+      // These declarations extend the shared material rather than submit a draw.
+      // Grass sinks as it fades to avoid a hard horizontal cutoff; leaf cards fade
+      // through their fragment alpha instead. Keep both authored shapes intact.
       shader.vertexShader = `
         attribute vec2 foliageCorner;
         attribute vec4 foliageShape;
@@ -74,6 +98,9 @@ export class FoliageGpuBatch {
         uniform vec3 foliageEye, foliageRight, foliageUp, foliageBack;
         uniform float foliageTime, foliageEnd, foliageWiggle;
       ` + shader.vertexShader;
+      // The replacement keeps the original billboard width/lean/wiggle arithmetic.
+      // Changing the fade formula here changes silhouettes at the far/near join,
+      // so selection ownership must not be confused with reshaping the card.
       shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', grass ? `
         float depth = -dot(foliagePatch - foliageEye, foliageBack);
         float maxDist = foliageDistance > 0.0 ? foliageDistance : foliageEnd;

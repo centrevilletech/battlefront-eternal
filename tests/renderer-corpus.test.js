@@ -1,3 +1,11 @@
+// The manifest is a coverage contract, not just a list of launch arguments.
+// Each preset must name every map and keep stable unique ids for comparison.
+// Owned post/HUD keys must be represented by the declared fixture inventory.
+// The generated driver sweep independently discovers every shader manifest.
+// These checks use no prepared game files and therefore run in CI.
+// A partial local selection must not silently shrink the committed full matrix.
+// Context restoration remains explicitly identified as a lifecycle scenario.
+// Camera tags retain first-person coverage alongside world/HUD rendering.
 import test from 'node:test';
 import { programLayouts } from '../src/render-programs.js';
 import { expand } from '../tools/renderer-corpus/manifest.mjs';

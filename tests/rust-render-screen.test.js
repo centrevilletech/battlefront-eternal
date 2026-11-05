@@ -1,3 +1,9 @@
+// These tests inspect full-screen step packing rather than rasterize pixels.
+// Clouds, tint and fog each have independent target/sampler state even though
+// they use the same Rust screen-step boundary. A valid step must preserve that
+// state without a native first draw. Driver smoke supplies actual GL coverage.
+// The stand-ins expose active uniforms explicitly so a missing sampler cannot
+// pass merely because a generated shader happened to optimise it away.
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -42,6 +48,11 @@ function screenBridge() {
 }
 const support = await import("./support/rust-standin.mjs");
 
+// Cloud integration uses a 3D noise sampler and its own render target.
+// The frame record must bind the volume texture and all camera/material values.
+// Making a plain program without those values would still link but draw wrong.
+// No native render call is used to prepare the material or populate its target.
+// The fixture checks exact state flags as well as the emitted screen draw.
 test("the storm's cloud panorama: drawn into its target by the renderer, its noise volume a 3D sampler, once three made its program", () => {
   const { core, calls, renderer, setTarget } = screenBridge();
   const noise = new THREE.Data3DTexture(new Uint8Array(8), 2, 2, 2);
@@ -68,6 +79,11 @@ test("the storm's cloud panorama: drawn into its target by the renderer, its noi
   assert.throws(() => core.cover("skyClouds", renderer, pass, camera), /Incomplete Rust/);
 });
 
+// Tint draws over the completed canvas with the authored separate-alpha blend.
+// Its target and viewport differ from the scene's retained offscreen buffer.
+// Depth testing/writing must stay off even if the previous world phase used it.
+// The known material colour is packed as a vec4 rather than inherited state.
+// The expected blend factors are checked at the shared-state boundary.
 test("the Low water's underwater tint: over the finished frame, blended as three blends it", () => {
   const { core, calls, renderer, setTarget } = screenBridge();
   const material = new THREE.ShaderMaterial({ uniforms: { color: { value: new THREE.Vector4(0.1, 0.2, 0.3, 0.4) } }, transparent: true, depthTest: false, depthWrite: false });
@@ -86,7 +102,12 @@ test("the Low water's underwater tint: over the finished frame, blended as three
   assert.deepEqual([...core.postStates.subarray(0, 8)], [4, 0, 0x8006, 0x8006, 0x0302, 0x0303, 1, 0x0303]);
   });
 
-test("underwater fog takes the completed scene before its screen draw and returns to three when disabled", () => {
+// Fog first samples the completed scene and then composites into its target.
+// Disabling the effect omits that authored pass; it cannot select a native draw.
+// The texture copy and shader draw are separate ordered resource operations.
+// An old target alias must not survive a resize or overwrite the scene early.
+// The fixture checks claimed ownership and required draw submission together.
+test("underwater fog copies the completed scene before its Rust composite and omits the disabled effect", () => {
   const b = bridge(), { core, renderer, scene, camera, calls, graphics } = b;
   const fog = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
     uniforms: { sceneColor: { value: new THREE.Texture() } },

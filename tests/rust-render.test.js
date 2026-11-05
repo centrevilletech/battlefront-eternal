@@ -1,3 +1,10 @@
+// The stand-in core records resource registrations and phase submission while
+// providing the same shared-memory shapes as the renderer. It cannot prove
+// pixels, but it makes ordering, ownership and state-reset mistakes observable.
+// Every battle phase must enter Rust; a no-op phase must leave native resource
+// state alone. None of these cases enables an alternate renderer for comparison.
+// Program/texture compilation is simulated explicitly before registration so
+// first use never depends on a successful native battle draw.
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -7,6 +14,8 @@ globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
 const { standinModule } = await import("./support/rust-standin.mjs");
 
+// Pass statistics include GL calls separately from draw counts. A resource-only
+// phase can invalidate cached state even when its fragment draw count is zero.
 const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0];
 
 // The bridge over a stand-in for the WASM renderer (its memory, and a log of
@@ -51,14 +60,22 @@ function bridge() {
   return { core, calls, graphics, renderer, scene, camera, memory, list, setSegments, setTarget: (t) => { target = t; } };
 }
 
+// Pass order is observable because later phases consume earlier targets.
+// Checking names and phase membership catches accidental omission as well as
+// reordering. All registered passes must have a required Rust phase entry.
+// The test does not need a driver to enforce that construction contract.
 test("the passes are made in the renderer's order, each in its phase", () => {
   const { core } = bridge();
-  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near", "canopies", "sea", "motion", "shadow", "clouds", "underwater", "mirrorCover", "fog"]);
+  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near", "canopies", "sea", "motion", "shadow", "clouds", "underwater", "mirrorCover", "fog", "lines"]);
   const phases = Object.fromEntries(Object.entries(core.phases).map(([name, passes]) => [name, passes.map((p) => p.name)]));
-  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["transparent", "effects", "water", "fog"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["transparent", "effects", "water", "fog"], begin: ["near", "mirrorCover"], farMirror: ["far"], probe: ["far"], motion: ["motion"], shadow: ["shadow"], image: [], skyClouds: ["clouds"], underwater: ["underwater"] });
+  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["transparent", "effects", "water", "fog"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["transparent", "effects", "water", "fog"], begin: ["near", "mirrorCover"], farMirror: ["far"], probe: ["far"], motion: ["motion"], shadow: ["shadow"], image: [], skyClouds: ["clouds"], underwater: ["underwater"], lines: ["lines"] });
   assert.throws(() => core.addPass({ name: "x", phase: "nowhere" }), /no phase nowhere/);
 });
 
+// The near frame consumes the far image and a fresh frame block together.
+// A single phase call must preserve pass order and restore the native owner's
+// resource-state cache only when it is actually used again.
+// Repeated native resets would add work between otherwise adjacent Rust phases.
 test("the near phase: the far scene's image and frame block, its passes in order, one renderer call, three's state reset", () => {
   const { core, calls, renderer, scene, camera, graphics } = bridge();
   const drawn = [];
@@ -80,6 +97,10 @@ test("the near phase: the far scene's image and frame block, its passes in order
 
 
 
+// Each entry has its own frame view and must restore the target it found.
+// This distinguishes a correct phase dispatch from accidentally calling the
+// near renderer for every scene. Targets here are identities, not GPU buffers.
+// Actual draw/target pixels are checked by the generated backend fixture.
 test("every other phase calls its own renderer entry and binds back the target it found", () => {
   const { core, calls, renderer, scene, camera, setTarget } = bridge();
   const target = { name: "far" };
@@ -96,6 +117,10 @@ test("every other phase calls its own renderer entry and binds back the target i
 
 
 
+// A retained typed view can detach when another resource grows WASM memory.
+// Recreate every published view from the new buffer before writing a record.
+// Keeping stale pointers would make a successful registration look like an
+// empty frame, so values and backing-buffer identity are both checked.
 test("a pass's views of the renderer's memory are made again when it grows", () => {
   const { core, memory } = bridge();
   core.addView("extra", Uint32Array, () => 16384, () => 8);
@@ -116,6 +141,10 @@ test("a pass's views of the renderer's memory are made again when it grows", () 
 
 
 
+// The Rust stream owns the items it takes out of a native render list.
+// Sort keys must retain authored group/render/depth/id order across that move.
+// This is not permission to draw the unclaimed suffix through Three;
+// the required near walk is responsible for rejecting incomplete ownership.
 test("objects the transparent pass draws leave three's list as records with three's keys", () => {
   const { core, renderer, scene, camera, graphics, list, setSegments } = bridge();
   const pass = core.byName.transparent;
@@ -154,7 +183,11 @@ function standIns(core, names) {
   core.texture = () => 0;
 }
 
-test("the ground registers once three has drawn it as it is now, as a world bucket with the patches' cells", () => {
+// Program compilation is simulated before terrain registration, without a
+// native first draw. Retain the full authored patch index and culling cells.
+// The currently visible range is frame output, not the permanent base mesh.
+// Otherwise another camera can lose cells omitted by this first registration.
+test("the compiled ground registers as a Rust world bucket with its authored patch cells", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   standIns(core, ["map", "layer1Map", "brightness", "layerScales"]);
   const material = new THREE.ShaderMaterial({ defines: { TERRAIN: "", WORLD_SPACE: "" }, uniforms: { brightness: { value: 1 }, layerScales: { value: new THREE.Vector2(8, 4) } } });
@@ -187,6 +220,10 @@ test("the ground registers once three has drawn it as it is now, as a world buck
   assert.ok(calls.some(c => c[0] === "add_world"), "changed materials are recompiled and registered before drawing");
 });
 
+// Cell culling may already have changed the visible draw range on a mesh.
+// Registration must keep the full base and apply the camera range separately.
+// This fixture starts with such a narrowed range to expose that distinction.
+// A later reflected view must still be able to select any authored cell.
 test("a bucket culled by cell registers whatever draw range three's last view left it", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   standIns(core, ["map"]);
@@ -209,6 +246,10 @@ test("a bucket culled by cell registers whatever draw range three's last view le
 
 
 
+// A zero-call Rust phase cannot have invalidated the native GL cache.
+// Avoiding an unnecessary reset matters for empty passes on small maps.
+// The GL-call count is the evidence; an empty draw count alone is insufficient.
+// Resource registration can still mutate GL state even without fragments.
 test("a phase that made no GL call leaves three's state alone", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   core.rust.transparent_frame = () => { calls.push(["transparent_frame"]); return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; };
@@ -216,6 +257,10 @@ test("a phase that made no GL call leaves three's state alone", () => {
   assert.deepEqual(calls.map((c) => c[0]).filter((n) => n !== "add_texture" && n !== "set_far_map"), ["transparent_frame"]);
 });
 
+// A middle zero-weight layer can remain an active sampler in the linked shader.
+// Binding only nonzero layers leaves that sampler with invalid or stale state.
+// Supply an empty colour texture for every active missing layer explicitly.
+// The backend validates sampler completeness before executing fragment weights.
 test("painted terrain binds an empty color texture for an unpainted layer between active layers", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   standIns(core, ["layerMap0", "layerMap1", "layerMap2"]);
