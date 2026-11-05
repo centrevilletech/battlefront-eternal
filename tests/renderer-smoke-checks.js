@@ -7,9 +7,10 @@ import { motionVectors } from '../src/motion-vectors.js';
 import { Batch } from '../src/interface/batch.js';
 import { Water } from '../src/water.js';
 import { Settings } from '../src/settings.js';
-import { zeroMaterial, lighting } from '../src/materials.js';
+import { zeroMaterial, worldMaterial, lighting } from '../src/materials.js';
 import { plainProgram } from '../src/rust-render/post.js';
 import { writeScreenStep } from '../src/rust-render/screen.js';
+import { ownWorldMaterial } from '../src/rust-render/world-programs.js';
 import { programLayouts } from '../src/render-programs.js';
 
 // All pixels, meshes and textures here are generated. No game loader runs.
@@ -22,7 +23,7 @@ export async function checkRenderer(backend, manifests) {
   // including calls through WASM. Counters prevent a three-only false pass.
   const proto = WebGL2RenderingContext.prototype;
   const getExtension = proto.getExtension;
-  let multiDraws = 0;
+  let multiDraws = 0, alphaCoverageDraws = 0;const alphaSamples=new Set();
   const fallback = new URLSearchParams(location.search).has('noMulti');
   proto.getExtension = function (name) {
     if (name === 'WEBGL_multi_draw' && fallback) return null;
@@ -44,6 +45,7 @@ export async function checkRenderer(backend, manifests) {
     const original = proto[name]; originals.set(name, original);
     proto[name] = function (...args) {
       const result = original.apply(this, args);
+      if(name.startsWith('draw') && this.isEnabled(this.SAMPLE_ALPHA_TO_COVERAGE) && this.getParameter(this.SAMPLES)>1){alphaCoverageDraws++;alphaSamples.add(this.getParameter(this.SAMPLES));}
       if(name==='compileShader'){
         const ok=this.getShaderParameter(args[0],this.COMPILE_STATUS);
         compiledShaders.push({key:compilingKey,ok});
@@ -60,7 +62,7 @@ export async function checkRenderer(backend, manifests) {
       return result;
     };
   }
-  const settings = new Settings({ shadows: 'low', waterQuality: 'low', antialiasing: 'off', bloom: false, softFocus: false, renderScale: 1, upscaler: 'off' });
+  const settings = new Settings({ shadows: 'low', waterQuality: 'low', antialiasing: '2x', bloom: false, softFocus: false, renderScale: 1, upscaler: 'off' });
   const g = new Graphics(document.body, settings);
   try {
     await g.rustReady;
@@ -76,6 +78,7 @@ export async function checkRenderer(backend, manifests) {
         const start=performance.now(),linkStart=links.length,shaderStart=compiledShaders.length;compilingKey=key;
         try {
           const id=g.rust.rust.add_owned_program(key);
+          programKinds.add({World:0,Skinned:1,Rigid:2,Plain:3,Effect:4,Motion:9}[programLayouts[key].kind]);
           const error=gl.getError();if(error)throw Error(`WebGL 0x${error.toString(16)}`);
           variants.push({key,id,ms:performance.now()-start,accepted:true,shaders:compiledShaders.length-shaderStart,links:links.length-linkStart,cached:links.length===linkStart});
         } catch(error){variants.push({key,ms:performance.now()-start,accepted:false,error:String(error.message||error)});}
@@ -99,14 +102,17 @@ export async function checkRenderer(backend, manifests) {
     g.setMap({ post: { blur: { enabled: true, blend: .25, downsize: .25 } }, lighting: { sunDirection: [.4, -1, .2], ambient: [70, 70, 70], sunColor: [180, 180, 180] }, distance: { nearScene: [40, 40, 80, 80] } });
     g.camera.position.set(0, 0, 8); g.camera.lookAt(0, 0, 0);
     const geometry = new THREE.PlaneGeometry(1.2, 1.2); geometry.setAttribute('tangent', new THREE.Float32BufferAttribute([1,0,0,1,0,0,1,0,0,1,0,0],3)); geometry.setAttribute('binormal', new THREE.Float32BufferAttribute([0,1,0,0,1,0,0,1,0,0,1,0],3));
-    const material = zeroMaterial('lit', { map: white, bumpMap: normal, specular: [20, .3, .3, .3] });
+    // Match a captured map light-count variant with zero-intensity generated lights.
+    for(let i=0;i<15;i++)g.scene.add(new THREE.PointLight(0,0,1));
+    const material = worldMaterial('lit', { map: white, bumpMap: normal, specular: [20, .3, .3, .3] });
     material.defines.WORLD_SPACE = '';
+    ownWorldMaterial(material,geometry);
     // Static buckets must have identity transforms; bake the placements.
     for (let i = 0; i < 3; i++) {
       const mesh = new THREE.Mesh(geometry.clone().translate(i * 1.5 - 1.5, 0, 0), material);
       mesh.matrixAutoUpdate = false; g.scene.add(mesh);
     }
-    const pendingMaterial=zeroMaterial('unlit',{map:pendingImage});pendingMaterial.defines.WORLD_SPACE='';
+    const pendingMaterial=worldMaterial('unlit',{map:pendingImage,lights:false});pendingMaterial.defines.WORLD_SPACE='';ownWorldMaterial(pendingMaterial);
     const pendingMesh=new THREE.Mesh(new THREE.PlaneGeometry(.7,.7).translate(-2,2,1),pendingMaterial);
     pendingMesh.matrixAutoUpdate=false;g.scene.add(pendingMesh);
     const skinGeometry = new THREE.PlaneGeometry(.7, .7);
@@ -116,8 +122,8 @@ export async function checkRenderer(backend, manifests) {
     const body = new THREE.SkinnedMesh(skinGeometry, skinMaterial), bone = new THREE.Bone();
     body.add(bone); body.bind(new THREE.Skeleton([bone])); body.position.set(1.5,1,0); body.frustumCulled = false;
     const root = new THREE.Group(); root.userData.parts = { body }; root.add(body); g.scene.add(root); g.cullRoots.push(root);
-    const far = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), zeroMaterial('unlit', { map: texture([20, 40, 80, 255]), far: true }));
-    far.position.z = -90; g.farScene.add(far);
+    const farMaterial=worldMaterial('unlit',{map:texture([20,40,80,255]),far:true,lights:false});farMaterial.defines.WORLD_SPACE='';ownWorldMaterial(farMaterial);
+    const far = new THREE.Mesh(new THREE.PlaneGeometry(20,20).translate(0,0,-90),farMaterial);far.matrixAutoUpdate=false;g.farScene.add(far);
     const transparent = new THREE.Mesh(new THREE.PlaneGeometry(.7, .7), new THREE.MeshBasicMaterial({ color: 0x2277aa, transparent: true, opacity: .5 }));
     transparent.position.set(0, 1, 1); g.scene.add(transparent);
     const view = new THREE.Mesh(new THREE.PlaneGeometry(.12, .12), zeroMaterial('dynamic', { map: white }));
@@ -130,16 +136,20 @@ export async function checkRenderer(backend, manifests) {
     groundGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(Array(9).fill([0,0,1]).flat(), 3));
     groundGeometry.setAttribute('weights0', new THREE.Float32BufferAttribute(Array(9).fill([.5,0,.5,0]).flat(),4));
     groundGeometry.setIndex([0,1,2,3,4,5,6,7,8]);
-    const groundMaterial = new THREE.ShaderMaterial({ defines: { TERRAIN: '', WORLD_SPACE: '', TERRAIN_LAYERS: 3 }, uniforms: { ...lighting,
-      layerMap0: { value: white }, layerMap1: { value: null }, layerMap2: { value: texture([100, 180, 60, 255]) },
-    }, vertexShader: 'attribute vec4 weights0; varying vec3 paint; varying vec2 vUv; void main(){paint=weights0.xyz; vUv=uv; gl_Position=projectionMatrix*viewMatrix*vec4(position,1.0);}',
-    // A zero weight still leaves the middle sampler active, just as an
-    // unpainted game layer does. Validation precedes fragment execution.
-    fragmentShader: 'uniform sampler2D layerMap0; uniform sampler2D layerMap1; uniform sampler2D layerMap2; varying vec3 paint; varying vec2 vUv; void main(){vec4 a=texture2D(layerMap0,vUv); vec4 b=texture2D(layerMap1,vUv); vec4 c=texture2D(layerMap2,vUv); gl_FragColor=a*paint.x+b*paint.y+c*paint.z;}' });
+    groundGeometry.setAttribute('color',new THREE.Float32BufferAttribute(Array(9).fill([1,1,1]).flat(),3));
+    groundGeometry.setAttribute('weights1',new THREE.Float32BufferAttribute(new Float32Array(36),4));
+    const groundMaterial=worldMaterial('terrain',{map:white});
+    Object.assign(groundMaterial.defines,{WORLD_SPACE:'',TERRAIN_LAYERS:6});
+    Object.assign(groundMaterial.uniforms,{layerMap0:{value:white},layerMap1:{value:null},layerMap2:{value:texture([100,180,60,255])},layerMap3:{value:null},layerMap4:{value:null},layerMap5:{value:null}});
+    ownWorldMaterial(groundMaterial,groundGeometry);
     const ground = new THREE.Group(); ground.add(new THREE.Mesh(groundGeometry, groundMaterial)); ground.material = groundMaterial;
     const boxes = [[-3,-2,0,-1,-1,0], [99,99,0,100,100,0], [1,-2,0,3,-1,0]].map(b => new THREE.Box3(new THREE.Vector3(...b.slice(0,3)),new THREE.Vector3(...b.slice(3))));
     ground.userData.patches = { full: { index: groundGeometry.index, cells: boxes.map((box,i) => ({ start: i*3, end: i*3+3, box })) }, bounds: new THREE.Sphere(new THREE.Vector3(), 200) };
     g.scene.add(ground);
+    const cutoutMap=new THREE.DataTexture(new Uint8Array([220,80,40,128,220,80,40,255,220,80,40,0,220,80,40,192]),2,2);cutoutMap.needsUpdate=true;
+    const cutoutMaterial=worldMaterial('unlit',{map:cutoutMap,lights:false,alphaTest:true,doubleSided:true});cutoutMaterial.defines.WORLD_SPACE='';
+    const cutoutGeometry=new THREE.PlaneGeometry(.8,.8).translate(-1.5,-1,1);ownWorldMaterial(cutoutMaterial,cutoutGeometry);
+    const cutout=new THREE.Mesh(cutoutGeometry,cutoutMaterial);cutout.matrixAutoUpdate=false;g.scene.add(cutout);
     const particles = new ParticleRenderer(g.scene).batch(white, 'additive');
     particles.begin(); particles.push(-1, 1, .5, 1, .4, .2, 1, .3); particles.end();
     const batch = new Batch(), hudScene = new THREE.Scene(), hudCamera = new THREE.OrthographicCamera(0,320,0,240,-10,10);
@@ -238,10 +248,14 @@ export async function checkRenderer(backend, manifests) {
     assert('Temporal post sequence repeats exactly',temporalA.every((v,i)=>v===temporalB[i]));
     settings.set('upscaler','off');settings.set('renderScale',1);
     settings.set('shadows','off');compare('shadows switched off');
+    settings.set('shadows','medium');compare('three cascade shadow receivers');
+    settings.set('shadows','high');compare('four cascade shadow receivers');
     settings.set('shadows','low');compare('shadows restored');
     settings.set('lampLighting',true);compare('lamps enabled');
     settings.set('lampLighting',false);compare('lamps disabled');
     assert('World draws taken by Rust', g.rust.byName.world.count >= 3, g.rust.byName.world.count);
+    assert('World materials have no browser shader program',[material,pendingMaterial,farMaterial,groundMaterial,cutoutMaterial].every(m=>m.vertexShader===undefined&&!g.renderer.properties.get(m).currentProgram));
+    assert('Alpha-to-coverage drew on a multisampled target',alphaCoverageDraws>0,{alphaCoverageDraws,samples:[...alphaSamples]});
     assert('Unpainted terrain taken by Rust', groundMaterial.visible === false);
     for (const name of ['frame', 'far_frame', 'transparent_frame', 'view_frame', 'post_frame']) assert(`${name} issues Rust programs`, phaseDraws[name] > 0, phaseDraws);
     // Motion has its own target and depth input, separate from post history.
