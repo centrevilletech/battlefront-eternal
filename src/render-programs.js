@@ -114074,5 +114074,24937 @@ export const programLayouts = {
         "size": 4
       }
     ]
+  },
+  "world/canopies-no-shadows": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "leafCenter",
+        3
+      ],
+      [
+        "leafSize",
+        4
+      ],
+      [
+        "leafShade",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "map",
+        "type": 32
+      }
+    ],
+    "hash": "bed67f6ff47ff5c558a7692df68ad09f042c107c8273792fcfdce724a3e3e050",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false
+  },
+  "world/static-e38ba9a4127d4308": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambientTop",
+        "type": 3
+      },
+      {
+        "name": "ambientBottom",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 2
+      },
+      {
+        "name": "characterAmbient",
+        "type": 3
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "localLightPositions",
+        "type": 4,
+        "size": 4
+      },
+      {
+        "name": "localLightColors",
+        "type": 3,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "bffff7256f5d445d9743d68ed73e2c6722f8cffa552375e6728501b3222aee4c",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "DYNAMIC",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientTop",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientBottom",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "characterAmbient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "localLightPositions[0]",
+        "type": 35666,
+        "size": 4
+      },
+      {
+        "name": "localLightColors[0]",
+        "type": 35665,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-e38ba9a4127d4308-lamps": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambientTop",
+        "type": 3
+      },
+      {
+        "name": "ambientBottom",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 2
+      },
+      {
+        "name": "characterAmbient",
+        "type": 3
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "localLightPositions",
+        "type": 4,
+        "size": 4
+      },
+      {
+        "name": "localLightColors",
+        "type": 3,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      },
+      {
+        "name": "bfeLamps",
+        "type": 32
+      },
+      {
+        "name": "bfeLampIndex",
+        "type": 4
+      },
+      {
+        "name": "bfeLampCount",
+        "type": 1
+      }
+    ],
+    "hash": "91b9265145ff2d78b98cfbddc3e5875a7678f4f48f5ea7df6e9bfe048d0e8240",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": true,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "DYNAMIC",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": true
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientTop",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientBottom",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "characterAmbient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "localLightPositions[0]",
+        "type": 35666,
+        "size": 4
+      },
+      {
+        "name": "localLightColors[0]",
+        "type": 35665,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-d311913289154afc": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "d6d75258047859b3d6fa6ac3881a4794d43483807c9d6bfbafc369c3e20ddb2b",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-3f0f119780052c2a": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "c2fdd20aa61076e596b37a0eb669915d0d91ccd7be73cdf478cabf45ca39cb52",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-979c6ba766757fd0": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "15fd99d054edc2e281d53a713e3051047e0bae803d425d6fb2ba3c9ba9532a16",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-bfff3d3f173f0b89": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "6b3dd711348e71fc2e97808f685d0266c465e777e61a4da2521a5c5e37ae7e7e",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-321250d963d80fd0": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "3d1cf1ed2a43c26644e1998bf8272190a47689a31f70f7d87999f42f22e5b1c1",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-e6e724d4db225784": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "time",
+        "type": 1
+      },
+      {
+        "name": "scroll",
+        "type": 2
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "805730571ef61f0877a1ec4bebb41eb9f986003d2e3c676de84b110ab8853990",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "SCROLL",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "time",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "scroll",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-6813e2e64ffe733c": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "time",
+        "type": 1
+      },
+      {
+        "name": "scroll",
+        "type": 2
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "3798fdc38b48d0c116ba7613aa9e8b00545b0b6c01e1995dd6d97746baacf68f",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BLENDED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "SCROLL",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "time",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "scroll",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-d55e95c29e3193d3": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "bfe3ded5e180bd6da194d69eec2960d59516896b7e5eb5b1b3ff85ff9624279c",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BLENDED",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-23b8f104df99210a": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "e3ee8f58e44cd8e211e42332525916d82b0a09a449175f2b7fe1161b180bf586",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-e3fd14f8a2f59f00": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "5e636f45acf60b7e55abcf53208c6ceb4a82fefa739659b4555b60bfdd5833f7",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-4462d340ddad2c2f": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "bc47ca826572732747da1e9b8651388e55ee6be578788d9b9931e42a0be46815",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-4677acedbb37313e": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "2d44b83d0acedf683dbd3ff4cc89941365b03f63cbde6b9edeaa622d6e9d9ded",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-d2063b87b2fecd5e": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "50dc5950c36b2be3e073e359dd8388b36b08f6f420adedca8758c0b4ca2e5741",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-cb700adbe2910117": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "ae3890a1c845ef33f20c35f3e4b2f225342931686e4bbc0aab880eedbb870619",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-549fe3cc23c12373": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "ebd0bc12c3d9c7b5e286666f35b2db6433190315f33b831523a2474ced4d3829",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-a3c452e1325f89a7": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "280e24e329b5d57c0ec895db35e106832ce3a09aa8e5a40a4ccacd267d06051c",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-8312cf8ede5c0163": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "time",
+        "type": 1
+      },
+      {
+        "name": "scroll",
+        "type": 2
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "7495802f9e4f1b533b9856c2e55569836376f82b5f9410d25b68282088619e1b",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BLENDED",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "SCROLL",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "time",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "scroll",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-d30d720f27f80a3c": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "5fb19ddf3795a695ccc3a2e16e7f591506410fd0ccf5ce6c9366bf3bb6b8af26",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-9613a5e8eb2b0734": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "cfea43ae760b22be0583f26540e61bbbe6d19e911414da39314f838f050370a2",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BAKED",
+          ""
+        ],
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-09eec683371aae9e": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "dc19a2c25326b742e89b90554cc9f8d3fe0ec6d3bc2625ced39e3126d4bdc1cd",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BAKED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-dc0fe515348a206a": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "time",
+        "type": 1
+      },
+      {
+        "name": "scroll",
+        "type": 2
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "112065fcdda61592f5bb3dba92cd7fa262efb0a0574fd5ef514c1e46f0ebcfbb",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BLENDED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "SCROLL",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "time",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "scroll",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-0483824c0f29c291": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "30a7a9a48a58f38aa728371f61f9c1189205fae9d3b576d9203e8d6669d65912",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-8b700e6dc5a9560e": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "time",
+        "type": 1
+      },
+      {
+        "name": "scroll",
+        "type": 2
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "dea1b098bd25200520ea10d637d2e85f3ea829a3fe46f7e5724f724f3921c61a",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "SCROLL",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "time",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "scroll",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-01cef71d7c5dde51": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "d5275f773aaed7843043ac49a994c5c2dadc8ed77218f50a7749a1a841766512",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BAKED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-4f22684165592c7b": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "c54d60837deb0693d6cbb2ffb9ecb668a20a3dae0fd254782758b57961a12af1",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-cfd96630882956aa": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "7f65dd9079b7ad3d2e5b34ee67d755252c990cec8bf677c70c5452c92665d0c0",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BAKED",
+          ""
+        ],
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-23015467cb262c54": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambientTop",
+        "type": 3
+      },
+      {
+        "name": "ambientBottom",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 2
+      },
+      {
+        "name": "characterAmbient",
+        "type": 3
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "localLightPositions",
+        "type": 4,
+        "size": 4
+      },
+      {
+        "name": "localLightColors",
+        "type": 3,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "098a58e83f7ca0f76cb84fc88043f84029c22c9a118cd261b5191113bf65eac3",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "DYNAMIC",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientTop",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientBottom",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "characterAmbient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "localLightPositions[0]",
+        "type": 35666,
+        "size": 4
+      },
+      {
+        "name": "localLightColors[0]",
+        "type": 35665,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-23015467cb262c54-lamps": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambientTop",
+        "type": 3
+      },
+      {
+        "name": "ambientBottom",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 2
+      },
+      {
+        "name": "characterAmbient",
+        "type": 3
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "localLightPositions",
+        "type": 4,
+        "size": 4
+      },
+      {
+        "name": "localLightColors",
+        "type": 3,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      },
+      {
+        "name": "bfeLamps",
+        "type": 32
+      },
+      {
+        "name": "bfeLampIndex",
+        "type": 4
+      },
+      {
+        "name": "bfeLampCount",
+        "type": 1
+      }
+    ],
+    "hash": "ad9bd198d37b4aaaef9aef9bc11f7bfb7088e28fa83eb3e3e689881824a3cd22",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": true,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "DYNAMIC",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": true
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientTop",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientBottom",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "characterAmbient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "localLightPositions[0]",
+        "type": 35666,
+        "size": 4
+      },
+      {
+        "name": "localLightColors[0]",
+        "type": 35665,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/terrain-8124ec7e0dfc2c31": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "weights0",
+        4
+      ],
+      [
+        "weights1",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "terrainShade",
+        "type": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 3
+      },
+      {
+        "name": "layerScale0",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "detailMap",
+        "type": 32
+      },
+      {
+        "name": "layerMap0",
+        "type": 32
+      },
+      {
+        "name": "layerMap1",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "6d9e544e2a6ff0f99dea3bf5d13b8c853760245fe7b66408e1e029db3e985b2f",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TERRAIN",
+          ""
+        ],
+        [
+          "TERRAIN_LAYERS",
+          "2"
+        ],
+        [
+          "TERRAIN_RELIGHT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "terrainShade",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "layerScale0",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "detailMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap0",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap1",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-76d41eca8bbf2b68": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "80c230b94dad2febfc43fb398f71dc91e6d427394fe332574ea055e0fb528f5f",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-cb622daef1151ed5": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "bdfe346155fc823a3e055a72dfba594aad968e7e661f42ac97f3383e95858ce6",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-b3a7691eac5cce56": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "22928f89abc3e2af110e30b865bdb84437f99446a4470446862fb7081825b366",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BLENDED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-4088c8cafec90a7f": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "time",
+        "type": 1
+      },
+      {
+        "name": "scroll",
+        "type": 2
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "b0c041540d6db4b526acb46cf3953a1af66b7195196c2d80f7f9d728d2fd57db",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "SCROLL",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "time",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "scroll",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-72720515bf79841c": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "0bb0933a47e9bd1daec888029d964b06b950d94d71e62441c1758a79a6a9e6ff",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-3c7a019a910441c8": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "a7db9ad6fba664c55dee93e7b64cf980f8950098e526bf89c5a4af813a10ade1",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BLENDED",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-60e2a8d099372280": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "9bf5e7aea14d2911482de7914ed276a8ac8b2486c1f0d76a6bf765e7092158cd",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/terrain-2f37f16d3f29e2fe": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "weights0",
+        4
+      ],
+      [
+        "weights1",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 3
+      },
+      {
+        "name": "layerScale0",
+        "type": 4
+      },
+      {
+        "name": "layerScale1",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "detailMap",
+        "type": 32
+      },
+      {
+        "name": "layerMap0",
+        "type": 32
+      },
+      {
+        "name": "layerMap1",
+        "type": 32
+      },
+      {
+        "name": "layerMap2",
+        "type": 32
+      },
+      {
+        "name": "layerMap3",
+        "type": 32
+      },
+      {
+        "name": "layerMap4",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "003f9ff79b5466d8d6d42a44aab06bbc6f2f0380468d1eccd14dc2dd521f53bd",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TERRAIN",
+          ""
+        ],
+        [
+          "TERRAIN_LAYERS",
+          "5"
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "layerScale0",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "layerScale1",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "detailMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap0",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap1",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap2",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap3",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap4",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-4ebcba3b16f098d5": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambientTop",
+        "type": 3
+      },
+      {
+        "name": "ambientBottom",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 2
+      },
+      {
+        "name": "characterAmbient",
+        "type": 3
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "localLightPositions",
+        "type": 4,
+        "size": 4
+      },
+      {
+        "name": "localLightColors",
+        "type": 3,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "6c859d9f624c9570d94691bbad45bdb102ceac607b4b2986d76639e8956c8833",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "DYNAMIC",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientTop",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientBottom",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "characterAmbient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "localLightPositions[0]",
+        "type": 35666,
+        "size": 4
+      },
+      {
+        "name": "localLightColors[0]",
+        "type": 35665,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-4ebcba3b16f098d5-lamps": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambientTop",
+        "type": 3
+      },
+      {
+        "name": "ambientBottom",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 2
+      },
+      {
+        "name": "characterAmbient",
+        "type": 3
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "localLightPositions",
+        "type": 4,
+        "size": 4
+      },
+      {
+        "name": "localLightColors",
+        "type": 3,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      },
+      {
+        "name": "bfeLamps",
+        "type": 32
+      },
+      {
+        "name": "bfeLampIndex",
+        "type": 4
+      },
+      {
+        "name": "bfeLampCount",
+        "type": 1
+      }
+    ],
+    "hash": "61fb46812a7d29542bcff54c84c707e84b6b1cffbaa2bbb6bf64a7fde6684785",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": true,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "DYNAMIC",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": true
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientTop",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambientBottom",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "ambientPull",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "characterAmbient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "localLightPositions[0]",
+        "type": 35666,
+        "size": 4
+      },
+      {
+        "name": "localLightColors[0]",
+        "type": 35665,
+        "size": 4
+      },
+      {
+        "name": "localLightCount",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-9957fb2742adb868": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "time",
+        "type": 1
+      },
+      {
+        "name": "scroll",
+        "type": 2
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "9b7f4bc4b58af527656c7be2220f39bdfa80f6cffc3b77b810be12564a8ae99d",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BLENDED",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "SCROLL",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "time",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "scroll",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-c84b0ae5ab90bec4": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "2bf8049191363092ae7afc6cb64c4139f54b4cf60ee86cf1067a99e2a0a479fc",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-71fb9387f5ebb462": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "5fb92baf3c94b95659319f8607779df20fdb89b8120aed4e93d4e7fe2d30c2f7",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-0eec43409915bf18": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "f7e8ddd7b26edaba2ded2bb2781c563605d0fb9156e026393a19fe8e7cc225da",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-cd97b5035460b888": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "b6e2e6f0120069ebf09cfc6e9fe62dae05f1c7c4f619488c46304008d7fb289a",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-c4ffbbb3283035fb": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "98405cbb2a7b0440cc93c4926a658695c70364fa79016da54e7866e3847a33aa",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-9c343f79e3e3170b": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "a5084d78fda1b37baf57acc82ee5ba0272c1d688d2741122c0d693d7cbb886b4",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-dd5d8b8a917fae01": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "8797e03078adca5c056069b204040f673a0fc8f58b9994a0c5193033fb029146",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-bf422ab8f2a2e029": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "fabricAnchor",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "f752ede411044f069a4ed88c874e81cd1814d5d06cbaaeb1110255f1ec9547f3",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": true,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "fabricTime",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-ccb249ab35b4837c": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "c615864b0efc0dab6a00553a1f519b6d48aeee184b1e27ec0aff13e34ce510f8",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-805eb596fe560329": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "ed1d2c3cae012885771edb078eb455ce22af43367a458ba7cbb605e5579dd2b9",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-aeacee83861d602c": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "95d94ecfc329c16c64b20dbf5e66402c2e069c5a1ab6eb09a93e6c0f7e79adb7",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/terrain-08f4a472c1e77a5e": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "weights0",
+        4
+      ],
+      [
+        "weights1",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 3
+      },
+      {
+        "name": "layerScale0",
+        "type": 4
+      },
+      {
+        "name": "layerScale1",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "detailMap",
+        "type": 32
+      },
+      {
+        "name": "layerMap0",
+        "type": 32
+      },
+      {
+        "name": "layerMap1",
+        "type": 32
+      },
+      {
+        "name": "layerMap2",
+        "type": 32
+      },
+      {
+        "name": "layerMap3",
+        "type": 32
+      },
+      {
+        "name": "layerMap4",
+        "type": 32
+      },
+      {
+        "name": "layerMap5",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "ec05c3016042320132740c594a964e5a1f2054ec6dffa55abc633f23f39397a7",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TERRAIN",
+          ""
+        ],
+        [
+          "TERRAIN_LAYERS",
+          "6"
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 8,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "layerScale0",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "layerScale1",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "detailMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap0",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap1",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap2",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap3",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap4",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap5",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-6fbdac99ea81c832": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "time",
+        "type": 1
+      },
+      {
+        "name": "scroll",
+        "type": 2
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "7972c3f965850cfaf94f8b3a0ae6caa6eb7668bd751f05601760b544b7762900",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "SCROLL",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "time",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "scroll",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-f3f6a88d7585e2cc": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "799bfbaf9d82e2d46c178eda4452a6e7858faa201f597fd6c3e027b332a154ae",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/terrain-ba98ebbf98307736": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "weights0",
+        4
+      ],
+      [
+        "weights1",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 3
+      },
+      {
+        "name": "layerScale0",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "detailMap",
+        "type": 32
+      },
+      {
+        "name": "layerMap0",
+        "type": 32
+      },
+      {
+        "name": "layerMap1",
+        "type": 32
+      },
+      {
+        "name": "layerMap2",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "08549060fbbf13508393b0ed74e86db326b4e6f91e90fee8087678bf0c7f4e68",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TERRAIN",
+          ""
+        ],
+        [
+          "TERRAIN_LAYERS",
+          "3"
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "layerScale0",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "detailMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap0",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap1",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap2",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-11df672e8cc36aff": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "827c80c516f5b0be4dd9b3ae86c8d7867b9ffc632bc3bc6b15311c9a52f1aa4a",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-7cce15737f1ff87e": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "fbe3fb2ad67fd2c1d249670f5994db78bd4c91849ea8d1d303b1d87818595b64",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-1611fae01782705c": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "edc3da0684fab766e24d2bfc79bb3e44d9698966f8eafbe5f629466f87bb2381",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-f4bdc850157cb8f1": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "1f34a6878950e93628783704cd1945dd33e0df7ed532ec01653c74875c77b8bc",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-595020c692fdbb33": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "1244d7849d7c32217bf550650b81967242a85e643f414abeeeb2d8a1263f172d",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-0905132447bb8301": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "de20e03ffab85cc92e5510864064e9b4704ecefab29cf7d023b3bc99dd6ad4d0",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BAKED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-7478acb7adb223b9": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "fd06230f51ee1501cd718034e801cce598d75ce19d202559d5c8f2ae947a0491",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "BAKED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-460606d879fa4ad1": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "433dfe19e99e254dc23c42b92a847b381421afe0e656fdb6ddd4e7b76a7c4e17",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BAKED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-5219aa51677fed36": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "8616df2fb430615eb9b7c951d7ebf2bc0600fc2171059d44361a33db7ce1dd03",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "BAKED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-44f5e0a8dadf52ee": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "5fb7cccc3882ffa8710dc1b7cd0d9182a8a4f95e4ab97b209327049c96961da8",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BAKED",
+          ""
+        ],
+        [
+          "BLENDED",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-086eead55e45e9cf": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "a78bfb886e4c72b7bc73fd234661cfc4613341b5ba8c156397440a8ea2dd9471",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/terrain-c662b533f423425d": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "weights0",
+        4
+      ],
+      [
+        "weights1",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 3
+      },
+      {
+        "name": "layerScale0",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "detailMap",
+        "type": 32
+      },
+      {
+        "name": "layerMap0",
+        "type": 32
+      },
+      {
+        "name": "layerMap1",
+        "type": 32
+      },
+      {
+        "name": "layerMap2",
+        "type": 32
+      },
+      {
+        "name": "layerMap3",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "ff3097b5cf58d3caa01be777a676c0aab2f8e8901e0d1bea309969f03d7ca5b5",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TERRAIN",
+          ""
+        ],
+        [
+          "TERRAIN_LAYERS",
+          "4"
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 14,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "layerScale0",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "detailMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap0",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap1",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap2",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap3",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-7be7fc9deacbff7d": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "tangent",
+        3
+      ],
+      [
+        "binormal",
+        4
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "cameraPosition",
+        "type": 3
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "specular",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "c76e8c35fdf1e8135a0067f3a0e61010254f968e06f3cc165a2d8ef13ab8b65b",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "SPECULAR",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "cameraPosition",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "specular",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-1e7fcd0b28861f5d": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "tangent",
+        4
+      ],
+      [
+        "binormal",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "bump",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "bumpMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "6534d0ad1ce389584e445d3a8bd5f224abb12b232efd8624d8361a84aacf9e4e",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "BUMP",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bump",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "bumpMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-285586c54826ea85": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "time",
+        "type": 1
+      },
+      {
+        "name": "scroll",
+        "type": 2
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "c6511ae45b8d4d09d7141fee7cfa7b5596158eb7fc3f7290a24c89a37445a59c",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "BLENDED",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "SCROLL",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "time",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "scroll",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-4ccf19fa4b3e19a4": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "e74cd8c35d9078932f305d95b24b2bb078dfcaeacc7569f889611b8997597e6e",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "TINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/static-f57f13395cf85cb9": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 32
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "9216bd1d15eecd35d6a7df97af62e7a906aac6c6b77b6452d7899a5949d65f57",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "ALPHA_TEST",
+          ""
+        ],
+        [
+          "NO_POINT",
+          ""
+        ],
+        [
+          "UNLIT",
+          ""
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 2,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "aaSamples",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "map",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
+  },
+  "world/terrain-0138445340858117": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "normal",
+        1
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "color",
+        3
+      ],
+      [
+        "weights0",
+        4
+      ],
+      [
+        "weights1",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "receiveShadow",
+        "type": 5
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 16
+      },
+      {
+        "name": "viewMatrix",
+        "type": 16
+      },
+      {
+        "name": "sunDirection",
+        "type": 3
+      },
+      {
+        "name": "sunColor",
+        "type": 3
+      },
+      {
+        "name": "ambient",
+        "type": 3
+      },
+      {
+        "name": "sunScale",
+        "type": 1
+      },
+      {
+        "name": "zeroLights",
+        "type": 4,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5
+      },
+      {
+        "name": "brightness",
+        "type": 1
+      },
+      {
+        "name": "fade",
+        "type": 2
+      },
+      {
+        "name": "resolution",
+        "type": 2
+      },
+      {
+        "name": "cascades",
+        "type": 2,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 3
+      },
+      {
+        "name": "layerScale0",
+        "type": 4
+      },
+      {
+        "name": "directionalShadowMatrix",
+        "type": 16,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes",
+        "type": 9,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 32
+      },
+      {
+        "name": "detailMap",
+        "type": 32
+      },
+      {
+        "name": "layerMap0",
+        "type": 32
+      },
+      {
+        "name": "layerMap1",
+        "type": 32
+      },
+      {
+        "name": "layerMap2",
+        "type": 32
+      },
+      {
+        "name": "layerMap3",
+        "type": 32
+      },
+      {
+        "name": "cascadeMaps",
+        "type": 34,
+        "size": 3
+      }
+    ],
+    "hash": "04b93dfd5a9f8079f3d1f284124af3cf2f0494f15f233727658dff30b22dcee5",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false,
+    "selector": {
+      "defines": [
+        [
+          "HAS_COLOR",
+          ""
+        ],
+        [
+          "TERRAIN",
+          ""
+        ],
+        [
+          "TERRAIN_LAYERS",
+          "4"
+        ],
+        [
+          "WORLD_SPACE",
+          ""
+        ],
+        [
+          "ZERO_LIGHTS",
+          "16"
+        ]
+      ],
+      "side": 0,
+      "shadows": 3,
+      "points": 15,
+      "csm": true,
+      "fabric": false,
+      "tree": false,
+      "map": true,
+      "lamps": false
+    },
+    "inputs": [
+      {
+        "name": "receiveShadow",
+        "type": 35670,
+        "size": 1
+      },
+      {
+        "name": "projectionMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "viewMatrix",
+        "type": 35676,
+        "size": 1
+      },
+      {
+        "name": "sunDirection",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunColor",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "ambient",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "sunScale",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "zeroLights[0]",
+        "type": 35666,
+        "size": 32
+      },
+      {
+        "name": "zeroLightCount",
+        "type": 5124,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[0].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[1].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowIntensity",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowNormalBias",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowRadius",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "directionalLightShadows[2].shadowMapSize",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "brightness",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "fade",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "resolution",
+        "type": 35664,
+        "size": 1
+      },
+      {
+        "name": "cascades[0]",
+        "type": 35664,
+        "size": 4
+      },
+      {
+        "name": "cascadeFar",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "shadowStrength",
+        "type": 5126,
+        "size": 1
+      },
+      {
+        "name": "bakedLit",
+        "type": 35665,
+        "size": 1
+      },
+      {
+        "name": "layerScale0",
+        "type": 35666,
+        "size": 1
+      },
+      {
+        "name": "directionalShadowMatrix[0]",
+        "type": 35676,
+        "size": 3
+      },
+      {
+        "name": "cascadePlanes[0]",
+        "type": 35675,
+        "size": 3
+      },
+      {
+        "name": "farMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "detailMap",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap0",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap1",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap2",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "layerMap3",
+        "type": 35678,
+        "size": 1
+      },
+      {
+        "name": "cascadeMaps[0]",
+        "type": 35682,
+        "size": 3
+      }
+    ]
   }
 };
