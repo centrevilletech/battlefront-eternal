@@ -98,6 +98,10 @@ impl BfeRenderer {
     // The lamp table: eight floats a lamp source (position, radius, colour, pad).
     pub fn set_lamps(&mut self, data: &[f32]) { self.r.core.set_lamps(data) }
 
+    pub fn add_owned_program(&mut self, key: &str) -> Result<u32, JsValue> {
+        self.r.core.add_owned_program(key).map_err(|e| JsValue::from_str(&e))
+    }
+
     pub fn add_geometry(&mut self) -> u32 { self.r.core.add_geometry() }
     pub fn geometry_buffer(&mut self, g: u32, data: &[u8]) -> u32 { self.r.core.geometry_buffer(g, data) }
     #[allow(clippy::too_many_arguments)]

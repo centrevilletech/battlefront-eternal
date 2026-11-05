@@ -342,6 +342,7 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub gl: C,
     pub(crate) multi: M,
     pub(crate) programs: Vec<Program<C>>,
+    pub(crate) owned_programs: Vec<(String, u32)>,
     pub(crate) geometries: Vec<Geometry<C>>,
     pub(crate) textures: Vec<C::Texture>,
     pub(crate) far_map: Option<C::Texture>,
@@ -408,7 +409,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         let lamp_texture = upload_texture(&gl, 1, 1);
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         Core {
-            gl, multi, programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
+            gl, multi, programs: vec![], owned_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
             input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![],

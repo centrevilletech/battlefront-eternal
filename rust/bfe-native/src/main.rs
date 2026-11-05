@@ -131,6 +131,10 @@ fn main() {
                 texture_next += 1;
             }
             "set_far_map" => r.core.set_far_map(n(0) as u32),
+            "add_owned_program" => {
+                let id = r.core.add_owned_program(a[0].as_str().unwrap()).unwrap_or_else(|e| panic!("program: {e}"));
+                assert_eq!(id as f64, call[2].as_f64().unwrap());
+            }
             "add_program" => {
                 let kind = match n(0) as u32 { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Plain, 4 => Kind::Effect, _ => Kind::World };
                 let attrs: Vec<(String, u32)> = a[3].as_str().unwrap().split(',').filter(|s| !s.is_empty())
