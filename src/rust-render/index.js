@@ -22,6 +22,8 @@ import { motionPass } from "./motion.js";
 import { shadowPass } from "./shadow.js";
 import { cloudsPass, underwaterPass, fogPass } from "./screen.js";
 import { mirrorPass } from "./mirror.js";
+import { linesPass } from "./lines.js";
+import { GL_TYPES } from "./geometry-types.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -53,7 +55,7 @@ const LAMP_UNIFORMS = new Set(["localLightPositions", "localLightColors", "local
 // matrix (16), plane matrix (12: three columns of four) and slice (4).
 const SHADOW = { VALUES: 0, MATRICES: 32, PLANES: 96, SLICES: 144, FLOATS: 160, CASCADES: 4 };
 const LIGHT_COUNT = 70, LIGHTS = 72, MAX_LIGHTS = 16;
-const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401, Int16Array: 0x1402, Int8Array: 0x1400, Uint32Array: 0x1405 };
+
 // The phases of a frame, in the order three draws them: the view whose frame
 // block a phase's passes read (written before they draw; null: none) and
 // the renderer's call that draws them (renderer.rs).
@@ -86,6 +88,7 @@ const PHASES = {
   // Full-screen passes three renders on their own (screen.js): the storm's
   // cloud panorama into its target (storm-sky.js), and the Low water's tint
   // over the finished frame with the eye under the surface (water.js).
+  lines: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
   image: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
   skyClouds: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
   underwater: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
@@ -215,7 +218,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass, linesPass]) this.addPass(make(this));
   }
 
   // The scene and texture owners keep their CPU resources. Rust replays its

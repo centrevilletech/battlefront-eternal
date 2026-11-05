@@ -114,6 +114,10 @@ export class NearPass {
 
   item(object, material, groupOrder) {
     if (object === this.core.graphics.background) return true;
+    if (object.isLine) {
+      if (this.core.byName.lines.owns(object)) return true;
+      this.stopped=object;return false;
+    }
     if (!material.transparent || material.transmission > 0 || this.items.length >= MAX_ITEMS) { this.stopped = object; return false; }
     // z as projectObject takes it: a sprite's position, else the centre of
     // its bounding sphere (the object's own, where it has one), through its

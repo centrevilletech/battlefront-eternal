@@ -156,6 +156,7 @@ class TransparentPass {
   // deferred as the near phase.
   afterPhase(name, ctx) {
     if (name === "near" || name === "mirror") {
+      this.core.byName.lines.drawOpaque(ctx);
       // The far image is the last opaque draw, depth tested against geometry,
       // before transparent sources capture their opaque depth/colour copies.
       if(ctx.walked){
@@ -173,6 +174,7 @@ class TransparentPass {
       for (let k=0;k<(this.commands?.length || 0);k++) {
         const command = this.commands[k];
         if (command.depth) command.depth.capture(ctx.camera, true);
+        else if (command.line) this.core.byName.lines.drawOne(command.line,ctx);
         else command.jets.capture(ctx.renderer);
         const tail = this.core.rust.transparent_segment(k + 1), stats = this.core.phaseStats[name];
         for (let i=0;i<tail.length;i++) stats[i] += tail[i];
@@ -344,6 +346,7 @@ class TransparentPass {
       command.key[0] = 0; command.key[1] = 8.975; command.key[2] = point.z; command.key[3] = -1;
       commands.push(command);
     }
+    for (const command of core.byName.lines.transparent) commands.push(command);
     commands.sort(copyOrder);
     for (let k=0;k<commands.length;k++) core.transparentKeys.set(commands[k].key, k*4);
     ctx.commands = commands.length;

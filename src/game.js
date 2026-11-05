@@ -2979,7 +2979,7 @@ async function start() {
     };
     // His own rounds from the trigger, and the world's copies drawn once
     // (CombatPresentation, on either transport).
-    game.predictedShots = new PredictedShots(scene, collision, undefined, ordnance);
+    game.predictedShots = new PredictedShots(collision, undefined, ordnance);
     // A sniper round striking a soldier as this page shows him: the hit
     // marker, and a head shot's flourish, the moment it lands, as the 2004
     // client flew its own rounds and saw them hit at once. The server's

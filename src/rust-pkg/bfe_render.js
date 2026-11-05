@@ -936,6 +936,16 @@ export class BfeRenderer {
         wasm.bferenderer_geometry_pointer(this.__wbg_ptr, g, buffer, location, size, ty, normalized, stride, offset);
     }
     /**
+     * @param {number} g
+     * @param {number} mode
+     * @param {number} first
+     * @param {boolean} indexed
+     * @param {number} width
+     */
+    geometry_primitive(g, mode, first, indexed, width) {
+        wasm.bferenderer_geometry_primitive(this.__wbg_ptr, g, mode, first, indexed, width);
+    }
+    /**
      * @returns {Uint32Array}
      */
     hud_frame() {
@@ -2236,6 +2246,12 @@ function __wbg_get_imports() {
         __wbg_length_b03a0fabb109b1e9: function(arg0) {
             const ret = arg0.length;
             return ret;
+        },
+        __wbg_lineWidth_5a5ff0d63e371f1b: function(arg0, arg1) {
+            arg0.lineWidth(arg1);
+        },
+        __wbg_lineWidth_faffcbfeed8e9d7f: function(arg0, arg1) {
+            arg0.lineWidth(arg1);
         },
         __wbg_linkProgram_99848b73f1ebab5f: function(arg0, arg1) {
             arg0.linkProgram(arg1);

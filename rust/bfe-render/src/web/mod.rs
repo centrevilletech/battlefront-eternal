@@ -141,6 +141,11 @@ impl BfeRenderer {
         self.remember_geometry_group(g, start, count); // recovery
  self.r.core.geometry_group(g, start, count) }
 
+    pub fn geometry_primitive(&mut self, g: u32, mode: u32, first: i32, indexed: bool, width: f32) {
+        self.remember_geometry_primitive(g, mode, first, indexed, width); // recovery
+ self.r.core.geometry_primitive(g, mode, first, indexed, width);
+    }
+
     // The phases (renderer.rs). Each returns its stats: [world draws,
     // instanced draws, instances, program switches, GL calls], then each
     // pass's draws in pass order (world, instances, far, terrain,

@@ -350,6 +350,29 @@ export async function checkRenderer(backend, manifests) {
     };
     const retainedBefore=retainedPixels();
     assert('Partial-update fixture draws visible pixels',retainedBefore.some((v,i)=>i%4===0&&v===255));
+    // Tow cables (strip), vertex-colour helpers (segments), and indexed loops
+    // use dynamic retained Rust buffers, including after context recovery.
+    const withoutLines=capture(),lineGroup=new THREE.Group();g.scene.add(lineGroup);
+    const lineObjects=[];
+    for(const [i,Type] of [THREE.Line,THREE.LineSegments,THREE.LineLoop].entries()){
+      const positions=new Float32Array([-1,-.7-i*.15,-2,1,-.7-i*.15,-2,0,-.3-i*.15,-2]);
+      for(let at=0;at<positions.length;at+=3)new THREE.Vector3().fromArray(positions,at).applyMatrix4(g.camera.matrixWorld).toArray(positions,at);
+      const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(positions,3));
+      geometry.setAttribute('color',new THREE.Float32BufferAttribute([1,0,0,0,1,0,0,0,1],3));
+      if(i===2)geometry.setIndex([0,1,2]);
+      const material=new THREE.LineBasicMaterial({color:0xffffff,vertexColors:i===1,transparent:i===2,opacity:.8,depthTest:false});
+      const object=new Type(geometry,material);object.frustumCulled=false;lineGroup.add(object);lineObjects.push(object);
+    }
+    const withLines=compare('tow cable and flight helper topologies');
+    assert('Rust line draws change visible pixels',withLines.some((v,i)=>i%4!==3&&v!==withoutLines[i]));
+    const cable=lineObjects[0],cableGeometry=g.rust.byName.lines.records.get(cable).geometry;
+    const position=cable.geometry.attributes.position;
+    position.array[0]+=.3;position.needsUpdate=true;
+    lineObjects[1].geometry=lineObjects[1].geometry.clone();
+    const movedLines=compare('dynamic tow cable positions');
+    assert('Dynamic line updates change visible pixels',movedLines.some((v,i)=>i%4!==3&&v!==withLines[i]));
+    assert('Dynamic cables keep the retained Rust geometry',g.rust.byName.lines.records.get(cable).geometry===cableGeometry);
+    assert('Every line topology is owned by Rust',lineObjects.every(object=>g.rust.byName.lines.owns(object)));
     const beforeLoss = capture();
     const loss = gl.getExtension('WEBGL_lose_context');
     if (!loss) throw new Error('Context-loss extension unavailable');

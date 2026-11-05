@@ -4,18 +4,18 @@ import * as THREE from 'three';
 import { PredictedShots } from '../src/runtime/predicted-shots.js';
 import { Vehicle } from '../src/vehicles.js';
 
-function fixture(ordnance=null) {
+function fixture(ordnance={drawBolt(){}}) {
   let now=0,flashes=0;
   const scene=new THREE.Scene(), weapon={def:{ordnance:{base:'bolt',Velocity:100,LifeSpan:.3},ShotDelay:.1},canShoot:true,wait:0,clip:1,levels:[{}]};
   const unit={id:8,generation:2,alive:true,combat:{dead:false,origin:new THREE.Vector3(),arsenal:{current:()=>weapon},firePoint:()=>null,flash:()=>flashes++,animator:{fire(){}},firstPerson:false}};
-  const shots=new PredictedShots(scene,{cast:()=>null},()=>now,ordnance);
+  const shots=new PredictedShots({cast:()=>null},()=>now,ordnance);
   const edge={id:1,generation:2,pressed:true,button:0,aimYaw:0,aimPitch:0};
-  return {scene,weapon,unit,shots,edge,get flashes(){return flashes;},setTime:v=>now=v};
+  return {flying:()=>[...shots.shots.values()].filter(s=>s.flying),scene,weapon,unit,shots,edge,get flashes(){return flashes;},setTime:v=>now=v};
 }
 test('predicted shot appears immediately without consuming ammo and reconciles once',()=>{
   const f=fixture();assert.equal(f.shots.fire(f.edge,f.unit),true);
-  assert.equal(f.scene.children.length,1);assert.equal(f.flashes,1);assert.equal(f.weapon.clip,1);assert.equal(f.weapon.wait,0);
-  f.setTime(.1);f.shots.update();assert.equal(f.scene.children[0].position.z,10);
+  assert.equal(f.flying().length,1);assert.equal(f.flashes,1);assert.equal(f.weapon.clip,1);assert.equal(f.weapon.wait,0);
+  f.setTime(.1);f.shots.update();assert.equal(f.flying()[0].bolt.position.z,10);
   const tag={playerId:8,generation:2,fireId:1};
   assert.equal(f.shots.confirm(tag),true);assert.equal(f.scene.children.length,0);
   assert.equal(f.shots.confirm(tag),true);
@@ -95,15 +95,15 @@ test('a confirmed cosmetic flies its whole path as drawn; only an immediate conf
   const f=fixture();assert.equal(f.shots.fire(f.edge,f.unit),true);
   const tag={playerId:8,generation:2,fireId:1};
   assert.equal(f.shots.confirm(tag,{tick:100}),true);
-  f.setTime(.1);f.shots.update(90);assert.equal(f.scene.children.length,1,'no gap before the authoritative round is known');
-  assert.equal(f.scene.children[0].position.z,10);
-  f.shots.update(100);assert.equal(f.scene.children.length,1,'the authoritative round arriving does not move the bolt back to the muzzle');
-  f.setTime(.25);f.shots.update(110);assert.equal(f.scene.children[0].position.z,25);
-  f.setTime(.5);f.shots.update(120);assert.equal(f.scene.children.length,0,'it ends at its lifespan');assert.equal(f.shots.shots.size,1);
+  f.setTime(.1);f.shots.update(90);assert.equal(f.flying().length,1,'no gap before the authoritative round is known');
+  assert.equal(f.flying()[0].bolt.position.z,10);
+  f.shots.update(100);assert.equal(f.flying().length,1,'the authoritative round arriving does not move the bolt back to the muzzle');
+  f.setTime(.25);f.shots.update(110);assert.equal(f.flying()[0].bolt.position.z,25);
+  f.setTime(.5);f.shots.update(120);assert.equal(f.flying().length,0,'it ends at its lifespan');assert.equal(f.shots.shots.size,1);
   f.setTime(1.1);f.shots.update(120);assert.equal(f.shots.shots.size,0);
   f.setTime(1.2);assert.equal(f.shots.fire({...f.edge,id:3},f.unit),true);assert.equal(f.shots.confirm({...tag,fireId:3}),true);f.shots.update(0);assert.equal(f.shots.shots.size,0,'confirmed without a tick, it goes at once');
   f.setTime(1.4);assert.equal(f.shots.fire({...f.edge,id:2},f.unit),true);
-  f.setTime(1.8);f.shots.update(0);assert.equal(f.scene.children.length,0,'past its lifespan the round is no longer drawn');
+  f.setTime(1.8);f.shots.update(0);assert.equal(f.flying().length,0,'past its lifespan the round is no longer drawn');
   assert.equal(f.shots.shots.size,1,'but still accepts its confirmation');
   f.setTime(2.5);f.shots.update(0);assert.equal(f.shots.shots.size,0);
 });
@@ -180,7 +180,7 @@ test('a world worker\'s copies of his shot claim its cosmetic once: the sound, t
   const a=f.shots.claim(round,{tick:50}),b=f.shots.claim(round,{tick:50}),c=f.shots.claim(round,{tick:59});
   assert.ok(a&&c&&a!==c);assert.equal(a,b,'one held round a tick, whichever copy arrives first');
   assert.equal(f.shots.claim(round,{tick:70}),null,'more held rounds than cosmetics are drawn by the world');
-  f.setTime(.35);f.shots.update(80);assert.equal(f.scene.children.length,3,'claimed cosmetics fly on as drawn');
+  f.setTime(.35);f.shots.update(80);assert.equal(f.flying().length,3,'claimed cosmetics fly on as drawn');
   f.shots.clear();
 });
 
@@ -240,7 +240,7 @@ test('shared multi-pellet volleys retain every cosmetic and confirm the whole vo
   for(const held of [false,true]){
     const f=fixture(),edge={...f.edge,id:held?0:1,held,tick:10};let confirmations=0,predictions=0;f.shots.onConfirmed=()=>confirmations++;f.shots.onPredicted=()=>predictions++;
     for(const yaw of [-.1,0,.1])assert.equal(f.shots.fire(edge,f.unit,{}, {weapon:f.weapon,yaw,pitch:0}),true);
-    assert.equal(f.shots.shots.size,3);assert.equal(f.scene.children.length,3);
+    assert.equal(f.shots.shots.size,3);assert.equal(f.flying().length,3);
     assert.equal(predictions,1,'trace counts the volley once, retaining every pellet cosmetic');
     const metadata={playerId:8,generation:2,fireId:edge.id,channel:0};
     const volley=f.shots.claim(metadata,{tick:12});assert.ok(volley);
