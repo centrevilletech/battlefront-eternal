@@ -28,6 +28,7 @@ pub mod abi;
 pub mod ai;
 pub mod battle;
 pub mod collision;
+pub mod client;
 pub mod combat;
 pub mod flight;
 pub mod gen;

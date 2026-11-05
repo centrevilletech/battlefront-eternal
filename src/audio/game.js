@@ -65,6 +65,22 @@ export class GameAudio {
     });
   }
 
+  reportError(error) {
+    this.error = error;
+    this.ready = false;
+    const stopping = this.engine.ctx?.suspend?.();
+    stopping?.catch(() => {});
+    console.error(`Audio unavailable: ${error.message}`);
+    if (typeof document === "undefined") return;
+    let alert = document.getElementById("audio-error");
+    if (!alert) {
+      alert = document.createElement("div"); alert.id = "audio-error"; alert.setAttribute("role", "alert");
+      alert.style.cssText = "position:fixed;left:1rem;right:1rem;bottom:1rem;z-index:10000;padding:1rem;background:#3b1010;color:white";
+      document.body.append(alert);
+    }
+    alert.textContent = `Audio unavailable: ${error.message}`;
+  }
+
   // Load the battle's sound: public/audio/index.json maps each mission to
   // the sound sub-level it reads.
   async load(world) {
@@ -75,13 +91,14 @@ export class GameAudio {
     if (!sublevel) throw new Error(`no sound for ${world.mission?.name || world.name}: run tools/extract.py`);
     const data = await SoundData.load(AUDIO_ROOT, sublevel);
     this.engine.ensureContext();
+    this.engine.renderer.onError = (error) => this.reportError(error);
     await this.engine.renderer.load(AUDIO_ROOT, this.config());
     this.engine.enhanced = await EnhancedAssets.open(this.engine.ctx, AUDIO_ROOT, sublevel);
     this.engine.missing = (name) => this.note(`missing ${name}`);
     this.data = data;
     this.engine.setData(data);
     this.streams.setData(data);
-    this.configure();
+    if (!(await this.configure())) throw this.error;
     this.panel = new AudioPanel(this);
     if (new URLSearchParams(location.search).get("audiodebug") === "1") this.panel.toggle(true);
     this.ready = true;
@@ -164,15 +181,17 @@ export class GameAudio {
     };
   }
 
-  configure() {
+  async configure() {
     const r = this.engine.renderer;
-    if (!r?.loaded) return;
-    // A graph whose worklets the light mix never loaded is built once they
-    // are; what follows waits for it (if they can't load, the light mix
-    // plays on).
-    const later = r.configure(this.config());
-    if (later) later.then(() => this.configured(), (error) => console.warn(`audio: ${error.message}`));
-    else this.configured();
+    if (!r?.loaded) return false;
+    try {
+      await r.configure(this.config());
+      this.configured();
+      return true;
+    } catch (error) {
+      this.reportError(error);
+      return false;
+    }
   }
 
   configured() {

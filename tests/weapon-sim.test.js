@@ -4,7 +4,7 @@ import { Weapon, seededRandom } from '../src/weapons.js';
 import { prepareMelee } from '../src/heroes.js';
 import { loadSim } from '../src/sim/module.js';
 import { attachWeaponSim } from '../src/weapon-sim.js';
-import { weaponDefinition } from './fixtures/prediction-weapon-cases.js';
+import { weaponDefinition } from './fixtures/client-weapons.js';
 import { Writer, RECORD } from '../tools/sim-capture/format.mjs';
 import { Vector3 } from 'three';
 import { updateWeaponLock } from '../src/weapon-targeting.js';

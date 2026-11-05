@@ -27,6 +27,8 @@ export const F2TurretTargetMode_NAMES = ["human","none","unit","unavailable"];
 export const F2TurretTargetMode_INDEX = new Map(F2TurretTargetMode_NAMES.map((name, i) => [name, i]));
 
 export const F2ColliderHeaderLayout = Object.freeze({ words: 8, body: 0, kernel: 1, min: 2, max: 5 });
+export const F2_COLLIDER_HEADER_WORDS = F2ColliderHeaderLayout.words;
+export const F2_COLLIDER_HEADER_OFFSETS = F2ColliderHeaderLayout;
 
 export class F2ColliderHeaderMirror {
   constructor() {
@@ -73,6 +75,8 @@ export function exportF2ColliderHeader(o, cx) {
 }
 
 export const F2BodyHeaderLayout = Object.freeze({ words: 2, toggled: 0, placed: 1 });
+export const F2_BODY_HEADER_WORDS = F2BodyHeaderLayout.words;
+export const F2_BODY_HEADER_OFFSETS = F2BodyHeaderLayout;
 
 export class F2BodyHeaderMirror {
   constructor() {
@@ -109,6 +113,8 @@ export function exportF2BodyHeader(o, cx) {
 }
 
 export const F2BodyToggleLayout = Object.freeze({ words: 2, kernel: 0, enabled: 1 });
+export const F2_BODY_TOGGLE_WORDS = F2BodyToggleLayout.words;
+export const F2_BODY_TOGGLE_OFFSETS = F2BodyToggleLayout;
 
 export class F2BodyToggleMirror {
   constructor() {
@@ -145,6 +151,8 @@ export function exportF2BodyToggle(o, cx) {
 }
 
 export const F2BodyPlacedLayout = Object.freeze({ words: 39, kernel: 0, min: 1, max: 4, matrix: 7, inverse: 23 });
+export const F2_BODY_PLACED_WORDS = F2BodyPlacedLayout.words;
+export const F2_BODY_PLACED_OFFSETS = F2BodyPlacedLayout;
 
 export class F2BodyPlacedMirror {
   constructor() {
@@ -196,6 +204,8 @@ export function exportF2BodyPlaced(o, cx) {
 }
 
 export const F2LockHeaderLayout = Object.freeze({ words: 1, count: 0 });
+export const F2_LOCK_HEADER_WORDS = F2LockHeaderLayout.words;
+export const F2_LOCK_HEADER_OFFSETS = F2LockHeaderLayout;
 
 export class F2LockHeaderMirror {
   constructor() {
@@ -227,6 +237,8 @@ export function exportF2LockHeader(o, cx) {
 }
 
 export const F2LockLayout = Object.freeze({ words: 5, hull: 0, id: 1, generation: 2, elapsed: 3, complete: 4 });
+export const F2_LOCK_WORDS = F2LockLayout.words;
+export const F2_LOCK_OFFSETS = F2LockLayout;
 
 export class F2LockMirror {
   constructor() {
@@ -278,6 +290,8 @@ export function exportF2Lock(o, cx) {
 }
 
 export const F2DeltaLayout = Object.freeze({ words: 7, slot: 0, generation: 1, length: 2, mask: 3, maskLength: 4, values: 5, valuesLength: 6 });
+export const F2_DELTA_WORDS = F2DeltaLayout.words;
+export const F2_DELTA_OFFSETS = F2DeltaLayout;
 
 export class F2DeltaMirror {
   constructor() {
@@ -329,6 +343,8 @@ export function exportF2Delta(o, cx) {
 }
 
 export const F2InputLayout = Object.freeze({ words: 18, clock: 0, level: 1, flags: 2, pads: 3, occupant: 4, memberLength: 8, members: 9, memberCount: 10, teams: 11, teamCount: 12, relations: 13, flights: 14, flightCount: 15, firing: 16, end: 17 });
+export const F2_INPUT_WORDS = F2InputLayout.words;
+export const F2_INPUT_OFFSETS = F2InputLayout;
 
 export class F2InputMirror {
   constructor() {
@@ -430,6 +446,8 @@ export function exportF2Input(o, cx) {
 }
 
 export const F2PadTeamLayout = Object.freeze({ words: 2, hasTeam: 0, team: 1 });
+export const F2_PAD_TEAM_WORDS = F2PadTeamLayout.words;
+export const F2_PAD_TEAM_OFFSETS = F2PadTeamLayout;
 
 export class F2PadTeamMirror {
   constructor() {
@@ -466,6 +484,8 @@ export function exportF2PadTeam(o, cx) {
 }
 
 export const F2MemberLayout = Object.freeze({ words: 11, index: 0, kind: 1, id: 2, generation: 3, alive: 4, hasTeam: 5, team: 6, hull: 7, point: 8 });
+export const F2_MEMBER_WORDS = F2MemberLayout.words;
+export const F2_MEMBER_OFFSETS = F2MemberLayout;
 
 export class F2MemberMirror {
   constructor() {
@@ -656,6 +676,8 @@ export function exportF2FlightKeys(o, cx) {
 }
 
 export const F2FlightInLayout = Object.freeze({ words: 21, hull: 0, network: 1, remote: 2 });
+export const F2_FLIGHT_IN_WORDS = F2FlightInLayout.words;
+export const F2_FLIGHT_IN_OFFSETS = F2FlightInLayout;
 
 export class F2FlightInMirror {
   constructor() {
@@ -697,6 +719,8 @@ export function exportF2FlightIn(o, cx) {
 }
 
 export const F2PhaseLayout = Object.freeze({ words: 13, input: 0, capacity: 1, hulls: 2, pads: 3, bodies: 4, poses: 5, acc: 6, flightAcc: 7, time: 8, tick: 9, lives: 10, seats: 11, firing: 12 });
+export const F2_PHASE_WORDS = F2PhaseLayout.words;
+export const F2_PHASE_OFFSETS = F2PhaseLayout;
 
 export class F2PhaseMirror {
   constructor() {
@@ -970,6 +994,8 @@ export function exportF2Pose(o, cx) {
 }
 
 export const F2SeatRelationLayout = Object.freeze({ words: 3, a: 0, b: 1, value: 2 });
+export const F2_SEAT_RELATION_WORDS = F2SeatRelationLayout.words;
+export const F2_SEAT_RELATION_OFFSETS = F2SeatRelationLayout;
 
 export class F2SeatRelationMirror {
   constructor() {
@@ -1273,6 +1299,8 @@ export function exportF2SeatUnitIn(o, cx) {
 }
 
 export const F2SeatSoldierLayout = Object.freeze({ words: 66, unit: 0, soldier: 2 });
+export const F2_SEAT_SOLDIER_WORDS = F2SeatSoldierLayout.words;
+export const F2_SEAT_SOLDIER_OFFSETS = F2SeatSoldierLayout;
 
 export class F2SeatSoldierMirror {
   constructor() {

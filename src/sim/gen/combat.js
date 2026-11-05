@@ -154,6 +154,10 @@ export function exportMelee(o, cx) {
   return v;
 }
 
+export const WeaponLayout = Object.freeze({ words: 42, def: 0, level: 1, admitShot: 2, deployed: 3, firing: 4, timer: 5, bottomless: 6, perShot: 7, clip: 8, reserve: 9, heat: 10, overheated: 11, floor: 12, kick: 13, random: 14, spreadScale: 15, sniperScale: 16, yawSpreadOverride: 17, wait: 19, reloadLeft: 20, throwTime: 21, released: 22, hidden: 23, charging: 24, held: 25, charge: 26, limit: 27, pattern: 28, salvosLeft: 29, salvoWait: 30, salvoSeed: 31, salvoCount: 33, lockTargetId: 34, lockGeneration: 35, lockElapsed: 36, lockComplete: 37, melee: 38 });
+export const WEAPON_WORDS = WeaponLayout.words;
+export const WEAPON_OFFSETS = WeaponLayout;
+
 export class WeaponMirror {
   constructor() {
     this.def = null;
@@ -275,6 +279,39 @@ export function putWeapon(b, o, f, at, heap) {
   f[at + 36] = o.lockElapsed;
   f[at + 37] = o.lockComplete ? 1 : 0;
   { const $x = o.melee; if ($x === null || $x === undefined) { f[at + 38] = $x === null ? 1 : 2; f[at + 39] = 0; f[at + 40] = 0; f[at + 41] = 0; } else { f[at + 38] = 0; putMelee(b, $x, f, at + 39, heap); } }
+}
+
+export function publishWeapon(o, m) {
+  o.deployed = m.deployed;
+  o.firing = m.firing;
+  o.timer = m.timer;
+  o.bottomless = m.bottomless;
+  o.perShot = m.perShot;
+  o.clip = m.clip;
+  o.reserve = m.reserve;
+  o.heat = m.heat;
+  o.overheated = m.overheated;
+  o.floor = m.floor;
+  o.kick = m.kick;
+  o.spreadScale = m.spreadScale;
+  o.sniperScale = m.sniperScale;
+  o.yawSpreadOverride = m.yawSpreadOverride;
+  o.wait = m.wait;
+  o.reloadLeft = m.reloadLeft;
+  o.throwTime = m.throwTime;
+  o.released = m.released;
+  o.hidden = m.hidden;
+  o.charging = m.charging;
+  o.held = m.held;
+  o.charge = m.charge;
+  o.limit = m.limit;
+  o.pattern = m.pattern;
+  o.salvosLeft = m.salvosLeft;
+  o.salvoWait = m.salvoWait;
+  o.lockTargetId = m.lockTargetId;
+  o.lockGeneration = m.lockGeneration;
+  o.lockElapsed = m.lockElapsed;
+  o.lockComplete = m.lockComplete;
 }
 
 export function sameWeapon(a, b) {

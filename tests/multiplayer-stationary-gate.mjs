@@ -27,7 +27,7 @@ export async function stationaryTurretGate([actor, observer]) {
   assert.ok(choice,'mission has a pilot class and unmanned stationary turret near an eligible spawn');
   console.log('stationary-choice',JSON.stringify(choice));
   if(await actor.evaluate(()=>__bf.playerUnit.alive))await actor.evaluate(()=>__bf.spawnPort.suicide());
-  await actor.waitForFunction(()=>__bf.spawnPort.humanState().phase==='awaiting',null,{timeout:60000});
+  await actor.waitForFunction(()=>['unspawned','awaiting'].includes(__bf.spawnPort.humanState().phase),null,{timeout:60000});
   await actor.evaluate(c=>__bf.spawnPort.request(c),choice);
   await actor.waitForFunction(c=>__bf.playerUnit.alive&&__bf.playerUnit.className===c.className&&__bf.playerTeam===c.team,choice,{timeout:60000});
   await actor.evaluate(()=>{__bf.controls.locked=true;if(__bf.menu.isOpen)__bf.menu.close(true);});

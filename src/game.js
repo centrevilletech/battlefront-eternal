@@ -1,13 +1,11 @@
 import { InputLatencyTrace } from './runtime/input-latency-trace.js';
-import { WeaponPrediction, predictedPress } from './runtime/weapon-prediction.js';
+import { PredictionArsenal } from './runtime/prediction-arsenal.js';
 import {entityPostNames} from './runtime/entity-spawn-posts.js';
 import { captureCompactSoldier, restoreCompactSoldier } from './runtime/network-entity-soldier-compact.js';
 import { EntitySeats } from './runtime/entity-seats.js';
 import { MountedWeaponPrediction } from './runtime/mounted-weapon-prediction.js';
 import {predictRemote,RemotePredictionContext} from './runtime/network-remote-prediction.js';
 import {captureRemoteReplay,restoreRemoteReplay} from './runtime/network-remote-replay.js';
-import { InfantryPrediction } from './runtime/infantry-prediction.js';
-import { DroidekaPrediction } from './runtime/droideka-prediction.js';
 import { captureDroidekaState, restoreDroidekaState } from './runtime/network-droideka-state.js';
 import { retireAuthoritativeInputs } from './runtime/input-retirement.js';
 import { PredictionWindow, retainPredictionCommands, resetPredictionIdentity } from './runtime/prediction-window.js';
@@ -69,7 +67,7 @@ import { createAI } from "./ai/index.js";
 import { createServiceCandidates } from "./ai/services.js";
 import { effectiveRange, firingCone, selectedWeapon, switchWeapon } from "./ai/classic/weapons-ai.js";
 import { CommandHistory, CommandControls, queueHumanCommand, stillCommand } from "./runtime/commands.js";
-import { InputLead, advanceInputClock, replayTicks, CorrectionSmoother } from "./runtime/reconcile.js";
+import { InputLead, advanceInputClock, CorrectionSmoother } from "./runtime/reconcile.js";
 import { HeadlessGraphics, HeadlessHud, HeadlessAudio, HeadlessControls } from "./runtime/headless-ports.js";
 import { WaterState } from "./runtime/water-state.js";
 import { droidekaWaterDepth, waterDamageRule, waterDamageStep } from "./vehicle-water.js";
@@ -92,9 +90,15 @@ import { pageGpu } from "./gpu-info.js";
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
 // "textures" with how many of how many have arrived.
-// Each battle requires its own simulation instance; loading failures stop startup.
+// The battle's shared simulation module. Page prediction requires it;
+// a load failure reaches the battle's error screen.
 async function loadSimInstance() {
-  return (await import("./sim/module.js")).loadSim();
+  try {
+    return await (await import("./sim/module.js")).loadSim();
+  } catch (error) {
+    throw new Error(`The Rust simulation module could not load: ${error?.message ?? error}`, { cause: error });
+  }
+
 }
 
 // The battle's store on its instance of the module (src/sim/runtime.js
@@ -364,7 +368,7 @@ async function start() {
   onProgress?.("data");
   // The battle's sound (src/audio); the game runs the same without it.
   const audio = headless ? new HeadlessAudio() : new GameAudio({ settings });
-  audio.load(world).catch((error) => console.warn(`audio: ${error.message}`));
+  audio.load(world).catch((error) => audio.reportError(error));
 
   // Textures by name, looked up in the archive folder that holds them. They
   // stay as stored (no sRGB decode): the game lit and blended in gamma space.
@@ -443,7 +447,7 @@ async function start() {
   // units and combat move over together. Its soldiers move through the
   // module's copy of the collision world, so it brings the ray kernel.
   const wantUnits = headless && (params.get("units") ?? globalThis.process?.env?.BFE_UNITS) === "rust";
-  const wantPrediction = !headless && params.get("prediction") === "rust";
+
   // The page's pose sampling in WebAssembly (src/anim-kernel.js) unless
   // ?anim=js, to the last bit as its JavaScript, which stays the fallback
   // when the module cannot load. The page's poses only: a headless world
@@ -2405,37 +2409,6 @@ async function start() {
     }
   }
 
-  // The predicted own soldier takes the same crowd push the authority will
-  // apply (separateSoldiers), against the page's copies of everyone else.
-  // Without it every contact in a crowd is a correction 50 ms later. Only
-  // the predicted body moves; the copies keep their authoritative places.
-  function separatePredictedSoldier() {
-    const body = (unit) => unit.walker ? [1, 2, 1] : MAIN_BODY[unit.hitPosture] || MAIN_BODY.stand;
-    const [r, h, y] = body(playerUnit);
-    const volume = Math.PI * r * r * h, bottom = soldier.position.y + y - h / 2, top = soldier.position.y + y + h / 2;
-    // Replayed every predicted tick against every body: one farther away
-    // than both radii could reach (none is wider than a droideka's, 1 m) is
-    // passed over before its shape is looked up.
-    const far = (r + 1) * (r + 1);
-    for (const unit of units.all()) {
-      if (unit === playerUnit || unit.seat || unit.held || !unit.soldier || unit.removed || !(unit.alive || unit.dead)) continue;
-      const p = unit.position;
-      let dx = soldier.position.x - p.x, dz = soldier.position.z - p.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 >= far) continue;
-      const [or, oh, oy] = body(unit);
-      if (top <= p.y + oy - oh / 2 || p.y + oy + oh / 2 <= bottom) continue;
-      const reach = r + or;
-      if (d2 >= reach * reach) continue;
-      let d = Math.sqrt(d2);
-      if (d < 1e-4) { dx = Math.sin(playerUnit.id); dz = Math.cos(playerUnit.id); d = 1; }
-      const otherVolume = Math.PI * or * or * oh;
-      const share = ((reach - Math.sqrt(d2)) / (volume + otherVolume)) * otherVolume;
-      soldier.position.x += (dx / d) * share;
-      soldier.position.z += (dz / d) * share;
-    }
-  }
-
   const localWorldHost = {
     state: () => ({ input, walker, dead: combat.dead, remote: Boolean(remotes.active), gunner: Boolean(gunner.active), driver: Boolean(driver?.active),
       removed: Boolean(playerUnit.removed), held: Boolean(playerUnit.held), server: Boolean(game.serverWorld), auto: Boolean(policy.auto),
@@ -2701,9 +2674,9 @@ async function start() {
     }
     if (!client?.predicted && !client?.predictionBodyPending) return;
     if (client.savedDroideka) {
-      restoreDroidekaState(soldier, client.savedDroideka, predictionSim?.corrections);
+      restoreDroidekaState(soldier, client.savedDroideka);
       client.savedDroideka = null;
-    } else restoreCompactSoldier(soldier, client.saved, predictionSim?.corrections);
+    } else restoreCompactSoldier(soldier, client.saved);
     client.predicted = false;
     client.predictionBodyPending = false;
   }
@@ -2726,14 +2699,14 @@ async function start() {
     release(restorePrediction);
     release(() => client?.mountedWeapons?.dispose());
     release(() => client?.weapons?.dispose());
-    release(() => client?.predictionWindow.reset());
+    release(() => { if (!headless) predictionSession.reset(); });
     release(() => client?.vehicleWindow.reset());
     release(() => client?.remoteReplay.reset());
     if (client) {
       client.pending.length = 0; client.pendingActions.length = 0;
       client.vehiclePrediction = null; client.continuationState.clear();
     }
-    release(() => predictionSim?.dispose());
+    release(() => { if (!headless) predictionSession.dispose(); });
     if (failed) throw failure;
   }
   // His own soldier ahead of the worker: the acknowledged state, then every
@@ -2741,15 +2714,12 @@ async function start() {
   // stepPlayer (keys, jump, crouch, prone, mouse look, the pitch limits).
   // Restore authoritative fields before applying deltas or predicting again.
   // Corrections arrive with the worker's packets. On foot only.
-  const predictInput = { forward: 0, right: 0, turn: 0, jump: false, crouch: false, prone: false, use: false };
-  const predictKeys = new CommandControls();
-  const predictedBefore = new THREE.Vector3();
   function predict() {
     if (predictionDisposed) return false;
     predictionActive = true;
     let failed = false;
     try {
-      const predicted = replayPrediction();
+      const predicted = client.replayPrediction();
       client.predicted = predicted;
       return predictionDisposed ? false : predicted;
     } catch (error) { failed = true; throw error; }
@@ -2764,13 +2734,14 @@ async function start() {
     const replayActions = client.host.entityInput.replayActions(true, true);
     const actions = commands => commands.map(command => ({...command, actions: replayActions.actions.get(command.sequence) || []}));
     const pending = predictionCommands(actions(client.pending), actions([...client.pendingActions, ...replayActions.shieldCommands]), 0, client.held);
+    if (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held) predictionSession.reset();
     if (remotes.piloted && !combat.dead && !playerUnit.removed) {
       const droid=remotes.piloted,state=captureRemoteReplay(remotes,droid);
       const prediction=predictRemote(remotes,droid,pending,worldClock.tick,playerUnit.generation,
-        client.heldGeneration===playerUnit.generation?client.held:[],client.replayView,client.remoteReplay,{native:predictionSim?.remotes,replay:predictionSim?.replay});
+        client.heldGeneration===playerUnit.generation?client.held:[],client.replayView,client.remoteReplay);
       restoreRemoteReplay(remotes,droid,prediction.state);
       client.remotePrediction={droid,state};client.predictedTick=prediction.tick;
-      client.predictionWindow.reset();client.vehicleWindow.reset();client.vehiclePrediction=null;
+      client.vehicleWindow.reset();client.vehiclePrediction=null;
       return false;
     }
     client.remoteReplay.reset();
@@ -2787,7 +2758,7 @@ async function start() {
       // pending tick of hull physics, every frame, to the same result.
       const continuation = client.vehicleWindow.select(context, (checkpoint) => predictedExactly(checkpoint.state, driver.vehicle, context.authorityTick));
       client.vehiclePrediction = continuation.checkpoint && !continuation.commands.length ? continuation.checkpoint.state
-        : predictVehicle(continuation.checkpoint?.state || driver.vehicle, continuation.commands, continuation.from, playerUnit.generation, continuation.held, { native: predictionSim?.vehicles, replay: predictionSim?.replay });
+        : predictVehicle(continuation.checkpoint?.state || driver.vehicle, continuation.commands, continuation.from, playerUnit.generation, continuation.held);
       if (client.vehiclePrediction) {
         const previous = previousVehiclePrediction;
         const current = client.vehiclePrediction;
@@ -2803,91 +2774,46 @@ async function start() {
       }
     } else client.vehicleWindow.reset();
     if (playerUnit.seat && !combat.dead) {
-      client.mountedWeapons ||= new MountedWeaponPrediction({ native: predictionSim?.weapons, replay: predictionSim?.replay });
+      client.mountedWeapons ||= new MountedWeaponPrediction(predictionSession);
       client.mountedWeapons.predict(playerUnit, pending, worldClock.tick,
-        client.heldGeneration === playerUnit.generation ? client.held : [], client.replayView);
+        client.heldGeneration === playerUnit.generation ? client.held : []);
     }
     if (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held) {
-      client.predictionWindow.reset();
       client.predictedTick = 0;
       return false;
     }
     if (walker) client.savedDroideka = captureDroidekaState(soldier);
     else client.saved = captureCompactSoldier(soldier);
     client.predictionBodyPending = true;
-    // The commands go on tick by tick as the worker's mailbox takes them
-    // (reconcile.js replayTicks): keys stay held through a tick that has no
-    // command of its own, and a command the worker will take late goes on
-    // the first tick it can.
-    const context = { source: soldier, identity: playerUnit.id, epoch: commandHistory.epoch, generation: playerUnit.generation,
-      authorityTick: worldClock.tick, pending, held: client.heldGeneration === playerUnit.generation ? client.held : [] };
-    const continuation = client.predictionWindow.select(context);
-    if (continuation.checkpoint) {
-      if (walker) restoreDroidekaState(soldier, continuation.checkpoint.state, predictionSim?.corrections);
-      else restoreCompactSoldier(soldier, continuation.checkpoint.state, predictionSim?.corrections);
-    }
-    const { from, held: predictedHeld, commands } = continuation;
-    client.weapons ||= new WeaponPrediction({ native: predictionSim?.weapons });
-    client.weapons.begin(playerUnit,{epoch:commandHistory.epoch,tick:worldClock.tick,checkpoint:continuation.checkpoint?.weapons});
-    const fireEdges=[...client.host.entityInput.outcomes.values()].map(item=>({...item.edge,sequence:item.sequence})).filter(edge=>edge.kind==='fire'&&edge.pressed);
-
-    const infantryReplay = new (walker ? DroidekaPrediction : InfantryPrediction)(soldier, combat, continuation.checkpoint?.kick ?? combat.kick, { native: predictionSim?.actors });
-    try {
-      const checkTick = !continuation.checkpoint && client.predictedTick > from ? client.predictedTick : 0;
-      if (checkTick) predictedBefore.copy(client.predictedPosition);
-      const last = replayTicks(commands, from, playerUnit.generation, predictedHeld, (tick, command, sequences) => {
-        if (command.last) presentation.beforeStep();
-        const yawBefore = soldier.aimYaw;
-        // His look as the world turns him (multiplayer-world.js): each sample
-        // bounded, the sensitivity at most 2.
-        const scale = Math.min(command.mouseScale ?? settings.mouseScale, 2), invert = command.invertMouse || false;
-        for (const [dx, dy] of command.look) {
-          const x = Math.max(-10000, Math.min(10000, dx)), y = Math.max(-10000, Math.min(10000, dy));
-          (soldier.lookRaw || soldier.look).call(soldier, x / combat.zoom, y / combat.zoom, scale, invert);
-        }
-        const lookYaw = soldier.aimYaw - yawBefore;
-        predictKeys.down.clear();
-        for (const key of command.down) predictKeys.down.add(key);
-        predictInput.forward = predictKeys.axis("forward");
-        predictInput.right = predictKeys.axis("right");
-        predictInput.turn = predictKeys.axis("turn");
-        predictInput.jump = command.actions.includes("jump");
-        predictInput.crouch = command.actions.includes("crouch");
-        predictInput.prone = command.actions.includes("prone");
-        predictInput.use = command.actions.includes("use");
-        infantryReplay.step(predictInput, 1 / 60, command.actions.includes("fireSecondary"));
-        separatePredictedSoldier();
-        // This tick's press on each trigger: its rounds draw the press's
-        // seeded spread, as the authority's do (weapons.js spreadSeed).
-        const presses=['firePrimary','fireSecondary'].map(name=>command.actions.includes(name)?predictedPress(fireEdges,sequences,name):null);
-        client.weapons.step(command,tick,(shot,c,shotTick)=>{
-          const button=shot.weapon.channel;
-          const press=presses[button];
-          if(press===false)return;
-          const source=press?client.pending.find(command=>command.sequence===press.sequence):client.pending.find(command=>command.tick===shotTick);
-          const traced={...c,sequence:source?.sequence??press?.sequence,epoch:commandHistory.epoch};
-          game.predictedShots?.fire({id:press?.id||0,held:!press,button,pressed:true,tick:shotTick,epoch:commandHistory.epoch,generation:playerUnit.generation,...combat.convergedAim(soldier.aimYaw,soldier.aimPitch)},playerUnit,traced,shot);
-        },presses.map(press=>press?press.id:null));
-        const [low, high] = soldier.pitchRange();
-        soldier.aimPitch = THREE.MathUtils.clamp(soldier.aimPitch, low, high);
-        // The tick shown last frame, predicted again over newer authoritative
-        // state: any difference is a correction, blended away if small.
-        if (tick === checkTick) client.smoother.note(predictedBefore.x, predictedBefore.y, predictedBefore.z, soldier.position.x, soldier.position.y, soldier.position.z);
-        if (command.last) {
-          presentation.previousYaw += lookYaw;
-          presentation.afterStep();
-        }
-      }, client.replayView, { native: predictionSim?.replay });
-      {
-        const state = walker ? captureDroidekaState(soldier) : captureCompactSoldier(soldier);
-        client.predictionWindow.save({ ...context, tick: last, commands, held: predictedHeld, state });
-        client.predictionWindow.checkpoint.kick = infantryReplay.kick;
-        client.predictionWindow.checkpoint.weapons = client.weapons.checkpoint();
-      }
-      client.predictedTick = last;
-      client.predictedPosition.copy(soldier.position);
-      return true;
-    } finally { infantryReplay.dispose(); }
+    client.weapons ||= new PredictionArsenal();
+    client.weapons.begin(playerUnit, { epoch: commandHistory.epoch, tick: worldClock.tick });
+    const fireEdges = [];
+    for (const item of client.host.entityInput.outcomes.values()) fireEdges.push({ ...item.edge, sequence: item.sequence });
+    const crowd = [];
+    for (const unit of units.all()) if (unit !== playerUnit && !unit.seat && !unit.held && unit.soldier && !unit.removed && (unit.alive || unit.dead)) crowd.push(unit);
+    const result = predictionSession.predict(playerUnit, pending, {
+      epoch: commandHistory.epoch, tick: worldClock.tick,
+      held: client.heldGeneration === playerUnit.generation ? client.held : [],
+      view: client.replayView, mouseScale: settings.mouseScale, fireEdges, crowd, checkTick: client.predictedTick,
+      presentedThrough: client.weapons.presentedThrough,
+      cosmeticSlots: game.predictedShots?.slots(commandHistory.epoch, playerUnit) ?? 0,
+    });
+    if (result.checkFound) client.smoother.note(client.predictedPosition.x, client.predictedPosition.y, client.predictedPosition.z,
+      result.checkPosition.x, result.checkPosition.y, result.checkPosition.z);
+    predictionSession.present(playerUnit, presentation, (notice, weapon) => {
+      const shot = { weapon, yaw: notice.yaw, pitch: notice.pitch, charge: notice.charge,
+        targetId: notice.target, targetGeneration: notice.targetGeneration, visualGun: notice.visualGun };
+      if (notice.kind) shot[notice.kind === 1 ? 'repair' : notice.kind === 2 ? 'meleeStart' : notice.kind === 3 ? 'meleeHit' : 'meleeEnd'] = true;
+      if (notice.kind === 2) shot.swing = notice.swing;
+      const command = { sequence: notice.sequence || undefined, epoch: commandHistory.epoch, tick: notice.tick };
+      game.predictedShots?.fire({ id: notice.press, held: notice.held, button: notice.button, pressed: true,
+        tick: notice.tick, epoch: commandHistory.epoch, generation: playerUnit.generation,
+        ...combat.convergedAim(soldier.aimYaw, soldier.aimPitch) }, playerUnit, command, shot);
+    });
+    client.weapons.presentedThrough = Math.max(client.weapons.presentedThrough, result.tick);
+    client.predictedTick = result.tick;
+    client.predictedPosition.copy(soldier.position);
+    return true;
   }
   async function startClient() {
     // Any human may change class, and remote soldiers may arrive in any order.
@@ -2897,24 +2823,25 @@ async function start() {
     const { NetworkHost } = await import('./runtime/network-host.js');
     const { LocalTransport } = params.has('network') ? {} : await import('./runtime/local-transport.js');
     client = {
+      replayPrediction,
       seats: new EntitySeats(game),
       running: false, ready: false, batch: [],
       pendingActions: [], ackActions: 0,
       // Online, remote actors are drawn one 20 Hz publication (3 ticks) plus
       // a margin behind the newest packet; measured arrival gaps widen it.
-      latest: 0, clock: 0, playout: new PlayoutClock(params.has("network") ? { minDelay: 4, maxDelay: 10 } : {}, { native: predictionSim?.playout }), applyMs: 0, pending: [], inputClock: new FixedClock(), saved: null, predicted: false, playerAlpha: 1,
+      latest: 0, clock: 0, playout: new PlayoutClock(params.has("network") ? { minDelay: 4, maxDelay: 10 } : {}), applyMs: 0, pending: [], inputClock: new FixedClock(), saved: null, predicted: false, playerAlpha: 1,
       // Command stamps follow the worker's estimated clock (reconcile.js);
       // the last acknowledged keys start each replay; small corrections to
       // the predicted body blend away instead of snapping.
-      lead: new InputLead(params.has("network") ? { maxLead: 24, extrapolate: true, recover: true } : {}, { native: predictionSim?.reconcile }), target: 0, held: [], heldGeneration: 0,
+      lead: new InputLead(params.has("network") ? { maxLead: 24, extrapolate: true, recover: true } : {}), target: 0, held: [], heldGeneration: 0,
       // Online, lateness is measured from the server's input-ack (the tick a
       // command actually ran, against the stamp below), not from the 20 Hz
       // correction that later retires it. The stamps the lead's cap set
       // are kept apart: their lateness is the cap's (reconcile.js acknowledge).
       commandStamps: new Map(), cappedStamps: new Set(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0, entitySentAt: 0, resumedAt: 0,
-      predictionWindow: new PredictionWindow(120, { native: predictionSim?.reconcile }), remoteReplay: new RemotePredictionContext(), vehicleWindow: new PredictionWindow(120, { native: predictionSim?.reconcile }), continuationState: new Map(),
-      vehicleSmoother: new CorrectionSmoother({ snap: 3, tau: .05 }, { native: predictionSim?.reconcile }),
-      smoother: new CorrectionSmoother({ snap: 2.5, tau: .05 }, { native: predictionSim?.reconcile }), predictedTick: 0, predictedPosition: new THREE.Vector3(),
+      remoteReplay: new RemotePredictionContext(), vehicleWindow: new PredictionWindow(120), continuationState: new Map(),
+      vehicleSmoother: new CorrectionSmoother({ snap: 3, tau: .05 }),
+      smoother: new CorrectionSmoother({ snap: 2.5, tau: .05 }), predictedTick: 0, predictedPosition: new THREE.Vector3(),
       // The worker's own health, from its packets (simulation-worker.js).
       health: null, stepMs: 0, packetMs: 0, packetBytes: 0, healthMax: 0, statsTick: null, statsDropped: 0,
     };
@@ -2953,7 +2880,7 @@ async function start() {
         client.entity = new EntityGameState(game, registry, {
           beforeApply: restorePrediction,
           onCorrection: (context, packet) => {
-            if (context.reset) { resetPredictionIdentity(client); view.reset(); bodyLaid = null; }
+            if (context.reset) { predictionSession.reset(); resetPredictionIdentity(client); view.reset(); bodyLaid = null; }
             worldClock.tick = context.tick; simTime = context.tick / 60;
             client.held = context.held; client.heldGeneration = context.generation; client.replayView = context.view;
             const retiredInput=retireAuthoritativeInputs(client,{ack:packet.ackInput,discardedInput:context.discardedInput,heldInput:context.held,viewInput:context.view,generation:context.generation,tick:context.tick,measureLead:false});
@@ -3075,7 +3002,7 @@ async function start() {
       if (!run) {
         restorePrediction();
         game.predictedShots?.clear();
-        client.predictionWindow.reset(); client.vehicleWindow.reset(); client.remoteReplay.reset();
+        client.vehicleWindow.reset(); client.remoteReplay.reset();
         client.pending.length = 0;
         client.pendingActions.length = 0;
         client.inputClock.rebase();
@@ -3122,7 +3049,7 @@ async function start() {
         client.pendingActions.push(command);
       }
       client.pending.push(command);
-      client.pending = retainPredictionCommands(client.pending, tick, playerUnit.generation, commandHistory.epoch, 120, { native: predictionSim?.reconcile });
+      client.pending = retainPredictionCommands(client.pending, tick, playerUnit.generation, commandHistory.epoch, 120);
       batch.push(command);
     }, client.target + 7, { lock: 0.9 });
     if (batch.length) client.host.inputs(batch);
@@ -3180,7 +3107,7 @@ async function start() {
       restorePrediction();
       // His rounds are the world's here, drawn as they come.
       game.predictedShots?.clear(); game.predictedShots = null;
-      client.predictionWindow.reset(); client.vehicleWindow.reset(); client.remoteReplay.reset();
+      client.vehicleWindow.reset(); client.remoteReplay.reset();
       client.pending.length = 0; client.pendingActions.length = 0; client.vehiclePrediction = null;
       client.host.drainEntities();
       if (worldClock.tick !== tick) throw new Error(`lockstep: the page is at tick ${worldClock.tick}, the worker at ${tick}`);
@@ -3921,9 +3848,9 @@ async function start() {
   game.worldSim?.clock(worldClock);
   game.worldSim?.events(simEvents);
   game.aiSim = aiSim;
-  const predictionSim = wantPrediction && simInstance && rays
-    ? (await import('./runtime/page-prediction.js')).createPagePrediction(simInstance, collision) : null;
-  game.predictionSim = predictionSim;
+  const predictionSession = headless ? null
+    : (await import('./runtime/client-prediction.js')).createClientPrediction(simInstance, collision);
+  game.predictionSession = predictionSession;
   if (!headless) window.__bf = game;
   if (!headless) {
     await prepareGraphics();

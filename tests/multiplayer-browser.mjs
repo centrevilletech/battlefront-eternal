@@ -1,3 +1,4 @@
+import { instrumentClientPrediction } from './fixtures/client-prediction-diagnostics.js';
 // Two rendered clients using the real desktop identity bridge and the native UDP
 // transport (BFE_TEST_ELECTRON=1: actual Electron, preload and network process).
 // Start bfeserver with owned Theed content first. No retail data enters artifacts.
@@ -134,7 +135,7 @@ try {
     window.__correctionEvents=[];window.__correctionStage='initial-load';
     for(const [kind,smoother]of [['infantry',__bf.client.smoother],['vehicle',__bf.client.vehicleSmoother]]){
       const note=smoother.note.bind(smoother);smoother.note=(...coordinates)=>{
-        const c=__bf.client,p=c.predictionWindow.checkpoint;
+        const c=__bf.client,p=null;
         const event={kind,stage:window.__correctionStage,generation:__bf.playerUnit.generation,tick:__bf.worldClock.tick,predicted:c.predictedTick,
           distance:Math.hypot(...coordinates.slice(0,3).map((v,i)=>v-coordinates[i+3])),coordinates,
           checkpoint:p?{generation:p.generation,tick:p.tick,authorityTick:p.authorityTick}:null,pendingFirst:c.pending[0]?.tick,pendingLast:c.pending.at(-1)?.tick,ackInput:c.ackInput,held:[...c.held],firstKeys:c.pending[0]?.down,lastKeys:c.pending.at(-1)?.down,firstSequence:c.pending[0]?.sequence,lastSequence:c.pending.at(-1)?.sequence};
@@ -142,8 +143,17 @@ try {
       };
     }
   })));
+  await Promise.all(pages.map(page => page.evaluate(instrumentClientPrediction)));
   const initial = await Promise.all(pages.map(page => page.evaluate(async cpu => { await __bf.ready; if(cpu){__bf.graphics.render=()=>{};__bf.graphics.renderer.render=()=>{};} __bf.begin(); return { id: __bf.playerUnit.id, tick: __bf.worldClock.tick, position: __bf.playerUnit.position.toArray() }; },process.env.BFE_TEST_CPU==='1')));
   console.log('connected', JSON.stringify(initial));
+  {
+    const sessions = await Promise.all(pages.map(page => page.evaluate(() => ({
+      live: Boolean(__bf.predictionSession && !__bf.predictionSession.disposed),
+      calls: __bf.predictionSession?.counters.calls,
+    }))));
+    assert.ok(sessions.every(s => s.live), 'both clients select the whole-session owner');
+    console.log('prediction-sessions', JSON.stringify(sessions));
+  }
   if (process.env.BFE_TEST_SPLIT === '1') {
     // One contract: entity snapshots and split inputs over the native UDP
     // transport. (Binary bulk, journals, fresh profiles and the WebRTC
@@ -166,7 +176,12 @@ try {
   } else if(process.env.BFE_TEST_STATIONARY_ONLY==='1'){
     const {stationaryTurretGate}=await import('./multiplayer-stationary-gate.mjs');await stationaryTurretGate(pages);assert.deepEqual(errors,[]);
   } else if(process.env.BFE_TEST_MOUNTED_ONLY==='1'){
-    const {mountedGameGate}=await import('./multiplayer-mounted-gate.mjs');await mountedGameGate(pages);assert.deepEqual(errors,[]);
+    const {mountedGameGate}=await import('./multiplayer-mounted-gate.mjs');await mountedGameGate(pages,{spawnFixture:process.env.BFE_TEST_MOUNTED_FIXTURE||null});assert.deepEqual(errors,[]);
+    {
+      const counters = await Promise.all(pages.map(page => page.evaluate(() => ({ ...__bf.predictionSession.counters }))));
+      assert.ok(counters[0].calls > 0 && counters[0].ticks > 0, 'the mounted actor executed infantry session replay before boarding');
+      console.log('mounted-prediction-sessions', JSON.stringify(counters));
+    }
   } else if(process.env.BFE_TEST_DROIDEKA_ONLY==='1'){
     const actor=pages[0],observer=pages[1];await actor.bringToFront();
     await actor.evaluate(()=>{if(__bf.menu.isOpen){__bf.controls.locked=true;__bf.menu.close(true);}});
@@ -174,7 +189,7 @@ try {
     assert.ok(choice,'mission has an eligible Droideka class');
     async function spawn(){
       if(await actor.evaluate(()=>__bf.playerUnit.alive))await actor.evaluate(()=>__bf.spawnPort.suicide());
-      await actor.waitForFunction(()=>__bf.spawnPort.humanState().phase==='awaiting',null,{timeout:60000});await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
+      await actor.waitForFunction(()=>['unspawned','awaiting'].includes(__bf.spawnPort.humanState().phase),null,{timeout:60000});await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
       await actor.waitForFunction(({className,team})=>__bf.playerUnit.alive&&__bf.playerUnit.walker&&__bf.playerUnit.className===className&&__bf.playerTeam===team,choice,{timeout:60000});
       const identity=await actor.evaluate(()=>({id:__bf.playerUnit.id,generation:__bf.playerUnit.generation}));
       await observer.waitForFunction(({id,generation})=>{const u=__bf.units.byId(id);return u?.alive&&u.walker&&u.generation===generation&&u.actor.root.visible;},identity,{timeout:30000});return identity;
@@ -208,7 +223,7 @@ try {
     for(let i=0;i<2;i++){
       const choice=await actor.evaluate(()=>{const team=3-__bf.playerTeam;return{team,className:__bf.spawnPort.roster(team)[0].className};});
       if(await actor.evaluate(()=>__bf.playerUnit.alive))await actor.evaluate(()=>__bf.spawnPort.suicide());
-      await actor.waitForFunction(()=>__bf.spawnPort.humanState().phase==='awaiting',null,{timeout:60000});
+      await actor.waitForFunction(()=>['unspawned','awaiting'].includes(__bf.spawnPort.humanState().phase),null,{timeout:60000});
       await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
       await actor.waitForFunction(({team,className})=>__bf.playerUnit.alive&&__bf.playerUnit.team===team&&__bf.playerTeam===team&&__bf.playerUnit.className===className&&__bf.spawnPort.humanState().phase==='alive',choice,{timeout:60000});
       const result=await actor.evaluate(()=>({id:__bf.playerUnit.id,generation:__bf.playerUnit.generation,className:__bf.playerUnit.className,team:__bf.playerUnit.team,playerTeam:__bf.playerTeam,combatTeam:__bf.combat.team,battleTeam:__bf.battle.own,postTeam:__bf.posts.playerTeam}));
@@ -222,7 +237,7 @@ try {
     const choice=await actor.evaluate(()=>Object.keys(__bf.spawnPort.teams()).map(Number).sort((a,b)=>Number(b===__bf.playerTeam)-Number(a===__bf.playerTeam)).flatMap(team=>__bf.spawnPort.roster(team).map(({className})=>({team,className}))).find(({className})=>Object.values(__bf.data.sides).some(side=>side.units?.[className]?.weapons?.some(w=>w.droid))));
     assert.ok(choice,'mission has a recon class');
     if(await actor.evaluate(()=>__bf.playerUnit.alive))await actor.evaluate(()=>__bf.spawnPort.suicide());
-    await actor.waitForFunction(()=>__bf.spawnPort.humanState().phase==='awaiting',null,{timeout:60000});
+    await actor.waitForFunction(()=>['unspawned','awaiting'].includes(__bf.spawnPort.humanState().phase),null,{timeout:60000});
     await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
     await actor.waitForFunction(({className})=>__bf.playerUnit.alive&&__bf.playerUnit.className===className,choice,{timeout:60000});
     await actor.evaluate(()=>{__bf.controls.locked=true;});
@@ -335,7 +350,8 @@ try {
       function sample(){
         const now=performance.now(),frameIntervalMs=now-previousFrame;previousFrame=now;frames++;
         const c=__bf.client,sequence=window.__testMovementSequence,ack=window.__testMovementAck||0;
-        const authoritative=c.saved.get('position'),offset=authoritative?__bf.playerUnit.position.distanceTo(authoritative):0;
+        const saved=c.saved,view=saved&&new DataView(saved.buffer,saved.byteOffset,saved.byteLength),at=4+6*8,p=__bf.playerUnit.position;
+        const offset=view?Math.hypot(p.x-view.getFloat64(at,true),p.y-view.getFloat64(at+8,true),p.z-view.getFloat64(at+16,true)):0;
         const cameraOffset=__bf.camera.position.distanceTo(camera);
         if(c.predicted&&sequence&&ack<sequence&&offset>.01&&cameraOffset>.01){window.__testPrediction={passed:true,firstMovementMs:performance.now()-begun,frameIntervalMs,frames,inputTicks:c.inputClock.tick-inputTick,worldTick:__bf.worldClock.tick,inputTick:c.inputClock.tick,sequence,ack,predictedOffset:offset,cameraOffset};return;}
         window.__testPrediction={passed:false,elapsedMs:performance.now()-begun,sequence,ack,predicted:c.predicted,predictedOffset:offset,cameraOffset,alive:__bf.playerUnit.alive};
@@ -413,7 +429,7 @@ try {
       host.onFire=(edge,command)=>{const result=fire(edge,command);if(edge.pressed&&result!==undefined)window.__testCosmetic={id:edge.id,present:result};return result;};
       // Infantry rounds are predicted by the shared weapon step (src/game.js),
       // not by onFire, which handles seated weapons.
-      const shots=__bf.predictedShots,predicted=shots.onPredicted;shots.onPredicted=(edge,command,metadata)=>{if(edge.pressed&&!window.__testCosmetic)window.__testCosmetic={id:edge.id,present:true};return predicted?.(edge,command,metadata);};
+      const shots=__bf.predictedShots,predicted=shots.onPredicted;shots.onPredicted=(edge,command,metadata)=>{if(edge.pressed&&!edge.held&&edge.id&&!window.__testCosmetic)window.__testCosmetic={id:edge.id,present:true};return predicted?.(edge,command,metadata);};
       host.receive=(label,raw,...rest)=>{if(typeof raw==='string'){const message=JSON.parse(raw);if(message.type==='fireAck')window.__testFireAcks.push(message);if(message.type==='entity-edge-results')window.__testFireAcks.push(...message.results.map(result=>({...result,accepted:result.status==='consumed'})));}return receive(label,raw,...rest);};
       return __bf.combat.arsenal.current(0).clip;
     });
@@ -421,6 +437,10 @@ try {
     await page.mouse.click(320,240);
     try {await page.waitForFunction(before=>__bf.combat.arsenal.current(0).clip<before,clip,{timeout:30000,polling:100});}
     catch(error){console.error('fire diagnostics',JSON.stringify(await page.evaluate(async()=>({before:window.__testFireBefore,generation:__bf.playerUnit.generation,alive:__bf.playerUnit.alive,buttons:window.__testMouseButtons,edges:window.__testFireEdges,acks:window.__testFireAcks,cosmetic:window.__testCosmetic,weapon:{name:__bf.combat.arsenal.current(0).name,clip:__bf.combat.arsenal.current(0).clip,wait:__bf.combat.arsenal.current(0).wait,busy:__bf.combat.arsenal.current(0).busy,reloading:__bf.combat.arsenal.current(0).reloading,canShoot:__bf.combat.arsenal.current(0).canShoot},inspection:await __bf.client.host.call('inspect')}))));throw error;}
+    // Predicted ammo changes before the server consumes the edge. Wait for
+    // its numbered acknowledgement independently of the private weapon view.
+    try {await page.waitForFunction(()=>window.__testCosmetic?.id&&window.__testFireAcks.some(ack=>ack.id===window.__testCosmetic.id&&ack.accepted),null,{timeout:30000,polling:100});}
+    catch(error){console.error('fire identity diagnostics',JSON.stringify(await page.evaluate(()=>({cosmetic:window.__testCosmetic,acks:window.__testFireAcks,edges:window.__testFireEdges,outcomes:[...__bf.client.host.entityInput.outcomes.values()]}))));throw error;}
     const fire=await page.evaluate(()=>({cosmetic:window.__testCosmetic,acks:window.__testFireAcks}));
     assert.equal(fire.cosmetic?.present,true,'first shot has immediate local cosmetic feedback');
     assert.ok(fire.acks.some(ack=>ack.id===fire.cosmetic.id&&ack.accepted),'authoritative server consumes the numbered fire edge');

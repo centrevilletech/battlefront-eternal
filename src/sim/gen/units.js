@@ -663,6 +663,10 @@ export function exportJet(o, cx) {
   return v;
 }
 
+export const SoldierLayout = Object.freeze({ words: 64, maxSpeed: 0, maxStrafe: 1, maxJump: 2, maxTurn: 3, maxPitch: 4, accel: 5, pitchLimits: 6, jet: 8, fuel: 15, collisionRule: 16, collisionDamage: 22, maxFlyHeight: 23, getupTime: 24, diveTime: 25, position: 26, previous: 29, settled: 32, velocity: 35, normal: 38, aimYaw: 41, aimPitch: 42, posture: 43, air: 44, dive: 46, diveFrom: 47, stateTime: 48, lock: 49, grounded: 50, lookX: 51, lookY: 52, tickLength: 53, groundAdjustment: 54, avoidance: 55, passThrough: 58, mover: 61, dead: 62 });
+export const SOLDIER_WORDS = SoldierLayout.words;
+export const SOLDIER_OFFSETS = SoldierLayout;
+
 export class SoldierMirror {
   constructor() {
     this.maxSpeed = NaN;
@@ -781,6 +785,30 @@ export function putSoldier(b, o, f, at, heap) {
   { const $x = o.passThrough; if ($x === null || $x === undefined) { f[at + 58] = $x === null ? 1 : 2; f[at + 59] = 0; f[at + 60] = 0; } else { f[at + 58] = 0; b.refs[KIND_BODY].put($x, f, at + 59); } }
   f[at + 61] = o.mover;
   { const $x = o.dead; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f[at + 63] = 0; } else { f[at + 62] = 0; f[at + 63] = $x ? 1 : 0; } }
+}
+
+export function publishSoldier(o, m) {
+  o.position.copy(m.position);
+  o.previous.copy(m.previous);
+  o.settled.copy(m.settled);
+  o.velocity.copy(m.velocity);
+  o.normal.copy(m.normal);
+  o.avoidance.copy(m.avoidance);
+  o.fuel = m.fuel;
+  o.collisionDamage = m.collisionDamage;
+  o.aimYaw = m.aimYaw;
+  o.aimPitch = m.aimPitch;
+  o.dive = m.dive;
+  o.stateTime = m.stateTime;
+  o.lock = m.lock;
+  o.lookX = m.lookX;
+  o.lookY = m.lookY;
+  o.tickLength = m.tickLength;
+  o.groundAdjustment = m.groundAdjustment;
+  o.posture = m.posture;
+  o.air = m.air;
+  o.diveFrom = m.diveFrom;
+  o.grounded = m.grounded;
 }
 
 export function sameSoldier(a, b) {
@@ -1574,6 +1602,10 @@ export function exportUnitSplash(o, cx) {
   return v;
 }
 
+export const DroidekaLayout = Object.freeze({ words: 77, def: 0, maxTurn: 1, pitchLimits: 2, speed: 4, turnThreshold: 5, ballRadius: 6, maxSpin: 7, maxBallSlope: 8, eyeHeight: 9, rootIndex: 10, maxFlyHeight: 11, collisionRule: 12, collisionDamage: 18, position: 19, previous: 22, settled: 25, velocity: 28, avoidance: 31, aimYaw: 34, aimPitch: 35, stateTime: 36, grounded: 37, lookX: 38, lookY: 39, mode: 40, time: 41, reverse: 42, legs: 43, spin: 44, roll: 45, lean: 46, dead: 47, blastClock: 48, gun: 49, lastGun: 50, shield: 53, waterClock: 60, muzzleAnimator: 62 });
+export const DROIDEKA_WORDS = DroidekaLayout.words;
+export const DROIDEKA_OFFSETS = DroidekaLayout;
+
 export class DroidekaMirror {
   constructor() {
     this.def = null;
@@ -1698,6 +1730,30 @@ export function putDroideka(b, o, f, at, heap) {
   { const $x = o.shield; if ($x === null || $x === undefined) { f[at + 53] = $x === null ? 1 : 2; f[at + 54] = 0; f[at + 55] = 0; f[at + 56] = 0; f[at + 57] = 0; f[at + 58] = 0; f[at + 59] = 0; } else { f[at + 53] = 0; putShield(b, $x, f, at + 54, heap); } }
   { const $x = o.waterClock; if ($x === null || $x === undefined) { f[at + 60] = $x === null ? 1 : 2; f[at + 61] = 0; } else { f[at + 60] = 0; f[at + 61] = $x; } }
   { const $x = o.muzzleAnimator; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f.fill(0, at + 63, at + 77); } else { f[at + 62] = 0; putRigAnimator(b, $x, f, at + 63, heap); } }
+}
+
+export function publishDroideka(o, m) {
+  o.position.copy(m.position);
+  o.previous.copy(m.previous);
+  o.settled.copy(m.settled);
+  o.velocity.copy(m.velocity);
+  o.avoidance.copy(m.avoidance);
+  o.collisionDamage = m.collisionDamage;
+  o.aimYaw = m.aimYaw;
+  o.aimPitch = m.aimPitch;
+  o.stateTime = m.stateTime;
+  o.lookX = m.lookX;
+  o.lookY = m.lookY;
+  o.mode = m.mode;
+  o.time = m.time;
+  o.legs = m.legs;
+  o.spin = m.spin;
+  o.roll = m.roll;
+  o.lean = m.lean;
+  o.blastClock = m.blastClock;
+  o.grounded = m.grounded;
+  o.reverse = m.reverse;
+  o.gun = m.gun;
 }
 
 export function sameDroideka(a, b) {

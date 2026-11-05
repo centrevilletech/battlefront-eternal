@@ -1,4 +1,4 @@
-//! OpenAL Soft's front stabilizer (src/audio/worklets/stabilizer.js),
+//! OpenAL Soft's front stabilizer (stabilizer DSP),
 //! derived there from OpenAL Soft 1.20.1 (LGPL-2.0-or-later, distributed
 //! here under GPL-3.0-only; see THIRD-PARTY-NOTICES.md). The front pair is
 //! split at 5 kHz by a phase-corrected band splitter, 256 samples late;

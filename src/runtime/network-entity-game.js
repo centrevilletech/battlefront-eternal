@@ -167,7 +167,7 @@ export class EntityGameState {
     this.pendingEligibility = null;
   }
   prepareOwn(record) {
-    const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record, g.predictionSim?.corrections), className = this.registry.classes.get(data.classId);
+    const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record), className = this.registry.classes.get(data.classId);
     if (!className || unit.className !== className && !g.bodies.get(className)) throw Error('Missing own class prerequisite');
     if (record.id !== unit.id) {
       const oldId = unit.id, oldGeneration = unit.generation;
@@ -538,7 +538,7 @@ export class EntityGameState {
     if (this.correct(record, packet)) this.pendingCorrection = null;
   }
   correct(record, packet) {
-    const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record, g.predictionSim?.corrections), wasDead = unit.combat.dead;
+    const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record), wasDead = unit.combat.dead;
     if (record.id !== unit.id) throw Error('Entity correction does not own this player');
     if (data.epoch !== packet.ack.epoch || data.contentEpoch !== this.registry.contentEpoch ||
         this.registry.classes.get(data.classId) !== unit.className) throw Error('Invalid own correction content prerequisite');
@@ -550,7 +550,7 @@ export class EntityGameState {
       if (!vehicle || vehicle.aiTarget.generation !== data.vehicleGeneration || !vehicle.alive ||
           unit.seat?.vehicle !== vehicle || unit.seat.index !== 0) return false;
     } else if (data.mounted) {
-      const mounted=decodeMountedControl(data.mounted,g.predictionSim?.corrections);
+      const mounted=decodeMountedControl(data.mounted);
       const object=mounted.mode===2 ? g.vehicles?.vehicles.find(value=>value.aiTarget.id===mounted.id)
         : g.turretSeats?.turrets.find(value=>value.aiTarget?.id===mounted.id);
       if(object?.aiTarget.generation>mounted.generation)return true;
@@ -562,7 +562,7 @@ export class EntityGameState {
     unit.presentation.beforeStep();
     const context = applyOwnPlayer({ unit, vehicle, vehicleId: data.vehicleId, vehicleGeneration: data.vehicleGeneration,
       epoch: packet.ack.epoch, registry: this.registry, record, previous: this.previous,
-      remoteLifecycle: data.remote ? this.receiver.get('remote',data.remote.id) : null, native: g.predictionSim?.corrections });
+      remoteLifecycle: data.remote ? this.receiver.get('remote',data.remote.id) : null });
     if (context.team !== g.playerTeam) g.applyAuthoritativeHumanTeam(context.team);
     unit.dead = unit.soldier.dead = unit.combat.dead; unit.alive = !unit.dead && !unit.removed;
     unit.actor.root.visible = !unit.removed; unit.tickCount++; unit.combat.updateHeld?.(); unit.presentation.afterStep();

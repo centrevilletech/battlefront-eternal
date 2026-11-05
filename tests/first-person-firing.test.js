@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { existsSync, readFileSync } from 'node:fs';
@@ -6,13 +6,20 @@ import { Clip, loadClips } from '../src/anim.js';
 import { PlayerCombat } from '../src/combat.js';
 import { FirstPersonView } from '../src/firstperson.js';
 import { prepareMelee } from '../src/heroes.js';
-import { WeaponPrediction } from '../src/runtime/weapon-prediction.js';
+import { PredictionArsenal } from '../src/runtime/prediction-arsenal.js';
+import { createClientPrediction } from '../src/runtime/client-prediction.js';
+import { loadSim } from '../src/sim/module.js';
+import { loadRayKernel } from '../src/ray-kernel.js';
+import { actorCourse, createPredictionActor } from './fixtures/client-actors.js';
 import { Arsenal } from '../src/weapons.js';
 
 // The first-person arms while the player fires, as the page drives them: the
 // page's combat says which weapon is shown (its authority copy of the
-// arsenal), and the shots it predicts come from WeaponPrediction's own copy
-// (src/runtime/weapon-prediction.js), other objects of the same classes.
+// arsenal), and the Rust session publishes shots through a private arsenal
+// presentation view, whose weapons have the same class definitions.
+
+const instance = await loadSim(), course = actorCourse(await loadRayKernel(instance));
+after(() => course.dispose());
 
 const weapon = (name, bank, model, extra = {}) => ({ class: name, base: 'cannon', channel: 0, AnimationBank: bank, HighResGeometry: model,
   RoundsPerClip: 50, ammo: 4, ShotDelay: .2, ReloadTime: 2, InitialSalvoDelay: 0, SalvoCount: 1, ShotsPerSalvo: 1, SalvoDelay: 0,
@@ -35,9 +42,9 @@ function page({ rig = RIG, clips = null } = {}) {
   clips ||= new Map(Object.keys(MARK).map((name) => [name, marker(name, name.includes('shoot') ? .5 : name.includes('idle') ? 3.3 : 0)]));
   const models = new Map([[RIFLE.HighResGeometry, []], [PISTOL.HighResGeometry, []]]);
   const view = new FirstPersonView({ rig, parts: new Map(), clips, texture: () => null, weaponModels: models, firePoints: {} });
-  const soldier = { posture: 'stand', air: null, dive: 0, aimYaw: 0, aimPitch: 0, velocity: new THREE.Vector3() };
+  const {soldier} = createPredictionActor({kind:'soldier'},course);
   const combat = Object.create(PlayerCombat.prototype);
-  Object.assign(combat, { arsenal: prepareMelee(new Arsenal([RIFLE, PISTOL], { random: () => .5 })), soldier, zoomStep: 0, dead: false });
+  Object.assign(combat, { arsenal: prepareMelee(new Arsenal([RIFLE, PISTOL], { random: () => .5 })), soldier, zoomStep: 0, dead: false, gunUnderwater:false, kick:{rate:0,hold:0,offset:0} });
   const unit = { id: 1, generation: 1, alive: true, soldier, combat };
   const camera = new THREE.PerspectiveCamera();
   camera.updateMatrixWorld();
@@ -55,15 +62,16 @@ function page({ rig = RIG, clips = null } = {}) {
 // round it fires (predicted-shots.js), then the frame draws them with the
 // authority's weapon shown. Returns each frame's clip and model.
 function fire({ view, unit, args }, seconds, { press = ['firePrimary'] } = {}) {
-  const prediction = new WeaponPrediction(), frames = [];
+  const prediction = new PredictionArsenal(), session = createClientPrediction(instance,course.world), frames = [];
   for (let tick = 1; tick <= seconds * 60; tick++) {
     prediction.begin(unit, { tick: tick - 1 });
-    prediction.step({ actions: tick === 1 ? press : [], down: ['Mouse0'] }, tick, (shot) => view.play('shoot', shot.weapon));
+    session.predict(unit,[{tick,sequence:tick,generation:unit.generation,actions:tick===1?press:[],down:['Mouse0'],look:[]}],{epoch:1,tick:tick-1});
+    session.present(unit,null,(_notice,weapon)=>view.play('shoot',weapon));
     view.update(1 / 60, args());
     const held = [...view.weapons].filter(([, w]) => w.group.visible).map(([name]) => name);
     frames.push({ tick, slot: view.slot, clip: view.clip?.name, x: view.hand.position.x, held, at: view.hand.getWorldPosition(new THREE.Vector3()) });
   }
-  prediction.restore();
+  prediction.dispose();session.dispose();
   return frames;
 }
 

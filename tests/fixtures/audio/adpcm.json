@@ -1,0 +1,30 @@
+[
+  {
+    "channels": 1,
+    "count": 1,
+    "interleave": 108,
+    "frames": 960,
+    "sha256": "9f19daa003b3cddb6ceb37a5fc46f3ca2d4b0a9cf4249a256d6359ccc60da3da"
+  },
+  {
+    "channels": 2,
+    "count": 1,
+    "interleave": 216,
+    "frames": 960,
+    "sha256": "48dba0aab111cdd4e2670a3a11cced678b601377ba8e7120057aeaa2396a5e69"
+  },
+  {
+    "channels": 4,
+    "count": 1,
+    "interleave": 432,
+    "frames": 960,
+    "sha256": "d722a43ffe01b547550ce1dd88181abf2c96a67cd57051b814892e8969099e0d"
+  },
+  {
+    "channels": 2,
+    "count": 2,
+    "interleave": 216,
+    "frames": 960,
+    "sha256": "4bf28efa2384373966ab78a9cb2a514b896cda92806de9f1847e6a6ac84658c3"
+  }
+]

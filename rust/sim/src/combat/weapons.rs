@@ -662,7 +662,7 @@ impl Weapon {
     /// when old <= hit < old + dt; the swing ends strictly past its length.
     fn melee_update(&mut self, index: u32, class: &WeaponClass, dt: f64, selected: bool, trigger: &Trigger, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
-        let swings = melee_swings(d);
+        let swings = &d.melee_swings;
         let mut m = self.melee.clone().expect("a melee weapon's swing");
         if m.active && m.time > swings[m.index as usize].duration.num() {
             m.active = false;
@@ -693,23 +693,6 @@ impl Weapon {
             }
         }
         self.melee = Some(m);
-    }
-}
-
-/// A melee swing's length and hit time.
-struct Swing {
-    duration: Js,
-    hit: Js,
-}
-
-/// meleeSwings(weapon) (heroes.js:30): its class's swings, up to three, or
-/// one second-long swing that hits halfway.
-fn melee_swings(d: &Level) -> Vec<Swing> {
-    let swings = d.field("swings");
-    if swings.len() > 0 {
-        (0..swings.len().min(3)).map(|i| Swing { duration: swings.at(i).get("duration").clone(), hit: swings.at(i).get("hit").clone() }).collect()
-    } else {
-        vec![Swing { duration: Js::Num(1.0), hit: Js::Num(0.5) }]
     }
 }
 
@@ -777,19 +760,18 @@ impl Arsenal<'_> {
 
     /// current(channel) (weapons.js:511): the selected weapon's place.
     pub fn current(&self, defs: &WeaponDefs, c: usize) -> Option<usize> {
-        let list = self.channel(defs, c);
-        let s = self.selected[c];
-        if s >= 0.0 && (s as usize) < list.len() && s.fract() == 0.0 {
-            Some(list[s as usize])
-        } else {
-            None
+        let selected = self.selected[c];
+        if selected < 0.0 || !selected.is_finite() || selected.fract() != 0.0 {
+            return None;
         }
+        self.weapons.iter().enumerate().filter(|(_, w)| w.in_channel(defs, c as f64))
+            .nth(selected as usize).map(|(i, _)| i)
     }
 
     /// next(channel, direction) (weapons.js:530).
     pub fn next(&mut self, defs: &WeaponDefs, c: usize, direction: f64) -> bool {
-        let list = self.channel(defs, c);
-        if list.len() < 2 {
+        let count = self.weapons.iter().filter(|w| w.in_channel(defs, c as f64)).count();
+        if count < 2 {
             return false;
         }
         if let Some(old) = self.current(defs, c) {
@@ -798,7 +780,7 @@ impl Arsenal<'_> {
             }
             self.weapons[old].deselect();
         }
-        let n = list.len() as f64;
+        let n = count as f64;
         self.selected[c] = jsrt::conv::js_mod(self.selected[c] + direction + n, n);
         true
     }

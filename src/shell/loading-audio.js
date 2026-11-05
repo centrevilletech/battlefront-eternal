@@ -1,3 +1,4 @@
+import { FrontendAudio } from "../audio/frontend.js";
 import { coreSounds } from "./audio.js";
 
 // The loading screen's sound, as Load/load.lvl names it, core.lvl defines it
@@ -45,11 +46,12 @@ const clock = () => performance.timeOrigin + performance.now();
 export class LoadingSound {
   // volumes(): { master, interface } as the player has them set;
   // context: an AudioContext to use (tests), else one is made.
-  constructor({ volumes = () => ({ master: 1, interface: 1 }), context = null, sounds = coreSounds } = {}) {
+  constructor({ volumes = () => ({ master: 1, interface: 1 }), context = null, sounds = coreSounds, player = (ctx) => new FrontendAudio(ctx) } = {}) {
     this.volumes = volumes;
     this.ctx = context;
     this.core = sounds;
-    this.nodes = null;
+    this.output = null;
+    this.player = player;
     this.sounds = new Map(); // name -> { buffer, gain, pitch, loop } once loaded
     this.settled = false; // every sound has loaded or failed
     this.plan = null; // { start, events: [{ cue, at, until, handled }] }
@@ -64,11 +66,11 @@ export class LoadingSound {
   }
 
   get running() {
-    return Boolean(this.ctx) && this.ctx.state === "running";
+    return Boolean(this.ctx) && this.ctx.state === "running" && this.output?.isReady;
   }
 
-  // Make the context and fetch the sounds. Nothing here throws: a page
-  // without sound data, or without Web Audio, just has a silent screen.
+  // Make the required Rust output and fetch the sounds. Missing assets
+  // are silent; an unavailable audio module is a visible player error.
   start() {
     if (this.closed) return this;
     try {
@@ -96,18 +98,14 @@ export class LoadingSound {
 
   build() {
     const ctx = this.ctx;
-    const master = ctx.createGain();
-    const bus = ctx.createGain();
-    bus.connect(master).connect(ctx.destination);
-    this.nodes = { master, bus };
-    this.applyVolumes();
+    this.output = this.player(ctx);
+    this.output.ready.then(() => { this.applyVolumes(); this.apply(); }).catch((error) => this.output.fail(error));
   }
 
   applyVolumes() {
-    if (!this.nodes) return;
+    if (!this.output?.isReady) return;
     const { master = 1, interface: ui = 1 } = this.volumes() || {};
-    this.nodes.master.gain.value = Number.isFinite(Number(master)) ? Number(master) : 1;
-    this.nodes.bus.gain.value = BUS * (Number.isFinite(Number(ui)) ? Number(ui) : 1);
+    this.output.volumes(Number.isFinite(Number(master)) ? Number(master) : 1, 0, BUS * (Number.isFinite(Number(ui)) ? Number(ui) : 1));
   }
 
   // A context the browser keeps suspended runs at the page's first click or
@@ -169,28 +167,18 @@ export class LoadingSound {
     const loop = until !== null;
     if (loop ? until <= now : now - at > LATE * 1000) return false;
     try {
-      const ctx = this.ctx;
       const begin = Math.max(at, now);
       const when = Math.max(map.when(begin), 0);
-      const source = ctx.createBufferSource();
-      source.buffer = sound.buffer;
-      source.loop = loop;
-      source.playbackRate.value = sound.pitch;
-      const level = ctx.createGain();
-      level.gain.value = sound.gain;
-      source.connect(level).connect(this.nodes.bus);
       // Joining a pulse late: where its loop would be by now.
       const duration = sound.buffer.duration || 1;
-      source.start(when, loop ? (((begin - at) / 1000) * sound.pitch) % duration : 0);
+      const source = this.output.play(sound.buffer, { gain: sound.gain, pitch: sound.pitch, loop, when,
+        offset: loop ? (((begin - at) / 1000) * sound.pitch) % duration : 0 });
       if (loop) {
         const end = map.when(until);
-        level.gain.setValueAtTime(sound.gain, Math.max(end - STOP, when));
-        level.gain.linearRampToValueAtTime(0, end);
-        source.stop(end);
+        source.fade(Math.max(end - STOP, when), end);
       }
-      const voice = { source, level };
-      this.voices.add(voice);
-      source.onended = () => this.voices.delete(voice);
+      this.voices.add(source);
+      source.onended = () => this.voices.delete(source);
       this.log.push({ cue, at: Math.round(at * 10) / 10, heard: Math.round(map.heard(when) * 10) / 10 });
       this.stats[loop ? "loops" : "once"] += 1;
       return true;
@@ -213,13 +201,10 @@ export class LoadingSound {
     this.unlisten();
     const ctx = this.ctx;
     if (!ctx) return;
-    for (const { source, level } of this.voices) {
+    for (const source of this.voices) {
       try {
         const now = ctx.currentTime;
-        level.gain.cancelScheduledValues?.(now);
-        level.gain.setValueAtTime(level.gain.value, now);
-        level.gain.linearRampToValueAtTime(0, now + FADE);
-        source.stop(now + FADE);
+        source.fade(now, now + FADE);
       } catch {
         // Already stopped.
       }

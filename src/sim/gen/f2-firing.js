@@ -118,6 +118,8 @@ export function exportFfSupply(o, cx) {
 }
 
 export const FfInputsLayout = Object.freeze({ words: 1, count: 0 });
+export const FF_INPUTS_WORDS = FfInputsLayout.words;
+export const FF_INPUTS_OFFSETS = FfInputsLayout;
 
 export class FfInputsMirror {
   constructor() {
@@ -149,6 +151,8 @@ export function exportFfInputs(o, cx) {
 }
 
 export const FfWeaponChangeLayout = Object.freeze({ words: 12, hull: 0, seat: 2, weapon: 3, input: 4 });
+export const FF_WEAPON_CHANGE_WORDS = FfWeaponChangeLayout.words;
+export const FF_WEAPON_CHANGE_OFFSETS = FfWeaponChangeLayout;
 
 export class FfWeaponChangeMirror {
   constructor() {
@@ -195,6 +199,8 @@ export function exportFfWeaponChange(o, cx) {
 }
 
 export const FfWeaponInputLayout = Object.freeze({ words: 8, channel: 0, target: 1, hasRandom: 2, floor: 3, spreadScale: 4, sniperScale: 5, yawSpreadOverride: 6 });
+export const FF_WEAPON_INPUT_WORDS = FfWeaponInputLayout.words;
+export const FF_WEAPON_INPUT_OFFSETS = FfWeaponInputLayout;
 
 export class FfWeaponInputMirror {
   constructor() {

@@ -630,6 +630,8 @@ export function exportVehMembers(o, cx) {
 }
 
 export const VehPointsLayout = Object.freeze({ words: 2, points: 0, pointsLength: 1 });
+export const VEH_POINTS_WORDS = VehPointsLayout.words;
+export const VEH_POINTS_OFFSETS = VehPointsLayout;
 
 export class VehPointsMirror {
   constructor() {
