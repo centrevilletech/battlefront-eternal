@@ -1,15 +1,4 @@
-import { FXAAShader as ThreeFXAA } from "three/addons/shaders/FXAAShader.js";
 
-// three's FXAA (NVIDIA's algorithm; C# implementation by Jasper Flick, GLSL
-// port by Dave Hoskins; three.js addons, MIT), with the same result for
-// fewer texture reads. three's reads all nine neighbours before it decides
-// whether a pixel is on an edge at all, a choice the centre and its four
-// direct neighbours alone make; most pixels aren't, and keep the centre
-// colour. Here the four diagonals are read only for pixels on an edge, and a
-// skipped pixel returns the centre read it already made: five reads instead
-// of ten. On an old integrated GPU the pass cost more than the whole near
-// scene's shading at the same size.
-const fragmentShader = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform vec2 resolution;
   varying vec2 vUv;
@@ -148,58 +137,3 @@ const fragmentShader = /* glsl */ `
     else uv.x += pixelStep * finalBlend;
     gl_FragColor = texture( tDiffuse, uv );
   }
-`;
-
-export const FXAAShader = { name: "FXAAShader", uniforms: ThreeFXAA.uniforms, vertexShader: ThreeFXAA.vertexShader, fragmentShader };
-
-// FXAA (FAST): FXAA 3.11's console path (Timothy Lottes, NVIDIA), as the
-// PlayStation 3 and Xbox 360 ran it: the contrast of four diagonal reads and
-// the centre, then a blur along the edge's direction from two pairs of reads,
-// without the PC path's search along the edge. Nine reads a pixel and no
-// loops: on an old integrated GPU about a third of the cost of FXAA above
-// (Intel HD 2000 at 960x540: 2.9 ms against 7.6), a little softer on long,
-// nearly horizontal or vertical edges.
-const fastFragmentShader = /* glsl */ `
-  uniform sampler2D tDiffuse;
-  uniform vec2 resolution;
-  varying vec2 vUv;
-
-  float fxaaLuma( vec3 color ) {
-    return dot( color, vec3( 0.299, 0.587, 0.114 ) );
-  }
-
-  void main() {
-    vec2 texel = resolution;
-    vec4 centre = texture( tDiffuse, vUv );
-    // Each read between four texels: their bilinear average.
-    float lumaNw = fxaaLuma( texture( tDiffuse, vUv + vec2( -0.5, -0.5 ) * texel ).rgb );
-    float lumaSw = fxaaLuma( texture( tDiffuse, vUv + vec2( -0.5, 0.5 ) * texel ).rgb );
-    float lumaNe = fxaaLuma( texture( tDiffuse, vUv + vec2( 0.5, -0.5 ) * texel ).rgb );
-    float lumaSe = fxaaLuma( texture( tDiffuse, vUv + vec2( 0.5, 0.5 ) * texel ).rgb );
-    float lumaM = fxaaLuma( centre.rgb );
-    float lumaMax = max( max( lumaNw, lumaSw ), max( lumaNe, lumaSe ) );
-    float lumaMin = min( min( lumaNw, lumaSw ), min( lumaNe, lumaSe ) );
-    // Edge threshold 1/8, at least 0.05: FXAA 3.11's console defaults.
-    if ( max( lumaMax, lumaM ) - min( lumaMin, lumaM ) < max( 0.05, lumaMax * 0.125 ) ) {
-      gl_FragColor = centre;
-      return;
-    }
-    float swMinusNe = lumaSw - lumaNe;
-    float seMinusNw = lumaSe - lumaNw;
-    vec2 dir = vec2( swMinusNe + seMinusNw, swMinusNe - seMinusNw );
-    vec2 dir1 = dir / max( length( dir ), 1e-6 );
-    vec3 n1 = texture( tDiffuse, vUv - dir1 * texel * 0.5 ).rgb;
-    vec3 p1 = texture( tDiffuse, vUv + dir1 * texel * 0.5 ).rgb;
-    // Edge sharpness 8: how far along a shallow edge the second pair reaches.
-    vec2 dir2 = clamp( dir1 / max( min( abs( dir1.x ), abs( dir1.y ) ) * 8.0, 1e-6 ), -2.0, 2.0 );
-    vec3 n2 = texture( tDiffuse, vUv - dir2 * texel * 2.0 ).rgb;
-    vec3 p2 = texture( tDiffuse, vUv + dir2 * texel * 2.0 ).rgb;
-    vec3 twoTap = ( n1 + p1 ) * 0.5;
-    vec3 fourTap = ( n2 + p2 ) * 0.25 + twoTap * 0.5;
-    float lumaFour = fxaaLuma( fourTap );
-    // The wider blur crossed another edge: keep the narrow one.
-    gl_FragColor = vec4( lumaFour < lumaMin || lumaFour > lumaMax ? twoTap : fourTap, centre.a );
-  }
-`;
-
-export const FXAAFastShader = { name: "FXAAFastShader", uniforms: ThreeFXAA.uniforms, vertexShader: ThreeFXAA.vertexShader, fragmentShader: fastFragmentShader };

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import * as THREE from 'three';
 import { fixture } from './flight-fixture.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { hullQuaternion } from '../src/vehicle-hover.js';
 import { classSetting, flightSpeeds, gaitSpeed, groundMotion } from '../src/vehicle-motion.js';

@@ -6,25 +6,24 @@
 // full-screen pass (render-passes.js) into a target (three's, or the
 // canvas), with the values it is drawn with (applyValues: set on its
 // material as the step is written, as three's postStep sets them); the
-// renderer draws them all with three's programs for their materials, as
-// three compiled them (Kind::Plain), or three draws them all: a step it
-// can't draw (one that draws itself, a pass three has not yet drawn once)
-// leaves the frame's post passes to three (cover returns false). What a
-// step does once the frame's steps are drawn (the temporal upscaler's
-// commit: `after`) graphics.js runs, whoever drew them.
+// renderer uses source-owned programs for tagged post/HUD materials and the
+// compiled-source bridge for unported materials (Kind::Plain). A refused step
+// leaves the whole chain to three. The temporal commit (`after`) runs once,
+// whoever drew the steps.
 import * as THREE from "three";
+import { ownedProgram } from "./programs.js";
 import { applyValues } from "../render-passes.js";
 
 const PLAIN = 3;
 // post.rs's step layout.
 const STEP = { PROGRAM: 0, TARGET: 1, WIDTH: 2, HEIGHT: 3, UNIFORMS: 4, FIRST: 5 };
 const UNIFORM = 18, MAX_UNIFORMS = 12, STRIDE = 5 + MAX_UNIFORMS * UNIFORM, MAX_STEPS = 8;
-const SAMPLER = 32;
+const SAMPLER = 32, SAMPLER_3D = 33;
 // Where post.rs's triangle has its position and uv.
 const ATTRIBUTES = "position:0,uv:1";
 
 // A uniform's GL type as post.rs takes it: floats 1-4, int (bool too) 5,
-// mat3 9, mat4 16, sampler 32; 0: one it can't set.
+// mat3 9, mat4 16, sampler 32, sampler3D 33; 0: one it can't set.
 export function uniformType(gl, type) {
   switch (type) {
     case gl.FLOAT: return 1;
@@ -35,6 +34,7 @@ export function uniformType(gl, type) {
     case gl.FLOAT_MAT3: return 9;
     case gl.FLOAT_MAT4: return 16;
     case gl.SAMPLER_2D: return SAMPLER;
+    case gl.SAMPLER_3D: return SAMPLER_3D;
     default: return 0;
   }
 }
@@ -43,6 +43,14 @@ export function uniformType(gl, type) {
 // with its uniforms ({ name, type } in slot order); null when it has one the
 // renderer can't set; undefined until three has made it.
 const plainPrograms = new WeakMap();
+// Whether plainProgram has made (or refused) the renderer's program for
+// three's current one of a material, so that calling it makes no program.
+export function plainProgramKnown(core, material) {
+  if (material.userData?.bfeProgram) return core.ownedPrograms?.has(material.userData.bfeProgram) || false;
+  const threeProgram = core.renderer.properties.get(material).currentProgram;
+  return !threeProgram || plainPrograms.has(threeProgram);
+}
+
 // A uniform the program reads for nothing it draws, left at zero: an unlit
 // zero material's packed point lights (materials.js), which its vertex
 // shader adds up into a value its fragment shader never reads (three sets
@@ -53,6 +61,7 @@ const unread = (material, name) => (name === "zeroLights" || name === "zeroLight
 // or null for three's own attributes at locations 0, 1... (entry.attributes,
 // for core.geometry).
 export function plainProgram(core, material, attributes) {
+  if (material.userData?.bfeProgram) return ownedProgram(core, material.userData.bfeProgram, attributes);
   const threeProgram = core.renderer.properties.get(material).currentProgram;
   if (!threeProgram) return undefined;
   let entry = plainPrograms.get(threeProgram);
@@ -123,7 +132,7 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
     value = u.value;
   }
   out[o] = slot; out[o + 1] = type;
-  if (type === SAMPLER) {
+  if (type === SAMPLER || type === SAMPLER_3D) {
     // None, or a texture three has no pixels for (a target never drawn, an
     // image still loading): three's empty texture, which these passes only
     // read behind a switch that is off (the composite's glow without bloom).
@@ -163,7 +172,7 @@ class PostPass {
     const core = this.core;
     if (!core.enabled || !core.active || this.on === false || !steps.length || steps.length > MAX_STEPS) return false;
     for (const step of steps) {
-      if (!step.pass || !plainProgram(core, step.pass.material, ATTRIBUTES)) return false;
+      if (!step.pass || !ownedProgram(core, step.pass.material.userData.bfeProgram, ATTRIBUTES)) return false;
       if (step.target && this.target(step.target) < 0) return false;
     }
     this.pending = steps;
@@ -181,8 +190,9 @@ class PostPass {
   // A target of three's, by its colour texture (made again on a resize).
   target(target) {
     const core = this.core;
-    const handle = core.renderer.properties.get(target.texture).__webglTexture;
-    if (!handle) return -1;
+    let handle = core.renderer.properties.get(target.texture).__webglTexture;
+    if (!handle) { core.renderer.initRenderTarget(target); handle = core.renderer.properties.get(target.texture).__webglTexture; }
+    if (!handle) throw Error("Post target allocation failed");
     let id = this.targets.get(handle);
     if (id === undefined) {
       const texture = core.texture(target.texture);
@@ -202,7 +212,7 @@ class PostPass {
     const out = core.postInput, size = this.size ||= new THREE.Vector4();
     let n = 0;
     for (const step of steps) {
-      const program = plainProgram(core, step.pass.material, ATTRIBUTES);
+      const program = ownedProgram(core, step.pass.material.userData.bfeProgram, ATTRIBUTES);
       const o = n * STRIDE;
       if (step.values) applyValues(step.pass.material, step.values);
       out[o + STEP.PROGRAM] = program.id;

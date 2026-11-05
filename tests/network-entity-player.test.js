@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {Soldier} from '../src/soldier.js';import {PlayerCombat} from '../src/combat.js';import {Arsenal,Weapon} from '../src/weapons.js';import {CollisionWorld} from '../src/collision.js';
+import {Soldier} from '../src/soldier.js';import {PlayerCombat} from '../src/combat.js';import {Arsenal,Weapon} from '../src/weapons.js';import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import {captureOwnPlayer,decodeOwnPlayer,applyOwnPlayer,OwnPlayerPrerequisiteError} from '../src/runtime/network-entity-player.js';
 import {capturePlayerCorrection} from '../src/runtime/network-entity-capture.js';
 import {captureCompactSoldier as captureSoldierCorrection} from '../src/runtime/network-entity-soldier-compact.js';

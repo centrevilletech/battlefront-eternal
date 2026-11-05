@@ -13,7 +13,7 @@ for (const [map, side] of [['bes1', 'all'], ['hot1', 'all']]) {
   }, () => {
     const run = (variant) => {
       const result = spawnSync(process.execPath, ['tools/world-hash.mjs', '--map', map, '--side', side,
-        '--seed', '1', '--ticks', '600', '--movement', 'wasm', '--plugin', 'tests/vehicles-sim-probe.mjs', ...variant],
+        '--seed', '1', '--ticks', '600', '--plugin', 'tests/vehicles-sim-probe.mjs', ...variant],
       { cwd: root, env: { ...process.env, BFE_CONTENT_DIR: content }, encoding: 'utf8', maxBuffer: 4 << 20 });
       assert.equal(result.status, 0, result.stderr.split('\n').filter((line) => !line.startsWith('aircraft-pose ')).join('\n'));
       const poses = result.stderr.split('\n').filter((line) => line.startsWith('aircraft-pose '));

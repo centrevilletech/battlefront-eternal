@@ -1,3 +1,4 @@
+import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -5,7 +6,6 @@ import { Vector3, Scene } from 'three';
 import { Weapon } from '../src/weapons.js';
 import { latePresses } from '../src/combat-weapon-input.js';
 import { Units } from '../src/registry.js';
-import { Ordnance } from '../src/ordnance.js';
 import { HitHistory } from '../src/runtime/hit-history.js';
 import { SniperTrace } from '../src/sniper-trace.js';
 import { lighting } from '../src/materials.js';
@@ -42,7 +42,7 @@ function fixture() {
     head: new Vector3(x, 1.65, z), hitShapes() { this.head.set(this.position.x, 1.65, this.position.z); return [{ type: 'sphere', center: this.head, radius: 0.17, part: 'head' }]; } });
   const shooter = unit(0, 0), target = unit(0, 60); shooter.networkHuman = true;
   const history = new HitHistory(units); const hits = [];
-  const ordnance = new Ordnance({ scene: new Scene(), collision: { cast: () => null }, effects: { play() {} }, lights: { add() {} }, texture: () => null });
+  const ordnance = rustOrdnance({ scene: new Scene(), collision: { cast: () => null }, effects: { play() {} }, lights: { add() {} }, texture: () => null });
   ordnance.units = units; ordnance.hitHistory = history; ordnance.onHitUnit = (u, def, point, owner, part) => hits.push(part);
   return { units, shooter, target, history, ordnance, hits };
 }
@@ -55,13 +55,13 @@ test('a lag-compensated round leaves from where its shooter is, not where he was
   for (let tick = 0; tick <= 20; tick++) { f.shooter.position.x = tick * 0.1; f.history.capture(tick); }
   f.shooter.networkShot = { id: 1, viewTick: 8 };
   // His page fires from his predicted body: where the server has him now.
-  f.ordnance.bolt(sniperDef.ordnance, new Vector3(f.shooter.position.x, 1.65, 0), new Vector3(0, 0, 1), f.shooter);
+  f.ordnance.fire(sniperDef.ordnance, new Vector3(f.shooter.position.x, 1.65, 0), new Vector3(0, 0, 1), f.shooter);
   f.ordnance.update(1 / 60, false);
   assert.deepEqual(f.hits, [], 'his line from where he is passes 1.2 m beside that head');
   f.target.position.x = f.shooter.position.x;
   for (let tick = 21; tick <= 30; tick++) f.history.capture(tick);
   f.shooter.networkShot = { id: 2, viewTick: 20 };
-  f.ordnance.bolt(sniperDef.ordnance, new Vector3(f.shooter.position.x, 1.65, 0), new Vector3(0, 0, 1), f.shooter);
+  f.ordnance.fire(sniperDef.ordnance, new Vector3(f.shooter.position.x, 1.65, 0), new Vector3(0, 0, 1), f.shooter);
   f.ordnance.update(1 / 60, false);
   assert.deepEqual(f.hits, ['head'], 'a head straight down his line from where he stands is struck');
 });
@@ -139,7 +139,7 @@ test('the crosshair ray converges on a soldier under it, not the ground behind h
 
 test('the Enhanced sniper look is built with the battle, so its programs compile in the warm-up, and draws every instance once grown', () => {
   const scene = new Scene();
-  const ordnance = new Ordnance({ scene, collision: { cast: () => null }, effects: {}, lights: { add() {}, flash() {} }, texture: () => null });
+  const ordnance = rustOrdnance({ scene, collision: { cast: () => null }, effects: {}, lights: { add() {}, flash() {} }, texture: () => null });
   ordnance.prepare();
   const names = [];
   scene.traverse((o) => names.push(o.name));

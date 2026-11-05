@@ -7,7 +7,7 @@ import { SoldierPresentation } from '../src/soldier-presentation.js';
 import { PlayerCombat } from '../src/combat.js';
 import { Arsenal } from '../src/weapons.js';
 import { Unit } from '../src/units.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { EntitySeats } from '../src/runtime/entity-seats.js';
 import { EntityGameState } from '../src/runtime/network-entity-game.js';
 import { EntityWorldCapture, captureEntityVehicle, captureEntityMount, captureEntityTurret, captureEntitySoldier, tryCapturePlayerCorrection, EntityCaptureUnsupported, ENTITY_VEHICLE_STATES } from '../src/runtime/network-entity-capture.js';

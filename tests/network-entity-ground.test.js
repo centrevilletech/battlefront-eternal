@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import * as THREE from 'three';
 import {fixture} from './flight-fixture.js';
-import {CollisionWorld} from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import {Vehicles} from '../src/vehicles.js';
 import {predictionVehicle} from '../src/runtime/vehicle-prediction.js';
 import {captureGroundCorrection,restoreGroundCorrection,groundCorrectionBytes} from '../src/runtime/network-entity-ground.js';

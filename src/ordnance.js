@@ -52,16 +52,7 @@ import { emitSound } from "./audio/events.js";
 // damage.
 
 const UP = new THREE.Vector3(0, 1, 0);
-const FORWARD = new THREE.Vector3(0, 0, 1);
-const LIMIT = 5000; // m from the origin past which rounds are dropped
-const RESTITUTION = 0.37;
-const FRICTION = 1.5755;
-const SLOW = 1; // m/s
-const SLOW_BOUNCES = 4;
-const MAX_FLIGHT = 20; // s a grenade may fly before it goes off anyway
 const MERGE = 8; // m over which a bolt drawn from the muzzle joins its path
-const FLOOR = -500;
-const FATRAY_RADIUS = 1.5; // m: how fat a fatray round is (the 2004 data sets no width; its TrailEffect is its look)
 const CORE_TAPER = [0.5, 0, 0], GLOW_TAPER = [0.8, 0, 0];
 
 const color01 = (rgba = [255, 255, 255, 255]) => {
@@ -77,15 +68,6 @@ const glowLength = (def) => def.GlowLength ?? (def.LaserLength ? def.LaserLength
 // worker's packet described (src/runtime/replica.js carries no arrays),
 // taken from its definition on first use.
 const lightOf = (round) => round.light || (round.light = color01(round.def?.LightColor));
-// A uniform direction for a grenade's tumble (three's
-// Vector3.randomDirection, its two draws from the world's grenade-spin
-// stream: the angle about y, then the height).
-function spinAxis(out, world) {
-  const theta = world.spin() * Math.PI * 2;
-  const u = world.spin() * 2 - 1;
-  const c = Math.sqrt(1 - u * u);
-  return out.set(c * Math.cos(theta), u, c * Math.sin(theta));
-}
 
 // Short-lived point lights (muzzle flashes, bolts, explosions) on a fixed set
 // of scene lights, so the shaders' light count never changes. Each frame the
@@ -241,113 +223,18 @@ export class Ordnance {
 
   // fire() with the shot's numbers taken out of it.
   fireRound(def, origin, direction, owner, visual, ignoreBody, emitter, channel, targetId, targetGeneration) {
-    if (this.sim) return this.sim.fire(def, origin, direction, owner, visual, ignoreBody, emitter, channel, targetId, targetGeneration);
-    if (def.base === "beam") this.beam(def, origin, direction, owner, ignoreBody, emitter, channel);
-    else if (def.base === "sticky" || def.base === "grenade") this.throw(def, origin, direction, owner, channel);
-    else if (def.base === "bullet" || def.base === "missile" || def.base === "shell") return this.round(def, origin, direction, owner, ignoreBody, channel, targetId, targetGeneration);
-    else if (def.base === "fatray") return this.fatray(def, origin, direction, owner, ignoreBody, channel);
-    else return this.bolt(def, origin, direction, owner, visual, ignoreBody, channel);
+    return this.sim.fire(def, origin, direction, owner, visual, ignoreBody, emitter, channel, targetId, targetGeneration);
   }
 
   // A flyer's missile (vehicles.js fireSeat): steered by its seeker
   // (flight/targeting.js navigateMissile) for the class's missile lifetime
   // at its missile speed. The round's own writes, kept here with the rest.
   flightMissile(round, flightClass, life, speed) {
-    if (this.sim) return this.sim.flightMissile(round, flightClass, life, speed);
-    round.flightMissile = true;
-    round.flightClass = flightClass;
-    round.life = life;
-    round.velocity.normalize().multiplyScalar(speed);
-  }
-
-  // A fat ray (the Geonosian LR1K sonic cannon's round, base fatray): a
-  // thick, slow ball flying straight at Velocity for LifeSpan (the
-  // retail class: 100 m/s for 0.45 s, so 45 m, no gravity, no explosion)
-  // that strikes everyone it passes within FATRAY_RADIUS of, once each,
-  // for Damage by their scale, and stops at the first wall or hull it
-  // meets (struck through its body, as a round). Its TrailEffect
-  // (geo_blunderbuss_blast) is its look.
-  fatray(def, origin, direction, owner, ignoreBody = null, channel = 0) {
-    const dir = direction.clone().normalize();
-    const velocity = dir.clone().multiplyScalar(def.Velocity ?? 100);
-    const round = {
-      kind: "fatray", networkFireChannel:channel, ignoreBody, def, owner, position: origin.clone(), previous: origin.clone(), launchPosition: origin.clone(), velocity,
-      life: def.LifeSpan ?? 0.45, impact: null, mesh: null, dead: false, gravity: 0, ramp: 0, desired: dir.clone(),
-      phase: [0, 0], light: color01(def.LightColor), quaternion: new THREE.Quaternion(), struck: new Set(),
-    };
-    this.orient(round);
-    round.trail = def.TrailEffect ? this.effects.play(def.TrailEffect, origin, null, velocity, round.quaternion) : null;
-    this.rounds.push(round);
-    this.world.projectile(round, "round");
-    return round;
+    return this.sim.flightMissile(round, flightClass, life, speed);
   }
 
   // The fat ray's sweep over one step: every unit whose sphere comes
-  // within FATRAY_RADIUS of the segment flown (as far as the wall it met)
-  // is struck, once over the ray's life.
-  sweepFat(r, direction, span) {
-    if (span <= 0) return;
-    this.mid.copy(r.previous).addScaledVector(direction, span * 0.5);
-    // Soldiers on foot and riders in the open (those with hit shapes), as
-    // the registry's raycast strikes them; vehicles and turrets are met
-    // through their collision bodies on the centre ray.
-    const near = this.world.fatQuery(this.mid, span * 0.5 + FATRAY_RADIUS + 4, r.owner, r.struck, r.ignoreBody);
-    if (!near) return;
-    for (const unit of near) {
-      const s = this.world.unitSphere(unit);
-      if (!s) continue;
-      const t = THREE.MathUtils.clamp(this.axis.subVectors(s.center, r.previous).dot(direction), 0, span);
-      this.start.copy(r.previous).addScaledVector(direction, t);
-      if (this.start.distanceTo(s.center) > s.radius + FATRAY_RADIUS) continue;
-      r.struck.add(unit);
-      this.world.hitUnit(unit, r.def, this.start.lerp(s.center, 0.5), r.owner, null, direction);
-      const effect = this.unitImpactEffect(r.def, unit);
-      if (effect) this.effects.play(effect, this.start);
-    }
-    near.length = 0;
-  }
-
   // A beam persists for LifeSpan and follows its emitting vehicle. Damage
-  // is integrated over that span, so display rate never multiplies it.
-  beam(def, origin, direction, owner, ignoreBody, emitter = null, channel = 0) {
-    const duration = Math.max(.01, def.LifeSpan || .4);
-    const source = emitter ?? owner;
-    const beam = { networkFireChannel:channel, historyTick:this.world.shotTick(owner,channel) ?? null, def, owner, source, ignoreBody, life: duration, duration, effectTime: 0,
-      position: origin.clone(), end: origin.clone(), direction: direction.clone(),
-      localOrigin: this.world.beamLocalOrigin(source, origin),
-      damageDef: { ...def }, axis: [0, 0, 1], color: color01(def.LaserGlowColor) };
-    this.beams.push(beam);this.world.projectile(beam, "beam");
-  }
-
-  stepBeam(beam, dt, draw = true) {
-    const span = Math.min(dt, beam.life);
-    if (this.world.gone(beam.owner) || this.world.gone(beam.source)) { beam.life = 0; return; }
-    if (beam.localOrigin) this.world.beamPose(beam.source, beam.localOrigin, beam.position, beam.direction);
-    const hit = this.world.cast(beam.position, beam.direction, 600, this.hit, beam.ignoreBody);
-    const unitHit = this.castUnits(beam.position, beam.direction, hit ? hit.distance : 600, beam.owner, beam.historyTick, beam.ignoreBody)
-      ?? this.riderBehind(beam.position, beam.direction, hit, 600, beam.owner, beam.historyTick, beam.ignoreBody, false);
-    beam.historyTick=null;
-    const length = unitHit ? unitHit.distance : hit ? hit.distance : 600;
-    beam.end.copy(beam.position).addScaledVector(beam.direction, length);
-    if (unitHit) {
-      beam.damageDef.Damage = (beam.def.Damage || 0) * span / beam.duration;
-      this.world.hitUnit(unitHit.unit, beam.damageDef, beam.end, beam.owner, unitHit.part, beam.direction);
-    } else if (hit?.body) {
-      beam.damageDef.Damage = (beam.def.Damage || 0) * span / beam.duration;
-      this.world.hit(hit.body, beam.damageDef, beam.owner, beam.direction);
-    }
-    beam.effectTime -= dt;
-    // A beam leaves its ImpactEffect wherever it touches, hulls and soldiers
-    // too (OrdnanceBeamClass); an older extract keeps the surface's.
-    if ((hit || unitHit) && beam.effectTime <= 0) {
-      const effect = beam.def.ImpactEffect ?? (unitHit ? null : hit.terrain ? beam.def.ImpactEffectTerrain : beam.def.ImpactEffectStatic);
-      if (effect) this.effects.play(effect, beam.end);
-      beam.effectTime = .12;
-    }
-    beam.life -= dt;
-    if (draw) this.drawBeam(beam);
-  }
-
   drawBeam(beam) {
     beam.color ||= color01(beam.def.LaserGlowColor);
     const length = beam.position.distanceTo(beam.end);
@@ -373,54 +260,6 @@ export class Ordnance {
     this.lights.add(beam.position, beam.color, beam.def.LightRadius || 3);
   }
 
-  // A rocket, missile, or shell: a model flown nose first.
-  round(def, origin, direction, owner, ignoreBody = null, channel = 0, targetId = undefined, targetGeneration = undefined) {
-    const kind = def.base;
-    const bullet = kind === "bullet";
-    const speed = def.Velocity ?? (bullet ? 150 : 35);
-    let life = def.LifeSpan ?? (bullet ? 2 : 3);
-    const dir = direction.clone().normalize();
-    let impact = null;
-    if (bullet) {
-      const hit = this.world.cast(origin, dir, speed * life, this.hit, ignoreBody, true);
-      if (hit) {
-        life = hit.distance / speed;
-        impact = { point: hit.point.clone(), normal: hit.normal.clone(), terrain: hit.terrain, body: hit.body };
-      }
-    }
-    const mesh = this.projectileMesh(def);
-    const velocity = dir.clone().multiplyScalar(speed);
-    const round = {
-      kind,
-      networkFireChannel:channel,
-      ignoreBody,
-      def,
-      owner,
-      position: origin.clone(),
-      previous: origin.clone(),
-      launchPosition: origin.clone(),
-      velocity,
-      life,
-      impact,
-      mesh,
-      dead: false,
-      gravity: kind === "shell" ? -9.8 * (def.Gravity ?? 1) : 0,
-      // Missiles ease into their turning and waver over ScaleTime.
-      ramp: 0,
-      desired: dir.clone(),
-      targetId: targetId ?? -1,
-      targetGeneration: targetGeneration ?? -1,
-      phase: [this.world.waver() * 2 * Math.PI, this.world.waver() * 2 * Math.PI],
-      light: color01(def.LightColor),
-      quaternion: new THREE.Quaternion(),
-    };
-    this.orient(round);
-    round.trail = def.TrailEffect ? this.effects.play(def.TrailEffect, origin, null, velocity, round.quaternion) : null;
-    this.rounds.push(round);
-    this.world.projectile(round, "round");
-    return round;
-  }
-
   // Nose (+z) along the flight, its x across the world's up.
   orient(round) {
     const forward = this.axis.copy(round.velocity).normalize();
@@ -432,93 +271,8 @@ export class Ordnance {
     round.quaternion.setFromRotationMatrix(this.basis.makeBasis(this.right, this.up, forward));
   }
 
-  bolt(def, origin, direction, owner, visual = null, ignoreBody = null, channel = 0) {
-    // A lag-compensated shot meets the others as its shooter saw them
-    // (shotTick), but leaves from where he is: his page predicts his own
-    // body ahead to the tick the press runs on, so that is where he fired
-    // from. Moving the muzzle back to the rewound tick shifted the round by
-    // his own movement over the round trip, off a head at any range.
-    const shotTick=this.world.shotTick(owner,channel);
-    const speed = def.Velocity;
-    let life = def.LifeSpan;
-    let impact = null;
-    const hit = this.world.cast(origin, direction, speed * life, this.hit, ignoreBody, true);
-    if (hit) {
-      life = hit.distance / speed;
-      impact = { point: hit.point.clone(), normal: hit.normal.clone(), terrain: hit.terrain, body: hit.body };
-    }
-    const shooter = this.world.shooter(owner, channel);
-    const bolt = {
-      def,
-      owner,
-      networkFireId:shooter.fireId,
-      networkFireChannel:channel,
-      networkFireUnit:shooter.unit,
-      networkFireGeneration:shooter.generation,
-      ignoreBody,
-      position: origin.clone(),
-      direction: direction.clone().normalize(),
-      speed,
-      life,
-      drawn: 0,
-      flown: 0,
-      // Drawn offset from the true path at the start, shrinking to nothing
-      // by MERGE meters (or the impact, if nearer).
-      offset: visual ? visual.clone().sub(origin) : null,
-      merge: Math.max(Math.min(MERGE, speed * life), 1e-3),
-      impact,
-      glow: color01(def.LaserGlowColor),
-      light: color01(def.LightColor),
-    };
-    this.world.launch(bolt, shotTick);
-    if(shotTick!=null) {
-      // Advance real flight one fixed step at a time. A target beyond speed *
-      // elapsedTime remains unreachable, and unused life/range stays unchanged.
-      let from=shotTick;
-      for(let tick=Math.floor(shotTick)+1;tick<=this.world.historyTick() && bolt.life>0;tick++){this.stepBolt(bolt,(tick-from)/60,false,tick);from=tick;}
-    }
-    if(bolt.life>0)this.bolts.push(bolt);
-    return bolt;
-  }
-
-  throw(def, origin, direction, owner, channel = 0) {
-    const mesh = this.projectileMesh(def);
-    const velocity = direction.clone().normalize().multiplyScalar(def.Velocity);
-    const grenade = {
-      networkFireChannel:channel,
-      def,
-      owner,
-      position: origin.clone(),
-      previous: origin.clone(),
-      launchPosition: origin.clone(),
-      velocity,
-      gravity: -9.8 * (def.Gravity ?? 1),
-      slow: 0,
-      resting: false,
-      flight: 0,
-      fuse: null,
-      mesh,
-      spin: spinAxis(new THREE.Vector3(), this.world),
-      quaternion: mesh?.quaternion.clone() ?? new THREE.Quaternion(),
-      trail: def.TrailEffect ? this.effects.play(def.TrailEffect, origin, UP, velocity) : null,
-      light: color01(def.LightColor),
-    };
-    this.grenades.push(grenade);this.world.projectile(grenade, "grenade");
-  }
-
-  update(dt, draw = true) {
-    // A world's rounds on the module: nothing to draw there.
-    if (this.sim) return this.sim.update(dt);
-    if (draw) this.renderer.begin();
-    for (const beam of this.beams) this.stepBeam(beam, dt, draw);
-    this.beams = this.beams.filter(b => b.life > 0);
-    for (const bolt of this.bolts) this.stepBolt(bolt, dt, draw);
-    this.bolts = this.bolts.filter((b) => b.life > 0);
-    for (const grenade of this.grenades) this.stepGrenade(grenade, dt);
-    this.grenades = this.grenades.filter((g) => !g.gone);
-    for (const round of this.rounds) this.stepRound(round, dt);
-    this.rounds = this.rounds.filter((r) => !r.gone);
-    if (draw) this.renderer.end();
+  update(dt) {
+    return this.sim.update(dt);
   }
 
   clearProjectilePresentation() {
@@ -585,183 +339,7 @@ export class Ordnance {
     this.renderer.end();
   }
 
-  stepRound(r, dt) {
-    const def = r.def;
-    // Life ran out at the point the spawn ray found: the impact, a frame on.
-    if (r.dead) {
-      if (r.impact) this.impactAt(r, r.impact.point, r.impact.normal, r.impact.terrain, r.impact.body);
-      this.remove(r);
-      return;
-    }
-    if (r.kind === "shell") r.velocity.y += r.gravity * dt;
-    if (r.kind === "missile") this.steer(r, dt);
-    r.previous.copy(r.position);
-    r.position.addScaledVector(r.velocity, Math.min(dt, r.life));
-    r.life -= dt;
-    if (r.position.y < FLOOR || Math.abs(r.position.x) > LIMIT || Math.abs(r.position.z) > LIMIT) {
-      this.remove(r);
-      return;
-    }
-    // Everything meets water coming down through it.
-    if (this.world.waterCrossing(r.previous, r.position, this.wet)) {
-      this.water.ripple(this.wet, 1.5, 0.01);
-      emitSound("splash", def, this.wet);
-      const name = def.ImpactEffectWater ?? "watersplash_ord";
-      if (name) this.effects.play(name, this.wet);
-      if (def.ExplosionImpact) this.world.explosion(def.ExplosionImpact, this.mid.copy(this.wet).addScaledVector(UP, 0.2), r.owner);
-      this.remove(r);
-      return;
-    }
-    // Curved rounds test all geometry; straight rounds test moving bodies
-    // over each segment in addition to their cached static impact.
-    {
-      const ray = this.ray.subVectors(r.position, r.previous);
-      const length = ray.length();
-      if (length > 1e-6) {
-        const hit = r.kind === "bullet"
-          ? this.world.castMoving(r.previous, ray.divideScalar(length), length, this.hit, r.ignoreBody)
-          : this.world.cast(r.previous, ray.divideScalar(length), length, this.hit, r.ignoreBody);
-        if (r.kind === "fatray") this.sweepFat(r, ray, hit ? hit.distance : length);
-        const unitHit = r.kind === "fatray" ? null : this.castUnits(r.previous, ray, hit ? hit.distance : length, r.owner, null, r.ignoreBody)
-          ?? this.riderBehind(r.previous, ray, hit, r.kind === "bullet" ? length + Math.max(r.life, 0) * r.velocity.length() : Infinity, r.owner, null, r.ignoreBody, r.kind === "bullet");
-        if (unitHit) {
-          this.impactAt(r, unitHit.point, unitHit.normal, false, null, unitHit.unit, unitHit.part);
-          this.remove(r);
-          return;
-        }
-        if (hit) {
-          this.impactAt(r, hit.point, hit.normal, hit.terrain, hit.body);
-          this.remove(r);
-          return;
-        }
-      }
-    }
-    if (r.life <= 0) {
-      if (def.ExplosionExpire) this.world.explosion(def.ExplosionExpire, r.position, r.owner);
-      if (r.trail) r.trail.stop();
-      r.trail = null;
-      if (r.mesh) r.mesh.visible = false;
-      if (r.impact) r.dead = true;
-      else this.remove(r);
-      return;
-    }
-    this.orient(r);
-    if (r.mesh) {
-      r.mesh.position.copy(r.position);
-      r.mesh.quaternion.copy(r.quaternion);
-    }
-    if (r.trail) r.trail.move(r.position, r.quaternion, r.velocity);
-    this.lights.add(this.mid.addVectors(r.previous, r.position).multiplyScalar(0.5), lightOf(r), def.LightRadius || 0);
-  }
-
-  // A missile turns toward where it wants to go at TurnRate (no target: the
-  // way it was fired) and wavers by WaverTurn, both eased in over ScaleTime.
-  steer(r, dt) {
-    const def = r.def;
-    if (r.flightMissile) { r.targetId = this.world.navigateMissile(r.position, r.velocity, r.flightClass, r.targetId, r.targetGeneration, dt); return; }
-    if (this.world.missileTarget(r.targetId, r.targetGeneration, this.mid)) {
-      r.desired.subVectors(this.mid, r.position).normalize();
-    } else if (r.targetId >= 0) {
-      r.targetId = -1;
-    }
-    r.ramp = Math.min(r.ramp + dt / (def.ScaleTime || 1), 1);
-    const v = r.velocity;
-    const speed = v.length();
-    if (speed < 1e-6) return;
-    const forward = this.up.copy(v).divideScalar(speed);
-    const turn = (def.TurnRate ?? 1) * r.ramp;
-    if (turn > 0) {
-      const axis = this.axis.crossVectors(forward, r.desired);
-      const sine = axis.length();
-      if (sine * sine > 1e-8) v.applyAxisAngle(axis.divideScalar(sine), Math.min(sine, turn * dt));
-    }
-    const amp = (def.WaverTurn || 0) * r.ramp;
-    if (amp > 0) {
-      this.right.crossVectors(UP, forward).normalize();
-      const up = this.start.crossVectors(forward, this.right);
-      const w = this.axis.copy(up).multiplyScalar(Math.sin(r.phase[1])).addScaledVector(this.right, Math.sin(r.phase[0]));
-      const size = w.length();
-      if (size > 1e-6) v.applyAxisAngle(w.divideScalar(size), amp * dt * size);
-      r.phase[0] += this.world.waver() * 2 * (def.WaverRate || 0) * dt;
-      r.phase[1] += this.world.waver() * 2 * (def.WaverRate || 0) * dt;
-    }
-  }
-
   // What hit: its impact effect where it hit, then ExplosionImpact just off
-  // the surface.
-  impactAt(r, point, normal, terrain, body = null, unit = null, part = null) {
-    const def = r.def;
-    this.world.impact(r, { point, normal, surface: unit ? (this.world.isDroid(unit) ? 3 : 2) : terrain ? 0 : 1 });
-    emitSound("impact", def, point, terrain, body);
-    this.axis.copy(r.velocity).normalize();
-    if (body) this.world.hit(body, def, r.owner, this.axis);
-    if (unit) this.world.hitUnit(unit, def, point, r.owner, part, this.axis);
-    this.lights.add(this.mid.copy(point).addScaledVector(normal, 0.5), lightOf(r), def.LightRadius || 0);
-    const name = unit ? this.unitImpactEffect(def, unit) : terrain ? def.ImpactEffectTerrain ?? "dirtspray" : def.ImpactEffectStatic;
-    if (name) this.effects.play(name, point);
-    if (def.ExplosionImpact) this.world.explosion(def.ExplosionImpact, this.mid.copy(point).addScaledVector(normal, 0.2), r.owner);
-  }
-
-  remove(r) {
-    r.gone = true;
-    if (r.mesh) this.scene.remove(r.mesh);
-    if (r.trail) r.trail.stop();
-  }
-
-  stepBolt(bolt, dt, draw = true, historyTick = null) {
-    bolt.previousFlown = bolt.flown; bolt.previousDrawn = bolt.drawn;
-    const def = bolt.def;
-    const step = Math.min(dt, bolt.life);
-    this.start.copy(bolt.position);
-    bolt.position.addScaledVector(bolt.direction, bolt.speed * step);
-    const movingHit = this.world.castMoving(this.start, bolt.direction, bolt.speed * step, this.hit, bolt.ignoreBody);
-    const unitHit = this.castUnits(this.start, bolt.direction, movingHit ? movingHit.distance : bolt.speed * step, bolt.owner, historyTick, bolt.ignoreBody)
-      ?? this.riderBehind(this.start, bolt.direction, movingHit, bolt.speed * bolt.life, bolt.owner, historyTick, bolt.ignoreBody, true);
-    if (unitHit) {
-      bolt.position.copy(unitHit.point);
-      bolt.life = 0;
-      bolt.impact = { point: unitHit.point.clone(), normal: unitHit.normal.clone(), terrain: false, body: null, unit: unitHit.unit, part: unitHit.part };
-    } else if (movingHit) {
-      bolt.position.copy(movingHit.point);
-      bolt.life = 0;
-      bolt.impact = { point: movingHit.point.clone(), normal: movingHit.normal.clone(), terrain: false, body: movingHit.body };
-    }
-    // Water stops a bolt where it goes in, with a ring and a splash.
-    if (bolt.life > 0 && this.world.waterCrossing(this.start, bolt.position, this.wet)) {
-      this.water.ripple(this.wet, 1.5, 0.01);
-      emitSound("splash", def, this.wet);
-      const name = def.ImpactEffectWater ?? "watersplash_ord";
-      if (name) this.effects.play(name, this.wet);
-      bolt.life = 0;
-      this.world.impact(bolt, { point: this.wet.clone(), normal: UP.clone(), surface: 4 });
-      bolt.impact = null;
-      return;
-    }
-    bolt.flown += bolt.speed * step;
-    bolt.drawn = Math.min(bolt.drawn + bolt.speed * dt, Math.max(def.LaserLength || 1, glowLength(def), def.BlurLength || 0));
-    bolt.life -= dt;
-    if (bolt.life <= 0) {
-      this.world.impact(bolt, bolt.impact ? { ...bolt.impact, surface: bolt.impact.unit ? (this.world.isDroid(bolt.impact.unit) ? 3 : 2) : bolt.impact.terrain ? 0 : 1 } : { point: bolt.position, normal: UP, surface: 5 });
-      if (bolt.impact) {
-        emitSound("impact", def, bolt.impact.point, bolt.impact.terrain, bolt.impact.body);
-        const name = bolt.impact.unit ? this.unitImpactEffect(def, bolt.impact.unit)
-          : bolt.impact.terrain ? def.ImpactEffectTerrain : def.ImpactEffectStatic || def.ImpactEffectTerrain;
-        if (name) this.effects.play(name, bolt.impact.point);
-        if (bolt.impact.body) this.world.hit(bolt.impact.body, def, bolt.owner, bolt.direction);
-        if (bolt.impact.unit) this.world.hitUnit(bolt.impact.unit, def, bolt.impact.point, bolt.owner, bolt.impact.part, bolt.direction);
-        // A bolt with an explosion (the orbital strike's) sets it off there.
-        if (def.ExplosionImpact) this.world.explosion(def.ExplosionImpact, this.mid.copy(bolt.impact.point).addScaledVector(bolt.impact.normal, 0.2), bolt.owner);
-        bolt.impact = null;
-      } else if (def.ExplosionExpire) {
-        // A bolt that bursts at the end of its flight (the AAA turret's flak):
-        // its position has flown with it.
-        this.world.explosion(def.ExplosionExpire, bolt.position, bolt.owner);
-      }
-      return;
-    }
-    if (draw) this.drawBolt(bolt);
-  }
-
   drawBolt(source, alpha = 1, clockTick = null) {
     const bolt = this.visualBolt ||= {};
     const linear=source.networkFlightTick!==undefined;
@@ -902,82 +480,7 @@ export class Ordnance {
     return length;
   }
 
-  stepGrenade(g, dt) {
-    const def = g.def;
-    g.flight += dt;
-    if (!g.resting) {
-      if (g.sinking) g.velocity.set(0, -0.2, 0);
-      else g.velocity.y += g.gravity * dt;
-      g.previous.copy(g.position);
-      g.position.addScaledVector(g.velocity, dt);
-      // Into the water: a ring and a splash, then it sinks at 0.2 m/s with
-      // its fuse running.
-      if (!g.sinking && this.world.waterCrossing(g.previous, g.position, this.wet)) {
-        g.sinking = true;
-        g.velocity.set(0, -0.2, 0);
-        this.water.ripple(this.wet, 1.5, 0.01);
-        emitSound("splash", def, this.wet);
-        const name = def.ImpactEffectWater ?? "watersplash_ord";
-        if (name) this.effects.play(name, this.wet);
-        if (g.fuse === null) g.fuse = def.LifeSpan || 0;
-      }
-      this.bounce(g);
-      g.quaternion.multiply(this.grenadeTurn.setFromAxisAngle(g.spin, g.velocity.length() * dt * 2));
-      if (g.mesh) g.mesh.quaternion.copy(g.quaternion);
-    }
-    if (g.resting && g.fuse === null) g.fuse = def.LifeSpan || 0;
-    if (g.fuse !== null) g.fuse -= dt;
-    if (g.mesh) g.mesh.position.copy(g.position);
-    if (g.trail) g.trail.move(g.position, null, g.velocity);
-    this.lights.add(g.position, lightOf(g), def.LightRadius || 0);
-    if ((g.fuse !== null && g.fuse <= 0) || g.flight > MAX_FLIGHT || g.position.y < FLOOR) this.explode(g);
-  }
-
-  // Sweep from just behind where the grenade was to just past where it is.
-  bounce(g) {
-    const ray = this.ray.subVectors(g.position, g.previous);
-    const length = ray.length();
-    if (length < 1e-6) return;
-    ray.divideScalar(length);
-    this.start.copy(g.previous).addScaledVector(ray, -0.1);
-    const hit = this.world.cast(this.start, ray, length + 0.3, this.hit);
-    if (!hit) return;
-    const n = hit.normal;
-    const v = g.velocity;
-    const d = v.dot(n);
-    if (d >= 0) return;
-    g.position.copy(hit.point).addScaledVector(n, 0.1);
-    this.world.bounce(g.def, g.position, -d);
-    if (!g.touched) {
-      g.touched = true;
-      this.world.grenadeContact(g);
-    }
-    if (this.sticks(g.def, hit)) {
-      v.set(0, 0, 0);
-      g.resting = true;
-      return;
-    }
-    v.addScaledVector(n, -d);
-    const along = v.length();
-    if (along > 0) v.multiplyScalar(Math.max(along - Math.min(FRICTION * -d, along), 0) / along);
-    v.addScaledVector(n, RESTITUTION * -d);
-    if (v.length() < SLOW && ++g.slow >= SLOW_BOUNCES) {
-      v.set(0, 0, 0);
-      g.resting = true;
-    }
-  }
-
   // Sticky ordnance holds onto the kinds of thing its Stick* properties name.
-  sticks(def, hit) {
-    return hit.terrain ? def.StickTerrain > 0 : def.StickBuilding > 0;
-  }
-
-  explode(g) {
-    g.gone = true;
-    if (g.mesh) this.scene.remove(g.mesh);
-    if (g.trail) g.trail.stop();
-    if (g.def.ExplosionExpire) this.world.explosion(g.def.ExplosionExpire, g.position, g.owner);
-  }
 
   // The first unit a segment meets, other than the round's owner (and any
   // the battle's rules exclude), within `far`: soldiers on foot, bodies

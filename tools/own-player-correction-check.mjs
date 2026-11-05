@@ -1,8 +1,6 @@
 // Owned-content functional correction/replay proof. Does not measure transport,
 // rendering performance or player capacity; no retail data is emitted.
-// BFE_MOVEMENT=wasm runs the soldiers' movement in WebAssembly (?movement=wasm);
-// the digests of the authoritative packet and of every replayed tick must
-// then come out as without it.
+// Soldiers always use the required Rust movement kernel.
 import assert from 'node:assert/strict';import {createHash} from 'node:crypto';import {readFile} from 'node:fs/promises';import {resolve,sep} from 'node:path';import {execFileSync} from 'node:child_process';
 import {createGame} from '../src/game.js';import {createMultiplayerWorld} from '../src/runtime/multiplayer-world.js';
 import {captureOwnPlayer,applyOwnPlayer} from '../src/runtime/network-entity-player.js';
@@ -11,8 +9,8 @@ const SOLDIER_REPLAY_SCHEMA=6;
 import {captureCompactFlight as captureFlightCorrection} from '../src/runtime/network-entity-flight-compact.js';import {predictionVehicle} from '../src/runtime/vehicle-prediction.js';
 import {captureCompactSoldier,restoreCompactSoldier} from '../src/runtime/network-entity-soldier-compact.js';import {encodeEntityPacket,decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
 const root=resolve(process.env.BFE_DATA_DIR||'public');globalThis.fetch=async path=>{const file=resolve(root,`.${path}`);assert.ok(file.startsWith(root+sep));try{return new Response(await readFile(file));}catch(e){if(e.code==='ENOENT')return new Response('',{status:404});throw e;}};
-const movement=process.env.BFE_MOVEMENT==='wasm';
-const game=await createGame({headless:true,query:`?map=bes1&side=all&ai=classic&seed=1${movement?'&movement=wasm':''}`}),world=createMultiplayerWorld(game,{armySize:1});
+const movement=true;
+const game=await createGame({headless:true,query:`?map=bes1&side=all&ai=classic&seed=1`}),world=createMultiplayerWorld(game,{armySize:1});
 assert.equal(Boolean(game.collision.movement),movement,'movement kernel as asked');
 const infantryDigest=createHash('sha1'),flightDigest=createHash('sha1');
 const className=game.spawnPort.roster(1).find(c=>/sniper|marksman|scout/i.test(c.className))?.className;assert.ok(className);

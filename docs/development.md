@@ -1,5 +1,8 @@
 # Development and playtesting
 
+
+Collision queries, soldier movement, world rounds and items require the Rust simulation module on the page, local world worker and dedicated server. Module failures stop startup or the query. The former `sim`, `rays` and `movement` query parameters and `BFE_SIM` / `BFE_RAYS` environment controls have been removed. Historical measurements below describe the builds measured at the time; compare current builds against recorded fingerprints with `world-hash-matrix.mjs --against`, rather than selecting an old implementation at runtime.
+
 Developer setup, controls and implementation notes for Battlefront Eternal.
 For the project overview and roadmap, see the [README](../README.md).
 
@@ -219,8 +222,9 @@ The original game, its code, and its assets remain the property of their rights 
 
 Three parts of the engine are written in Rust and compiled to WebAssembly, in the Cargo workspace under `rust/`:
 
-- `rust/sim`, the simulation's module (`bfe_sim`, [docs/sim-store.md](sim-store.md)), committed as base64 in `src/sim-wasm.js`, which the world worker, the page and the dedicated server load as a JavaScript import (`src/sim/module.js`), one instance a battle. It holds the collision's ray kernel (`?rays=wasm`; [docs/performance.md](performance.md), "The collision's rays in WebAssembly"), the soldiers' movement (`?movement=wasm`; "The soldiers' movement in WebAssembly" there), the page's pose sampler (on by default; `?anim=js` keeps the JavaScript: the clip blending of `src/anim.js`'s `Pose`; a headless world keeps the JavaScript, so its ticks cannot change), and the entity store and bridge the port of the world's simulation builds on.
+- `rust/sim`, the simulation's module (`bfe_sim`, [docs/sim-store.md](sim-store.md)), committed as base64 in `src/sim-wasm.js`, which the world worker, the page and the dedicated server load as a JavaScript import (`src/sim/module.js`), one instance a battle. It holds the collision's ray kernel (required; [docs/performance.md](performance.md), "The collision's rays in WebAssembly"), the soldiers' movement (required; "The soldiers' movement in WebAssembly" there), the page's pose sampler (on by default; `?anim=js` keeps the JavaScript: the clip blending of `src/anim.js`'s `Pose`; a headless world keeps the JavaScript, so its ticks cannot change), and the entity store and bridge the port of the world's simulation builds on.
 - `rust/audio`, the required audio output engine and loudness meter, committed as base64 in `src/audio-dsp-wasm.js`. The page sends decoded PCM and timed commands; a thin worklet calls one Rust render quantum and copies the finished samples. Playback, mixing, filtering, resampling, convolution and both master chains run in Rust, with no alternate browser or JavaScript DSP path. Synthetic recorded-render and component goldens run in CI and Chromium offline; live contexts are required for CPU measurements. Host FLAC/Opus decoding remains behind `src/audio/decode.js` for asset I/O until the separate decoder branch.
+
 - `rust/bfe-render`, the default battle renderer (`?rustOff` disables drawing for developer comparisons), committed as wasm-bindgen's output in `src/rust-pkg/`: an ES module and the `.wasm` it fetches, which Vite bundles as an asset. The desktop app serves it from its archive as `application/wasm`; the dedicated server's copy of the engine leaves it out.
 
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.

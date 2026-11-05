@@ -1,7 +1,6 @@
 import { loadRustRenderer } from "./rust-render/load.js";
 import * as THREE from "three";
-import { FXAAFastShader, FXAAShader } from "./fxaa.js";
-import { Bloom, applyValues, fullScreenPass } from "./render-passes.js";
+import { Bloom, applyValues, fullScreenPass, ownedFullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
 import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
 import { CascadeWindow, planCascades } from "./shadow-cascades.js";
@@ -263,47 +262,10 @@ export class Graphics {
       this.rustReady = loadRustRenderer(this, location.search).then((rust) => { this.rust = rust; })
         .catch((error) => console.warn("Rust renderer unavailable:", error));
     }
-    this.downsample = fullScreenPass(
-      /* glsl */ `
-        uniform sampler2D map;
-        varying vec2 vUv;
-        void main() { gl_FragColor = texture2D(map, vUv); }
-      `,
+    this.downsample = ownedFullScreenPass("post-hud/copy",
       { map: { value: this.sceneTarget.texture } },
     );
-    this.composite = fullScreenPass(
-      /* glsl */ `
-        uniform sampler2D map;
-        uniform sampler2D blurred;
-        uniform sampler2D glow;
-        uniform float blend;
-        uniform float bloomStrength;
-        uniform float speedBlur;
-        uniform float speedTurn;
-        varying vec2 vUv;
-        // Every read but the first sits behind a switch. Explicit levels (the
-        // targets have one each) keep them there on Direct3D, whose compiler
-        // otherwise hoists or flattens implicit-gradient reads: a plain frame
-        // would pay for the blur, the glow and five motion-blur taps.
-        void main() {
-          vec3 sharp = texture2D(map, vUv).rgb;
-          vec3 color = sharp;
-          if (blend > 0.0) color = mix(color, textureLod(blurred, vUv, 0.0).rgb, blend);
-          if (speedBlur > 0.0001) {
-            vec2 radial = vUv - vec2(0.5);
-            float iris = smoothstep(0.16, 0.62, length(radial));
-            vec2 streak = (radial + vec2(speedTurn * 0.12, 0.0)) * speedBlur * iris;
-            vec3 trail = sharp;
-            for (int i = 1; i < 6; i++) {
-              vec2 uv = clamp(vUv - streak * (float(i) / 5.0), vec2(0.001), vec2(0.999));
-              trail += textureLod(map, uv, 0.0).rgb;
-            }
-            color = mix(color, trail / 6.0, iris * 0.85);
-          }
-          if (bloomStrength > 0.0) color += textureLod(glow, vUv, 0.0).rgb * bloomStrength * (1.0 - color);
-          gl_FragColor = vec4(color, 1.0);
-        }
-      `,
+    this.composite = ownedFullScreenPass("post-hud/composite",
       {
         map: { value: this.sceneTarget.texture }, blurred: { value: this.quarterTarget.texture },
         blend: { value: 0 }, glow: { value: null }, bloomStrength: { value: 0 },
@@ -322,7 +284,7 @@ export class Graphics {
     this.outputSize = new THREE.Vector2(1, 1);
     this.renderScale = 1;
     this.upscaling = "off";
-    this.fxaa = fullScreenPass(FXAAShader.fragmentShader, THREE.UniformsUtils.clone(FXAAShader.uniforms), FXAAShader.vertexShader);
+    this.fxaa = ownedFullScreenPass("post-hud/fxaa", { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1 / 1024, 1 / 512) } });
     this.fxaa.material.uniforms.tDiffuse.value = this.postTarget.texture;
     // Made when first used (fastFxaa): three's objects draw their IDs from
     // Math.random, and seeded layouts (flower beds) follow the draws.
@@ -839,17 +801,20 @@ export class Graphics {
       const light = csm.lights[i], window = this.cascadeWindows[i], live = this.shadowMaps[i], cache = this.shadowCaches[i];
       if (plan[i].static) {
         light.shadow.map = cache;
-        renderShadows([light], scene, staticCamera);
+        // The Rust renderer's shadow pass draws it when it can (rust-render/shadow.js).
+        if (!this.rust?.coverShadow(renderer, light, scene, staticCamera, null)) renderShadows([light], scene, staticCamera);
         light.shadow.map = live;
         window.dirty = false;
         this.shadowPasses.static++;
       }
       if (plan[i].dynamic) {
-        renderer.clear = () => this.copyDepth(cache, live);
-        try {
-          renderShadows([light], scene, dynamicCamera);
-        } finally {
-          renderer.clear = clear;
+        if (!this.rust?.coverShadow(renderer, light, scene, dynamicCamera, cache)) {
+          renderer.clear = () => this.copyDepth(cache, live);
+          try {
+            renderShadows([light], scene, dynamicCamera);
+          } finally {
+            renderer.clear = clear;
+          }
         }
         this.shadowPasses.dynamic++;
       }
@@ -1096,10 +1061,10 @@ export class Graphics {
     renderer.render(step.pass, step.camera);
   }
 
-  // FXAA (FAST)'s pass (fxaa.js), at the 3D frame's resolution.
+  // The owned fast FXAA pass, at the 3D frame's resolution.
   fastFxaa() {
     if (!this.fxaaFast) {
-      this.fxaaFast = fullScreenPass(FXAAFastShader.fragmentShader, THREE.UniformsUtils.clone(FXAAFastShader.uniforms), FXAAFastShader.vertexShader);
+      this.fxaaFast = ownedFullScreenPass("post-hud/fxaa-fast", { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1 / 1024, 1 / 512) } });
       this.fxaaFast.material.uniforms.resolution.value.copy(this.fxaa.material.uniforms.resolution.value);
     }
     return this.fxaaFast;

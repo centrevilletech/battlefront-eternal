@@ -29,6 +29,10 @@ pub const UNIT_LAYERS: u32 = 6; // layerMap0..7: 6..13
 // sampler3D: effects.rs). 22 and 23 are free.
 pub const UNIT_CASCADES: u32 = 16;
 pub const UNIT_LAMPS: u32 = 20;
+// WebGL's own unpack flags (glow has no names for them): three leaves them as
+// its last texture upload set them.
+pub const UNPACK_FLIP_Y_WEBGL: u32 = 0x9240;
+pub const UNPACK_PREMULTIPLY_ALPHA_WEBGL: u32 = 0x9241;
 pub const UNIT_FLAME_NOISE: u32 = 21;
 pub const UNITS: usize = 24;
 const SAMPLERS: &[(&str, u32)] = &[("map", UNIT_MAP), ("farMap", UNIT_FAR), ("bumpMap", UNIT_BUMP), ("boneTexture", UNIT_BONES), ("bfeInstances", UNIT_INSTANCES),
@@ -67,11 +71,13 @@ pub const PASS_VIEW: usize = 7;
 pub const PASS_POST: usize = 8;
 pub const PASS_HUD: usize = 9;
 pub const PASS_WATER: usize = 10;
-// 11 is the shadow pass's (registry); 12 the temporal upscaler's motion
-// (motion.rs), 13 the Enhanced tree canopies (canopies.rs).
+// The Enhanced passes: the shadow cascades (shadow.rs), the temporal
+// upscaler's motion (motion.rs), the Enhanced tree canopies (canopies.rs).
+pub const PASS_SHADOW: usize = 11;
 pub const PASS_MOTION: usize = 12;
 pub const PASS_CANOPIES: usize = 13;
-pub const PASSES: usize = 14;
+pub const PASS_SCREEN: usize = 14;
+pub const PASSES: usize = 15;
 
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).
 pub trait MultiDraw {
@@ -336,6 +342,7 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub gl: C,
     pub(crate) multi: M,
     pub(crate) programs: Vec<Program<C>>,
+    pub(crate) owned_programs: Vec<(String, u32)>,
     pub(crate) geometries: Vec<Geometry<C>>,
     pub(crate) textures: Vec<C::Texture>,
     pub(crate) far_map: Option<C::Texture>,
@@ -402,7 +409,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         let lamp_texture = upload_texture(&gl, 1, 1);
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         Core {
-            gl, multi, programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
+            gl, multi, programs: vec![], owned_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
             input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![],
@@ -554,6 +561,64 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         geo.index_count = data.len() as i32 / geo.index_bytes;
     }
 
+    // A geometry's vertex buffer (its slot) or index given new contents, for
+    // a geometry the page rewrites (the crowd's shadow mesh as its soldiers
+    // come and go). Its layout stays as made.
+    pub fn geometry_buffer_data(&mut self, g: u32, slot: u32, data: &[u8]) {
+        let gl = &self.gl;
+        let geo = &self.geometries[g as usize];
+        unsafe {
+            gl.bind_vertex_array(None);
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(geo.buffers[slot as usize]));
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, data, glow::DYNAMIC_DRAW);
+            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+        }
+        self.stats.gl_calls += 4;
+    }
+
+    // The index's (the last buffer) new contents; its count follows.
+    pub fn geometry_index_data(&mut self, g: u32, data: &[u8]) {
+        let gl = &self.gl;
+        let geo = &mut self.geometries[g as usize];
+        let Some(&index) = geo.buffers.last() else { return };
+        unsafe {
+            gl.bind_vertex_array(Some(geo.vao));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index));
+            gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, data, glow::DYNAMIC_DRAW);
+            gl.bind_vertex_array(None);
+        }
+        geo.index_count = data.len() as i32 / geo.index_bytes;
+        self.stats.gl_calls += 4;
+    }
+
+    // Part of a geometry's vertex buffer (its slot) or index given new
+    // contents at a byte offset, as three sends an attribute's update ranges
+    // (bufferSubData: the buffer keeps its size and its other contents).
+    pub fn geometry_buffer_sub_data(&mut self, g: u32, slot: u32, offset: i32, data: &[u8]) {
+        let gl = &self.gl;
+        let geo = &self.geometries[g as usize];
+        unsafe {
+            gl.bind_vertex_array(None);
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(geo.buffers[slot as usize]));
+            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, offset, data);
+            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+        }
+        self.stats.gl_calls += 4;
+    }
+
+    pub fn geometry_index_sub_data(&mut self, g: u32, offset: i32, data: &[u8]) {
+        let gl = &self.gl;
+        let geo = &self.geometries[g as usize];
+        let Some(&index) = geo.buffers.last() else { return };
+        unsafe {
+            gl.bind_vertex_array(Some(geo.vao));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index));
+            gl.buffer_sub_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, offset, data);
+            gl.bind_vertex_array(None);
+        }
+        self.stats.gl_calls += 4;
+    }
+
     pub fn geometry_group(&mut self, g: u32, start: i32, count: i32) {
         self.geometries[g as usize].groups.push((start, count));
     }
@@ -697,11 +762,12 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
                 // table is addressed by source index, so keep its row order.
                 self.gl.pixel_store_bool(0x9240, false); // UNPACK_FLIP_Y_WEBGL
                 self.gl.pixel_store_bool(0x9241, false); // UNPACK_PREMULTIPLY_ALPHA_WEBGL
+
                 self.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
                 self.gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA32F as i32, LAMP_TABLE_WIDTH as i32, rows as i32, 0, glow::RGBA, glow::FLOAT,
                     glow::PixelUnpackData::Slice(Some(bytes(&data))));
             }
-            self.stats.gl_calls += 1;
+            self.stats.gl_calls += 4;
             self.lamps_dirty = false;
         }
     }

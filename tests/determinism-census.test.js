@@ -213,7 +213,7 @@ test('a world step reads no clock and draws no Math.random but three.js\'s objec
   t.after(() => tapLegacyRandom(untap));
   const { headlessGame } = await import('../tools/headless-world.mjs');
   const { createLocalServer } = await import('../src/runtime/local-server.js');
-  const game = await headlessGame('?map=tat1&side=all&era=gcw&ai=classic&seed=2&rays=js&movement=js');
+  const game = await headlessGame('?map=tat1&side=all&era=gcw&ai=classic&seed=2');
   const server = await createLocalServer(game);
   server.welcome();
   for (const [object, method, label] of [[server.world, 'step', 'step'], [server.host, 'publish', 'publish']]) {

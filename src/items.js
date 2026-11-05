@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { blastDamage, blastDistance } from "./ordnance.js";
 import { ItemsWorld } from "./ordnance-world.js";
 
 // Things lying about: mines and power-ups, thrown by dispensers or dropped by
@@ -41,11 +40,7 @@ import { ItemsWorld } from "./ordnance-world.js";
 
 const GRAVITY = 9.8;
 const HARD = 1; // m/s into a surface that bounces rather than settles
-const PICKUP_DELAY = 0.5; // s a flying item can't be taken
-const FLOOR = -500;
 export const MINE_SINK = 0.2; // m/s
-const SOLDIER_RADIUS = 0.35; // m, the soldier's body for pickups
-const SOLDIER_HEIGHT = 1.55; // m
 const POOLS = { powerupitem: 25, mine: 50 };
 const AMOUNTS = {
   person: ["PersonHealth", "PersonAmmo"],
@@ -144,20 +139,7 @@ export class Items {
 
   // A new item, unless the world has no room for its kind. Returns it or null.
   spawn(def, position, velocity, yaw, { owner = null, team = 0 } = {}) {
-    if (this.sim) return this.sim.spawn(def, position, velocity, yaw, { owner, team });
-    const live = this.items.filter((item) => item.def.base === def.base).length;
-    if (live >= (this.pools[def.base] ?? Infinity)) return null;
-    const model = this.world.model(def);
-    const item = Object.assign(this.itemState(def, model.mesh, position, velocity, yaw, model.radius, model.center), {
-      owner,
-      team,
-      age: 0,
-      life: def.LifeSpan ?? Infinity,
-      health: def.MaxHealth ?? Infinity,
-    });
-    this.place(item);
-    this.items.push(item);
-    return item;
+    return this.sim.spawn(def, position, velocity, yaw, { owner, team });
   }
 
   // A dispenser's throw. An owner already with maxItems of this weapon's
@@ -171,109 +153,32 @@ export class Items {
   }
 
   dispense(weapon, maxItems, def, position, velocity, yaw, owner, team) {
-    if (this.sim) return this.sim.dispense(weapon, maxItems, def, position, velocity, yaw, owner, team);
-    const key = `${weapon}:${this.world.ownerKey(owner)}`;
-    const list = (this.owned.get(key) || []).filter((item) => !item.gone);
-    if (maxItems > 0 && list.length >= maxItems) this.destroy(list.shift());
-    const item = this.spawn(def, position, velocity, yaw, { owner, team });
-    if (item) list.push(item);
-    this.owned.set(key, list);
-    return item;
+    return this.sim.dispense(weapon, maxItems, def, position, velocity, yaw, owner, team);
   }
 
   // A soldier's drop at death: one roll down the class's drop list.
   dropFor(drops, classes, position, velocity, yaw) {
-    if (this.sim) return this.sim.dropFor(drops, classes, position, velocity, yaw);
-    let r = this.world.dropRoll();
-    for (const drop of drops || []) {
-      r -= drop.probability ?? 0;
-      if (r >= 0) continue;
-      const def = classes[drop.class];
-      if (!def) return null;
-      // Thrown out to the soldier's side at 3 m/s, unless he was moving
-      // faster than that.
-      const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
-      const out = speed > 3 ? velocity.clone() : new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)).multiplyScalar(3);
-      return this.spawn(def, position, out, yaw);
-    }
-    return null;
-  }
-
-  // Gone without a blast: a mine pops (ExplosionDeath), a power-up vanishes.
-  destroy(item) {
-    if (item.gone) return;
-    // Gone before its blast: that blast reaches the mines beside it, whose
-    // own blasts reach back here, and a mine that is already gone ends the
-    // chain instead of the two setting each other off without end.
-    this.remove(item);
-    if (item.mine && item.def.ExplosionDeath && typeof item.def.ExplosionDeath === "object") {
-      this.world.explode(item.def.ExplosionDeath, item.position.clone(), item.owner);
-    }
-  }
-
-  remove(item) {
-    item.gone = true;
-    if (item.mesh) this.scene.remove(item.mesh);
+    return this.sim.dropFor(drops, classes, position, velocity, yaw);
   }
 
   // The end of an item's LifeSpan: a mine with an ExplosionExpire (the time
-  // bomb) sets it off with its thrower's credit, gone before its blast as in
-  // destroy(); anything else is just gone.
-  expire(item) {
-    if (item.gone) return;
-    this.remove(item);
-    if (item.mine && typeof item.def.ExplosionExpire === "object") this.world.explode(item.def.ExplosionExpire, item.position.clone(), item.owner);
-  }
-
   // Damage to one item (a mine at 0 health pops).
   hurt(item, amount) {
-    if (this.sim) return this.sim.hurt(item, amount);
-    if (item.gone || !item.mine || !Number.isFinite(item.health)) return;
-    item.health -= amount;
-    if (item.health <= 0) this.destroy(item);
+    return this.sim.hurt(item, amount);
   }
 
   // A blast: damage to the mines lying about (src/ordnance.js), as a person
   // unless the class says otherwise; one still in flight is out of its
   // reach.
   blast(explosion, position) {
-    if (this.sim) return this.sim.blast(explosion, position);
-    for (const item of this.items) {
-      if (item.gone || !item.mine || !item.landed || !Number.isFinite(item.health)) continue;
-      const damage = blastDamage(explosion, blastDistance(position, item.position, item.radius), item.def.HealthType);
-      if (!(damage > 0) || this.world.blocked(position, item.position)) continue;
-      item.health -= damage;
-      if (item.health <= 0) this.destroy(item);
-    }
+    return this.sim.blast(explosion, position);
   }
 
   // targets: soldiers who can take power-ups or set off mines, each with
   // position, velocity, team, relation(team) (below 0 an enemy, above 0 a
   // friend), healthType, and give(def) -> whether anything was taken.
   update(dt, targets = []) {
-    if (this.sim) return this.sim.update(dt, targets);
-    for (const item of this.items) {
-      if (item.gone) continue;
-      item.age += dt;
-      item.life -= dt;
-      if (item.life <= 0 || item.position.y < FLOOR) {
-        // A time bomb's timer ran out: it goes off where it lies.
-        if (item.life <= 0) this.expire(item);
-        else this.remove(item);
-        continue;
-      }
-      if (!item.landed) this.fly(item, dt);
-      if (item.mine) this.watch(item, targets);
-      else this.offer(item, targets);
-      if (item.gone) continue;
-      this.presentLight(item);
-    }
-    this.items = this.items.filter((item) => !item.gone);
-    for (const [key, list] of this.owned) {
-      const remaining = list.filter((item) => !item.gone);
-      if (remaining.length) this.owned.set(key, remaining);
-      else this.owned.delete(key);
-    }
+    return this.sim.update(dt, targets);
   }
 
   fly(item, dt) {
@@ -349,49 +254,8 @@ export class Items {
     }
   }
 
-  // A mine: set off by an enemy near enough and no longer closing in, unless
-  // a friend is near.
-  watch(item, targets) {
-    const def = item.def;
-    if (!item.landed || !def.ExplosionTrigger || !(def.TriggerRadius > 0)) return;
-    let fire = false;
-    this.world.targets = targets;
-    for (let i = 0; i < targets.length; i++) {
-      const target = this.world.watch(i, item.team);
-      const relation = target.relation;
-      if (relation === 0) continue;
-      const toward = this.ray.subVectors(target.center, item.position);
-      const gap = toward.lengthSq();
-      if (relation > 0) {
-        if (def.SuppressRadius > 0 && gap < (def.SuppressRadius + target.radius) ** 2) return;
-        continue;
-      }
-      if (gap < (def.TriggerRadius + target.radius) ** 2 && target.velocity.dot(toward) >= 0) fire = true;
-    }
-    if (!fire) return;
-    if (typeof def.ExplosionTrigger === "object") this.world.explode(def.ExplosionTrigger, item.position.clone(), item.owner);
-    this.remove(item);
-  }
-
   // A power-up: taken by the first soldier touching it that gets something.
-  offer(item, targets) {
-    if (!item.landed && item.age <= PICKUP_DELAY) return;
-    const c = this.start.copy(item.center || ORIGIN);
-    if (item.turn) c.applyQuaternion(item.turn);
-    c.add(item.position);
-    this.world.targets = targets;
-    for (let i = 0; i < targets.length; i++) {
-      const p = this.world.standing(i);
-      const across = Math.hypot(c.x - p.x, c.z - p.z);
-      if (across > SOLDIER_RADIUS + item.radius) continue;
-      if (c.y < p.y - item.radius || c.y > p.y + SOLDIER_HEIGHT + item.radius) continue;
-      if (this.world.give(i, item.def)) {
-        this.world.pickup(item.def, item.position);
-        this.remove(item);
-        return;
-      }
-    }
-  }
+
 }
 
 const ORIGIN = new THREE.Vector3();

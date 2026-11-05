@@ -5,7 +5,7 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
-const { Bloom } = await import("../src/render-passes.js");
+const { Bloom, ownedFullScreenPass } = await import("../src/render-passes.js");
 const { Upscaler } = await import("../src/upscaler.js");
 
 import { GL, fakeProgram as program, standinModule, standinThree } from "./support/rust-standin.mjs";
@@ -187,32 +187,27 @@ test("the view scene: a part the renderer can't draw leaves three to render the 
   assert.equal(core.cover("view", renderer, viewScene, view), false);
 });
 
-test("the post steps: drawn by the renderer when every one is a pass it has a program for", () => {
+test("post uses declared Rust programs and initializes targets without a three draw", () => {
   const { core, calls, renderer, graphics, properties } = bridge();
-  const pass = (uniforms, values) => {
-    const material = new THREE.ShaderMaterial({ uniforms: values });
-    properties.get(material).currentProgram = program(uniforms);
-    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
-    return mesh;
-  };
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const postTarget = { width: 8, height: 4, texture: new THREE.Texture() };
-  const composite = pass([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["glow", GL.SAMPLER_2D], ["blend", GL.FLOAT]],
-    { map: { value: graphics.farTarget.texture }, glow: { value: null }, blend: { value: 0.3 } });
-  const fxaa = pass([["tDiffuse", GL.SAMPLER_2D], ["resolution", GL.FLOAT_VEC2]], { tDiffuse: { value: postTarget.texture }, resolution: { value: new THREE.Vector2(1 / 8, 1 / 4) } });
-  const steps = [{ pass: composite, target: postTarget, camera }, { pass: fxaa, target: null, camera }];
-  assert.equal(core.post(renderer, steps), true);
-  // add_program(kind, vs, fs, attributes, uniforms): plain programs, position and uv where post.rs's triangle has them.
-  assert.deepEqual(calls.filter((c) => c[0] === "add_program").map((c) => [c[1], c[4], c[5]]), [[3, "position:0,uv:1", "projectionMatrix,modelViewMatrix,map,glow,blend"], [3, "position:0,uv:1", "tDiffuse,resolution"]]);
-  assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 2]);
+  properties.get(postTarget.texture).__webglTexture = undefined;
+  renderer.initRenderTarget = (target) => { calls.push(["initRenderTarget", target]); properties.get(target.texture).__webglTexture = {}; };
+  const composite = ownedFullScreenPass("post-hud/composite", {
+    map: { value: graphics.farTarget.texture }, blurred: { value: null }, glow: { value: null },
+    blend: { value: .3 }, bloomStrength: { value: 0 }, speedBlur: { value: 0 }, speedTurn: { value: 0 },
+  });
+  const fxaa = ownedFullScreenPass("post-hud/fxaa", { tDiffuse: { value: postTarget.texture }, resolution: { value: new THREE.Vector2(1 / 8, 1 / 4) } });
+  assert.equal(core.post(renderer, [{ pass: composite, target: postTarget, camera }, { pass: fxaa, target: null, camera }]), true);
+  assert.deepEqual(calls.filter(c => c[0] === "add_owned_program").map(c => c[1]), ["post-hud/composite", "post-hud/fxaa"]);
+  assert.equal(calls.filter(c => c[0] === "add_program").length, 0);
+  assert.equal(calls.filter(c => c[0] === "initRenderTarget").length, 1);
   const input = core.postInput, step = 5 + 12 * 18;
-  assert.deepEqual([...input.subarray(0, 5)], [0, 0, 8, 4, 5], "program, target, its size, five uniforms");
-  assert.deepEqual([...input.subarray(5 + 3 * 18, 5 + 3 * 18 + 3)], [3, 32, -1], "a sampler of none: three's empty texture");
-  assert.deepEqual([...input.subarray(5 + 4 * 18, 5 + 4 * 18 + 3)].map((v) => +v.toFixed(3)), [4, 1, 0.3]);
-  assert.deepEqual([...input.subarray(step, step + 5)], [1, -1, 800, 600, 2], "the canvas: three's viewport in pixels");
-  assert.deepEqual([...input.subarray(step + 5 + 18, step + 5 + 18 + 4)], [1, 2, 0.125, 0.25]);
-  // A step only three can draw (one that draws itself): three draws them all.
-  assert.equal(core.post(renderer, [{ run: () => {} }, ...steps]), false);
+  assert.deepEqual([...input.subarray(0, 5)], [0, 0, 8, 4, 7]);
+  assert.deepEqual([...input.subarray(5 + 2 * 18, 5 + 2 * 18 + 3)], [2, 32, -1]);
+  assert.deepEqual([...input.subarray(5 + 3 * 18, 5 + 3 * 18 + 3)], [3, 1, .3]);
+  assert.deepEqual([...input.subarray(step, step + 5)], [1, -1, 800, 600, 4]);
+  assert.deepEqual([...input.subarray(step + 5 + 3 * 18, step + 5 + 3 * 18 + 4)], [3, 2, .125, .25]);
 });
 
 test("the post steps' values: set on a step's material as it is written, bloom's blur drawn twice with other values", () => {
@@ -681,4 +676,70 @@ test("a command post's beam, hidden until the player comes near: registered befo
   assert.ok(core.byName.transparent.taken.get(logo));
   scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
   assert.equal(compiled.length, 1, "nothing added since: nothing looked over");
+});
+
+test("a water mirror's render of the near scene: drawn in place of three's when everything three would list is the renderer's", () => {
+  const { core, calls, renderer, scene, setTarget } = nearBridge();
+  const mirror = new THREE.PerspectiveCamera();
+  mirror.userData.mirror = true;
+  mirror.updateMatrixWorld(true);
+  const reflection = { name: "reflection", samples: 0, width: 8, height: 4 };
+  setTarget(reflection);
+  // On by default (?rustMirror=0 turns it off), apart from the frame's cover (?rustNear).
+  assert.equal(core.byName.mirrorCover.on, true);
+  const hidden = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ visible: false }));
+  scene.add(hidden);
+  scene.updateMatrixWorld(true);
+  assert.equal(core.coverMirror(renderer, scene, mirror), true);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "mirror_frame", "mirror_transparent_frame"]);
+  assert.deepEqual(calls.find((c) => c[0] === "mirror_transparent_frame").slice(1), [0, 0], "the image drawn by the begin phase, not again");
+  assert.equal(core.postInput[1], -2, "the image into the target bound now");
+  assert.equal(core.stale, true, "three's state reset when three is next used");
+  // Not the frame's camera, nor a render something three draws itself is in.
+  assert.equal(core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), false);
+  const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
+  wall.position.set(0, 0, -5);
+  scene.add(wall);
+  scene.updateMatrixWorld(true);
+  calls.length = 0;
+  assert.equal(core.coverMirror(renderer, scene, mirror), false);
+  assert.equal(core.byName.mirrorCover.stopped, wall);
+  assert.ok(!calls.some((c) => /frame$|^near_begin$/.test(c[0])), "three renders it");
+  // Switched off alone: three's.
+  wall.material.visible = false;
+  core.byName.mirrorCover.setActive(false);
+  assert.equal(core.coverMirror(renderer, scene, mirror), false);
+  core.byName.mirrorCover.setActive(true);
+  assert.equal(core.coverMirror(renderer, scene, mirror), true);
+});
+
+test("the view scene: a gun's part whose zero material blends is a record of its own kind, drawn from its row in three's order among what blends", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
+  view.updateMatrixWorld(true);
+  const part = new THREE.Mesh(partGeometry(), partMaterial(properties));
+  // The glass: a zero material that blends (BLENDED, DYNAMIC), its lights and lamps per instance.
+  const glassMaterial = partMaterial(properties);
+  glassMaterial.transparent = true;
+  glassMaterial.depthWrite = false;
+  glassMaterial.defines.BLENDED = "";
+  const glass = new THREE.Mesh(partGeometry(), glassMaterial);
+  glass.position.z = -2;
+  const flashMaterial = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  properties.get(flashMaterial).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT], ["map", GL.SAMPLER_2D], ["mapTransform", GL.FLOAT_MAT3]], ["position", "uv"]);
+  const flash = new THREE.Mesh(partGeometry(), flashMaterial);
+  flash.position.z = -1;
+  viewScene.add(part, glass, flash);
+  viewScene.updateMatrixWorld(true);
+  assert.equal(core.cover("view", renderer, viewScene, view), true, `every part the renderer's: three left out (${core.errors.join("; ")})`);
+  assert.equal(glassMaterial.visible, false);
+  assert.ok(calls.some((c) => c[0] === "inst_add_blend"), "its blending and passes registered");
+  const input = core.viewInput, D = 1, DRAW = 17 + 32 * 18;
+  assert.equal(input[0], 2, "two draws that blend");
+  assert.deepEqual([input[D], input[D + 1]], [-1, 0], "the farther, the glass: the first record that blends");
+  assert.ok(input[D + DRAW] >= 0, "then the flash, three's program");
+  const records = calls.filter((c) => c[0] === "view_frame").pop()[1];
+  assert.equal(records, 2, "the part and the glass written");
+  const o = core.recordsAt + core.stride;
+  assert.equal(core.input[o], 4, "the glass's record of its own kind");
 });

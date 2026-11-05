@@ -54,13 +54,7 @@
 // (?units=rust, src/units-sim.js), with combat or without; it brings the
 // ray kernel, as the soldiers move through the module's collision world.
 // Its fingerprints must match the default's.
-// --rays wasm runs the collision's ray casts in WebAssembly (?rays=wasm,
-// src/ray-kernel.js), and --movement wasm the soldiers' movement too
-// (?movement=wasm, src/movement-kernel.js); their fingerprints must match
-// the default's, as must --random native's. --sim js keeps the rounds in
-// flight and the things lying about JavaScript's (?sim=js) instead of the
-// simulation's module's (src/ordnance-sim.js, src/items-sim.js): the same
-// fingerprints again.
+// Collision, soldier movement, rounds and items always use Rust.
 //
 // --plugin FILE (any number of times) loads a module that watches the
 // battle (the simulation capture of tools/sim-capture.mjs): it is imported
@@ -78,7 +72,6 @@ const argv = process.argv.slice(2);
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i < 0 ? fallback : argv[i + 1]; };
 const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('seed', 1)), ticks = Number(opt('ticks', 2400));
 const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
-const rays = opt('rays', 'js'), movement = opt('movement', 'js'), sim = opt('sim', 'rust');
 const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = argv.includes('--twice') ? 2 : Number(opt('battles', 1));
 const unit = opt('unit', null), mount = Number(opt('mount', -1));
 // --combat rust: a world's combats on the module (?combat=rust, src/combat-sim.js).
@@ -98,7 +91,6 @@ const seats = opt('seats', 'js');
 const nativeRandom = opt('random', 'seeded') === 'native';
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
-if (!['rust', 'js'].includes(sim)) throw Error(`--sim ${sim}: rust or js`);
 if (!(Number.isInteger(battles) && battles >= 1)) throw Error(`--battles ${opt('battles')}: a whole number from 1`);
 
 const wallNow = performance.now.bind(performance);
@@ -118,8 +110,8 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}&rays=${rays}&movement=${movement}&battle=${battleRules}${sim === 'js' ? '&sim=js' : ''}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, sim, hulls, combat, seats, units, battle: battleRules, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}&battle=${battleRules}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, hulls, combat, seats, units, battle: battleRules, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 
@@ -136,11 +128,7 @@ async function battle(index) {
   if (battleRules === 'rust' && (!game.postsSim || !game.battlefieldSim || game.ai?.spawning && !game.spawningSim || game.live && !game.propsSim || game.live?.traps.length && !game.trapsSim)) throw Error('a requested native battle phase was not attached');
   // Each kernel on or off as asked, whatever the environment says (the
   // movement kernel and the units' phase bring the ray kernel with them).
-  const raysWanted = rays === 'wasm' || movement === 'wasm' || units === 'rust';
-  if (raysWanted !== Boolean(game.collision.rays)) throw Error(raysWanted ? 'ray kernel not loaded' : 'ray kernel loaded for a JavaScript run');
-  if ((units === 'rust') !== Boolean(game.unitsSim)) throw Error(units === 'rust' ? 'the units are not on the module' : 'the units are on the module for a JavaScript run');
-  if ((movement === 'wasm') !== Boolean(game.collision.movement)) throw Error(movement === 'wasm' ? 'movement kernel not loaded' : 'movement kernel loaded for a JavaScript run');
-  if ((sim === 'rust') !== Boolean(game.ordnance.sim && game.items.sim)) throw Error(sim === 'rust' ? 'the rounds and items are not on the module' : 'the rounds or items are on the module for a JavaScript run');
+  if (!game.collision.rays || !game.collision.movement || !game.ordnance.sim || !game.items.sim) throw Error('required simulation kernels did not attach');
   let sent = [];
   const server = await createLocalServer(game, { name: 'Player', send: (channel, payload) => sent.push([channel, payload]) });
   server.welcome();
@@ -211,7 +199,7 @@ async function battle(index) {
     await new Promise((resolve) => setImmediate(resolve));
   }
   call('ended', { game, index });
-  console.error(`${map} ${side} seed ${seed}${ai === 'classic' ? '' : ` (${ai} AI)`}${heroes ? ' (heroes)' : ''}${unit ? ` (unit ${unit})` : ''}${mount >= 0 ? ` (mount ${mount}: ${['none', 'turret', 'none', 'hull'][mounted]})` : ''}${battles > 1 ? ` (battle ${index + 1} of ${battles})` : ''}${rays === 'wasm' ? ' (rays wasm)' : ''}${movement === 'wasm' ? ' (movement wasm)' : ''}${nativeRandom ? ' (random native)' : ''}: ${ticks} ticks, ${game.units.all().filter((u) => u.alive && u.soldier).length} soldiers alive at the end, world step ${(stepMs / Math.max(1, measured)).toFixed(2)} ms mean after tick 900`);
+  console.error(`${map} ${side} seed ${seed}${ai === 'classic' ? '' : ` (${ai} AI)`}${heroes ? ' (heroes)' : ''}${unit ? ` (unit ${unit})` : ''}${mount >= 0 ? ` (mount ${mount}: ${['none', 'turret', 'none', 'hull'][mounted]})` : ''}${battles > 1 ? ` (battle ${index + 1} of ${battles})` : ''}${nativeRandom ? ' (random native)' : ''}: ${ticks} ticks, ${game.units.all().filter((u) => u.alive && u.soldier).length} soldiers alive at the end, world step ${(stepMs / Math.max(1, measured)).toFixed(2)} ms mean after tick 900`);
   server.dispose?.();
 }
 

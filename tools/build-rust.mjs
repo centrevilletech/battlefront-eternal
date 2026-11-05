@@ -32,6 +32,8 @@ import { join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { main as simSchema } from './sim-schema.mjs';
 import { main as audioSchema } from './audio-schema.mjs';
+import { generate as renderShaders } from './render-shaders.mjs';
+renderShaders(process.argv.includes('--check'));
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const RUST = join(ROOT, 'rust');

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Gunner, previewSteer } from '../src/gunner.js';
 import { poseTurret, TurretSeats } from '../src/seats.js';
 import { Turret } from '../src/props.js';

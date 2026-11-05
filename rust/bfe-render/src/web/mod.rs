@@ -10,6 +10,7 @@ mod hud;
 mod instances;
 mod motion;
 mod post;
+mod shadow;
 mod terrain;
 mod transparent;
 mod view;
@@ -97,6 +98,10 @@ impl BfeRenderer {
     // The lamp table: eight floats a lamp source (position, radius, colour, pad).
     pub fn set_lamps(&mut self, data: &[f32]) { self.r.core.set_lamps(data) }
 
+    pub fn add_owned_program(&mut self, key: &str) -> Result<u32, JsValue> {
+        self.r.core.add_owned_program(key).map_err(|e| JsValue::from_str(&e))
+    }
+
     pub fn add_geometry(&mut self) -> u32 { self.r.core.add_geometry() }
     pub fn geometry_buffer(&mut self, g: u32, data: &[u8]) -> u32 { self.r.core.geometry_buffer(g, data) }
     #[allow(clippy::too_many_arguments)]
@@ -110,7 +115,7 @@ impl BfeRenderer {
     // instanced draws, instances, program switches, GL calls], then each
     // pass's draws in pass order (world, instances, far, terrain,
     // transparent, effects, foliage, view, post, hud, water, shadow, motion,
-    // canopies).
+    // canopies, screen).
     pub fn far_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.far_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }
@@ -118,9 +123,18 @@ impl BfeRenderer {
         Ok(self.r.frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     // three: how many of three's own transparent items the page wrote the
-    // keys of (web/transparent.rs).
-    pub fn transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    // keys of (web/transparent.rs); image: the post steps it wrote for the
+    // far scene's image, drawn first.
+    pub fn transparent_frame(&mut self, three: u32, image: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.transparent_frame(three as usize, image as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    // An effects batch drawn into a texture of its own (registered) of
+    // width x height, cleared first: its count instances and values as the
+    // page wrote them from `at` of the effects' data, capacity its room
+    // (web/effects.rs). three binds its own framebuffer again after.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fx_into_frame(&mut self, batch: u32, target: u32, width: u32, height: u32, count: u32, at: u32, capacity: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.fx_into_frame(batch as usize, target, width as i32, height as i32, count as usize, at as usize, capacity as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     // records: how many the page wrote for the view's parts.
     pub fn view_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
@@ -134,9 +148,9 @@ impl BfeRenderer {
     pub fn mirror_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.mirror_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
-    // What a mirror's render blends: three, as for transparent_frame.
-    pub fn mirror_transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.mirror_transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    // What a mirror's render blends: three and image, as for transparent_frame.
+    pub fn mirror_transparent_frame(&mut self, three: u32, image: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.mirror_transparent_frame(three as usize, image as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     // records: how many the page wrote (web/motion.rs).
     pub fn motion_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
@@ -149,5 +163,10 @@ impl BfeRenderer {
     // steps the page wrote for the far scene's image (near.js).
     pub fn near_begin(&mut self, clear: &[f64], steps: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.near_begin(clear, steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    // steps: the post steps the page wrote for a full-screen pass outside the
+    // post chain, each with its own state (web/post.rs post_states_ptr).
+    pub fn screen_frame(&mut self, steps: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.screen_frame(steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
 }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
 import { Units } from '../src/registry.js';
 import { blankIntent } from '../src/units.js';
