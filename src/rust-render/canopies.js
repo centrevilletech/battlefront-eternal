@@ -1,19 +1,10 @@
-// The tree canopies pass (canopies.rs): the Enhanced tree canopies' leaves
-// (tree-canopies.js), one camera-facing card an instance, drawn by the
-// renderer in the near phase (a mirror's too) in place of three's draw of
-// their mesh. Registered once three has drawn the mesh (its material then
-// has a program: the World kind, its frame values the frame block's, its
-// treeTime the frame's time), the canopies are then external: three neither
-// lists the mesh nor uploads its leaves. Each frame the pass writes whether
-// three would draw it (any leaf near, the mesh on the camera's layers), how
-// many instances draw, and copies the instances whose slots changed since it
-// last did (TreeCanopies.takeDirty) into the renderer's copy.
+// The Enhanced leaf cards use a fixed Rust-owned World program. The host
+// supplies selection and changed instance slots; no browser material is compiled.
 import * as THREE from "three";
 
-const WORLD = 0;
+import { ownedGeometryProgram } from "./programs.js";
 // canopies.rs's input.
 const C = { SHOWN: 0, PROGRAM: 1, TEXTURE: 2, INSTANCES: 3, COPIED: 4 };
-const POLICY = { uniforms: new Set(["map"]), material: new Set() };
 const INSTANCED = ["leafCenter", "leafSize", "leafShade"];
 
 class CanopiesPass {
@@ -22,19 +13,15 @@ class CanopiesPass {
     this.name = "canopies";
     this.phase = "near";
     this.canopies = null;
-    // { program, attributes: [{ attribute, size, at }], max }, null when the
-    // renderer can't draw the mesh, undefined until three has drawn it.
+    // Geometry and instance layout, registered before the first native draw.
     this.entry = undefined;
-    this.on = true;
   }
 
   draw(ctx) {
     const core = this.core, canopies = core.graphics.treeCanopies;
     if (!canopies) return;
     if (canopies !== this.canopies) { this.canopies = canopies; this.entry = undefined; }
-    // Taken now: three has listed the mesh in this render and draws it; the
-    // renderer draws it from the next one.
-    if (this.entry === undefined) { this.take(canopies); return; }
+    if (this.entry === undefined) this.take(canopies);
     const entry = this.entry;
     if (!entry) return;
     const mesh = canopies.mesh, material = mesh.material;
@@ -44,7 +31,7 @@ class CanopiesPass {
     core.views();
     const input = core.canopiesInput;
     input[C.SHOWN] = 0;
-    if (!this.on || !core.active) return;
+
     // The leaves that changed into the renderer's copy, each attribute's at
     // its instances' places.
     const dirty = canopies.takeDirty();
@@ -57,22 +44,20 @@ class CanopiesPass {
     // and its parents shown, on the camera's layers (never culled).
     let shown = canopies.drawn && mesh.layers.test(ctx.camera.layers);
     for (let n = mesh.parent; shown && n && n !== ctx.scene; n = n.parent) if (!n.visible) shown = false;
+    const shadows=Boolean(core.graphics.csm);
+    if(entry.shadows!==shadows){entry.program=ownedGeometryProgram(core,shadows?"world/canopies":"world/canopies-no-shadows");entry.shadows=shadows;}
     input[C.PROGRAM] = entry.program.id;
     input[C.TEXTURE] = texture;
     input[C.INSTANCES] = Math.min(mesh.geometry.instanceCount ?? 0, entry.max);
     input[C.SHOWN] = shown ? 1 : 0;
   }
 
-  // The mesh, once three has drawn it: its program (the frame block's), its
-  // card's geometry and its instanced attributes.
+  // Register the fixed program and card geometry before the first leaf draw.
   take(canopies) {
     const core = this.core, mesh = canopies.mesh, material = mesh.material, geometry = mesh.geometry;
-    const threeProgram = core.renderer.properties.get(material).currentProgram;
-    if (!threeProgram) return;
     this.entry = null;
-    if (!material.isShaderMaterial || material.transparent || !material.alphaToCoverage || material.side !== THREE.DoubleSide) return;
-    const program = core.program(threeProgram, WORLD, material, POLICY);
-    if (!program) return;
+    if (material.transparent || !material.alphaToCoverage || material.side !== THREE.DoubleSide) throw Error("Invalid canopy material state");
+    const program = ownedGeometryProgram(core, core.graphics.csm ? "world/canopies" : "world/canopies-no-shadows");
     const instanced = program.attributes.filter(([name]) => INSTANCED.includes(name));
     const attributes = instanced.map(([name, location]) => ({ name, location, attribute: geometry.attributes[name] }));
     if (attributes.length !== INSTANCED.length || attributes.some((a) => !(a.attribute?.array instanceof Float32Array) || !a.attribute.isInstancedBufferAttribute)) return;
@@ -84,19 +69,12 @@ class CanopiesPass {
     for (const a of attributes) { a.size = a.attribute.itemSize; a.at = at; at += max * a.size; }
     core.addView("canopiesInput", Float64Array, () => core.rust.canopies_input_ptr(), () => core.rust.canopies_input_len());
     core.addView("canopiesLeaves", Float32Array, () => core.rust.canopies_leaves_ptr(), () => core.rust.canopies_leaves_len());
-    this.entry = { program, attributes, max };
-    canopies.setExternal(this.on && core.active);
+    this.entry = { program, attributes, max, shadows:Boolean(core.graphics.csm) };
+    canopies.dirtyFirst = 0;
+    canopies.dirtyEnd = max;
   }
 
-  // Off: three draws the canopies (and uploads its copy of them whole).
-  setActive(on) {
-    this.on = on;
-    if (this.entry) this.canopies?.setExternal(on);
-  }
 
-  restore() {
-    this.setActive(false);
-  }
 }
 
 export function canopiesPass(core) {

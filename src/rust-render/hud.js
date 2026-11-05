@@ -1,16 +1,6 @@
-// The HUD pass (hud.rs): the battle HUD's quads (hud.js, drawn with the
-// interface's batch, src/interface/batch.js) over the finished frame on the
-// canvas, in place of three's render of the HUD's scene: BattleHud.render
-// asks the bridge to cover each frame's batch once built (core.coverHud),
-// and three renders the scene only when it did not.
-//
-// The batch's vertex arrays are mirrored in the renderer: each frame the
-// vertices the batch changed (its attributes' update range: at most one run)
-// are copied in, and every vertex after a frame three drew instead. Three's
-// own copy goes stale while the renderer draws, so a frame given back to
-// three uploads the whole arrays. Each run of quads with one material (the
-// batch's groups) is a draw with its texture and mask; a texture still
-// loading is skipped, as three's empty texture draws nothing there.
+// Rust draws the battle HUD and overlay batches. Changed vertex runs are
+// uploaded to its persistent buffers; switching batches requires a full upload.
+// Three retains texture and material ownership for the interface batch.
 import * as THREE from "three";
 import { writeUniform } from "./post.js";
 import { ownedProgram } from "./programs.js";
@@ -31,9 +21,7 @@ class HudPass {
     this.phase = "hud";
     this.pending = null;
     this.complete = false;
-    // Whether the renderer drew the last frame's batch, and whether its copy
-    // needs every vertex (the first frame, or after three drew one).
-    this.drew = false;
+    // Upload every vertex initially, after restoration, or when batches change.
     this.full = true;
     this.init = false;
     this.viewport = new THREE.Vector4();
@@ -41,28 +29,30 @@ class HudPass {
 
   // BattleHud.render, its batch built: true when the renderer drew it.
   cover(renderer, hud) {
-    const drew = this.drawBatch(renderer, hud);
-    if (!drew) {
-      this.full = true;
-      // Three draws this frame from its own copy, stale while the renderer
-      // drew: all of it goes up.
-      if (this.drew) for (const [name] of ARRAYS) { const a = hud.batch.geometry.attributes[name]; a.clearUpdateRanges(); a.needsUpdate = true; }
-    }
-    this.drew = drew;
-    return drew;
+    return this.drawBatch(renderer, hud);
   }
 
+// BattleHud.render and its overlay batch share one retained Rust allocation.
+// Switching batch identities requires a full upload even if neither batch
+// reports dirty attributes: the previous batch owns the current GPU contents.
+// The owned HUD shader key never depends on a source-bearing Three material.
   drawBatch(renderer, hud) {
     const core = this.core;
-    if (!core.enabled || !core.active || this.on === false || !core.rust.hud_init) return false;
     const batch = hud.batch;
-    // One Rust program for every texture/mask group of the batch.
+    if (batch.count === 0) return true;
+    if (this.batch !== batch) { this.full = true; this.batch = batch; }
     this.program ||= ownedProgram(core, "post-hud/hud", ATTRIBUTES);
     if (!this.init) {
       core.rust.hud_init(batch.geometry.index.array);
       for (const [, view, , binding] of ARRAYS) core.addView(view, Float32Array, () => core.rust[`${binding}_ptr`](), () => core.rust[`${binding}_len`]());
       core.addView("hudInput", Float64Array, () => core.rust.hud_input_ptr(), () => core.rust.hud_input_len());
       this.init = true;
+    }
+    // Resource registration can grow WASM memory. Finish it before draw()
+    // takes the shared input/vertex views that it writes for this batch.
+    for(const group of batch.geometry.groups){
+      const material=batch.mesh.material[group.materialIndex];
+      if(material?.visible){this.texture(material.uniforms.map.value);this.texture(material.uniforms.mask.value);}
     }
     this.pending = hud;
     this.complete = false;
@@ -71,6 +61,10 @@ class HudPass {
     return this.complete;
   }
 
+// Pack only after sampler registration has completed. add_texture may grow
+// WASM memory, detaching every previously acquired input and vertex view.
+// Reacquiring here keeps camera/group records and copied vertices together.
+// Otherwise registration can succeed while the HUD silently submits zero groups.
   draw() {
     const hud = this.pending;
     if (!hud) return;
@@ -87,13 +81,17 @@ class HudPass {
       else if (name === "mask") slots[1] = k;
       else if (name === "masked") slots[2] = k;
       else if (camera < 2 && writeUniform(core, input, IN.CAMERA + camera * UNIFORM, k, uniforms[k], null, batch.mesh, hud.camera)) camera++;
-      else return;
+      else { this.why = `uniform ${name}`; return; }
     }
     for (; camera < 2; camera++) input[IN.CAMERA + camera * UNIFORM] = -1;
     input[IN.PROGRAM] = this.program.id;
     input[IN.SLOTS] = slots[0]; input[IN.SLOTS + 1] = slots[1]; input[IN.SLOTS + 2] = slots[2];
     // The vertices that changed: the batch's update range (the same in
     // every array), or all of them.
+// Batch.updateRanges describes one vertex span in position-float units.
+// Convert that span to vertex indices before applying the different strides
+// of position, UV, mask UV and tint. Restoration forces the full active span.
+// Unchanged batches retain their existing GPU bytes rather than recopying all.
     let start = 0, end = batch.count * 4;
     if (!this.full) {
       const ranges = geometry.attributes.position.updateRanges;
@@ -111,7 +109,7 @@ class HudPass {
     for (const group of groups) {
       const first = Math.max(group.start, range.start), last = Math.min(group.start + group.count, range.start + range.count);
       if (last <= first) continue;
-      if (n >= MAX_GROUPS) return;
+      if (n >= MAX_GROUPS) { this.why = "too many HUD groups"; return; }
       const material = materials[group.materialIndex];
       if (!material?.visible) continue;
       const u = material.uniforms, o = IN.FIRST_GROUP + n * GROUP;
@@ -124,10 +122,6 @@ class HudPass {
     this.complete = true;
   }
 
-  // Off (this pass alone): three draws the HUD.
-  setActive(on) {
-    this.on = on;
-  }
 
   // A texture's renderer id once three has its pixels (uploading them as
   // three's draw would), else -1.
@@ -135,7 +129,6 @@ class HudPass {
     if (!texture) return -1;
     const core = this.core, p = core.renderer.properties.get(texture);
     if (texture.version > 0 && p.__version !== texture.version && texture.image) core.renderer.initTexture(texture);
-    if (!p.__webglTexture) return -1;
     return core.texture(texture);
   }
 

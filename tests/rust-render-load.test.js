@@ -1,22 +1,37 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { registerHooks } from "node:module";
-import { loadRustRenderer } from "../src/rust-render/load.js";
+// Renderer loading is required rather than an optional capability probe.
+// The injected loader makes fetch/initialization failure deterministic, while
+// the fake context supplies a GPU identity for the player-facing error.
+// Preserve the original cause so diagnostics are not reduced to a black screen.
+// Privacy-restricted contexts still need a useful generic renderer label.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { loadRenderer, rendererFailure } from '../src/rust-render/failure.js';
 
-test("safe mode never imports the renderer, even if loading it would fail", async () => {
-  let imports = 0;
-  const hooks = registerHooks({ resolve(specifier, context, nextResolve) {
-    if (context.parentURL?.endsWith("/rust-render/load.js") && specifier === "./index.js") {
-      imports++;
-      throw Error("renderer unavailable");
-    }
-    return nextResolve(specifier, context);
-  } });
-  try {
-    assert.equal(await loadRustRenderer({}, "?map=nab2&rustOff"), null);
-    assert.equal(await loadRustRenderer({}, "?rustOff=1"), null);
-    assert.equal(imports, 0);
-    await assert.rejects(loadRustRenderer({}, "?rust"), /renderer unavailable/);
-    assert.equal(imports, 1, "normal startup attempts the renderer");
-  } finally { hooks.deregister(); }
+const renderer = (debug = true) => ({ getContext: () => ({
+  RENDERER: 1,
+  getExtension: () => debug ? { UNMASKED_RENDERER_WEBGL: 2 } : null,
+  getParameter: (key) => key === 2 ? 'Fixture GPU' : 'WebGL GPU',
+}) });
+
+// Success returns the loaded core itself; initialization cannot substitute a
+// nullable capability flag that callers could use to pick a native drawer.
+test('required renderer loading preserves the loaded renderer', async () => {
+  const graphics = { renderer: renderer() }, core = {};
+  assert.equal(await loadRenderer(graphics, async (g) => { assert.equal(g, graphics); return core; }), core);
+});
+
+test('module loading failure rejects with the GPU and original cause', async () => {
+  const cause = new Error('module fetch failed');
+  await assert.rejects(loadRenderer({ renderer: renderer() }, async () => { throw cause; }), (error) => {
+    assert.equal(error.message, 'Battle renderer failed on Fixture GPU: module fetch failed');
+    assert.equal(error.cause, cause);
+    return true;
+  });
+});
+
+// Browsers can withhold detailed GPU extensions. Error reporting must still
+// work when the context only provides a generic label or is unavailable.
+test('GPU identification works when driver details are unavailable', () => {
+  assert.match(rendererFailure(renderer(false), new Error('link failed')).message, /WebGL GPU: link failed/);
+  assert.match(rendererFailure({ getContext() { throw Error('unavailable'); } }, 'load failed').message, /unknown GPU: load failed/);
 });

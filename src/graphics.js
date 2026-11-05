@@ -1,3 +1,6 @@
+import { compileUnowned, prewarmWorldPrograms } from "./rust-render/world-programs.js";
+import { requireRustDraws } from "./rust-render/draw-guard.js";
+import { requireLinkedPrograms } from "./rust-render/failure.js";
 import { loadRustRenderer } from "./rust-render/load.js";
 import * as THREE from "three";
 import { Bloom, applyValues, fullScreenPass, ownedFullScreenPass } from "./render-passes.js";
@@ -111,6 +114,8 @@ export class Graphics {
   constructor(container, settings) {
     this.settings = settings;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+    requireRustDraws(this.renderer);
+    requireLinkedPrograms(this.renderer);
     // Where the browser offers it, shader programs link on the driver's own
     // threads instead of on the GPU process's main thread, which also
     // serves every other canvas on the page: the loading screen's keeps
@@ -171,18 +176,6 @@ export class Graphics {
     this.cameraToLight = new THREE.Matrix4();
     this.lightCorner = new THREE.Vector3();
     this.lightBounds = new THREE.Box3();
-    // r170 tests casters against the view camera's layers. Substitute a copy
-    // only during its shadow pass, retaining the normal renderer lifecycle.
-    const renderShadows = this.renderer.shadowMap.render.bind(this.renderer.shadowMap);
-    this.renderer.shadowMap.render = (lights, scene, camera) => {
-      if (scene === this.scene && this.csm) {
-        const calls = this.renderer.info.render.calls;
-        const triangles = this.renderer.info.render.triangles;
-        // With what the Rust renderer took from three shown to it (rust-render/).
-        this.reveal(() => this.renderCascades(scene, camera, renderShadows));
-        this.shadowInfo = { calls: this.renderer.info.render.calls - calls, triangles: this.renderer.info.render.triangles - triangles };
-      } else renderShadows(lights, scene, camera);
-    };
     this.maxAnisotropy = Math.max(1, this.renderer.capabilities.getMaxAnisotropy());
     // MAX_SAMPLES alone can advertise counts unavailable to a target format.
     const gl = this.renderer.getContext();
@@ -190,6 +183,7 @@ export class Graphics {
     const depthSamples = [...gl.getInternalformatParameter(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, gl.SAMPLES)];
     this.supportedSamples = colorSamples.filter((n) => depthSamples.includes(n)).sort((a, b) => a - b);
     this.textures = new Set();
+    this.textureRevision = 0;
     this.casters = new Set();
     this.distantCasters = new Set();
     this.casterAt = new THREE.Vector3();
@@ -252,16 +246,14 @@ export class Graphics {
     this.background.material.depthTest = true;
     this.background.renderOrder = 1e9;
     this.scene.add(this.background);
-    // The default battle renderer shares the WebGL context with three,
-    // which draws unsupported items and takes over if Rust is unavailable.
-    // ?rustOff skips the Rust renderer entirely for recovery and comparisons.
+    // Three supplies resource objects and compiled sources to the required
+    // battle renderer. Loading errors propagate to the loading screen.
     this.rust = null;
-    this.rustReady = Promise.resolve();
     this.playerRoot = null;
-    if (typeof location !== "undefined") {
-      this.rustReady = loadRustRenderer(this, location.search).then((rust) => { this.rust = rust; })
-        .catch((error) => console.warn("Rust renderer unavailable:", error));
-    }
+    this.rustReady = loadRustRenderer(this).then((rust) => { this.rust = rust; return rust; });
+    // Construction starts the fetch before preparation awaits it. Attach a
+    // rejection handler now without consuming the promise's failure.
+    this.rustReady.catch(() => {});
     this.downsample = ownedFullScreenPass("post-hud/copy",
       { map: { value: this.sceneTarget.texture } },
     );
@@ -303,9 +295,12 @@ export class Graphics {
       if (key === "upscaleSharpness") this.upscaler.sharpness = Number(this.settings.get("upscaleSharpness")) || 0;
       if (key === "antialiasing") this.applyAntialiasing();
       if (key === "shadows") this.applyShadows();
+      if (key === "lampLighting") for(const scene of [this.scene,this.viewScene,this.farScene]) scene.traverse(object=>{
+        for(const material of [].concat(object.material||[]))material.needsUpdate=true;
+      });
       if (key === "viewDistance") this.applyDistance();
       if (key === "bumpMapping") this.applyBump();
-      if (key === "anisotropy") for (const texture of this.textures) this.filter(texture);
+      if (key === "anisotropy") {for (const texture of this.textures) this.filter(texture);this.textureRevision++;}
     });
     window.addEventListener("resize", () => this.resize());
   }
@@ -435,7 +430,7 @@ export class Graphics {
       const current = renderer.getRenderTarget();
       try {
         renderer.setRenderTarget(target);
-        renderer.compile(object, camera, scene);
+        compileUnowned(renderer, object, camera, scene);
       } finally {
         renderer.setRenderTarget(current);
       }
@@ -472,13 +467,12 @@ export class Graphics {
     return { programs: count() - before, rest, ms: performance.now() - started };
   }
 
-  // Compile() prepares three's programs, but Rust adopts their geometry
-  // and links its own programs when the scene is first drawn. Draw twice
-  // under the loading screen: three establishes the materials on the first
-  // pass, and Rust can take them on the second. Do this before joining a
-  // battle, whose incoming entity records must never wait behind the work.
+  // Compile and adopt scene resources through Rust under the loading screen.
+  // Two preparation frames establish dynamic inputs before joining a battle,
+  // whose incoming entity records must never wait behind that work.
   async prepareRenderer(settle, draw) {
     await this.rustReady;
+    prewarmWorldPrograms(this.rust);
     for (let i = 0; i < 2; i++) {
       this.render(0);
       draw();
@@ -500,10 +494,10 @@ export class Graphics {
     const target = renderer.getRenderTarget();
     try {
       renderer.setRenderTarget(this.sceneTarget);
-      renderer.compile(this.scene, this.camera);
-      renderer.compile(this.viewScene, this.viewCamera);
+      compileUnowned(renderer, this.scene, this.camera);
+      compileUnowned(renderer, this.viewScene, this.viewCamera);
       renderer.setRenderTarget(this.farTarget);
-      renderer.compile(this.farScene, this.farCamera);
+      compileUnowned(renderer, this.farScene, this.farCamera);
       if (this.csm) {
         const stage = new THREE.Scene(), variants = new Set(), shadowSide = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide, [THREE.DoubleSide]: THREE.DoubleSide };
         const plain = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
@@ -781,7 +775,7 @@ export class Graphics {
   // window lands; every frame the cache's depth copied into the live map and
   // the moving casters drawn over it. Three's pass clears the map before it
   // draws; the copy stands in for that clear.
-  renderCascades(scene, camera, renderShadows) {
+  renderCascades(scene, camera) {
     const { renderer, csm } = this;
     const plan = planCascades(this.cascadeWindows, this.frameCount);
     const dynamicCamera = this.shadowCamera, staticCamera = this.staticShadowCamera;
@@ -792,46 +786,28 @@ export class Graphics {
     if (!this.cacheShadows) {
       dynamicCamera.layers.enable(this.staticLayer);
       for (const window of this.cascadeWindows) { window.dirty = true; window.moved = false; }
-      renderShadows(csm.lights, scene, dynamicCamera);
+      for (const light of csm.lights) this.rust.coverShadow(renderer, light, scene, dynamicCamera, null);
       for (let i = 0; i < csm.lights.length; i++) lighting.cascadePlanes.value[i].setFromMatrix4(csm.lights[i].shadow.matrix).invert().transpose();
       return;
     }
-    const clear = renderer.clear;
     for (let i = 0; i < csm.lights.length; i++) {
       const light = csm.lights[i], window = this.cascadeWindows[i], live = this.shadowMaps[i], cache = this.shadowCaches[i];
       if (plan[i].static) {
         light.shadow.map = cache;
-        // The Rust renderer's shadow pass draws it when it can (rust-render/shadow.js).
-        if (!this.rust?.coverShadow(renderer, light, scene, staticCamera, null)) renderShadows([light], scene, staticCamera);
+        // Draw cached static depth through the required Rust shadow pass.
+        this.rust.coverShadow(renderer, light, scene, staticCamera, null);
         light.shadow.map = live;
         window.dirty = false;
         this.shadowPasses.static++;
       }
       if (plan[i].dynamic) {
-        if (!this.rust?.coverShadow(renderer, light, scene, dynamicCamera, cache)) {
-          renderer.clear = () => this.copyDepth(cache, live);
-          try {
-            renderShadows([light], scene, dynamicCamera);
-          } finally {
-            renderer.clear = clear;
-          }
-        }
+        this.rust.coverShadow(renderer, light, scene, dynamicCamera, cache);
         this.shadowPasses.dynamic++;
       }
       window.moved = false;
       // How this cascade's matrix (refreshed by the pass) moves plane normals.
       lighting.cascadePlanes.value[i].setFromMatrix4(light.shadow.matrix).invert().transpose();
     }
-  }
-
-  // The cache's depth into the live map, both bound as three has them.
-  copyDepth(from, to) {
-    const { renderer } = this;
-    const gl = renderer.getContext();
-    // r170 tracks READ separately but FRAMEBUFFER binds change it too.
-    renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, drawFramebuffer(renderer, from));
-    gl.blitFramebuffer(0, 0, from.width, from.height, 0, 0, to.width, to.height, gl.DEPTH_BUFFER_BIT, gl.NEAREST);
   }
 
   // The shadow cascades, for the materials that pick one per pixel.
@@ -890,7 +866,7 @@ export class Graphics {
   // renderer took from three (rust-render/index.js reveal): the shadow pass's
   // casters, the motion pass's first-person mask.
   reveal(fn) {
-    return this.rust ? this.rust.reveal(fn) : fn();
+    return this.rust.reveal(fn);
   }
 
   setVehicleMotion(amount, turn) {
@@ -900,6 +876,10 @@ export class Graphics {
   }
 
   render(time = 0) {
+    if (this.rust.contextLost) return;
+// A prior fatal renderer error remains visible. Re-entering frame rendering
+// must not hide it by clearing the canvas or selecting a different drawer.
+    if (this.rust.failure) throw this.rust.failure;
     const { renderer, camera } = this;
     renderer.info.reset();
     this.profiler.begin();
@@ -960,17 +940,17 @@ export class Graphics {
     }
     if (this.sky && !this.skyLayers.length) this.sky.position.copy(camera.position);
     renderer.setRenderTarget(this.farTarget);
-    if (!this.rust?.cover("far", renderer, this.farScene, far)) renderer.render(this.farScene, far);
+    this.rust.cover("far", renderer, this.farScene, far);
 
     // 2. The near scene over it, then the first-person weapon.
     this.cullOffView();
     this.updateScene();
     if (temporal) this.upscaler.shift(camera);
     renderer.setRenderTarget(this.sceneTarget);
+    if (this.csm) this.reveal(() => this.renderCascades(this.scene, camera));
     this.particleDepth.begin(this.sceneTarget, camera, Boolean(this.settings.get("softParticles")));
-    // The Rust renderer draws the near scene in three's place when nothing
-    // in it is left for three this frame.
-    if (!this.rust?.coverNear(renderer, this.scene, camera)) renderer.render(this.scene, camera);
+    // Every visible item must belong to a Rust pass.
+    this.rust.coverNear(renderer, this.scene, camera);
     // The temporal upscaler reprojects by the scene's depth, taken before
     // the weapon's own depth range replaces it.
     if (temporal) this.particleDepth.capture(camera, true);
@@ -989,7 +969,7 @@ export class Graphics {
       if (temporal) this.upscaler.shift(view);
       renderer.autoClear = false;
       renderer.clearDepth();
-      if (!this.rust?.cover("view", renderer, this.viewScene, view)) renderer.render(this.viewScene, view);
+      this.rust.cover("view", renderer, this.viewScene, view);
       renderer.autoClear = true;
     }
     if (temporal) {
@@ -1003,10 +983,9 @@ export class Graphics {
     // Full-screen triangles overwrite every pixel with blending disabled.
     // Clearing each post target first only burns fill/bandwidth.
     renderer.autoClear = false;
-    // 3-4. The post passes (postSteps): the Rust renderer's post pass draws
-    // them where it can draw every one, else three.
+    // 3-4. Rust draws the complete post chain returned by postSteps.
     const steps = this.postSteps(temporal, upscale);
-    if (!this.rust?.post(renderer, steps)) for (const step of steps) this.postStep(renderer, step);
+    this.rust.post(renderer, steps);
     for (const step of steps) step.after?.();
     renderer.autoClear = true;
     this.restoreOffView();
@@ -1054,12 +1033,6 @@ export class Graphics {
   }
 
   // One post step drawn by three, its values set first.
-  postStep(renderer, step) {
-    if (step.run) { step.run(renderer); return; }
-    if (step.values) applyValues(step.pass.material, step.values);
-    renderer.setRenderTarget(step.target);
-    renderer.render(step.pass, step.camera);
-  }
 
   // The owned fast FXAA pass, at the 3D frame's resolution.
   fastFxaa() {

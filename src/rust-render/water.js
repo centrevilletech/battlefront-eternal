@@ -15,18 +15,12 @@
 // renderer's mirror of them, and the shore's instances whenever three would
 // upload them.
 //
-// The tint pass copies the opaque scene's colour and depth as three draws
-// it (its onBeforeRender, water.js captureSurface). It is the first item of
-// the near scene's transparent list (the lowest render order there, -20),
-// so the copy is made here at the start of the transparent phase, before
-// anything of the list is drawn, as three makes it. The Ultra mirror's
-// render of the near scene hides the water, and the eye under the surface
-// draws the underwater pass (three's, which copies the scene again). The
-// spray reads the scene's depth: three copies it in the spray's
-// onBeforeRender (particle-depth.js), after whatever transparent item before
-// it writes depth; the pass asks for that copy before the spray as three
-// starts the near scene's render (particleDepth.request: a copier three draws
-// just before it), and runs the spray's hook ahead of its turn.
+// The tint pass snapshots opaque colour and depth before the transparent
+// list (render order -20). Ultra mirrors hide the water. Underwater fog
+// takes its own snapshot before the final Rust composite. Spray depth copies
+// are ordered transparent commands immediately before the spray draw; they
+// preserve the depth written by preceding transparent items without a dummy
+// copier mesh.
 import * as THREE from "three";
 import { particleDepth } from "../particle-depth.js";
 import { uniformType, writeUniform } from "./post.js";
@@ -68,9 +62,9 @@ function surfaceProgram(core, material, attributes) {
       const names = [...uniforms.map((u) => u.name), ...(array ? [array.name] : [])];
       entry = { id: core.rust.add_program(PLAIN, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes, names.join(",")), uniforms, array: array && { ...array, slot: uniforms.length } };
     } catch (error) {
-      core.errors.push(`water p${threeProgram.id}: ${String(error).slice(0, 300)}`);
+      core.fail(error);
     }
-  } else core.errors.push(`water p${threeProgram.id}: ${arrays.length} arrays`);
+  } else core.fail(new Error(`Water program ${threeProgram.id} has unsupported uniform arrays`));
   programs.set(threeProgram, entry);
   return entry;
 }
@@ -94,7 +88,7 @@ class WaterPass {
     // frame's render of the near scene (particle-depth.js requester).
     this.depthKey = new Float64Array(6);
     this.unrequest = core.graphics?.scene ? particleDepth.requester(core.graphics.scene, (camera) => {
-      try { this.requestDepth(camera); } catch (error) { core.errors.push(`water depth request failed: ${String(error?.stack || error).slice(0, 400)}`); }
+      this.requestDepth(camera);
     }) : null;
   }
 
@@ -106,7 +100,7 @@ class WaterPass {
   requestDepth(camera) {
     const core = this.core;
     for (const surface of this.surfaces) surface.requested = false;
-    if (this.on === false || !core.enabled || !core.active) return;
+
     const spray = this.water?.ocean?.waves?.spray;
     const surface = spray && this.surfaces.find((s) => s.mesh === spray);
     if (!surface || !this.shown(surface, camera, core.graphics.scene, false)) return;
@@ -118,7 +112,11 @@ class WaterPass {
     surface.requested = particleDepth.request(key, false);
   }
 
-  draw(ctx) {
+  beforeSort() {
+    this.prepareMeshes();
+  }
+
+  prepareMeshes() {
     const core = this.core, water = core.graphics.scene.userData.water;
     if (!water) return;
     if (water !== this.water) { this.water = water; this.surfaces = []; this.sets = new Map(); this.tried = new WeakSet(); this.full = true; }
@@ -127,11 +125,14 @@ class WaterPass {
     for (const mesh of water.shore?.meshes ?? []) if (!this.tried.has(mesh)) this.registerMesh(mesh, "instanced");
     const spray = water.ocean?.waves?.spray;
     if (spray && !this.tried.has(spray)) this.registerMesh(spray, "instanced");
+  }
+
+  draw(ctx) {
+    this.prepareMeshes();
+    const core = this.core, water = this.water;
     if (!this.surfaces.length) return;
     core.views();
     const input = core.waterInput, camera = ctx.camera;
-    // Off (this pass alone): three draws the water.
-    if (this.on === false) { this.surfaces.forEach((surface, s) => { input[s * SURFACE + S.SHOWN] = 0; }); return; }
     frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     input[RING_UPLOAD] = 0; input[RING_UPLOAD + 1] = 0;
     // The tint pass's copy of the opaque scene (its onBeforeRender), before
@@ -178,7 +179,7 @@ class WaterPass {
     if (!this.input) this.views();
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();
     this.surfaces.push({ mesh, material, program, id, kind, set });
-    material.visible = !core.active;
+    material.visible = false;
   }
 
   // An instanced geometry's instances (the shore's two meshes share one): a
@@ -247,7 +248,7 @@ class WaterPass {
     input[o + S.PROGRAM] = program.id;
     input[o + S.UNIFORMS] = program.uniforms.length;
     for (let k = 0; k < program.uniforms.length; k++) {
-      if (!writeUniform(this.core, input, o + S.FIRST + k * UNIFORM, k, program.uniforms[k], material, mesh, camera)) return;
+      if (!writeUniform(this.core, input, o + S.FIRST + k * UNIFORM, k, program.uniforms[k], material, mesh, camera)) this.core.fail(new Error(`Water cannot bind ${program.uniforms[k].name}`));
     }
     input[o + S.ARRAY] = -1;
     if (program.array) {
@@ -294,19 +295,7 @@ class WaterPass {
     input[at] = 1;
   }
 
-  setActive(on) {
-    this.on = on;
-    for (const surface of this.surfaces) surface.material.visible = !on;
-    // Three's copy of the rings is whole: the renderer's needs every vertex
-    // when it draws them again; three may have uploaded new instances.
-    if (on) { this.full = true; for (const set of this.sets.values()) set?.versions.fill(-1); }
-  }
 
-  restore() {
-    this.setActive(false);
-    this.unrequest?.();
-    this.unrequest = null;
-  }
 }
 
 export function waterPass(core) {

@@ -1,3 +1,4 @@
+import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { Batch } from "../../interface/batch.js";
 
@@ -355,7 +356,7 @@ export class HoloMap {
     renderer.setRenderTarget(this.target);
     renderer.setClearColor(0x000000, 0);
     renderer.clear(true, false, false);
-    renderer.render(this.batchScene, this.ortho);
+    renderInterface(renderer, this.batchScene, this.ortho, "spawn-holomap");
     renderer.setRenderTarget(previous);
     renderer.setClearColor(clear, alpha);
   }

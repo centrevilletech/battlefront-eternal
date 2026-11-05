@@ -1,3 +1,4 @@
+import { ownedWorldProgram } from "./world-programs.js";
 // The terrain pass: the near scene's ground (terrain-patches.js), its
 // painted layers included, drawn by the world pass (world.rs) as one of the
 // map's buckets: three's draw order puts it among them (by material), after
@@ -8,22 +9,12 @@
 // the ground until they do), then hidden from three, whose patches then
 // skip their per-render cell walk (drawnElsewhere).
 import * as THREE from "three";
-import { WORLD, UNIT_DETAIL, UNIT_LAYER1, UNIT_LAYERS, drawnAsIs } from "./world.js";
+import { UNIT_DETAIL, UNIT_LAYER1, UNIT_LAYERS } from "./world.js";
 
 // The material values a terrain program may read, set per draw: the zero
 // materials' own (materials.js) and the ground's.
 const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "layerScales", "bakedLit", "layerScale0", "layerScale1", "farOrigin", "receiveShadow"]);
 const LAYERS = Array.from({ length: 8 }, (_, i) => `layerMap${i}`);
-// The point lights the zero vertex shader adds up for every kind but its
-// colour never uses on the ground (the terrain's light is its baked one):
-// left at none.
-// shadows: the ground receives the cascades (its patches' receiveShadow, per
-// draw); it casts none, so it has nothing to reveal.
-const POLICY = {
-  uniforms: new Set(["map", "farMap", "layer1Map", "detailMap", ...LAYERS, ...MATERIAL, "zeroLights", "zeroLightCount", "localLightPositions", "localLightColors", "localLightCount"]),
-  material: MATERIAL,
-  shadows: true,
-};
 
 class TerrainPass {
   constructor(core) {
@@ -32,7 +23,6 @@ class TerrainPass {
     this.phase = "near";
     this.pending = null;
     this.grounds = []; // { group, material, id, version, shown, stale }
-    this.active = true;
   }
 
   draw(ctx) {
@@ -41,30 +31,29 @@ class TerrainPass {
     for (const e of this.grounds) {
       if (e.stale) continue;
       if (e.material.version !== e.version) {
-        // Changed since (another program): three's again until it has drawn it.
         e.stale = true;
         rust.world_shown(e.id, false);
-        e.material.visible = true;
+        e.material.visible = false;
         e.group.userData.drawnElsewhere = false;
         this.pending.push(e.group);
         continue;
       }
       let shown = true;
       for (let o = e.group; o && o !== ctx.scene; o = o.parent) if (!o.visible) { shown = false; break; }
-      if (shown !== e.shown) { e.shown = shown; rust.world_shown(e.id, shown && this.active); }
+      if (shown !== e.shown) { e.shown = shown; rust.world_shown(e.id, shown); }
     }
-    if (this.active && this.pending.length) this.registerGrounds();
+    if (this.pending.length) this.registerGrounds();
   }
 
   registerGrounds() {
-    const core = this.core, renderer = core.renderer, rust = core.rust;
+    const core = this.core, rust = core.rust;
     let added = false;
     this.pending = this.pending.filter((group) => {
       const material = group.material, patches = group.userData.patches, geometry = group.children[0]?.geometry;
       // Hidden until its painted layers arrive (world.js), or not drawn yet.
-      if (!group.visible || !geometry || !drawnAsIs(renderer, material)) return true;
+      if (!group.visible || !geometry) return true;
       if (geometry.index !== patches.full.index) return false;
-      const program = core.program(renderer.properties.get(material).currentProgram, WORLD, material, POLICY);
+      const program = ownedWorldProgram(core, material);
       if (!program) return false;
       const g = core.geometry(geometry, program);
       if (g === null) return false;
@@ -115,20 +104,7 @@ class TerrainPass {
     if (added) rust.sort(core.byName.world.byProgram);
   }
 
-  // Off: three draws the ground again (alone, or with the whole renderer).
-  setActive(on) {
-    this.active = on;
-    for (const e of this.grounds) {
-      if (e.stale) continue;
-      e.material.visible = !on;
-      e.group.userData.drawnElsewhere = on;
-      this.core.rust.world_shown(e.id, on && e.shown);
-    }
-  }
 
-  restore() {
-    for (const e of this.grounds) e.group.userData.drawnElsewhere = false;
-  }
 }
 
 export function terrainPass(core) {

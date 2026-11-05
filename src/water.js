@@ -1087,9 +1087,8 @@ export class Water extends WaterState {
       // Then the rest of the far scene over it (the sky writes no depth).
       const skyMeshes = (graphics.skyLayers || []).map(({ mesh }) => mesh).filter((mesh) => mesh.visible);
       const oblique = this.obliqueProjection.copy(mirror.projectionMatrix);
-      // Each render of the far scene is the Rust renderer's far pass where
-      // it draws all of it (src/rust-render: the farMirror phase), else three's.
-      const drawFar = () => { if (!graphics.rust?.cover("farMirror", renderer, graphics.farScene, mirror)) renderer.render(graphics.farScene, mirror); };
+      // Rust's farMirror phase draws both reflected far-scene views.
+      const drawFar = () => { graphics.rust.cover("farMirror", renderer, graphics.farScene, mirror); };
       try {
         if (skyMeshes.length) {
           mirror.projectionMatrix.copy(this.plainProjection);
@@ -1121,9 +1120,8 @@ export class Water extends WaterState {
         // only this mirror draws it before render() does.
         graphics.updateScene?.();
         renderer.setRenderTarget(this.target);
-        // The Rust renderer draws it all where nothing in it is left for
-        // three (src/rust-render/mirror.js), else three (its mirror phase inside).
-        if (!graphics.rust?.coverMirror(renderer, graphics.scene, mirror)) renderer.render(graphics.scene, mirror);
+        // Rust draws the complete reflected near scene.
+        graphics.rust.coverMirror(renderer, graphics.scene, mirror);
       }
     } finally {
       this.group.visible = visible;
@@ -1150,7 +1148,7 @@ export class Water extends WaterState {
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
     renderer.setRenderTarget(null);
-    if (!this.graphics.rust?.cover("underwater", renderer, this.underwaterScene, this.passCamera)) renderer.render(this.underwaterScene, this.passCamera);
+    this.graphics.rust.cover("underwater", renderer, this.underwaterScene, this.passCamera);
     renderer.autoClear = autoClear;
   }
 }

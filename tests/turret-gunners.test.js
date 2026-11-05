@@ -570,9 +570,11 @@ for (const [map, classes] of Object.entries(SHOWN)) {
       unit.spawn(turret.position.x + 2, turret.position.y + 1, turret.position.z, 0);
       assert.ok(game.turretSeats.man(unit, turret), cls);
       if (cls === 'hoth_bldg_dish_turret' && unit.animator.clips.has('human_dishcannon_9pose')) assert.equal(unit.animator.gunning.clip.name, 'human_dishcannon_9pose');
-      for (const [yaw, pitch, yawVel] of [[0, 0, 0], [1.2, turret.pitchLimits[1], turret.turnRate], [-2.5, turret.pitchLimits[0], -turret.turnRate / 2]]) {
-        turret.yaw = yaw; turret.pitch = pitch; turret.yawVel = yawVel; turret.present();
-        game.turretSeats.pose(unit.seat, 0);
+      for (const [yaw, pitch] of [[0, 0], [1.2, turret.pitchLimits[1]], [-2.5, turret.pitchLimits[0]]]) {
+        // Drive the native crew, rather than mutating its presentation mirror
+        // or calling the removed JavaScript world-pose method.
+        aim({ turret, system: game.vehicles }, unit, yaw, pitch);
+        turret.present();
         unit.animator.update(1 / 60, unit.soldier);
         unit.actor.root.updateMatrixWorld(true);
         const seat = (turret.seat || turret.rig.root);

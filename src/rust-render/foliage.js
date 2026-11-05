@@ -1,22 +1,7 @@
-// The foliage pass (foliage.rs): the near scene's placed foliage (foliage.js,
-// foliage-gpu.js), each class's cards drawn instanced over the patches in
-// view, in the near phase, with three's program for the class.
-//
-// The renderer chooses the patches too. The page's Foliage asks its drawer
-// (this pass, once one is attached: Foliage.drawer) to select whenever it
-// updates; a class is registered there the first time three has a program
-// for it (three's draw or warmup made one), and from then on three neither
-// updates nor draws it (its material is hidden). The selection is then the
-// renderer's, made as FoliageGpuBatch.update makes it, from the camera the
-// page's update was given; the near phase draws it.
-const WORLD = 0;
-// The material values the card shaders read, set per draw from the class.
-const MATERIAL = ["foliageEye", "foliageRight", "foliageUp", "foliageBack", "foliageTime", "foliageEnd", "foliageWiggle", "foliageFogRange", "foliageFogColor", "diffuse", "opacity", "alphaTest"];
-// Everything else a card program may read besides the frame block: its map
-// and the map's uv transform, the model-view matrix (the cards are in world
-// space: the camera's view), and the model matrix three's program reads
-// under shadows (the identity).
-const POLICY = { uniforms: new Set([...MATERIAL, "map", "mapTransform", "modelViewMatrix", "modelMatrix"]), material: new Set(MATERIAL) };
+import { ownedGeometryProgram } from "./programs.js";
+// The foliage pass (foliage.rs) selects placed grass and leaf cards and draws
+// them with declared Rust-owned variants. The host supplies immutable geometry,
+// placement rows and the camera inputs used by Foliage.update.
 // A card vertex's attributes, then a patch row's (foliage.rs VERTEX, ROW).
 const VERTEX = [["position", 3], ["color", 4], ["uv", 2], ["foliageCorner", 2], ["foliageShape", 4], ["foliageRate", 1]];
 const ROW = ["foliagePatch", "foliageTint", "foliageAxisX", "foliageAxisY", "foliageAxisZ", "foliageDistance"];
@@ -30,7 +15,7 @@ class FoliagePass {
     this.name = "foliage";
     this.phase = "near";
     this.foliage = null;
-    // Foliage kind -> the renderer's class (null: three keeps it).
+    // Foliage kind -> its required Rust class id.
     this.classes = new Map();
     this.selected = 0;
     this.input = false;
@@ -38,25 +23,28 @@ class FoliagePass {
 
   // The near phase: the map's foliage, once it has one, takes this pass as
   // its drawer (the classes it registered are drawn in the renderer's call).
-  draw() {
+  // The page publishes placement data to the required Rust selector/drawer.
+  // Only changed class/resource state is registered; view selection belongs to
+  // the Rust frame and uses the same data for ordinary and reflected cameras.
+  // An unsupported class is a registration failure, not a CPU draw request.
+  draw(ctx) {
     const foliage = this.core.graphics.scene.userData.foliage;
-    if (!foliage || foliage.drawer === this || this.on === false) return;
+    if (!foliage) return;
+    if (foliage.drawer === this && this.foliage === foliage && this.classes.size === foliage.kinds.size) return;
     if (foliage !== this.foliage) { this.foliage = foliage; this.classes = new Map(); }
     foliage.drawer = this;
+    this.selectClasses(foliage, ctx.camera);
   }
 
-  // Whether the renderer draws a kind (Foliage.update leaves it alone).
-  covers(kind) {
-    return this.classes.get(kind) != null;
-  }
-
-  // Foliage.update's selection, for every class the renderer draws; a class
-  // three has a program for is registered first.
+  // Foliage.update's selection registers each class before selecting patches.
   select(foliage, camera) {
     try { this.selectClasses(foliage, camera); } catch (error) { this.core.fail(error); }
   }
 
   selectClasses(foliage, camera) {
+    if (this.core.contextLost) return;
+    if (foliage !== this.foliage) { this.foliage = foliage; this.classes.clear(); }
+    this.camera = camera;
     for (const kind of foliage.kinds.values()) if (!this.classes.has(kind)) this.registerClass(kind);
     if (!this.classes.size) return;
     const core = this.core;
@@ -72,15 +60,17 @@ class FoliagePass {
     this.selected = core.rust.foliage_frame();
   }
 
+  // Keep seeded base cards separate from placement rows. The latter are
+  // selected per view; reconstructing the former every frame changes both
+  // allocation cost and the authored random sequence.
   registerClass(kind) {
     const core = this.core, batch = kind.batch, material = batch?.material;
     const geometry = batch?.geometry;
-    if (!geometry?.isInstancedBufferGeometry || !geometry.index) { this.classes.set(kind, null); return; }
-    const threeProgram = core.renderer.properties.get(material).currentProgram;
-    if (!threeProgram) return; // until three has made its program
-    const program = core.program(threeProgram, WORLD, material, POLICY);
+    if (!geometry?.isInstancedBufferGeometry || !geometry.index) throw Error("Invalid foliage geometry");
+    const key = "world/foliage-" + (kind.grass ? "grass" : "leaves") + (core.graphics.csm ? "-shadows" : "");
+    const program = ownedGeometryProgram(core, key);
     const texture = core.texture(material.map);
-    if (!program || texture < 0) { this.classes.set(kind, null); return; }
+    if (!program || texture < 0) core.fail(new Error("Invalid foliage program or texture"));
     const at = new Map(program.attributes);
     const locations = Int32Array.from([...VERTEX.map(([name]) => at.get(name) ?? -1), ...ROW.map((name) => at.get(name) ?? -1)]);
     // The cards' vertices, interleaved.
@@ -92,7 +82,7 @@ class FoliagePass {
       offset += size;
     }
     const index = geometry.index.array instanceof Uint32Array ? geometry.index.array : Uint32Array.from(geometry.index.array);
-    // Each patch's row (what FoliageGpuBatch.update writes for it) and bounds.
+    // Immutable placement rows and bounds, selected and uploaded by Rust.
     const n = kind.instances.length, rows = new Float32Array(n * ROW_FLOATS), bounds = new Float64Array(n * BOUNDS);
     kind.instances.forEach((inst, i) => {
       const r = i * ROW_FLOATS, b = i * BOUNDS, m = inst.matrix.elements;
@@ -111,20 +101,11 @@ class FoliagePass {
     if (map.matrixAutoUpdate) map.updateMatrix();
     const id = core.rust.foliage_class(program.id, texture, Boolean(kind.grass), batch.uniforms.foliageWiggle.value, vertices, index, locations, rows, bounds,
       Float32Array.from(map.matrix.elements), Float32Array.of(material.color.r, material.color.g, material.color.b), material.opacity, material.alphaTest);
-    material.visible = !core.active;
+
     this.classes.set(kind, id);
   }
 
-  setActive(on) {
-    for (const [kind, id] of this.classes) if (id != null) kind.batch.material.visible = !on;
-    if (this.foliage) this.foliage.drawer = on ? this : null;
-    this.core.rust.foliage_on?.(on);
-    this.on = on;
-  }
 
-  restore() {
-    this.setActive(false);
-  }
 }
 
 export function foliagePass(core) {

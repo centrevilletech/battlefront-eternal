@@ -1,6 +1,10 @@
-// Keep recovery independent of the renderer module and its WebAssembly.
-export async function loadRustRenderer(graphics, search = "") {
-  if (new URLSearchParams(search).has("rustOff")) return null;
-  const { createRustRender } = await import("./index.js");
-  return createRustRender(graphics);
+// The battle renderer is required; initialization errors stop loading.
+import { loadRenderer } from "./failure.js";
+// Resolve the module before battle preparation starts; forwarding rejection
+// keeps the loading screen's GPU-labelled cause intact.
+export function loadRustRenderer(graphics) {
+  return loadRenderer(graphics, async () => {
+    const { createRustRender } = await import("./index.js");
+    return createRustRender(graphics);
+  });
 }

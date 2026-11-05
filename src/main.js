@@ -19,7 +19,7 @@ function startBattle() {
   import("./game.js")
     .then(async ({ createGame }) => {
       const game = await createGame({ query: location.search, onProgress: loading.progress });
-      loading.done(game);
+      return loading.done(game);
     })
     .catch((error) => {
       loading.close();

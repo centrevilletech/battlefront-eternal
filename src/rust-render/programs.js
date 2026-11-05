@@ -15,9 +15,20 @@ export function ownedProgram(core, key, attributes) {
     if (attributes !== layout) throw Error(`attribute layout for ${key}: ${attributes}`);
     entry = { id: core.rust.add_owned_program(key), uniforms: source.uniforms, attributes: null };
   } catch (error) {
-    throw Error(`${key}: ${String(error)}`);
+    core.fail(Error(`${key}: ${String(error)}`, { cause: error }));
   }
   (core.shaderPrograms ||= []).push({ key, hash: source?.hash, ms: performance.now() - start, accepted: true });
   cache.set(key, entry);
+  return entry;
+}
+
+// Geometry passes consume the declared locations and active input names, without
+// consulting a linked browser program. Registration errors remain fatal.
+export function ownedGeometryProgram(core, key) {
+  const layout = programLayouts[key];
+  if (!layout) throw Error(`unknown shader variant: ${key}`);
+  const entry = ownedProgram(core, key, layout.attributes.map(([n, l]) => `${n}:${l}`).join(","));
+  entry.attributes = layout.attributes;
+  entry.names ||= new Set(layout.uniforms.map(u => u.name));
   return entry;
 }

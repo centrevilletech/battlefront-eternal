@@ -55,6 +55,17 @@ struct Patch {
     max: f64,
 }
 
+// The authored distance and view-depth rules are distinct for grass and leaves.
+fn visible(p: &Patch, frustum: &Frustum, eye: [f64; 3], back: [f64; 3], near_end: f64, grass: bool) -> bool {
+    let max = if p.max != 0.0 && !p.max.is_nan() { p.max } else { near_end };
+    if let Some((c, r)) = &p.sphere { if !frustum.sphere(c, *r) { return false; } }
+    if (p.position[0] - eye[0]).hypot(p.position[2] - eye[2]) > p.cull { return false; }
+    let d = [p.position[0] - eye[0], p.position[1] - eye[1], p.position[2] - eye[2]];
+    let depth = -(d[0] * back[0] + d[1] * back[1] + d[2] * back[2]);
+    !(if grass { depth > max || depth < -5.0 } else { depth > max + 20.0 || depth < -25.0 })
+}
+
+
 struct Class<C: HasContext> {
     program: usize,
     texture: C::Texture,
@@ -108,7 +119,6 @@ struct Slots {
 pub struct FoliagePass<C: HasContext> {
     classes: Vec<Class<C>>,
     // Off: three draws the foliage (the page's switch for this pass alone).
-    pub on: bool,
     pub input: Vec<f64>,
     // The view matrix each program last had (modelViewMatrix: the cards are
     // in world space, so it is the camera's), by program.
@@ -152,8 +162,12 @@ fn float(v: f32) -> Value {
 }
 
 impl<C: HasContext> FoliagePass<C> {
+    pub fn replace_texture(&mut self, old: C::Texture, new: C::Texture) {
+        for class in &mut self.classes { if class.texture == old { class.texture = new; } }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> FoliagePass<C> {
-        FoliagePass { classes: vec![], on: true, input: vec![0.0; INPUT_LEN], model_views: HashMap::new(), map_matrices: HashMap::new(), models: std::collections::HashSet::new() }
+        FoliagePass { classes: vec![], input: vec![0.0; INPUT_LEN], model_views: HashMap::new(), map_matrices: HashMap::new(), models: std::collections::HashSet::new() }
     }
 
     // A class: three's program for its cards (core.add_program's), its
@@ -273,22 +287,7 @@ impl<C: HasContext> FoliagePass<C> {
             let mut next = std::mem::take(&mut class.next);
             next.clear();
             let test = |i: u32, out: &mut Vec<u32>| {
-                let p = &class.patches[i as usize];
-                let max = if p.max != 0.0 && !p.max.is_nan() { p.max } else { near_end };
-                if let Some((c, r)) = &p.sphere {
-                    if !frustum.sphere(c, *r) {
-                        return;
-                    }
-                }
-                if (p.position[0] - eye[0]).hypot(p.position[2] - eye[2]) > p.cull {
-                    return;
-                }
-                let d = [p.position[0] - eye[0], p.position[1] - eye[1], p.position[2] - eye[2]];
-                let depth = -(d[0] * back[0] + d[1] * back[1] + d[2] * back[2]);
-                let out_of_range = if class.grass { depth > max || depth < -5.0 } else { depth > max + 20.0 || depth < -25.0 };
-                if !out_of_range {
-                    out.push(i);
-                }
+                if visible(&class.patches[i as usize], &frustum, eye, back, near_end, class.grass) { out.push(i); }
             };
             for &i in &class.always {
                 test(i, &mut next);
@@ -323,9 +322,6 @@ impl<C: HasContext> FoliagePass<C> {
     // Each class's cards over its selected patches, as three draws them:
     // depth tested and written, both sides, alpha to coverage, no blending.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
-        if !self.on {
-            return;
-        }
         let mut view_matrix = [0.0f32; 16];
         view_matrix.copy_from_slice(&core.frame[16..32]);
         let fog_range = Value::F(2, [core.frame[68], core.frame[69], 0.0, 0.0]);
@@ -402,5 +398,33 @@ impl<C: HasContext> FoliagePass<C> {
 
     pub fn selected(&self, class: u32) -> u32 {
         self.classes.get(class as usize).map_or(0, |c| c.selected.len() as u32)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn grass_and_leaf_distance_boundaries_keep_authored_rules() {
+        let frustum = Frustum::from_matrix(&[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]);
+        let mut patch = Patch { position: [0.0,0.0,-50.0], sphere: None, cull: f64::INFINITY, max: 20.0 };
+        let test = |p: &Patch, grass| visible(p, &frustum, [0.0;3], [0.0,0.0,1.0], 100.0, grass);
+        assert!(!test(&patch, true));
+        patch.max = 0.0;
+        assert!(test(&patch, true));
+        patch.max = 30.0;
+        assert!(test(&patch, false));
+        patch.position[2] = -50.0001;
+        assert!(!test(&patch, false));
+        patch.position[2] = 5.0;
+        assert!(test(&patch, true));
+        patch.position[2] = 5.0001;
+        assert!(!test(&patch, true));
+        assert!(test(&patch, false));
+        patch.cull = 5.0;
+        assert!(!test(&patch, false));
+        patch.cull = f64::INFINITY;
+        patch.sphere = Some(([10.0,0.0,0.0], 1.0));
+        assert!(!test(&patch, false));
     }
 }

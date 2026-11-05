@@ -2,7 +2,8 @@
 
 `rust/bfe-render/shaders/<family>/manifest.json` declares source-owned program
 variants. The `post-hud` family owns twelve stable full-screen and battle HUD
-programs. The FXAA source license is retained in `shaders/post-hud/NOTICE`.
+programs. The `world` family owns static near/far geometry, terrain, foliage
+and canopy programs, including their Enhanced variants. The FXAA source license is retained in `shaders/post-hud/NOTICE`.
 Those passes register Rust source directly. They have no source switch,
 compiled-three-program bridge, or shader fallback. Registration errors throw a
 message naming the variant. Unported shader families still borrow three programs.
@@ -10,14 +11,16 @@ message naming the variant. Unported shader families still borrow three programs
 Each variant has a unique `<family>/<name>` key, self-contained vertex and
 fragment bodies, explicit attribute locations, and named uniform slots with the
 renderer types (float/vector 1..4, integer/bool 5, mat3 9, mat4 16, sampler2D 32,
-sampler3D 33).
+sampler3D 33, sampler2DShadow 34). Arrays declare `{ "type": N, "size": N }`
+instead of a numeric type, using the base uniform name without `[0]`.
 Order in the uniform object defines slot order. Include every active input;
 inactive declared inputs may remain. The linker validates active uniforms and
 attribute locations against the declaration. Unknown keys, incompatible layouts
 and link failures are errors.
 
 `programs::sources` emits GLSL ES 3.00 with explicit high precision and the
-compatibility vocabulary the bodies use. It injects no lighting, colour-space or
+compatibility vocabulary the bodies use in `body` mode; `expanded` mode keeps
+the declared version and vocabulary. It injects no lighting, colour-space or
 tone-map chunks. Source and arithmetic belong to Rust. Run
 `node tools/render-shaders.mjs` to regenerate `program_catalog.rs` and the
 browser's `render-programs.js` layout/hash metadata. The latter contains no shader
@@ -47,74 +50,57 @@ sorted catalog. Regenerate after merging; do not merge generated output by hand.
 A manifest row declares `vertex`, `fragment`, `attributes` pairs and `uniforms`.
 Use the post-hud manifest as the concrete schema example.
 
-Registration currently accepts only Plain programs. Families needing instance,
-frame or shadow source rewrites must extend the descriptor/compiler explicitly;
-do not route instanced programs through Plain. Shader registration does not alter
+Manifest rows accept `kind: "Plain"` (the default) or `kind: "World"`.
+World uses the existing frame/shadow block rewrite and may declare `lamps: true`
+for the lamp-table rewrite. `source: "expanded"` supplies complete GLSL ES 3.00
+sources, including the version and precision declarations; the default `body`
+uses the post/HUD compatibility prefix. Expanded arithmetic is preserved before
+kind-specific input rewrites. Reflection validates standalone inputs against the
+manifest; block members belong to the shared frame/shadow layout. Families
+needing instance rewrites must extend the descriptor explicitly; do not route
+instanced programs through Plain. Shader registration does not alter
 `core.rs`, `post.rs` or `hud.rs` phase records: context-local resource handles,
 f64 phase inputs, five view blocks and BfeFrame/BfeShadow layouts remain their
 own contracts. Version resource/schema changes independently of source keys.
 Caches belong to one GPU context and must be discarded with it. Context lifecycle
 and renderer-wide error policy belong to the renderer lifecycle packet.
 
-# Reusable frozen-build corpus
+# Reusable pixel corpus
 
-Run `node tools/renderer-corpus.mjs --runner EXECUTABLE --against REFERENCE_DIST
---dist CANDIDATE_DIST --out OUTPUT --jobs N`. The runner receives
-`CANDIDATE_DIST CASE_ID OUTPUT REFERENCE_DIST`. For each case it launches fresh
-applications in order: reference, candidate, repeat reference. In each application
-run `node tools/renderer-corpus/capture.mjs` with `BFE_CORPUS_ROLE` set respectively
-to `reference`, `candidate`, `control`. Then run
-`node tools/renderer-corpus/compare.mjs OUTPUT CASE_ID` and return its exit status.
-No query or environment option selects a shader implementation.
+Run `node tools/renderer-corpus.mjs --runner EXECUTABLE --dist DIST --against
+REFERENCE_DIST --out OUTPUT --jobs N`. The runner receives
+`DIST CASE_ID CASE_OUTPUT REFERENCE_DIST`. It must run three separate application
+sessions in that case directory's `reference`, `control` and `candidate`
+subdirectories, invoking `node tools/renderer-corpus/capture.mjs` for each. The
+first two sessions use the frozen reference; the last uses the candidate. Each
+session uses the same immutable case query and settings and must retain draws.
+Build both distributions with `--minify false`. The harness isolates object UUID
+randomness from procedural foliage/effect randomness, so deleting helper objects
+does not change the sampled world. Audio scheduling uses a separate stream too. It fails if that isolation cannot be verified.
+The worker is stopped and advanced to authority tick 60 before cosmetic warmup;
+its initial start acknowledgement can otherwise race by one tick. Captured ticks
+must still match exactly between sessions.
 
-Set `CDP_PORT`, `BFE_CORPUS_CASE`, `OUT`, `BFE_SETTINGS_FILE` for desktop settings,
-and `BFE_GPU_LOG` for the application log. `BFE_CORPUS_RAW` optionally places
-transient buffers on local scratch storage instead of the report directory. `BFE_APP_URL` defaults to the desktop
-app URL. Use Node with built-in fetch and WebSocket. Launch at 1600x900 with draws
-enabled and `WARM=12`, `RENDER_WARM=3`. Freeze both distributions before the run.
-`--cases id,id` is an iteration smoke, not the complete gate. The summary records
-manifest SHA-256, build paths, missing program variants and completeness.
+Set `CDP_PORT`, `BFE_CORPUS_CASE`, `OUT` and `BFE_SETTINGS_FILE` for each session.
+Set `BFE_CANDIDATE=1` only for the candidate, and `BFE_FORCE_RESTORE=1` to exercise
+the context-loss case on it. `BFE_APP_URL` defaults to the desktop application.
+The runner must propagate capture failures. Use Node with built-in fetch and
+WebSocket. No content is distributed with the corpus.
 
-The version 2 manifest has every one of the 17 maps in Classic/Balanced/High,
-requested 2x MSAA, four walking/turning/firing capture points and four history
-frames after two settling frames. Additional cases cover Ultra water on ocean
-and mirror maps, bilinear/spatial scaling and fast FXAA. Actual driver sample
-counts are reported. Deliberate context-loss behavior is covered by the renderer
-lifecycle gate, independently of this shader-source comparison.
+The manifest freezes all 17 maps at Classic/Balanced/High, valid first-person
+player queries, requested 2x MSAA, four walking/turning points and four history
+frames. Supplemental cases cover Ultra water and mirrors, upscaling and context
+restoration. `--cases id,id` is a smoke, not the full matrix. Captures include
+actual ticks, compressed RGBA, context events, material-state census, Rust draw
+counts and the battle draw guard's count. Candidate renderer errors are fatal.
 
-Each run uses seeded page/worker randomness and simulation lockstep. Each point
-records far/scene inputs, temporal velocity/motion/history where enabled, planar
-reflection stages, post output and the final weapon/HUD frame. Half-float stages
-are compared as half-float bits. All comparisons include RGBA. Mismatched ticks,
-layouts, missing mirrors, blank frames, absent Rust draws, context loss, GPU
-process deaths and GL errors invalidate the case. Transient stage buffers are
-deleted after comparison; compact metrics and run metadata remain.
+The page and workers use seeded randomness. Capture-time lamp selection uses a
+fixed advancing clock. Reference/control must be pixel-exact across separate
+sessions; noisy controls fail and must be investigated. Candidate comparisons
+also require exact RGBA pixels, dimensions and ticks. There is no per-count or
+noise-envelope allowance. Raw captures stay outside the repository and should
+be removed after recording results.
 
-The exact shader gate replays recorded reference inputs through each build's
-default Rust API. It records each post step's f64 inputs, sampler texels and
-output, plus HUD vertex mirrors, camera/group inputs and pre-HUD canvas. The
-reference first replays its own capture and must reproduce it exactly; then the
-candidate must reproduce the same outputs exactly. Texture levels and sampler
-parameters are preserved. Depth is sampled losslessly into float texels; the
-reference self-replay checks this representation. Every channel and half-float
-bit must match. This isolates shader behavior from differences between separate
-live battles. Transient payloads are deleted after comparison.
-
-The whole-frame baseline verdict remains separate. Independent launches can
-differ even with matching simulation ticks, so frame exactness must not be
-inferred from shader exactness. The repeat reference provides a
-per-channel, per-pixel amplitude envelope; a difference outside it fails the
-whole-frame baseline. A noisy
-control never grants a blanket pixel budget. Inspect geo1 smoke/flames, bes2
-steam, kam1 rain/lightning and rhn1 dry ice in particular. The corpus visits
-representative states, not every possible effect or camera position.
-
-`BFE_CORPUS_POINTS=1` is a development capture and cannot pass completeness.
-
-The version 1 pre-deletion gate paired the compiled-three and owned programs on
-identical inputs for each step, the whole post chain and HUD. That frozen evidence
-remains an external reference; the runtime twin and switch are deleted. Synthetic
-phase-record goldens and registration tests preserve coverage in CI.
 
 # Compilation and caches
 
@@ -155,3 +141,44 @@ on the default path. `BFE_SHADER_CACHE_PROBE=1` repeats all registered keys to
 measure context-local ID reuse separately. Compare fresh applications against a
 frozen reference in interleaved local rounds, recording driver-cache state. Farm
 timings are correctness diagnostics, not slow-PC performance measurements.
+
+# Frozen world shader inputs
+
+`tools/renderer-world-corpus.mjs` runs the source gate independently of the
+renderer lifecycle corpus. Its runner receives candidate distribution, case id,
+output directory and frozen reference distribution. Launch reference, candidate
+and repeat reference in that order, invoking
+`tools/renderer-corpus/world-capture.mjs` with the corresponding
+`BFE_CORPUS_ROLE`; then invoke `world-compare.mjs` with output directory and case
+id. The world manifest includes the 51 map/preset cases, three-cascade shadows,
+a close canopy view, water and scale cases. Shortened captures cannot pass
+completeness.
+
+The reference records actual default Rust submissions: vertex/index and uniform
+block bytes, standalone uniforms, sampler mip texels or compressed blocks,
+filter/wrap/comparison/anisotropy parameters, raster state and multi-draw ranges.
+Source replay uses Rust-registered linked programs and fresh targets with the
+same sample count. Depth inputs retain their original depth format. This checks
+world/far, terrain, foliage, canopy and world-transparent arithmetic and alpha-to-coverage without
+incoming colour/depth history from unrelated draws. Post/HUD replay retains its
+phase records. Reference self-replay, candidate replay and repeat-reference
+replay must all match every RGBA channel and half-float bit exactly. Shader and
+layout hashes accompany the reports; transient buffers are deleted after
+comparison. Whole-frame differences remain a separate verdict.
+
+World source prefixes are explicit `vertexPrefix`/`fragmentPrefix` manifest
+fields. Rust concatenates each prefix with a shared expanded body at registration;
+the generator hashes the complete expanded text. This shares identical bodies
+without changing shader bytes or emitting browser GLSL. World resource shells
+never enter three's compiler. Scene features select an exact declared key;
+unknown combinations fail rather than choosing another variant. Map programs
+are prewarmed before preparation draws. The world shader license is retained in
+`shaders/world/NOTICE`.
+
+Transparent source cases aim at authored triangles for each material feature
+set. Their simulation advances between points without drawing; settle and
+history frames produce the sampled inputs. They capture both transparent-list
+and segmented native submissions, including the mirror list. A transparent
+case must replay an actual world-transparent submission. Unbound samplers are
+recorded as null bindings. First-use source submissions invalidate the candidate;
+the frozen reference retains its original lazy compilation diagnostics.

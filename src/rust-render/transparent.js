@@ -1,3 +1,4 @@
+import { ownedWorldProgram } from "./world-programs.js";
 // The transparent pass (transparent.rs): what the near scene blends, drawn
 // in three's back-to-front order, as three's transparent list would. Any
 // pass whose draws blend (the effects, the water...) is a source of items
@@ -34,6 +35,7 @@
 // once three has drawn it as it is now, and drawn by three again when three
 // would draw it with another program.
 import * as THREE from "three";
+import { fountainCopies } from "../fountain-jets.js";
 import { compileFor, unbuilt } from "./instances.js";
 
 // add_program's kind for the map's meshes (web/mod.rs).
@@ -50,6 +52,7 @@ const POLICY = {
 };
 const IDENTITY = new THREE.Matrix4();
 // GL enums for three's blending and depth functions (WebGLState).
+const copyOrder = (a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || b.key[2] - a.key[2] || a.key[3] - b.key[3];
 const GL = {
   ADD: 0x8006, SUBTRACT: 0x800a, REVERSE_SUBTRACT: 0x800b, MIN: 0x8007, MAX: 0x8008,
   ZERO: 0, ONE: 1, SRC_COLOR: 0x0300, ONE_MINUS_SRC_COLOR: 0x0301, SRC_ALPHA: 0x0302, ONE_MINUS_SRC_ALPHA: 0x0303,
@@ -77,7 +80,7 @@ const DEPTH_FUNCS = { [THREE.NeverDepth]: 0x0200, [THREE.LessDepth]: 0x0201, [TH
 
 // A material's blending as three's setBlending sets it: [enabled, equation
 // rgb, equation alpha, src rgb, dst rgb, src alpha, dst alpha], or null for
-// one this pass leaves to three (constant-colour factors).
+// an invalid or unauthored blend state, which fails battle registration.
 export function blendOf(material) {
   const p = material.premultipliedAlpha;
   switch (material.blending) {
@@ -100,12 +103,11 @@ export function blendOf(material) {
 
 // What a material's draw state is to the renderer: its depth function and
 // flags (1 depth test, 2 depth write, 4 colour write), or null for a state
-// this pass leaves to three (stencil, polygon offset, alpha to coverage).
+// outside the declared depth functions. Alpha to coverage is flag 8.
 export function stateOf(material) {
-  if (material.stencilWrite || material.polygonOffset || material.alphaToCoverage || material.transmission > 0) return null;
   const func = DEPTH_FUNCS[material.depthFunc];
   if (func === undefined) return null;
-  return { func, flags: (material.depthTest ? 1 : 0) | (material.depthWrite ? 2 : 0) | (material.colorWrite ? 4 : 0) };
+  return { func, flags: (material.depthTest ? 1 : 0) | (material.depthWrite ? 2 : 0) | (material.colorWrite ? 4 : 0) | (material.alphaToCoverage ? 8 : 0) };
 }
 
 // The sides three draws a transparent material with, in order (renderObject:
@@ -148,28 +150,21 @@ class TransparentPass {
     this.core = core;
     this.name = "transparent";
     this.phase = "transparent";
-    this.active = true;
     this.frameNo = 0;
     // Three's render list of the near scene this frame, the items it still
     // draws itself, and the hooks armed on them (object -> hook).
     this.list = null;
     this.three = [];
-    this.hooks = new Map();
     this.segmentStats = [];
     // What runs after the list's last draw in this render (a pass's draw in
     // the transparent phase sets it; screen.js fog): after the renderer's
     // last segment or three's last item, whichever comes last.
     this.atEnd = null;
-    // What this pass draws in three's place: three's object -> { bucket,
-    // id, material, program (three's, front pass), frame (registered) }, or
-    // null for one left to three. Candidates: items seen in three's list
-    // this frame, registered in the transparent phase.
     this.taken = new Map();
     this.candidates = [];
     // Objects found before three listed the scene (beforeSort) that could not
     // be registered yet (a texture still loading).
     this.retry = new Set();
-    this.presortFailed = false;
     // The objects' programs, made for this pass alone: the renderer keeps
     // the values it last set in each (transparent.rs), and the effects'
     // glow models can draw with the same three program, keeping theirs.
@@ -192,51 +187,39 @@ class TransparentPass {
   // of three's render (near.js), its walk's items stand for three's list,
   // all of them this pass's, and the transparent phase follows at once, as
   // deferred as the near phase.
+  // Replacing renderObject's callbacks requires explicit ordering boundaries.
+  // Opaque lines and the far image finish before any transparent reader copies
+  // depth/colour. Each copy or line then splits the sorted Rust stream, so a
+  // reader sees the scene at exactly its authored place in that stream.
   afterPhase(name, ctx) {
     if (name === "near" || name === "mirror") {
-      this.disarm();
+      this.core.byName.lines.drawOpaque(ctx);
+      // The far image is the last opaque draw, depth tested against geometry,
+      // before transparent sources capture their opaque depth/colour copies.
+      if(ctx.walked){
+        this.core.byName.near.writeImage(ctx.camera);
+        this.core.phase("image",ctx.renderer,ctx.scene,ctx.camera,ctx.defer,null,{steps:1});
+      }
       this.atEnd = null;
       this.frameNo++;
-      this.list = null;
       this.takenCount = 0;
-      this.list = ctx.walked ? this.walkedList(ctx.walked) : this.threeList(ctx.renderer, ctx.scene);
-      if (!this.list) return;
-      // Off (a comparison): three draws every item of its list, and the
-      // other sources' items still draw around them.
-      if (this.active) this.take(this.list.transparent);
-      else this.takeNone();
-      const before = this.list.transmissive.length ? this.list.transmissive : this.list.opaque;
-      const last = before[before.length - 1];
-      const phase = name === "near" ? "transparent" : "mirrorTransparent";
-      const start = () => this.core.phase(phase, ctx.renderer, ctx.scene, ctx.camera, ctx.defer);
-      // Nothing of three's drawn after the near phase's own hook (or the
-      // scene walked, all of it the renderer's): the transparent list
-      // follows now. Else right after three's last opaque item (the far
-      // scene's image where three draws it, last of them; where it doesn't,
-      // the image is the transparent phase's first draw: screen.js).
-      if (ctx.walked || last.object === this.core.nearAnchor) start();
-      else this.arm(last, start, ctx);
+      this.list = this.walkedList(ctx.walked || []);
+      this.take(this.list.transparent);
+      if (this.list.transparent.length) throw new Error("Unclaimed Rust transparent items");
+      this.core.phase(name === "near" ? "transparent" : "mirrorTransparent", ctx.renderer, ctx.scene, ctx.camera, ctx.defer, ctx.walked);
     } else if (name === "transparent" || name === "mirrorTransparent") {
-      const core = this.core, rust = core.rust;
-      const n = rust.transparent_segments_len(), segments = new Uint32Array(core.wasm.memory.buffer, rust.transparent_segments_ptr(), n);
-      this.segmentStats.length = 0;
-      // The list's end (atEnd): after the last segment when it follows
-      // three's last item, else right after three's last item; with none of
-      // three's, now (the phase drew the whole list).
-      const end = this.atEnd, last = this.three.length;
+      for (let k=0;k<(this.commands?.length || 0);k++) {
+        const command = this.commands[k];
+        if (command.depth) command.depth.capture(ctx.camera, true);
+        else if (command.line) this.core.byName.lines.drawOne(command.line,ctx);
+        else command.jets.capture(ctx.renderer);
+        const tail = this.core.rust.transparent_segment(k + 1), stats = this.core.phaseStats[name];
+        for (let i=0;i<tail.length;i++) stats[i] += tail[i];
+        this.core.stale = true;
+      }
+      const end = this.atEnd;
       this.atEnd = null;
-      let ended = !end;
-      for (let k = 1; k + 1 < n && k <= last; k++) {
-        if (segments[k + 1] > segments[k]) {
-          const segment = k, then = k === last ? end : null;
-          this.arm(this.three[k - 1], then ? () => { this.drawSegment(segment); then(); } : () => this.drawSegment(segment), ctx);
-          if (then) ended = true;
-        }
-      }
-      if (!ended) {
-        if (last === 0) end();
-        else this.arm(this.three[last - 1], end, ctx);
-      }
+      if (end) end();
     }
   }
 
@@ -251,53 +234,36 @@ class TransparentPass {
 
   // Whether this pass draws an item three would list in the near scene's
   // next render (take()'s test, before that frame's near phase).
+  // Ownership must be known before the near walk accepts the frame. A material
+  // revision can invalidate its old program; compile/register the new one before
+  // using its previous record. Failure must remain visible to the required drawer.
   takes(item) {
-    const entry = this.taken.get(item.object);
-    if (!this.active || !entry || entry.material !== item.material || item.group) return false;
-    const props = this.core.renderer.properties.get(entry.material);
-    return props.currentProgram === entry.program && drawnAsNow(props, entry) && entry.frame <= this.frameNo;
+    const ownedMaterial=item.material;
+    if(ownedMaterial.userData.bfeFamily === "world") {
+      let entry=this.taken.get(item.object);
+      if(!entry || entry.material!==ownedMaterial || entry.version!==ownedMaterial.version){
+        entry=this.registerBucket(item);if(!entry)return false;this.taken.set(item.object,entry);this.core.stale=true;
+      }
+      return !item.group;
+    }
+    const renderer=this.core.renderer, material=item.material;
+    let entry=this.taken.get(item.object);
+    if(item.group)return false;
+    const props=renderer.properties.get(material);
+    if(!entry || entry.material!==material || entry.version!==material.version || entry.program!==props.currentProgram){
+      if(!this.candidate(item))return false;
+      if(!props.currentProgram || entry && entry.version!==material.version) compileFor(renderer,[[item.object,material]],this.core.graphics.camera,this.core.graphics.scene);
+      entry=material.isShaderMaterial && "WORLD_SPACE" in (material.defines||{}) ? this.registerBucket(item) : this.registerObject(item,true);
+      if(!entry)return false;
+      this.taken.set(item.object,entry);
+      this.core.stale=true;
+    }
+    return drawnAsNow(props,entry) && entry.frame<=this.frameNo;
   }
 
   // three's render list for the near scene being drawn (core.nearList).
-  threeList(renderer, scene) {
-    return this.core.nearList(renderer, scene);
-  }
 
-  // fn right after three draws `item` (its object's onAfterRender for that
-  // material and group) in the render of the near scene the phase ran in
-  // (ctx: its camera and target; the frame's own, or a mirror's), once. An
-  // object's hook is taken off once all of its items have run, or at the
-  // next near (or mirror) phase whatever happened.
-  arm(item, fn, ctx) {
-    const { graphics } = this.core;
-    const camera = ctx?.camera ?? graphics.camera, target = ctx ? ctx.renderer.getRenderTarget() : graphics.sceneTarget;
-    let hook = this.hooks.get(item.object);
-    if (!hook) {
-      const object = item.object;
-      hook = { object, own: Object.prototype.hasOwnProperty.call(object, "onAfterRender"), original: object.onAfterRender, entries: [], left: 0 };
-      const hooks = this.hooks;
-      object.onAfterRender = function (renderer, scene, camera, geometry, material, group) {
-        hook.original.call(this, renderer, scene, camera, geometry, material, group);
-        if (scene !== graphics.scene) return;
-        const drawing = renderer.getRenderTarget();
-        for (const entry of hook.entries) {
-          if (entry.done || entry.material !== material || entry.group !== group || entry.camera !== camera || entry.target !== drawing) continue;
-          entry.done = true;
-          if (--hook.left === 0) { restore(hook); hooks.delete(object); }
-          entry.fn();
-          break;
-        }
-      };
-      this.hooks.set(object, hook);
-    }
-    hook.entries.push({ material: item.material, group: item.group, fn, done: false, camera, target });
-    hook.left++;
-  }
 
-  disarm() {
-    for (const hook of this.hooks.values()) restore(hook);
-    this.hooks.clear();
-  }
 
   // Before three lists the frame's own render of the near scene (the core's
   // watchScene): the objects this pass could draw that it has not seen,
@@ -310,7 +276,7 @@ class TransparentPass {
   // registered as three lists it.)
   beforeSort(renderer, scene, camera, target, added) {
     const graphics = this.core.graphics;
-    if (!this.active || this.presortFailed || !added || scene !== graphics.scene) return;
+    if (!added || scene !== graphics.scene) return;
     if (!added.length && !this.retry.size) return;
     try {
       const found = [...this.retry];
@@ -337,17 +303,10 @@ class TransparentPass {
         else if (entry === undefined && object.parent && renderer.properties.get(object.material).__version === undefined) this.retry.add(object);
       }
     } catch (error) {
-      this.core.errors.push(`transparent before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
-      this.presortFailed = true;
+      this.core.fail(error);
     }
   }
 
-  // What this pass draws, out of three's transparent list (in place: three's
-  // loop over it has not started), each a record for the renderer with
-  // three's key. Taken only while three's program for it is the one it was
-  // registered with, and three has drawn it as it is now (it still does in
-  // other renders, a mirror's); else three draws it, and it is registered
-  // again if its program changed.
   take(items) {
     const core = this.core, renderer = core.renderer, stride = this.objectStride;
     core.views();
@@ -359,12 +318,18 @@ class TransparentPass {
       // Another material since (the game swapped it): looked at again.
       if (entry && entry.material !== item.material) { this.taken.delete(item.object); entry = undefined; }
       else if (entry && item.group) entry = null;
+      else if (entry && entry.material.userData.bfeFamily === "world") {
+        if (entry.version !== entry.material.version) { this.taken.delete(item.object); entry = undefined; }
+      }
       else if (entry) {
         const props = renderer.properties.get(entry.material);
         if (props.currentProgram !== entry.program) { this.taken.delete(item.object); entry = undefined; }
         else if (!drawnAsNow(props, entry) || entry.frame >= this.frameNo) entry = null;
       }
-      if (entry === undefined && this.candidate(item)) this.candidates.push(item);
+      if (entry === undefined && this.candidate(item)) {
+        if (item.material.userData.bfeFamily === "world") { entry = this.registerBucket(item); if (entry !== undefined) this.taken.set(item.object, entry); }
+        else this.candidates.push(item);
+      }
       if (entry && n < 512) {
         const o = 1 + n * stride;
         if (entry.bucket) {
@@ -381,22 +346,20 @@ class TransparentPass {
     this.takenCount = n;
   }
 
-  takeNone() {
-    this.core.views();
-    this.core.transparentObjects[0] = 0;
-    this.candidates.length = 0;
-  }
 
   // Whether three's item is one this pass could draw: one of the map's
   // blended buckets, or an object with a material it knows.
   candidate(item) {
     const { object, material } = item;
     if (item.group || Array.isArray(object.material)) return false;
-    if (OBJECT_KINDS[material.type] !== undefined) return true;
+    if (OBJECT_KINDS[material.type] !== undefined) return object.parent?.userData?.material !== material && object.geometry?.attributes.position?.usage !== THREE.DynamicDrawUsage;
     return Boolean(object.isMesh && object.parent === this.core.graphics.scene && !object.matrixAutoUpdate && object.matrix.equals(IDENTITY)
-      && material.defines && "WORLD_SPACE" in material.defines && !("TERRAIN" in material.defines) && material.isShaderMaterial);
+      && material.defines && "WORLD_SPACE" in material.defines && !("TERRAIN" in material.defines) && (material.isShaderMaterial || material.userData.bfeFamily === "world"));
   }
 
+  // Match refreshUniformsCommon for built-in basic meshes and sprites.
+  // Colour/opacity, sprite centre/rotation and map transforms are material or
+  // object values; they must not be inherited from whichever draw came before.
   writeObject(r, o, entry, item) {
     const object = item.object, material = entry.material;
     r[o + OBJ.INDEX] = entry.id; r[o + OBJ.BUCKET] = 0;
@@ -411,10 +374,10 @@ class TransparentPass {
     if (map) { if (map.matrixAutoUpdate) map.updateMatrix(); r.set(map.matrix.elements, o + OBJ.MAP); }
   }
 
-  // The transparent phase, before the renderer's call: what three listed
-  // this frame that this pass has not seen, registered (three draws it this
-  // frame: from the next one it is taken), then three's own remaining
-  // items' keys.
+  // Copy commands use the same group/render/depth/id keys as blended draws.
+  // Depth capture and fountain colour capture are resource operations, not
+  // dummy meshes. Their explicit keys preserve ordering without native callbacks.
+  // The Rust segment cursor resumes immediately after each command.
   draw(ctx) {
     const core = this.core;
     for (const item of this.candidates) {
@@ -424,25 +387,32 @@ class TransparentPass {
     }
     this.candidates.length = 0;
     core.views();
-    const keys = core.transparentKeys, items = this.list?.transparent || [], three = this.three;
-    three.length = 0;
-    for (const item of items) {
-      if (!item.object.layers.test(ctx.camera.layers)) continue;
-      const o = 4 * three.length;
-      if (o + 4 > keys.length) break;
-      keys[o] = item.groupOrder; keys[o + 1] = item.renderOrder; keys[o + 2] = item.z; keys[o + 3] = item.id;
-      three.push(item);
+    const commands = this.commands ??= [];
+    commands.length = 0;
+    const depth = core.graphics.particleDepth;
+    const point = this.commandPoint ??= new THREE.Vector4();
+    if (depth && depth.armed && ctx.camera === depth.camera && ctx.renderer.getRenderTarget() === depth.source) {
+      point.setFromMatrixPosition(depth.copier.matrixWorld).applyMatrix4(depth.screen);
+      const command = this.depthCopy ??= { depth, key: new Float64Array(4) };
+      command.key[0] = depth.group.renderOrder; command.key[1] = depth.copier.renderOrder; command.key[2] = point.z; command.key[3] = -1;
+      commands.push(command);
     }
-    ctx.three = three.length;
+    const copies = fountainCopies.get(ctx.scene);
+    if (copies && ctx.renderer.getRenderTarget() === core.graphics.sceneTarget) for (const jets of copies) {
+      if (!jets.copyNeeded) continue;
+      point.set(0, 0, 0, 1).applyMatrix4(ctx.camera.matrixWorldInverse).applyMatrix4(ctx.camera.projectionMatrix);
+      const cache = this.fountainCommands ??= new WeakMap();
+      let command = cache.get(jets);
+      if (!command) { command = { jets, key: new Float64Array(4) }; cache.set(jets, command); }
+      command.key[0] = 0; command.key[1] = 8.975; command.key[2] = point.z; command.key[3] = -1;
+      commands.push(command);
+    }
+    for (const command of core.byName.lines.transparent) commands.push(command);
+    commands.sort(copyOrder);
+    for (let k=0;k<commands.length;k++) core.transparentKeys.set(commands[k].key, k*4);
+    ctx.commands = commands.length;
   }
 
-  drawSegment(k) {
-    const core = this.core, renderer = core.renderer, target = renderer.getRenderTarget();
-    if (!core.enabled || !core.active) return;
-    this.segmentStats.push(core.rust.transparent_segment(k));
-    renderer.resetState();
-    renderer.setRenderTarget(target);
-  }
 
   // Three's passes for a material (transparent.rs), each its program for
   // the renderer, or null: [{ side, program }], three's program for the
@@ -451,6 +421,9 @@ class TransparentPass {
   passesOf(material, policy, cache = undefined) {
     const core = this.core, renderer = core.renderer;
     const sides = sidesOf(material);
+    if (material.userData.bfeFamily === "world") {
+      return { sides, programs: sides.map(side => ownedWorldProgram(core, material, core.graphics.scene, core.graphics.camera, side)), current: null };
+    }
     const three = sides.map((side) => programForSide(renderer, material, side));
     if (three.some((p) => !p)) return null;
     const programs = three.map((p) => core.program(p, WORLD, material, policy, cache));
@@ -458,14 +431,11 @@ class TransparentPass {
     return { sides, programs, current: renderer.properties.get(material).currentProgram };
   }
 
-  // A map's blended bucket three drew as it is now: { bucket, id, material,
-  // program, frame }, null for one left to three, or undefined to look
-  // again later.
   registerBucket(item) {
     const core = this.core, renderer = core.renderer, rust = core.rust;
     const { object: mesh, material } = item, geometry = mesh.geometry;
     const props = renderer.properties.get(material);
-    if (!props.currentProgram || props.__version !== material.version) return undefined;
+    if (material.userData.bfeFamily !== "world" && (!props.currentProgram || props.__version !== material.version)) return undefined;
     if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return null;
     if (mesh.onBeforeRender !== baseBeforeRender || mesh.onAfterRender !== baseAfterRender) return null;
     const blend = blendOf(material), state = stateOf(material);
@@ -492,19 +462,17 @@ class TransparentPass {
       }
     });
     this.buckets++;
-    return { bucket: true, id, material, program: passes.current, frame: this.frameNo };
+    return { bucket: true, id, material, program: passes.current, version: material.version, frame: this.frameNo - (material.userData.bfeFamily === "world" ? 1 : 0) };
   }
 
-  // An object three drew as it is now, with a material this pass draws:
-  // { bucket: false, id, material, program, frame }, null for one left to
-  // three, or undefined to look again later. compiled: one three has built
-  // programs for without a draw (beforeSort), as its material is now (its
-  // version kept: one changed since is three's again until three draws it).
+  // Built-in object sources remain a compiler dependency. Import their linked
+  // bindings before hiding them from any native render list; a draw is never
+  // used as a prerequisite for discovering the correct material program.
   registerObject(item, compiled = false) {
     const core = this.core, renderer = core.renderer, rust = core.rust;
     const { object, material, geometry } = item;
     const props = renderer.properties.get(material);
-    if (!props.currentProgram || (props.__version !== material.version && !(compiled && props.__version === undefined))) return undefined;
+    if (!props.currentProgram) return undefined;
     const kind = OBJECT_KINDS[material.type];
     if (object.isSkinnedMesh || object.isInstancedMesh || object.isBatchedMesh || object.morphTargetInfluences?.length || (!object.isMesh && !object.isSprite)) return null;
     if (object.onBeforeRender !== baseBeforeRender || object.onAfterRender !== baseAfterRender || material.onBeforeRender !== baseMaterialBeforeRender) return null;
@@ -523,19 +491,10 @@ class TransparentPass {
     passes.sides.forEach((side, i) => rust.transparent_object_pass(id, passes.programs[i].id, side));
     if (map >= 0) rust.transparent_object_texture(id, map);
     this.objectCount++;
-    return { bucket: false, id, material, program: passes.current, frame: this.frameNo, version: compiled ? material.version : undefined };
+    return { bucket: false, id, material, program: passes.current, frame: this.frameNo, version: material.version };
   }
 
-  // Off: three draws everything in its list again (alone, for a comparison
-  // in one battle, or with the whole renderer).
-  setActive(on) {
-    this.active = on;
-    this.disarm();
-  }
 
-  restore() {
-    this.disarm();
-  }
 }
 
 // Whether a geometry's buffers are made to change (three's usage hint).
@@ -549,13 +508,9 @@ function changing(geometry) {
 // without a draw: beforeSort) three has not drawn it since and it is still
 // at the version it was built at.
 function drawnAsNow(props, entry) {
-  return props.__version === entry.material.version || (props.__version === undefined && entry.version === entry.material.version);
+  return entry.version === entry.material.version;
 }
 
-function restore(hook) {
-  if (hook.own) hook.object.onAfterRender = hook.original;
-  else delete hook.object.onAfterRender;
-}
 
 export function transparentPass(core) {
   return new TransparentPass(core);

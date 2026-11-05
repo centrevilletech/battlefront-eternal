@@ -1,12 +1,11 @@
 import * as THREE from "three";
 import { lighting } from "./materials.js";
-import { foliageAtmosphere } from "./foliage-material.js";
 import { FoliageGpuBatch } from "./foliage-gpu.js";
 
 // Placed foliage, drawn the way the 2004 renderer draws it: grasspatch (a bed
 // of cards, Theed's flowers) and leafpatch (leaves around a point or along a
-// vine, Theed's creepers). The live GPU path faces/sways static instanced
-// cards in the shader; the CPU path below is the visual reference. They are
+// vine, Theed's creepers). Rust selects the patches and draws static
+// instanced cards with source-owned shaders. They are
 // fullbright (texture x grey x tint, no sun or ambient), cut
 // out at alpha 0.25, double-sided, and cast no shadows.
 //
@@ -27,11 +26,7 @@ import { FoliageGpuBatch } from "./foliage-gpu.js";
 // their class's x-y or z-y growth plane) and are drawn to the near scene's end, fading over the last
 // 40%.
 
-const CUTOFF = 0.25;
-const GRASS_FADE = 20; // m over which a bed sinks into the ground
-const LEAF_FADE = 0.4; // share of the distance over which leaves fade
-const GRASS_TURNS = [0, -0.05, 0.1, -0.15, 0.2, 0, 0.05, -0.1, 0.15, -0.2];
-const LEAF_TURNS = [0, -1, 2, -3, 4, 0, 1, -2, 3, -4];
+
 const UP = new THREE.Vector3(0, 1, 0);
 
 // The engine's seeded random numbers (its leaf layout generator).
@@ -187,92 +182,17 @@ function buildLeaves(def) {
 }
 
 // One batch of camera-facing cards in one texture.
-class Cards {
-  constructor(scene, map, capacity) {
-    this.capacity = capacity;
-    this.positions = new Float32Array(capacity * 4 * 3);
-    this.colors = new Float32Array(capacity * 4 * 4);
-    this.uvs = new Float32Array(capacity * 4 * 2);
-    const index = new Uint32Array(capacity * 6);
-    for (let i = 0; i < capacity; i++) index.set([i * 4, i * 4 + 2, i * 4 + 1, i * 4 + 1, i * 4 + 2, i * 4 + 3], i * 6);
-    this.geometry = new THREE.BufferGeometry();
-    this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
-    this.geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 4).setUsage(THREE.DynamicDrawUsage));
-    this.geometry.setAttribute("uv", new THREE.BufferAttribute(this.uvs, 2).setUsage(THREE.DynamicDrawUsage));
-    this.geometry.setIndex(new THREE.BufferAttribute(index, 1));
-    this.material = foliageAtmosphere(new THREE.MeshBasicMaterial({ map, vertexColors: true, alphaTest: CUTOFF, side: THREE.DoubleSide }));
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
-    this.mesh.frustumCulled = false;
-    this.mesh.castShadow = false;
-    this.mesh.receiveShadow = false;
-    scene.add(this.mesh);
-    this.count = 0;
-  }
-
-  begin() {
-    this.count = 0;
-  }
-
-  // Corners bottom-left, bottom-right, top-left, top-right; uv as
-  // [u0, v0, u1, v1] with v0 at the top.
-  push(bl, br, tl, tr, r, g, b, alpha, uv, mirror) {
-    if (this.count >= this.capacity) return;
-    const k = this.count++;
-    const p = this.positions;
-    const offset = k * 12;
-    p[offset] = bl.x; p[offset + 1] = bl.y; p[offset + 2] = bl.z;
-    p[offset + 3] = br.x; p[offset + 4] = br.y; p[offset + 5] = br.z;
-    p[offset + 6] = tl.x; p[offset + 7] = tl.y; p[offset + 8] = tl.z;
-    p[offset + 9] = tr.x; p[offset + 10] = tr.y; p[offset + 11] = tr.z;
-    for (let j = k * 16; j < (k + 1) * 16; j += 4) {
-      this.colors[j] = r; this.colors[j + 1] = g; this.colors[j + 2] = b; this.colors[j + 3] = alpha;
-    }
-    const [u0, v0, u1, v1] = uv;
-    const left = mirror ? u1 : u0, right = mirror ? u0 : u1;
-    const u = this.uvs, at = k * 8;
-    u[at] = left; u[at + 1] = v1; u[at + 2] = right; u[at + 3] = v1;
-    u[at + 4] = left; u[at + 5] = v0; u[at + 6] = right; u[at + 7] = v0;
-  }
-
-  end() {
-    this.geometry.setDrawRange(0, this.count * 6);
-    // Only the visible prefix was rebuilt. Avoid uploading culled card
-    // capacity, and avoid per-card temporary arrays in push above.
-    for (const attribute of Object.values(this.geometry.attributes)) {
-      attribute.clearUpdateRanges();
-      if (this.count > 0) {
-        attribute.addUpdateRange(0, this.count * 4 * attribute.itemSize);
-        attribute.needsUpdate = true;
-      }
-    }
-    this.mesh.visible = this.count > 0;
-  }
-}
-
-// The four plants of a 2x2 atlas, by card part.
-const ATLAS = [
-  [0, 0.5, 0.5, 1],
-  [0.5, 0.5, 1, 1],
-  [0, 0, 0.5, 0.5],
-  [0.5, 0, 1, 0.5],
-];
-const WHOLE = [0, 0, 1, 1];
-
 export class Foliage {
   // data: map.json's foliage; texture(name) a texture; nearEnd() the near
   // scene's far end (leaves are drawn that far).
-  constructor(scene, data, { texture, nearEnd, gpu = false }) {
-    this.gpu = gpu;
+  constructor(scene, data, { texture, nearEnd, drawer }) {
     this.nearEnd = nearEnd;
     this.kinds = new Map();
     this.time = 0;
-    const counts = new Map();
-    for (const inst of data.instances || []) counts.set(inst.class, (counts.get(inst.class) || 0) + 1);
     for (const [name, def] of Object.entries(data.classes || {})) {
       const grass = def.base === "grasspatch";
       const cards = grass ? buildGrass(def) : buildLeaves(def);
-      const batch = gpu ? new FoliageGpuBatch(scene, texture(def.Texture), cards, def, grass, counts.get(name) || 0)
-        : new Cards(scene, texture(def.Texture), Math.max(cards.length * (counts.get(name) || 0), 1));
+      const batch = new FoliageGpuBatch(texture(def.Texture), cards, def, grass);
       const bounds = new THREE.Box3();
       if (grass) for (const card of cards) {
         const center = new THREE.Vector3(card.x, card.y, card.z);
@@ -287,12 +207,7 @@ export class Foliage {
         bounds.expandByPoint(center.clone().addScalar(size));
         bounds.expandByPoint(center.clone().addScalar(-size));
       }
-      // Every placement of a class uses the same cards and camera-facing
-      // orientation. Build that local frame once per card, then transform it
-      // by each patch's up axis and position.
-      const frames = gpu ? null : cards.map(() => ({ width: new THREE.Vector3(), sway: 0,
-        corners: grass ? null : Array.from({ length: 4 }, () => new THREE.Vector3()), center: new THREE.Vector3() }));
-      this.kinds.set(name, { def, grass, cards, frames, batch, instances: [], bounds });
+      this.kinds.set(name, { def, grass, cards, batch, instances: [], bounds });
     }
     for (const inst of data.instances || []) {
       const kind = this.kinds.get(inst.class);
@@ -317,126 +232,17 @@ export class Foliage {
         tint: inst.tint || (kind.grass ? [1, 1, 1] : [0, 1, 2].map(() => 0.7 + 0.2 * shade + 0.1 * Math.random())),
       });
     }
-    this.v = Array.from({ length: 12 }, () => new THREE.Vector3());
-    this.frustum = new THREE.Frustum();
-    this.viewProjection = new THREE.Matrix4();
-    // A drawer of the scene's own may take classes over (the Rust renderer's
-    // foliage pass, src/rust-render/foliage.js): it selects and draws those
-    // (drawer.covers(kind)), each update given the camera (drawer.select).
-    this.drawer = null;
+    // The Rust near phase installs the drawer during loading preparation.
+    this.drawer = drawer;
     scene.userData.foliage = this;
   }
 
   update(dt, camera) {
     this.time += dt;
     camera.updateMatrixWorld();
-    this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    const e = camera.matrixWorld.elements;
-    const right = this.v[0].set(e[0], e[1], e[2]);
-    const up = this.v[1].set(e[4], e[5], e[6]);
-    const back = this.v[2].set(e[8], e[9], e[10]); // toward the camera
-    const drawer = this.drawer;
-    drawer?.select(this, camera);
-    for (const kind of this.kinds.values()) {
-      if (drawer?.covers(kind)) continue;
-      if (this.gpu) {
-        kind.batch.update(kind.instances, this.time, camera, right, up, back, this.frustum, this.nearEnd());
-        continue;
-      }
-      kind.batch.begin();
-      if (kind.grass) this.drawGrass(kind, dt, camera, right, back);
-      else this.drawLeaves(kind, dt, camera, right, up, back);
-      kind.batch.end();
-    }
+    // The near phase installs the Rust drawer during loading preparation.
+    // Until then there are no foliage draws or browser selection uploads.
+    this.drawer.select(this, camera);
   }
 
-  drawGrass(kind, dt, camera, right, back) {
-    const def = kind.def;
-    const atlas = (def.NumParts ?? 4) !== 1;
-    const alpha = def.Alpha ?? 0.5;
-    for (let i = 0; i < kind.cards.length; i++) {
-      const card = kind.cards[i], frame = kind.frames[i];
-      card.phase += card.rate * dt;
-      const k = GRASS_TURNS[i % 10];
-      frame.width.copy(right).multiplyScalar(1.1 * (1 - Math.abs(k))).addScaledVector(back, 1.1 * k).multiplyScalar(card.width);
-      frame.sway = 0.08 * Math.sin(card.phase) - 0.5;
-    }
-    // Up leans toward the camera; flat toward it too.
-    const lean = this.v[3].set(0, 1, 0).addScaledVector(back, -0.7 * back.y).normalize();
-    const bl = this.v[5], br = this.v[6], tl = this.v[7], tr = this.v[8], at = this.v[10];
-    const camPos = camera.position;
-    const view = this.v[2];
-    for (const inst of kind.instances) {
-      const maxDist = inst.maxDistance || this.nearEnd();
-      if (Math.hypot(inst.position.x - camPos.x, inst.position.z - camPos.z) > inst.cullDistance) continue;
-      if (inst.sphere && !this.frustum.intersectsSphere(inst.sphere)) continue;
-      // Depth along the view.
-      const depth = -at.subVectors(inst.position, camPos).dot(view);
-      if (depth > maxDist || depth < -5) continue;
-      const a = depth <= maxDist - GRASS_FADE ? 1 : (maxDist - depth) / GRASS_FADE;
-      const sink = 1 - (1 - a) ** 2;
-      for (let i = 0; i < kind.cards.length; i++) {
-        const card = kind.cards[i], frame = kind.frames[i], wd = frame.width;
-        const base = at.set(card.x, card.y * sink, card.z);
-        bl.copy(base).addScaledVector(wd, -0.5);
-        br.copy(bl).add(wd);
-        tl.copy(base).addScaledVector(lean, card.height * sink).addScaledVector(wd, frame.sway);
-        tr.copy(tl).add(wd);
-        // Radial edge cards are clipped at the patch's base plane, including
-        // their UVs. Transform the whole card through its authored up axis.
-        const uv = [...(atlas ? ATLAS[card.part] : WHOLE)];
-        if (card.y < 0) {
-          const clip = Math.min(1, -card.y / card.width);
-          bl.lerp(tl, clip); br.lerp(tr, clip);
-          uv[3] += (uv[1] - uv[3]) * clip;
-        }
-        for (const corner of [bl, br, tl, tr]) corner.applyMatrix4(inst.matrix);
-        const g = card.grey, tint = inst.tint;
-        kind.batch.push(bl, br, tl, tr, g * tint[0], g * tint[1], g * tint[2], alpha,
-          uv, !atlas && (card.part & 1) === 1);
-      }
-    }
-  }
-
-  drawLeaves(kind, dt, camera, right, up, back) {
-    const def = kind.def;
-    const alpha = def.Alpha ?? 0.5;
-    const speed = def.WiggleSpeed ?? 1.2;
-    const amount = def.WiggleAmount ?? 0.11;
-    const bl = this.v[5], br = this.v[6], tl = this.v[7], tr = this.v[8], center = this.v[10], us = this.v[11];
-    const camPos = camera.position;
-    const scale = def.HeightScale ?? 1;
-    const atlas = (def.NumParts ?? 4) === 4;
-    for (let i = 0; i < kind.cards.length; i++) {
-      const leaf = kind.cards[i], frame = kind.frames[i], ws = frame.width;
-      leaf.phase += speed * dt;
-      frame.center.set(leaf.p.x, leaf.p.y * scale, leaf.p.z).addScaledVector(back, 0.1);
-      ws.copy(right).addScaledVector(back, 0.3 * LEAF_TURNS[i % 10]).normalize().multiplyScalar(leaf.size);
-      us.copy(up).multiplyScalar(leaf.size * scale);
-      const [lb, rb, lt, rt] = frame.corners;
-      lt.copy(frame.center).addScaledVector(us, 0.5).addScaledVector(ws, amount * Math.sin(leaf.phase) - 0.5);
-      rt.copy(lt).add(ws);
-      lb.copy(frame.center).addScaledVector(us, -0.5).addScaledVector(ws, -0.5);
-      rb.copy(lb).add(ws);
-    }
-    for (const inst of kind.instances) {
-      const maxDist = inst.maxDistance || this.nearEnd();
-      if (Math.hypot(inst.position.x - camPos.x, inst.position.z - camPos.z) > inst.cullDistance) continue;
-      if (inst.sphere && !this.frustum.intersectsSphere(inst.sphere)) continue;
-      const depth = -center.subVectors(inst.position, camPos).dot(back);
-      if (depth > maxDist + 20 || depth < -25) continue;
-      for (let i = 0; i < kind.cards.length; i++) {
-        const leaf = kind.cards[i], frame = kind.frames[i];
-        center.copy(frame.center).applyMatrix4(inst.matrix);
-        const d = -this.v[3].subVectors(center, camPos).dot(back);
-        if (d > maxDist) continue;
-        const a = d <= (1 - LEAF_FADE) * maxDist ? 1 : (maxDist - d) / (LEAF_FADE * maxDist);
-        const [lb, rb, lt, rt] = frame.corners;
-        bl.copy(lb).applyMatrix4(inst.matrix); br.copy(rb).applyMatrix4(inst.matrix);
-        tl.copy(lt).applyMatrix4(inst.matrix); tr.copy(rt).applyMatrix4(inst.matrix);
-        const g = leaf.grey;
-        kind.batch.push(bl, br, tl, tr, g * inst.tint[0], g * inst.tint[1], g * inst.tint[2], alpha * a, atlas ? ATLAS[leaf.part] : WHOLE, !atlas && (leaf.part & 1) === 1);
-      }
-    }
-  }
 }

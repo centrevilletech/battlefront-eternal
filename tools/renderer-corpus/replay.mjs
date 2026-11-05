@@ -8,7 +8,7 @@ export function installReplay() {
   let depthTarget;
   const replayTargets=new Map();
   T.records=[];T.blobs={};
-  const store=(buf)=>{const key=String(Object.keys(T.blobs).length);T.blobs[key]=buf;return key;};
+  const store=T.store=(buf)=>{if(T.storeTarget!==T.blobs){T.storeTarget=T.blobs;T.nextBlob=0;}const key=String(T.nextBlob++);T.blobs[key]=buf;return key;};
   const read=(target)=>{
     const w=target?.width || gl.drawingBufferWidth,h=target?.height || gl.drawingBufferHeight;
     const bytes=target?.texture.type===1016?2:target?.texture.type===1015?4:1;

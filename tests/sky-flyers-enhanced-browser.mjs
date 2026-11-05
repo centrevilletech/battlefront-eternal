@@ -290,6 +290,7 @@ async function geonosis(page) {
   // only when it shows itself, before and after.
   const result = await page.evaluate(async ([eye]) => {
     const { fullScreenPass } = await import('/src/render-passes.js');
+    const { screenProgram, writeScreenStep, TARGET_CANVAS } = await import('/src/rust-render/screen.js');
     const flyers = __bf.skyFlyers, kind = flyers.classes.find((k) => k.def.model === 'cis_fly_droidfighter_dome');
     const camera = __bf.camera;
     const gl = __bf.renderer.getContext();
@@ -372,7 +373,10 @@ async function geonosis(page) {
         }`, { map: { value: __bf.graphics.upscaler.velocity.texture } });
       __bf.renderer.setRenderTarget(null);
       __bf.renderer.autoClear = false;
-      __bf.renderer.render(pass, __bf.graphics.passCamera);
+      __bf.renderer.compile(pass, __bf.graphics.passCamera);
+      const core=__bf.graphics.rust, program=screenProgram(core,pass.material);
+      if(!program||!writeScreenStep(core,0,program,pass.material,pass,__bf.graphics.passCamera,{target:TARGET_CANVAS,size:[gl.drawingBufferWidth,gl.drawingBufferHeight]}))throw Error('Cannot register motion diagnostic');
+      core.rust.screen_frame(1);core.stale=true;
       __bf.renderer.autoClear = true;
       pass.material.dispose();
       const moved = read();

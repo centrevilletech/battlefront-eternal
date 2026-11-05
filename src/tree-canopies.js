@@ -4,7 +4,6 @@ import { lighting } from "./materials.js";
 const NEAR = 140, FAR = 220;
 const MAX_GROUPS = 12;
 const LEAVES = 8 * 84 + 4 * 60;
-const noise = "fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453)";
 
 function random(seed) {
   let state = seed >>> 0;
@@ -30,13 +29,10 @@ export class TreeCanopies {
     this.lastMatrix = new THREE.Matrix4();
     this.lastProjection = new THREE.Matrix4();
     this.lastEnabled = null;
-    // Whether any leaf draws (some canopy near), and whether the Rust
-    // renderer draws them (src/rust-render/canopies.js: external): three
-    // then neither lists the mesh nor uploads its leaves, and the instances
-    // whose slots changed since the renderer last copied them are kept for
-    // it [dirtyFirst, dirtyEnd).
+    // Whether any canopy is near. Changed leaf slots are copied to Rust
+    // as [dirtyFirst, dirtyEnd); the browser does not upload these attributes.
     this.drawn = false;
-    this.external = false;
+
     this.capacity = MAX_GROUPS * LEAVES;
     this.dirtyFirst = Infinity;
     this.dirtyEnd = 0;
@@ -105,54 +101,18 @@ export class TreeCanopies {
       geometry.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(MAX_GROUPS * LEAVES * size), size).setUsage(THREE.DynamicDrawUsage));
     }
     geometry.instanceCount = 0;
-    const material = new THREE.ShaderMaterial({
-      uniforms: { map: { value: texture(data.texture) }, treeTime: lighting.time, fogColor: lighting.fogColor, fogRange: lighting.fogRange },
-      side: THREE.DoubleSide, alphaToCoverage: true,
-      vertexShader: `
-        attribute vec3 leafCenter;
-        attribute vec2 leafSize;
-        attribute vec3 leafShade;
-        uniform float treeTime;
-        varying vec2 vUv;
-        varying vec3 vShade;
-        varying float vDistance;
-        varying float vDepth;
-        void main() {
-          vec4 center = viewMatrix * vec4(leafCenter, 1.0);
-          float sway = sin(treeTime * 1.2 + leafCenter.x * 0.7 + leafCenter.z * 0.5) * 0.035;
-          center.xy += (position.xy + vec2(sway * (position.y + 0.5), 0.0)) * leafSize;
-          vUv = uv;
-          vShade = leafShade;
-          vDepth = -center.z;
-          vDistance = distance(leafCenter, cameraPosition);
-          gl_Position = projectionMatrix * center;
-        }
-      `,
-      fragmentShader: `
-        uniform sampler2D map;
-        uniform vec3 fogColor;
-        uniform vec2 fogRange;
-        varying vec2 vUv;
-        varying vec3 vShade;
-        varying float vDistance;
-        varying float vDepth;
-        void main() {
-          float detail = 1.0 - smoothstep(${NEAR}.0, ${FAR}.0, vDistance);
-          if (${noise} >= detail) discard;
-          vec4 leaf = texture2D(map, vUv);
-          float coverage = clamp((leaf.a - 0.42) / max(fwidth(leaf.a), 0.025) + 0.5, 0.0, 1.0);
-          if (coverage < 0.01) discard;
-          float fog = clamp((vDepth - fogRange.x) / max(fogRange.y - fogRange.x, 1.0), 0.0, 1.0);
-          gl_FragColor = vec4(mix(leaf.rgb * vShade, fogColor, fog), coverage);
-        }
-      `,
-    });
+    // Geometry and selection remain host resources; the shader exists only
+    // in Rust and this mesh is never added to a browser render scene.
+    const material = new THREE.Material();
+    material.uniforms = { map: { value: texture(data.texture) } };
+    material.side = THREE.DoubleSide;
+    material.alphaToCoverage = true;
     material.name = "native-enhanced-tree-canopies";
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.name = "enhanced-tree-canopies";
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = false;
-    graphics.scene.add(this.mesh);
+
     for (const scene of [graphics.farScene, graphics.scene]) {
       const previous = scene.onBeforeRender;
       scene.onBeforeRender = (...args) => { previous?.apply(scene, args); this.update(args[2]); };
@@ -187,10 +147,6 @@ export class TreeCanopies {
         const attribute = geometry.attributes[name];
         const offset = i * LEAVES * attribute.itemSize;
         attribute.array.set(values, offset);
-        if (!this.external) {
-          attribute.addUpdateRange(offset, values.length);
-          attribute.needsUpdate = true;
-        }
       }
       this.active[i] = group;
       this.dirtyFirst = Math.min(this.dirtyFirst, i * LEAVES);
@@ -199,7 +155,7 @@ export class TreeCanopies {
     geometry.instanceCount = count * LEAVES;
     // Nothing to draw (Original tree detail, or no canopy near): no draw at all.
     this.drawn = count > 0;
-    this.mesh.visible = this.drawn && !this.external;
+
     if (changed) {
       this.active.length = count;
       this.states.fill(0);
@@ -207,24 +163,6 @@ export class TreeCanopies {
       this.stateMap.needsUpdate = true;
     }
 
-  }
-
-  // The Rust renderer draws the leaves (on) or three does (off): three's copy
-  // of them made whole again when it draws them, the renderer's when it does.
-  setExternal(on) {
-    if (on === this.external) return;
-    this.external = on;
-    if (on) {
-      this.dirtyFirst = 0;
-      this.dirtyEnd = this.capacity;
-    } else {
-      for (const name of ["leafCenter", "leafSize", "leafShade"]) {
-        const attribute = this.mesh.geometry.attributes[name];
-        attribute.clearUpdateRanges();
-        attribute.needsUpdate = true;
-      }
-    }
-    this.mesh.visible = this.drawn && !on;
   }
 
   // The instances whose leaves changed since the renderer last took them
@@ -271,15 +209,6 @@ export class TreeCanopies {
     const material=mesh.material;
     material.uniforms.treeStates={value:this.stateMap};
     material.uniforms.treeStateCount={value:this.groups.length};
-    material.vertexShader="attribute float treeGroup;\nvarying float vTreeGroup;\n"+material.vertexShader;
-    material.vertexShader=material.vertexShader.replace("void main() {","void main() {\nvTreeGroup=treeGroup;");
-    material.fragmentShader="uniform sampler2D treeStates;\nuniform float treeStateCount;\nvarying float vTreeGroup;\n"+material.fragmentShader;
-    material.fragmentShader=material.fragmentShader.replace("void main() {",`void main() {
-      if(vTreeGroup > -0.5 && texture2D(treeStates,vec2((vTreeGroup+0.5)/treeStateCount,0.5)).r > 0.5) {
-        float detail=1.0-smoothstep(${NEAR}.0,${FAR}.0,distance(vWorld,cameraPosition));
-        if(${noise} < detail)discard;
-      }
-    `);
     material.needsUpdate=true;
     mesh.userData.treeCanopyPieces=assigned;
   }

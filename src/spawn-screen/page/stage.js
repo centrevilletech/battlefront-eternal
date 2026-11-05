@@ -1,3 +1,4 @@
+import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { CameraRig, PIVOT } from "./rig.js";
 import { HoloMap, TILT, drawn, dotTexture } from "./holomap.js";
@@ -466,14 +467,14 @@ export class SpawnStage {
     u.center.value.set((at.x + 1) / 2, (at.y + 1) / 2);
     u.strength.value = this.strength;
     u.dip.value = this.dip * this.strength;
-    renderer.render(this.vignetteScene, this.screenCamera);
+    renderInterface(renderer, this.vignetteScene, this.screenCamera, "spawn-stage");
   }
 
   // Over the HUD's quads: the scene.
   after(renderer) {
     if (!this.framed) return;
     renderer.clearDepth();
-    renderer.render(this.scene, this.rig.camera);
+    renderInterface(renderer, this.scene, this.rig.camera, "spawn-stage");
   }
 
   // A point of the canvas (NDC) onto the map: its pin's post ({ pin }) or

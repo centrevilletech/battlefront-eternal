@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { worldMaterial } from '../src/materials.js';
 import { TreeCanopies } from '../src/tree-canopies.js';
 
 const LEAVES = 912;
@@ -26,7 +27,7 @@ function cards(rectangles) {
   }
   const geometry=new THREE.BufferGeometry();
   geometry.setAttribute('position',new THREE.Float32BufferAttribute(position,3));geometry.setIndex(index);
-  const material=new THREE.ShaderMaterial({uniforms:{},vertexShader:'varying vec3 vWorld; void main() { vWorld=position; gl_Position=vec4(position,1.0); }',fragmentShader:'varying vec3 vWorld; void main() { gl_FragColor=vec4(1.0); }'});
+  const material=worldMaterial('unlit');
   return new THREE.Mesh(geometry,material);
 }
 
@@ -86,12 +87,10 @@ test('canopy frustum selection follows stationary-camera zoom changes',()=>{
 test('drawn by the Rust renderer: three neither lists nor uploads the leaves, and the changed slots are kept for the renderer',()=>{
   const f=fixture();f.trees.update(f.camera);
   const center=f.trees.mesh.geometry.attributes.leafCenter;
-  assert.equal(f.trees.mesh.visible,true);
+  assert.equal(f.trees.mesh.parent,null);
+  assert.equal(f.trees.mesh.material.vertexShader,undefined);
   assert.deepEqual(f.trees.takeDirty(),[0,12*LEAVES]);
   assert.equal(f.trees.takeDirty(),null);
-  f.trees.setExternal(true);
-  assert.equal(f.trees.mesh.visible,false,'three does not list it');
-  assert.deepEqual(f.trees.takeDirty(),[0,12*LEAVES],'the renderer copies every leaf first');
   center.clearUpdateRanges();
   const version=center.version;
   // The camera turns: some slots change.
@@ -100,9 +99,7 @@ test('drawn by the Rust renderer: three neither lists nor uploads the leaves, an
   assert.equal(center.version,version);
   const dirty=f.trees.takeDirty();
   assert.ok(dirty&&dirty[0]%LEAVES===0&&dirty[1]%LEAVES===0&&dirty[1]>dirty[0]);
-  assert.equal(f.trees.mesh.visible,false);
-  f.trees.setExternal(false);
-  assert.equal(f.trees.mesh.visible,true);
-  assert.equal(center.updateRanges.length,0,'three uploads its copy whole');
-  assert.equal(center.version,version+1);
+  assert.equal(f.trees.mesh.parent,null);
+  assert.equal(center.updateRanges.length,0);
+  assert.equal(center.version,version);
 });

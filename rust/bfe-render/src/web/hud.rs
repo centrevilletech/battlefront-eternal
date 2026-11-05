@@ -15,5 +15,11 @@ impl BfeRenderer {
     pub fn hud_mask_uv_len(&self) -> u32 { self.r.hud.mask_uv.len() as u32 }
     pub fn hud_tint_ptr(&mut self) -> u32 { self.r.hud.tint.as_mut_ptr() as u32 }
     pub fn hud_tint_len(&self) -> u32 { self.r.hud.tint.len() as u32 }
-    pub fn hud_init(&mut self, index: &[u32]) { self.r.hud.init(&mut self.r.core, index) }
+// Batch indices are static and journalled once. Live HUD vertices remain in
+// shared CPU mirrors; rebuild reuploads them after recreating this VAO.
+// A restored empty allocation is not enough even if its logical id is stable.
+// No HUD frame is submitted while those mirrors are being transferred.
+    pub fn hud_init(&mut self, index: &[u32]) {
+        self.remember_hud_init(index); // recovery
+ self.r.hud.init(&mut self.r.core, index) }
 }

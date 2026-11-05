@@ -190,7 +190,6 @@ export class EnvironmentVolume {
       transparent:true,premultipliedAlpha:true,depthWrite:false,depthTest:false,toneMapped:false}));
     this.mesh.name='environment-volumes';this.mesh.frustumCulled=false;this.mesh.renderOrder=10;this.mesh.visible=false;
     this.clearColor=new THREE.Color();this.scale=.5;
-    this.mesh.onBeforeRender=(renderer,scene,camera)=>this.renderVolumes(renderer,scene,camera);
     environmentVolumes.set(this.mesh,this);
     scene.add(this.mesh);
   }
@@ -205,17 +204,6 @@ export class EnvironmentVolume {
     const source=renderer.getRenderTarget(),width=Math.max(1,Math.ceil(source.width*this.scale)),height=Math.max(1,Math.ceil(source.height*this.scale));
     this.target.setSize(width,height);this.resolution.value.set(width,height);
     return true;
-  }
-  renderVolumes(renderer,scene,camera){
-    if(!this.prepare(renderer,scene,camera))return;
-    const source=renderer.getRenderTarget();
-    renderer.getClearColor(this.clearColor);const alpha=renderer.getClearAlpha(),autoClear=renderer.autoClear;
-    try{
-      renderer.autoClear=true;renderer.setClearColor(0,0);renderer.setRenderTarget(this.target);
-      renderer.render(this.volumeScene,camera);
-    }finally{
-      renderer.setRenderTarget(source);renderer.setClearColor(this.clearColor,alpha);renderer.autoClear=autoClear;
-    }
   }
   update(time, volumes) {
     this.mesh.visible=volumes.length>0;this.volumeMesh.geometry.instanceCount=volumes.length;

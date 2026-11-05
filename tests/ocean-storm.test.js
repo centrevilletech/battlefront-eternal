@@ -202,8 +202,14 @@ test('the sky probe draws only the sky, as the eye sees it, once a second or whe
  const {ocean,graphics,setMode}=calmSea(),probe=ocean.waves.probe,drawn=[];
  const renderer={autoClear:false,shadowMap:{autoUpdate:true},xr:{enabled:false},coordinateSystem:THREE.WebGLCoordinateSystem,
    getRenderTarget:()=>null,getActiveCubeFace:()=>0,getActiveMipmapLevel:()=>0,setRenderTarget(){},
-   render(scene,camera){const seen=[];scene.traverse(o=>{if(o.isMesh&&o.visible&&o.layers.test(camera.layers))seen.push(o.name);});drawn.push({seen,autoClear:this.autoClear,shadows:this.shadowMap.autoUpdate});}};
+   render(){throw Error('A sky probe must use the required Rust phase');}};
  graphics.renderer=renderer;
+ // Observe the six required Rust submissions, with no native draw available.
+ graphics.rust={cover(phase,owner,scene,camera){
+   assert.equal(phase,'probe');assert.equal(owner,renderer);
+   const seen=[];scene.traverse(o=>{if(o.isMesh&&o.visible&&o.layers.test(camera.layers))seen.push(o.name);});
+   drawn.push({seen,autoClear:owner.autoClear,shadows:owner.shadowMap.autoUpdate});
+ }};
  const camera=new THREE.PerspectiveCamera();camera.position.set(167,-22,147);
  ocean.update(0,camera);
  assert.equal(probe.captures,1);assert.equal(drawn.length,6,'six faces');

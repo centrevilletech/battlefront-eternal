@@ -659,7 +659,7 @@ export class BattleHud extends InterfaceSurface {
     let bound = false;
     const canvas = () => { if (!bound) { renderer.setRenderTarget(null); bound = true; } };
     if (layer?.renderBefore) { canvas(); layer.renderBefore(renderer, this); }
-    if (!this.graphics?.rust?.coverHud(renderer, this)) { canvas(); renderer.render(this.scene, this.camera); }
+    if (!this.graphics.rust.contextLost) this.graphics.rust.coverHud(renderer, this);
     if (layer?.renderAfter) { canvas(); layer.renderAfter(renderer, this); }
     // Quads over everything, the layer's models included: the layer's own
     // (its pointer) unless it is covered, then the overlay's.
@@ -675,7 +675,7 @@ export class BattleHud extends InterfaceSurface {
       overlay?.draw?.(this, this.overBatch);
       this.overBatch.end();
       canvas();
-      renderer.render(this.overScene, this.camera);
+      if (!this.graphics.rust.contextLost) this.graphics.rust.coverHud(renderer, { batch: this.overBatch, scene: this.overScene, camera: this.camera });
     }
     if (overlay?.renderAfter) { canvas(); overlay.renderAfter(renderer, this); }
     renderer.autoClear = autoClear;

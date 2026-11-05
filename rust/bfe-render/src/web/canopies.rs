@@ -12,6 +12,7 @@ impl BfeRenderer {
     // The mesh: its geometry (core.rs), its per-instance attributes'
     // locations and floats an instance, for up to `max` instances.
     pub fn canopies_mesh(&mut self, geometry: u32, locations: &[u32], sizes: &[u32], max: u32) {
-        self.r.canopies.set_mesh(&self.r.core, geometry, locations, sizes, max)
+        self.remember_canopies_mesh(geometry, locations, sizes, max); // recovery
+ self.r.canopies.set_mesh(&self.r.core, geometry, locations, sizes, max)
     }
 }
