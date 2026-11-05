@@ -8,11 +8,17 @@ export function installWorldTrace() {
   const shaderSource=P.shaderSource,attach=P.attachShader;
   P.shaderSource=function(shader,source){T.shaders.set(shader,source);if(T.ready&&(/^#define (WORLD_SPACE|TERRAIN)[ \t]*$/m.test(source)||source.includes('foliageCorner')||source.includes('leafCenter')))T.lateWorldSources++;return shaderSource.call(this,shader,source);};
   P.attachShader=function(program,shader){let row=T.programs.get(program);if(!row)T.programs.set(program,row={});row[this.getShaderParameter(shader,this.SHADER_TYPE)===this.VERTEX_SHADER?'vertex':'fragment']=T.shaders.get(shader);return attach.call(this,program,shader);};
-  for(const name of ['texImage2D','compressedTexImage2D','texStorage2D']){
+  for(const name of ['texImage2D','compressedTexImage2D','compressedTexSubImage2D','texStorage2D']){
     const fn=P[name];P[name]=function(...a){
       if(a[0]===this.TEXTURE_2D){
         const texture=this.getParameter(this.TEXTURE_BINDING_2D);let row=T.textures.get(texture);if(!row)T.textures.set(texture,row={levels:[]});
         if(name==='texStorage2D'){row.format=a[2];row.w=a[3];row.h=a[4];row.count=a[1];}
+        // Immutable storage receives its compressed mip blocks as sub-images.
+        else if(name==='compressedTexSubImage2D'){
+          const w=a[4],h=a[5];
+          row.partial ||= a[2]!==0||a[3]!==0||w!==Math.max(1,row.w>>a[1])||h!==Math.max(1,row.h>>a[1]);
+          row.levels[a[1]]={w,h,format:a[6],type:this.UNSIGNED_BYTE,compressed:true,data:a[7]};
+        }
         else{
           const source=a[5],explicit=a.length>=9 || name==='compressedTexImage2D';
           const w=explicit?a[3]:(source.videoWidth||source.naturalWidth||source.width),h=explicit?a[4]:(source.videoHeight||source.naturalHeight||source.height);
@@ -69,7 +75,7 @@ export function installWorldReplay(layouts) {
     const error=gl.getError();if(error)throw Error('World replay read GL '+error);return {blob:store(buf),w:target.width,h:target.height,bytes:half?2:float?4:1};
   };
   const textureSnapshot=handle=>{
-    const meta=trace.textures.get(handle);if(!meta?.w||!meta?.h)throw Error('Missing world replay texture dimensions');
+    const meta=trace.textures.get(handle);if(meta?.partial)throw Error('Partial compressed world replay upload');if(!meta?.w||!meta?.h)throw Error('Missing world replay texture dimensions');
     const active=gl.getParameter(gl.ACTIVE_TEXTURE);gl.activeTexture(gl.TEXTURE0);const bound=gl.getParameter(gl.TEXTURE_BINDING_2D);gl.bindTexture(gl.TEXTURE_2D,handle);
     const params=[gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER,gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T,gl.TEXTURE_COMPARE_MODE,gl.TEXTURE_COMPARE_FUNC,gl.TEXTURE_BASE_LEVEL,gl.TEXTURE_MAX_LEVEL].map(p=>[p,gl.getTexParameter(gl.TEXTURE_2D,p)]);
     const aniso=gl.getExtension('EXT_texture_filter_anisotropic');if(aniso)params.push([aniso.TEXTURE_MAX_ANISOTROPY_EXT,gl.getTexParameter(gl.TEXTURE_2D,aniso.TEXTURE_MAX_ANISOTROPY_EXT)]);
