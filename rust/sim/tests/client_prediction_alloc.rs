@@ -168,6 +168,34 @@ fn warm_grounded_session_reuses_collision_and_replay_storage() {
     assert!(body.grounded, "the warm collision fixture must exercise real floor contacts");
 }
 
+#[test]
+fn warm_grounded_and_rolled_droideka_visit_retained_triangles() {
+    let mut collision = floor_collision();
+    let mut session = ClientPrediction::default();
+    let mut setup = vec![0.0; 25]; setup[0] = 1.0;
+    session.configure_actor(&setup, &mut collision).unwrap();
+    let mut definition = vec![0.0, 7.0, 3.0];
+    for (key, value) in [("base", "cannon"), ("class", "fixture")] {
+        definition.push(key.len() as f64); definition.extend(key.encode_utf16().map(|v| v as f64));
+        definition.extend([5.0, value.len() as f64]); definition.extend(value.encode_utf16().map(|v| v as f64));
+    }
+    definition.push(7.0); definition.extend("channel".encode_utf16().map(|v| v as f64)); definition.extend([4.0, 0.0]);
+    session.configure_weapon(&definition).unwrap();
+    for mode in [0.0, 12.0] {
+        let mut short = input_body(1.0, 0.0, true); let mut long = input_body(120.0, 0.0, true);
+        for words in [&mut short, &mut long] {
+            let frame = ClientFrame::take(words, &[]);
+            // The first byte of the exact droideka checkpoint is its mode.
+            words[frame.correction_at as usize] = mode;
+        }
+        check_allocations("grounded droideka", &mut session, &mut collision, &short, &long);
+        let result = ClientResult::take(&session.output, &[]);
+        let body = Droideka::take(&session.output[result.actor_at as usize..], &[]);
+        assert!(body.grounded, "the measured body must contact the floor");
+        assert_eq!(body.mode, mode, "measure deployed and rolled collision");
+    }
+}
+
 fn floor_collision() -> State {
     let mut collision = empty_collision();
     let positions = vec![-100.0, 0.0, -100.0, 100.0, 0.0, -100.0, 100.0, 0.0, 100.0, -100.0, 0.0, 100.0];

@@ -540,10 +540,21 @@ impl UnitsWorld for ActorWorld<'_> {
     fn gather(
         &mut self,
         _: u32,
+        _: &Vector3,
+        _: f64,
+        _: usize,
+        _: &mut Vec<GatherPolygon>,
+    ) {
+        unreachable!("prediction visits retained gather triangles")
+    }
+    fn visit_gathered(
+        &mut self,
+        _: u32,
         c: &Vector3,
         radius: f64,
         cache: usize,
-        out: &mut Vec<GatherPolygon>,
+        _: &mut Vec<GatherPolygon>,
+        visit: &mut dyn FnMut(bool, &[Vector3; 3]),
     ) {
         spheres::gather(
             self.collision,
@@ -556,16 +567,10 @@ impl UnitsWorld for ActorWorld<'_> {
             self.flags,
             self.gathered,
         );
-        out.clear();
         for p in self.gathered.list() {
-            out.push(GatherPolygon {
-                moving: p.moving,
-                triangles: p
-                    .tris
-                    .iter()
-                    .map(|t| [t.a, t.b, t.c].map(|v| Vector3::new(v[0], v[1], v[2])))
-                    .collect(),
-            });
+            for t in &p.tris {
+                visit(p.moving, &[t.a, t.b, t.c].map(|v| Vector3::new(v[0], v[1], v[2])));
+            }
         }
     }
     fn death_blast(&mut self, _: u32, _: &mut Unit) {}
