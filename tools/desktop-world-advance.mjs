@@ -34,11 +34,20 @@ async function evaluate(sessionId, expression) {
 try {
   const { targetInfos } = await send('Target.getTargets');
   const page = targetInfos.find(t => t.type === 'page' && t.url.startsWith('app:'));
-  const worker = targetInfos.find(t => t.type === 'worker' && t.url.includes('local-server-worker'));
-  if (!page || !worker) throw Error('A loaded desktop battle and its world worker are required');
+  if (!page) throw Error('A loaded desktop battle is required');
   const { sessionId: p } = await send('Target.attachToTarget', { targetId: page.targetId, flatten: true });
-  const { sessionId: w } = await send('Target.attachToTarget', { targetId: worker.targetId, flatten: true });
-  await send('Runtime.enable', {}, p); await send('Runtime.enable', {}, w);
+  await send('Runtime.enable', {}, p);
+  // Electron can report a module worker with an empty target URL. Identify
+  // the world by its server after attachment, rather than its bundle name.
+  let w = null;
+  for (const target of targetInfos) {
+    if (target.type !== 'worker' || target.parentId !== page.targetId) continue;
+    const { sessionId } = await send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    await send('Runtime.enable', {}, sessionId);
+    if (await evaluate(sessionId, 'Boolean(self.__server)')) { w = sessionId; break; }
+    await send('Target.detachFromTarget', { sessionId });
+  }
+  if (!w) throw Error('A loaded world worker is required');
   const samples = [], started = performance.now();
   do {
     const page = await evaluate(p, '({tick:__bf.worldClock.tick,alive:__bf.playerUnit.alive,running:__bf.client.running,ready:__bf.client.ready,hidden:document.hidden,state:__bf.clockState})');

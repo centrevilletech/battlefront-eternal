@@ -294,6 +294,8 @@ test('a received turret lease places its rider without stopping snapshot applica
   assert.deepEqual(f.remote.soldier.position.toArray(), [3, 4, 5]);
   assert.equal(poses.length, 1); assert.equal(poses[0][0], clip);
   assert.ok(poses[0][4].isQuaternion);
+  f.adapter.present(100);
+  assert.equal(poses.length, 2, 'the rendered frame also places the replica');
   packet(f, authority, 101, 2);
   assert.deepEqual([...new Set(f.applied)], [100, 101]);
 });

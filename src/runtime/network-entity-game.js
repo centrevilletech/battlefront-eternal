@@ -579,12 +579,12 @@ export class EntityGameState {
     // Vehicle.present reads the frame's dt from the pose to turn the aimers.
     for (const vehicle of g.vehicles?.vehicles || []) if (vehicle.networkPose) vehicle.networkPose.dt = dt;
     // Manned turrets: the drum and gun at the replicated angles, the body in the
-    // seat (TurretSeats.pose). The own gunner's are the Gunner's to pose.
+    // seat (TurretSeats.placeReplica). The own gunner's are the Gunner's to pose.
     for (const turret of g.turretSeats?.turrets || []) {
       const lease = turret.lease; if (!lease || lease.human || !turret.alive) continue;
       turret.settleTurn?.(tick);
       poseTurret(turret, turret.yaw);
-      if (lease.unit?.soldier) g.turretSeats.pose(lease, 0);
+      if (lease.unit?.soldier) g.turretSeats.placeReplica(lease);
     }
   }
 }
