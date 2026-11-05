@@ -33,7 +33,3 @@ export function weaponObservation(weapon) {
 export function arsenalObservation(arsenal, zoomStep) {
   return { selected: arsenal.selected.slice(), zoomStep, weapons: arsenal.weapons.map(weaponObservation) };
 }
-export function shotObservation(shot, arsenal) {
-  return { ...Object.fromEntries(Object.entries(shot).filter(([key]) => key !== 'weapon')),
-    weapon: arsenal.weapons.indexOf(shot.weapon), name: shot.weapon.name, level: shot.weapon.levels.indexOf(shot.weapon.def) };
-}

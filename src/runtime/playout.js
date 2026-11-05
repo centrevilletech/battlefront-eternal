@@ -48,10 +48,8 @@ export class PlayoutClock {
       this.measuredKey = key;
       let gap = 0;
       if (this.gapCount) {
-        {
-          const sorted = this.gaps.slice(0, this.gapCount).sort();
-          gap = sorted[Math.min(this.gapCount - 1, Math.floor(this.gapCount * 0.95))];
-        }
+        const sorted = this.gaps.slice(0, this.gapCount).sort();
+        gap = sorted[Math.min(this.gapCount - 1, Math.floor(this.gapCount * 0.95))];
       }
       this.delay = Math.min(this.maxDelay, Math.max(this.minDelay, gap + this.margin));
     }

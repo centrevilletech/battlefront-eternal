@@ -7,8 +7,8 @@ import { cycleNetworkSeat } from '../src/runtime/network-seat.js';
 import { networkVehicleInput } from '../src/runtime/network-vehicle.js';
 import { CommandControls } from '../src/runtime/commands.js';
 import { commandControlPorts } from '../src/runtime/command-controls-sim.js';
-import { predictionVehicle, predictVehicle } from '../src/runtime/vehicle-prediction.js';
-import { syntheticHull, hullCommand, hullObservation } from './fixtures/prediction-hull-cases.js';
+import { predictionVehicle } from '../src/runtime/vehicle-prediction.js';
+import { syntheticHull, hullObservation } from './fixtures/prediction-hull-cases.js';
 
 const instance = await loadSim(), bridge = bridgeFor(instance);
 const bind = (f, native) => { if (native) attachNetworkSeatsSim(f.system, bridge); return f; };
@@ -194,7 +194,7 @@ test('input mutates the actual private clone without publishing authority seats,
     try {
       attachNetworkSeatsSim(f.system,bridge);
       const source=f.v, before=hullObservation(source), seats=source.seats.map(s=>[s.aimYaw,s.pitch,s.lookYaw,s.lookPitch,s.lease]), body=source.body.matrix.toArray();
-      const clone=predictionVehicle(source);clone.nativeSession={bridge};
+      const clone=predictionVehicle(source);
       const controls=new CommandControls();controls.accept({epoch:1,generation:3,sequence:1,down:['KeyW'],actions:['takeoff']});
       const out=networkVehicleInput(clone,0,controls,{look:[[100,40]],flightSettings:{curve:null}});
       assert.equal(out.forward,1);assert.notEqual(clone.seats,source.seats);assert.equal(clone.body,source.body);
