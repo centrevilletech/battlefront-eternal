@@ -88,15 +88,9 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
   return true;
 }
 
-// A full-screen pass three renders on its own (renderer.render of the mesh,
-// or of a scene holding it), drawn by the renderer in a phase of its own
-// (graphics' callers ask the core to cover it): the storm's cloud panorama
-// into its target (storm-sky.js, phase skyClouds), the Low water's tint over
-// the finished frame with the eye under the surface (water.js, phase
-// underwater). Complete when three would draw one mesh, whose material a
-// step can draw (its program made, three having drawn it once), into the
-// target bound now (a target of three's, or the canvas), without a clear of
-// three's.
+// One-mesh screen passes outside the post chain: storm clouds and the Low
+// underwater tint. Compile the material before registration, then draw through
+// Rust into the currently selected target without clearing it.
 class ScreenPass {
   constructor(core, name, phase) {
     this.core = core;

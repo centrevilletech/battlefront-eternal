@@ -15,18 +15,12 @@
 // renderer's mirror of them, and the shore's instances whenever three would
 // upload them.
 //
-// The tint pass copies the opaque scene's colour and depth as three draws
-// it (its onBeforeRender, water.js captureSurface). It is the first item of
-// the near scene's transparent list (the lowest render order there, -20),
-// so the copy is made here at the start of the transparent phase, before
-// anything of the list is drawn, as three makes it. The Ultra mirror's
-// render of the near scene hides the water, and the eye under the surface
-// draws the underwater pass (three's, which copies the scene again). The
-// spray reads the scene's depth: three copies it in the spray's
-// onBeforeRender (particle-depth.js), after whatever transparent item before
-// it writes depth; the pass asks for that copy before the spray as three
-// starts the near scene's render (particleDepth.request: a copier three draws
-// just before it), and runs the spray's hook ahead of its turn.
+// The tint pass snapshots opaque colour and depth before the transparent
+// list (render order -20). Ultra mirrors hide the water. Underwater fog
+// takes its own snapshot before the final Rust composite. Spray depth copies
+// are ordered transparent commands immediately before the spray draw; they
+// preserve the depth written by preceding transparent items without a dummy
+// copier mesh.
 import * as THREE from "three";
 import { particleDepth } from "../particle-depth.js";
 import { uniformType, writeUniform } from "./post.js";

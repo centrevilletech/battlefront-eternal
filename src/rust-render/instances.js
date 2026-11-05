@@ -245,8 +245,8 @@ class InstancePass {
     return !object.frustumCulled || this.frustum.intersectsObject(object);
   }
 
-  // A soldier's body and the guns in his hand as records; registers them
-  // (and hides them from three) the first time each is seen drawn by three.
+  // Register a soldier's body and held guns before writing their first
+  // Rust records; refresh records when their materials change.
   soldier(root, camera, at) {
     const parts = root.userData.parts;
     if (!parts || !root.visible) return at;

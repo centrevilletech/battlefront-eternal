@@ -98,8 +98,8 @@ class FarPass {
     this.color = new THREE.Color();
     this.frustum = new THREE.Frustum();
     this.matrix = new THREE.Matrix4();
-    // This frame: whether the renderer drew all of the far scene, else
-    // "incomplete" and how many meshes three draws that the pass can't.
+    // Ownership diagnostics: an unclaimed visible far mesh makes the
+    // required phase incomplete.
     this.complete = false;
     this.mode = "incomplete";
     this.unclaimed = 0;
