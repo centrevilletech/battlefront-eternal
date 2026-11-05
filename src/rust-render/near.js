@@ -1,12 +1,12 @@
-// Draw the battle scene in Rust: far image, opaque passes, then ordered
+// Draw the battle scene in Rust: opaque passes, far image, then ordered
 // transparency. The walk validates that every visible item has a Rust owner.
 // Three still maintains scene transforms, target allocation and resolve state.
 import * as THREE from "three";
-import { plainProgram, plainProgramKnown, writeUniform } from "./post.js";
+import { writeScreenStep } from "./screen.js";
+import { plainProgram, plainProgramKnown } from "./post.js";
 
 // post.rs's step layout, and its target for the framebuffer bound now.
-const STEP = { PROGRAM: 0, TARGET: 1, WIDTH: 2, HEIGHT: 3, UNIFORMS: 4, FIRST: 5 };
-const UNIFORM = 18, MAX_UNIFORMS = 12, TARGET_BOUND = -2;
+const MAX_UNIFORMS = 12;
 const ATTRIBUTES = "position:0,uv:1";
 // The transparent pass's records a frame (transparent.rs MAX_OBJECTS).
 const MAX_ITEMS = 512;
@@ -19,7 +19,6 @@ export class NearPass {
     // The phase that draws the scene's passes after the begin phase (a
     // mirror's render: mirror.js).
     this.scenePhase = "near";
-    this.input = false;
     this.frustum = new THREE.Frustum();
     this.screen = new THREE.Matrix4();
     this.point = new THREE.Vector4();
@@ -35,12 +34,10 @@ export class NearPass {
     this.early = 0;
   }
 
-  // graphics.js: the near scene's render, drawn here when nothing in it is
-  // left for three; true when it was.
+  // Validate full ownership, clear, draw opaque geometry and ordered transparency.
   cover(renderer, scene, camera) {
     const core = this.core, graphics = core.graphics;
     if (core.contextLost) return false;
-    // Three's render of the scene draws its shadow cascades first: three's.
     const target = renderer.getRenderTarget();
     // Only the frame's own render of the near scene (ours()), in the
     // configuration three's would draw as walked here: its clear (no
@@ -48,10 +45,8 @@ export class NearPass {
     if (!this.ours(renderer, scene, camera, target) || graphics.background.parent !== scene) return false;
     if (!renderer.autoClear || !renderer.autoClearColor || !renderer.autoClearDepth || !renderer.autoClearStencil || !renderer.sortObjects) return false;
     if (scene.background || scene.fog || scene.overrideMaterial || renderer.localClippingEnabled || renderer.clippingPlanes?.length) return false;
-    // The far scene's image needs three's program for its material (three
-    // has drawn it once). Making the renderer's (the first time) makes GL
-    // calls of its own: if three renders the scene after all, its state is
-    // reset first (left()).
+    // Three compiles the unported far-image material. Registering its Rust
+    // program changes GL state, even if validation subsequently fails.
     const fresh = !plainProgramKnown(core, graphics.background.material);
     const left = () => { if (fresh) core.stale = true; return false; };
     const program = plainProgram(core, graphics.background.material, ATTRIBUTES);
@@ -68,7 +63,7 @@ export class NearPass {
       }
       this.items.length = 0;
       this.stopped = null;
-      if (!this.walk(scene, camera, 0) || !this.writeImage(program, camera)) { this.left++; return left(); }
+      if (!this.walk(scene, camera, 0)) { this.left++; return left(); }
       renderer.info.render.frame++;
       if (renderer.info.autoReset) renderer.info.reset();
       core.phase("begin", renderer, scene, camera, true);
@@ -143,28 +138,20 @@ export class NearPass {
   // The far scene's image as a post step into the target bound now (post.rs):
   // three's program for its material and every uniform it reads; false when
   // one has no value the renderer can set.
-  writeImage(program, camera) {
-    const core = this.core, background = core.graphics.background;
-    if (!this.input) { core.addView("postInput", Float64Array, () => core.rust.post_input_ptr(), () => core.rust.post_input_len()); this.input = true; }
-    core.views();
-    const out = core.postInput;
-    out[STEP.PROGRAM] = program.id; out[STEP.TARGET] = TARGET_BOUND; out[STEP.WIDTH] = 0; out[STEP.HEIGHT] = 0;
-    out[STEP.UNIFORMS] = program.uniforms.length;
-    for (let k = 0; k < program.uniforms.length; k++) {
-      if (!writeUniform(core, out, STEP.FIRST + k * UNIFORM, k, program.uniforms[k], background.material, background, camera)) { this.stopped = background; return false; }
-    }
-    return true;
+  writeImage(camera) {
+    const core=this.core,background=core.graphics.background;
+    const program=plainProgram(core,background.material,ATTRIBUTES);
+    if(!program || !writeScreenStep(core,0,program,background.material,background,camera)) core.fail(new Error("Cannot draw far-scene image"));
   }
 
-  // The "begin" phase: three's clear colour (WebGLBackground's: premultiplied
-  // by its alpha as the context is), and the image's step (writeImage).
+  // Clear before geometry. The depth-tested far image follows opaque draws.
   draw(ctx) {
     const renderer = ctx.renderer, clear = this.clear;
     renderer.getClearColor(this.color);
     const alpha = renderer.getClearAlpha(), pre = renderer.getContextAttributes()?.premultipliedAlpha !== false ? alpha : 1;
     clear[0] = this.color.r * pre; clear[1] = this.color.g * pre; clear[2] = this.color.b * pre; clear[3] = alpha;
     ctx.clear = clear;
-    ctx.steps = 1;
+    ctx.steps = 0;
   }
 
 }

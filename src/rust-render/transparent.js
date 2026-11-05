@@ -156,6 +156,12 @@ class TransparentPass {
   // deferred as the near phase.
   afterPhase(name, ctx) {
     if (name === "near" || name === "mirror") {
+      // The far image is the last opaque draw, depth tested against geometry,
+      // before transparent sources capture their opaque depth/colour copies.
+      if(ctx.walked){
+        this.core.byName.near.writeImage(ctx.camera);
+        this.core.phase("image",ctx.renderer,ctx.scene,ctx.camera,ctx.defer,null,{steps:1});
+      }
       this.atEnd = null;
       this.frameNo++;
       this.takenCount = 0;

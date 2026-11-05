@@ -465,11 +465,9 @@ export class Graphics {
     return { programs: count() - before, rest, ms: performance.now() - started };
   }
 
-  // Compile() prepares three's programs, but Rust adopts their geometry
-  // and links its own programs when the scene is first drawn. Draw twice
-  // under the loading screen: three establishes the materials on the first
-  // pass, and Rust can take them on the second. Do this before joining a
-  // battle, whose incoming entity records must never wait behind the work.
+  // Compile and adopt scene resources through Rust under the loading screen.
+  // Two preparation frames establish dynamic inputs before joining a battle,
+  // whose incoming entity records must never wait behind that work.
   async prepareRenderer(settle, draw) {
     await this.rustReady;
     for (let i = 0; i < 2; i++) {

@@ -69,8 +69,7 @@ const PHASES = {
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
   // The transparent phase's passes from that mirror camera.
   mirrorTransparent: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_transparent_frame(ctx.commands ?? 0, ctx.image ?? 0) },
-  // The near scene's start when it is drawn in place of three's render
-  // (near.js): its target cleared, the far scene's image drawn into it.
+  // Clear the near target before its opaque geometry.
   begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
   // The far phase's passes from a water's mirror camera (water.js reflect),
   // into the mirror's target, before the frame's own far scene.
