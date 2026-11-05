@@ -20,11 +20,11 @@ try {
    centers.expandByPoint(bounds.getCenter(p));
    if(i%6===0){
     b.camera.position.copy(d.position).add(new T.Vector3(3,1.6,3));b.camera.lookAt(d.position.clone().add(new T.Vector3(0,.75,0)));
-    b.renderer.render(b.scene,b.camera);shots.push(b.renderer.domElement.toDataURL('image/jpeg',.85));
+    b.graphics.render(0);shots.push(b.renderer.domElement.toDataURL('image/jpeg',.85));
    }
   }
   d.mode=13;d.time=0;a.update(1/144,d);b.actor.root.updateMatrixWorld(true);
-  b.renderer.render(b.scene,b.camera);shots.push(b.renderer.domElement.toDataURL('image/jpeg',.85));
+  b.graphics.render(0);shots.push(b.renderer.domElement.toDataURL('image/jpeg',.85));
   return {shots,centerExcursion:centers.getSize(new T.Vector3()).length(),pivot:a.pivot.toArray(),center:a.rollCenter.toArray()};
  });
  const folder=process.env.DROIDEKA_OUTPUT || '/tmp/bf/droideka-centered';mkdirSync(folder,{recursive:true});
