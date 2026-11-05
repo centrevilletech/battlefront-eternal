@@ -32,9 +32,9 @@ async function inputCadence(page) {
   assert.ok(result?.fresh,'the normal transport accepts fresh input before the next action');
 }
 
-// Ordinary spawn, walking, use and seat-cycle commands. No teleport, direct
-// board(), health edits or replacement physics are allowed in this gate.
-export async function mountedGameGate([actor, observer]) {
+// The optional authority fixture places each new life beside a reserved hull.
+// Both modes use ordinary use, seat-cycle and driving commands.
+export async function mountedGameGate([actor, observer], { spawnFixture = null } = {}) {
   await actor.bringToFront();
   await actor.evaluate(()=>{__bf.controls.locked=true;if(__bf.menu.isOpen)__bf.menu.close(true);});
   await actor.evaluate(()=>{
@@ -43,7 +43,7 @@ export async function mountedGameGate([actor, observer]) {
     sender.add=(command,edge)=>{const value=add(command,edge);if(['team','spawn','suicide','cancel'].includes(edge.kind))window.__spawnEdges.push({sent:value});return value;};
     sender.feedback=message=>{if(message.results?.length)window.__spawnEdges.push({feedback:message});return feedback(message);};
   });
-  const choose=(nearby=false)=>{
+  const choose=({nearby=false,spawnFixture=null}={})=>{
     const options=[];
     for(const team of Object.keys(__bf.spawnPort.teams()).map(Number)) {
       const className=__bf.spawnPort.roster(team).find(({className})=>Object.values(__bf.data.sides).some(side=>{
@@ -51,6 +51,7 @@ export async function mountedGameGate([actor, observer]) {
       }))?.className;
       if(!className)continue;
       for(const v of __bf.vehicles.vehicles) {
+        if(spawnFixture&&v.name!==spawnFixture)continue;
         if(!v.alive||v.flying||v.seats.length<2||v.seats.every(s=>s.lease&&(s.lease.human||s.lease.unit?.networkHuman))||v.controllingTeam>0&&v.controllingTeam!==team)continue;
         for(const p of __bf.spawnPort.posts(team).filter(p=>p.eligible)) {
           const distance=Math.hypot(...p.position.map((n,i)=>n-v.position.toArray()[i]));
@@ -58,10 +59,10 @@ export async function mountedGameGate([actor, observer]) {
         }
       }
     }
-    return options.sort((a,b)=>a.distance-b.distance).find(c=>!nearby||c.distance<60&&c.speed<2);
+    return options.sort((a,b)=>spawnFixture?a.vehicleId-b.vehicleId||a.distance-b.distance:a.distance-b.distance).find(c=>spawnFixture||!nearby||c.distance<60&&c.speed<2);
   };
   let choice;
-  for(let attempt=0;attempt<60&&!choice;attempt++){choice=await actor.evaluate(choose);if(!choice)await actor.waitForTimeout(250);}
+  for(let attempt=0;attempt<60&&!choice;attempt++){choice=await actor.evaluate(choose,{spawnFixture});if(!choice)await actor.waitForTimeout(250);}
   if(!choice)console.log('mounted-unavailable',await actor.evaluate(()=>({posts:__bf.spawnPort.posts(__bf.playerTeam),vehicles:__bf.vehicles.vehicles.map(v=>({id:v.aiTarget.id,alive:v.alive,team:v.controllingTeam,flying:v.flying,seats:v.seats.map(s=>s.lease?.unit?.id??null)}))})));
   assert.ok(choice,'mission has an available ground pilot seat near an eligible spawn');
   console.log('mounted-spawn-choice',JSON.stringify(choice));
@@ -96,7 +97,7 @@ export async function mountedGameGate([actor, observer]) {
   // A stationary hull within a short walk can be outside the spawn post's
   // immediate area. Vehicle destruction and respawns remain authoritative.
   choice=null;
-  for(let attempt=0;attempt<480&&!choice;attempt++){choice=await actor.evaluate(choose,true);if(!choice)await actor.waitForTimeout(250);}
+  for(let attempt=0;attempt<480&&!choice;attempt++){choice=await actor.evaluate(choose,{nearby:true,spawnFixture});if(!choice)await actor.waitForTimeout(250);}
   assert.ok(choice,'a live hull becomes available near an eligible spawn');
   console.log('mounted-respawn-choice',JSON.stringify(choice));
   await spawn();
@@ -104,7 +105,12 @@ export async function mountedGameGate([actor, observer]) {
   assert.ok(life.id!==first.id||life.generation>first.generation,'respawn establishes a new life');
   console.log('mounted-respawn',JSON.stringify({first,life}));
   let navigation;
-  try {
+  if(spawnFixture) {
+    navigation=await actor.evaluate(({vehicleId})=>{
+      const v=__bf.vehicles.vehicles.find(v=>v.aiTarget.id===vehicleId),p=__bf.playerUnit.position;
+      return {distance:Math.hypot(v.position.x-p.x,v.position.z-p.z),radius:v.radius,tick:__bf.worldClock.tick};
+    },choice);
+  } else try {
     await actor.keyboard.down('KeyW');
     assert.ok(await actor.evaluate(()=>__bf.controls.down.has('KeyW')),'movement key reaches enabled Controls after the spawn screen closes');
     for(let step=0;step<240;step++) {
@@ -135,7 +141,7 @@ export async function mountedGameGate([actor, observer]) {
     }
   } finally {await actor.keyboard.up('KeyW');}
   console.log('mounted-approach',JSON.stringify(navigation));
-  assert.ok(navigation.distance<navigation.radius+2.5,'ordinary movement reaches boarding distance');
+  assert.ok(navigation.distance<navigation.radius+2.5,spawnFixture?'authority spawn fixture reaches boarding distance':'ordinary movement reaches boarding distance');
   await actor.waitForFunction(()=>!__bf.soldier.air&&__bf.soldier.lock<=0,null,{timeout:15000});
   await inputCadence(actor);
   for(let attempt=0;attempt<10;attempt++) {
@@ -160,9 +166,10 @@ export async function mountedGameGate([actor, observer]) {
       return {tick:__bf.worldClock.tick,latest:c.latest,ready:c.ready,closed:c.host.closed,
         alive:__bf.playerUnit.alive,seat:__bf.playerUnit.seat?.index,control:c.entity.previous?.controlMode,
         hullAlive:v?.alive,hullDistance:v&&Math.hypot(...v.position.toArray().map((x,i)=>x-start[i])),
-        velocity:v?.velocity.toArray(),driver:v?.seats[0].lease?.unit?.id,
+        position:v?.position.toArray(),velocity:v?.velocity.toArray(),yaw:v?.yaw,held:[...__bf.controls.down],focus:document.hasFocus(),driver:v?.seats[0].lease?.unit?.id,
         predicted:c.vehiclePrediction?.predictionTick,correctionWorst:c.vehicleSmoother.worst};
     };
+    console.log('mounted-authority-timeout',JSON.stringify(await Promise.all([actor,observer].map(page=>page.evaluate(()=>__bf.client.host.call('inspect')).catch(error=>({error:error.message}))))));
     console.log('mounted-drive-timeout',JSON.stringify(await Promise.all([actor,observer].map(page=>page.evaluate(inspect,{id:choice.vehicleId,start})))));
     throw error;
   }
