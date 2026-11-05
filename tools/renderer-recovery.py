@@ -71,6 +71,10 @@ for ident,(name,args,ret) in enumerate(methods):
         out += ['        let '+('mut ' if any(t in ('&str', 'u32', 'i32', 'bool') for n,t in args[1:]) else '')+'hash = std::collections::hash_map::DefaultHasher::new();']
         for n,t in args[1:]:
             if t in ('&str', 'u32', 'i32', 'bool'): out.append(f'        {n}.hash(&mut hash);')
+        # Only a write of the identical range supersedes a previous partial
+        # write. A shorter update at the same offset leaves its suffix intact.
+        if name in {'geometry_buffer_sub_data', 'geometry_index_sub_data'}:
+            out.append('        data.len().hash(&mut hash);')
         out += [f'        let key = ({ident}u16, {first} as u32, hash.finish());',
                 '        if let Some(&recovery_at) = self.recovery.slots.get(&key) {',
                 f'            if let Command::{name} {{ '+', '.join(n+': old_'+n for n,t in args)+' } = &mut self.recovery.commands[recovery_at].1 {']

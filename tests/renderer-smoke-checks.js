@@ -8,6 +8,8 @@ import { Batch } from '../src/interface/batch.js';
 import { Water } from '../src/water.js';
 import { Settings } from '../src/settings.js';
 import { zeroMaterial, lighting } from '../src/materials.js';
+import { plainProgram } from '../src/rust-render/post.js';
+import { writeScreenStep } from '../src/rust-render/screen.js';
 import { programLayouts } from '../src/render-programs.js';
 
 // All pixels, meshes and textures here are generated. No game loader runs.
@@ -261,6 +263,32 @@ export async function checkRenderer(backend) {
     g.renderer.autoClear=false;
     g.rust.cover('underwater',g.renderer,tintScene,tintCamera);
     g.renderer.autoClear=true;
+    // Overlapping partial writes of different lengths must survive restoration.
+    const retainedGeometry=new THREE.PlaneGeometry(2,2);
+    const retainedMaterial=new THREE.ShaderMaterial({
+      vertexShader:'void main(){gl_Position=vec4(position,1.0);}',
+      fragmentShader:'void main(){gl_FragColor=vec4(1.0,.25,.125,1.0);}',
+      depthTest:false,depthWrite:false,
+    });
+    const retainedMesh=new THREE.Mesh(retainedGeometry,retainedMaterial),retainedScene=new THREE.Scene();retainedScene.add(retainedMesh);
+    g.renderer.compile(retainedScene,tintCamera);
+    const retainedProgram=plainProgram(g.rust,retainedMaterial,'position:0');
+    const retainedId=g.rust.geometry(retainedGeometry,{id:retainedProgram.id,attributes:[['position',0]]});
+    const bytes=a=>new Uint8Array(a.buffer,a.byteOffset,a.byteLength);
+    g.rust.rust.geometry_buffer_sub_data(retainedId,0,0,bytes(Float32Array.of(-.7,1,0,.5,1,0)));
+    g.rust.rust.geometry_buffer_sub_data(retainedId,0,0,bytes(Float32Array.of(-.5,1,0)));
+    g.rust.rust.geometry_index_sub_data(retainedId,0,bytes(Uint16Array.of(0,2,1,1,2,3)));
+    g.rust.rust.geometry_index_sub_data(retainedId,0,bytes(Uint16Array.of(0,1,2)));
+    const retainedTarget=new THREE.WebGLRenderTarget(32,32,{depthBuffer:false});
+    const retainedPixels=()=>{
+      g.renderer.setRenderTarget(retainedTarget);g.renderer.clear();
+      const target=g.rust.byName.post.target(retainedTarget);
+      writeScreenStep(g.rust,0,retainedProgram,retainedMaterial,retainedMesh,tintCamera,{target,size:[32,32],geometry:{id:retainedId,count:6}});
+      g.rust.rust.underwater_frame(1);g.rust.stale=true;
+      const pixels=new Uint8Array(32*32*4);g.renderer.readRenderTargetPixels(retainedTarget,0,0,32,32,pixels);return pixels;
+    };
+    const retainedBefore=retainedPixels();
+    assert('Partial-update fixture draws visible pixels',retainedBefore.some((v,i)=>i%4===0&&v===255));
     const beforeLoss = capture();
     const loss = gl.getExtension('WEBGL_lose_context');
     if (!loss) throw new Error('Context-loss extension unavailable');
@@ -283,6 +311,9 @@ export async function checkRenderer(backend) {
     for (let i=0;i<4;i++) capture();
     const afterLoss = capture();
     assert('Restored Rust frame matches its generated fixture', beforeLoss.every((v,i) => v === afterLoss[i]));
+    const retainedAfter=retainedPixels();
+    assert('Overlapping vertex and index updates survive restoration',retainedBefore.every((v,i)=>v===retainedAfter[i]));
+    retainedTarget.dispose();
     assert('Battle never invokes three draw', g.renderer.battleThreeCalls === 0);
     assert('Every shader rewrite kind links', [0,1,2,3,4,9].every(k => programKinds.has(k)), [...programKinds]);
     assert('All Rust passes draw', passDraws.every(n => n > 0), { names: ['world','instances','far','terrain','transparent','effects','foliage','view','post','hud','water','shadow','motion','canopies','screen'], counts: passDraws });

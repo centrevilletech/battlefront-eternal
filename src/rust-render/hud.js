@@ -44,7 +44,6 @@ class HudPass {
 
   drawBatch(renderer, hud) {
     const core = this.core;
-    if (!core.rust.hud_init) return false;
     const batch = hud.batch;
     if (batch.count === 0) return true;
     if (this.batch !== batch) { this.full = true; this.batch = batch; }

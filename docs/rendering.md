@@ -472,8 +472,8 @@ Classic ocean surface) was fogged to the fog's black.
   east view, up to about 20 of green and blue on Kashyyyk: Docks' shallow sea
   (the near pass refracts the bed through thin water and adds its screen-space
   reflections; the far copy takes the deep colour and the planar mirror).
-  None at Low; on Kashyyyk: Islands, none to speak of at Ultra. The fountains'
-  mirrors (`fountain-water.js`) still tilt the sky away the same way. The game
+  None at Low; on Kashyyyk: Islands, none to speak of at Ultra. Fountain basins
+  use screen-space and analytic reflection; their unused planar mirror is removed. The game
   also fogs the water's reflection in `SkyInfo`'s 0x91e9c28b colour on maps
   whose far scene stops short of the near scene; the port doesn't.
 - **Enhanced ocean:** the storm ocean (`ocean-storm.js`, `storm-sky.js`)

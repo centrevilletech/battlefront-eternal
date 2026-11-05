@@ -702,6 +702,7 @@ impl BfeRenderer {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         slot.hash(&mut hash);
         offset.hash(&mut hash);
+        data.len().hash(&mut hash);
         let key = (47u16, g as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::geometry_buffer_sub_data { g: old_g, slot: old_slot, offset: old_offset, data: old_data } = &mut self.recovery.commands[recovery_at].1 {
@@ -721,6 +722,7 @@ impl BfeRenderer {
         self.recovery.clock += 1;
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         offset.hash(&mut hash);
+        data.len().hash(&mut hash);
         let key = (48u16, g as u32, hash.finish());
         if let Some(&recovery_at) = self.recovery.slots.get(&key) {
             if let Command::geometry_index_sub_data { g: old_g, offset: old_offset, data: old_data } = &mut self.recovery.commands[recovery_at].1 {
