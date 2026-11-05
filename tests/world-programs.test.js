@@ -44,3 +44,12 @@ test('loader compilation excludes world shells and restores them even on failure
   assert.throws(()=>compileUnowned(renderer,scene,{}),/fixture failure/);
   assert.equal(object.material,material);
 });
+
+test('a far material selects the new shadow setup without a material version change',()=>{
+  const entries=Object.entries(programLayouts).filter(([,p])=>p.selector);
+  const [key,layout]=entries.find(([,p])=>p.selector.csm && !p.selector.shadows && entries.some(([,q])=>JSON.stringify(q.selector)===JSON.stringify({...p.selector,csm:false})));
+  const [next]=entries.find(([,p])=>JSON.stringify(p.selector)===JSON.stringify({...layout.selector,csm:false}));
+  const {core,material,calls}=fixture(layout.selector);
+  ownedWorldProgram(core,material);core.graphics.csm=null;ownedWorldProgram(core,material);
+  assert.deepEqual(calls,[key,next]);
+});

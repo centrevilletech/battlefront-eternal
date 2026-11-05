@@ -35,8 +35,8 @@ export function compileUnowned(renderer, object, camera, scene) {
 
 export function ownedWorldProgram(core, material, scene = core.graphics.scene, camera = core.graphics.camera, side = material.side) {
   const entries = core.worldMaterialPrograms ||= new WeakMap();
-  const existing = entries.get(material);
-  if (existing && existing.version === material.version && existing.scene === scene && existing.side === side) return existing.program;
+  const existing = entries.get(material), shadowState=core.graphics.csm, lampLighting=Boolean(core.graphics.settings.get("lampLighting"));
+  if (existing && existing.shadowState===shadowState && existing.lampLighting===lampLighting && existing.version === material.version && existing.scene === scene && existing.side === side) return existing.program;
   const defines = Object.entries(material.defines).map(([k,v]) => [k,String(v)]).sort(([a],[b]) => (a < b ? -1 : a > b ? 1 : 0));
   let points = 0, shadows = 0;
   scene.traverseVisible(o => {
@@ -44,8 +44,8 @@ export function ownedWorldProgram(core, material, scene = core.graphics.scene, c
     if (o.isPointLight) points++;
     if (o.isDirectionalLight && o.castShadow && core.renderer.shadowMap.enabled) shadows++;
   });
-  const csm = Boolean(core.graphics.csm);
-  const lamps = Boolean(core.graphics.settings.get("lampLighting")) && material.defines.DYNAMIC !== undefined && material.defines.NO_POINT === undefined && material.defines.FAR === undefined;
+  const csm = Boolean(shadowState);
+  const lamps = lampLighting && material.defines.DYNAMIC !== undefined && material.defines.NO_POINT === undefined && material.defines.FAR === undefined;
   const signature = JSON.stringify({ defines, side, shadows, points, csm, fabric: Boolean(material.userData.bfeFabric), tree: Boolean(material.userData.bfeTree), map: Boolean(material.map), lamps });
   const key = variants.get(signature);
   if (!key) throw Error(`Unowned world variant: ${signature}`);
@@ -55,7 +55,7 @@ export function ownedWorldProgram(core, material, scene = core.graphics.scene, c
   program.owned = true;
   program.lamps = layout.lamps;
   program.aliased = Boolean(material.userData.bfeFabric);
-  entries.set(material, { version: material.version, scene, side, program });
+  entries.set(material, { shadowState, lampLighting, version: material.version, scene, side, program });
   return program;
 }
 
