@@ -969,6 +969,8 @@ export function exportF2Pose(o, cx) {
   return v;
 }
 
+export const F2SeatRelationLayout = Object.freeze({ words: 3, a: 0, b: 1, value: 2 });
+
 export class F2SeatRelationMirror {
   constructor() {
     this.a = NaN;

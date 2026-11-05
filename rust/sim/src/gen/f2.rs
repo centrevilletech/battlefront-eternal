@@ -879,6 +879,9 @@ pub struct F2SeatRelation {
 
 impl F2SeatRelation {
     pub const WORDS: usize = 3;
+    pub const A: usize = 0;
+    pub const B: usize = 1;
+    pub const VALUE: usize = 2;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();

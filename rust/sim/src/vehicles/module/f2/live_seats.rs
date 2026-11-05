@@ -1,6 +1,12 @@
 //! Live Vehicles seat ownership. Foreign unit facts enter once before latching;
 //! leases and hull links are never imported from JavaScript. Command-local Store
 //! shells transfer ownership across hooks, so no canonical borrow survives JS.
+//!
+//! Vehicles.board/vacate and TurretSeats.man/leave share the same lease slab.
+//! Both slab generation and soldier life matter: a respawn can reuse a unit
+//! object while a released beam still holds its earlier seat reference.
+//! Publication follows touched identities rather than walking the fleet.
+//! A synchronous callback may publish again before its outer solver resumes.
 use super::*;
 use super::firing::{LockFacts, LockQuery, LockView, allowed, pick_view};
 use crate::seats::{self, Attacker as By, Hit as SeatHit, Holder, Reason, SeatWorld, Seating};
@@ -12,10 +18,16 @@ use crate::seats::turrets::{CrewWorld, Crews, Let, Shot};
 use crate::combat::defs::WeaponClass;
 use crate::combat::weapons::{Admission, LockTarget, Shot as WeaponShot, ShotKind, WeaponDraws};
 
+// TurretSeats.drive keeps one weapon per turret, independent of its occupant.
+// The reusable shot and lock buffers preserve interleaving without allocating
+// a Vec for each crew tick; only construction resolves weapon definitions.
 struct TurretWeapon {
     state: Weapon, class: Option<WeaponClass>, ordnance: Option<crate::store::DefId>,
     channel: f64, shots: Vec<WeaponShot>, locks: Vec<F2TurretLockLevel>,
 }
+// Weapon.update consumes the existing weapon-spread stream on shots only.
+// Keep each draw synchronous until the random streams themselves move owners.
+// Idle crew clocks do not cross this seam.
 struct Draws { turret: usize }
 impl WeaponDraws for Draws {
     fn draw(&mut self, _: u32) -> f64 { import_f2_turret_draw(&F2TurretDraw { turret: self.turret as u32 }).value }
@@ -25,6 +37,9 @@ impl WeaponDraws for Draws {
 }
 
 const INPUT_CAPACITY: usize = 262144;
+// Vehicles and TurretSeats formerly held these lists in JavaScript. Slabs
+// now own identities; these sidecars retain class facts and reusable exchange
+// storage. A mirror cache never decides whether a lease is live.
 struct State {
     owner: crate::vehicles::f2_seats::Seats,
     depth: usize, command_depth: usize,
@@ -53,15 +68,27 @@ fn state() -> &'static mut State {
         event_rows: Vec::with_capacity(512), event_output: Block::default(), rounds: Vec::with_capacity(32),
     }) }
 }
+// SeatUnit refers to the foreign registry slot, whose gameplay generation
+// is carried separately. Lease validation checks that generation before
+// allowing a reused soldier record to steer or release an old occupancy.
 fn unit_ref(id: u32) -> Ref<Unit> { Ref::new(id, 0) }
+// Vehicles.syncRider dirties only the rider it placed. Keep the first touch
+// order, since hooks can publish midway through a crew operation. Repeated
+// touches before that hook require only one body row.
 fn touch_unit(r: Ref<Unit>) {
     let list = &mut state().owner.changed.units;
     if !list.contains(&r) { list.push(r); }
 }
+// Vehicles.move and vacate can touch the same lease several times in one
+// command. Retain its identity once; the eventual delta represents the
+// latest canonical state, not an intermediate JavaScript snapshot.
 fn touch_lease(r: Ref<SeatLease>) {
     let list = &mut state().owner.changed.leases;
     if !list.contains(&r) { list.push(r); }
 }
+// Vehicles.board and promote change both the hull link and derived lease
+// views. Mark its current occupants too, so synchronous hooks see the new
+// seat indices before a later physics store publishes the hull.
 fn touch_hull(r: Ref<Vehicle>) {
     super::mark(r);
     let list = &mut state().owner.changed.hulls;
@@ -70,18 +97,33 @@ fn touch_hull(r: Ref<Vehicle>) {
         for s in &v.seats { if let Some(l) = s.lease { touch_lease(l); } }
     }
 }
+// Vehicles.destroyedCrew carries the original attacker through nested deaths.
+// Do not resolve an owner to whichever occupant now holds a seat: attribution
+// uses the captured owner reference, including owner snapshots.
 fn by(owner: OrdnanceOwner) -> By {
     By::Record(match owner { OrdnanceOwner::Null => Attacker::Null, OrdnanceOwner::Player => Attacker::Player,
         OrdnanceOwner::Unit(r) => Attacker::Unit(r), OrdnanceOwner::Vehicle(r) => Attacker::Vehicle(r),
         OrdnanceOwner::OwnerSnapshot(r) => Attacker::OwnerSnapshot(r) })
 }
+// SeatsWorld.kill accepts the same owner union as combat. Preserve the
+// distinction between no attacker, the local player, a unit and a hull;
+// changing that union would change kill credit in synchronous listeners.
 fn attacker(owner: By) -> Attacker {
     match owner { By::Nobody => Attacker::Null, By::Player => Attacker::Player,
         By::Unit(u) => Attacker::Unit(unit_ref(u)), By::Hull(i) => Attacker::Vehicle(sim().store.vehicles.vehicles[i]), By::Record(a) => a }
 }
+// Vehicles.vacate forwards its reason to onUnboard after body placement.
+// Keep stale, displaced, killed and destroyed distinct: AI handlers decide
+// whether and when they may board again from this value.
 fn why(r: Reason) -> SeatReason { match r { Reason::Exit => SeatReason::Exit, Reason::Stale => SeatReason::Stale,
     Reason::Killed => SeatReason::Killed, Reason::Destroyed => SeatReason::Destroyed, Reason::Displaced => SeatReason::Displaced } }
+// SeatsWorld hooks use an index in the appropriate system, not a common
+// hull/turret index. Keep the discriminator alongside it so identical indices
+// in the two registries cannot name the wrong listener source.
 fn holder(h: Holder) -> (f64, bool) { match h { Holder::Hull(i) => (i as f64, false), Holder::Turret(i) => (i as f64, true) } }
+// SeatInput.latch reads the soldier or driven SeatUnit intent exactly once.
+// Translate optional aim without normalizing or consuming edge counters here;
+// those decisions stay in the lease solver at its original latch slot.
 fn intent(i: SeatAiIntent) -> SeatIntent {
     SeatIntent { forward: i.forward, right: i.right, turn: i.turn, pitch: i.pitch, jump: i.jump, crouch: i.crouch, prone: i.prone,
         r#use: i.r#use, exit: i.exit, buttons: i.buttons, reload: i.reload, next_primary: i.next_primary, previous_primary: i.previous_primary,
@@ -111,6 +153,9 @@ pub extern "C" fn f2_seats_adopt() {
 
 /// Foreign actor facts keep one row per registry unit, including units that
 /// board late. Their ordered table must not allocate a tree node on insertion.
+// Vehicles.attachUnits grows cold rider storage before the warm phase.
+// Reserve both sides of the unit boundary: later board and kill hooks can
+// publish during a shot without growing an output buffer.
 pub fn reserve_riders(count: usize) {
     let s = state();
     s.owner.hulls.riders.reserve(count.saturating_sub(s.owner.hulls.riders.len()));
@@ -161,6 +206,9 @@ fn inputs() {
         state().owner.hulls.controls.insert(control_key(a.seat_unit), c);
     }
 }
+// Vehicles.destroyedCrew reads each hull's latest attacker. A nested native
+// health command can change it after the sidecar was constructed, so refresh
+// from the canonical row before moving the owner into a solver.
 fn refresh_hulls(hulls: &mut Hulls, st: &Store) {
     for side in &mut hulls.hulls {
         if let Some(v) = st.vehicle.get(side.vehicle) { side.last_attacker = by(v.last_attacker); }
@@ -173,6 +221,9 @@ fn refresh_hulls(hulls: &mut Hulls, st: &Store) {
 /// other crews' pending intent by reusing the command input buffer.
 pub fn import_phase_input() { inputs(); }
 
+// Vehicles.latchCrews preserves the starting crew order, including exits
+// and promotion before driving input is frozen. Move the Store shell rather
+// than clone rows; publish_hulls makes it available again around hooks.
 pub fn latch(time: f64) {
     state().depth += 1;
     let n = state().owner.hulls.hulls.len();
@@ -196,6 +247,9 @@ pub fn latch(time: f64) {
         let v = sim().store.vehicle.get(r).unwrap();
         if let Some(l) = v.seats.first().and_then(|s| s.lease).and_then(|l| sim().store.seat_lease.get(l)) {
             if v.flying {
+                // Flight uses the lease just frozen by latchCrews. Network
+                // pilot keys retain their separate sampled row; copying the
+                // old mirrored pressed flags here would replay consumed edges.
                 let a = &l.input;
                 let given = unsafe { &mut *addr_of_mut!(FLIGHT_INPUTS) };
                 if given.len() <= r.slot as usize { given.resize(r.slot as usize + 1, None); }
@@ -220,12 +274,18 @@ pub fn latch(time: f64) {
     for i in 0..sim().store.vehicles.vehicles.len() { super::mark(sim().store.vehicles.vehicles[i]); }
 }
 
+// Vehicles.syncRider publishes only the Soldier fields a seat owns. The
+// remaining soldier state stays foreign. Copying a full old Soldier here
+// would overwrite movement or combat writes made earlier in the tick.
 fn body(s: &Soldier) -> F2SeatBody {
     F2SeatBody { position: s.position, previous: s.previous, settled: s.settled, velocity: s.velocity, normal: s.normal,
         aim_yaw: s.aim_yaw, aim_pitch: s.aim_pitch, air: s.air, posture: s.posture, grounded: s.grounded,
         dive: s.dive, dive_from: s.dive_from, lock: s.lock, look_x: s.look_x, look_y: s.look_y,
         fuel: s.fuel, state_time: s.state_time, pass_through: s.pass_through }
 }
+// SeatInput.latch consumes action edges on their source intent. Send only
+// those edge fields back; held analogs remain the AI's pending input for
+// its next update and must not be restored from a stale mirror.
 fn edges(i: &Intent) -> F2SeatEdges { F2SeatEdges { reload: i.reload, r#use: i.r#use, exit: i.exit, jump: i.jump, crouch: i.crouch, prone: i.prone,
     next_primary: i.next_primary, previous_primary: i.previous_primary, next_secondary: i.next_secondary, zoom: i.zoom } }
 
@@ -245,6 +305,9 @@ pub fn publish() -> *const f64 {
             if !state.owner.changed.leases.contains(&r) { state.owner.changed.leases.push(r); }
         } } }
     }
+    // SeatLease.emitters can still refer to retired rows. Send their final
+    // generation first, then changed live rows; never reinterpret a retired
+    // reference as the new occupant of the same slot.
     let retired = st.seat_lease.retired.len();
     let live = state.owner.changed.leases.iter().filter(|&&r| st.seat_lease.contains(r)).count();
     state.leases.begin(retired + live, F2Delta::WORDS); state.leases.set_retired(retired);
@@ -263,6 +326,9 @@ pub fn publish() -> *const f64 {
         }
     } }
     state.leases.words[0] = index as f64; state.leases.finish(); st.seat_lease.retired.clear();
+    // syncCrews preserves the foreign Soldier fields it does not own. These
+    // compact results update body and lease readers without importing a whole
+    // old unit over movement or combat writes made by a nested listener.
     state.units.begin(state.owner.changed.units.len(), F2Delta::WORDS);
     let mut unit_count = 0;
     for &r in &state.owner.changed.units {
@@ -307,15 +373,24 @@ struct World { store: *mut Store, turret: bool }
 impl World {
     fn new(st: &mut Store) -> Self { Self { store: st, turret: false } }
     fn action(&mut self, a: F2SeatAction) -> F2SeatAnswer { import_f2_seat_action(&a) }
+    // SeatsWorld.kill must publish before entering foreign combat. Its death
+    // listener can synchronously board or unseat another unit; import the
+    // affected foreign facts afterward without replacing unrelated crews.
     fn killed(&mut self, unit: u32, owner: By) {
         touch_unit(unit_ref(unit)); super::publish();
         self.action(F2SeatAction { kind: F2SeatActionKind::Kill, unit: Some(unit_ref(unit)), attacker: attacker(owner), ..Default::default() });
         inputs();
     }
+    // seatBody, unseatBody and placeOnFoot also have actor presentation hooks.
+    // Queue those hooks with the native body result; the mirror is current
+    // before JavaScript applies them, even during a nested death.
     fn emit_body(&mut self, kind: SeatEffectKind, unit: u32, yaw: f64, point: [f64;3]) {
         state().rider_sides[unit as usize] = self.turret;
         touch_unit(unit_ref(unit)); state().body_effects.push(F2SeatEffect { kind, unit: unit_ref(unit), yaw, point });
     }
+    // Vehicles.onBoard/onUnboard/onMove are state-sensitive. Publish pending
+    // touched rows before calling them, then resume the same canonical slabs.
+    // Deferring these hooks behind the next crew would change AI behavior.
     fn hook(&mut self, kind: F2SeatActionKind, unit: Option<u32>, h: Holder, index: usize, post: Option<Ref<Post>>, reason: Reason) {
         let (holder, turret) = holder(h);
         if !turret { touch_hull(sim().store.vehicles.vehicles[holder as usize]); } else { touch_turret(state().owner.crews.turrets[holder as usize].turret); }
@@ -325,15 +400,24 @@ impl World {
     }
 }
 impl SeatWorld for World {
+    // TurretSeats.update keeps its starting lease snapshot across callbacks.
+    // Exchange the Store and crew shells around a hook so reentrant commands
+    // operate on the live owner, with no outstanding borrow into JavaScript.
     fn publish_crews(&mut self, st: &mut Store, crews: &mut Crews) {
         std::mem::swap(st, &mut sim().store); std::mem::swap(crews, &mut state().owner.crews);
     }
     fn resume_crews(&mut self, st: &mut Store, crews: &mut Crews) {
         std::mem::swap(st, &mut sim().store); std::mem::swap(crews, &mut state().owner.crews);
     }
+    // TurretSeats.man allocates a generation-qualified lease once at boarding.
+    // Old emitters may retain the retired reference; slab reuse must create a
+    // new generation rather than retarget that old JavaScript lease object.
     fn crew_lease(&mut self, _: &mut Store, lease: SeatLease) -> Ref<SeatLease> {
         let r = sim().store.seat_lease.insert(lease); touch_lease(r); r
     }
+    // TurretSeats.pose changes the occupant and turret together. Mark both
+    // reader rows before a shot can enter its launch hook. The posed flag
+    // controls the existing animation hook without another JS rig sample.
     fn crew_posed(&mut self, r: Ref<SeatLease>) {
         touch_lease(r);
         if let Some(unit) = sim().store.seat_lease.get(r).and_then(|l| l.unit) { touch_unit(unit); }
@@ -342,6 +426,9 @@ impl SeatWorld for World {
         }
     }
 
+    // Vehicles seat operations use the same ownership exchange as turrets.
+    // The outer solver keeps its lists, while synchronous hooks reach the live
+    // Store; resume_hulls takes back any nested command's changes.
     fn publish_hulls(&mut self, st: &mut Store, hulls: &mut Hulls) {
         std::mem::swap(st, &mut sim().store); std::mem::swap(hulls, &mut state().owner.hulls);
     }
@@ -360,6 +447,9 @@ impl SeatWorld for World {
         collision_world().expect("the vehicle collision world")
             .overlaps_sphere(crate::collision::state(), center, radius, ignore.map(|b| b.slot))
     }
+    // turretAimPoint still queries the foreign unit registry. Publish native
+    // body samples first because its lazy hit-shape reader can inspect them.
+    // Solid-world casts beside this query remain entirely in the native kernel.
     fn raycast_units(&mut self, from: &Vector3, direction: &Vector3, far: f64, unit: Option<u32>) -> Option<f64> {
         super::publish();
         self.action(F2SeatAction { kind: F2SeatActionKind::Raycast, unit: unit.map(unit_ref), point: v3(from),
@@ -371,9 +461,15 @@ impl SeatWorld for World {
         }
         FlightWorld::relation(&mut super::JsWorld { craft: u32::MAX }, Some(a), Some(b))
     }
+    // placeOnFoot retains Soldier.spawn's reset and ground snap. The spawn
+    // world now casts directly into the same native kernel as the exit search;
+    // it cannot call back through the removed JavaScript seat query handlers.
     fn stand_up(&mut self, u: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
         crate::seats::module::stand_up(u, x, y, z, yaw);
     }
+    // Vehicles.destroyedCrew clears seat links before killing the occupants.
+    // Temporarily publish the proper solver owner so a combat listener sees
+    // all cleared leases and can safely enter another seat command.
     fn kill(&mut self, st: &mut Store, seating: Seating<'_>, unit: u32, owner: By) {
         match seating {
             Seating::Hulls(hulls) => {
@@ -384,6 +480,9 @@ impl SeatWorld for World {
             Seating::Crews(_) => self.killed(unit, owner),
         }
     }
+    // Vehicles.vacate uses the completed riderDropPoint at kill entry. Reuse
+    // the native sample, including the animal pelvis adjustment, rather than
+    // reading a scene node whose presentation frame may already differ.
     fn rider_drop(&mut self, _h: Holder, _index: usize, unit: u32) -> Option<Vector3> {
         super::riders::drop(unit_ref(unit))
     }
@@ -408,9 +507,15 @@ impl SeatWorld for World {
         unit.tick_count += 1.0; rider_posed(id);
     }
 
+    // Vehicles.promote leaves a bot alone when its controller is boarding
+    // something else. This foreign AI fact is read at the decision slot;
+    // turning it into an earlier cached value would change takeover order.
     fn controller_state(&mut self, unit: Option<u32>) -> Option<f64> {
         self.action(F2SeatAction { kind: F2SeatActionKind::Controller, unit: unit.map(unit_ref), ..Default::default() }).value
     }
+    // SeatsWorld.controllable constructs the AI's SeatUnit facade on boarding.
+    // Only that facade remains foreign: canonical seat identity and input
+    // latching belong to the native owner, including a newly promoted pilot.
     fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, _: SeatRole) -> Ref<SeatUnit> {
         touch_lease(lease); super::publish();
         let r = self.action(F2SeatAction { kind: F2SeatActionKind::Control, lease: Some(lease), index: index as f64, ..Default::default() }).control.expect("seat control");
@@ -424,6 +529,9 @@ impl SeatWorld for World {
     fn unseated(&mut self, unit: u32, yaw: f64) { self.emit_body(SeatEffectKind::Unseated, unit, yaw, [0.0;3]); }
     fn placed(&mut self, unit: u32, yaw: f64) { self.emit_body(SeatEffectKind::Placed, unit, yaw, [0.0;3]); }
     fn dropped(&mut self, unit: u32, p: &Vector3) { self.emit_body(SeatEffectKind::Dropped, unit, 0.0, v3(p)); }
+    // seatWeaponPolicy resets the shared weapon when the occupant changes.
+    // Keep the spread floor, kick clamp and RNG assignment order: a human
+    // may take a weapon a bot already modified earlier in the same tick.
     fn seat_policy(&mut self, h: Holder, index: usize, player: bool, random: bool) {
         let (holder, turret) = holder(h); if !turret { touch_hull(sim().store.vehicles.vehicles[holder as usize]); } else { touch_turret(state().owner.crews.turrets[holder as usize].turret); }
         if turret {
@@ -450,6 +558,9 @@ pub fn command(a: F2SeatCommand) -> F2SeatResult {
     state().command_depth -= 1;
     result
 }
+// Vehicles scalar commands publish before returning to their caller.
+// Delay slab reclamation while an outer crew solver still holds its
+// starting lease list; a nested death must not recycle one of its handles.
 fn run(a: F2SeatCommand) -> F2SeatResult {
     state().depth += 1;
     let result = run_command(a);
@@ -459,6 +570,9 @@ fn run(a: F2SeatCommand) -> F2SeatResult {
     if state().depth == 0 { state().owner.published(&mut sim().store); }
     result
 }
+// Vehicles.board, exit, move, displace and network commands share one
+// validated entry. Check soldier life, hull life and lease generation
+// before any mutation, so old input can never act on a reused occupancy.
 fn run_command(a: F2SeatCommand) -> F2SeatResult {
     let mut result = F2SeatResult::default(); result.value = -1.0;
     let look = matches!(a.op, F2SeatOp::Look | F2SeatOp::Network | F2SeatOp::ResetSticks);
@@ -568,8 +682,14 @@ pub fn retire(r: Ref<Vehicle>) {
     hulls.retain(|h| h.vehicle != r);
     for (index, hull) in hulls.iter_mut().enumerate() { hull.index = index; }
 }
+// Vehicles.syncCrews ends the last outer seat read of this phase. Only
+// now may released slab rows be reclaimed; readers from earlier hooks
+// continue to carry the old generation and cannot target a replacement.
 pub fn finish() { state().owner.published(&mut sim().store); }
 
+// TurretSeats.drive changes its turret and current lease together.
+// Track the touched turret once, including lifecycle commands between
+// phases, so publishing one gun does not reset another gunner's input.
 fn touch_turret(r: Ref<Turret>) {
     let list = &mut state().owner.changed.turrets;
     if !list.contains(&r) { list.push(r); }
@@ -617,6 +737,9 @@ pub extern "C" fn f2_turret_life() {
     }
 }
 
+// TurretSeats.pose publishes compact frames and samples for existing
+// readers. The retained rig itself stays native; no JavaScript world
+// reader rebuilds the gun, seat, eye or muzzle from scene nodes.
 fn publish_turrets(s: &mut State) {
     s.turret_output.begin(s.owner.changed.turrets.len(), F2TurretOut::WORDS);
     for (at, &r) in s.owner.changed.turrets.iter().enumerate() {
@@ -662,6 +785,9 @@ pub fn turret_tick(dt: f64) {
 }
 
 impl CrewWorld for World {
+    // updateWeaponLock must see body placement from this crew and all prior
+    // crews. Flush state-sensitive foreign readers before choosing a target;
+    // the shared native picker preserves the original lazy query order.
     fn update_lock(&mut self, turret: usize, dt: f64, origin: &Vector3, direction: &Vector3, lease: Ref<SeatLease>) {
         super::publish(); self.action(F2SeatAction { kind: F2SeatActionKind::Flush, ..Default::default() });
         let picked = turret_lock(turret, origin, direction, lease);
@@ -700,6 +826,9 @@ impl CrewWorld for World {
         state().ordnance_dirty = true;
         let at = state().rounds.len(); state().rounds.push(round); at
     }
+    // bindMountedRound changes only a round's presentation attachment. Keep
+    // its event beside this crew's sound and fired events; it must identify
+    // the actual barrel chosen before the turret advances to the next crew.
     fn bind_round(&mut self, round: usize, turret: usize, barrel: f64) {
         let mut e = F2TurretEvent { kind: F2TurretEventKind::Bind, turret: state().owner.crews.turrets[turret].turret, barrel, ..Default::default() };
         match state().rounds[round] { Some(crate::ordnance::world::Shot::Bolt(r)) => e.bolt = Some(r),
@@ -712,6 +841,9 @@ impl CrewWorld for World {
     }
 }
 impl World {
+    // TurretSeats.drive emits sound and fired after the native round call.
+    // Copy the shot scalars while that shot buffer is still current, since
+    // the next crew reuses scratch before JavaScript drains ordered events.
     fn shot_event(&mut self, kind: F2TurretEventKind, turret: usize, shot: usize, owner: Option<u32>, origin: &Vector3, direction: &Vector3) {
         let w = state().weapons[turret].as_ref().unwrap();
         let ShotKind::Round { yaw, pitch, charge, target_id, target_generation, .. } = w.shots[shot].kind else { unreachable!("turret round") };
@@ -720,6 +852,9 @@ impl World {
     }
 }
 
+// TurretSeats.man, leave and destroyed use the same generation checks
+// as hull commands. A rebuilding building supplies a new lifecycle value;
+// it cannot resurrect the lease of the turret's previous occupant.
 fn turret_command(a: F2SeatCommand) -> F2SeatResult {
     let mut result = F2SeatResult { value: -1.0, ..Default::default() };
     let index = a.lease.and_then(|r| sim().store.seat_lease.get(r)).and_then(|l| l.turret)
@@ -750,6 +885,9 @@ fn turret_command(a: F2SeatCommand) -> F2SeatResult {
 
 /// LiveObjects.update eases an unmanned gun at its original scheduler point.
 #[no_mangle]
+// LiveObjects.update also eases an unmanned gun toward rest. Preserve
+// that earlier lifecycle slot, before crews steer and fire. Mark only
+// guns whose numeric aim changed so idle turrets need no publication.
 pub extern "C" fn f2_turrets_idle(dt: f64) {
     for i in 0..state().owner.crews.turrets.len() {
         let t = &mut state().owner.crews.turrets[i];
@@ -770,11 +908,17 @@ pub fn emitter_lease(source: BeamSource) -> Option<Ref<SeatLease>> {
     }
     None
 }
+// SeatLease.emitter.alive follows the original occupant and holder life.
+// A later gunner at the same turret does not keep an earlier beam alive;
+// released and stale generations both end that source.
 pub fn beam_gone(r: Ref<SeatLease>) -> bool {
     let Some(l) = sim().store.seat_lease.get(r) else { return true };
     if !seats::lease::live(l, r, &sim().store.unit) { return true; }
     !state().owner.crews.turrets.iter().any(|t| Some(t.turret) == l.turret && t.alive)
 }
+// SeatLease.emitter resolves through the captured lease, never the turret
+// currently selected by a player. A missing or reused lease must not
+// silently bind an existing beam to a different gun.
 fn beam_turret(r: Ref<SeatLease>) -> Option<&'static mut seats::turrets::TurretSide> {
     let turret = sim().store.seat_lease.get(r)?.turret?;
     state().owner.crews.turrets.iter_mut().find(|t| t.turret == turret)
@@ -814,11 +958,17 @@ fn turret_lock(turret: usize, origin: &Vector3, direction: &Vector3, lease: Ref<
 }
 struct TurretQuery { turret: usize, lease: Ref<SeatLease>, ignore: Option<Ref<Body>> }
 impl LockQuery for TurretQuery {
+    // lockPick requests expensive unit aim or shape facts only after its
+    // cheaper eligibility checks. Keep those requests separate so native
+    // targeting preserves Unit.updateSpheres' lazy invalidation timing.
     fn facts(&mut self, index: usize, shapes: bool, aim: bool) -> LockFacts {
         let f = import_f2_turret_target(&F2TurretTargetQuery { turret: self.turret as u32, index: index as f64, lease: self.lease, shapes, aim });
         LockFacts { id: f.id, generation: f.generation, alive: f.alive, eligible: f.eligible, relation: f.relation, category: f.category,
             hull: f.hull, body: f.body.map(|r| r.slot), center: vec(&f.center), radius: f.radius, aim: vec(&f.aim) }
     }
+    // lockPick accepts sight to the candidate's own collision body, while
+    // terrain or any different body blocks it. Preserve the short-ray cutoff
+    // and normalize only at the original solid-world query slot.
     fn clear(&mut self, origin: &Vector3, sight: &mut Vector3, length: f64, body: Option<u32>) -> bool {
         if length >= 1e-6 {
             let hit = World::default().cast(origin,sight.divide_scalar(length),length,self.ignore);
@@ -846,7 +996,13 @@ pub extern "C" fn f2_bodies() {
 pub fn animal(hull: Ref<Vehicle>) -> bool {
     state().owner.hulls.hulls.iter().find(|h| h.vehicle == hull).is_some_and(|h| h.animal)
 }
+// Vehicles.syncRider skips body writeback when no actor exists. Keep
+// that foreign construction fact separate from whether a clip is visible;
+// a hidden cockpit can still have a soldier body to carry.
 pub fn has_actor(unit: Ref<Unit>) -> bool { state().actors.get(unit.slot as usize).copied().unwrap_or(false) }
+// Vehicles.syncRider increments tickCount at body writeback, then marks
+// its presentation hook. Publication clears this transient marker; the
+// underlying rider sample remains retained for lazy shapes and deaths.
 pub fn rider_posed(unit: Ref<Unit>) {
     let flags = &mut state().rider_posed;
     if flags.len() <= unit.slot as usize { flags.resize(unit.slot as usize + 1, false); }

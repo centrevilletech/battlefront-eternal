@@ -4,6 +4,8 @@ import { AnimKernel } from './anim-kernel.js';
 import { putF2RiderBirth, F2RiderOutMirror, syncF2RiderOut } from './sim/gen/f2-riders.js';
 import { KIND_UNIT } from './sim/gen/index.js';
 
+// riderSample's imported animation aliases. Resolve these at boarding, then
+// retain numeric clip handles for both native samples and page presentation.
 const standins = { man_minigun: ['human_minigun_9pose', 4], drivesnowspeeder: ['human_drive', 0], drivesnowspeedergunner: ['human_drive', 0] };
 export class F2Riders {
   constructor(phase) {
@@ -16,17 +18,23 @@ export class F2Riders {
   ensure(unit, holder) {
     const animator = unit?.animator, bones = animator?.bones;
     if (!bones || !holder) return;
+    // skeletonOf depends on the actor model, not the seat. A respawn may reuse
+    // its bones but must allow bindings for the new actor life to be sent.
     let known = this.known.get(unit), fresh = !known || known.bones !== bones;
     if (!known || fresh || known.life !== unit.generation) {
       known = { bones, life: unit.generation, holders: new WeakSet() }; this.known.set(unit, known);
     }
     if (known.holders.has(holder)) return;
+    // bindsOf and the bone hierarchy are construction data. The phase never
+    // traverses these nodes; only a newly encountered actor sends them.
     const descriptions = fresh ? bones.map(b => ({ name: b.name, parent: bones.indexOf(b.parent), p: b.position, q: b.quaternion, s: b.scale,
       bind: animator.bindLengths?.find(pair => pair[0] === b)?.[1] ?? null })) : [];
     const bindings = [], seats = holder.seats ?? [null];
     for (let i = 0; i < seats.length; i++) {
       const rider = seats[i]?.view.rider ?? holder.rider;
       let clip = rider && (animator.clips.get(rider.clip) || animator.clips.get(rider.anim));
+      // riderSample keeps the original named stand-ins and their fixed frame.
+      // Quirk: a timed stand-in does not use the ordinary nine-pose weights.
       const standin = rider && !clip && standins[rider.anim];
       if (standin) clip = animator.clips.get(standin[0]);
       const turretSample = !holder.seats ? holder.riderSample(animator.clips, this.sample) : null;
@@ -36,6 +44,8 @@ export class F2Riders {
       bindings.push({ hull: holder.seats ? holder : null, turret: holder.seats ? null : holder, index: i,
         clip: id, nine: holder.seats ? Boolean(rider?.ninePose) : turretSample?.time == null, time: holder.seats ? (standin && clip ? standin[1] / clip.fps : null) : turretSample?.time ?? null });
     }
+    // Native riderBody owns the geometry from this point. The output mirror
+    // persists with the unit, including across a move to another holder.
     const a = { unit, life: unit.generation, scale: unit.rootScale ?? 1, rootBind: animator.rootBind ?? null, bones: descriptions, clips: bindings };
     this.bridge.callArgs(this.birthArgs, a); this.phase.x.f2_rider_birth();
     known.holders.add(holder);
@@ -43,6 +53,8 @@ export class F2Riders {
       const row = new F2RiderOutMirror(); row.shapes.length = 0; this.rows.set(unit, row);
     }
   }
+  // Vehicles.syncCrews publishes only changed samples. Decode into retained
+  // rows; unchanged riders neither copy a skeleton nor rebuild hit shapes.
   sync(ptr) {
     if (!ptr) return;
     const b = this.bridge, f = b.f, base = (ptr / 8) | 0;
@@ -65,10 +77,14 @@ export class F2Riders {
     }
     return row.shapes.length;
   }
+  // Vehicles.vacate consumes the completed riderDropPoint on death. A late
+  // packet for another life cannot move the current actor's corpse.
   drop(unit, out) {
     const row = this.rows.get(unit);
     return row && row.life === unit.generation && row.drop ? out.copy(row.drop) : null;
   }
+  // poseRider's actor and animation hooks remain presentation. Native rows
+  // supply the sample; no world-phase node read or rig math happens here.
   present(unit) {
     const actor = unit.actor;
     if (!actor) return;

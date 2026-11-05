@@ -7,6 +7,9 @@ use crate::rig::skeleton::Skeleton;
 use crate::store::block::Block;
 use three::{Matrix4, Quaternion, Vector3};
 
+// rider-pose.js skeletonOf and bindsOf describe one actor life. The bind
+// arrays and sampler scratch are retained because every seated tick samples
+// the same skeleton, even when its holder or selected animation changes.
 struct Rider {
     life: f64, scale: f64, skeleton: RiderSkeleton, scratch: RiderScratch,
     q: Vec<Quaternion>, p: Vec<Vector3>, clips: Vec<F2RiderClip>,
@@ -26,6 +29,8 @@ pub extern "C" fn f2_rider_birth() {
     let a = { let (row, heap) = sim().calls.args(); F2RiderBirth::take(row, heap) };
     let index = a.unit.slot as usize;
     if rows().len() <= index { rows().resize_with(index + 1, || None); }
+    // skeletonOf reads names and parent links only at construction. A new
+    // holder reuses the actor's skeleton; a new model supplies it again.
     if !a.bones.is_empty() {
         let names = a.bones.iter().map(|b| String::from_utf16_lossy(sim().strings.units(b.name))).collect();
         let parents = a.bones.iter().map(|b| b.parent).collect();
@@ -42,6 +47,8 @@ pub extern "C" fn f2_rider_birth() {
             encoded: Block { words: Vec::with_capacity(256), heap: Vec::with_capacity(128) },
             previous: Block { words: Vec::with_capacity(256), heap: Vec::with_capacity(128) }, dirty: false });
     }
+    // riderSample resolves clips by holder and seat. Preserve those bindings
+    // across seat moves; replacing a life must still refresh its generation.
     if let Some(row) = &mut rows()[index] {
         row.life = a.life; row.out.life = a.life;
         for clip in a.clips {
@@ -49,6 +56,8 @@ pub extern "C" fn f2_rider_birth() {
             else { row.clips.push(clip); }
         }
     }
+    // Ten is the riderHitShapes upper bound. Reserve the publication as well
+    // as the sampling scratch so an exposed rider's first tick need not grow.
     output().words.reserve(5 + rows().len() * (F2RiderOut::WORDS + 10 * F2RiderShape::WORDS));
     output().heap.reserve(rows().len() * 10 * F2RiderShape::WORDS);
 }
@@ -60,8 +69,11 @@ fn sample(unit: Ref<Unit>, hull: Option<Ref<Vehicle>>, turret: Option<Ref<Turret
     show: bool, point: Vector3, mut frame: Matrix4, animal: Option<Quaternion>, pitch: f64, turn: f64, time: f64) {
     let Some(row) = rows().get_mut(unit.slot as usize).and_then(Option::as_mut) else { return };
     let Some(u) = sim().store.unit.get(unit) else { return };
+    // Unit reuse must not attach the previous soldier's skeleton or clip.
     if u.generation != row.life { return; }
     let Some(binding) = row.clips.iter().find(|c| c.hull == hull && c.turret == turret && c.index as usize == index) else { return };
+    // riderSample uses an explicit frame for stand-ins and a nine-pose for
+    // steering clips. Quirk: timed clips ignore both pitch and turn weights.
     row.out.show = show; row.out.clip = binding.clip;
     row.out.pitch = if binding.time.is_some() || !binding.nine { 0.0 } else { pitch };
     row.out.turn = if binding.time.is_some() || !binding.nine { 0.0 } else { turn };
@@ -71,11 +83,15 @@ fn sample(unit: Ref<Unit>, hull: Option<Ref<Vehicle>>, turret: Option<Ref<Turret
         let clip = &crate::pose::state().clips[binding.clip as usize];
         let sample = RiderSample { clip, pitch: row.out.pitch, turn: row.out.turn, time: row.out.time };
         if rider::rider_points(&row.skeleton, &row.q, &row.p, &sample, &mut row.scratch, &mut row.points, false) {
+            // seatRider subtracts the animated pelvis on riding animals.
+            // Applying the root's height twice would lift the rider off it.
             if let Some(q) = animal {
                 let mut offset = row.points.pelvis; offset.apply_quaternion(&q);
                 let mut origin = point; origin.sub(&offset);
                 frame.compose(&origin, &q, &Vector3::new(1.0, 1.0, 1.0));
             }
+            // riderDropPoint and riderHitShapes share this sample and frame.
+            // A synchronous death must fall from exactly the body just hit.
             let mut drop = Vector3::default(); rider::rider_drop_point(&row.points, &mut drop); drop.apply_matrix4(&frame);
             row.out.drop = Some(v3(&drop));
             let count = rider::rider_hit_shapes(&row.points, &frame, Some(row.scale), &mut row.shapes);
@@ -102,11 +118,15 @@ pub fn hull(r: Ref<Vehicle>, write_body: bool) {
         let Some(unit) = l.unit else { continue };
         let rider = p.pose.rig.seats[index].rider.as_ref();
         let node = rider.and_then(|r| r.node);
+        // syncRider's hidden-seat fallback sits halfway up the hull. A shown
+        // rider instead takes the complete seat-node frame, including binds.
         let mut point = vec(&v.position); let mut frame = Matrix4::default();
         if let Some(node) = node {
             frame = p.pose.rig.tree.node(node).matrix_world;
             point.set(frame.elements[12], frame.elements[13], frame.elements[14]);
         } else { point.y += v.size[1] * 0.5; }
+        // ninePose keeps the original pilot pitch divisor and gunner arc
+        // normalization. These weights also drive the page's visible pose.
         let view = &v.seat_views[index]; let sp = &p.pose.seats[index];
         let (pitch, turn) = if index == 0 { (-seat.pitch / 0.7, 0.0) } else {
             crate::vehicles::pose::nine_pose(view.pitch_limits, view.yaw_limits, view.wrap_yaw,
@@ -114,6 +134,8 @@ pub fn hull(r: Ref<Vehicle>, write_body: bool) {
         };
         let q = p.pose.rig.tree.node(p.pose.rig.root).quaternion;
         sample(unit, Some(r), None, index, node.is_some(), point, frame, super::live_seats::animal(r).then_some(q), pitch, turn, p.pose.age);
+        // syncCrews writes bodies after hull firing, not at the earlier pose
+        // sample. Keep tickCount in that slot: Unit.updateSpheres is lazy.
         if write_body && super::live_seats::has_actor(unit) {
             let u = sim().store.unit.get_mut(unit).unwrap();
             if let Some(s) = crate::seats::bodies::soldier_mut(u) {
@@ -130,6 +152,8 @@ pub fn turret(unit: Ref<Unit>, turret: Ref<Turret>, show: bool, point: Vector3, 
     let mut frame = Matrix4::default(); frame.compose(&point, &turn, &Vector3::new(1.0, 1.0, 1.0));
     sample(unit, None, Some(turret), 0, show, point, frame, None, pitch, yaw, 0.0);
 }
+// Vehicles.vacate reads the last completed riderDropPoint. Looking it up
+// must not sample a newer pose or advance the unit's hit-shape cache.
 pub fn drop(unit: Ref<Unit>) -> Option<Vector3> {
     rows().get(unit.slot as usize).and_then(Option::as_ref).and_then(|r| r.out.drop.as_ref()).map(vec)
 }
@@ -142,6 +166,8 @@ pub fn publish() -> *const f64 {
         if !row.dirty { continue; }
         row.encoded.begin(1, F2RiderOut::WORDS);
         let (words, heap) = row.encoded.row(0); row.out.put(words, heap); row.encoded.finish();
+        // Compare bits as the boundary does, retaining signed zero. A dirty
+        // sample can still be identical, so it need not cross into JavaScript.
         let same = row.encoded.words.len() == row.previous.words.len() && row.encoded.words.iter().zip(&row.previous.words).all(|(a,b)| a.to_bits() == b.to_bits());
         if same { row.dirty = false; } else { count += 1; }
     }
@@ -149,6 +175,8 @@ pub fn publish() -> *const f64 {
     for row in rows().iter_mut().flatten() {
         if !row.dirty { continue; }
         let (words, heap) = out.row(at); row.out.put(words, heap); at += 1;
+        // Keep both backing buffers. Clearing their logical counts reuses
+        // storage; rebuilding encoded rows each tick would allocate.
         std::mem::swap(&mut row.previous, &mut row.encoded); row.dirty = false;
     }
     out.finish(); out.ptr()

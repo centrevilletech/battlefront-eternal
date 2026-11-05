@@ -1,8 +1,8 @@
 # Vehicle phase ownership
 
-The F2 opt-in is `?f2=rust` in a world worker or `BFE_F2=rust` under Node.
-It is independent of the older hull and seat experiments and defaults off.
-The existing JS implementation remains available for comparison.
+The vehicle phase is required in every world worker and dedicated server.
+Each battle's simulation instance owns the fleet, seats, weapons and riders.
+Comparison gates use recorded results from a frozen engine revision.
 
 Rust owns spawn clocks, hull and flight state, retained rigs, hull leases,
 stationary turret crews, mounted weapons, tethers and rider body writeback.
@@ -58,14 +58,14 @@ scene matrices can still update during presentation, outside this world phase.
 export updates its output addresses, so ordinary reads require no getter calls.
 The phase prefix, foreign records, flags, commands, compact geometry and sparse
 publications all use schema-generated layouts. The standard counted-block header
-is the shared store ABI. Named flag bits preserve the old pose/flight switches.
+is the shared store ABI. Named flag bits describe the scheduler's pose and flight work.
 
 Generated word masks address retained encoded mirrors. Native publication compares
 bits, including signed zero and NaN payloads, then sends changed words only. Hulls
 and riders that did not change are omitted. JS retains the encoded row and applies
 the generated reader locally. There is no full rig publication or rider-body
 handoff. Collision bounds/matrices are published only when changed and use the
-same generated layout for native and fallback query worlds.
+shared native collision world's generated layout.
 
 Commands and reentrant hooks publish pending touched rows, never a whole fleet.
 A spawn publishes only its new life's frame before boarding can read it. No
@@ -82,68 +82,25 @@ wall-cache indices and triangle buffers by polygon identity, so reaching a new
 part of the map does not grow query storage. Allocation tests exercise the live
 scheduler over synthetic hulls, crews and exposed riders without game files.
 
-Boundary counters distinguish phase exports, scalar commands and lifecycle calls.
-They count scalar words actually copied, including variable event payloads.
-Generic query and RNG bridges keep their existing accounting and are outside
-this export/copy census. A command burst or lifecycle hook adds export calls;
-ordinary ticks use one f2_step call.
+Boundary counting is test instrumentation. The running game calls the module's
+exports directly and performs no counter updates during publication or sync.
+Command bursts and lifecycle hooks add boundary calls; an ordinary tick uses
+one f2_step call. The warmed synthetic scheduler tests make zero native allocation
+requests and sample no JavaScript object allocations. Live battles still allocate
+while decoding foreign unit mirrors and emitting presentation events; those
+remaining bytes are measured separately from boundary word counts.
 
-The seed-1 window below is ticks 901 through 1200. The earlier boundary already
-had native seats but still published full rigs and handed rider bodies through JS.
+The ownership and publication gates run without game files over synthetic
+hulls, crews, turret rebuilds, exits and exposed riders. Mounted-fire and rider
+samples are golden results recorded before removal of the JavaScript authority.
+The full battle gate compares all three world-hash columns with the frozen
+55-battle reference, including player-mounted battles and hero rows. Native
+replays and prediction checks retain independent coverage of operation order.
 
-| Map | Earlier calls/tick | Current calls/tick | Earlier input words/tick | Current input words/tick | Earlier output words/tick | Current output words/tick |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| hot1 | 1.01 | 1.097 | 3734.63 | 969.99 | 23903.18 | 1790.54 |
-| bes1 | 1.063 | 1.480 | 4881.07 | 1213.19 | 20468.79 | 2436.72 |
-
-Most input is still foreign unit facts and intent. Most output is compact rider
-samples, body/lease mirrors, weapon state and hull/seat geometry for existing JS
-readers. These are explicit transitional readers, not a second simulation owner.
-With native collision enabled, flags and changed collider matrices add the
-following scalar copies. A copied flag counts as one word in this census.
-
-| Map | Calls/tick | Input words/tick | Output words/tick |
-| --- | ---: | ---: | ---: |
-| hot1 | 1.097 | 1089.99 | 2129.15 |
-| bes1 | 1.480 | 1309.19 | 2814.11 |
-
-Both native-collision windows make zero native allocation requests. The warmed
-synthetic JS boundary also has no sampled object allocations. Live JS allocation
-sampling still attributes allocations to mirror decoding and presentation, so the strict
-whole-battle zero-allocation target is not met. The word census alone does not
-establish a CPU improvement; local emulator measurements are reported separately.
-
-The local emulator comparison uses three interleaved 20-second recordings per
-variant and map, with seed 1, Classic medium, heroes off and native collision.
-All 24 recordings have valid durations and advancing worker ticks. These are
-CPU measurements of the frozen `9f2ca4b2` build, before the subsequent renderer
-and hero-record merges. Both variants use the same renderer and wire capture;
-the F2 phase source is unchanged by those merges. Brackets show the observed
-range of the three p50s, rather than a confidence interval.
-
-| Map | Default step p50 [range], ms | Rust step p50 [range], ms | Change | Default/Rust p90, ms | Default/Rust ticks/s |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| nab2 | 9.47 [9.39–10.58] | 9.56 [9.13–10.01] | +1.0% | 16.81 / 16.18 | 59.95 / 60.06 |
-| tat1 | 20.27 [18.56–20.89] | 17.31 [15.26–19.02] | -14.6% | 29.32 / 25.99 | 46.02 / 51.93 |
-| bes1 | 14.21 [14.08–16.19] | 14.94 [14.68–15.59] | +5.1% | 23.34 / 22.50 | 58.04 / 58.23 |
-| hot1 | 15.35 [14.41–15.66] | 12.15 [11.02–12.24] | -20.9% | 22.63 / 18.91 | 56.80 / 59.60 |
-
-Page CPU p50 changes from 24.62 to 26.69 ms on nab2, 39.00 to 40.19 ms on
-tat1, 26.78 to 27.91 ms on bes1 and 26.96 to 25.42 ms on hot1. Thus the
-worker improvements on two maps do not establish a general page improvement.
-Renderer diagnostics are the same within each variant pair. These recordings
-make no GPU performance claim.
-
-The native profile does not establish a solver improvement. The inclusive
-`veh_ground` entry rises from 1.281 to 1.705 sampled ms/tick; it includes queries
-and posing, and the earlier/current windows are ticks 2215–3459 and 1832–3078.
-Full phase time rises from 2.131 to 3.149 sampled ms/tick. Native publication
-accounts for 0.372 ms/tick and JS sync for 0.370 ms/tick in the current profile.
-Rust leaf work occupies 58.7% of the phase, compared with 54.9% earlier, but now
-also includes native crew, firing and rider work. These different scopes and
-windows prevent an isolated arithmetic comparison. The smaller boundary has
-not removed publication and mirror processing as substantial costs.
-
-The old `seats-sim.js` and `turret-seats-sim.js` adapters remain for their independent
-switches. F2 never routes through them. Building lifecycle and ordinary unit AI
-remain foreign; their later ports can further reduce the unit fact boundary.
+The page's private hull prediction still uses JavaScript physics, flight control
+and walk/gear presentation. Its input decoder is separate from authoritative
+network seat commands and only mutates the private prediction clone. Scene
+construction, replicated lease views, cameras, rider drawing and muzzle/beam
+presentation readers also remain. They never run as a vehicle world phase.
+AI intents, unit combat hooks and building health/rebuild lifecycle are still
+foreign services; their later ownership reduces the remaining boundary further.

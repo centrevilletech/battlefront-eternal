@@ -11,7 +11,7 @@ import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatRelationLayout, putF2SeatRela
   F2SeatSoldierMirror, F2SeatSoldierLayout, putF2SeatSoldier, F2SeatAnswerMirror, F2SeatEffectMirror, F2LatchedMirror,
   F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2TurretTargetMirror, syncF2TurretHeader, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
   syncF2SeatIo, putF2SeatHeader, putF2SeatUnitIn, syncF2SeatUnitOut, syncF2SeatEffect, syncF2Latched, putF2SeatSample } from './sim/gen/f2.js';
-import { turretSettings, turretState } from './turrets-sim.js';
+import { turretSettings, turretState } from './turret-data.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { hasMissileLock, seatLockTarget } from './weapon-targeting.js';
 import { weaponAI, categoryOf } from './ai/classic/weapons-ai.js';
