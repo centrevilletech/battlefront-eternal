@@ -102,7 +102,7 @@ export async function checkRenderer(backend, manifests) {
     // A material can appear before a lazy image has uploaded. Its Rust id
     // must survive the transition from the transparent sample to real pixels.
     const pendingImage = new THREE.DataTexture(new Uint8Array([80,130,200,255]),1,1);
-    g.setMap({ post: { blur: { enabled: true, blend: .25, downsize: .25 } }, lighting: { sunDirection: [.4, -1, .2], ambient: [70, 70, 70], sunColor: [180, 180, 180] }, distance: { nearScene: [40, 40, 80, 80] } });
+    g.setMap({ post: { blur: { enabled: true, blend: .25, downsize: .25 } }, lighting: { sunDirection: [.4, -1, -.2], ambient: [70, 70, 70], sunColor: [180, 180, 180] }, distance: { nearScene: [40, 40, 80, 80] } });
     g.camera.position.set(0, 0, 8); g.camera.lookAt(0, 0, 0);
     const geometry = new THREE.PlaneGeometry(1.2, 1.2); geometry.setAttribute('tangent', new THREE.Float32BufferAttribute([1,0,0,1,0,0,1,0,0,1,0,0],3)); geometry.setAttribute('binormal', new THREE.Float32BufferAttribute([0,1,0,0,1,0,0,1,0,0,1,0],3));
     // Match a captured map light-count variant with zero-intensity generated lights.
@@ -115,6 +115,9 @@ export async function checkRenderer(backend, manifests) {
       const mesh = new THREE.Mesh(geometry.clone().translate(i * 1.5 - 1.5, 0, 0), material);
       mesh.matrixAutoUpdate = false; g.scene.add(mesh);
     }
+    // This raised caster projects onto the visible right terrain run.
+    const raised=new THREE.Mesh(geometry.clone().scale(.6,.6,1).translate(1.5,-.4,.25),material);
+    raised.matrixAutoUpdate=false;g.scene.add(raised);
     const pendingMaterial=worldMaterial('unlit',{map:pendingImage,lights:false});pendingMaterial.defines.WORLD_SPACE='';ownWorldMaterial(pendingMaterial);
     const pendingMesh=new THREE.Mesh(new THREE.PlaneGeometry(.7,.7).translate(-2,2,1),pendingMaterial);
     pendingMesh.matrixAutoUpdate=false;g.scene.add(pendingMesh);
@@ -145,7 +148,7 @@ export async function checkRenderer(backend, manifests) {
     Object.assign(groundMaterial.defines,{WORLD_SPACE:'',TERRAIN_LAYERS:6});
     Object.assign(groundMaterial.uniforms,{layerMap0:{value:white},layerMap1:{value:null},layerMap2:{value:texture([100,180,60,255])},layerMap3:{value:null},layerMap4:{value:null},layerMap5:{value:null}});
     ownWorldMaterial(groundMaterial,groundGeometry);
-    const ground = new THREE.Group(); ground.add(new THREE.Mesh(groundGeometry, groundMaterial)); ground.material = groundMaterial;
+    const ground = new THREE.Group(),groundMesh=new THREE.Mesh(groundGeometry, groundMaterial);groundMesh.receiveShadow=true;ground.add(groundMesh);ground.material = groundMaterial;
     const boxes = [[-3,-2,0,-1,-1,0], [99,99,0,100,100,0], [1,-2,0,3,-1,0]].map(b => new THREE.Box3(new THREE.Vector3(...b.slice(0,3)),new THREE.Vector3(...b.slice(3))));
     ground.userData.patches = { full: { index: groundGeometry.index, cells: boxes.map((box,i) => ({ start: i*3, end: i*3+3, box })) }, bounds: new THREE.Sphere(new THREE.Vector3(), 200) };
     g.scene.add(ground);
@@ -227,6 +230,13 @@ export async function checkRenderer(backend, manifests) {
       return a;
     };
     const baseline=compare('opaque, far, terrain, transparent, view and composite');
+    lighting.shadowStrength.value=0;const unshadowed=capture();lighting.shadowStrength.value=1;const shadowed=capture();
+    const lo=new THREE.Vector3(1.8,-1.9,0).project(g.camera),hi=new THREE.Vector3(2.2,-1.75,0).project(g.camera);
+    let terrainShadowPixels=0;
+    for(let y=Math.ceil((lo.y+1)*.5*gl.drawingBufferHeight);y<Math.floor((hi.y+1)*.5*gl.drawingBufferHeight);y++)for(let x=Math.ceil((lo.x+1)*.5*gl.drawingBufferWidth);x<Math.floor((hi.x+1)*.5*gl.drawingBufferWidth);x++){
+      const at=4*(y*gl.drawingBufferWidth+x);if([0,1,2].some(k=>shadowed[at+k]!==unshadowed[at+k]))terrainShadowPixels++;
+    }
+    assert('Multi-draw terrain receives an occluding mesh shadow',terrainShadowPixels>0,{terrainShadowPixels});
     lighting.bump.value = 0; compare('bump switched off'); lighting.bump.value = 1;
     settings.set('bloom', true); settings.set('softFocus', true); g.setVehicleMotion(.8,.2); const effects=compare('bloom, soft focus and speed blur');
     assert('Post settings change visible pixels',effects.some((v,i)=>i%4!==3&&v!==baseline[i]));
