@@ -173,7 +173,15 @@ try {
   const size=result.setup.buffer[0]===1600 && result.setup.buffer[1]===900 && result.setup.target[0]===Math.round(1600*testCase.settings.renderScale) && result.setup.target[1]===Math.round(900*testCase.settings.renderScale);
   result.transparentOnly=testCase.camera==='world-transparent';
   result.valid=(role!=='candidate'||!result.lateWorldSources) && size && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>p.lit>=.2 && !(role==='candidate'?p.errors:p.worldErrors).length && p.rustDraws>0 && !p.gl.lostEvents && p.gl.lostEvents!==null && !p.gl.contextLost && !p.gl.rustLost && p.gl.rustEnabled && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
-} catch(error) { result.error=String(error.stack || error);result.valid=false; }
+} catch(error) {
+  result.error=String(error.stack || error);result.valid=false;
+  try { result.failure=await c.ev(`(() => {
+    const core=window.__bf?.graphics?.rust;if(!core)return null;
+    const passes={};for(const [name,pass] of Object.entries(core.byName)){
+      const o=pass.stopped,m=o?.material;passes[name]={why:pass.why,stopped:o?{name:o.name,type:o.type,material:m?.name,family:m?.userData?.bfeFamily,defines:m?.defines,transparent:m?.transparent}:null};
+    }return {errors:core.errors,passes};
+  })()`); } catch {}
+}
 finally {
   result.console=c.consoleErrors.slice(0,30);
   fs.writeFileSync(`${dir}/capture.json`,JSON.stringify(result,null,2));c.close();
