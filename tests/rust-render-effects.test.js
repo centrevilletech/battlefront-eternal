@@ -1460,6 +1460,10 @@ test("the arc caster's stand-in for a shock's glow: its program built without a 
   warm.onBeforeRender = () => { if (--warming > 0) return; warm.visible = false; };
   scene.add(warm);
   const programsBefore = calls.filter((c) => c[0] === "add_program").length;
+  const mirror=camera.clone();mirror.userData.mirror=true;
+  scene.onBeforeRender(renderer,scene,mirror,{name:"reflection"});
+  assert.equal(warming,3,"reflection registration does not advance a main-frame warmup");
+  assert.equal(material.visible,false,"the stand-in is hidden before a reflection walk");
   scene.onBeforeRender(renderer, scene, camera, target);
   assert.deepEqual(compiled, [warm], "its program built by three, no draw");
   assert.equal(calls.filter((c) => c[0] === "add_program").length, programsBefore + 1, "the renderer's made from it now");

@@ -158,9 +158,10 @@ class InstancePass {
   // programs built by three first where it has none yet (compileFor).
   beforeSort(renderer, scene, camera, target, added) {
     const graphics = this.core.graphics;
-    if (scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
+    const mainFrame=camera === graphics.camera && target === graphics.sceneTarget;
+    if (scene !== graphics.scene || !mainFrame && camera.userData?.mirror !== true) return;
     try {
-      this.standIn(renderer, scene, camera, added);
+      this.standIn(renderer, scene, camera, added, mainFrame);
       const fresh = this.fresh, roots = graphics.playerRoot ? [...graphics.cullRoots, graphics.playerRoot] : graphics.cullRoots;
       fresh.length = 0;
       const add = (mesh, materials) => { if (unbuilt(renderer, materials)) fresh.push([mesh, materials]); };
@@ -184,7 +185,7 @@ class InstancePass {
   // now (as a struck body's glow will want them), and the stand-in kept from
   // three, its count of frames run here as three's draws would run it (it
   // takes itself away at the end of it).
-  standIn(renderer, scene, camera, added) {
+  standIn(renderer, scene, camera, added, advance = true) {
     for (const root of added || []) root.traverse((o) => { if (o.isSkinnedMesh && o.name === "arc-shock-warm") this.warm = o; });
     const warm = this.warm;
     if (!warm) return;
@@ -197,7 +198,8 @@ class InstancePass {
       if (!this.warmProgram) this.core.fail(new Error("Cannot prepare arc shock program"));
     }
     material.visible = false;
-    warm.onBeforeRender(renderer, scene, camera, warm.geometry, material, null);
+    // Register for reflected views too; retire the stand-in on main frames.
+    if (advance) warm.onBeforeRender(renderer, scene, camera, warm.geometry, material, null);
   }
 
   // The materials a body's groups draw with (its groups merged as the

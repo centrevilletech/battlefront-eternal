@@ -598,7 +598,8 @@ export class RustRender {
       if (this.contextLost) return;
       const [renderer, , camera, target] = args;
       let roots = null;
-      if (camera === this.graphics.camera && target === this.graphics.sceneTarget) {
+      // A reflection can see a newly created logo or rig before the main view.
+      if (camera === this.graphics.camera && target === this.graphics.sceneTarget || camera.userData?.mirror === true) {
         roots = added ?? [scene];
         added = [];
         for (const root of roots) watch(root);
@@ -798,7 +799,8 @@ export class RustRender {
   // Draw the complete reflected scene through Rust.
   coverMirror(renderer, scene, camera) {
     if (this.contextLost) return true;
-    if (!this.byName.mirrorCover.cover(renderer, scene, camera)) this.fail(new Error("Incomplete Rust mirror scene"));
+    const pass=this.byName.mirrorCover;
+    if (!pass.cover(renderer, scene, camera)) this.fail(new Error(`Incomplete Rust mirror scene: ${pass.stopped?.name || pass.stopped?.type || "configuration"}`));
     return true;
   }
 
