@@ -60,3 +60,32 @@ test('a screen pass prepares a pending image before taking shared views',async()
  assert.equal(writeScreenStep(core,0,{id:0,uniforms:[{name:'map',type:32}]},material,new THREE.Mesh(),new THREE.Camera()),true);
  core.views();assert.equal(core.postInput[4],1);assert.equal(core.postInput[6],32);
 });
+
+
+test('texture clones keep independent Rust bindings when a sampler change replaces one native handle', () => {
+ const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,handle){calls.push(['replace_sample_texture',id,handle]);}}});
+ const {renderer,graphics}=standinThree(calls),first=new THREE.Texture({width:1,height:1}),second=first.clone();
+ const shared={};
+ renderer.properties.get(first).__webglTexture=shared;
+ renderer.properties.get(second).__webglTexture=shared;
+ const core=new RustRender(graphics,{memory},BfeRenderer),a=core.texture(first),b=core.texture(second);
+ assert.notEqual(a,b);
+ assert.equal(core.texture(first),a);
+ const replacement={};second.needsUpdate=true;
+ renderer.initTexture=texture=>{const props=renderer.properties.get(texture);props.__webglTexture=replacement;props.__version=texture.version;};
+ assert.equal(core.texture(second),b);
+ assert.equal(core.texture(first),a);
+ assert.deepEqual(calls.filter(c=>c[0]==='replace_sample_texture'),[['replace_sample_texture',b,replacement]]);
+});
+
+test('an anisotropy revision uploads and rebinds retained static texture samples before drawing', () => {
+ const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,handle){calls.push(['replace_sample_texture',id,handle]);}}});
+ const {renderer,graphics}=standinThree(calls),texture=new THREE.Texture({width:1,height:1});
+ const core=new RustRender(graphics,{memory},BfeRenderer),id=core.texture(texture),replacement={};
+ texture.needsUpdate=true;graphics.textureRevision=1;
+ renderer.initTexture=t=>{const p=renderer.properties.get(t);p.__webglTexture=replacement;p.__version=t.version;};
+ core.phase('post',renderer,new THREE.Scene(),new THREE.Camera());
+ assert.equal(core.texture(texture),id);
+ assert.deepEqual(calls.find(c=>c[0]==='replace_sample_texture'),['replace_sample_texture',id,replacement]);
+ assert.ok(calls.findIndex(c=>c[0]==='replace_sample_texture')<calls.findIndex(c=>c[0]==='post_frame'));
+});

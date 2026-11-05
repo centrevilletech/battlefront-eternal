@@ -244,6 +244,11 @@ export async function checkRenderer(backend, manifests) {
     settings.set('shadows','low');compare('shadows restored');
     settings.set('lampLighting',true);compare('lamps enabled');
     settings.set('lampLighting',false);compare('lamps disabled');
+    const sampleId=g.rust.texture(white),sampleCount=g.rust.textureSources.length;
+    g.textures.add(white);g.filter(white);
+    settings.set('anisotropy',2);compare('anisotropy changed');
+    assert('Sampler changes retain Rust texture ids',g.rust.texture(white)===sampleId&&g.rust.textureSources.length===sampleCount);
+    settings.set('anisotropy',1);compare('anisotropy restored');
     assert('World draws taken by Rust', g.rust.byName.world.count >= 3, g.rust.byName.world.count);
     assert('Unpainted terrain taken by Rust', groundMaterial.visible === false);
     for (const name of ['frame', 'far_frame', 'transparent_frame', 'view_frame', 'post_frame']) assert(`${name} issues Rust programs`, phaseDraws[name] > 0, phaseDraws);

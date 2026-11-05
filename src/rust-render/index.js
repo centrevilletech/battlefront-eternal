@@ -150,9 +150,11 @@ export class RustRender {
     if (this.recording) this.rust = recorder(this.rust, this.recording);
     this.buffer = null;
     this.viewSpecs = [];
-    this.programs = new Map(); // three's program -> Rust's (or null: unsupported)
+    this.programs = new Map(); // three's program -> Rust's program
     this.geometries = new Map(); // "geometry uuid:program" -> Rust geometry
     this.textureSources = [];
+    this.sampleTextures = new WeakMap();
+    this.textureRevision = graphics.textureRevision ?? 0;
     this.pendingTextures = [];
     this.pendingTextureMap = new WeakMap();
     this.textureTargets = new Map();
@@ -231,6 +233,7 @@ export class RustRender {
     }
     for (const target of targets) renderer.initRenderTarget(target);
     this.textures.clear();
+    this.sampleTextures = new WeakMap();
     for (let id = 0; id < this.textureSources.length; id++) {
       const texture = this.textureSources[id];
       if (!texture.isRenderTargetTexture && !texture.isDepthTexture) renderer.initTexture(texture);
@@ -238,6 +241,7 @@ export class RustRender {
       if (!handle) throw new Error(`Missing restored texture ${texture.name || id}`);
       handles[id] = handle;
       this.textures.set(handle, id);
+      if (!texture.isRenderTargetTexture && !texture.isDepthTexture) this.sampleTextures.set(texture,{id,handle});
     }
     this.rust.rebuild(this.gl, handles);
     this.buffer = null;
@@ -308,7 +312,7 @@ export class RustRender {
     const pending=this.pendingTextureMap.get(texture);
     if(pending)return pending.id;
     const props=this.renderer.properties.get(texture);
-    if (!props.__webglTexture) this.renderer.initTexture(texture);
+    if (!props.__webglTexture || !texture.isRenderTargetTexture && texture.version > 0 && props.__version !== texture.version && texture.image) this.renderer.initTexture(texture);
     const handle = props.__webglTexture;
     if (!handle) {
       // A lazily requested image draws the same transparent texel as Three's
@@ -324,14 +328,33 @@ export class RustRender {
       this.pendingTextureMap.set(texture,entry);
       return id;
     }
-    let id = this.textures.get(handle);
+    const sample = !texture.isRenderTargetTexture && !texture.isDepthTexture;
+    const known = sample && this.sampleTextures.get(texture);
+    if(known){
+      if(known.handle!==handle)this.replaceTexture(known.id,texture,known.handle,handle);
+      return known.id;
+    }
+    // Clones can initially share a native handle and later acquire different
+    // sampler settings. Keep their logical ids independent from the outset.
+    let id = sample ? undefined : this.textures.get(handle);
     if (id === undefined) {
       id = this.rust.add_texture(handle);
       this.textureSources[id] = texture;
       this.textures.set(handle, id);
       if (this.recording) this.recording.textures[id] = { handle, width: texture.image?.width ?? texture.mipmaps?.[0]?.width ?? texture.width ?? 0, height: texture.image?.height ?? texture.mipmaps?.[0]?.height ?? texture.height ?? 0 };
     }
+    if(sample)this.sampleTextures.set(texture,{id,handle});
     return id;
+  }
+
+  replaceTexture(id,texture,previous,handle){
+    this.rust.replace_sample_texture(id,handle);
+    if(this.textures.get(previous)===id)this.textures.delete(previous);
+    this.textures.set(handle,id);
+    this.textureSources[id]=texture;
+    this.sampleTextures.set(texture,{id,handle});
+    if(this.recording)this.recording.textures[id]={handle,width:texture.image?.width??0,height:texture.image?.height??0};
+    this.stale=true;
   }
 
   refreshTextures() {
@@ -342,13 +365,10 @@ export class RustRender {
       const props=this.renderer.properties.get(texture),handle=props.__webglTexture;
       if(!handle || props.__version!==texture.version)continue;
       const previous=this.renderer.properties.get(entry.pixel).__webglTexture;
-      this.rust.replace_sample_texture(entry.id,handle);
-      this.textures.delete(previous);
-      this.textures.set(handle,entry.id);
-      this.textureSources[entry.id]=texture;
+      this.replaceTexture(entry.id,texture,previous,handle);
+      this.sampleTextures.delete(entry.pixel);
       this.pendingTextureMap.delete(texture);
       this.pendingTextures.splice(i--,1);
-      if(this.recording)this.recording.textures[entry.id]={handle,width:texture.image.width??0,height:texture.image.height??0};
       entry.pixel.dispose();
       this.stale=true;
     }
@@ -626,6 +646,11 @@ export class RustRender {
   // values: more of the phase's values (ctx), for its passes and its call.
   phase(name, renderer, scene, camera, defer = false, walked = null, values = null) {
     if (this.contextLost) return;
+    const revision=this.graphics.textureRevision??0;
+    if(revision!==this.textureRevision){
+      this.textureRevision=revision;
+      for(const texture of this.textureSources)if(this.sampleTextures.has(texture))this.texture(texture);
+    }
     if(this.pendingTextures.length)this.refreshTextures();
 
     const phase = PHASES[name], target = renderer.getRenderTarget();

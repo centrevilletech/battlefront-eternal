@@ -182,6 +182,7 @@ export class Graphics {
     const depthSamples = [...gl.getInternalformatParameter(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, gl.SAMPLES)];
     this.supportedSamples = colorSamples.filter((n) => depthSamples.includes(n)).sort((a, b) => a - b);
     this.textures = new Set();
+    this.textureRevision = 0;
     this.casters = new Set();
     this.distantCasters = new Set();
     this.casterAt = new THREE.Vector3();
@@ -298,7 +299,7 @@ export class Graphics {
       });
       if (key === "viewDistance") this.applyDistance();
       if (key === "bumpMapping") this.applyBump();
-      if (key === "anisotropy") for (const texture of this.textures) this.filter(texture);
+      if (key === "anisotropy") {for (const texture of this.textures) this.filter(texture);this.textureRevision++;}
     });
     window.addEventListener("resize", () => this.resize());
   }
