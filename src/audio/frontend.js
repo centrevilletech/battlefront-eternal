@@ -40,6 +40,7 @@ export class FrontendAudio {
     return this;
   }
   fail(error) {
+    if (!error.message.startsWith("audio:")) error = new Error(`audio: the required Rust front-end output failed (${error.message}); reload the game`);
     this.isReady = false;
     this.error = error;
     this.ctx.suspend?.();
