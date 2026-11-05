@@ -109,9 +109,40 @@ following scalar copies. A copied flag counts as one word in this census.
 
 Both native-collision windows make zero native allocation requests. The warmed
 synthetic JS boundary also has no sampled object allocations. Live JS allocation
-sampling still records numeric and presentation allocations, so the strict
+sampling still attributes allocations to mirror decoding and presentation, so the strict
 whole-battle zero-allocation target is not met. The word census alone does not
 establish a CPU improvement; local emulator measurements are reported separately.
+
+The local emulator comparison uses three interleaved 20-second recordings per
+variant and map, with seed 1, Classic medium, heroes off and native collision.
+All 24 recordings have valid durations and advancing worker ticks. These are
+CPU measurements of the frozen `9f2ca4b2` build, before the subsequent renderer
+and hero-record merges. Both variants use the same renderer and wire capture;
+the F2 phase source is unchanged by those merges. Brackets show the observed
+range of the three p50s, rather than a confidence interval.
+
+| Map | Default step p50 [range], ms | Rust step p50 [range], ms | Change | Default/Rust p90, ms | Default/Rust ticks/s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| nab2 | 9.47 [9.39–10.58] | 9.56 [9.13–10.01] | +1.0% | 16.81 / 16.18 | 59.95 / 60.06 |
+| tat1 | 20.27 [18.56–20.89] | 17.31 [15.26–19.02] | -14.6% | 29.32 / 25.99 | 46.02 / 51.93 |
+| bes1 | 14.21 [14.08–16.19] | 14.94 [14.68–15.59] | +5.1% | 23.34 / 22.50 | 58.04 / 58.23 |
+| hot1 | 15.35 [14.41–15.66] | 12.15 [11.02–12.24] | -20.9% | 22.63 / 18.91 | 56.80 / 59.60 |
+
+Page CPU p50 changes from 24.62 to 26.69 ms on nab2, 39.00 to 40.19 ms on
+tat1, 26.78 to 27.91 ms on bes1 and 26.96 to 25.42 ms on hot1. Thus the
+worker improvements on two maps do not establish a general page improvement.
+Renderer diagnostics are the same within each variant pair. These recordings
+make no GPU performance claim.
+
+The native profile does not establish a solver improvement. The inclusive
+`veh_ground` entry rises from 1.281 to 1.705 sampled ms/tick; it includes queries
+and posing, and the earlier/current windows are ticks 2215–3459 and 1832–3078.
+Full phase time rises from 2.131 to 3.149 sampled ms/tick. Native publication
+accounts for 0.372 ms/tick and JS sync for 0.370 ms/tick in the current profile.
+Rust leaf work occupies 58.7% of the phase, compared with 54.9% earlier, but now
+also includes native crew, firing and rider work. These different scopes and
+windows prevent an isolated arithmetic comparison. The smaller boundary has
+not removed publication and mirror processing as substantial costs.
 
 The old `seats-sim.js` and `turret-seats-sim.js` adapters remain for their independent
 switches. F2 never routes through them. Building lifecycle and ordinary unit AI
