@@ -25,9 +25,9 @@ function box(w, h, d, y) {
     polygons: Array(geometry.index.count / 3).fill(0) };
 }
 
-async function fleet(native, cage = false, nativeCollision = false) {
-  const instance = native ? await loadSim() : null;
-  const rays = nativeCollision ? await loadRayKernel(instance) : null;
+async function fleet(native, cage = false) {
+  const instance = await loadSim();
+  const rays = await loadRayKernel(instance);
   const floor = box(2000, 2, 2000, -1);
   const collision = new CollisionWorld(new Float32Array(floor.positions), new Uint32Array(floor.indices), new Uint32Array(floor.polygons), undefined, undefined, rays);
   if (cage) for (const axis of ['x', 'z']) for (const side of [-1, 1]) {
@@ -61,7 +61,7 @@ function observe(v) {
 // Sample allocation requests in the real boundary after both its buffers and
 // V8's hot loops are warm. Native requests have their separate exact counter.
 test('warm live F2 boundary creates no sampled JavaScript objects', async () => {
-  const { system } = await fleet(true, false, true);
+  const { system } = await fleet(true);
   system.f2.debug = false;
   const session = new Session(); session.connect();
   try {
@@ -167,6 +167,11 @@ test('live F2 safe exits refuse blocked geometry and retain the same lease', asy
       const v = system.vehicles[0], u = rider(system, 15); u.human = u.networkHuman = true;
       assert.equal(system.board(u, v), true); const lease = u.seat;
       assert.equal(system.unboard(u), false); assert.equal(u.seat, lease); assert.equal(lease.released, false);
+      for (const body of system.collision.bodies) if (!body.owner) body.enabled = false;
+      assert.equal(system.unboard(u), true, 'a between-tick body change opens the exit');
+      assert.equal(system.board(u, v), true);
+      for (const body of system.collision.bodies) if (!body.owner) body.enabled = true;
+      assert.equal(system.unboard(u), false, 'the next command sees the restored blockers');
       assert.equal(system.unboard(u, { force: true }), true); assert.equal(u.seat, null);
       return { position: u.position.toArray(), grounded: u.soldier.grounded };
     } finally { system.dispose(); }
@@ -367,7 +372,7 @@ test('warm live F2 hull and crew phases reuse their native storage', async () =>
 
 test('live F2 generated collision records match world bodies without game files', async () => {
   async function run(native) {
-    const { system } = await fleet(native, false, native);
+    const { system } = await fleet(native);
     try {
       const v = system.vehicles[0], u = rider(system, 51); assert.equal(system.board(u, v), true);
       u.intent.forward = .5;
@@ -381,7 +386,7 @@ test('live F2 generated collision records match world bodies without game files'
 // Loaded geometry bounds each query's scratch, including polygons first met
 // after the hull starts moving. The phase itself must not grow those buffers.
 test('warm F2 native collision reuses storage at a later wall contact', async () => {
-  const { system } = await fleet(true, true, true);
+  const { system } = await fleet(true, true);
   try {
     const v = system.vehicles[0], u = rider(system, 46);
     assert.equal(system.board(u, v), true);

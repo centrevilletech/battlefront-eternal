@@ -9,6 +9,7 @@ import { Units } from '../src/registry.js';
 import { Unit } from '../src/units.js';
 import { Soldier } from '../src/soldier.js';
 import { loadSim } from '../src/sim/module.js';
+import { loadRayKernel } from '../src/ray-kernel.js';
 import { SimBridge } from '../src/sim/runtime.js';
 import { attachOrdnanceSim, ordnanceTests } from '../src/ordnance-sim.js';
 import { attachF2 } from '../src/f2-sim.js';
@@ -28,7 +29,8 @@ function box(w, h, d) {
 }
 async function fixture(native, def, options = {}) {
   const ground = box(1000, 2, 1000), hull = box(2, 2, 4);
-  const collision = new CollisionWorld(ground.positions, ground.indices, ground.polygons);
+  const instance = await loadSim();
+  const collision = new CollisionWorld(ground.positions, ground.indices, ground.polygons, undefined, undefined, await loadRayKernel(instance));
   const scene = new THREE.Scene(), units = new Units();
   const o = new Ordnance({ scene, collision, effects: { play() {} }, lights: { flash() {}, add() {}, update() {} }, texture() {}, model() {} });
   o.units = units;
@@ -70,18 +72,8 @@ async function fixture(native, def, options = {}) {
     v.flightLockState = 'Locked'; v.flightLockTimer = 10;
   }
   crew.networkHuman = Boolean(options.network);
-  if (options.tow) {
-    const cast = collision.cast.bind(collision), target = vs.vehicles[1];
-    collision.cast = (origin, direction, far, out, ignore) => {
-      if (ignore === v.body && direction.z > .1 && far >= 20) {
-        out.body = target.body; out.distance = 30; out.point.set(0, 2, 0).applyMatrix4(target.matrix); out.normal.set(0, 0, -1); out.terrain = false;
-        return out;
-      }
-      return cast(origin, direction, far, out, ignore);
-    };
-  }
   let draws = 0;
-  const bridge = new SimBridge(await loadSim(), { classes: { Vehicle, Unit: Crew }, tests: ordnanceTests });
+  const bridge = new SimBridge(instance, { classes: { Vehicle, Unit: Crew }, tests: ordnanceTests });
   attachOrdnanceSim(o, bridge);
   if (native) attachF2(vs, bridge, { killY: -300, deathRegions: [], scripted: [] }, { data, buffer, indexBuffer }, Crew);
   assert.equal(vs.board(crew, v), true);
@@ -155,7 +147,7 @@ test('F2 launches and holds a tow cable, then releases a destroyed end', async (
     assert.equal(rust.v.towWinding, js.v.towWinding);
     assert.deepEqual(rust.shots, js.shots);
   }
-  assert.equal(rust.v.towTarget, 1, 'the scripted harpoon attached to the enemy leg');
+  assert.equal(rust.v.towTarget, 1, 'the harpoon attached to the enemy leg');
   for (const f of [js, rust]) { f.target.damage(Infinity); f.vs.update(1 / 60); }
   assert.equal(rust.v.towTarget, -1); assert.equal(js.v.towTarget, -1);
 });

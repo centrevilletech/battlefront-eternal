@@ -142,6 +142,7 @@ class F2 {
     this.inputBase = (bridge.f[this.descriptor + PHASE.input] / 8) | 0;
     this.capacity = bridge.f[this.descriptor + PHASE.capacity];
     bridge.reserve(16 * 1024 * 1024);
+    this.bodyFlags();
     this.counters.reset();
   }
 
@@ -183,8 +184,7 @@ class F2 {
   hook(call, a, c, d) {
     this.sync();
     try { call.call(this.world, a, c, d); } finally {
-      this.bridge.views();
-      if (this.kernel) for (let i = 0; i < this.collision.bodies.length; i++) this.bridge.u8[this.flags + i] = this.collision.bodies[i].enabled ? 1 : 0;
+      this.bodyFlags();
     }
   }
 
@@ -195,15 +195,7 @@ class F2 {
   step(dt, tick) {
     const b = this.bridge, vs = this.vehicles;
     if (this.debug) this.check();
-    // Body order changes are lifecycle work. Flags need no getter crossing.
-    // Collision body order is lifecycle data, while enabled flags may change
-    // in any unported phase. Rebuild mappings only when the order changes; copy
-    // flags directly into their retained byte view each ordinary tick.
-    if (this.collision.rays) this.collision.rayBodies();
-    if (this.collision.rays && this.bodiesVersion !== this.collision.bodiesVersion) this.bodiesIn();
-    b.views();
-    if (this.kernel) { this.counters.inputFields += this.collision.bodies.length; this.counters.inputFlags += this.collision.bodies.length; }
-    if (this.kernel) for (let i = 0; i < this.collision.bodies.length; i++) b.u8[this.flags + i] = this.collision.bodies[i].enabled ? 1 : 0;
+    this.bodyFlags();
     this.foreignIn(true);
     this.seats.prepare();
     this.counters.ticks++;
@@ -449,6 +441,7 @@ class F2 {
   // The native command validates both lifetimes and publishes before returning;
   // a hook can therefore inspect another command's result in the same tick.
   command(v, code, value = 0, attacker = null) {
+    this.bodyFlags();
     const owner = this.ownerScratch;
     putOrdnanceOwner(this.bridge, attacker, owner, 0, null);
     if (!this.x.f2_command(v.simSlot, v.simGen, v.aiTarget.generation, code, value, owner[0], owner[1], owner[2])) throw Error('stale F2 command');
@@ -564,6 +557,24 @@ class F2 {
     }
     for (const v of this.vehicles.vehicles) if (!this.colliders.has(v.body)) this.collider(v);
     this.flags = this.x.veh_flags();
+  }
+
+  // CollisionWorld's enabled flags may change between vehicle phases. Safe
+  // exits and synchronous damage must see them even before the first tick.
+  // Retain the native byte view and copy only changed flags, including after
+  // a hook disables a body or a lifecycle callback changes the body order.
+  bodyFlags() {
+    const c = this.collision, b = this.bridge;
+    c.rayBodies();
+    if (this.bodiesVersion !== c.bodiesVersion) this.bodiesIn();
+    b.views();
+    let changed = 0;
+    for (let i = 0; i < c.bodies.length; i++) {
+      const enabled = c.bodies[i].enabled ? 1 : 0;
+      if (b.u8[this.flags + i] === enabled) continue;
+      b.u8[this.flags + i] = enabled; changed++;
+    }
+    this.counters.inputFields += changed; this.counters.inputFlags += changed;
   }
 
   // Vehicle wall and spring gather caches are retained with its collider.

@@ -233,6 +233,7 @@ export class F2Seats {
   // hull and lease identities copied before native code can reenter JS.
   invoke(op, unit = null, hull = null, lease = null, index = 0, options = null, direction = 1, looks = null, scales = null) {
     this.phase.riders.ensure(unit, hull);
+    this.phase.bodyFlags();
     const look = op === 'look' || op === 'network' || op === 'resetSticks';
     let o = look ? this.prepare(null, null, false) : this.prepare(unit, hull, false);
     const h = this.header;
