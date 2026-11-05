@@ -572,6 +572,42 @@ pub struct Soldier {
 
 impl Soldier {
     pub const WORDS: usize = 64;
+    pub const MAX_SPEED: usize = 0;
+    pub const MAX_STRAFE: usize = 1;
+    pub const MAX_JUMP: usize = 2;
+    pub const MAX_TURN: usize = 3;
+    pub const MAX_PITCH: usize = 4;
+    pub const ACCEL: usize = 5;
+    pub const PITCH_LIMITS: usize = 6;
+    pub const JET: usize = 8;
+    pub const FUEL: usize = 15;
+    pub const COLLISION_RULE: usize = 16;
+    pub const COLLISION_DAMAGE: usize = 22;
+    pub const MAX_FLY_HEIGHT: usize = 23;
+    pub const GETUP_TIME: usize = 24;
+    pub const DIVE_TIME: usize = 25;
+    pub const POSITION: usize = 26;
+    pub const PREVIOUS: usize = 29;
+    pub const SETTLED: usize = 32;
+    pub const VELOCITY: usize = 35;
+    pub const NORMAL: usize = 38;
+    pub const AIM_YAW: usize = 41;
+    pub const AIM_PITCH: usize = 42;
+    pub const POSTURE: usize = 43;
+    pub const AIR: usize = 44;
+    pub const DIVE: usize = 46;
+    pub const DIVE_FROM: usize = 47;
+    pub const STATE_TIME: usize = 48;
+    pub const LOCK: usize = 49;
+    pub const GROUNDED: usize = 50;
+    pub const LOOK_X: usize = 51;
+    pub const LOOK_Y: usize = 52;
+    pub const TICK_LENGTH: usize = 53;
+    pub const GROUND_ADJUSTMENT: usize = 54;
+    pub const AVOIDANCE: usize = 55;
+    pub const PASS_THROUGH: usize = 58;
+    pub const MOVER: usize = 61;
+    pub const DEAD: usize = 62;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 64] = (&mut row[..64]).try_into().unwrap();
@@ -1208,6 +1244,44 @@ pub struct Droideka {
 
 impl Droideka {
     pub const WORDS: usize = 77;
+    pub const DEF: usize = 0;
+    pub const MAX_TURN: usize = 1;
+    pub const PITCH_LIMITS: usize = 2;
+    pub const SPEED: usize = 4;
+    pub const TURN_THRESHOLD: usize = 5;
+    pub const BALL_RADIUS: usize = 6;
+    pub const MAX_SPIN: usize = 7;
+    pub const MAX_BALL_SLOPE: usize = 8;
+    pub const EYE_HEIGHT: usize = 9;
+    pub const ROOT_INDEX: usize = 10;
+    pub const MAX_FLY_HEIGHT: usize = 11;
+    pub const COLLISION_RULE: usize = 12;
+    pub const COLLISION_DAMAGE: usize = 18;
+    pub const POSITION: usize = 19;
+    pub const PREVIOUS: usize = 22;
+    pub const SETTLED: usize = 25;
+    pub const VELOCITY: usize = 28;
+    pub const AVOIDANCE: usize = 31;
+    pub const AIM_YAW: usize = 34;
+    pub const AIM_PITCH: usize = 35;
+    pub const STATE_TIME: usize = 36;
+    pub const GROUNDED: usize = 37;
+    pub const LOOK_X: usize = 38;
+    pub const LOOK_Y: usize = 39;
+    pub const MODE: usize = 40;
+    pub const TIME: usize = 41;
+    pub const REVERSE: usize = 42;
+    pub const LEGS: usize = 43;
+    pub const SPIN: usize = 44;
+    pub const ROLL: usize = 45;
+    pub const LEAN: usize = 46;
+    pub const DEAD: usize = 47;
+    pub const BLAST_CLOCK: usize = 48;
+    pub const GUN: usize = 49;
+    pub const LAST_GUN: usize = 50;
+    pub const SHIELD: usize = 53;
+    pub const WATER_CLOCK: usize = 60;
+    pub const MUZZLE_ANIMATOR: usize = 62;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 77] = (&mut row[..77]).try_into().unwrap();

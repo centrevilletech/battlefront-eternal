@@ -90,7 +90,7 @@ impl JsWorld {
     }
 }
 impl SeatWorld for JsWorld {
-    fn publish_crews(&mut self, st: &Store, crews: &Crews) {
+    fn publish_crews(&mut self, st: &mut Store, crews: &mut Crews) {
         write(st); let pending = crews.latched[self.latched..].to_vec(); self.latched = crews.latched.len();
         import_pc_action(&PcAction { state: Some(record(st, crews, pending)), ..self.args(PcActionKind::Publish) });
     }
@@ -152,8 +152,8 @@ impl CrewWorld for JsWorld {
     fn update_lock(&mut self, turret: usize, dt: f64, origin: &Vector3, direction: &Vector3, lease: Ref<SeatLease>) {
         import_pc_action(&PcAction { turret: turret as f64, value: dt, point: a3(origin), direction: a3(direction), lease: Some(lease), ..self.args(PcActionKind::Lock) });
     }
-    fn weapon_update(&mut self, turret: usize, dt: f64, held: bool, pressed: bool, reload: bool) -> Vec<Shot> {
-        import_pc_action(&PcAction { turret: turret as f64, value: dt, flag: held, second: pressed, third: reload, ..self.args(PcActionKind::Weapon) }).shots.into_iter().map(|s| Shot { yaw: s.yaw, pitch: s.pitch }).collect()
+    fn weapon_update(&mut self, turret: usize, dt: f64, held: bool, pressed: bool, reload: bool, out: &mut Vec<Shot>) {
+        out.extend(import_pc_action(&PcAction { turret: turret as f64, value: dt, flag: held, second: pressed, third: reload, ..self.args(PcActionKind::Weapon) }).shots.into_iter().map(|s| Shot { yaw: s.yaw, pitch: s.pitch }));
     }
     fn fire(&mut self, turret: usize, origin: &Vector3, direction: &Vector3, owner: Option<u32>, lease: Ref<SeatLease>, shot: usize) -> usize {
         import_pc_action(&PcAction { turret: turret as f64, point: a3(origin), direction: a3(direction), unit: owner.map(seats::unit_ref), lease: Some(lease), shot: shot as f64, ..self.args(PcActionKind::Fire) }).value.expect("round index") as usize
@@ -181,7 +181,7 @@ pub extern "C" fn crew_run() -> *const f64 {
         PcOperation::Destroyed => if let Some(t) = turret { crews.destroyed(&mut st, &mut world, t); },
         PcOperation::Update => crews.update(&mut st, &mut world, input.dt),
         PcOperation::Drive => crews.drive(&mut st, &mut world, input.lease.expect("driven lease"), input.dt),
-        PcOperation::Pose => { let lease = input.lease.expect("posed lease"); crews.pose(&mut st, lease); world.publish_crews(&st, &crews); world.crew_posed(lease); world.resume_crews(&mut st, &mut crews); },
+        PcOperation::Pose => { let lease = input.lease.expect("posed lease"); crews.pose(&mut st, lease); world.publish_crews(&mut st, &mut crews); world.crew_posed(lease); world.resume_crews(&mut st, &mut crews); },
     }
     write(&st); let state = record(&st, &crews, crews.latched[world.latched..].to_vec());
     let result = PcResult { state, flag, lease, dt: input.dt };

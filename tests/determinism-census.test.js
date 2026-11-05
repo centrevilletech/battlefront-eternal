@@ -77,7 +77,6 @@ const LEGACY_STREAMS = {
   'arc-link': 'none in a world (PlayerCombat.random is the gameplay stream)',
   'blow-apart': 'none in a world (PlayerCombat.random is the gameplay stream)',
   'item-drop': 'none in a world (Items.random is the gameplay stream)',
-  'gunner-spread': 'none in a world (Gunner.random is the gameplay stream)',
   'recon-strike': 'none in a world (each recon context has its own stream)',
   'melee-swing': 'none in a world (a network player\'s melee weapon draws the network-weapons stream)',
   'kill-region': 'none in a world (objectiveDestroyed passes the gameplay stream)',

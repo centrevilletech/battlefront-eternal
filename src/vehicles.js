@@ -1,13 +1,13 @@
-import { poseFlightGear, poseGearAt, gearFoot, ownGear } from './flight/gear.js';
-import { updateFlightTarget, assistShot } from './flight/targeting.js';
-import { abandonLift, initFlight, stepFlight, standHeight } from './flight/model.js';
+import { poseFlightGear, gearFoot } from "./flight/gear.js";
+import { updateFlightTarget } from "./flight/targeting.js";
+import { initFlight, stepFlight, standHeight } from "./flight/model.js";
 import { groundMotion } from './vehicle-motion.js';
 import { HOVER_REST, hoverContacts, hoverPhysics, hoverSprings, hullQuaternion, restHeight } from './vehicle-hover.js';
 import { updateFlightCamera, easeAxes, cameraTension } from './flight/camera.js';
-import { updateWeaponLock, hasMissileLock, vehicleMissileDefinition, seatLockTarget } from "./weapon-targeting.js";
+import { vehicleMissileDefinition } from "./weapon-targeting.js";
 import { waterDamageRule, waterDamageStep } from './vehicle-water.js';
 import * as THREE from "three";
-import { descendantMuzzles, vehicleMuzzleTips, bindMountedRound } from "./muzzles.js";
+import { descendantMuzzles, vehicleMuzzleTips } from "./muzzles.js";
 import { makeHit } from "./collision.js";
 import { vehicleBatches, attachVehicleBatches } from "./vehicle-rig.js";
 import { modelPack } from "./models.js";
@@ -15,11 +15,12 @@ import { loadClips, Pose } from "./anim.js";
 import { Weapon } from "./weapons.js";
 import { givePowerup } from "./items.js";
 import { blastDamage, blastDistance, healthScale } from "./ordnance.js";
-import { SeatLease, VehicleTarget, seatRole, seatWeaponPolicy, classicSeatExit, placeOnFoot, dropBody, seatBody, unseatBody } from "./seats.js";
-import { boardingSeat, canBoard, claimSeat, inFlight, mayLeave, personLease, seatControl, seatLook, switchSeat, teamRelation } from "./boarding.js";
+import { VehicleTarget, seatWeaponPolicy, dropBody, unseatBody } from "./seats.js";
+import { boardingSeat, canBoard, seatControl, teamRelation } from "./boarding.js";
 import { makeRiderPoints, riderDropPoint, riderHitShapes, riderPoints } from "./rider-pose.js";
-import { stepPilotless } from "./flight/pilotless.js";
+
 import { VehiclesWorld } from "./vehicles-world.js";
+import { predictionSeatLook } from './runtime/vehicle-prediction-input.js';
 import { SeatsWorld } from "./seats-world.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -28,7 +29,6 @@ const NOSE = new THREE.Vector3(0, 0, 1);
 const DOWN = new THREE.Vector3(0, -1, 0);
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
 const DEG = Math.PI / 180;
-const FIXED_STEP = 1 / 120;
 const DEATH_BLEND = 0.3; // s at most a dying walker takes from its last pose into its death clip (the port's)
 const num = (v, fallback = 0) => Number.isFinite(parseFloat(v)) ? parseFloat(v) : fallback;
 const clockSeconds = () => (globalThis.performance?.now?.() ?? Date.now()) / 1000;
@@ -36,7 +36,6 @@ const vector = (v, fallback) => v ? String(v).split(/\s+/).map(Number) : fallbac
 const angle = (v) => Math.atan2(Math.sin(v), Math.cos(v));
 const approach = (v, target, delta) => v + THREE.MathUtils.clamp(target - v, -delta, delta);
 const idle = Object.freeze({ forward: 0, right: 0, turn: 0, brake: false });
-const noTrigger = Object.freeze({ held: false, pressed: false });
 const ZERO = Object.freeze(new THREE.Vector3());
 const vec3 = (v, fallback = null) => {
   const a = v === undefined || v === null ? null : String(v).trim().split(/\s+/).map(Number);
@@ -58,7 +57,6 @@ const RAYS = Object.freeze([0, 0, 1, 1, 1, -1, -1, 1, -1, -1]); // the centre ra
 const CAMERA_SKIN = .08; // m: keeps the near plane off what the rays hit
 const RETURN_RATE = 6; // 1/s: a camera pulled in by a wall eases back out
 const FOV_RATE = 25; // 1/s
-const AIM_REACH = 512; // m along a seat's aim to the point its guns turn to
 const TO_LOCAL = new THREE.Matrix4(), DECOMPOSED_AT = new THREE.Vector3(), DECOMPOSED_SCALE = new THREE.Vector3();
 // m a wall probe's or spring's cached triangles reach past its sphere: a
 // hull at 30 m/s moves 0.25 m a 120 Hz step.
@@ -184,6 +182,7 @@ const nine = { pitch: 0, turn: 0 };
 // now. Every barrel has its own, so a salvo's beams stay apart.
 function beamSource(vehicle, index, node, aimer) {
   return {
+    node, aimer,
     get matrix() { return node?.matrixWorld ?? vehicle.matrix; },
     get alive() { return vehicle.alive; },
     viewDirection: (out) => vehicle.beamDirection(index, node, aimer, out),
@@ -312,40 +311,6 @@ function seatRider(v, index, actor, dt, lean, s) {
   actor.root.position.copy(s.point).sub(s.riderOffset);
   actor.root.updateMatrixWorld(true);
   return lean;
-}
-
-// A person's exit search (the player's, a network human's): outward from
-// the hull, a floor, room for the body, and a clear line from the vehicle.
-// A craft in flight needs no floor under the spot: he bails out beside it,
-// at its height (the first spot tried is off its side). Writes the spot
-// (feet) to out and returns whether one was found. s: scratch { hit,
-// target, direction }.
-function safeExitPoint(collision, v, out, s) {
-  const distance = v.radius + 1.6, airborne = inFlight(v);
-  for (let i = 0; i < 12; i++) {
-    const a = v.yaw + Math.PI / 2 + i * Math.PI / 6;
-    out.set(v.position.x + Math.sin(a) * distance, v.position.y + 3, v.position.z + Math.cos(a) * distance);
-    const floor = collision.cast(out, DOWN, 10, s.hit, v.body);
-    if (!floor && !airborne || floor && floor.normal.y < .65) continue;
-    out.y = floor ? floor.point.y + 1 : v.position.y + 1;
-    if (collision.overlapsSphere(out, .65, v.body)) continue;
-    s.target.copy(v.position).addScaledVector(UP, 1.5);
-    s.direction.subVectors(out, s.target);
-    const span = s.direction.length();
-    if (collision.cast(s.target, s.direction.divideScalar(span), span, s.hit, v.body)) continue;
-    out.y -= 1;
-    return true;
-  }
-  return false;
-}
-
-// A person's way out: the search above, or, in flight or forced, above the
-// hull when it finds nothing. False: boxed in on the ground, he stays aboard.
-function personExitPoint(collision, v, out, s, anywhere) {
-  if (safeExitPoint(collision, v, out, s)) return true;
-  if (!anywhere) return false;
-  out.copy(v.position).addScaledVector(UP, v.size.y + 1);
-  return true;
 }
 
 // Immutable geometry, materials and collision BVHs are shared by class. A
@@ -628,21 +593,12 @@ export class Vehicle {
       a.owner = this.seats.findIndex((other) => other !== seat && other.view.turret !== null && other.view.turret === a.bone);
     }
     this.frameScratch = { q: new THREE.Quaternion(), q2: new THREE.Quaternion(), v: new THREE.Vector3(), m: new THREE.Matrix4(), frame: new THREE.Matrix4(), up: new THREE.Vector3() };
-    this.aimHit = makeHit();
-    this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
     this.beamFrom = new THREE.Vector3();
-    this.shotNode = null; this.shotEmitter = null; // the last muzzleOf's
     this.aimQ = new THREE.Quaternion(); this.aimQ2 = new THREE.Quaternion();
-    this.point = new THREE.Vector3();
-    this.normal = new THREE.Vector3();
-    this.nearest = new THREE.Vector3();
     this.from = new THREE.Vector3();
     this.legEuler = new THREE.Euler(0, 0, 0, "YXZ");
     this.recoilAxis = new THREE.Vector3();
     this.recoilPoint = new THREE.Vector3();
-    this.direction = new THREE.Vector3();
-    this.target = new THREE.Vector3();
-    this.muzzle = new THREE.Vector3();
     this.hit = makeHit();
     this.q = new THREE.Quaternion();
     // The bounding sphere (half the collision box's diagonal): the registry's
@@ -730,6 +686,7 @@ export class Vehicle {
   // riderHitShapes): his body as poseRider poses it, where seatRider places
   // it. Written to shapes; returns their count, 0 where none shows.
   riderShapes(i, unit, shapes) {
+    if (this.system.f2) return this.system.f2.riders.shapes(unit, shapes);
     const s = this.system.rider;
     const frame = riderBody(this, i, unit, s.points, s.frame, s);
     return frame ? riderHitShapes(s.points, frame, unit.rootScale, shapes) : 0;
@@ -737,6 +694,7 @@ export class Vehicle {
   // Where a rider killed on seat i starts to fall from, in the world: out,
   // or null where none shows (src/rider-pose.js riderDropPoint).
   riderDrop(i, unit, out) {
+    if (this.system.f2) return this.system.f2.riders.drop(unit, out);
     const s = this.system.rider;
     const frame = riderBody(this, i, unit, s.points, s.frame, s);
     return frame ? riderDropPoint(s.points, out).applyMatrix4(frame) : null;
@@ -746,10 +704,12 @@ export class Vehicle {
   // EyePointOffset in the seat's frame. What the seat sees and aims from.
   seatOrigin(i, out) { return this.seatEye(this.seats[i] ? i : 0, out); }
   seatEye(i, out, presented = false) {
+    if (this.system.f2 && !presented) return out.copy(this.f2Pose.seats[i].eye);
     return out.copy(this.seats[i].view.eye).applyMatrix4(this.seatFrame(i, this.frameScratch.frame, presented));
   }
   // A seat's aim direction.
   seatForward(i, out) {
+    if (this.system.f2) return out.copy(this.f2Pose.seats[this.seats[i] ? i : 0].forward);
     if (this.flying && i === 0) return out.set(0, 0, 1).applyQuaternion(this.quaternion);
     const seat = this.seats[i] || this.seats[0];
     return out.set(Math.sin(seat.aimYaw) * Math.cos(seat.pitch), Math.sin(seat.pitch), Math.cos(seat.aimYaw) * Math.cos(seat.pitch));
@@ -761,6 +721,7 @@ export class Vehicle {
   // along the seat's aim, its up the node's. presented: as drawn between
   // ticks; else at the tick.
   seatFrame(i, out, presented = false) {
+    if (this.system.f2 && !presented) return out.copy(this.f2Pose.seats[i].frame);
     if (this.flying && i === 0) return out.compose(presented ? this.root.position : this.position, presented ? this.root.quaternion : this.quaternion, UNIT_SCALE);
     const s = this.frameScratch;
     const yaw = presented ? this.root.rotation.y : this.yaw;
@@ -803,42 +764,6 @@ export class Vehicle {
     const arc = this.seats[i]?.view.yawLimits;
     return this.yaw + (arc && (arc[0] > 0 || arc[1] < 0) ? (arc[0] + arc[1]) / 2 : 0);
   }
-  // The leg a point (world) on this walker is on, for the tow cable: the
-  // nearest leg's column at that height, below the pelvis; null for a
-  // point on the body or a hull with no legs. Writes the anchor in the
-  // hull's frame to out and returns the leg's name.
-  legAt(point, out) {
-    if (!this.legs.length) return null;
-    const local = this.frameScratch.v.copy(point).applyMatrix4(this.body.inverse);
-    if (local.y > this.legTop) return null;
-    let best = null, span = Infinity;
-    for (const leg of this.legs) {
-      const column = leg.calf || leg.thigh;
-      const d = Math.hypot(local.x - column.x, local.z - column.z);
-      if (d < span) { span = d; best = leg; }
-    }
-    const column = best.calf || best.thigh;
-    const low = best.foot?.y ?? this.bounds.min.y, high = best.thigh?.y ?? this.legTop;
-    out.set(column.x, THREE.MathUtils.clamp(local.y, low, high), column.z);
-    return best.name;
-  }
-  // The point a leg's column stands at in the world, for a harpoon aimed at
-  // it: the leg's calf (or thigh) in the hull's frame now.
-  legPoint(name, out) {
-    const leg = this.legs.find((l) => l.name === name);
-    if (!leg) return null;
-    return out.copy(leg.calf || leg.thigh).applyMatrix4(this.matrix);
-  }
-
-  // The frame a seat lets its occupant out in: a turret seat's own heading,
-  // otherwise the hull's (the occupied control's frame forward; which seats
-  // carry their own frame is provisional).
-  seatFrameForward(i, out) {
-    const seat = this.seats[i] || this.seats[0];
-    const yaw = i > 0 && seat.settings.TurretNodeName ? seat.aimYaw : this.yaw;
-    return out.set(Math.sin(yaw), 0, Math.cos(yaw));
-  }
-
   spawn(team) {
     this.team = team;
     this.position.setFromMatrixPosition(this.slot.matrix);
@@ -918,68 +843,11 @@ export class Vehicle {
     this.roll += (-Math.atan2(x, Math.hypot(normal.y, z)) - this.roll) * blend;
   }
 
-  // attacker (optional): who is credited, a unit or whatever owned the round.
-  damage(amount, attacker = null) {
-    if (!this.alive || !(amount > 0)) return;
-    if (attacker) this.lastAttacker = attacker;
-    this.system.world.damaged(this, amount, attacker);
-    this.setHealth(this.health - amount);
-  }
+  // The world owns health; combat and repair send synchronous commands.
+  damage(amount, attacker = null) { return this.system.f2.command(this, 0, amount, attacker); }
 
-  setHealth(value) {
-    if (!this.alive) return;
-    this.health = THREE.MathUtils.clamp(value, 0, this.maxHealth);
-    if (this.health > 0) return;
-    this.system.world.enableBody(this.body, false);
-    this.alive = false;
-    // A walker with a death animation plays it out before it is gone
-    // (dyingTick); every other hull is gone at once.
-    this.dying = this.def.fx?.dying?.span || 0;
-    this.root.visible = this.dying > 0;
-    if (this.flying) this.flightState = 'Destroyed';
-    this.slot.remaining = this.slot.desc.respawnTime;
-    // Everyone aboard dies with it: the bots' seats are let go first, all at
-    // once, then they die (credited to whoever destroyed it), then the
-    // player's handler runs.
-    this.system.destroyedCrew?.(this);
-    const humanDriver = this.humanDriver;
-    try { this.system.world.destroyed(this); }
-    finally { if (humanDriver?.vehicle === this) humanDriver.release(); }
-    this.system.releaseTow?.(this, 'destroyed');
-    this.driver = null;
-    for (const seat of this.seats) {
-      const lease = seat.lease;
-      if (!lease) continue;
-      lease.released = true;
-      if (lease.unit?.seat === lease) lease.unit.seat = null;
-      seat.lease = null;
-    }
-    this.velocity.set(0, 0, 0);
-    // The blast goes off at the class's ExplosionOffset in the hull's frame
-    // (the AT-AT's body, the AT-ST's head; tools/zero_vehicle.py vehicle_fx).
-    const offset = this.def.fx?.explosionOffset;
-    const at = offset ? new THREE.Vector3(offset[0], offset[1], offset[2]).applyAxisAngle(UP, this.yaw).add(this.position) : this.position;
-    if (this.def.explosion) this.system.world.explosion(this.def.explosion, at, this);
-    // An animal (the tauntaun, the kaadu) has no blast: it falls.
-    else if (!this.creature) this.system.world.effect('explosion', at);
-  }
-
-  // A tick of a destroyed walker's dying: its death animation (death01, at
-  // its AnimationSpeed: fx.dying.span s in all) plays, its dying explosions
-  // being the page's (src/vehicle-effects.js); once it has played,
-  // FinalExplosion (else its ExplosionName) goes off at FinalExplosionOffset
-  // in the hull's frame, with its damage, and the hull is gone.
-  dyingTick(dt) {
-    if (!(this.dying > 0)) return;
-    this.dying = Math.max(0, this.dying - dt);
-    if (this.dying > 0) return;
-    this.root.visible = false;
-    const explosion = this.def.finalExplosion || this.def.explosion;
-    if (!explosion) return;
-    const offset = this.def.fx?.dying?.finalOffset || [0, 0, 0];
-    const at = new THREE.Vector3(offset[0], offset[1], offset[2]).applyAxisAngle(UP, this.yaw).add(this.position);
-    this.system.world.explosion(explosion, at, this);
-  }
+  // The world owns health; combat and repair send synchronous commands.
+  setHealth(value) { return this.system.f2.command(this, 1, value); }
 
   tick(dt, input) {
     this.previous.copy(this.position);
@@ -987,7 +855,6 @@ export class Vehicle {
     this.previousTilt = this.tilt; this.previousRoll = this.roll;
     for (const wheel of this.wheels) wheel.previous = wheel.phase;
     if (!this.alive || this.sleeping && !this.occupied) return;
-    this.aimCrew(dt);
     if (this.flying) { this.fly(dt, input); return; }
     const oldYaw = this.yaw;
     this.steer(dt, input, this.strafeSpeed === 0);
@@ -1206,34 +1073,8 @@ export class Vehicle {
 
   fly(dt, input) {
     if (this.driver && this.seatIndex !== 0) this.aimPlayerSeat(dt);
-    // Nobody aboard a craft in flight: it comes down (src/flight/pilotless.js).
-    if (this.flightState === 'Flying' && !this.occupied) { stepPilotless(this, dt); return; }
-    if (!this.occupied) abandonLift(this);
-    const networkInput = this.seats[0]?.lease?.unit?.networkHuman && this.seats[0].lease.intent.flight;
-    if (networkInput) input = networkInput;
-    else if (this.crewed(0)) input = { ...input, stickX: input.turn || 0, stickY: input.pitch || 0, takeoff: input.up || input.down, boost: input.boost, bot: true };
     stepFlight(this, dt, input);
-    const request = this.crewed(0) && !networkInput ? this.flightLockId < 0 : input.targetLock;
-    updateFlightTarget(this, dt, request);
-  }
-
-  // Bot seats turn their aim by their analogs: the turn analog at the seat's
-  // TurnRate (positive turns right, as for soldiers), the pitch analog at
-  // its PitchRate, within the seat's limits, as the player's look is. Seat
-  // 0's turn is the hull's steering, which steer() applies.
-  aimCrew(dt) {
-    for (let i = 0; i < this.seats.length; i++) {
-      const seat = this.seats[i];
-      const lease = seat.lease;
-      if (!lease || lease.human || lease.unit?.networkHuman) continue;
-      const input = lease.input;
-      const settings = seat.settings || {};
-      if (i > 0) seat.aimYaw -= input.turn * num(settings.TurnRate, num(this.def.settings.TurnRate, this.turnRate)) * dt;
-      if (this.flying && i === 0) continue;
-      const pitchRate = num(settings.PitchRate, num(this.def.settings.PitchRate, 1));
-      seat.pitch += input.pitch * pitchRate * dt;
-      this.clampAim(i);
-    }
+    updateFlightTarget(this, dt, input.targetLock);
   }
 
   // The pose at the start of a world tick, for drawing between ticks.
@@ -1513,34 +1354,6 @@ export class Vehicle {
     return result;
   }
 
-  // The tick's part of the pose (docs/runtime-architecture.md "Vehicle.render
-  // split"), run in both hosts: the hull placed at the tick's pose, its age
-  // and walk cycle advanced, the walk pose applied only where a seat's
-  // turret, aimer, fire point or rider hangs from an animated bone, then
-  // each manned seat's aim target (aimSeats) and its turret node and aimer
-  // angles (poseSeat, which refreshes the matrices of just those chains),
-  // and one pass over the hierarchy for the muzzles, eyes and riders. The
-  // drawn pose is render's, on the page.
-  aimTick(alpha, dt) {
-    if (!this.alive) return;
-    if (dt > 0 && this.sleeping && !this.repulsor && !this.occupied && !this.pose && this.health >= this.maxHealth * .35) return;
-    this.placeRoot(alpha);
-    this.walk(dt);
-    if (this.aimedByPose) this.applyPose();
-    // A craft's gear, doors and foils at its own gear, before its aimers
-    // turn: an X-wing's lasers ride its S-foils and the MAF's pilot cannons
-    // its flaps (src/flight/gear.js), so their turn is solved, and their fire
-    // points read, with the foils where the gear has them, whether or not a
-    // render pass poses the hull after this.
-    if (this.flying) poseGearAt(this, this.gear ?? 1);
-    this.age += dt;
-    if (dt > 0) this.aimSeats(dt);
-    this.poseSeat(this.seatIndex, dt);
-    for (let i = 0; i < this.seats.length; i++) if (i !== this.seatIndex && this.crewed(i)) this.poseSeat(i, dt);
-    this.recoilBarrels();
-    this.root.updateMatrixWorld(true);
-  }
-
   // The drawn pose (the page's; also the simulation host's after aimTick):
   // the hull between ticks, every bone from the walk cycle, the manned
   // seats' turret nodes and aimer bones from their angles (no integration:
@@ -1553,14 +1366,9 @@ export class Vehicle {
   // no legs, is then drawn as aimTick posed it: its root has no bob, its
   // gear is posed at its own, its seats from the same angles, and nothing
   // else of it moves; only its barrels' kick, on the clock, is read again.
-  render(alpha, dt, ticked = false) {
+  render(alpha, dt) {
     if (!this.alive) return;
     if (dt > 0 && this.sleeping && !this.repulsor && !this.occupied && !this.pose && this.health >= this.maxHealth * .35) return;
-    if (ticked && this.flying && !this.pose && !this.def.fx?.legs && ownGear(this)) {
-      this.recoilBarrels();
-      for (const seat of this.seats) for (const w of seat.weapons) for (const m of w.muzzles) if (m.barrel && m.rest) m.barrel.updateMatrixWorld(true);
-      return;
-    }
     this.placeRoot(alpha);
     this.feelLegs(dt);
     this.applyPose();
@@ -1586,42 +1394,6 @@ export class Vehicle {
     const view = this.seats[i].view;
     this.cameraTurn(i, frame, this.frameScratch.q2);
     return out.copy(view.offset).applyQuaternion(this.frameScratch.q2).add(this.frameScratch.v.copy(view.center).applyMatrix4(frame));
-  }
-
-  // The point each manned seat's guns turn to, the original game's aim target:
-  // the first thing along the aim within 512 m, else 512 m out. The player's
-  // aim runs from his eye in first person, else from his chase camera
-  // brought forward to the eye's plane, so it is the point under his
-  // crosshair. The original game starts it where the camera rests; the port
-  // starts it where his camera is (aimCamera, the simulation's view), walls
-  // and easing included, so the round still lands under the drawn
-  // crosshair when a wall pulls the camera in. A bot's aim runs along its
-  // own aim from the seat's eye. Also how fast each seat's aim turns, for
-  // the rider's 9-pose.
-  aimSeats(dt) {
-    const s = this.frameScratch;
-    for (let i = 0; i < this.seats.length; i++) {
-      const seat = this.seats[i];
-      if (seat.lastYaw !== null) seat.yawRate += (angle(seat.aimYaw - seat.lastYaw) / dt - seat.yawRate) * (1 - Math.exp(-12 * dt));
-      seat.lastYaw = seat.aimYaw;
-      const player = Boolean(this.driver) && i === this.seatIndex;
-      if (!player && !this.crewed(i)) continue;
-      const origin = this.seatEye(i, this.from), direction = this.direction;
-      if (player) {
-        this.seatForward(i, direction);
-        if (!this.viewFirstPerson) {
-          const camera = this.aimCamera ? this.target.copy(this.aimCamera.position) : this.cameraRest(i, this.seatFrame(i, s.frame), this.target);
-          const ahead = Math.max(0, this.point.subVectors(origin, camera).dot(direction));
-          origin.copy(camera).addScaledVector(direction, ahead);
-        }
-      } else if (seat.lease.input.aiming) direction.copy(seat.lease.input.aim);
-      else this.seatForward(i, direction);
-      const hit = this.system.world.cast(origin, direction, AIM_REACH, this.aimHit, this.body);
-      let far = hit ? hit.distance : AIM_REACH;
-      const unit = this.system.world.raycastUnits(origin, direction, far, this.unitHit);
-      if (unit) far = unit.distance;
-      seat.target = (seat.target || new THREE.Vector3()).copy(origin).addScaledVector(direction, far);
-    }
   }
 
   // A seat's turret and guns. The turret node swings to the seat's aim (by
@@ -1729,147 +1501,19 @@ export class Vehicle {
   // Someone holds seat i: the player or a lease.
   held(i) { return Boolean(this.seats[i]?.lease) || Boolean(this.driver) && this.seatIndex === i; }
 
-  fire(dt, controls) {
-    const primary = controls.take('firePrimary'), secondary = controls.take('fireSecondary');
-    const reload = controls.take('reload');
-    for (let i = 0; i < this.seats.length; i++) {
-      // A seat a bot holds fires from the bot's own input (fireSeat).
-      if (i !== this.seatIndex && this.crewed(i)) continue;
-      for (let channel = 0; channel < this.seats[i].weapons.length; channel++) {
-        const w = this.seats[i].weapons[channel];
-        const selected = i === this.seatIndex && (!this.flying || this.flightState === 'Flying');
-        const pressed = channel === 0 ? primary : secondary;
-        const held = controls.held(channel === 0 ? 'firePrimary' : 'fireSecondary');
-        if (!w.state.random && this.system.random) w.state.random = this.system.random;
-        if (selected && !this.flying && hasMissileLock(w.def)) updateWeaponLock(w.state, dt, { units: this.system.units, collision: this.system.collision,
-          origin: this.seatEye(i, this.from), dir: this.reticleRay(i, this.from, this.direction), viewer: this.aiTarget, ignoreBody: this.body });
-        const shots = w.state.update(dt, selected, selected && !this.towHeld(w) ? { pressed, held: held || pressed } : noTrigger, reload && selected, { posture: 'stand', stick: 0, zoomed: false });
-        for (const shot of shots) {
-          if (!this.alive) break;
-          // From the barrel's real fire point toward the point under the
-          // crosshair (aimSeats), which its aimers turn to.
-          const aimer = this.muzzleOfSeat(i, w, this.muzzle);
-          if (this.heldByLimits(i, aimer)) continue;
-          this.shotDirection(aimer, this.muzzle, this.seats[i].target, null, this.direction);
-          if (this.flying) { shot.targetId = this.flightLockState === 'Locked' ? this.flightLockId : -1; shot.targetGeneration = this.flightLockGeneration; }
-          this.spread(shot, this.direction);
-          this.emitShot(shot, i, null, this.shotEmitter);
-        }
-      }
-    }
-  }
-
-  // A bot's seat fires from its frozen input: each channel's trigger, from
-  // the weapon's real fire points toward the point along the bot's aim (its
-  // intent.aim, the Classic aimer's output, or else the seat's own), as its
-  // aimers turn to it. Rounds are the bot's.
-  fireSeat(i, dt) {
-    if (this.flying && this.flightState !== 'Flying') return;
-    const seat = this.seats[i];
-    const lease = seat.lease;
-    const input = lease.input;
-    const reload = input.takeReload();
-    for (let channel = 0; channel < seat.weapons.length; channel++) {
-      const w = seat.weapons[channel];
-      const pressed = input.take(channel);
-      if (!this.flying && hasMissileLock(w.def)) updateWeaponLock(w.state, dt, { units: this.system.units, collision: this.system.collision,
-        origin: this.seatEye(i, this.from), dir: this.reticleRay(i, this.from, this.direction), viewer: this.aiTarget, ignoreBody: this.body,
-        target: seatLockTarget(lease) });
-      const shots = w.state.update(dt, true, this.towHeld(w) ? noTrigger : { pressed, held: Boolean(input.held[channel]) || pressed }, reload, { posture: 'stand', stick: 0, zoomed: false });
-      for (const shot of shots) {
-        if (!this.alive) break;
-        const aimer = this.muzzleOfSeat(i, w, this.muzzle);
-        if (this.heldByLimits(i, aimer)) continue;
-        this.shotDirection(aimer, this.muzzle, seat.target, this.towAim(i, w, this.from) || this.botAim(i, this.from), this.direction);
-        this.spread(shot, this.direction);
-        this.emitShot(shot, i, lease, this.shotEmitter);
-      }
-    }
-  }
-
-  // A tow cable's gun takes no trigger while the cable it fired holds: the
-  // 2004 game's WeaponTowCable answers its fire test no while its cable is
-  // attached, so a second harpoon never takes the place of the
-  // first (and never starts the walker's three circuits over).
-  towHeld(w) {
-    return w.def.ordnance?.base === 'towcable' && this.towTarget >= 0;
-  }
-
-  // A barrel whose aimer cannot turn to the point (it is past the aimer's
-  // limits) fires no round unless the seat says FireOutsideLimits (the
-  // AT-AT's chin cannons); its turn passes all the same.
-  heldByLimits(i, aimer) {
-    if (!aimer?.bone || aimer.inLimits !== false) return false;
-    return num(aimer.FireOutsideLimits ?? this.seats[i].settings?.FireOutsideLimits, 0) === 0;
-  }
-
-  // Seat i's reticle line from `from` (its eye): through the point under the
-  // reticle (aimSeats: from the player's camera, a bot's eye), else along
-  // the seat's aim. A launcher's lock cone runs along it.
-  reticleRay(i, from, out) {
-    const target = this.seats[i].target;
-    if (target && out.subVectors(target, from).lengthSq() > 1e-6) return out.normalize();
-    return this.seatForward(i, out);
-  }
-
-  // A bot's aim in seat i: its intent's, else the seat's own.
-  botAim(i, out) {
-    const input = this.seats[i].lease?.input;
-    return input?.aiming ? out.copy(input.aim) : this.seatForward(i, out);
-  }
-
-  // The weapon's next muzzle (barrels take turns): writes its fire point in
-  // the world to out, keeps its node (this.shotNode) and what a beam from it
-  // follows (this.shotEmitter; null: the seat's own), and returns its aimer.
-  muzzleOf(w, out) {
-    const aimers = w.muzzles;
-    const aimer = aimers.length ? aimers[w.barrel++ % aimers.length] : w.aimers[0];
-    if (aimer?.barrel) aimer.kickAt = this.system.world.clock();
-    const node = aimer?.fireNode || this.byName[(aimer?.FirePointName || aimer?.node || w.def.FirePointName || '').toLowerCase()];
-    this.shotNode = node || null;
-    this.shotEmitter = aimer?.emitter ?? w.emitter;
-    if (node) node.getWorldPosition(out);
-    else this.nose(out);
-    return aimer?.sourceAimer || (aimer?.bone ? aimer : null);
-  }
-  // A seat's weapon's muzzle (muzzleOf), or, for a weapon with no fire point
-  // on the model, the seat's own turret node: the snowspeeder's rear gun
-  // fires from towcablegun, aft, not from the hull's nose.
-  muzzleOfSeat(i, w, out) {
-    const aimer = this.muzzleOf(w, out);
-    const turret = this.seats[i]?.view.turret;
-    if (!this.shotNode && turret) { this.shotNode = turret; turret.getWorldPosition(out); }
-    return aimer;
-  }
-  // A bot firing the tow cable aims the harpoon at the nearest leg of the
-  // walker it is after (its seat's target, else the walker its tow pattern
-  // circles); null when the shot is not a tow or there is no walker.
-  towAim(i, w, out) {
-    if (w.def.ordnance?.base !== 'towcable') return null;
-    const seat = this.seats[i];
-    const owner = this.system.world.cast(this.seatEye(i, this.from), this.botAim(i, this.direction), Math.max(20, w.def.LockOnRange || 0), this.hit, this.body)?.body?.owner;
-    const walker = owner instanceof Vehicle && owner.base === 'commandwalker' ? owner : this.system.nearestWalker(this, Math.max(20, w.def.LockOnRange || 0));
-    if (!walker || !walker.legs.length) return null;
-    let best = null, span = Infinity;
-    for (const leg of walker.legs) {
-      walker.legPoint(leg.name, this.point);
-      const d = this.point.distanceToSquared(this.muzzle);
-      if (d < span) { span = d; best = leg; }
-    }
-    walker.legPoint(best.name, this.point);
-    return out.subVectors(this.point, this.muzzle).normalize();
-  }
   // Where a weapon with no fire point node fires from: the hull's nose.
   nose(out) {
     return out.set(this.center.x, this.center.y + .5, this.center.z + this.size.z * .5).applyMatrix4(this.matrix);
   }
 
-  // Where a round from a barrel's fire point goes. A barrel on its aimers
-  // fires where they point: straight at the seat's target once it points
-  // there, so the round lands under the crosshair; along the barrel while it
-  // is still turning or held at a limit (along the aimer's own aim when a
-  // turret seat has its node). A weapon with no aimer node fires along
-  // fallback (a bot's aim) when given, else at the target.
+  // Where a beam from one of seat i's barrels (its fire point's node and its
+  // aimer; the hull's nose for neither) points while it lasts: as that
+  // barrel shoots now.
+  botAim(i, out) {
+    const input = this.seats[i].lease?.input;
+    return input?.aiming ? out.copy(input.aim) : this.seatForward(i, out);
+  }
+
   shotDirection(aimer, from, target, fallback, out) {
     if (aimer?.bone) {
       if (aimer.onTarget && target) return out.subVectors(target, from).normalize();
@@ -1882,44 +1526,11 @@ export class Vehicle {
     return this.viewDirection(out);
   }
 
-  // Where a beam from one of seat i's barrels (its fire point's node and its
-  // aimer; the hull's nose for neither) points while it lasts: as that
-  // barrel shoots now.
   beamDirection(i, node, aimer, out) {
     const from = node ? node.getWorldPosition(this.beamFrom) : this.nose(this.beamFrom);
     return this.shotDirection(aimer, from, this.seats[i].target, this.crewed(i) ? this.botAim(i, out) : null, out);
   }
 
-  spread(shot, direction) {
-    if (shot.yaw) direction.applyAxisAngle(UP, shot.yaw);
-    if (shot.pitch) {
-      this.normal.crossVectors(direction, UP).normalize();
-      direction.applyAxisAngle(this.normal, shot.pitch);
-    }
-  }
-
-  // The shot leaves this.muzzle along this.direction. The player's rounds
-  // stay the vehicle's (as before); a bot's are credited to the bot, still
-  // passing through the hull's own body, and a beam follows its barrel
-  // (emitter, from muzzleOf; else the seat's own, on the hull).
-  emitShot(shot, seatIndex, lease, emitter = null) {
-    if (this.flying) { shot.targetId = this.flightLockState === 'Locked' ? this.flightLockId : -1; shot.targetGeneration = this.flightLockGeneration; }
-    if(this.flying && seatIndex===0) assistShot(this,this.direction,this.muzzle);
-    const def = shot.weapon.def;
-    const owner = lease?.unit ?? this.seats[seatIndex].lease?.unit ?? this;
-    if (def.ordnance?.base === 'towcable') this.system.launchTow(this, def, this.muzzle, this.direction, seatIndex, lease ?? this.seats[seatIndex].lease);
-    else if (def.ordnance) {
-      const round = this.system.world.fire(def.ordnance, this.muzzle, this.direction, owner, this.body, emitter ?? this.seats[seatIndex].emitter, shot);
-      if (round && this.flying && round.kind === 'missile') this.system.ordnance.flightMissile(round, this.flightClass, this.flightConfig.missileLifetime, this.flightConfig.missileSpeed);
-      const weapons = this.seats[seatIndex].weapons, index = weapons.findIndex(w => w.state === shot.weapon);
-      const weapon = weapons[index];
-      if (weapon?.muzzles.length) bindMountedRound(round, this, seatIndex, index, (weapon.barrel - 1) % weapon.muzzles.length);
-    }
-    this.system.world.sound("turretFire", this, shot);
-    if (def.MuzzleFlashEffect) this.system.world.effect(def.MuzzleFlashEffect, this.muzzle);
-    this.system.world.flash(this.muzzle);
-    this.system.world.fired(this, seatIndex, shot, owner, this.muzzle, this.direction);
-  }
 }
 
 export class Vehicles {
@@ -1948,12 +1559,9 @@ export class Vehicles {
     // s: the clock barrels kick back on. A page's wall clock; a world's is
     // its tick clock (src/game.js), as no step reads a clock of its own.
     this.clock = clockSeconds;
-    this.pendingExits = [];
-    this.exitSpot = { position: new THREE.Vector3(), forward: new THREE.Vector3(), candidate: -1 };
     this.riderPoint = new THREE.Vector3();
     this.rider = { point: new THREE.Vector3(), riderOffset: new THREE.Vector3(), riderQuaternion: new THREE.Quaternion(),
       points: makeRiderPoints(), frame: new THREE.Matrix4(), sample: { clip: null, pitch: 0, turn: 0, time: null } };
-    this.safeScratch = { hit: makeHit(), target: new THREE.Vector3(), direction: new THREE.Vector3() };
     this.templates = new Map();
     const pack = modelPack(Object.fromEntries(Object.entries(data.models).map(([k, m]) => [k, m.parts])), buffer, indexBuffer);
     for (const [name, rig] of Object.entries(data.models)) {
@@ -1999,7 +1607,7 @@ export class Vehicles {
     this.hit = makeHit();
     this.center = new THREE.Vector3();
     this.direction = new THREE.Vector3();
-    this.updateSpawns(0);
+    this.constructSpawns();
     if (units) this.attachUnits(units);
   }
 
@@ -2010,10 +1618,11 @@ export class Vehicles {
     for (const v of this.vehicles) if (units.byId(v.aiTarget.id) !== v.aiTarget) units.add(v.aiTarget);
   }
 
-  updateSpawns(dt) {
+  // Construct the page facades before the initial native import. Replicas
+  // use the same initial list; later births and all clocks belong to Rust.
+  constructSpawns() {
     for (const slot of this.slots) {
       if (slot.vehicle?.alive) continue;
-      slot.remaining = Math.max(0, slot.remaining - dt);
       // A walker still dying keeps its pad until it is gone.
       if (slot.remaining > 0 || slot.vehicle?.dying > 0) continue;
       const post = slot.desc.post && this.posts?.posts.find(p => p.desc.name.toLowerCase() === slot.desc.post);
@@ -2057,125 +1666,8 @@ export class Vehicles {
     this.presented = false;
   }
 
-  // driven/input: the player's hull and keys, as before. Bots' seats read
-  // their own units' intents: one batch per update, frozen before the
-  // substeps (so every substep sees the same held values) with each edge
-  // taken once; their exits happen before the substeps, their weapons fire
-  // after them, and their bodies follow their seats at the end.
-  update(dt, driven = null, input = idle) {
-    dt = THREE.MathUtils.clamp(dt, 0, .1);
-    this.time += dt;
-    this.updateSpawns(dt);
-    this.latchCrews();
-    // The ground hulls' tick start (captureTick) and substeps run on the
-    // simulation's module where the world asked for it (src/vehicles-sim.js),
-    // after the crafts' flight: no craft's step reads a ground hull's tick
-    // start, so the order is the same as here.
-    const ground = this.sim && !driven;
-    if (!ground) for (const v of this.vehicles) if (v.alive && !v.flying) v.captureTick();
-    // (On the module the crafts' flight runs in the phase, first.)
-    if (!ground || !this.sim.flight) {
-      this.flightAcc = (this.flightAcc || 0) + dt;
-      this.flightEdges ||= {};
-      for (const key of ['takeoff','trick','immelmann','targetLock']) this.flightEdges[key] ||= Boolean(input[key]);
-      while (this.flightAcc + 1e-9 >= 1/60) {
-        for (const v of this.vehicles) if (v.alive && v.flying) { v.captureTick(); v.tick(1/60, v.crewed(0) ? v.seats[0].lease.input : v === driven ? { ...input, ...this.flightEdges } : idle); }
-        this.flightEdges = {}; this.flightAcc -= 1/60;
-      }
-    }
-    if (ground) this.acc = this.sim.ground(dt, this.acc);
-    else {
-      this.acc += dt;
-      while (this.acc + 1e-9 >= FIXED_STEP) {
-        for (const v of this.vehicles) if (v.alive && !v.flying) v.tick(FIXED_STEP, v.crewed(0) ? v.seats[0].lease.input : v === driven ? input : idle);
-        this.acc -= FIXED_STEP;
-      }
-    }
-    // On the module the dying hulls' last seconds and the hulls'
-    // poses ran in the phase, in this order (src/vehicles-sim.js).
-    const posing = ground && this.sim.posing;
-    if (!posing) for (const v of this.vehicles) if (!v.alive && v.dying > 0) v.dyingTick(dt);
-    this.tickAlpha = Math.max(0, this.acc / FIXED_STEP);
-    // The tick's pose in both hosts; the drawn one only where something
-    // is drawn (a world worker leaves it to the page showing it).
-    for (const v of this.vehicles) if (!posing || !this.sim.posed(v)) v.aimTick(v.flying ? 1 : this.tickAlpha, dt);
-    if (this.cosmetic !== false) for (const v of this.vehicles) if (!posing || !this.sim.posed(v)) v.render(v.flying ? 1 : this.tickAlpha, dt, true);
-    this.presented = false;
-    this.fireCrews(dt);
-    this.updateTethers();
-    if (this.cosmetic !== false) this.drawTethers(false);
-    this.syncCrews(posing);
-  }
-
-  // The seat contract's input batch: stale leases are let go, every live
-  // bot's intent is frozen, and exit requests (an intent's use edge, or
-  // requestExit) are carried out.
-  latchCrews() {
-    // The batch on the simulation's module where the world asked for it
-    // (src/seats-sim.js).
-    if (this.seatsSim) return this.seatsSim.latchCrews();
-    this.ticks += 1;
-    const exits = this.pendingExits;
-    exits.length = 0;
-    for (const v of this.vehicles) for (let i = 0; i < v.seats.length; i++) {
-      const lease = v.seats[i].lease;
-      if (!lease || lease.human) continue;
-      if (!v.alive || !lease.live) { this.vacate(lease, { placement: false, promote: false, reason: 'stale' }); continue; }
-      lease.input.latch(lease);
-      if (lease.input.exit || lease.exitRequest) exits.push(lease);
-    }
-    for (const lease of exits) {
-      if (lease.released) continue;
-      const request = lease.exitRequest || {};
-      this.vacate(lease, { placement: request.placement ?? true, promote: request.promote, post: request.post ?? null });
-    }
-    exits.length = 0;
-  }
-
-  fireCrews(dt) {
-    for (const v of this.vehicles) {
-      if (!v.alive) continue;
-      for (let i = 0; i < v.seats.length; i++) if (v.crewed(i) && v.seats[i].weapons.length) v.fireSeat(i, dt);
-    }
-  }
-
-  // Bots' bodies at their seats, posed as riders (enclosed ones hidden);
-  // those of the hulls the module poses from the module's numbers.
-  syncCrews(posing = false) {
-    if (posing) this.sim.syncRiders();
-    for (const v of this.vehicles) {
-      if (!v.alive || posing && this.sim.posed(v)) continue;
-      for (const seat of v.seats) if (seat.lease && !seat.lease.human) this.syncRider(seat.lease);
-    }
-  }
-
-  // syncRider with the module's numbers for his seat (src/vehicles-sim.js
-  // syncRiders: f[o..o + 10]: his point, aim yaw and pitch, the hull's
-  // velocity, whether he shows, a 9-pose's pitch and turn).
-  syncRiderFrom(lease, f, o) {
-    const unit = lease.unit;
-    if (!unit?.soldier || !unit.actor) return;
-    const soldier = unit.soldier, actor = unit.actor, animator = unit.animator, point = this.riderPoint.set(f[o], f[o + 1], f[o + 2]);
-    soldier.position.copy(point); soldier.previous?.copy(point); soldier.settled?.copy(point);
-    soldier.aimYaw = f[o + 3]; soldier.aimPitch = f[o + 4];
-    soldier.velocity.set(f[o + 5], f[o + 6], f[o + 7]);
-    unit.presentation?.reset();
-    actor.root.position.copy(point);
-    actor.root.visible = f[o + 8] === 1;
-    const pick = riderSample(lease.vehicle, lease.index, animator?.clips, riderPick, f[o + 9], f[o + 10]);
-    if (!pick) animator?.gunner?.(null);
-    else if (pick.time !== null) animator?.gunner?.(pick.clip, 0, 0, pick.time);
-    else animator?.gunner?.(pick.clip, pick.pitch, pick.turn);
-    unit.tickCount += 1;
-  }
-
-  syncRider(lease) {
-    const unit = lease.unit;
-    if (!unit?.soldier || !unit.actor) return;
-    poseRider(lease.vehicle, lease.index, unit.soldier, unit.actor, unit.animator, unit.animator?.clips, unit.presentation, this.riderPoint);
-    // The hull has moved under him: his hit shapes follow (Unit.updateSpheres).
-    unit.tickCount += 1;
-  }
+  // Vehicles.update delegates the complete authoritative phase to Rust.
+  update(dt) { this.f2.step(dt, this.ticks + 1); }
 
   // After the units are posed for the frame: each bot's shown rider takes
   // its node's place and turn, or its saddle on an animal (seatRider; the
@@ -2189,6 +1681,17 @@ export class Vehicles {
   // of sight: his body never shows (the hull's blast threw the AT-TE's crew
   // flailing 6 m above it). Only the drawing: the body still dies, falls
   // and is thrown as the world has it. He shows again in his next life.
+  // EntityGameState installs a seat packet on the page before its next frame.
+  // Place that replica's body from its drawn rig; the world phase uses native
+  // rider writeback and never calls this presentation reader.
+  placeReplicaRider(lease) {
+    const unit = lease.unit;
+    if (!unit?.soldier || !unit.actor) return;
+    poseRider(lease.vehicle, lease.index, unit.soldier, unit.actor, unit.animator, unit.animator?.clips, unit.presentation, this.riderPoint);
+    // The hull has moved under him: his hit shapes follow (Unit.updateSpheres).
+    unit.tickCount += 1;
+  }
+
   presentRiders(dt) {
     for (const [unit, generation] of this.vanished) {
       if (unit.generation !== generation || unit.removed) this.vanished.delete(unit);
@@ -2255,230 +1758,6 @@ export class Vehicles {
     return boardingSeat(vehicle, { team: unit.team, person, relation: this.seatsWorld.relate, preferred: seatIndex });
   }
 
-  // Seats a bot or a network human now (the AI has brought the bot to the
-  // hull; the original game's enter callback has no reach test of its own).
-  // seatIndex -1 takes the seat the rules give (eligibleSeat). A network
-  // human takes a seat a bot holds as the player does; the bot moves on.
-  // Returns whether it boarded.
-  board(unit, vehicle, seatIndex = -1) {
-    const index = this.eligibleSeat(unit, vehicle, seatIndex);
-    if (index < 0 || seatIndex >= 0 && index !== seatIndex || !claimSeat(vehicle, index)) return false;
-    const seat = vehicle.seats[index];
-    const lease = new SeatLease({ unit, team: unit.team, vehicle, index, role: seatRole(vehicle.seats, index), time: this.time, tick: this.ticks });
-    seat.lease = lease;
-    // At the seat's rest heading: a gun whose arc leaves the hull's heading
-    // out (the snowspeeder's rear gun) takes its seat looking into its arc,
-    // not pinned at a limit; the bot's controller keeps that heading as its
-    // home look (src/ai/classic/controller.js).
-    seat.aimYaw = vehicle.restYaw(index);
-    // A bot takes a hover's aim level: the 2004 game zeroes the hover's aim
-    // angles with the hull (hull-relative, and the hull rests
-    // level) and a pilot's entry leaves them. The little-down rest the
-    // player's view takes (restAim) is the port's choice; a bot riding with
-    // it, at the hover's narrow pitch limits and its slow nonlinear pitch
-    // analog, shot into the ground in front of its target.
-    seat.pitch = index === 0 && !vehicle.flying && (vehicle.base !== 'hover' || unit.networkHuman) ? -.12 : 0;
-    seat.lookYaw = seat.lookPitch = null;
-    vehicle.setSeatPolicy(index, Boolean(unit.networkHuman), this.seatRandom);
-    if (!unit.networkHuman) lease.controllable = this.seatsWorld.controllable(lease);
-    unit.seat = lease;
-    seatBody(unit);
-    vehicle.sleeping = false;
-    this.syncRider(lease);
-    this.seatsWorld.boarded(unit, vehicle, index);
-    return true;
-  }
-
-  // Asks for the unit's exit at the next batch (the 2004 game's exit
-  // request). post: the command post the AI assigns once out (passed to
-  // onUnboard).
-  requestExit(unit, { post = null, promote, placement = true } = {}) {
-    const lease = this.seatOf(unit);
-    if (!lease) return false;
-    lease.exitRequest = { post, promote, placement };
-    return true;
-  }
-
-  // Out now. policy 'classic' (bots): the original game's placement, which
-  // always finds a spot (the hull's origin at worst). policy 'safe' (always
-  // for a network human, as for the player): the person's search (clear
-  // floor, room, a clear line out), which refuses when boxed in on the
-  // ground unless force; out of a craft in flight, beside it in the air.
-  // placement false: out without moving the body. promote: hand the vacated
-  // seat to the last bot aboard; by default, as the original game does unless
-  // the unit is boarding something else (controller state 5). Only a person
-  // gets out of a craft in flight (src/boarding.js mayLeave) unless force.
-  unboard(unit, { force = false, placement = true, promote, post = null, policy = 'classic' } = {}) {
-    const lease = this.seatOf(unit);
-    if (!lease) return false;
-    return this.vacate(lease, { placement, promote, post, policy, force });
-  }
-
-  // reason 'killed' (src/boarding.js leaveKilled): he died on the seat. His
-  // body falls from where it rode, and the seat is promoted as after an exit.
-  vacate(lease, { placement = true, promote, post = null, policy = 'classic', force = false, reason = 'exit' } = {}) {
-    if (lease.released) return true;
-    const v = lease.vehicle;
-    const index = lease.index;
-    const unit = lease.unit;
-    if (reason === 'exit' && !force && !mayLeave(v, lease)) return false;
-    const airborne = inFlight(v);
-    const fall = reason === 'killed' && unit?.soldier ? this.seatsWorld.riderDrop(v, index, unit, this.riderPoint) : null;
-    let spot = null;
-    let yaw = 0;
-    if (placement && !lease.human && unit?.soldier && unit.alive && !unit.dead) {
-      if (policy === 'safe' || personLease(lease)) {
-        if (!personExitPoint(this.seatsWorld, v, this.exitSpot.position, this.safeScratch, airborne || force)) return false;
-        spot = this.exitSpot.position;
-        yaw = v.seats[index]?.aimYaw ?? v.aimYaw;
-      } else {
-        v.seatFrameForward(index, this.direction);
-        v.sphere(this.center);
-        classicSeatExit(this.seatsWorld, { origin: v.position, forward: this.direction, center: this.center, radius: v.boundRadius, body: v.body }, this.exitSpot);
-        spot = this.exitSpot.position;
-        yaw = Math.atan2(this.exitSpot.forward.x, this.exitSpot.forward.z);
-      }
-    }
-    lease.released = true;
-    lease.exitRequest = null;
-    if (v.seats[index]?.lease === lease) v.seats[index].lease = null;
-    if (unit && unit.seat === lease) {
-      unit.seat = null;
-      unseatBody(unit);
-    }
-    if (fall) dropBody(unit, fall, v.shieldsRiders() ? null : v.body);
-    if (reason === 'killed' ? promote ?? true : reason === 'exit' && (promote ?? this.seatsWorld.controllerState(unit) !== 5)) this.promote(v, index);
-    if (spot) placeOnFoot(unit, spot, yaw, { midair: airborne && personLease(lease), world: this.seatsWorld });
-    this.seatsWorld.unboarded(unit, v, index, post, reason);
-    return true;
-  }
-
-  // The 2004 game's seat promotion after an exit: the last bot aboard (in
-  // seat order) moves into the vacated seat; a person aboard is never moved.
-  // Its batch's edges are dropped (they were for the other seat); held values
-  // carry on. Only a bot in a later seat moves up: the loop's eligibility
-  // test (a field that must equal 2) is not resolved, and taking any seat
-  // moved an AT-AT's pilot into the gun seat each time its idle gunner left
-  // (every 10 s on Hoth), leaving the walker standing driverless until
-  // someone boarded.
-  promote(v, index) {
-    if (!v.alive || !v.seatFree(index)) return null;
-    let from = -1;
-    for (let i = index + 1; i < v.seats.length; i++) if (v.crewed(i) && !personLease(v.seats[i].lease) && v.seats[i].lease.live) from = i;
-    if (from < 0) return null;
-    return this.move(v.seats[from].lease, index);
-  }
-
-  move(lease, index) {
-    const v = lease.vehicle;
-    if (v.seats[lease.index]?.lease === lease) v.seats[lease.index].lease = null;
-    v.seats[index].lease = lease;
-    lease.index = index;
-    lease.role = seatRole(v.seats, index);
-    const input = lease.input;
-    input.pressed[0] = input.pressed[1] = false;
-    input.reload = input.exit = false;
-    v.setSeatPolicy(index, lease.human || Boolean(lease.unit?.networkHuman), lease.human ? null : this.seatRandom);
-    // A new control for the AI to drive (the original game attaches the pilot
-    // to the vacated control afresh).
-    if (!lease.human && !lease.unit?.networkHuman) lease.controllable = this.seatsWorld.controllable(lease);
-    this.seatsWorld.moved(lease.unit, v, index);
-    return lease;
-  }
-
-  // The player takes a seat a bot holds: the bot moves to the next free
-  // seat after its own, or, with none, gets out (no promotion), as the
-  // original game's enter callback does.
-  displace(lease) {
-    const v = lease.vehicle;
-    for (let k = 1; k < v.seats.length; k++) {
-      const i = (lease.index + k) % v.seats.length;
-      if (v.seatFree(i)) return this.move(lease, i);
-    }
-    this.vacate(lease, { placement: true, promote: false, reason: 'displaced' });
-    return null;
-  }
-
-  // A hull destroyed: every bot aboard is let go of its seat, all at once,
-  // then dies, credited to whoever destroyed it.
-  destroyedCrew(v) {
-    const dying = [];
-    for (const seat of v.seats) {
-      const lease = seat.lease;
-      if (!lease || lease.human) continue;
-      this.vacate(lease, { placement: false, promote: false, reason: 'destroyed' });
-      if (lease.unit?.alive && !lease.unit.combat?.dead) dying.push(lease.unit);
-    }
-    for (const unit of dying) this.seatsWorld.kill(unit, v.lastAttacker ?? null);
-  }
-
-  // The snowspeeder's harpoon (docs/feature-audit.md "Hoth"): a towcable
-  // round cast LockOnRange along the gun from the rear seat's turret node.
-  // It holds only a leg of an enemy command walker (the AT-AT's thigh,
-  // calf or foot; a hit on the body glances off), where the cable anchors.
-  // A bot's harpoon is re-aimed at the nearest leg when its aim struck the
-  // body. The cable's state lives on the source hull as plain fields; the
-  // line that draws it is the page's (drawTethers). def: the weapon's.
-  launchTow(source, def, origin, direction, seatIndex = 0, lease = null) {
-    const range = Math.max(20, def.LockOnRange || 0);
-    let hit = this.world.cast(origin, direction, range, this.hit, source.body);
-    let target = hit?.body?.owner;
-    const walker = (v) => v instanceof Vehicle && v.alive && v.base === 'commandwalker' && v.team !== source.team;
-    if (!walker(target)) return false;
-    let leg = target.legAt(hit.point, this.center);
-    if (!leg && lease && target.legs.length) {
-      // The bot's harpoon: at the leg nearest the gun instead.
-      let best = null, span = Infinity;
-      for (const l of target.legs) {
-        target.legPoint(l.name, this.direction);
-        const d = this.direction.distanceToSquared(origin);
-        if (d < span) { span = d; best = l; }
-      }
-      target.legPoint(best.name, this.direction).sub(origin);
-      const far = this.direction.length();
-      hit = far > 1e-3 && this.world.cast(origin, this.direction.divideScalar(far), Math.min(range, far + 2), this.hit, source.body);
-      if (hit?.body?.owner === target) leg = target.legAt(hit.point, this.center);
-    }
-    if (!leg) return false;
-    if (source.towTarget >= 0) this.releaseTow(source, 'retow');
-    let tether = this.tethers.get(source);
-    if (!tether) {
-      tether = { source, target: null, def: null, line: null, start: new THREE.Vector3(), end: new THREE.Vector3(), seat: 0 };
-      this.tethers.set(source, tether);
-    }
-    tether.target = target; tether.def = def; tether.seat = seatIndex;
-    tether.length = Math.max(10, def.ordnance?.CableLength || 60);
-    source.towTarget = this.vehicles.indexOf(target);
-    source.towLocal.copy(this.center);
-    source.towLeg = leg;
-    source.towAngle = Math.atan2(source.position.x - target.position.x, source.position.z - target.position.z);
-    source.towWinding = 0;
-    this.world.sound("towAttach", source, def);
-    return true;
-  }
-
-  // The cable let go: the walker fell, the cable snapped (stretched too
-  // far) or one end died. (A new harpoon cannot fly while it holds:
-  // Vehicle.towHeld.)
-  releaseTow(source, reason = 'released') {
-    if (source.towTarget < 0) return;
-    const tether = this.tethers.get(source);
-    source.towTarget = -1; source.towWinding = 0; source.towLeg = '';
-    if (tether?.line) tether.line.visible = false;
-    if (tether?.def && reason !== 'destroyed') this.world.sound("towRelease", source, tether.def, reason);
-  }
-
-  // The enemy command walker nearest a hull within range, or null.
-  nearestWalker(source, range) {
-    let best = null, span = range * range;
-    for (const v of this.vehicles) {
-      if (!v.alive || v.base !== 'commandwalker' || v.team === source.team) continue;
-      const d = v.position.distanceToSquared(source.position);
-      if (d < span) { span = d; best = v; }
-    }
-    return best;
-  }
-
   // The gun end of a hull's cable: its tow seat's turret node, else its
   // centre. presented: as drawn between ticks.
   towGun(source, out, presented = false) {
@@ -2486,33 +1765,6 @@ export class Vehicles {
     const turret = source.seats[tether?.seat ?? 1]?.view.turret || source.seats.find((s) => s.view.turret)?.view.turret;
     if (turret) return turret.getWorldPosition(out);
     return out.copy(source.center).applyMatrix4(presented ? source.root.matrixWorld : source.matrix);
-  }
-
-  // The tick: each held cable's winding, breaking and the walker's fall.
-  // Opposite turns unwind the cable; three complete circuits bring a
-  // command walker down; distance and destruction break it. Nothing else
-  // does: the 2004 game's cable tests its run only against the
-  // walker it holds, wrapping round its legs, so another walker, a craft or
-  // the ground between does not cut it. (The port's cable used to snap on
-  // anything between: on Hoth, where the two AT-ATs walk close together,
-  // the bots' cables were cut by the other walker before three circuits.)
-  updateTethers() {
-    for (const tether of this.tethers.values()) {
-      const { source, target } = tether;
-      if (source.towTarget < 0) continue;
-      this.towGun(source, tether.start);
-      tether.end.copy(source.towLocal).applyMatrix4(target.matrix);
-      const span = tether.start.distanceTo(tether.end);
-      if (!source.alive || !target.alive) { this.releaseTow(source, 'destroyed'); continue; }
-      if (span > tether.length * 1.2) { this.releaseTow(source, 'snapped'); continue; }
-      const around = Math.atan2(source.position.x - target.position.x, source.position.z - target.position.z);
-      source.towWinding += angle(around - source.towAngle);
-      source.towAngle = around;
-      if (Math.abs(source.towWinding) >= 6 * Math.PI) {
-        this.releaseTow(source, 'tripped');
-        target.damage(Infinity, source.seats[tether.seat]?.lease?.unit ?? source);
-      }
-    }
   }
 
   // The page's frame: each held cable as a line from the anchor on the
@@ -2648,7 +1900,7 @@ export class VehicleDriver {
   look(dx, dy, sensitivity, invert) {
     const v = this.vehicle;
     if (!v) return;
-    seatLook(v, v.seatIndex, dx, dy, { scale: sensitivity, invert, flightScale: this.flightSensitivity ?? 1, flightInvert: Boolean(this.flightInvert) });
+    predictionSeatLook(v, v.seatIndex, dx, dy, { scale: sensitivity, invert, flightScale: this.flightSensitivity ?? 1, flightInvert: Boolean(this.flightInvert) });
   }
   // Preview unacknowledged mouse counts for the reticle without changing
   // the authoritative seat or its weapon ray. Rebuild from the current seat
@@ -2693,49 +1945,10 @@ export class VehicleDriver {
     const owner = this.combat?.owner;
     return owner && typeof owner === 'object' ? owner : null;
   }
-  enter(v) {
-    if (this.active || !v?.alive || v.driver || this.combat.dead) return false;
-    // The seat he last used, if it is free; else, as the original game seats a
-    // player, the first seat that is free or a bot holds (the bot moves on
-    // or gets out). Never a hull held by anyone but his friends (src/
-    // boarding.js boardingSeat).
-    const team = this.unit?.team ?? this.combat?.team ?? 0;
-    const index = boardingSeat(v, { team, person: true, relation: v.system?.relation, preferred: v.seatIndex });
-    if (index < 0 || !claimSeat(v, index)) return false;
-    v.seatIndex = index;
-    this.vehicle = v; v.humanDriver = this; v.driver = this.soldier; v.sleeping = false;
-    v.restAim(index);
-    this.takeSeat(v, index);
-    this.combat.mounted = true;
-    this.combat.zoomed = false;
-    this.combat.gunUnderwater = false;
-    this.soldier.air = null;
-    this.soldier.velocity.set(0, 0, 0);
-    this.cameraSet = false;
-    this.sync();
-    return true;
-  }
+  
   // The player's lease on seat index (src/seats.js); his unit's seat while
   // he sits, so soldier raycasts pass him by as they do seated bots.
-  takeSeat(v, index) {
-    const unit = this.unit;
-    const lease = new SeatLease({ unit, human: true, team: unit?.team ?? this.combat?.team ?? 0, vehicle: v, index, role: seatRole(v.seats, index),
-      time: v.system?.time ?? 0, tick: v.system?.ticks ?? 0 });
-    v.seats[index].lease = lease;
-    if (unit) {
-      unit.seat = lease;
-      unit.targetable = false; // perception targets the vehicle while he sits
-    }
-    v.setSeatPolicy(index, true);
-    this.lease = lease;
-  }
-  sync() {
-    const v = this.vehicle;
-    if (!v) return;
-    poseRider(v, v.seatIndex, this.soldier, this.actor, this.animator, this.clips, this.presentation, this.point);
-    // His hit shapes follow the hull (Unit.updateSpheres).
-    if (this.unit) this.unit.tickCount += 1;
-  }
+  
 
   // After the soldier's animation is sampled: the body at its seat node, or
   // its posed pelvis on a saddle (seatRider). On an enclosed seat (no rider
@@ -2743,58 +1956,25 @@ export class VehicleDriver {
   // for everyone else's: each own correction shows the body again
   // (EntityGameState.correct), which left it standing on top of the hull
   // (the droid starfighter on Bespin: Platforms).
+  // The page's own replicated lease arrives independently of its body packet.
+  // Attach the view body immediately; native world crews are never driven here.
+  syncReplica() {
+    const v = this.vehicle;
+    if (!v) return;
+    poseRider(v, v.seatIndex, this.soldier, this.actor, this.animator, this.clips, this.presentation, this.point);
+    // His hit shapes follow the hull (Unit.updateSpheres).
+    if (this.unit) this.unit.tickCount += 1;
+  }
+
   presentRider(dt) {
     const v = this.vehicle;
     if (!v) return;
     if (!v.seats[v.seatIndex]?.view.rider?.node) { this.actor.root.visible = false; return; }
     this.riderLean = seatRider(v, v.seatIndex, this.actor, dt, this.riderLean, this);
   }
-  update(dt, controls) {
-    const v = this.vehicle;
-    if (!v) return;
-    if (!v.alive) { this.release(); return; }
-    // The camera eases over to the new seat's view, as the chase camera
-    // does whenever it is less than 80 m from where it should be.
-    if (controls.take('nextPrimary') && v.seats.length > 1) this.nextSeat(v);
-    if (controls.take('previousPrimary') && v.seats.length > 1) this.nextSeat(v, -1);
-    controls.take('nextSecondary'); controls.take('zoom');
-    v.fire(dt, controls);
-    this.sync();
-  }
-  // F (1 in a craft): on to the next seat, 2 back (src/boarding.js
-  // switchSeat). A bot holding that seat trades places, as the 2004 game's
-  // seat switch does. That switch hands each seat's control to its new
-  // controller with the controls cleared and turns nothing, so back at the
-  // pilot's seat he aims along the hull, which never swings to where a gun
-  // looked. Into a gunner's seat his view goes with him, inside its arc (the
-  // port's choice).
-  nextSeat(v, direction = 1) {
-    const lease = this.lease?.vehicle === v && !this.lease.released ? this.lease : null;
-    const to = switchSeat(v.system, v, lease, v.seatIndex, direction);
-    if (to < 0) return;
-    v.seatIndex = to;
-    v.setSeatPolicy(to, true);
-  }
-  // E: out (src/boarding.js mayLeave), at a clear spot beside the hull. In
-  // a craft in flight he bails out beside it and falls from there, at rest,
-  // as the original game's seat exit leaves a soldier (the craft comes down
-  // without him: src/flight/pilotless.js). Boxed in on the ground he stays
-  // aboard rather than being put somewhere he could not reach.
-  exit(force = false) {
-    const v = this.vehicle;
-    if (!v) return true;
-    const airborne = inFlight(v);
-    if (!personExitPoint(this.collision, v, this.point, this, airborne || force)) { this.hud.message('Exit blocked: move to open ground'); return false; }
-    const yaw = v.aimYaw;
-    this.release(true);
-    placeOnFoot({ soldier: this.soldier, presentation: this.presentation, animator: this.animator, actor: this.actor }, this.point, yaw, { midair: airborne });
-    return true;
-  }
-  // Out of the seat: on a death, a respawn or the hull's destruction, or
-  // (voluntary) getting out, when the last bot aboard takes over his seat
-  // as the original game's exit does. killed: he died on the seat (src/
-  // boarding.js leaveKilled): his body falls from where it rode, its death
-  // under way, and the seat is promoted as after an exit.
+  
+  // EntitySeats releases the page view after a seat packet, death or respawn.
+  // The authoritative owner has already chosen promotion and exit placement.
   release(voluntary = false, killed = false) {
     const v = this.vehicle || this.lease?.vehicle || this.unit?.seat?.vehicle;
     if (!v) return;
@@ -2810,7 +1990,7 @@ export class VehicleDriver {
         lease.unit.targetable = true;
       }
       this.lease = null;
-      if (voluntary || killed) v.system?.promote?.(v, lease.index);
+
     }
     const unit = this.unit || { soldier: this.soldier, combat: this.combat, actor: this.actor, animator: this.animator };
     // Repair either end even if a replica/respawn already replaced the lease.
@@ -2861,7 +2041,6 @@ export class VehicleDriver {
     this.hiddenHull = v;
   }
 }
-
 
 const chaseSpecs = new WeakMap();
 function chaseSpec(v) {

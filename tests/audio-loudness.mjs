@@ -43,7 +43,10 @@ async function battle(quality, profile) {
   const { page } = run;
   await page.evaluate(async () => {
     const a = window.__bf.audio;
-    for (let i = 0; i < 600 && !(a.ready && a.started); i++) await new Promise((r) => setTimeout(r, 100));
+    for (let i = 0; i < 600 && !(a.ready && a.started); i++) {
+      if (a.error || a.engine.renderer.error) throw a.error || a.engine.renderer.error;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     if (!(a.ready && a.started)) throw new Error("the battle's sound didn't load (run tools/extract.py)");
   });
   const result = await page.evaluate(
@@ -54,6 +57,10 @@ async function battle(quality, profile) {
       await ctx.resume();
       const { DYNAMICS, LIGHT_LEVELS } = await import("/src/audio/spatial.js");
       const r = engine.renderer;
+      if (r.error) throw r.error;
+      // Keep codec startup outside the loudness window. A missing decoder
+      // must fail this run instead of measuring original replacement clips.
+      if (r.enhanced) await engine.enhanced?.loading;
       if (r.enhanced !== (quality === "enhanced") || r.mode !== "stereo") throw new Error(`renderer is ${r.enhanced ? "enhanced" : "original"} ${r.mode}`);
       // The original on stereo is the light mix: a level per profile and
       // a soft clip in place of the limiter.
@@ -92,6 +99,7 @@ async function battle(quality, profile) {
       b.keys.clear();
       await new Promise((res) => setTimeout(res, 300));
       r.meter(false);
+      if (r.error) throw r.error;
       const last = readings.at(-1);
       if (!last) throw new Error("Rust meter produced no readings");
       const st = readings.slice(30).map((m) => m.shortTerm).filter((x) => Number.isFinite(x) && x > -70);

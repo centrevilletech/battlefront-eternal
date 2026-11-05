@@ -13,7 +13,9 @@ function mounted() {
   const actor = { root: new THREE.Group() }, animator = { gunner() {}, reset() {} }, combat = { dead: false, mounted: false, team: 1 };
   const unit = { id: 7, generation: 1, alive: true, soldier, actor, animator, combat }; combat.owner = unit;
   const driver = new VehicleDriver({ vehicles: f.system, soldier, combat, actor, animator, camera: f.system.camera, collision: f.c, hud: { message() {} }, presentation: { reset() {} } });
-  assert.ok(driver.enter(f.v));
+  const reader = new EntitySeats({ units: { byId: () => unit }, driver });
+  reader.setLease(null, f.v, [unit.id, 1, 'pilot', unit.generation], value => { f.v.seats[0].lease = value; });
+  driver.vehicle = f.v; f.v.driver = soldier; f.v.humanDriver = driver;
   return { ...f, driver, unit, soldier, combat };
 }
 

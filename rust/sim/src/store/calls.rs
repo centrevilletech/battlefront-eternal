@@ -48,6 +48,11 @@ impl Default for Events {
 }
 
 impl Events {
+    /// Reserve the phase journal while loading, before gameplay can emit.
+    pub fn reserve(&mut self, words: usize, row: usize, heap: usize) {
+        self.words.reserve(words.saturating_sub(self.words.len()));
+        self.row.reserve(row); self.heap.reserve(heap);
+    }
     /// Emits an event of `code` whose record is `words` words long.
     pub fn emit(&mut self, code: u32, words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) {
         self.row.clear();

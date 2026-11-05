@@ -36,7 +36,7 @@ test('skinned vehicle barrel tips use inverse bind space', () => {
   assert.ok(new THREE.Vector3(...tip).distanceTo(new THREE.Vector3(0, 0, 2)) < 1e-5);
 });
 
-test('turret aiming reads do not consume barrels; only shots alternate', () => {
+test('turret presentation reads retain the published barrel', () => {
   const root = new THREE.Group(), left = new THREE.Object3D(), right = new THREE.Object3D();
   left.position.set(-1, 2, 3); right.position.set(1, 2, 3); root.add(left, right);
   const turret = { rig: { root }, gun: root, firePoints: [left, right], barrel: 0 };
@@ -44,8 +44,8 @@ test('turret aiming reads do not consume barrels; only shots alternate', () => {
   for (let shot = 0; shot < 6; shot++) {
     for (let read = 0; read < 5; read++) Turret.prototype.muzzle.call(turret, p, d);
     assert.equal(turret.barrel, shot);
-    Turret.prototype.muzzle.call(turret, p, d, true);
     assert.equal(p.x, shot % 2 ? 1 : -1);
+    turret.barrel++; // the next authoritative barrel arrives with its record
   }
 });
 

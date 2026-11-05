@@ -21,8 +21,9 @@ export const ClientHeld_INDEX = new Map(ClientHeld_NAMES.map((name, i) => [name,
 export const ClientAction_NAMES = ["jump","crouch","prone","use","firePrimary","fireSecondary","reload","nextPrimary","previousPrimary","nextSecondary","zoom"];
 export const ClientAction_INDEX = new Map(ClientAction_NAMES.map((name, i) => [name, i]));
 
-export const CLIENT_WEAPONS_WORDS = 1;
-export const CLIENT_WEAPONS_OFFSETS = Object.freeze({ count: 0 });
+export const ClientWeaponsLayout = Object.freeze({ words: 1, count: 0 });
+export const CLIENT_WEAPONS_WORDS = ClientWeaponsLayout.words;
+export const CLIENT_WEAPONS_OFFSETS = ClientWeaponsLayout;
 
 export class ClientWeaponsMirror {
   constructor() {
@@ -53,8 +54,9 @@ export function exportClientWeapons(o, cx) {
   return v;
 }
 
-export const CLIENT_ARSENAL_TAIL_WORDS = 4;
-export const CLIENT_ARSENAL_TAIL_OFFSETS = Object.freeze({ primary: 0, secondary: 1, zoomStep: 2, barrelsCount: 3 });
+export const ClientArsenalTailLayout = Object.freeze({ words: 4, primary: 0, secondary: 1, zoomStep: 2, barrelsCount: 3 });
+export const CLIENT_ARSENAL_TAIL_WORDS = ClientArsenalTailLayout.words;
+export const CLIENT_ARSENAL_TAIL_OFFSETS = ClientArsenalTailLayout;
 
 export class ClientArsenalTailMirror {
   constructor() {
@@ -100,8 +102,9 @@ export function exportClientArsenalTail(o, cx) {
   return v;
 }
 
-export const CLIENT_BARREL_RESULT_WORDS = 2;
-export const CLIENT_BARREL_RESULT_OFFSETS = Object.freeze({ barrel: 0, written: 1 });
+export const ClientBarrelResultLayout = Object.freeze({ words: 2, barrel: 0, written: 1 });
+export const CLIENT_BARREL_RESULT_WORDS = ClientBarrelResultLayout.words;
+export const CLIENT_BARREL_RESULT_OFFSETS = ClientBarrelResultLayout;
 
 export class ClientBarrelResultMirror {
   constructor() {
@@ -137,8 +140,9 @@ export function exportClientBarrelResult(o, cx) {
   return v;
 }
 
-export const CLIENT_MOUNT_WORDS = 2;
-export const CLIENT_MOUNT_OFFSETS = Object.freeze({ advance: 0, tow: 1 });
+export const ClientMountLayout = Object.freeze({ words: 2, advance: 0, tow: 1 });
+export const CLIENT_MOUNT_WORDS = ClientMountLayout.words;
+export const CLIENT_MOUNT_OFFSETS = ClientMountLayout;
 
 export class ClientMountMirror {
   constructor() {
@@ -174,8 +178,9 @@ export function exportClientMount(o, cx) {
   return v;
 }
 
-export const CLIENT_MUZZLES_WORDS = 2;
-export const CLIENT_MUZZLES_OFFSETS = Object.freeze({ barrels: 0 });
+export const ClientMuzzlesLayout = Object.freeze({ words: 2, barrels: 0, barrelsLength: 1 });
+export const CLIENT_MUZZLES_WORDS = ClientMuzzlesLayout.words;
+export const CLIENT_MUZZLES_OFFSETS = ClientMuzzlesLayout;
 
 export class ClientMuzzlesMirror {
   constructor() {
@@ -206,8 +211,9 @@ export function exportClientMuzzles(o, cx) {
   return v;
 }
 
-export const CLIENT_FRAME_WORDS = 35;
-export const CLIENT_FRAME_OFFSETS = Object.freeze({ epoch: 0, identity: 1, generation: 2, source: 3, authorityTick: 4, mode: 5, mountsAt: 6, mountsCount: 7, world: 8, ignored: 9, movement: 10, dead: 11, underwater: 12, shield: 13, actorAt: 14, actorWords: 15, correctionAt: 16, correctionBytes: 17, weaponsAt: 18, weaponsWords: 19, flagsAt: 20, flagsCount: 21, commandsAt: 22, commandsCount: 23, crowdAt: 24, crowdCount: 25, held: 26, presentedThrough: 27, cosmeticSlots: 28, mouseScale: 29, invert: 30, kick: 31, checkTick: 34 });
+export const ClientFrameLayout = Object.freeze({ words: 35, epoch: 0, identity: 1, generation: 2, source: 3, authorityTick: 4, mode: 5, mountsAt: 6, mountsCount: 7, world: 8, ignored: 9, movement: 10, dead: 11, underwater: 12, shield: 13, actorAt: 14, actorWords: 15, correctionAt: 16, correctionBytes: 17, weaponsAt: 18, weaponsWords: 19, flagsAt: 20, flagsCount: 21, commandsAt: 22, commandsCount: 23, crowdAt: 24, crowdCount: 25, held: 26, presentedThrough: 27, cosmeticSlots: 28, mouseScale: 29, invert: 30, kick: 31, checkTick: 34 });
+export const CLIENT_FRAME_WORDS = ClientFrameLayout.words;
+export const CLIENT_FRAME_OFFSETS = ClientFrameLayout;
 
 export class ClientFrameMirror {
   constructor() {
@@ -398,8 +404,9 @@ export function exportClientFrame(o, cx) {
   return v;
 }
 
-export const CLIENT_COMMAND_WORDS = 16;
-export const CLIENT_COMMAND_OFFSETS = Object.freeze({ tick: 0, generation: 1, sequence: 2, sent: 3, held: 4, actions: 5, lookAt: 6, lookCount: 7, mouseScale: 8, invert: 10, primaryCount: 12, primaryId: 13, secondaryCount: 14, secondaryId: 15 });
+export const ClientCommandLayout = Object.freeze({ words: 16, tick: 0, generation: 1, sequence: 2, sent: 3, held: 4, actions: 5, lookAt: 6, lookCount: 7, mouseScale: 8, invert: 10, primaryCount: 12, primaryId: 13, secondaryCount: 14, secondaryId: 15 });
+export const CLIENT_COMMAND_WORDS = ClientCommandLayout.words;
+export const CLIENT_COMMAND_OFFSETS = ClientCommandLayout;
 
 export class ClientCommandMirror {
   constructor() {
@@ -495,8 +502,9 @@ export function exportClientCommand(o, cx) {
   return v;
 }
 
-export const CLIENT_LOOK_WORDS = 2;
-export const CLIENT_LOOK_OFFSETS = Object.freeze({ x: 0, y: 1 });
+export const ClientLookLayout = Object.freeze({ words: 2, x: 0, y: 1 });
+export const CLIENT_LOOK_WORDS = ClientLookLayout.words;
+export const CLIENT_LOOK_OFFSETS = ClientLookLayout;
 
 export class ClientLookMirror {
   constructor() {
@@ -532,8 +540,9 @@ export function exportClientLook(o, cx) {
   return v;
 }
 
-export const CLIENT_CROWD_WORDS = 6;
-export const CLIENT_CROWD_OFFSETS = Object.freeze({ position: 0, radius: 3, height: 4, center: 5 });
+export const ClientCrowdLayout = Object.freeze({ words: 6, position: 0, radius: 3, height: 4, center: 5 });
+export const CLIENT_CROWD_WORDS = ClientCrowdLayout.words;
+export const CLIENT_CROWD_OFFSETS = ClientCrowdLayout;
 
 export class ClientCrowdMirror {
   constructor() {
@@ -545,7 +554,7 @@ export class ClientCrowdMirror {
 }
 
 export function syncClientCrowd(b, f, at, h, m) {
-  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
   m.radius = f[at + 3];
   m.height = f[at + 4];
   m.center = f[at + 5];
@@ -579,8 +588,9 @@ export function exportClientCrowd(o, cx) {
   return v;
 }
 
-export const CLIENT_RESULT_WORDS = 23;
-export const CLIENT_RESULT_OFFSETS = Object.freeze({ tick: 0, continued: 1, sequence: 2, held: 3, ticks: 4, actorAt: 5, actorWords: 6, correctionAt: 7, correctionBytes: 8, weaponsAt: 9, weaponsWords: 10, shotsAt: 11, shotsCount: 12, beforeAt: 13, beforeShot: 14, lookYaw: 15, checkFound: 16, checkPosition: 17, kick: 20 });
+export const ClientResultLayout = Object.freeze({ words: 23, tick: 0, continued: 1, sequence: 2, held: 3, ticks: 4, actorAt: 5, actorWords: 6, correctionAt: 7, correctionBytes: 8, weaponsAt: 9, weaponsWords: 10, shotsAt: 11, shotsCount: 12, beforeAt: 13, beforeShot: 14, lookYaw: 15, checkFound: 16, checkPosition: 17, kick: 20 });
+export const CLIENT_RESULT_WORDS = ClientResultLayout.words;
+export const CLIENT_RESULT_OFFSETS = ClientResultLayout;
 
 export class ClientResultMirror {
   constructor() {
@@ -624,7 +634,7 @@ export function syncClientResult(b, f, at, h, m) {
   m.beforeShot = f[at + 14];
   m.lookYaw = f[at + 15];
   m.checkFound = f[at + 16] !== 0;
-  (m.checkPosition ??= new THREE.Vector3()).set(f[at + 17], f[at + 18], f[at + 19]);
+  { const $v = (m.checkPosition ??= new THREE.Vector3()); $v.x = f[at + 17]; $v.y = f[at + 18]; $v.z = f[at + 19]; }
   { const a = (m.kick ??= new Array(3)); a[0] = f[at + 20]; a[1] = f[at + 21]; a[2] = f[at + 22]; }
   return m;
 }
@@ -701,8 +711,9 @@ export function exportClientResult(o, cx) {
   return v;
 }
 
-export const CLIENT_SHOT_WORDS = 18;
-export const CLIENT_SHOT_OFFSETS = Object.freeze({ tick: 0, sequence: 1, press: 2, held: 3, button: 4, weapon: 5, level: 6, kind: 7, yaw: 8, pitch: 9, charge: 10, target: 11, targetGeneration: 12, swing: 13, actorAt: 14, visualGun: 15 });
+export const ClientShotLayout = Object.freeze({ words: 18, tick: 0, sequence: 1, press: 2, held: 3, button: 4, weapon: 5, level: 6, kind: 7, yaw: 8, pitch: 9, charge: 10, target: 11, targetGeneration: 12, swing: 13, actorAt: 14, visualGun: 15 });
+export const CLIENT_SHOT_WORDS = ClientShotLayout.words;
+export const CLIENT_SHOT_OFFSETS = ClientShotLayout;
 
 export class ClientShotMirror {
   constructor() {

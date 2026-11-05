@@ -1,26 +1,12 @@
-//! The hulls' poses kept in the module (rust/sim/src/vehicles/module.rs):
-//! each hull's rig and pose state (`HullPose`) lives here from its
-//! first phase on, posed by aimTick and render (pose.rs) inside the phase,
-//! and the battle's JavaScript objects (the Vehicle's walk cycle and
-//! visual, its seats' aim targets, its aimers, its rig's nodes) are made to
-//! match it after each pose, so every reader there sees what it saw when
-//! JavaScript posed them.
+//! Retained hull construction shared by F2 and native replay fixtures.
+//! The pack supplies immutable rig/clip templates; vehicle-phase-data.js
+//! pullPose supplies a new facade life's initial pose once, at adoption.
+//! Native aimTick and render then keep the rig and pose in Rust. Compact
+//! generated publications expose only world-readable scalar and geometry
+//! samples; no whole rig or rider body is handed back to JavaScript.
 //!
-//! - `templates`: the vehicle pack's models as the content crate builds
-//!   them (src/vehicles.js 1952-1979: the rig, its parts, its clips, its
-//!   wheels, muzzle tips and gear foot), from the pack JavaScript loaded.
-//! - `pull`: a hull's whole pose state from JavaScript, where the module
-//!   meets the hull first and after each spawn (Vehicle.spawn resets it and
-//!   poses the hull once): everything a pose reads that is not its class's.
-//! - `inputs`: what JavaScript changes between poses each tick: the seats'
-//!   frozen aim (latchCrews) and the barrels a seat fired (fireSeat).
-//! - `out`: what a pose leaves, for JavaScript's objects.
-//!
-//! The layouts are flat lists of numbers in the hull's own order (seats,
-//! their weapons, each weapon's aimers and muzzles, the rig's nodes as the
-//! capture's rigNodes lists them): JavaScript writes and reads them in the
-//! same order (src/vehicles-sim.js), and the counts must agree, else the
-//! hull is left to JavaScript's pose.
+//! Node order matches rigNodes: root, bones, static bones and markers. A
+//! count mismatch rejects adoption instead of selecting a JavaScript pose.
 
 use super::pose::HullPose;
 use bfe_content::clips::{keep_last_tracks, load_clips};
@@ -92,9 +78,8 @@ fn flag(x: f64) -> bool {
     x != 0.0
 }
 
-/// A hull's whole pose state from JavaScript (`v` as src/vehicles-sim.js
-/// pullPose writes it): its age, hover and walk phases, walk blend and
-/// visual; per seat its last aim yaw (or none), aim rate and target (or
+/// A new facade life's pose (vehicle-phase-data.js pullPose): age, hover and
+/// walk phases, walk blend and visual; per seat its last aim yaw (or none), aim rate and target (or
 /// none), per weapon the barrel it fires next, its aimers' turn, limits
 /// flag, on-target flag, facing and whether they posed their node, and its
 /// muzzles' kick time (or none); then each rig node's position, quaternion
@@ -145,79 +130,4 @@ pub fn pull(p: &mut HullPose, v: &[f64]) -> bool {
         n.scale = Vector3::new(next(), next(), next());
     }
     true
-}
-
-/// How many numbers `inputs` reads for this pose.
-pub fn inputs_len(p: &HullPose) -> usize {
-    let mut n = 0;
-    for s in &p.seats {
-        n += 4;
-        for w in &s.weapons {
-            n += 1 + w.muzzles.len() * 2;
-        }
-    }
-    n
-}
-
-/// What JavaScript changed of a hull's pose state since its last pose:
-/// per seat the frozen aim its lease's input holds (aiming, aim), per
-/// weapon the barrel it fires next and its muzzles' kick times. Returns
-/// how many numbers it read.
-pub fn inputs(p: &mut HullPose, v: &[f64]) -> usize {
-    let mut i = 0;
-    for s in &mut p.seats {
-        s.aiming = flag(v[i]);
-        s.aim = Vector3::new(v[i + 1], v[i + 2], v[i + 3]);
-        i += 4;
-        for w in &mut s.weapons {
-            w.barrel = v[i];
-            i += 1;
-            for m in &mut w.muzzles {
-                m.kick_at = flag(v[i]).then_some(v[i + 1]);
-                i += 2;
-            }
-        }
-    }
-    i
-}
-
-/// What a pose left, for JavaScript (src/vehicles-sim.js poseOut reads it
-/// in this order): the age, walk phase and blend, the visual; per seat its
-/// last aim yaw (or none), aim rate and target (or none), and its
-/// weapons' aimers (turn, limits flag, on-target flag, facing, posed);
-/// each rig node's position and quaternion; the root's Euler angles.
-pub fn out(p: &mut HullPose, o: &mut Vec<f64>) {
-    o.push(p.age);
-    o.push(p.walk_phase);
-    o.push(p.walk_blend);
-    o.extend_from_slice(&[p.visual.x, p.visual.y, p.visual.z]);
-    for s in &p.seats {
-        match s.last_yaw {
-            Some(y) => o.extend_from_slice(&[1.0, y]),
-            None => o.extend_from_slice(&[0.0, 0.0]),
-        }
-        o.push(s.yaw_rate);
-        match s.target {
-            Some(t) => o.extend_from_slice(&[1.0, t.x, t.y, t.z]),
-            None => o.extend_from_slice(&[0.0, 0.0, 0.0, 0.0]),
-        }
-        for w in &s.weapons {
-            for a in &w.aimers {
-                let limits = match a.in_limits {
-                    None => 2.0,
-                    Some(true) => 1.0,
-                    Some(false) => 0.0,
-                };
-                o.extend_from_slice(&[a.yaw, a.pitch, limits, if a.on_target { 1.0 } else { 0.0 }, a.facing.x, a.facing.y, a.facing.z, if a.posed { 1.0 } else { 0.0 }]);
-            }
-        }
-    }
-    for k in 0..nodes(p) {
-        let n = p.rig.tree.node(k as three::NodeId);
-        let q = n.quaternion;
-        o.extend_from_slice(&[n.position.x, n.position.y, n.position.z, q.x, q.y, q.z, q.w]);
-    }
-    let root = p.rig.root;
-    let e = p.rig.tree.node_mut(root).rotation();
-    o.extend_from_slice(&[e.x, e.y, e.z]);
 }

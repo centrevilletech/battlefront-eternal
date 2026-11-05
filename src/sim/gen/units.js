@@ -86,7 +86,7 @@ export function whichHalf(b, x) {
 export function syncHalf(b, f, at, h, current) {
   switch (f[at]) {
     case 0: { let v = variantOfHalf(b, current) === 0 ? current : undefined; v = f[at + 1]; return v; }
-    case 1: { let v = variantOfHalf(b, current) === 1 ? current : undefined; (v ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]); return v; }
+    case 1: { let v = variantOfHalf(b, current) === 1 ? current : undefined; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; } return v; }
     default: throw Error('Half: no such variant');
   }
 }
@@ -202,8 +202,8 @@ export function syncIntent(b, f, at, h, m) {
   m.previousPrimary = f[at + 12] !== 0;
   m.nextSecondary = f[at + 13] !== 0;
   m.zoom = f[at + 14] !== 0;
-  { const tag = f[at + 15]; if (tag === 0) { (m.aim ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]); } else m.aim = tag === 1 ? null : undefined; }
-  { const tag = f[at + 19]; if (tag === 0) { (m.jetDirection ??= new THREE.Vector3()).set(f[at + 20], f[at + 21], f[at + 22]); } else m.jetDirection = tag === 1 ? null : undefined; }
+  { const tag = f[at + 15]; if (tag === 0) { { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; } } else m.aim = tag === 1 ? null : undefined; }
+  { const tag = f[at + 19]; if (tag === 0) { { const $v = (m.jetDirection ??= new THREE.Vector3()); $v.x = f[at + 20]; $v.y = f[at + 21]; $v.z = f[at + 22]; } } else m.jetDirection = tag === 1 ? null : undefined; }
   m.exit = f[at + 23] !== 0;
   { const tag = f[at + 24]; if (tag === 0) { m.brake = f[at + 25] !== 0; } else m.brake = tag === 1 ? null : undefined; }
   { const tag = f[at + 26]; if (tag === 0) { m.up = f[at + 27]; } else m.up = tag === 1 ? null : undefined; }
@@ -309,7 +309,7 @@ export function syncMoveInput(b, f, at, h, m) {
   m.crouch = f[at + 5] !== 0;
   m.prone = f[at + 6] !== 0;
   m.use = f[at + 7] !== 0;
-  { const tag = f[at + 8]; if (tag === 0) { (m.jetDirection ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]); } else m.jetDirection = tag === 1 ? null : undefined; }
+  { const tag = f[at + 8]; if (tag === 0) { { const $v = (m.jetDirection ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; } } else m.jetDirection = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -397,7 +397,7 @@ export class BoundsMirror {
 }
 
 export function syncBounds(b, f, at, h, m) {
-  (m.center ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
   m.radius = f[at + 3];
   return m;
 }
@@ -438,11 +438,11 @@ export class HitShapeMirror {
 export function syncHitShape(b, f, at, h, m) {
   m.type = ShapeType_NAMES[f[at + 0]];
   m.part = ShapePart_NAMES[f[at + 1]];
-  (m.center ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
   m.radius = f[at + 5];
   m.half = syncHalf(b, f, at + 6, h, m.half);
   m.yaw = f[at + 10];
-  (m.halfSize ??= new THREE.Vector3()).set(f[at + 11], f[at + 12], f[at + 13]);
+  { const $v = (m.halfSize ??= new THREE.Vector3()); $v.x = f[at + 11]; $v.y = f[at + 12]; $v.z = f[at + 13]; }
   return m;
 }
 
@@ -663,8 +663,9 @@ export function exportJet(o, cx) {
   return v;
 }
 
-export const SOLDIER_WORDS = 64;
-export const SOLDIER_OFFSETS = Object.freeze({ maxSpeed: 0, maxStrafe: 1, maxJump: 2, maxTurn: 3, maxPitch: 4, accel: 5, pitchLimits: 6, jet: 8, fuel: 15, collisionRule: 16, collisionDamage: 22, maxFlyHeight: 23, getupTime: 24, diveTime: 25, position: 26, previous: 29, settled: 32, velocity: 35, normal: 38, aimYaw: 41, aimPitch: 42, posture: 43, air: 44, dive: 46, diveFrom: 47, stateTime: 48, lock: 49, grounded: 50, lookX: 51, lookY: 52, tickLength: 53, groundAdjustment: 54, avoidance: 55, passThrough: 58, mover: 61, dead: 62 });
+export const SoldierLayout = Object.freeze({ words: 64, maxSpeed: 0, maxStrafe: 1, maxJump: 2, maxTurn: 3, maxPitch: 4, accel: 5, pitchLimits: 6, jet: 8, fuel: 15, collisionRule: 16, collisionDamage: 22, maxFlyHeight: 23, getupTime: 24, diveTime: 25, position: 26, previous: 29, settled: 32, velocity: 35, normal: 38, aimYaw: 41, aimPitch: 42, posture: 43, air: 44, dive: 46, diveFrom: 47, stateTime: 48, lock: 49, grounded: 50, lookX: 51, lookY: 52, tickLength: 53, groundAdjustment: 54, avoidance: 55, passThrough: 58, mover: 61, dead: 62 });
+export const SOLDIER_WORDS = SoldierLayout.words;
+export const SOLDIER_OFFSETS = SoldierLayout;
 
 export class SoldierMirror {
   constructor() {
@@ -722,11 +723,11 @@ export function syncSoldier(b, f, at, h, m) {
   m.maxFlyHeight = f[at + 23];
   m.getupTime = f[at + 24];
   m.diveTime = f[at + 25];
-  (m.position ??= new THREE.Vector3()).set(f[at + 26], f[at + 27], f[at + 28]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 29], f[at + 30], f[at + 31]);
-  (m.settled ??= new THREE.Vector3()).set(f[at + 32], f[at + 33], f[at + 34]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 35], f[at + 36], f[at + 37]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 38], f[at + 39], f[at + 40]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 26]; $v.y = f[at + 27]; $v.z = f[at + 28]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 29]; $v.y = f[at + 30]; $v.z = f[at + 31]; }
+  { const $v = (m.settled ??= new THREE.Vector3()); $v.x = f[at + 32]; $v.y = f[at + 33]; $v.z = f[at + 34]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 35]; $v.y = f[at + 36]; $v.z = f[at + 37]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 38]; $v.y = f[at + 39]; $v.z = f[at + 40]; }
   m.aimYaw = f[at + 41];
   m.aimPitch = f[at + 42];
   m.posture = Posture_NAMES[f[at + 43]];
@@ -740,7 +741,7 @@ export function syncSoldier(b, f, at, h, m) {
   m.lookY = f[at + 52];
   m.tickLength = f[at + 53];
   m.groundAdjustment = f[at + 54];
-  (m.avoidance ??= new THREE.Vector3()).set(f[at + 55], f[at + 56], f[at + 57]);
+  { const $v = (m.avoidance ??= new THREE.Vector3()); $v.x = f[at + 55]; $v.y = f[at + 56]; $v.z = f[at + 57]; }
   { const tag = f[at + 58]; if (tag === 0) { m.passThrough = b.refs[KIND_BODY].at(f[at + 59], f[at + 60]); } else m.passThrough = tag === 1 ? null : undefined; }
   m.mover = f[at + 61];
   { const tag = f[at + 62]; if (tag === 0) { m.dead = f[at + 63] !== 0; } else m.dead = tag === 1 ? null : undefined; }
@@ -990,8 +991,8 @@ export class BonePoseMirror {
 }
 
 export function syncBonePose(b, f, at, h, m) {
-  (m.q ??= new THREE.Quaternion()).set(f[at + 0], f[at + 1], f[at + 2], f[at + 3]);
-  (m.p ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const $q = (m.q ??= new THREE.Quaternion()); $q._x = f[at + 0]; $q._y = f[at + 1]; $q._z = f[at + 2]; $q._w = f[at + 3]; $q._onChangeCallback(); }
+  { const $v = (m.p ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   return m;
 }
 
@@ -1038,8 +1039,8 @@ export function syncRigAnimator(b, f, at, h, m) {
   m.rollOrigin = f[at + 4];
   m.transition = f[at + 5];
   { const items = (m.from ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncBonePose(b, f, at + 0, h, v ?? new BonePoseMirror()); } items[i] = v; } }
-  (m.pivot ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
-  (m.rollCenter ??= new THREE.Vector3()).set(f[at + 11], f[at + 12], f[at + 13]);
+  { const $v = (m.pivot ??= new THREE.Vector3()); $v.x = f[at + 8]; $v.y = f[at + 9]; $v.z = f[at + 10]; }
+  { const $v = (m.rollCenter ??= new THREE.Vector3()); $v.x = f[at + 11]; $v.y = f[at + 12]; $v.z = f[at + 13]; }
   return m;
 }
 
@@ -1229,8 +1230,8 @@ export class UnitsCombatViewMirror {
 export function syncUnitsCombatView(b, f, at, h, m) {
   m.unit = f[at + 0];
   m.dead = f[at + 1] !== 0;
-  (m.pivot ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  (m.origin ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.pivot ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   return m;
 }
 
@@ -1438,7 +1439,7 @@ export class UnitAimAnswerMirror {
 }
 
 export function syncUnitAimAnswer(b, f, at, h, m) {
-  { const tag = f[at + 0]; if (tag === 0) { (m.aim ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]); } else m.aim = tag === 1 ? null : undefined; }
+  { const tag = f[at + 0]; if (tag === 0) { { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; } } else m.aim = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -1579,7 +1580,7 @@ export class UnitSplashMirror {
 }
 
 export function syncUnitSplash(b, f, at, h, m) {
-  (m.at ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  { const $v = (m.at ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
   return m;
 }
 
@@ -1601,8 +1602,9 @@ export function exportUnitSplash(o, cx) {
   return v;
 }
 
-export const DROIDEKA_WORDS = 77;
-export const DROIDEKA_OFFSETS = Object.freeze({ def: 0, maxTurn: 1, pitchLimits: 2, speed: 4, turnThreshold: 5, ballRadius: 6, maxSpin: 7, maxBallSlope: 8, eyeHeight: 9, rootIndex: 10, maxFlyHeight: 11, collisionRule: 12, collisionDamage: 18, position: 19, previous: 22, settled: 25, velocity: 28, avoidance: 31, aimYaw: 34, aimPitch: 35, stateTime: 36, grounded: 37, lookX: 38, lookY: 39, mode: 40, time: 41, reverse: 42, legs: 43, spin: 44, roll: 45, lean: 46, dead: 47, blastClock: 48, gun: 49, lastGun: 50, shield: 53, waterClock: 60, muzzleAnimator: 62 });
+export const DroidekaLayout = Object.freeze({ words: 77, def: 0, maxTurn: 1, pitchLimits: 2, speed: 4, turnThreshold: 5, ballRadius: 6, maxSpin: 7, maxBallSlope: 8, eyeHeight: 9, rootIndex: 10, maxFlyHeight: 11, collisionRule: 12, collisionDamage: 18, position: 19, previous: 22, settled: 25, velocity: 28, avoidance: 31, aimYaw: 34, aimPitch: 35, stateTime: 36, grounded: 37, lookX: 38, lookY: 39, mode: 40, time: 41, reverse: 42, legs: 43, spin: 44, roll: 45, lean: 46, dead: 47, blastClock: 48, gun: 49, lastGun: 50, shield: 53, waterClock: 60, muzzleAnimator: 62 });
+export const DROIDEKA_WORDS = DroidekaLayout.words;
+export const DROIDEKA_OFFSETS = DroidekaLayout;
 
 export class DroidekaMirror {
   constructor() {
@@ -1661,11 +1663,11 @@ export function syncDroideka(b, f, at, h, m) {
   m.maxFlyHeight = f[at + 11];
   m.collisionRule = syncCollisionRule(b, f, at + 12, h, m.collisionRule ?? new CollisionRuleMirror());
   m.collisionDamage = f[at + 18];
-  (m.position ??= new THREE.Vector3()).set(f[at + 19], f[at + 20], f[at + 21]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 22], f[at + 23], f[at + 24]);
-  (m.settled ??= new THREE.Vector3()).set(f[at + 25], f[at + 26], f[at + 27]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 28], f[at + 29], f[at + 30]);
-  (m.avoidance ??= new THREE.Vector3()).set(f[at + 31], f[at + 32], f[at + 33]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 19]; $v.y = f[at + 20]; $v.z = f[at + 21]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 22]; $v.y = f[at + 23]; $v.z = f[at + 24]; }
+  { const $v = (m.settled ??= new THREE.Vector3()); $v.x = f[at + 25]; $v.y = f[at + 26]; $v.z = f[at + 27]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 28]; $v.y = f[at + 29]; $v.z = f[at + 30]; }
+  { const $v = (m.avoidance ??= new THREE.Vector3()); $v.x = f[at + 31]; $v.y = f[at + 32]; $v.z = f[at + 33]; }
   m.aimYaw = f[at + 34];
   m.aimPitch = f[at + 35];
   m.stateTime = f[at + 36];

@@ -2,31 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { fixture, FIXTURE_SPEEDS, FIXTURE_HANDLING } from './flight-fixture.js';
-import { VehicleDriver } from '../src/vehicles.js';
-function mounted() {
- const f=fixture();f.v.driver=null;
- const soldier={position:new THREE.Vector3(),previous:new THREE.Vector3(),settled:new THREE.Vector3(),velocity:new THREE.Vector3(),aimYaw:0,aimPitch:0,spawn(x,y,z,yaw){this.position.set(x,y,z);this.velocity.set(0,0,0);this.aimYaw=yaw;}};
- const actor={root:new THREE.Group()},animator={gunner(){},reset(){}},combat={dead:false,mounted:false,team:1};
- const unit={id:7,generation:1,alive:true,soldier,actor,animator,combat};combat.owner=unit;
- const driver=new VehicleDriver({vehicles:f.system,soldier,combat,actor,animator,camera:f.system.camera,collision:f.c,hud:{message(){}},presentation:{reset(){}}});
- assert.ok(driver.enter(f.v));return {...f,driver,unit,soldier,combat};
-}
-test('destruction severs both seat links and clears copied ship motion without relying on a game callback',()=>{
- const f=mounted(),lease=f.driver.lease;f.v.flightState='Flying';f.v.velocity.set(90,25,10);f.driver.sync();assert.ok(f.soldier.velocity.length()>90);
- f.driver.hideHull(f.v);f.v.damage(Infinity);
- assert.equal(f.driver.vehicle,null);assert.equal(f.driver.lease,null);assert.equal(f.unit.seat,null);assert.equal(f.v.seats[0].lease,null);assert.equal(f.v.driver,null);assert.equal(f.v.humanDriver,null);assert.equal(lease.released,true);
- assert.equal(f.combat.mounted,false);assert.equal(f.soldier.velocity.length(),0);assert.equal(f.soldier.air,null);assert.equal(f.driver.hiddenHull,null);assert.equal(f.actor?.root?.rotation?.z||0,0);
- f.driver.release();f.v.spawn(1);assert.ok(f.driver.enter(f.v));assert.ok(f.driver.exit());assert.equal(f.unit.seat,null);assert.equal(f.combat.mounted,false);
-});
-test('exit airborne bails out beside the craft, at rest; landed he steps out; stale local lease is repaired',()=>{
- const f=mounted();f.v.flightState='Flying';f.v.position.set(0,120,0);f.v.velocity.set(0,0,60);f.v.syncBody();f.driver.sync();
- assert.equal(f.driver.exit(),true);assert.equal(f.unit.seat,null);assert.equal(f.v.seats[0].lease,null);assert.equal(f.combat.mounted,false);
- assert.ok(Math.abs(f.soldier.position.y-120)<1e-9,'left in the air at the craft\'s height, not set on the ground below');
- assert.ok(Math.hypot(f.soldier.position.x-f.v.position.x,f.soldier.position.z-f.v.position.z)>f.v.radius,'clear of the hull');
- assert.equal(f.soldier.velocity.length(),0,'at rest, as the original game\'s exit leaves him');
- const g=mounted();g.v.flightState='Landed';g.driver.lease=null;assert.equal(g.driver.exit(),true);assert.equal(g.unit.seat,null);assert.equal(g.v.seats[0].lease,null);assert.equal(g.combat.mounted,false);
- assert.ok(Math.abs(g.soldier.position.y)<1.5,'landed, he steps out onto the floor');
-});
 test('a landing starts wherever it is asked for: a post under a wing lets it down, one under its fuselage holds it until he lifts off',async()=>{
  const {CollisionWorld}=await import('../tools/collision-fixture.mjs');const {stepFlight}=await import('../src/flight/model.js');
  const solid=(...boxes)=>{const pos=[],idx=[];for(const [x,y,z,w,h,d] of boxes){const g=new THREE.BoxGeometry(w,h,d).translate(x,y,z),base=pos.length/3;pos.push(...g.attributes.position.array);idx.push(...[...g.index.array].map(i=>i+base));}return new CollisionWorld(new Float32Array(pos),new Uint32Array(idx),new Uint32Array(idx.length/3));};

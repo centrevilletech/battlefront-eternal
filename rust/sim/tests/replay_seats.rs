@@ -418,8 +418,8 @@ impl CrewWorld for Served<'_, '_> {
         self.check_lease("updateLock lease", call.arg(6), lease);
     }
 
-    fn weapon_update(&mut self, _turret: usize, dt: f64, held: bool, pressed: bool, reload: bool) -> Vec<Shot> {
-        let Some(call) = self.call("seats.weaponUpdate") else { return Vec::new() };
+    fn weapon_update(&mut self, _turret: usize, dt: f64, held: bool, pressed: bool, reload: bool, out: &mut Vec<Shot>) {
+        let Some(call) = self.call("seats.weaponUpdate") else { return };
         self.check(check_num("weaponUpdate dt", call.arg(1), dt));
         if !call.arg(2).truthy() {
             self.fail("weaponUpdate selected: not true".into());
@@ -432,7 +432,7 @@ impl CrewWorld for Served<'_, '_> {
             self.fail(format!("weaponUpdate reload: the capture has {}, the port {reload}", call.arg(4).show()));
         }
         self.shots = call.result().items().collect();
-        self.shots.iter().map(|s| Shot { yaw: s.get("yaw").opt_num().unwrap_or(0.0), pitch: s.get("pitch").opt_num().unwrap_or(0.0) }).collect()
+        out.extend(self.shots.iter().map(|s| Shot { yaw: s.get("yaw").opt_num().unwrap_or(0.0), pitch: s.get("pitch").opt_num().unwrap_or(0.0) }));
     }
 
     fn fire(&mut self, turret: usize, origin: &Vector3, direction: &Vector3, owner: Option<u32>, lease: Ref<SeatLease>, shot: usize) -> usize {

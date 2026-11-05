@@ -22,7 +22,7 @@ use crate::gen::{Body, Post, SeatLease, SeatRole, SeatUnit, Store, Turret};
 use crate::rig::math;
 use crate::store::Ref;
 use crate::vehicles::pose::{aim_vector, look_basis};
-use std::collections::BTreeMap;
+use super::rows::Rows;
 use three::{clamp, Euler, EulerOrder, Matrix4, NodeId, Quaternion, TransformTree, Vector3};
 
 const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
@@ -185,7 +185,7 @@ pub trait CrewWorld: SeatWorld {
     fn update_lock(&mut self, turret: usize, dt: f64, origin: &Vector3, dir: &Vector3, lease: Ref<SeatLease>);
     /// Weapon.update(dt, true, { held, pressed }, reload, a standing
     /// soldier's stance): the shots it fires.
-    fn weapon_update(&mut self, turret: usize, dt: f64, held: bool, pressed: bool, reload: bool) -> Vec<Shot>;
+    fn weapon_update(&mut self, turret: usize, dt: f64, held: bool, pressed: bool, reload: bool, out: &mut Vec<Shot>);
     /// Ordnance.fire: the weapon's round from `origin` along `direction`,
     /// the lease's unit's, the turret's body left out, following the
     /// lease's emitter; what it returns, for bind_round.
@@ -508,12 +508,16 @@ pub fn turret_aim_point<W: SeatWorld + ?Sized>(w: &mut W, t: &mut TurretSide, fi
 #[derive(Clone, Debug, Default)]
 pub struct Crews {
     pub turrets: Vec<TurretSide>,
-    pub riders: BTreeMap<u32, RiderFacts>,
+    pub riders: Rows<u32,RiderFacts>,
     pub controls: Controls,
     pub made: Vec<Ref<SeatLease>>,
     /// The seat controls whose intents the updates took edges from (as
     /// Hulls::latched).
     pub latched: Vec<Ref<SeatUnit>>,
+    /// Reused snapshot of TurretSeats.update's starting leases.
+    pub updating: Vec<Ref<SeatLease>>,
+    /// Caller-owned Weapon.update output, reused across each crew.
+    pub shots: Vec<Shot>,
     /// Whether the system has a collision world (`this.collision`).
     pub collide: bool,
 }
@@ -524,7 +528,7 @@ impl Crews {
     }
 
     fn facts(&mut self, unit: u32) -> &mut RiderFacts {
-        self.riders.entry(unit).or_default()
+        self.riders.get_or_default(unit)
     }
 
     /// TurretSeats.seatOf (820).
@@ -569,7 +573,8 @@ impl Crews {
         t.gunner = Some(unit);
         t.yaw_vel = 0.0;
         t.pitch_vel = 0.0;
-        foreign!(self, st, w, w.seat_policy(Holder::Turret(self.turrets[turret].index), 0, network, true));
+        let holder = Holder::Turret(self.turrets[turret].index);
+        foreign!(self, st, w, w.seat_policy(holder, 0, network, true));
         if !network {
             let c = foreign!(self, st, w, w.controllable(r, 0, SeatRole::Gunner));
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
@@ -583,7 +588,8 @@ impl Crews {
         st.turret_seats.leases.push(r);
         self.pose(st, r);
         foreign!(self, st, w, w.crew_posed(r));
-        foreign!(self, st, w, w.boarded(unit, Holder::Turret(self.turrets[turret].index), 0));
+        let holder = Holder::Turret(self.turrets[turret].index);
+        foreign!(self, st, w, w.boarded(unit, holder, 0));
         true
     }
 
@@ -613,7 +619,8 @@ impl Crews {
         let unit = lease.unit.map(|u| u.slot);
         let died = how.kill || how.reason == Reason::Killed;
         let has_body = unit.and_then(|u| st.unit.get(unit_ref(u))).is_some();
-        let fall = if died && has_body { foreign!(self, st, w, w.rider_drop(Holder::Turret(self.turrets[turret].index), 0, unit.unwrap())) } else { None };
+        let holder = Holder::Turret(self.turrets[turret].index);
+        let fall = if died && has_body { foreign!(self, st, w, w.rider_drop(holder, 0, unit.unwrap())) } else { None };
         let mut yaw: Option<f64> = None;
         let mut spot = ExitSpot::default();
         if how.placement && !died && self.collide && has_body {
@@ -665,7 +672,8 @@ impl Crews {
             }
         }
         if !how.kill {
-            foreign!(self, st, w, w.unboarded(unit, Holder::Turret(self.turrets[turret].index), 0, how.post, how.reason));
+            let holder = Holder::Turret(self.turrets[turret].index);
+            foreign!(self, st, w, w.unboarded(unit, holder, 0, how.post, how.reason));
         }
     }
 
@@ -686,7 +694,10 @@ impl Crews {
     pub fn update<W: CrewWorld + ?Sized>(&mut self, st: &mut Store, w: &mut W, dt: f64) {
         st.turret_seats.time += dt;
         st.turret_seats.ticks += 1.0;
-        for r in st.turret_seats.leases.clone() {
+        let mut updating = std::mem::take(&mut self.updating);
+        updating.clear();
+        updating.extend_from_slice(&st.turret_seats.leases);
+        for &r in &updating {
             let lease = st.seat_lease.get(r).unwrap();
             let turret = self.turret_of(lease.turret.unwrap());
             if !self.turrets[turret].alive {
@@ -712,6 +723,7 @@ impl Crews {
             }
             self.drive(st, w, r, dt);
         }
+        self.updating = updating;
     }
 
     /// TurretSeats.drive (939): one frame of a bot or a network human at the
@@ -754,7 +766,9 @@ impl Crews {
             foreign!(self, st, w, w.update_lock(index, dt, &muzzle, &view, r));
         }
         let reload = take_reload(&mut st.seat_lease.get_mut(r).unwrap().input);
-        let shots = foreign!(self, st, w, w.weapon_update(index, dt, held, pressed, reload));
+        let mut shots = std::mem::take(&mut self.shots);
+        shots.clear();
+        foreign!(self, st, w, w.weapon_update(index, dt, held, pressed, reload, &mut shots));
         let mut view = view;
         for (k, shot) in shots.iter().enumerate() {
             let t = &mut self.turrets[turret];
@@ -776,6 +790,7 @@ impl Crews {
             foreign!(self, st, w, w.sound(index, k));
             foreign!(self, st, w, w.fired(index, k, unit, &muzzle, &gun_dir));
         }
+        self.shots = shots;
     }
 
     /// TurretSeats.pose (984): the body at the drum's seat, facing along the

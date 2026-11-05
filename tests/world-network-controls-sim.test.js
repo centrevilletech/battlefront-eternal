@@ -14,7 +14,6 @@ import { blankSeatIntent } from '../src/seats.js';
 import { mountInReach, seatScheme } from '../src/boarding.js';
 import { cycleNetworkSeat } from '../src/runtime/network-seat.js';
 import { networkVehicleInput } from '../src/runtime/network-vehicle.js';
-import { attachNetworkSeatsSim } from '../src/runtime/network-seats-sim.js';
 import { putWorldControlsArgs, putWorldControlsReply } from '../src/sim/gen/world.js';
 import { SIM_WASM } from '../src/sim-wasm.js';
 
@@ -41,7 +40,7 @@ function recordWorld(world) {
   const hash = value => createHash('sha256').update(value).digest('hex');
   const wasm = Buffer.from(SIM_WASM, 'base64');
   const files = ['tests/world-network-controls-sim.test.js', 'src/runtime/multiplayer-world.js',
-    'src/runtime/world-sim.js', 'src/runtime/world-network-controls-sim.js', 'src/runtime/network-seats-sim.js',
+    'src/runtime/world-sim.js', 'src/runtime/world-network-controls-sim.js', 'src/f2-seats.js',
     'src/runtime/network-seat.js', 'src/runtime/network-vehicle.js', 'src/runtime/input-sim.js',
     'src/runtime/commands.js', 'src/runtime/fire-commands.js', 'src/runtime/input-actions.js',
     'src/runtime/transport.js', 'src/boarding.js', 'src/flight/controls.js', 'src/seats.js',
@@ -218,14 +217,13 @@ function fixture(rt, native, options = {}) {
     } },
   };
   f.vehicle.system = f.game.vehicles;
-  if (native && options.seatsNative) {
-    const port = attachNetworkSeatsSim(f.game.vehicles, rt.world.bridge);
-    assert.equal(port.bridge, rt.world.bridge, 'P14 uses the same input/world bridge');
-    f.game.vehicles.networkSeatsSim = Object.assign(Object.create(port), {
-      cycle(...args) { f.seatCalls.cycle++; return port.cycle(...args); },
-      input(...args) { f.seatCalls.input++; return port.input(...args); },
-    });
-  }
+  // F2 is a foreign phase here. This fixture records its scalar commands;
+  // native seat behavior has its own mounted and lease golden fixtures.
+  f.game.vehicles.f2 = { seats: {
+    resetSticks(unit) { f.emit('f2.resetSticks', f.id(unit)); const v = unit.seat?.vehicle; if (v) v.stickX = v.stickY = 0; },
+    cycle(unit, direction) { f.seatCalls.cycle++; f.emit('f2.cycle', f.id(unit), direction); return true; },
+    network(vehicle, index, controls, command) { f.seatCalls.input++; f.emit('f2.network', f.id(vehicle), index, f.id(command)); },
+  } };
   f.command = f.name({ epoch: 1, sequence: 1, tick: 100, generation: 3,
     down: ['KeyW', 'KeyD', 'Mouse0', 'Space', 'ControlLeft'],
     actions: options.actions ?? ['squadMoveOut', 'squadHold', 'squadFollow', 'squadAtEase', 'nextSpawn', 'nextSpawn', 'jump', 'reload', 'zoom'],
@@ -546,25 +544,7 @@ test('turret aim reduces fresh raw collections twice and retains the pre-reducti
   assert.equal(pair.native.intent.pitch, -(-8000) * 1.5 * 60 / 2048 * -1);
 });
 
-test('seat switches read the second action after callbacks and retain a removed-seat exception', async () => {
-  const rt = await runtime();
-  for (const remove of [false, true]) {
-    const pair = twin(rt, { mode: 'drive', actions: ['nextPrimary'] }, f => {
-      f.extra.moves = 0;
-      let changed = false;
-      f.hook = op => {
-        if (op !== 'vehicle.move') return;
-        f.extra.moves++;
-        if (changed) return;
-        changed = true;
-        if (remove) f.u.seat = null;
-        else f.intent.previousPrimary = true;
-      };
-    });
-    if (remove) assert.equal(pair.result.threw, true);
-    else { assert.equal(pair.result.threw, false); assert.ok(pair.native.extra.moves >= 2); assert.equal(pair.native.intent.previousPrimary, false); }
-  }
-});
+
 
 test('mount choice uses actual reach helpers and clears use only when a seat exists', async () => {
   const rt = await runtime();
@@ -577,28 +557,7 @@ test('mount choice uses actual reach helpers and clears use only when a seat exi
   twin(rt, { mount: 'turret', actions: ['use'] }, f => { f.game.turretSeats = null; });
 });
 
-test('stop reads owners in clear order and captures the unit only after callbacks', async () => {
-  const rt = await runtime();
-  for (const inputNative of [false, true]) for (const empty of [false, true]) {
-    const pair = twin(rt, { inputNative, mode: 'drive' }, f => {
-      f.hook = op => {
-        if (op === 'mailbox.clear') f.p.controls = f.makeControls('replacement.controls', ['reload']);
-        if (op === 'replacement.controls.clear') f.p.fire = { clear() { f.emit('replacement.fire.clear'); } };
-        if (op === 'replacement.fire.clear') f.p.actions = { clear() { f.emit('replacement.actions.clear'); f.p.unit = empty ? null : f.makeUnit('late.unit'); } };
-      };
-    }, 'stop');
-    assert.equal(pair.result.threw, false);
-    assert.equal(pair.native.u.networkViewTick, 9, 'the old unit was not captured before clear callbacks');
-    if (!empty) { assert.equal(pair.native.p.unit.networkViewTick, null); assert.deepEqual(pair.native.p.unit.intent.flight, {}); }
-  }
-  twin(rt, { mode: 'drive' }, f => {
-    let value = f.vehicle.stickY;
-    const second = f.name({ stickX: 17, stickY: 19 }, 'second.vehicle'); f.extra.second = second;
-    Object.defineProperty(f.vehicle, 'stickY', { configurable: true, get: () => value, set(next) {
-      value = next; f.emit('stickY', next); f.u.seat.vehicle = second;
-    } });
-  }, 'stop');
-});
+
 
 test('falsy callback throws preserve the original value, partial state and dispatcher reuse', async () => {
   const rt = await runtime();
@@ -635,41 +594,15 @@ test('nested controls keep outer identities and results across other players and
   }
 });
 
-test('shared InputSim and P14 ports retain network order through drive, gunner, flight and seat cycles', async () => {
+test('shared InputSim and F2 commands retain network order through drive, gunner, flight and seat cycles', async () => {
   const rt = await runtime();
   for (const mode of ['drive', 'gunner', 'flight']) for (const action of [null, 'nextPrimary', 'previousPrimary']) {
     for (const reliable of [false, true]) {
       const actions = ['takeoff', 'trick', 'immelmann', 'targetLock', ...(action ? [action] : [])];
-      const pair = twin(rt, { mode, inputNative: true, seatsNative: true, actions, reliable });
+      const pair = twin(rt, { mode, inputNative: true, actions, reliable });
       assert.equal(pair.result.threw, false, `${mode}/${action}/${reliable}`);
-      assert.equal(pair.native.seatCalls.input, 1, 'the native fixture actually called P14 input');
+      assert.equal(pair.native.seatCalls.input, 1, 'the native fixture submitted F2 input');
       assert.equal(pair.native.seatCalls.cycle, action ? 1 : 0);
-    }
-  }
-});
-
-test('P14 foreign callbacks can reenter network controls, grow memory and throw falsy values', async () => {
-  const rt = await runtime();
-  for (const [mode, phase, action] of [['drive', 'vehicle.move', 'nextPrimary'],
-    ['gunner', 'vehicle.clampAim', null], ['flight', 'controls.take', 'takeoff']]) {
-    for (const fail of [false, true]) {
-      const pair = twin(rt, { mode, inputNative: true, seatsNative: true, actions: action ? [action] : [] }, f => {
-        let entered = false;
-        f.hook = (op, _, name) => {
-          if (entered || op !== phase || phase === 'controls.take' && name !== 'takeoff') return;
-          entered = true;
-          const other = fixture(rt, f.native, { mode: 'drive', inputNative: true, seatsNative: true });
-          assert.equal(run(other).threw, false);
-          f.apply({ ...f.command, look: [[2, -3]], actions: [] });
-          f.extra.nested = { trace: other.trace, state: other.view() };
-          if (f.native) rt.instance.exports.memory.grow(1);
-          if (fail) throw false;
-        };
-      });
-      assert.equal(pair.result.threw, fail, `${mode}/${fail}`);
-      assert.ok(pair.native.extra.nested, 'the targeted callback reentered the shared bridge');
-      assert.ok(pair.native.seatCalls.input + pair.native.seatCalls.cycle > 0);
-      if (fail) assert.equal(pair.native.thrown, false);
     }
   }
 });

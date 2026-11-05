@@ -1,10 +1,10 @@
-import { SeatInput } from '../src/seats.js';
+
 import * as THREE from 'three';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture } from './flight-fixture.js';
 import { predictVehicle, predictionVehicle } from '../src/runtime/vehicle-prediction.js';
-import { networkVehicleInput } from '../src/runtime/network-vehicle.js';
+import { predictionVehicleInput as networkVehicleInput } from '../src/runtime/vehicle-prediction-input.js';
 import { CommandControls } from '../src/runtime/commands.js';
 const command = tick => ({ tick, sequence:tick, epoch:1, generation:1, down:['KeyW','ShiftLeft'], actions:tick===1?['takeoff']:[], look:tick>80?[[.4,.1]]:[], flightSettings:{sensitivity:1,invert:false}, mouseScale:1 });
 const vectors = v => Object.fromEntries(Object.entries(v).filter(([,x])=>x?.isVector3||x?.isQuaternion||x?.isMatrix4).map(([k,x])=>[k,x.toArray()]));
@@ -82,12 +82,7 @@ test('network wheeled pilot steering matches local replay across held keyboard t
 });
 
 
-test('stationary network gunner preserves desktop mouse rate range while bots stay bounded',()=>{
-  const lease={turret:{},unit:{networkHuman:true},intent:{turn:12,pitch:-20,buttons:[0,0]},was:[0,0]};
-  const input=new SeatInput().latch(lease);
-  assert.equal(input.turn,12);assert.equal(input.pitch,-16);
-  lease.unit.networkHuman=false;input.latch(lease);assert.equal(input.turn,1);assert.equal(input.pitch,-1);
-});
+
 
 test('rolling predicted flight bases preserve authority identity and bounded scratch prototypes',()=>{
  const source=fixture().v,before=vectors(source),body=source.body.matrix.toArray();

@@ -54,6 +54,15 @@ mod native {
 #[cfg(not(target_arch = "wasm32"))]
 use native::*;
 
+/// seats.js placeOnFoot's Soldier.spawn boundary, shared by the live owner.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn stand_up(unit: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
+    match &mut unit.soldier {
+        UnitBody::Soldier(s) => s.spawn(x, y, z, yaw, &mut Ground),
+        UnitBody::Droideka(_) => unreachable!("a droideka never sits"),
+    }
+}
+
 /// Vehicles.latchCrews on the store (the command seatLatch): every hull's
 /// stale leases let go, every bot's intent frozen for this update, and the
 /// exits asked for carried out.
@@ -235,9 +244,15 @@ impl SeatWorld for JsSeats {
 struct Ground;
 
 impl UnitsWorld for Ground {
+    #[cfg(target_arch = "wasm32")]
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit> {
-        let h = import_seat_cast(&SeatRay { origin: a3(origin), direction: a3(direction), far, ignore: None });
-        h.found.then(|| CastHit { point: v3(&h.point), normal: v3(&h.normal), distance: h.distance, terrain: h.terrain })
+        crate::vehicles::module::collision_world().expect("the seat collision world")
+            .cast(crate::collision::state(), origin, direction, far, None).expect("named collision bodies")
+            .map(|h| CastHit { point: h.point, normal: h.normal, distance: h.distance, terrain: h.terrain })
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn cast(&mut self, _: &Vector3, _: &Vector3, _: f64) -> Option<CastHit> {
+        unreachable!("the module ground boundary belongs to its collision instance")
     }
     fn gather(&mut self, _id: u32, _center: &Vector3, _radius: f64, _cache: usize, _out: &mut Vec<GatherPolygon>) {
         unreachable!("a spawn gathers nothing")

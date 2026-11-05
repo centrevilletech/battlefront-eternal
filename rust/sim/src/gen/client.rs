@@ -172,6 +172,7 @@ pub struct ClientWeapons {
 
 impl ClientWeapons {
     pub const WORDS: usize = 1;
+    pub const COUNT: usize = 0;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
@@ -197,6 +198,10 @@ pub struct ClientArsenalTail {
 
 impl ClientArsenalTail {
     pub const WORDS: usize = 4;
+    pub const PRIMARY: usize = 0;
+    pub const SECONDARY: usize = 1;
+    pub const ZOOM_STEP: usize = 2;
+    pub const BARRELS_COUNT: usize = 3;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
@@ -226,6 +231,8 @@ pub struct ClientBarrelResult {
 
 impl ClientBarrelResult {
     pub const WORDS: usize = 2;
+    pub const BARREL: usize = 0;
+    pub const WRITTEN: usize = 1;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
@@ -251,6 +258,8 @@ pub struct ClientMount {
 
 impl ClientMount {
     pub const WORDS: usize = 2;
+    pub const ADVANCE: usize = 0;
+    pub const TOW: usize = 1;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
@@ -275,6 +284,8 @@ pub struct ClientMuzzles {
 
 impl ClientMuzzles {
     pub const WORDS: usize = 2;
+    pub const BARRELS: usize = 0;
+    pub fn barrels_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[0] as usize; let length = row[1] as usize; heap[start..start + length * 1].chunks_exact(1) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
@@ -329,6 +340,39 @@ pub struct ClientFrame {
 
 impl ClientFrame {
     pub const WORDS: usize = 35;
+    pub const EPOCH: usize = 0;
+    pub const IDENTITY: usize = 1;
+    pub const GENERATION: usize = 2;
+    pub const SOURCE: usize = 3;
+    pub const AUTHORITY_TICK: usize = 4;
+    pub const MODE: usize = 5;
+    pub const MOUNTS_AT: usize = 6;
+    pub const MOUNTS_COUNT: usize = 7;
+    pub const WORLD: usize = 8;
+    pub const IGNORED: usize = 9;
+    pub const MOVEMENT: usize = 10;
+    pub const DEAD: usize = 11;
+    pub const UNDERWATER: usize = 12;
+    pub const SHIELD: usize = 13;
+    pub const ACTOR_AT: usize = 14;
+    pub const ACTOR_WORDS: usize = 15;
+    pub const CORRECTION_AT: usize = 16;
+    pub const CORRECTION_BYTES: usize = 17;
+    pub const WEAPONS_AT: usize = 18;
+    pub const WEAPONS_WORDS: usize = 19;
+    pub const FLAGS_AT: usize = 20;
+    pub const FLAGS_COUNT: usize = 21;
+    pub const COMMANDS_AT: usize = 22;
+    pub const COMMANDS_COUNT: usize = 23;
+    pub const CROWD_AT: usize = 24;
+    pub const CROWD_COUNT: usize = 25;
+    pub const HELD: usize = 26;
+    pub const PRESENTED_THROUGH: usize = 27;
+    pub const COSMETIC_SLOTS: usize = 28;
+    pub const MOUSE_SCALE: usize = 29;
+    pub const INVERT: usize = 30;
+    pub const KICK: usize = 31;
+    pub const CHECK_TICK: usize = 34;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 35] = (&mut row[..35]).try_into().unwrap();
@@ -428,6 +472,20 @@ pub struct ClientCommand {
 
 impl ClientCommand {
     pub const WORDS: usize = 16;
+    pub const TICK: usize = 0;
+    pub const GENERATION: usize = 1;
+    pub const SEQUENCE: usize = 2;
+    pub const SENT: usize = 3;
+    pub const HELD: usize = 4;
+    pub const ACTIONS: usize = 5;
+    pub const LOOK_AT: usize = 6;
+    pub const LOOK_COUNT: usize = 7;
+    pub const MOUSE_SCALE: usize = 8;
+    pub const INVERT: usize = 10;
+    pub const PRIMARY_COUNT: usize = 12;
+    pub const PRIMARY_ID: usize = 13;
+    pub const SECONDARY_COUNT: usize = 14;
+    pub const SECONDARY_ID: usize = 15;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
@@ -477,6 +535,8 @@ pub struct ClientLook {
 
 impl ClientLook {
     pub const WORDS: usize = 2;
+    pub const X: usize = 0;
+    pub const Y: usize = 1;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
@@ -504,6 +564,10 @@ pub struct ClientCrowd {
 
 impl ClientCrowd {
     pub const WORDS: usize = 6;
+    pub const POSITION: usize = 0;
+    pub const RADIUS: usize = 3;
+    pub const HEIGHT: usize = 4;
+    pub const CENTER: usize = 5;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
@@ -550,6 +614,25 @@ pub struct ClientResult {
 
 impl ClientResult {
     pub const WORDS: usize = 23;
+    pub const TICK: usize = 0;
+    pub const CONTINUED: usize = 1;
+    pub const SEQUENCE: usize = 2;
+    pub const HELD: usize = 3;
+    pub const TICKS: usize = 4;
+    pub const ACTOR_AT: usize = 5;
+    pub const ACTOR_WORDS: usize = 6;
+    pub const CORRECTION_AT: usize = 7;
+    pub const CORRECTION_BYTES: usize = 8;
+    pub const WEAPONS_AT: usize = 9;
+    pub const WEAPONS_WORDS: usize = 10;
+    pub const SHOTS_AT: usize = 11;
+    pub const SHOTS_COUNT: usize = 12;
+    pub const BEFORE_AT: usize = 13;
+    pub const BEFORE_SHOT: usize = 14;
+    pub const LOOK_YAW: usize = 15;
+    pub const CHECK_FOUND: usize = 16;
+    pub const CHECK_POSITION: usize = 17;
+    pub const KICK: usize = 20;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
@@ -623,6 +706,22 @@ pub struct ClientShot {
 
 impl ClientShot {
     pub const WORDS: usize = 18;
+    pub const TICK: usize = 0;
+    pub const SEQUENCE: usize = 1;
+    pub const PRESS: usize = 2;
+    pub const HELD: usize = 3;
+    pub const BUTTON: usize = 4;
+    pub const WEAPON: usize = 5;
+    pub const LEVEL: usize = 6;
+    pub const KIND: usize = 7;
+    pub const YAW: usize = 8;
+    pub const PITCH: usize = 9;
+    pub const CHARGE: usize = 10;
+    pub const TARGET: usize = 11;
+    pub const TARGET_GENERATION: usize = 12;
+    pub const SWING: usize = 13;
+    pub const ACTOR_AT: usize = 14;
+    pub const VISUAL_GUN: usize = 15;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();

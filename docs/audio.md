@@ -130,7 +130,7 @@ each frame, as the original's entities poll their own state.
 | `worklets/` | Thin required-module hosts: `output` copies the Rust render quantum to the device; `frontend` copies the menu/loading output; `meter` copies PCM in and loudness readings out. |
 | `rust/audio/src/output.rs` | Owns voice and stream playback, placement, convolution, room sends, mono and the complete master phase. |
 | `frontend.js`, `rust/audio/src/frontend.rs` | Menu music, whooshes, interface sounds and loading pulses: timed playback, resampling, bus gains and linear fades in Rust. |
-| `decode.js` | The temporary, single `decodeAudioData` boundary for compressed asset I/O. |
+| `codec.js`, `codec-worker.js` | Required Rust FLAC, Ogg Opus and PCM/float WAV decoding off the audio thread; bounded range I/O and PCM transfer. |
 
 Each frame: the listener follows the camera; the player and scene modules
 start, stop and steer their sounds; voices are scored and the top 32 play;
@@ -479,8 +479,9 @@ shaper, splitter or merger DSP nodes in the game, menus or loading screen.
 The front end uses its own two-channel Rust host on its context, retaining
 its music and shellfx gain stages and linear fades. Music is fetched and
 decoded one track at a time, rather than played by an HTML audio element;
-this keeps playback and resampling inside Rust but holds that track's
-decoded PCM in memory until it ends or is replaced.
+the loading worker feeds a bounded Rust PCM ring, so neither the page nor
+the output host retains a whole decoded track. Enhanced compressed stream
+segments use the same producer and three reusable ring slots per lane.
 
 Sources, filters, delay lines, FFT buffers and render scratch are reserved
 before their first block. PCM and command messages may allocate between
@@ -488,27 +489,53 @@ blocks. Stream segments use three reusable sample slots per lane; finished
 lanes release their PCM. Meter integrated history reserves another hour
 between blocks, requested with one minute of capacity remaining.
 
-### Temporary host codec I/O
+### Asset decoding and rate conversion
 
-`src/audio/decode.js: decodeAudioAsset(context, bytes)` is the only
-`decodeAudioData` call. It remains for this branch; the next decoder work
-moves FLAC first, then Opus, into Rust. Xbox IMA ADPCM already decodes in
-Rust in the stream loader worker. AudioBuffers hold decoded PCM only.
+`rust/audio-decode` owns FLAC, Ogg Opus and PCM/float WAV decoding. Its
+required WASM module runs in `codec-worker.js`, separate from the audio
+worklet. Claxon decodes FLAC integers; opus-pure decodes Opus packets at
+48 kHz. Rust parses Ogg pages, checks CRCs, joins continued packets, applies
+pre-skip, output gain and the final granule trim, and reads multistream
+mappings from the header. The tools' family-255 streams preserve discrete
+lane order; family 1 preserves the recorded Chromium mapping. The optional
+SADIE decoder uses sixteen-channel IEEE-float WAV. Xbox IMA ADPCM continues
+to decode in the Rust stream loader worker.
 
-Host decoding currently returns **context-rate PCM**, and rejects a result
-at any other rate. This affects menu tracks, enhanced sample and segment frame counts,
-durations, loop/offset timing and the playback-rate scale. Headphone HRIRs
-are decoded at that rate too; their gain is compensated by the source-rate
-to context-rate ratio. A replacement decoder must preserve these contracts
-or explicitly own the same conversion before playback. The runtime's linear
-playback resampler is separate from this asset conversion.
+A native-rate request returns source-rate PCM. Callers request device-rate
+conversion explicitly to preserve the previous asset-loading behavior.
+Rust owns the 32-tap sinc conversion and truncates the output frame count
+exactly as the frozen reference does. Track lengths, scheduled segment
+ends, loop offsets and playback-rate scale therefore still use the same
+frame counts and rates. This conversion is separate from the linear
+playback resampler. HRIR conversion also multiplies by the WAV source rate
+divided by the requested output rate; the device context cannot choose
+that scale implicitly. Generated HRIR metadata and WAV rates agree.
 
-The IRCAM resource generator also records a signed-16 host detail: negative
-samples multiply by float32 `1/32768`, nonnegative samples by float32
-`1/32767`. Double-precision division changes some HRTF kernel preparation
-results. This observation covers that FLAC resource; FLAC assets with other
-bit depths and Opus need their own bit-exact codec fixtures. Regenerate it
-with `node tools/audio-hrtf.mjs path/to/Composite.flac --check`.
+The worker reads seekable assets in at most 64 KiB ranges. An Opus tail
+range provides its final granule and exact duration before playback.
+Compressed input, page/packet reassembly and decoder PCM are bounded.
+Long menu music and enhanced beds transfer 4,096-frame planar windows
+directly to a 32,768-frame Rust ring, with credits from the consumer. An
+8,192-frame pre-roll precedes the scheduled start. The worker schedules
+attached playback producers before background effect decoding, so clip
+preloading cannot consume their next decode turn. Stops cancel the producer;
+replacing a segment releases its previous decoder. Short FLAC effects may
+retain their PCM in the existing asset cache. The original ADPCM segment
+cache keeps its existing device-memory limit.
+
+There is no host codec fallback. A module, decode or stream underrun failure
+reaches the player's audio error display. The only Web Audio nodes remain
+the required Rust output/meter hosts and the output device destination;
+AudioBuffers used by original bank assets are PCM storage only.
+
+The synthetic codec corpus records native and converted PCM at 22.05,
+44.1 and 48 kHz. FLAC S16/PCM_24 and float HRIR WAV compare bit for bit at
+source rate; converted output and Opus stay below -96 dBFS. S16 conversion
+keeps the host's asymmetric float32 reciprocals: negative samples multiply
+by `1/32768`, nonnegative samples by `1/32767`. Container chunk boundaries
+must not change PCM. Run `node --test tests/audio-codec.test.js` in CI;
+`node tests/audio-codec-gate.mjs` additionally exercises the actual worker,
+byte ranges, stream completion and cancellation in Chromium.
 
 ## Recorded render gates
 

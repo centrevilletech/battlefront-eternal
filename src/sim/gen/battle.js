@@ -1961,8 +1961,8 @@ export class KillRingMirror {
 
 export function syncKillRing(b, f, at, h, m) {
   { const items = (m.killers ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_CHARACTER].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
-  (m.times ??= new Float64Array(100)).set(f.subarray(at + 2, at + 102));
-  (m.slots ??= new Int32Array(100)).set(f.subarray(at + 102, at + 202));
+  { const $a = (m.times ??= new Float64Array(100)); for (let i = 0; i < 100; i++) $a[i] = f[at + 2 + i]; }
+  { const $a = (m.slots ??= new Int32Array(100)); for (let i = 0; i < 100; i++) $a[i] = f[at + 102 + i]; }
   m.head = f[at + 202];
   m.tail = f[at + 203];
   return m;
@@ -2370,7 +2370,7 @@ export function syncBuilt(b, f, at, h, m) {
   m.type = RegionType_NAMES[f[at + 0]];
   { const a = (m.half ??= new Array(3)); a[0] = f[at + 1]; a[1] = f[at + 2]; a[2] = f[at + 3]; }
   m.radius = f[at + 4];
-  (m.center ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   { const e = (m.inverse ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 8 + i]; }
   return m;
 }
@@ -2748,7 +2748,7 @@ export function syncSpawnTeam(b, f, at, h, m) {
   { const tag = f[at + 9]; if (tag === 0) { m.heroClass = b.strings.at(f[at + 10]); } else m.heroClass = tag === 1 ? null : undefined; }
   m.bonus = f[at + 11];
   m.aggressiveness = f[at + 12];
-  (m.relations ??= new Int8Array(8)).set(f.subarray(at + 13, at + 21));
+  { const $a = (m.relations ??= new Int8Array(8)); for (let i = 0; i < 8; i++) $a[i] = f[at + 13 + i]; }
   { const items = (m.characters ??= []), start = h + f[at + 21], n = f[at + 22]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.living = f[at + 23];
   m.capacity = f[at + 24];
@@ -3475,7 +3475,7 @@ export function syncMobilePost(b, f, at, h, m) {
   m.yaw = f[at + 13];
   m.radius = f[at + 14];
   m.speed = f[at + 15];
-  (m.lastPosition ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
+  { const $v = (m.lastPosition ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; }
   m.desc = syncMobileDesc(b, f, at + 19, h, m.desc ?? new MobileDescMirror());
   m.ai = syncMobileAi(b, f, at + 23, h, m.ai ?? new MobileAiMirror());
   m.reported = syncReported(b, f, at + 31, h, m.reported ?? new ReportedMirror());
@@ -3495,7 +3495,7 @@ export function syncFullMobilePost(b, f, at, h, m) {
   m.yaw = f[at + 13];
   m.radius = f[at + 14];
   m.speed = f[at + 15];
-  (m.lastPosition ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
+  { const $v = (m.lastPosition ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; }
   m.desc = syncMobileDesc(b, f, at + 19, h, m.desc ?? new MobileDescMirror());
   m.ai = syncMobileAi(b, f, at + 23, h, m.ai ?? new MobileAiMirror());
   m.reported = syncReported(b, f, at + 31, h, m.reported ?? new ReportedMirror());
@@ -3687,7 +3687,7 @@ export function syncPost(b, f, at, h, m) {
   m.name = b.strings.at(f[at + 2]);
   { const tag = f[at + 3]; if (tag === 0) { m.label = b.strings.at(f[at + 4]); } else m.label = tag === 1 ? null : undefined; }
   m.team = f[at + 5];
-  (m.position ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
   m.neutralize = f[at + 9];
   m.progress = f[at + 10];
   m.toward = f[at + 11];
@@ -3706,7 +3706,7 @@ export function syncFullPost(b, f, at, h, m) {
   m.team = f[at + 5];
   (m.rules ??= {}).neutralizeTime = f[at + 6];
   (m.rules ??= {}).captureTime = f[at + 7];
-  (m.position ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 8]; $v.y = f[at + 9]; $v.z = f[at + 10]; }
   { const tag = f[at + 11]; if (tag === 0) { m.capture = syncBuilt(b, f, at + 12, h, m.capture ?? new BuiltMirror()); } else m.capture = tag === 1 ? null : undefined; }
   { const tag = f[at + 36]; if (tag === 0) { (m.desc ??= {}).valueBleed = f[at + 37]; } else (m.desc ??= {}).valueBleed = tag === 1 ? null : undefined; }
   { const tag = f[at + 38]; if (tag === 0) { (m.desc ??= {}).killRegion = syncRegionDesc(b, f, at + 39, h, (m.desc ??= {}).killRegion ?? new RegionDescMirror()); } else (m.desc ??= {}).killRegion = tag === 1 ? null : undefined; }

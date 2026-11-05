@@ -2,8 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { installAudioHost } from "./audio-offline-host.js";
 import { Renderer } from "../src/audio/spatial.js";
-import { prepareAudioPcm, normalizePcm16, scalePcm } from "../src/audio/pcm.js";
-import { decodeAudioAsset } from "../src/audio/decode.js";
+import { prepareAudioPcm, normalizePcm16 } from "../src/audio/pcm.js";
 
 installAudioHost();
 function context(channels = 2) { return new OfflineAudioContext(channels, 48000, 48000); }
@@ -60,20 +59,12 @@ test("stream segment PCM uses bounded reusable slots", async () => {
   for (let i = 0; i < 20; i++) { const lane = r.stream(1); lane.start(buffer); r.flush(); await Promise.resolve(); lane.dispose(); await Promise.resolve(); }
   assert.equal(r.nextSample, 3); assert.equal(r.freeStreamSamples.length, 3);
 });
-test("host codec I/O has an explicit context-rate contract", async () => {
-  const bytes = new ArrayBuffer(3), buffer = { sampleRate: 48000 };
-  assert.equal(await decodeAudioAsset({ sampleRate: 48000, decodeAudioData: async (input) => { assert.equal(input, bytes); return buffer; } }, bytes), buffer);
-  await assert.rejects(decodeAudioAsset({ sampleRate: 44100, decodeAudioData: async () => buffer }, bytes), /48000 Hz, expected 44100 Hz/);
-});
-
-test("Rust asset preparation preserves signed PCM and playback compensation", async () => {
+test("Rust bank preparation preserves signed PCM", async () => {
   await prepareAudioPcm();
   const source = Int16Array.of(-32768, -16384, -1, 0, 1, 16384, 32767), output = new Float32Array(source.length);
   normalizePcm16(source, output);
   assert.deepEqual(output, Float32Array.from(source, (v) => v / 32768));
-  const buffer = context().createBuffer(1, output.length, 48000); buffer.copyToChannel(output, 0);
-  await scalePcm(buffer, 6);
-  assert.deepEqual(buffer.getChannelData(0), Float32Array.from(output, (v) => v * 10 ** (6 / 20)));
+
 });
 
 test("speaker test reaches its named channel after the muted mono game mix", async () => {

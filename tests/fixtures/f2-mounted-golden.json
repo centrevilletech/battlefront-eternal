@@ -1,0 +1,220 @@
+{
+  "bolt": {
+    "ticks": 240,
+    "shots": 11,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": null,
+    "draws": 44,
+    "hashes": [
+      "823dc4fe9813e14c9bb7d478ba52fd160cb1abab491f26386b40a8485355d00d",
+      "4952001a06f382635bae6c34a5046e16044a022216341c77a6fb5125b1e56634",
+      "46217ce30faaef9aaca349482fb39bb2379e42920d3c59af86f6fd34cfde1580",
+      "7187fbb4bd2819dd6b01bf6652584de9993c571c7905656bfdbc345c3971ee3c",
+      "5e5836bd57a1167e9c1ecee80b659c9981696791291d0fc2fed5b1fadfcea2d9",
+      "11dd127bed32fc51760fc7b593f65748e9d2bdc09748bbe6868f6845afa2876c",
+      "27941b4c01c83e6b7802ef29bdcda95bcf67112704cfe053923966266efdd062",
+      "e7179a96114373ea5fe207e2102ad60cb5bf20d2da16106dfbff73119ed6893a"
+    ]
+  },
+  "missile": {
+    "ticks": 240,
+    "shots": 11,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": null,
+    "draws": 44,
+    "hashes": [
+      "ca4b198c0dea9b42cdb4cab59dc751e67b1c92a53d152dae53725c21741f3de9",
+      "590dcb38b14a7fb4242d817710d10487debbc06bee125a22fc4a38bf19768918",
+      "7dcea3b5d9b34ff36d7f707c0404c538e237ad1afd197fb04dc1bb1f63780013",
+      "15e0d3d4bddeefeeedf255218426e4aac53eb4b5e5a5c31a733a5f96995f8c27",
+      "996d6756ba347a56c4e2e13db682267a793ef7862676f74eb9c88f9127f3878b",
+      "4821e61afbc48bce5e24c8230435423754a234946bdaa063adf0ed2cf70a15b7",
+      "8df49a8d6b736ecb4cb16ec08daacc41cff256b4f329d4e59d52993d2898b952",
+      "cb003f5bfea5aa3280fc5ba5e0e1d8dad184a91d843dbefef0bb14eb06e26760"
+    ]
+  },
+  "beam": {
+    "ticks": 240,
+    "shots": 11,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": null,
+    "draws": 44,
+    "hashes": [
+      "00729a0062539767e1dcce247f3e0316ba584e0a4480b82efda9baeec8665fde",
+      "c0dd6addca262f507074b0f8516a0783589823ce9a33b28db7e5698ebef6ae22",
+      "7dcea3b5d9b34ff36d7f707c0404c538e237ad1afd197fb04dc1bb1f63780013",
+      "15e0d3d4bddeefeeedf255218426e4aac53eb4b5e5a5c31a733a5f96995f8c27",
+      "996d6756ba347a56c4e2e13db682267a793ef7862676f74eb9c88f9127f3878b",
+      "4821e61afbc48bce5e24c8230435423754a234946bdaa063adf0ed2cf70a15b7",
+      "956eae186d425b278ce7c9ad28be23e0ac9b6d5ac2fdf0c246cae9b05c36fa5f",
+      "90269045a0959f07abf134cfa9c26262fd6237bb73224af49b5cdc27f1f75268"
+    ]
+  },
+  "beamFallback": {
+    "ticks": 240,
+    "shots": 11,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": null,
+    "draws": 44,
+    "hashes": [
+      "4dd94a31bea9d086b2b7eef9944baa8e0a30a60560cef13d6bbd5faa0dfcfd6c",
+      "5bcd0476a0e100617dacbba8e6fcf1e6ca1723a3821a4845fae25561c51f8bb1",
+      "835c45f2351347186efa3702021071ff3c128a26455823090bb76da5764dd43d",
+      "3f2c2829afe588c076122864fcb5da53e08b3884b453d662b7dc0a2654ba7183",
+      "b7fb8b9d38467358fe002c1fe3dad2cf50d09c453558f4b4402d38e8f964f0de",
+      "d734f3b27925ee15efcb9223df258594124979eef94086d8afcac0d96182cb83",
+      "2c1b0d9f1ce9c9320de77e42a9309fac94c355fe46061944c839f2701d8741e5",
+      "0921cfc85cd4d439300958ab7098b7b92ee69f9b3bd3ececd6bf4acaa67d8cd6"
+    ]
+  },
+  "multibarrel": {
+    "ticks": 240,
+    "shots": 11,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": null,
+    "draws": 44,
+    "hashes": [
+      "640776f66e67df4216264c82c64f8af2acdf270640b59d7c4cd701d4e9808652",
+      "e8b7201295c820a442f330b28b59ff70541369824c2bd5eb86298ea600f27a9b",
+      "1a58144005768e60e7962cc7d1c2405507d2bdb6563c1be0ce3dcee07d9f9499",
+      "24f6319d1d88df1acc2ee91b75fd6c6079c8f703c2349e4a2e8692595104ade6",
+      "4906ac265b2b138c7dea54bc27ddaf31a0e23bf3fdd2ca0c8dd4839ee60b93d9",
+      "0c8d2d11488dc31472ef78c2d66a73f70d5649ad4f09a36da57b0f3199237932",
+      "25275c548c11833cd181697bfe777328e9cd07d003f4d2456cb5ff9a5c5d40e2",
+      "e4c2848356b3d4befaebee30b2a32b129fe7a23ac8c99f1af64fdc496b5f4adc"
+    ]
+  },
+  "defaultChannel": {
+    "ticks": 240,
+    "shots": 11,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": null,
+    "draws": 44,
+    "hashes": [
+      "823dc4fe9813e14c9bb7d478ba52fd160cb1abab491f26386b40a8485355d00d",
+      "4952001a06f382635bae6c34a5046e16044a022216341c77a6fb5125b1e56634",
+      "46217ce30faaef9aaca349482fb39bb2379e42920d3c59af86f6fd34cfde1580",
+      "7187fbb4bd2819dd6b01bf6652584de9993c571c7905656bfdbc345c3971ee3c",
+      "5e5836bd57a1167e9c1ecee80b659c9981696791291d0fc2fed5b1fadfcea2d9",
+      "11dd127bed32fc51760fc7b593f65748e9d2bdc09748bbe6868f6845afa2876c",
+      "67e46845a33c70d236856eaef992d83973c577992fc70dcaf47535ac2f7ab3e9",
+      "74b0a4e8db063ea7982de5863cf21bbd666bffc4158c602b83d4455a4a10625d"
+    ]
+  },
+  "tow": {
+    "ticks": 21,
+    "shots": 1,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": false,
+    "draws": 4,
+    "hashes": [
+      "894a85a8d952bda877e91a87a42745f23662fc6a92a8cc550a9c1be29b67ee2e"
+    ]
+  },
+  "trip": {
+    "ticks": 1137,
+    "shots": 1,
+    "health": 993,
+    "towTarget": -1,
+    "targetAlive": false,
+    "draws": 4,
+    "hashes": [
+      "d96b04b5b77b618e3341ee3c371fe04a3628844bacbf8dd7aa36a734f82dc2b1",
+      "36fcccf89a1a65b88bdf14db3a13f68759afffae70bdf9b940d13442f8c5cceb",
+      "ce6eba0e79a980c2e261d9c4131a8b9d2056fd38d16e098a85c634491562a859",
+      "c7d3ad35aad349e72728a77b51ccc2f23cd6aad935d6f524e481d1bf84b3175b",
+      "705de86bd01f47c3cbe74c5b49d5f244014dc3c4e57c766fa7b7559c5d641326",
+      "fb5d18198e4b3c8a96b9bdb99c5b05f9a00716e37bcb1bd303b5cea29b9da289",
+      "04717caccd5e9040f803c14743d844e77a21afe625ebb861df8604bf5b6dc821",
+      "9986ce43649278938f3cc9d8e94c98cd3bc07a2062788942d3ee961e4db02648",
+      "9f11a410dc1946d1938c0e562f1a3c171058c82f6bec13266e0913ff9f3d146c",
+      "6d3a69bb75e08bef6a75d74bcd135b3cd66d69a54b8ac2860296ef82dd0f4b43",
+      "5304dc20f1cbbcd215e86cab63e23a4e60ffc8429aa4625dd6f811863515557f",
+      "55ad45d4ed8fff3b4c09ca3aeacee8d53ba6eea32857816d513d72c95d30723d",
+      "6ab1f5f340475c4829385fe8a0e93f4cc07c12fe740dbd7f6ef8a6c341a2161a",
+      "ffd3cffac1d28ac2ce87b92d97260fa24f9e4e73b8de0c08a73d9e5c2455188a",
+      "4fe2d057219e7d81906b58d7407d4b655ae164758c4cd373b922fe5cbe63e576",
+      "b4882a73e60e447af6c707e5f193c6dc6377c02e4c5f02a92fd240b8148daa17",
+      "5840e2dca1eb42c4f6ee352e059600ea4f710ef31256bdefe69be48d9b3911ce",
+      "7a5f42bf4785226a425020f4b9dcd708c2513459c6ee002440cf2b3d91c54623",
+      "f9032abcffb52349aa4e9a2aa52988209df3c336e8f4ae21a82149965cbf4117",
+      "fab342192b72d9bd3f9d5313ec02c624e16dfeea2a490655cde54838646be3cd",
+      "b0fa2f50d1baaf1f6daed0453ad3e277e322aea8af1f86b9726aaa1db8a8657e",
+      "7395307362ba366c0ac1cbcbf37b96e7b934d520a2bf6d91c308a1c4e584dfec",
+      "06c64941624fad136db97f9ca9f4eb0c102aea9fba9567e71b3e1644c8c128bd",
+      "f5176ec2db7a463ebf745d8ea7b29d5d597bd3d7c87f8192f7ce09f412aa921a",
+      "76deaca24f724b3f7ac08f7115ac49259e84005d2bf52f99e14459fd526d3955",
+      "2fdd47c47b50b5f87bab018b40debad163e0ec3e0f5b31c6028330247f626017",
+      "2d8a491ea88526d8c0e0ec253b337176683f14dbaa7c68d3f3527216cb49bbe6",
+      "539756f1b147a4c03ba1f66a84679eef9be01bd0b3f4d293324d3e6035063e41",
+      "9fa93da87b08439606b12968c957b6c174f889e49aa258fcb092dc6e29b35c14",
+      "c65cd67f716ba699eee52220b09729be8a8c34f1f150f0d471034b8a36fd276a",
+      "aed7494d1873fd268b18c2e4bbd6d6258f5e24ecc81babc15f1256b2768f55c2",
+      "c5a33200e60cb2742d7ff27d38858243bdf4457731bb87de286e04d4f323cfea",
+      "085f465a79c64d9ad6fc56dbf3787a442e9440fec0f0b67f0bbd65f311ffa3d1",
+      "b848bf13cbeead187d3a8f2db24968872cbfcec9fe50e65672ac70209604f96d",
+      "61aa861bd396e884002918264382fb940129ab00b299bf54851bd5bc25bf9a07",
+      "1de09a73cc0885fe3ab60a05ab6af12610c557d64f44e95d5adb445d21c3e639",
+      "e272d18c89f45687cee7e9204e53b5a87145a89b378563fddc8dbfca7360cdc8",
+      "113a5f97e26b2bc982475ea54b92eec66b4e84dde7d33cb796ad39576f3a609f"
+    ]
+  },
+  "limits": {
+    "ticks": 60,
+    "shots": 1,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": null,
+    "draws": 36,
+    "hashes": [
+      "09ea3c26160880973f7254721fcfad80ef51645cd837cdae2d60e69ac6ed7da5",
+      "e30def09daf3571af3537e1da13dade90e9e0f40da46de6a171d6e39205e2dc5"
+    ]
+  },
+  "lock": {
+    "ticks": 120,
+    "shots": 9,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": true,
+    "draws": 36,
+    "hashes": [
+      "966abe2faa17b583c85f509269714c672337a1ef03b66bd24a1505cac2bda6d0",
+      "99a53a53d4057457002356d7568a6d26c8e0f9fc87f2258c3d1f4d48994625b0",
+      "39f041c6f52a521cb219e52bdb42ee332fee7e290387fa9cabe825678399667e",
+      "3adaa697a65aabee733d1d02ba5d2ed4fbd53d0883b09432950b4e1b876a416f"
+    ]
+  },
+  "range": {
+    "ticks": 45,
+    "shots": 0,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": true,
+    "draws": 0,
+    "hashes": [
+      "5a0cfb11d21e2fcaaffc4bac26ab8c537fbea8416766822e75f3a21f44f20713",
+      "af45003560775b634773f016735af5e64b617b2b76b08ed3c8f8242a0316e902"
+    ]
+  },
+  "flight": {
+    "ticks": 90,
+    "shots": 14,
+    "health": 1000,
+    "towTarget": -1,
+    "targetAlive": true,
+    "draws": 56,
+    "hashes": [
+      "3f318ea23a3dec650c7406de2564be3d484ac81e2b844c4b937f2316ea5eb03a",
+      "c6ee893c6d43c856ace886dbd6b55ce3a026d505a061fe2a08a01109110b3393",
+      "1edb6d2caa53d7b2144efe9202b07412e45ba9431d56ba3a1aa3e122b5cb6560"
+    ]
+  }
+}

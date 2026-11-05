@@ -154,6 +154,43 @@ pub struct Weapon {
 
 impl Weapon {
     pub const WORDS: usize = 42;
+    pub const DEF: usize = 0;
+    pub const LEVEL: usize = 1;
+    pub const ADMIT_SHOT: usize = 2;
+    pub const DEPLOYED: usize = 3;
+    pub const FIRING: usize = 4;
+    pub const TIMER: usize = 5;
+    pub const BOTTOMLESS: usize = 6;
+    pub const PER_SHOT: usize = 7;
+    pub const CLIP: usize = 8;
+    pub const RESERVE: usize = 9;
+    pub const HEAT: usize = 10;
+    pub const OVERHEATED: usize = 11;
+    pub const FLOOR: usize = 12;
+    pub const KICK: usize = 13;
+    pub const RANDOM: usize = 14;
+    pub const SPREAD_SCALE: usize = 15;
+    pub const SNIPER_SCALE: usize = 16;
+    pub const YAW_SPREAD_OVERRIDE: usize = 17;
+    pub const WAIT: usize = 19;
+    pub const RELOAD_LEFT: usize = 20;
+    pub const THROW_TIME: usize = 21;
+    pub const RELEASED: usize = 22;
+    pub const HIDDEN: usize = 23;
+    pub const CHARGING: usize = 24;
+    pub const HELD: usize = 25;
+    pub const CHARGE: usize = 26;
+    pub const LIMIT: usize = 27;
+    pub const PATTERN: usize = 28;
+    pub const SALVOS_LEFT: usize = 29;
+    pub const SALVO_WAIT: usize = 30;
+    pub const SALVO_SEED: usize = 31;
+    pub const SALVO_COUNT: usize = 33;
+    pub const LOCK_TARGET_ID: usize = 34;
+    pub const LOCK_GENERATION: usize = 35;
+    pub const LOCK_ELAPSED: usize = 36;
+    pub const LOCK_COMPLETE: usize = 37;
+    pub const MELEE: usize = 38;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 42] = (&mut row[..42]).try_into().unwrap();

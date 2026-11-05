@@ -6,13 +6,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
+import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles } from '../src/vehicles.js';
 import { droidekaWaterDepth, waterDamageRule, waterDamageStep } from '../src/vehicle-water.js';
 import { packWith } from '../tools/vehicle-packs.mjs';
 
 // Water over x < 0 at `level`.
-const pool = (level) => ({ level, over: (x) => x < 0 });
+const pool = (level) => ({ level, cell: 100, offset: [100, 100], grid: 2, cells: new Set([0, 2]), over: x => x < 0 });
 
 test('the clock runs down from the interval, then every update deals the amount until the hull leaves', () => {
   const rule = waterDamageRule({ WaterDamageInterval: '1.0', WaterDamageAmount: '10.0' });
@@ -83,7 +83,7 @@ function atst(level) {
     texture: () => null, effects: { play() { return null; } }, ordnance: { explosion() {}, fire() { return null; }, lights: { flash() {} } },
     onDestroyed: (v) => destroyed.push(v) });
   const v = system.vehicles[0];
-  v.driver = {}; v.seatIndex = 0;
+  nativeVehicles(system, { data: system.data, buffer: bin('models.bin'), indexBuffer: bin('models_index.bin'), animationBuffer: bin('animations.bin') });
   return { system, v, destroyed };
 }
 
@@ -91,19 +91,19 @@ test('an AT-ST wades in on the bed; water over its sphere wears it down, shallow
   // Shallow: 2 m of water. It stands on the bed and takes nothing.
   let { system, v } = atst(2);
   assert.ok(v.waterRule && v.waterDepth > 5 && v.waterDepth < 6, `depth ${v.waterDepth}`);
-  for (let t = 0; t < 300; t++) system.update(1 / 60, v, {});
+  for (let t = 0; t < 300; t++) system.update(1 / 60);
   assert.ok(Math.abs(v.position.y) < 0.6, `stands on the bed at ${v.position.y}, not the surface`);
   assert.equal(v.health, v.maxHealth);
   system.dispose();
   // Deep: 7 m. After a second it loses 10 an update until it is destroyed.
   let destroyed;
   ({ system, v, destroyed } = atst(7));
-  for (let t = 0; t < 60; t++) system.update(1 / 60, v, {});
+  for (let t = 0; t < 60; t++) system.update(1 / 60);
   assert.ok(v.position.y < 0.6, `under the water at ${v.position.y}`);
   assert.ok(v.health > v.maxHealth - 15, `health ${v.health} after a second`);
-  for (let t = 0; t < 60; t++) system.update(1 / 60, v, {});
+  for (let t = 0; t < 60; t++) system.update(1 / 60);
   assert.ok(Math.abs(v.maxHealth - v.health - 600) <= 20, `lost ${v.maxHealth - v.health} in the second second`);
-  for (let t = 0; t < 60 * 20 && v.alive; t++) system.update(1 / 60, v, {});
+  for (let t = 0; t < 60 * 20 && v.alive; t++) system.update(1 / 60);
   assert.equal(v.alive, false);
   assert.equal(destroyed.length, 1);
   system.dispose();

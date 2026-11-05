@@ -29,10 +29,17 @@
 pub mod build;
 pub mod class;
 pub mod firing;
-#[cfg(target_arch = "wasm32")]
-mod firing_module;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "module/f2/firing.rs"]
+mod firing_phase;
 pub mod hover;
 pub mod hull;
+#[path = "module/f2/seats.rs"]
+pub mod f2_seats;
+#[path = "module/f2/delta.rs"]
+pub mod f2_delta;
+#[path = "module/f2/publication.rs"]
+pub mod f2_publication;
 pub mod native;
 pub mod pose;
 pub mod posing;

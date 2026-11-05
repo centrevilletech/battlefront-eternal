@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { installAudioHost } from "./audio-offline-host.js";
 import { FrontendAudio } from "../src/audio/frontend.js";
-import { decodeAudioAsset } from "../src/audio/decode.js";
 
 installAudioHost();
 test("front-end completion events retire PCM once and allow a slot to be reused", async () => {
@@ -27,16 +26,6 @@ test("front-end completion events retire PCM once and allow a slot to be reused"
   await player.sync();
   assert.equal(ended, 3);
   assert.equal(player.voices.size, 0);
-});
-
-test("compressed asset I/O has one explicit context-rate contract", async () => {
-  const bytes = new ArrayBuffer(8), result = { sampleRate: 44100 };
-  let calls = 0;
-  const context = { sampleRate: 44100, async decodeAudioData(input) { calls++; assert.equal(input, bytes); return result; } };
-  assert.equal(await decodeAudioAsset(context, bytes), result);
-  assert.equal(calls, 1);
-  result.sampleRate = 48000;
-  await assert.rejects(decodeAudioAsset(context, bytes), /decoder returned 48000 Hz, expected 44100 Hz/);
 });
 
 test("front-end module startup failure rejects readiness without an alternate graph", async () => {

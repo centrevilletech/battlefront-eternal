@@ -116,31 +116,6 @@ async function attachSimStore(instance, ordnance, items) {
   return bridge;
 }
 
-// The ground hulls' phase on the battle's instance of the module, through
-// the store (src/sim/runtime.js SimBridge: the hulls written in before the
-// phase and synced after it, the imports it asks the battle).
-// map: the death regions' data and the kill height; pack: the vehicle pack
-// the hulls' rigs are made from (VehiclesSim).
-async function attachHullPhase(instance, vehicles, map, pack, unitClass) {
-  const [{ bridgeFor }, { attachVehiclesSim }] = await Promise.all([import("./sim/runtime.js"), import("./vehicles-sim.js")]);
-  // The instance's one bridge, joined if the rounds made it (bridgeFor).
-  const bridge = bridgeFor(instance, { classes: { Unit, Vehicle } });
-  bridge.reserve(4 << 20);
-  return attachVehiclesSim(vehicles, bridge, map, pack, unitClass);
-}
-// The hulls' input batch on the battle's instance of the module (the
-// leases, hulls and riders written in before it and synced after it), on
-// the instance's one bridge (src/seats-sim.js).
-async function attachSeatPhase(instance, vehicles) {
-  const [{ bridgeFor }, { attachSeatsSim }, { Soldier }, { Droideka }, { SeatLease, SeatUnit }, { Turret }, { attachNetworkSeatsSim }] = await Promise.all([
-    import("./sim/runtime.js"), import("./seats-sim.js"), import("./soldier.js"), import("./droideka.js"), import("./seats.js"), import("./props.js"), import("./runtime/network-seats-sim.js")]);
-  const bridge = bridgeFor(instance, { classes: { Unit, Vehicle, Soldier, Droideka, SeatLease, SeatUnit, Turret } });
-  bridge.reserve(4 << 20);
-  const seats = attachSeatsSim(vehicles, bridge);
-  attachNetworkSeatsSim(vehicles, bridge);
-  return seats;
-}
-
 // A world's units' phase on the battle's instance of the module, through the
 // store's one bridge (src/units-sim.js).
 async function attachUnitsPhase(instance, game) {
@@ -481,14 +456,6 @@ async function start() {
   // and keeps the JavaScript, so its worlds cannot change. Poses made
   // before this take the kernel up as they clear.
   const wantAnim = !headless && params.get("anim") !== "js";
-  // A world's ground hulls on the module (src/vehicles-sim.js), where it asks
-  // for them: ?hulls=rust, or under Node BFE_HULLS=rust. Off by default until
-  // the hull phase moves whole (flight, seats and fire with it).
-  const wantHulls = headless && (params.get("hulls") ?? globalThis.process?.env?.BFE_HULLS) === "rust";
-  // The hulls' seats' input batch on the module (src/seats-sim.js), where a
-  // world asks for it: ?seats=rust, or under Node BFE_SEATS=rust. Off by
-  // default until the seats move whole with the hulls (F2).
-  const wantSeats = headless && (params.get("seats") ?? globalThis.process?.env?.BFE_SEATS) === "rust";
   // A world's combats on the module (src/combat-sim.js), where it asks for
   // them: ?combat=rust, or under Node BFE_COMBAT=rust. Off by default until
   // units and combat move over together.
@@ -1356,9 +1323,13 @@ async function start() {
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
     vehicles.seatRandom = seatRandom;
-    if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles, { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
-      { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) }, Unit);
-    if (wantSeats && simInstance) await attachSeatPhase(simInstance, vehicles);
+    if (headless) {
+      const [{ bridgeFor }, { attachF2 }] = await Promise.all([import('./sim/runtime.js'), import('./f2-sim.js')]);
+      await attachF2(vehicles, bridgeFor(simInstance, { classes: { Unit, Vehicle } }),
+        { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
+        { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) },
+        Unit);
+    }
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;
@@ -1392,6 +1363,7 @@ async function start() {
   gunner.random = gameplayRandom;
   turretSeats = new TurretSeats({ live, ordnance, collision, units });
   turretSeats.seatRandom = seatRandom;
+  if (headless) vehicles.f2.seats.attachTurrets(turretSeats);
   // The destructible posts (src/objectives.js): each its post's building,
   // and a target in the units registry while it stands.
   posts.attachBuildings(live);
@@ -1692,28 +1664,6 @@ async function start() {
     },
   };
   const eyePoint = new THREE.Vector3();
-  function toggleTurret() {
-    if (driver?.active) { driver.exit(); return; }
-    if (gunner.active) {
-      gunner.exit(soldier);
-      animator.reset(soldier.aimYaw);
-      combat.mounted = false;
-      return;
-    }
-    if (combat.dead) return;
-    // What his E reaches, by the rules every boarder follows (src/boarding.js).
-    const mount = mountInReach({ vehicles, live }, playerUnit, true);
-    const vehicle = mount?.vehicle;
-    if (vehicle && driver.enter(vehicle)) { if (vehicle.flying) setPerspective(Boolean(settings.get('flightFirstPerson'))); return; }
-    const turret = mount?.turret;
-    if (turret) {
-      // Taking over from a bot gunner: his crew sets him down first.
-      if (turret.lease && !turret.lease.released && !personLease(turret.lease)) turret.crew?.vacate(turret.lease);
-      gunner.enter(turret, soldier);
-      combat.mounted = true;
-      hud.message(turret.label);
-    }
-  }
 
   // The jetpack's flames (the class's JetEffect; its effects come with the
   // body), hung from the ribcage while the soldier hovers; when he stops
@@ -2155,7 +2105,7 @@ async function start() {
           }
           commandHistory.put(command);
           if (!worldControls.accept(command)) throw new Error('stale world command');
-          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles?.sim?.retune(name, key, value); }
+          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles.f2.retune(name, key, value); }
           const fs = command.flightSettings || {};
           if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
           const yawBeforeLook = soldier.aimYaw;
@@ -2172,7 +2122,6 @@ async function start() {
         case 'takeSquad': return { flag: tickControls.take(stepSquads[value][0]) };
         case 'squad': ai.playerCommand(stepSquads[value][1]); hud.squadCommand(stepSquads[value][2]); break;
         case 'takeUse': return { flag: tickControls.take('use') };
-        case 'toggleTurret': toggleTurret(); break;
         case 'player': stepPlayer(dt); break;
         case 'playerCount': playerUnit.tickCount = value; break;
         case 'eye': combat.eye(soldier.position, simulationEye); simulationZoom = 1; break;
@@ -2184,7 +2133,6 @@ async function start() {
         case 'camera': simulationView.update(dt, soldier.position, soldier.aimYaw, soldier.aimPitch,
           soldier.air ? 'stand' : soldier.posture, combat.zoom, flag, flag ? simulationEye : null); break;
         case 'cameraMatrix': simulationCamera.updateMatrixWorld(); break;
-        case 'restorePose': vehicles?.restoreTickPose?.(); break;
         case 'ai': ai.update(dt); break;
         case 'nativeUnits': unitsSim.phase(dt); break;
         case 'hostUnits':
@@ -2203,12 +2151,8 @@ async function start() {
           break;
         case 'vehicles': {
           vehicles.spawnOccupant = combat.dead ? null : soldier.position;
-          const seated = driver.vehicle;
-          vehicles.update(dt, seated, seated ? seatInput(seated, seated.seatIndex, tickControls, command) : undefined); break;
+          vehicles.update(dt); break;
         }
-        case 'driver': driver.update(dt, tickControls); break;
-        case 'turretSeats': turretSeats.update(dt); break;
-        case 'gunner': gunner.update(dt, soldier, tickControls, 1); break;
         case 'remotes': remotes.update(dt, flag ? droidInput : null, tickControls); break;
         case 'networkRemotes': networkRemotes.finish(tick, dt); break;
         case 'muzzles': samplePlayerMuzzles(dt); break;
@@ -2249,7 +2193,7 @@ async function start() {
           return { flag: true, value: Boolean(context.grenade.gone) ? 1 : 0 };
         }
         case 'grenade': { const g = context.grenade; ai.grenadeUpdate(g, g.owner === 'player' ? playerUnit : g.owner); break; }
-        case 'spawnFlush': humanSpawn.flush(); break;
+        case 'spawnFlush': humanSpawn.flush(); if (vehicles?.f2?.debug) vehicles.f2.check(); break;
       }
     },
   };
@@ -2270,7 +2214,7 @@ async function start() {
     }
     commandHistory.put(command);
     if (!worldControls.accept(command)) throw new Error("stale world command");
-    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; vehicles?.sim?.retune(name, key, value); }
+    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; vehicles.f2.retune(name, key, value); }
     const fs = command.flightSettings || {};
     if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
     const yawBeforeLook = soldier.aimYaw;
@@ -2296,7 +2240,7 @@ async function start() {
         ai.playerCommand(kind); hud.squadCommand(label);
       }
     }
-    if (!remotes.active && !walker && tickControls.take("use")) toggleTurret();
+
     if (!game.serverWorld) stepPlayer(dt);
     playerUnit.tickCount += 1;
 
@@ -2321,7 +2265,6 @@ async function start() {
         soldier.air ? "stand" : soldier.posture, combat.zoom, eyes, eyes ? simulationEye : null);
     }
     simulationCamera.updateMatrixWorld();
-    vehicles?.restoreTickPose?.();
     ai?.update(dt);
     // The units' loop below runs on the module where the world asked
     // (src/units-sim.js), to the same effect.
@@ -2351,12 +2294,11 @@ async function start() {
       vehicles.spawnOccupant = combat.dead ? null : soldier.position;
       // His keys for the seat he holds now (src/boarding.js seatInput), as a
       // network human's are read for his.
-      const seated = driver.vehicle;
-      vehicles.update(dt, seated, seated ? seatInput(seated, seated.seatIndex, tickControls, command) : undefined);
-      if (driver.active) driver.update(dt, tickControls);
+      vehicles.update(dt);
+
     }
-    turretSeats?.update(dt);
-    if (gunner.active) gunner.update(dt, soldier, tickControls, 1);
+
+
     remotes.update(dt, remotes.active ? droidInput : null, tickControls);
     networkRemotes?.finish(tick, dt);
     samplePlayerMuzzles(dt);
@@ -2396,6 +2338,7 @@ async function start() {
     }
     // The spawn screen hears what this tick did to the player.
     humanSpawn.flush();
+    if (vehicles?.f2?.debug) vehicles.f2.check();
   }
 
   // Soldiers push each other apart, as the original game's collision pass does
@@ -3643,6 +3586,9 @@ async function start() {
     set presented(fn) { hooks.presented = fn; },
     get tickLookYaw() { return tickLookYaw; },
     get client() { return client; },
+    // Live desktop checks distinguish a held or paused page from a stopped
+    // worker. Read on demand; no diagnostic work runs in the frame or tick.
+    get clockState() { return { driving, paused, frozen, held }; },
     // The death camera, for scripted checks of the death flow: the world's,
     // and the one this page draws.
     get deathView() { return deathView; },
@@ -3899,7 +3845,6 @@ async function start() {
   game.trapsSim = wantBattle && simInstance && live?.traps.length ? (await import("./traps-sim.js")).attachTrapsSim(simInstance, live.traps) : null;
   game.battlefieldSim = wantBattle && simInstance ? (await import("./battlefield-sim.js")).attachBattlefieldSim(simInstance, battlefield, leavingWarning) : null;
   game.propsSim = wantBattle && simInstance && live ? (await import("./props-sim.js")).attachPropsSim(simInstance, live) : null;
-  game.turretSeatsSim = game.propsSim && game.turretSeats ? await (await import("./turret-seats-sim.js")).attachTurretSeatsSim(game.propsSim.bridge, game.turretSeats) : null;
   game.battlePhaseSim = game.battleSim ? (await import("./battle-phase-sim.js")).attachBattlePhaseSim({
     battleSim: game.battleSim, postsSim: game.postsSim, spawningSim: game.spawningSim,
     units, vehicles: () => vehicles?.vehicles ?? [], playerUnit, playerMounted: () => driver?.active || gunner.active,

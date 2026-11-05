@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
+import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles } from '../src/vehicles.js';
 // A real ground hull with a pilot seat and a turreted gunner seat, built by the
 // shared Vehicles system from synthetic data (no retail content). Shared by the
@@ -8,7 +8,7 @@ const box = (x, y, z, w, h, d) => {
   const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z);
   return { positions: g.attributes.position.array, indices: g.index.array, polygons: new Uint32Array(g.index.count / 3) };
 };
-export function mountFixture({ classes = ['tank'], slots = 1 } = {}) {
+export function mountFixture({ classes = ['tank'], slots = 1, authority = false, position = [0,0,0], yaw = 0 } = {}) {
   const floor = box(0, -1, 0, 20000, 2, 20000);
   const collision = new CollisionWorld(floor.positions, floor.indices, floor.polygons);
   const hull = box(0, 1, 0, 3, 2, 5);
@@ -21,10 +21,11 @@ export function mountFixture({ classes = ['tank'], slots = 1 } = {}) {
   ];
   const data = { models: { tank: { bones, parts: [] } }, collision: { tank: hull },
     classes: Object.fromEntries(classes.map(name => [name, { model: 'tank', label: name, base: 'hover', settings: {}, seats, explosion: null }])),
-    spawns: Array.from({ length: slots }, (_, i) => ({ name: `pad${i}`, matrix: new THREE.Matrix4().makeTranslation(i * 20, 0, 0).toArray(), team: 1, post: 'cp', respawnTime: 2, classes: { 1: classes[0] } })) };
+    spawns: Array.from({ length: slots }, (_, i) => ({ name: `pad${i}`, matrix: new THREE.Matrix4().makeRotationY(yaw).setPosition(position[0] + i * 20, position[1], position[2]).toArray(), team: 1, post: 'cp', respawnTime: 2, classes: { 1: classes[0] } })) };
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0), collision, texture: () => null,
     camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } } });
   const v = system.variant(system.slots[0], classes[0]);
   v.spawn(1);
+  if (authority) nativeVehicles(system, { data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0) });
   return { collision, system, v };
 }

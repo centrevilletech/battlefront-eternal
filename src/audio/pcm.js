@@ -14,15 +14,3 @@ export function normalizePcm16(input, output) {
   const result = x.asset_normalize();
   output.set(new Float32Array(x.memory.buffer, result, input.length));
 }
-export async function scalePcm(buffer, value, decibels = true) {
-  if (!value && decibels) return buffer;
-  await prepareAudioPcm();
-  const gain = decibels ? x.asset_gain(value) : value;
-  for (let c = 0; c < buffer.numberOfChannels; c++) {
-    const data = buffer.getChannelData(c), at = x.asset_pcm(data.length);
-    new Float32Array(x.memory.buffer, at, data.length).set(data);
-    x.asset_scale(gain);
-    data.set(new Float32Array(x.memory.buffer, at, data.length));
-  }
-  return buffer;
-}

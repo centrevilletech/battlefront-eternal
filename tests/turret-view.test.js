@@ -1,3 +1,4 @@
+import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
 // The views and aim of a manned turret (src/props.js Turret, src/gunner.js
 // Gunner and TurretCamera, src/seats.js TurretSeats): each class's camera
 // section as the original game reads it, its aim limits, the drum posed along
@@ -97,9 +98,9 @@ test('PitchLimits are down positive: the Yavin tower looks 10 degrees up and 35 
   const t = emplacement({ settings: { PitchLimits: '-10.0 35.0' } });
   near(t.pitchLimits[0], -35 * DEG, 1e-9, 'lowest (up positive)');
   near(t.pitchLimits[1], 10 * DEG, 1e-9, 'highest');
-  for (let i = 0; i < 120; i++) t.steer(1 / 60, 0, -16);
+  for (let i = 0; i < 120; i++) stepTurretPreview(t, 1 / 60, 0, -16);
   near(t.pitch, -35 * DEG, 1e-9, 'held 35 degrees down');
-  for (let i = 0; i < 120; i++) t.steer(1 / 60, 0, 16);
+  for (let i = 0; i < 120; i++) stepTurretPreview(t, 1 / 60, 0, 16);
   near(t.pitch, 10 * DEG, 1e-9, 'held 10 degrees up');
   // The gun's own AimerPitchLimits (up positive: 10 down to 35 up) are
   // widened to the view's, so it reaches 35 degrees down too.
@@ -108,38 +109,21 @@ test('PitchLimits are down positive: the Yavin tower looks 10 degrees up and 35 
   near(tower.gunPitchLimits[1], 35 * DEG, 1e-9, 'gun highest');
 });
 
-test('a gun held at its limits short of the aim point still sends its rounds there', () => {
-  // A gun that never yaws (the AAA's and dish turret's AimerYawLimits 0 0)
-  // and pitches only 5 degrees, aimed at a point well off to the side and
-  // above: it stands at its limits, and the round goes from the fire point
-  // straight at the point; while it is still turning, along the gun.
-  const t = emplacement({ facing: 0, at: [0, 0, 0], settings: { AimerYawLimits: '0 0', AimerPitchLimits: '-5 5', PitchLimits: '-5 5' } });
-  t.present();
-  const target = new THREE.Vector3(3, 6, 10);
-  for (let i = 0; i < 120; i++) t.pose(1 / 60, target);
-  near(t.gunYaw, 0, 1e-12, 'held at its yaw');
-  near(t.gunPitch, 5 * DEG, 1e-12, 'held at its pitch');
-  const from = t.muzzle(new THREE.Vector3()), along = t.muzzle(new THREE.Vector3(), new THREE.Vector3()) && new THREE.Vector3(0, 0, 1).transformDirection(t.gun.matrixWorld);
-  const dir = t.fireDirection(from, target, along, new THREE.Vector3());
-  assert.ok(dir.angleTo(target.clone().sub(from)) < 1e-9, 'straight at the aim point');
-  t.gunPitch = -5 * DEG; t.present();
-  const turning = new THREE.Vector3(0, 0, 1).transformDirection(t.gun.matrixWorld);
-  assert.ok(t.fireDirection(from, target, turning, new THREE.Vector3()).angleTo(turning) < 1e-9, 'still turning: along the gun');
-});
+
 
 test('YawLimits hold the barge turret\'s aim to +-70 degrees of its heading; a full circle turns freely', () => {
   const barge = emplacement({ settings: { YawLimits: '-70.0 70.0' } });
   assert.deepEqual(barge.yawLimits.map((v) => +(v / DEG).toFixed(6)), [-70, 70]);
-  for (let i = 0; i < 300; i++) barge.steer(1 / 60, 16, 0);
+  for (let i = 0; i < 300; i++) stepTurretPreview(barge, 1 / 60, 16, 0);
   near(barge.yaw, 70 * DEG, 1e-9, 'held at its left limit');
-  for (let i = 0; i < 600; i++) barge.steer(1 / 60, -16, 0);
+  for (let i = 0; i < 600; i++) stepTurretPreview(barge, 1 / 60, -16, 0);
   near(barge.yaw, -70 * DEG, 1e-9, 'and its right');
   // The page's look preview holds the same arc.
   const state = previewSteer(barge, { yaw: barge.yaw, pitch: 0, yawVel: 0, pitchVel: 0 }, [{ look: [[400, 0]], mouseScale: 1 }, { look: [[400, 0]], mouseScale: 1 }], null, 1, false);
   near(state.yaw, -70 * DEG, 1e-9, 'previewed inside the arc');
   const free = emplacement({ settings: { YawLimits: '-180.0 180.0' } });
   assert.equal(free.yawLimits, null);
-  for (let i = 0; i < 300; i++) free.steer(1 / 60, 16, 0);
+  for (let i = 0; i < 300; i++) stepTurretPreview(free, 1 / 60, 16, 0);
   assert.ok(Math.abs(free.yaw) <= Math.PI, 'wraps');
   // An arc round the back is kept in 0..360.
   const back = emplacement({ settings: { YawLimits: '120 240' } });
@@ -253,56 +237,7 @@ function person(firstPerson) {
     soldier: { position: new THREE.Vector3(), previous: new THREE.Vector3(), settled: new THREE.Vector3(), velocity: new THREE.Vector3(), aimYaw: 0, aimPitch: 0 } };
 }
 
-test('the page\'s Gunner and the server\'s seats turn the gun to the same point under the crosshair, and rounds meet it', () => {
-  for (const firstPerson of [false, true]) {
-    const g = new THREE.BoxGeometry(400, 1, 400).translate(0, -0.5, 0);
-    const collision = new CollisionWorld(g.attributes.position.array, g.index.array, new Uint32Array(g.index.count / 3));
-    // A wall 12 m out along the turret's heading.
-    collision.addBody(...box(0, 3, 12, 20, 8, 0.5));
-    const fired = [];
-    const ordnance = { units: null, fire: (def, origin, dir) => { fired.push({ origin: origin.clone(), dir: dir.clone() }); return null; } };
-    const weapon = { def: { ordnance: { base: 'bolt' } }, update: (dt, a, trigger) => (trigger.held ? [{ yaw: 0, pitch: 0 }] : []) };
-    // The server: TurretSeats driving a network human.
-    const served = emplacement({ facing: 0, at: [0, 0, 0], collision });
-    served.weapon = weapon;
-    const seats = new TurretSeats({ live: { turrets: [served] }, collision, ordnance });
-    const unit = person(firstPerson);
-    assert.ok(seats.man(unit, served));
-    unit.intent.turn = 0.05; unit.intent.pitch = -0.02;
-    for (let i = 0; i < 60; i++) seats.update(1 / 60);
-    // Let go, the aim coasts to a stop and the gun settles on it; then fire.
-    unit.intent.turn = 0; unit.intent.pitch = 0;
-    for (let i = 0; i < 60; i++) seats.update(1 / 60);
-    unit.intent.buttons = [1, 0];
-    for (let i = 0; i < 30; i++) seats.update(1 / 60);
-    const serverTarget = seats.target.clone();
-    // The page: a Gunner on a turret in the same state.
-    const local = emplacement({ facing: 0, at: [0, 0, 0], collision });
-    local.weapon = weapon;
-    Object.assign(local, { yaw: served.yaw, pitch: served.pitch, gunYaw: served.gunYaw, gunPitch: served.gunPitch });
-    const camera = new THREE.PerspectiveCamera(); camera.aspect = 16 / 9;
-    const gunner = new Gunner({ camera, collision, ordnance, combat: null, animator: { gunner() {}, clips: new Map() } });
-    gunner.aimCamera = new THREE.PerspectiveCamera();
-    gunner.turret = local;
-    gunner.updateCamera(1 / 60, 1, firstPerson, true);
-    const soldier = person(firstPerson).soldier;
-    gunner.update(1 / 60, soldier, { take: () => false, held: () => false });
-    nearV(gunner.target, serverTarget, 1e-4, `${firstPerson ? 'first' : 'third'} person: the same aim point`);
-    assert.ok(Math.abs(serverTarget.z - 11.75) < 1e-3 && served.yaw < -1e-3, `turned, and on the wall (${serverTarget.z.toFixed(3)})`);
-    // The crosshair's ray: from the page's drawn camera along the aim.
-    gunner.updateCamera(1 / 60, 1, firstPerson);
-    const aim = gunner.viewDirection(new THREE.Vector3());
-    const v = serverTarget.clone().sub(camera.position);
-    const off = v.clone().addScaledVector(aim, -v.dot(aim)).length();
-    assert.ok(off < 1e-4, `${firstPerson ? 'first' : 'third'} person: under the crosshair (${off})`);
-    // Every round from the fire point goes through it.
-    assert.ok(fired.length > 0, 'fired');
-    for (const round of fired) {
-      const w = serverTarget.clone().sub(round.origin);
-      assert.ok(w.clone().addScaledVector(round.dir, -w.dot(round.dir)).length() < 1e-4, 'the round meets the aim point');
-    }
-  }
-});
+
 
 // Every placed turret class, imported (BFE_CONTENT_DIR, or public/), in the
 // headless world the worker and the server run: its chase camera rests
@@ -313,79 +248,3 @@ test('the page\'s Gunner and the server\'s seats turn the gun to the same point 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CONTENT = process.env.BFE_CONTENT_DIR || path.join(ROOT, 'public');
 const CLASS_MAPS = ['hot1', 'yav1', 'tat2', 'bes1', 'geo1'];
-test('imported: every turret class frames its gun and puts its rounds under the crosshair', { skip: !CLASS_MAPS.every((m) => fs.existsSync(path.join(CONTENT, `maps/${m}/props.json`))) && 'no extract' }, async () => {
-  process.env.BFE_CONTENT_DIR = CONTENT;
-  const { headlessGame } = await import('../tools/headless-world.mjs');
-  const seen = new Set();
-  for (const map of CLASS_MAPS) {
-    const game = await headlessGame(`map=${map}&side=imp&ai=off`);
-    await game.ready;
-    await game.factory.prepare(game.playerUnit.className);
-    const T = game.THREE;
-    for (const turret of game.live.turrets) {
-      const cls = turret.desc.class;
-      if (seen.has(cls)) continue;
-      seen.add(cls);
-      if (!turret.alive) turret.setHealth(turret.maxHealth);
-      turret.yaw = turret.pitch = turret.yawVel = turret.pitchVel = 0;
-      // The chase camera at rest: outside the turret's box, no lower than
-      // the drum's pivot less a metre, looking at the turret's side of it.
-      const rest = turret.cameraRest(new T.Vector3());
-      const pivot = turret.pivot.clone().applyMatrix4(turret.rig.root.matrixWorld);
-      assert.ok(!turret.encloses(rest), `${cls}: camera outside the turret`);
-      assert.ok(rest.y > pivot.y - 1, `${cls}: camera ${rest.y.toFixed(2)} not below the drum ${pivot.y.toFixed(2)}`);
-      // Manned by a network human (the server's seat path), level, in each
-      // view: the gun settles along the aim and every round meets the aim
-      // point, which the crosshair's ray from the resting camera crosses.
-      const fired = [];
-      const ordnance = game.turretSeats.ordnance;
-      const fire = ordnance.fire;
-      ordnance.fire = (def, origin, dir, ...rest) => { fired.push({ origin: origin.clone(), dir: dir.clone() }); return fire.call(ordnance, def, origin, dir, ...rest); };
-      try {
-        for (const firstPerson of [false, true]) for (const extreme of ['level', 'low', 'high']) {
-          const view = `${cls} ${firstPerson ? 'first' : 'third'} ${extreme}`;
-          const pitch = extreme === 'low' ? turret.pitchLimits[0] : extreme === 'high' ? turret.pitchLimits[1] : 0;
-          // The imported world fires real ordnance, whose owner must be a
-          // real unit on the shared bridge, just as a network rider is.
-          const unit = game.factory.build(game.playerUnit.className);
-          unit.team = 1; unit.human = true; unit.networkHuman = true;
-          unit.spawn(0, 0, 0, 0); unit.intent = blankIntent();
-          unit.combat.firstPerson = firstPerson;
-          assert.ok(game.turretSeats.man(unit, turret), cls);
-          turret.yaw = turret.yawVel = turret.pitchVel = 0;
-          turret.pitch = pitch;
-          for (let i = 0; i < 120; i++) game.turretSeats.update(1 / 60);
-          fired.length = 0;
-          unit.intent.buttons = [1, 0];
-          for (let i = 0; i < 90; i++) { game.turretSeats.update(1 / 60); if (i === 30) unit.intent.buttons = [0, 0]; if (i === 50) unit.intent.buttons = [1, 0]; }
-          const aim = turret.viewDirection(new T.Vector3());
-          // Read the public aim independently of either implementation's
-          // scratch state; emitted origins and directions above are copies.
-          const target = turretAimPoint(turret, firstPerson, aim,
-            game.turretSeats.world, game.turretSeats.world, unit, new T.Vector3(), makeHit());
-          const from = firstPerson ? turret.eyePoint(new T.Vector3()) : turret.cameraRest(new T.Vector3());
-          const v = target.clone().sub(from);
-          assert.ok(v.clone().addScaledVector(aim, -v.dot(aim)).length() < 1e-3, `${view}: aim point on the crosshair ray`);
-          const gunPivot = turret.gun.getWorldPosition(new T.Vector3());
-          const along = new T.Vector3(0, 0, 1).transformDirection(turret.gun.matrixWorld);
-          // The gun turned toward it (widened to the view's pitch, it reaches
-          // every extreme; the guns that never yaw stand at their limit).
-          assert.ok(along.angleTo(target.clone().sub(gunPivot)) < 0.35, `${view}: the gun points at the aim point (${(along.angleTo(target.clone().sub(gunPivot)) / (Math.PI / 180)).toFixed(1)} degrees off)`);
-          assert.ok(fired.length > 0, `${view}: fired`);
-          // Within the weapon's own spread (the minigun's 0.1 degree).
-          const spread = (Math.max(Number(turret.weapon?.def?.YawSpread) || 0, Number(turret.weapon?.def?.PitchSpread) || 0) * Math.SQRT2 + 1e-3) * Math.PI / 180;
-          for (const round of fired.slice(-1)) {
-            const miss = round.dir.angleTo(target.clone().sub(round.origin));
-            assert.ok(miss <= spread, `${view}: the round meets the aim point (${(miss * 180 / Math.PI).toFixed(4)} degrees off)`);
-          }
-          game.turretSeats.leave(unit, { placement: false });
-          unit.remove();
-        }
-      } finally {
-        ordnance.fire = fire;
-      }
-    }
-    game.dispose?.();
-  }
-  for (const cls of ['com_weap_gunturret', 'bes_bldg_AAA_turret', 'geo_bldg_geoturret', 'hoth_bldg_hoth_turret', 'hoth_bldg_dish_turret', 'tat_bldg_barge_turret', 'yav_bldg_tower_turret']) assert.ok(seen.has(cls), `${cls} checked`);
-});

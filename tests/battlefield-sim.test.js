@@ -93,6 +93,8 @@ test('native hull, turret and droid countdowns preserve death order and credit c
         p.events.push(['wreck', amount, this.lastAttacker, c.outOfBounds]);
         unit.combat.damage(amount);
       } };
+      // F2 clears canonical hull credit before the battlefield applies damage.
+      if (kind === 'vehicle') target.system = { f2: { command(v, op) { assert.equal(op, 3); v.lastAttacker = null; } } };
       if (kind === 'droid') unit.combat.remotes = { piloted: target, kill(d) {
         p.events.push(['droid', d === target, c.outOfBounds]); d.dead = true; this.piloted = null;
       } };

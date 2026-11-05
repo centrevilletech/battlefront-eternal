@@ -34,6 +34,7 @@ pub struct Clip {
     pub data: Vec<f32>,
 }
 
+#[derive(Clone, Debug)]
 pub struct Pose {
     pub root: i32,
     pub q: Vec<f32>,

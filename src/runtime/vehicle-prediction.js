@@ -1,6 +1,6 @@
 import { CommandControls } from './commands.js';
 import { replayTicks } from './reconcile.js';
-import { networkVehicleInput } from './network-vehicle.js';
+import { predictionVehicleInput } from './vehicle-prediction-input.js';
 import { captureGroundCorrection } from './network-entity-ground.js';
 import { VehiclesWorld } from '../vehicles-world.js';
 
@@ -34,6 +34,8 @@ export function predictionVehicle(source) {
   clone.itemTarget = { ...source.itemTarget, center: source.itemTarget.center.clone() };
   clone.predictionSource = source.predictionSource || source;
   clone.system = Object.create(clone.predictionSource.system);
+  // Page input replay changes only this private hull.
+  clone.system.f2 = null;
   clone.system.collision = predictionCollision(clone.predictionSource.system.collision);
   // Its queries go to that view of the collision too, never moving the real collider.
   clone.system.world = new VehiclesWorld(clone.system);
@@ -98,7 +100,7 @@ export function predictVehicle(source, pending, from, generation, held = []) {
   try {
     replayTicks(pending, from, generation, held, (_tick, command) => {
       controls.accept({ ...command, epoch: 1, sequence: command.tick });
-      const input = networkVehicleInput(vehicle, 0, controls, command);
+      const input = predictionVehicleInput(vehicle, 0, controls, command);
       {
         vehicle.captureTick();
         // The world advances wheeled/repulsor collision at 120 Hz; flyers at 60 Hz.

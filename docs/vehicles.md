@@ -33,7 +33,7 @@ The flight modules are under `src/flight/`:
 | `ai.js` | Virtual pilot controller through the same model |
 | `gear.js` | Landing gear, gear doors and S-foils from each craft's takeoff clip |
 | `spawn.js` | Friendly landed attack transport spawn points |
-| `pilotless.js` | A craft in flight that nobody flies |
+| `rust/sim/src/flight/pilotless.rs` | A craft in flight that nobody flies |
 
 `Vehicles` owns the fixed-step model and weapon/seat integration. `game.js`
 connects input, profile settings, debug and transport spawn selection. The
@@ -394,7 +394,7 @@ through `Vehicles.board` and his seat lease) and the bots (the Classic AI's
   `81bce0f9` to 0, which no retail class does, so nobody is flung. The hull
   stays for anyone: a hover with nobody at the controls slows to a stop at its
   Deceleration, as when its driver lets go of the keys.
-- A craft nobody flies (`src/flight/pilotless.js`): with anyone still aboard
+- A craft nobody flies (`rust/sim/src/flight/pilotless.rs`): with anyone still aboard
   it holds its course with the stick let go. Empty, it comes down, its speed
   carried on and gravity bending its path, nose along the path, and is
   destroyed where it strikes the ground, a building, the water or a death

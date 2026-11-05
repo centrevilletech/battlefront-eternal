@@ -8,7 +8,7 @@
 //! contacts to the forces as the module's Float64Array carried them.
 
 use super::hull::{Hull, HoverClass, Spring, DOWN, UP};
-use super::{Polygon, VehicleWorld};
+use super::VehicleWorld;
 use crate::collision::spheres::closest_point_to_point;
 use crate::collision::triangle_normal;
 use three::{clamp, lerp, Quaternion, Vector3};
@@ -198,7 +198,7 @@ fn corners(t: &[Vector3; 3]) -> ([f64; 3], [f64; 3], [f64; 3]) {
 pub fn hover_contacts<W: VehicleWorld>(v: &mut Hull, w: &mut W) -> [f64; SPRINGS] {
     let h = v.hover_class.take().expect("a hover's class");
     let mut compressions = [0.0; SPRINGS];
-    let mut polygons: Vec<Polygon> = Vec::new();
+    let mut polygons = std::mem::take(&mut v.spring_polygons);
     // The module's scratch normal: set before every read below.
     let mut normal = Vector3::default();
     for (i, spring) in h.springs.iter().enumerate() {
@@ -277,6 +277,7 @@ pub fn hover_contacts<W: VehicleWorld>(v: &mut Hull, w: &mut W) -> [f64; SPRINGS
         }
         compressions[i] = compression;
     }
+    v.spring_polygons = polygons;
     v.hover_class = Some(h);
     compressions
 }

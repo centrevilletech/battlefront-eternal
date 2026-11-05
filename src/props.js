@@ -215,6 +215,7 @@ export class Building {
       if (on && !this.hologram.on) this.hologram.fade = 0;
       this.hologram.on = on;
     }
+    this.f2Seats?.turretLife(this);
   }
 
   setHealth(value) {
@@ -383,10 +384,13 @@ export class PowerupStation extends Building {
     const health = target.healthType === "vehicle" ? this.vehicleHealth : this.giveHealth;
     const ammo = target.healthType === "vehicle" ? this.vehicleAmmo : this.giveAmmo;
     if (health > 0 && target.health < target.maxHealth) {
-      target.health = Math.min(target.health + health, target.maxHealth);
+      if (target.seats) target.setHealth(Math.min(target.health + health, target.maxHealth));
+      else target.health = Math.min(target.health + health, target.maxHealth);
       served |= 1;
     }
-    if (ammo > 0) {
+    if (ammo > 0 && target.seats) {
+      if (target.system.f2.firing.supply(target, ammo)) served |= 2;
+    } else if (ammo > 0) {
       for (const weapon of target.weapons) {
         if (weapon.bottomless || !(weapon.def.ammo > 0)) continue;
         const loaded = weapon.clip >= weapon.perShot - 1e-6 ? 1 : 0;
@@ -618,6 +622,7 @@ export class Turret extends Building {
     super.built();
     if (this.aiTarget) this.aiTarget.generation += 1;
     this.lastAttacker = null;
+    this.f2Seats?.turretLife(this);
   }
 
   // Damage to the turret is damage to whoever mans it, for the AI: the
@@ -643,6 +648,7 @@ export class Turret extends Building {
   // the pitch (up positive). yaw and pitch: the aim's (the turret's own by
   // default; a page passes the one it shows).
   viewDirection(out, yaw = this.yaw, pitch = this.pitch) {
+    if (this.f2Seats) return out.copy(this.f2Pose.direction);
     return aimVector(this.facing + yaw, pitch, out);
   }
 
@@ -659,18 +665,7 @@ export class Turret extends Building {
 
   // Mouse turn and pitch rates (as the soldier reads them) steer the aim,
   // inside the class's yaw arc and pitch limits.
-  steer(dt, turnInput, pitchInput, zoom = 1) {
-    const k = Math.min(1, this.filter * dt);
-    const rate = this.turnRate / zoom;
-    this.yawVel += (turnInput * rate - this.yawVel) * k;
-    this.pitchVel += (pitchInput * rate - this.pitchVel) * k;
-    const yaw = this.yaw + this.yawVel * dt;
-    this.yaw = this.yawLimits ? Turret.prototype.holdYaw.call(this, yaw) : Math.atan2(Math.sin(yaw), Math.cos(yaw));
-    // Held at the arc's end, the drum stands still (its gunner's turn
-    // frames and the look preview go by yawVel).
-    if (this.yawLimits && Math.abs(Math.atan2(Math.sin(yaw - this.yaw), Math.cos(yaw - this.yaw))) > 1e-9) this.yawVel = 0;
-    this.pitch = THREE.MathUtils.clamp(this.pitch + this.pitchVel * dt, this.pitchLimits[0], this.pitchLimits[1]);
-  }
+  
 
   // The aim frame (the original game's camera subject for the seat): at the
   // drum's pivot, looking along the aim (yaw from the heading, pitch up
@@ -687,6 +682,7 @@ export class Turret extends Building {
   // The eye: EyePointOffset in the aim frame. What a gunner looks from in
   // first person, and the plane the chase camera's aim starts at.
   eyePoint(out, yaw = this.yaw, pitch = this.pitch) {
+    if (this.f2Seats) return out.copy(this.f2Pose.eye);
     return out.copy(this.camera.eye).applyMatrix4(this.aimFrame(this.frameMatrix, yaw, pitch));
   }
 
@@ -719,6 +715,7 @@ export class Turret extends Building {
   // aim, so the point the gun turns to is the one under it. The page's
   // Gunner and the server's TurretSeats both aim from here.
   aimOrigin(out, firstPerson = false, yaw = this.yaw, pitch = this.pitch) {
+    if (this.f2Seats) return out.copy(firstPerson ? this.f2Pose.eye : this.f2Pose.chase);
     if (firstPerson) return this.eyePoint(out, yaw, pitch);
     this.cameraRest(out, yaw, pitch);
     const eye = this.eyePoint(aimEye, yaw, pitch);
@@ -742,10 +739,7 @@ export class Turret extends Building {
   // part), then the drum and gun posed from the angles (present's). Both
   // hosts integrate; a page showing a worker's battle poses from the
   // replicated angles alone (LiveObjects.present).
-  pose(dt, target) {
-    this.aimGun(dt, target);
-    this.present();
-  }
+  
 
   // The drum and gun from the aim and the gun's own angles. The drum is the
   // aim frame's turn (by YawTurnFactor and PitchTurnFactor) about its pivot,
@@ -784,19 +778,13 @@ export class Turret extends Building {
 
   // The gun's aim integration alone: toward the target at its yaw and pitch
   // rates, inside its limits.
-  aimGun(dt, target) {
-    if (!this.gun) return;
-    const want = this.gunWant(target, gunWanted);
-    const step = (from, to, rate) => from + THREE.MathUtils.clamp(to - from, -rate * dt, rate * dt);
-    this.gunYaw = step(this.gunYaw, want.yaw, this.gunYawRate);
-    this.gunPitch = step(this.gunPitch, want.pitch, this.gunPitchRate);
-  }
+  
 
   // The direction the gun points, and its fire point, in the world.
   muzzle(position, direction, advance = false) {
+    if (this.f2Seats) { if (direction) direction.copy(this.f2Pose.muzzleDirection); return position.copy(this.f2Pose.muzzle); }
     this.rig.root.updateMatrixWorld(true);
     const point = this.firePoints?.length > 1 ? this.firePoints[this.barrel % this.firePoints.length] : this.firePoint;
-    if (advance) this.barrel++;
     (point || this.gun || this.rig.root).getWorldPosition(position);
     if (direction) direction.set(0, 0, 1).transformDirection((this.gun || this.rig.root).matrixWorld);
     return position;
@@ -873,6 +861,7 @@ export class Turret extends Building {
   // Where the gunner stands, in the world: the seat node's place, written
   // to out (the turret's root without one).
   seatPoint(out) {
+    if (this.f2Seats) return out.copy(this.f2Pose.seatPoint);
     return (this.seat || this.rig.root).getWorldPosition(out);
   }
 
@@ -883,12 +872,14 @@ export class Turret extends Building {
   // of a turret placed on a slope (one Hoth dish turret stands 9 degrees
   // off level), with any turn the node itself is bound with.
   seatTurn(out) {
+    if (this.f2Seats) return out.copy(this.f2Pose.seatTurn);
     return (this.seat || this.rig.root).getWorldQuaternion(out);
   }
 
   // The heading of that turn: where the gunner's +z points, about the
   // vertical (the soldier's aimYaw while he mans it).
   seatYaw() {
+    if (this.f2Seats) return this.f2Pose.seatYaw;
     const node = this.seat || this.rig.root;
     node.updateWorldMatrix(true, false);
     const e = node.matrixWorld.elements;
@@ -911,6 +902,7 @@ export class Turret extends Building {
   // is drawn. Written to shapes; returns their count, 0 where none shows.
   // index: the seat's, always 0 (as Vehicle.riderShapes takes it).
   riderShapes(index, unit, shapes) {
+    if (this.f2Seats) return this.f2Seats.phase.riders.shapes(unit, shapes);
     const frame = this.riderBody(unit, riderScratch);
     return frame ? riderHitShapes(riderScratch.points, frame, unit.rootScale, shapes) : 0;
   }
@@ -918,6 +910,7 @@ export class Turret extends Building {
   // Where a gunner killed at the gun starts to fall from, in the world:
   // out, or null where none shows (src/rider-pose.js riderDropPoint).
   riderDrop(index, unit, out) {
+    if (this.f2Seats) return this.f2Seats.phase.riders.drop(unit, out);
     const frame = this.riderBody(unit, riderScratch);
     return frame ? riderDropPoint(riderScratch.points, out).applyMatrix4(frame) : null;
   }
@@ -1568,8 +1561,8 @@ export class LiveObjects {
     for (const station of this.stations) station.update(dt, target, this.vehicleTargets);
     for (const turret of this.turrets) {
       turret.regenerate(dt);
-      if (!turret.gunner && turret.alive) turret.aimGun(dt, null);
     }
+    this.f2Seats?.idleTurrets(dt);
     if ((this.animated || []).length) {
       const positions = this.soldiers?.() || [];
       const bodies = this.bodies?.() || [];
