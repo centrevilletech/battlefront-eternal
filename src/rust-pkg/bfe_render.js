@@ -2117,6 +2117,13 @@ function __wbg_get_imports() {
             const ret = arg0.getActiveAttrib(arg1, arg2 >>> 0);
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
+        __wbg_getActiveUniformBlockName_5141b43c031c25f4: function(arg0, arg1, arg2, arg3) {
+            const ret = arg1.getActiveUniformBlockName(arg2, arg3 >>> 0);
+            var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            var len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32((arg0 >>> 0) + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32((arg0 >>> 0) + 4 * 0, ptr1, true);
+        },
         __wbg_getActiveUniform_4d82b7834e1b4ef8: function(arg0, arg1, arg2) {
             const ret = arg0.getActiveUniform(arg1, arg2 >>> 0);
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
