@@ -82,7 +82,7 @@ test("a mirror's render of the near scene draws the near phase's passes for the 
   assert.throws(() => core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), /Incomplete Rust mirror/);
 });
 
-test("foliage: the drawer selects for the classes it registered, three keeps the rest", async () => {
+test("foliage: Rust selects every registered card class", async () => {
   const { core, calls, renderer, scene, properties } = bridge();
   const geometry = new THREE.InstancedBufferGeometry();
   const card = (name, size) => geometry.setAttribute(name, new THREE.BufferAttribute(new Float32Array(4 * size).map((_, i) => i), size));
@@ -94,8 +94,7 @@ test("foliage: the drawer selects for the classes it registered, three keeps the
   const batch = { geometry, material, uniforms: { foliageWiggle: { value: 0.11 } } };
   const instance = { position: new THREE.Vector3(1, 2, 3), matrix: new THREE.Matrix4().makeTranslation(1, 2, 3), tint: [0.5, 0.6, 0.7], sphere: null, cullDistance: Infinity, maxDistance: 100 };
   const kind = { grass: true, batch, instances: [instance] };
-  const other = { grass: false, batch: { geometry: new THREE.BufferGeometry(), material: new THREE.MeshBasicMaterial() }, instances: [] };
-  const foliage = { kinds: new Map([["a", kind], ["b", other]]), time: 2.5, nearEnd: () => 200, drawer: null };
+  const foliage = { kinds: new Map([["a", kind]]), time: 2.5, nearEnd: () => 200, drawer: null };
   scene.userData.foliage = foliage;
   core.phase("near", renderer, scene, core.graphics.camera);
   assert.equal(foliage.drawer, core.byName.foliage, "the near phase attaches the drawer");
@@ -110,8 +109,7 @@ test("foliage: the drawer selects for the classes it registered, three keeps the
   assert.deepEqual([...added[8]].slice(15, 16), [100]);
   assert.deepEqual([...added[9]].slice(6, 9), [-1, Infinity, 100], "no sphere, always tested");
   assert.equal(material.visible, false);
-  assert.ok(foliage.drawer.covers(kind));
-  assert.ok(!foliage.drawer.covers(other), "a CPU batch stays three's");
+  assert.ok(foliage.drawer.classes.has(kind));
   assert.ok(calls.some((c) => c[0] === "foliage_frame"));
   const input = core.foliageInput;
   assert.deepEqual([input[48], input[49], input[50], input[51], input[52]], [4, 5, 6, 200, 2.5]);
@@ -131,7 +129,7 @@ test("foliage under shadows: a card program that reads modelMatrix (three's worl
   core.phase("near", renderer, scene, core.graphics.camera);
   foliage.drawer.select(foliage, core.graphics.camera);
   assert.ok(calls.some((c) => c[0] === "foliage_class"), "registered");
-  assert.ok(foliage.drawer.covers(kind));
+  assert.ok(foliage.drawer.classes.has(kind));
 });
 
 test("the view scene: three's start of a render, the phase, and three left out when every part was drawn", () => {
@@ -537,7 +535,7 @@ function nearBridge() {
   return { core, calls, ...three };
 }
 
-test("the near scene: drawn in place of three's render when everything three would list is the renderer's", () => {
+test("the near scene: Rust draws every registered item", () => {
   const { core, calls, renderer, graphics, scene, camera, properties, list } = nearBridge();
   let before = 0;
   scene.onBeforeRender = () => { before++; };
@@ -574,7 +572,7 @@ test("the near scene: drawn in place of three's render when everything three wou
   assert.equal(core.stale, true);
 });
 
-test("the near scene: left to three when it would list something no pass draws", () => {
+test("the near scene: an unregistered item fails the required Rust draw", () => {
   const { core, calls, renderer, scene, camera, properties } = nearBridge();
   const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
   properties.get(wall.material).currentProgram = program([], ["position"]);

@@ -67,7 +67,7 @@ first two sessions use the frozen reference; the last uses the candidate. Each
 session uses the same immutable case query and settings and must retain draws.
 Build both distributions with `--minify false`. The harness isolates object UUID
 randomness from procedural foliage/effect randomness, so deleting helper objects
-does not change the sampled world. It fails if that isolation cannot be verified.
+does not change the sampled world. Audio scheduling uses a separate stream too. It fails if that isolation cannot be verified.
 The worker is stopped and advanced to authority tick 60 before cosmetic warmup;
 its initial start acknowledgement can otherwise race by one tick. Captured ticks
 must still match exactly between sessions.
@@ -88,7 +88,7 @@ counts and the battle draw guard's count. Candidate renderer errors are fatal.
 The page and workers use seeded randomness. Capture-time lamp selection uses a
 fixed advancing clock. Reference/control must be pixel-exact across separate
 sessions; noisy controls fail and must be investigated. Candidate comparisons
-also require exact RGB pixels, dimensions and ticks. There is no per-count or
+also require exact RGBA pixels, dimensions and ticks. There is no per-count or
 noise-envelope allowance. Raw captures stay outside the repository and should
 be removed after recording results.
 

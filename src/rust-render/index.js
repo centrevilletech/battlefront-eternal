@@ -369,7 +369,7 @@ export class RustRender {
   // its row) when its pass feeds shadows (policy.shadows: it gives a draw's
   // receiveShadow and reveals the casters it hides), and the lamps' while
   // lamps are on only when its pass feeds them (policy.lamps). Anything else
-  // makes the program three's.
+  // fails registration.
   program(threeProgram, kind, material, policy, cache = this.programs) {
     const lampsOn = Boolean(this.graphics.settings.get("lampLighting"));
     // A pass that gives its draws their lamps: its programs read them from the
@@ -767,8 +767,7 @@ export class RustRender {
     try { if (!this.byName.post.cover(renderer, steps)) this.fail(new Error("Incomplete Rust post chain")); return true; } catch (error) { this.fail(error, renderer, target); return false; }
   }
 
-  // graphics.js: the near scene, drawn in place of three's render of it when
-  // nothing in it is left for three (near.js); true when it was.
+  // Draw every near-scene item through Rust; incomplete ownership is fatal.
   coverNear(renderer, scene, camera) {
     if (this.contextLost) return true;
     if (!this.byName.near.cover(renderer, scene, camera)) this.fail(new Error(`Incomplete Rust near scene: ${this.byName.near.stopped?.name || this.byName.near.stopped?.type || "configuration"}`));
@@ -783,9 +782,7 @@ export class RustRender {
     try { if (!this.byName.shadow.cover(renderer, light, scene, camera, from)) this.fail(new Error(`Incomplete Rust shadow: ${this.byName.shadow.why}`)); return true; } catch (error) { this.fail(error, renderer, target); return false; }
   }
 
-  // water.js: a water mirror's render of the near scene, drawn in place of
-  // three's render of it when nothing in it is left for three (mirror.js);
-  // true when it was.
+  // Draw the complete reflected scene through Rust.
   coverMirror(renderer, scene, camera) {
     if (this.contextLost) return true;
     if (!this.byName.mirrorCover.cover(renderer, scene, camera)) this.fail(new Error("Incomplete Rust mirror scene"));

@@ -47,7 +47,7 @@ const DEPTH_FUNCS = { [THREE.NeverDepth]: 0x0200, [THREE.LessDepth]: 0x0201, [TH
 
 // A material's blending as three's setBlending sets it: [enabled, equation
 // rgb, equation alpha, src rgb, dst rgb, src alpha, dst alpha], or null for
-// one this pass leaves to three (constant-colour factors).
+// an invalid or unauthored blend state, which fails battle registration.
 export function blendOf(material) {
   const p = material.premultipliedAlpha;
   switch (material.blending) {
@@ -70,7 +70,7 @@ export function blendOf(material) {
 
 // What a material's draw state is to the renderer: its depth function and
 // flags (1 depth test, 2 depth write, 4 colour write), or null for a state
-// this pass leaves to three (stencil, polygon offset, alpha to coverage).
+// outside the declared depth functions. Alpha to coverage is flag 8.
 export function stateOf(material) {
   const func = DEPTH_FUNCS[material.depthFunc];
   if (func === undefined) return null;

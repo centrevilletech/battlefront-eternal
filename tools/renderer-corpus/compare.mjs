@@ -5,7 +5,7 @@ import { join } from 'node:path';
 export function comparePixels(reference, candidate) {
   if(reference.length!==candidate.length)throw Error('Pixel buffer sizes differ');
   let differing=0,maxDelta=0;
-  for(let i=0;i<reference.length;i+=4){let delta=0;for(let k=0;k<3;k++)delta=Math.max(delta,Math.abs(reference[i+k]-candidate[i+k]));if(delta){differing++;maxDelta=Math.max(maxDelta,delta);}}
+  for(let i=0;i<reference.length;i+=4){let delta=0;for(let k=0;k<4;k++)delta=Math.max(delta,Math.abs(reference[i+k]-candidate[i+k]));if(delta){differing++;maxDelta=Math.max(maxDelta,delta);}}
   return {differing,maxDelta,pixels:reference.length/4};
 }
 

@@ -78,6 +78,7 @@ try {
     // Old reference has a known policy diagnostic for depth-only crowd casters.
     // Candidate captures must have no renderer errors whatsoever.
     if(process.env.BFE_CANDIDATE==='1'&&(raw.errors.length||raw.battleThreeCalls!==0))throw Error(`Rust errors: ${JSON.stringify(raw.errors)}`);
+    if(process.env.BFE_CANDIDATE!=='1'&&raw.errors.some(e=>!/^p[0-9]+ diffuse$/.test(e)))throw Error(`Unexpected reference errors: ${JSON.stringify(raw.errors)}`);
     raw.file=`${id}-${k}.rgba.gz`;raw.hash=createHash('sha256').update(pixels).digest('hex');
     fs.writeFileSync(`${out}/${raw.file}`,gzipSync(pixels));report.points.push(raw);
   }

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { compareCase } from '../tools/renderer-corpus/compare.mjs';
+import { compareCase, comparePixels } from '../tools/renderer-corpus/compare.mjs';
 
 test('cross-build parity rejects session noise, candidate changes and tick drift', () => {
   const root = mkdtempSync(join(tmpdir(), 'renderer-compare-'));
@@ -22,3 +22,5 @@ test('cross-build parity rejects session noise, candidate changes and tick drift
     put('candidate',10,43);assert.throws(()=>compareCase(root,'case',1),/ticks differ/);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
+
+test('frozen pixel comparison includes alpha',()=>{assert.equal(comparePixels(Uint8Array.of(1,2,3,255),Uint8Array.of(1,2,3,254)).differing,1);});
