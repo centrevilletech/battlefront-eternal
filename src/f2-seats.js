@@ -6,7 +6,7 @@ import { SeatLease, seatWeaponPolicy } from './seats.js';
 import { Building } from './props.js';
 import { MirrorPool, Heap } from './sim/runtime.js';
 import { makeHit } from './collision.js';
-import { COMMAND_F2_SEAT, COMMAND_TABLE, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
+import { COMMAND_F2_SEAT, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
 import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatUnitInMirror, F2SeatUnitOutMirror, F2SeatCommandMirror, F2SeatResultMirror,
   F2SeatSoldierMirror, F2SeatSoldierLayout, putF2SeatSoldier, F2SeatAnswerMirror, F2SeatEffectMirror, F2LatchedMirror,
   F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2TurretTargetMirror, syncF2TurretHeader, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
@@ -134,7 +134,7 @@ export class F2Seats {
     vs.promote = (v, index) => this.invoke('promote', null, v, null, index).lease;
     vs.destroyedCrew = v => this.invoke('destroyed', null, v).accepted;
   }
-  readIo() { this.bridge.views(); syncF2SeatIo(this.bridge, this.bridge.f, this.ioBase, 0, this.io); this.phase.counters.outputFields += this.io.words; }
+  readIo() { this.bridge.views(); syncF2SeatIo(this.bridge, this.bridge.f, this.ioBase, 0, this.io);  }
 
   // Vehicle construction supplies class facts once. Mutable state stays native.
   adopt(v) {
@@ -226,7 +226,7 @@ export class F2Seats {
   writeHeader(end, words = end) {
     if (end > this.capacity) throw Error('F2 seat input capacity exceeded');
     putF2SeatHeader(this.bridge, this.header, this.bridge.f, this.inputBase, this.emptyHeap);
-    this.phase.counters.inputFields += words; this.phase.counters.inputSeats += words;
+
   }
   // Resolve actor clip bindings at boarding/life boundaries. The command
   // itself remains a synchronous scalar call, with generation-qualified unit,
@@ -250,8 +250,7 @@ export class F2Seats {
     a.hull = hull?.seats ? hull : null; a.hullLife = hull?.aiTarget?.generation ?? 0; a.lease = lease; a.index = index;
     a.placement = options?.placement ?? true; a.promote = options?.promote; a.post = options?.post ?? null;
     a.safe = options?.policy === 'safe'; a.force = Boolean(options?.force); a.reason = options?.reason ?? 'exit'; a.direction = direction;
-    const b = this.bridge, prior = b.x; b.x = this.x;
-    try { b.command(COMMAND_F2_SEAT, a, this.result); this.phase.counters.outputFields += COMMAND_TABLE[COMMAND_F2_SEAT].result.words; } finally { b.x = prior; }
+    this.bridge.command(COMMAND_F2_SEAT, a, this.result);
     this.phase.sync();
     return this.result;
   }
@@ -323,8 +322,7 @@ export class F2Seats {
         else if (!lease.released && index < 0) list.push(lease);
       }
     }
-    this.phase.counters.outputFields += n * stride + f[base + 3];
-    this.phase.counters.outputLeases += n * stride + f[base + 3];
+
   }
   // Native body writes happen after mounted fire, with earlier command writes
   // published at their synchronous slots. Copy only touched unit records and
@@ -347,8 +345,7 @@ export class F2Seats {
         putF2SeatSoldier(b, a, this.soldierWords.get(unit), 0, this.emptyHeap);
         if (out.riderPosed) this.phase.riders.present(unit);
       }
-      this.phase.counters.outputFields += n * stride + f[base + 3];
-      this.phase.counters.outputUnits += n * stride + f[base + 3];
+
     }
     base = (this.io.controls / 8) | 0;
     if (base) {
@@ -358,15 +355,13 @@ export class F2Seats {
         intent.reload = intent.use = intent.exit = intent.jump = intent.crouch = intent.prone = false;
         intent.nextPrimary = intent.previousPrimary = intent.nextSecondary = intent.zoom = false;
       }
-      this.phase.counters.outputFields += n * stride + f[base + 3];
-      this.phase.counters.outputControls += n * stride + f[base + 3];
+
     }
     base = (this.io.effects / 8) | 0;
     if (base) {
       const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
       for (let i = 0; i < n; i++) this.effect(syncF2SeatEffect(b, f, base + 5 + i * stride, heap, this.effectRow));
-      this.phase.counters.outputFields += n * stride + f[base + 3];
-      this.phase.counters.outputEffects += n * stride + f[base + 3];
+
     }
     this.syncTurrets();
     this.vehicles.ticks = this.io.ticks;
@@ -485,7 +480,7 @@ export class F2Seats {
     const ord = this.io.ordnance / 8;
     if (ord && f[ord] && this.crews?.ordnance) {
       KIND_TABLE[KIND_ORDNANCE].sync(b, f, ord + 5, ord + f[ord + 2], this.crews.ordnance);
-      this.phase.counters.outputFields += f[ord + 1] + f[ord + 3];
+
     }
     let base = (this.io.turrets / 8) | 0;
     if (base) {
@@ -507,8 +502,7 @@ export class F2Seats {
           u.animator?.gunner?.(this.riderClips.get(out.lease) ?? null, out.samplePitch, out.sampleTurn, out.sampleTime, out.seatTurn);
         }
       }
-      this.phase.counters.outputFields += n * stride + f[base + 3];
-      this.phase.counters.outputTurrets += n * stride + f[base + 3];
+
     }
     base = (this.io.events / 8) | 0;
     if (base && this.crews) {
@@ -520,7 +514,7 @@ export class F2Seats {
         else if (e.kind === 'sound') world.sound('turretFire', e.turret, shot);
         else world.fired(e.turret, 0, shot, e.owner, e.origin, e.direction);
       }
-      this.phase.counters.outputFields += n * stride + f[base + 3];
+
     }
     if (this.crews) { this.crews.ticks = this.io.turretTicks; this.crews.time = this.io.turretTime; }
   }

@@ -4,7 +4,6 @@ import { applyDelta, deltaBuffer } from './f2-delta.js';
 import { F2Seats } from './f2-seats.js';
 import { F2Firing } from './f2-firing.js';
 import { F2Riders } from './f2-riders.js';
-import { makeGround, makeHit } from './collision.js';
 import { Weapon } from './weapons.js';
 import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
 import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, putF2Bodies, F2PhaseFlag_INDEX, F2ColliderHeaderLayout as COLLIDER, F2BodyHeaderLayout as BODY_HEADER, F2BodyToggleLayout as TOGGLE, F2BodyPlacedLayout as PLACED, F2PhaseLayout as PHASE, F2PoseMirror, F2PoseSeatMirror, F2AimerMirror, syncF2Pose, F2InputLayout, F2FlightInLayout, F2FlightInMirror, putF2FlightIn, F2MemberLayout, F2PadTeamLayout, F2InputMirror, F2MemberMirror, putF2Input, putF2Member, putF2PadTeam } from './sim/gen/f2.js';
@@ -13,9 +12,8 @@ import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, VEHICLE_KEYS } from
 import { json, classKeys, giveMapRules, pullPose, flightKeys } from './vehicle-phase-data.js';
 import { putOrdnanceOwner } from './sim/gen/ordnance.js';
 import { ordnanceTests } from './ordnance-sim.js';
-import { F2Counters, F2MirrorCheck, countedF2Exports } from './f2-contract.js';
+import { F2MirrorCheck } from './f2-contract.js';
 const MISS = { found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: -1 };
-const NO_GROUND = { found: false, height: 0, normal: new THREE.Vector3() };
 const NO_INPUT = {};
 const EMPTY_UNITS = [];
 const OWNED_FIELDS = VEHICLE_KEYS;
@@ -67,7 +65,7 @@ class F2 {
   constructor(vehicles, bridge, map, pack, unitClass, debug) {
     bridge.identify({ tests: ordnanceTests });
     this.vehicles = vehicles; this.bridge = bridge;
-    this.counters = new F2Counters(); this.x = countedF2Exports(bridge.x, this.counters);
+    this.x = bridge.x;
     this.world = vehicles.world; this.collision = vehicles.collision;
     this.unitClass = unitClass; this.debug = debug;
     this.detector = new F2MirrorCheck();
@@ -81,9 +79,7 @@ class F2 {
     this.memberCache = new Float64Array(8192 * F2MemberLayout.words); this.memberCache.fill(NaN);
     this.memberScratch = new Float64Array(F2MemberLayout.words); this.memberLength = 0; this.padTeam = { hasTeam: false, team: 0 };
     this.padPosts = vehicles.slots.map(slot => slot.desc.post ? vehicles.posts?.posts.find(p => p.desc.name.toLowerCase() === slot.desc.post) : null); this.memberPoint = new THREE.Vector3(); this.aimPoints = [];
-    this.hit = makeHit(); this.groundHit = makeGround();
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
-    this.flag = { value: false }; this.number = { value: 0 };
     giveMapRules(bridge, vehicles.water, map);
     this.posing = this.pack(pack);
     // A map without hulls has an empty pack and an empty fleet to step.
@@ -143,7 +139,6 @@ class F2 {
     this.capacity = bridge.f[this.descriptor + PHASE.capacity];
     bridge.reserve(16 * 1024 * 1024);
     this.bodyFlags();
-    this.counters.reset();
   }
 
   // Vehicle constructor data and pullPose initialize retained native rows.
@@ -198,7 +193,7 @@ class F2 {
     this.bodyFlags();
     this.foreignIn(true);
     this.seats.prepare();
-    this.counters.ticks++;
+
     const memory = b.memory.buffer;
     this.x.f2_step(dt, tick);
     if (this.debug && b.memory.buffer !== memory) throw Error('F2 memory grew during the phase');
@@ -252,9 +247,9 @@ class F2 {
       let changed = i >= this.memberLength;
       const offset = i * F2MemberLayout.words;
       for (let j = 0; j < F2MemberLayout.words; j++) {
-            const old = this.memberCache[offset + j], next = this.memberScratch[j];
-            if (old === next ? old === 0 && 1 / old !== 1 / next : old === old || next === next) changed = true;
-          }
+        const old = this.memberCache[offset + j], next = this.memberScratch[j];
+        if (old === next ? old === 0 && 1 / old !== 1 / next : old === old || next === next) changed = true;
+      }
       if (changed) {
         for (let j = 0; j < F2MemberLayout.words; j++) { f[at + j] = this.memberScratch[j];  }
         at += F2MemberLayout.words; h.memberCount++;
@@ -292,11 +287,7 @@ class F2 {
     // would restore pre-latch edges after the native seat phase consumed them.
     h.firing = at - base; at += this.firing.input(at); h.end = at - base;
     putF2Input(b, h, f, base, null);
-    this.counters.inputFields += at - base;
-    this.counters.inputRegistry += h.memberCount * F2MemberLayout.words;
-    this.counters.inputFiring += h.end - h.firing;
-    this.counters.inputFlight += h.flightCount * F2FlightInLayout.words;
-    this.counters.inputWorld += h.end - h.memberCount * F2MemberLayout.words - (h.end - h.firing) - h.flightCount * F2FlightInLayout.words;
+
   }
 
   // A spawn may rebuild the pending input before native latching reads it.
@@ -325,13 +316,8 @@ class F2 {
     if (v.f2Synced === this.syncStamp) return;
     v.f2Synced = this.syncStamp; this.syncedRows[this.syncedCount++] = v;
   }
-  // A synchronous hook may arrive through the shared simulation bridge.
-  // Use this phase's counted export table only while reading its result, and
-  // restore the previous table even if a gameplay callback throws.
-  sync() {
-    const b = this.bridge, prior = b.x; b.x = this.x;
-    try { return this.syncState(); } finally { b.x = prior; }
-  }
+  // Read the publication before a synchronous hook can inspect its owner.
+  sync() { this.syncState(); }
 
   // Block counts and word addresses are integers in the wasm32 ABI. Keep
   // them integral in JS too, avoiding boxed doubles at decoder call sites.
@@ -354,8 +340,7 @@ class F2 {
         applyDelta(f, at, h, v.f2HullWords);
         k.sync(b, v.f2HullWords, 5, v.f2HullWords[2] | 0, v);
       }
-      this.counters.outputFields += rows * stride + f[base + 3];
-      this.counters.outputHulls += rows * stride + f[base + 3];
+
     }
     base = (b.f[d + PHASE.pads] / 8) | 0;
     if (base) {
@@ -364,8 +349,7 @@ class F2 {
         const pad = syncF2Pad(b, f, base + 5 + i * stride, h, this.padScratch);
         const slot = this.vehicles.slots[pad.index]; slot.remaining = pad.remaining; slot.vehicle = pad.vehicle;
       }
-      this.counters.outputFields += rows * stride + f[base + 3];
-      this.counters.outputPads += rows * stride + f[base + 3];
+
     }
     // Gameplay life is separate from slab identity. A respawn reuses the
     // Vehicle and target object, but changes generation, visibility and fixed
@@ -383,8 +367,7 @@ class F2 {
           v.flightConfig = flightConfig(v.def, v.flightClass);
         }
       }
-      this.counters.outputFields += rows * stride + f[base + 3];
-      this.counters.outputLives += rows * stride + f[base + 3];
+
     }
     this.firing.syncDescriptor(b.f[d + PHASE.firing] >>> 0);
     this.bodiesOut();
@@ -418,8 +401,7 @@ class F2 {
         }
         this.synced(v);
       }
-      this.counters.outputFields += n * stride + b.f[o + 3];
-      this.counters.outputPoses += n * stride + b.f[o + 3];
+
     }
     this.seats.syncBodies();
     this.vehicles.acc = b.f[d + PHASE.acc]; this.vehicles.flightAcc = b.f[d + PHASE.flightAcc]; this.vehicles.time = b.f[d + PHASE.time];
@@ -568,13 +550,12 @@ class F2 {
     c.rayBodies();
     if (this.bodiesVersion !== c.bodiesVersion) this.bodiesIn();
     b.views();
-    let changed = 0;
     for (let i = 0; i < c.bodies.length; i++) {
       const enabled = c.bodies[i].enabled ? 1 : 0;
       if (b.u8[this.flags + i] === enabled) continue;
-      b.u8[this.flags + i] = enabled; changed++;
+      b.u8[this.flags + i] = enabled;
     }
-    this.counters.inputFields += changed; this.counters.inputFlags += changed;
+
   }
 
   // Vehicle wall and spring gather caches are retained with its collider.
@@ -606,8 +587,7 @@ class F2 {
     const f = this.bridge.f, bodies = this.collision.rays.bodies;
     let o = (ptr / 8) | 0;
     const toggled = f[o + BODY_HEADER.toggled], placed = f[o + BODY_HEADER.placed];
-    this.counters.outputFields += toggled * TOGGLE.words + placed * PLACED.words;
-    this.counters.outputCollision += toggled * TOGGLE.words + placed * PLACED.words;
+
     o += BODY_HEADER.words;
     for (let i = 0; i < toggled; i++, o += TOGGLE.words) bodies[f[o + TOGGLE.kernel]].enabled = f[o + TOGGLE.enabled] !== 0;
     for (let i = 0; i < placed; i++, o += PLACED.words) {
@@ -620,77 +600,22 @@ class F2 {
     }
   }
 
-  body(slot) {
-    return slot < 0 ? null : this.bridge.refs[KIND_BODY].objects[slot];
-  }
-
-  bodySlot(body) {
-    return body ? this.bridge.refs[KIND_BODY].slotOf(body) : -1;
-  }
-
   // VehicleWorld queries remain synchronous where unported units or damage
   // can affect the current phase. Query result objects are reused; hooks read
   // already-published state before making any nested authoritative command.
   handlers() {
     const w = this.world, vs = this.vehicles;
     const hullAt = (i) => vs.vehicles[i];
-    const origin = new THREE.Vector3(), direction = new THREE.Vector3(), position = new THREE.Vector3(), velocity = new THREE.Vector3();
-    const previous = new THREE.Vector3(), q = new THREE.Quaternion(), own = new THREE.Quaternion(), matrix = new THREE.Matrix4();
-    const center = new THREE.Vector3(), point = new THREE.Vector3();
-    const probes = [];
+    const origin = new THREE.Vector3(), direction = new THREE.Vector3(), point = new THREE.Vector3();
     const aimPointResult = { position: point }, aimPointsResult = { points: this.aimPoints }, aimPointRows = [];
     const raycastResult = { found: true, distance: 0, point: MISS.point, normal: MISS.normal, terrain: false, body: -1 };
-    const castResult = { found: false, distance: 0, point: this.hit.point, normal: this.hit.normal, terrain: false, body: -1 };
-    const pushResult = { undo: false, position, velocity };
-    const polygonResult = { polygons: [] }, polygonRows = [];
-    const groundResult = { found: false, height: 0, normal: this.groundHit.normal };
     return {
-      vehCast: (a) => {
-        origin.copy(a.origin); direction.copy(a.direction);
-        const hit = w.cast(origin, direction, a.far, this.hit, this.body(a.ignore));
-        if (!hit) return MISS;
-        castResult.found = true; castResult.distance = hit.distance; castResult.terrain = Boolean(hit.terrain); castResult.body = this.bodySlot(hit.body);
-        return castResult;
-      },
-      vehPushWalls: (a) => {
-        const hull = hullAt(a.hull), radius = a.radius, terrain = a.terrain;
-        probes.length = a.probes.length;
-        for (let i = 0; i < probes.length; i++) (probes[i] ??= new THREE.Vector3()).copy(a.probes[i]);
-        q.copy(a.q); previous.copy(a.previous); position.copy(a.position); velocity.copy(a.velocity);
-        const mine = a.own ? own.copy(a.own) : null;
-        const undo = w.pushWalls(hull, probes, radius, q, mine, previous, position, velocity, terrain);
-        pushResult.undo = Boolean(undo); return pushResult;
-      },
-      vehGround: (a) => {
-        const g = w.ground(a.x, a.z, a.top, this.groundHit);
-        if (!g) return NO_GROUND;
-        groundResult.found = true; groundResult.height = g.height; return groundResult;
-      },
-      vehSpringPolygons: (a) => {
-        const hull = hullAt(a.hull), index = a.index, radius = a.radius;
-        center.copy(a.center);
-        const gathered = w.springPolygons(hull, index, center, radius), rows = polygonResult.polygons;
-        rows.length = gathered.length;
-        for (let i = 0; i < gathered.length; i++) {
-          const p = gathered[i], row = polygonRows[i] ??= { id: 0, moving: false, triangles: null };
-          row.id = p.id; row.moving = Boolean(p.moving); row.triangles = p.triangles; rows[i] = row;
-        }
-        return polygonResult;
-      },
-      vehMoveBody: (a) => { const body = this.body(a.body); matrix.copy(a.matrix); w.moveBody(body, matrix); },
-      vehEnableBody: (a) => { w.enableBody(this.body(a.body), a.enabled); },
-      vehBodyEnabled: (a) => { this.flag.value = Boolean(w.bodyEnabled(this.body(a.body))); return this.flag; },
-      vehHasWater: () => { this.flag.value = Boolean(vs.water); return this.flag; },
-      vehWaterOver: (a) => { this.flag.value = Boolean(w.waterOver(a.x, a.z)); return this.flag; },
-      vehWaterLevel: () => { this.number.value = w.waterLevel(); return this.number; },
-      vehInDeathRegion: (a) => { point.copy(a.position); this.flag.value = Boolean(w.inDeathRegion(point)); return this.flag; },
       vehRaycastUnits: (a) => {
         origin.copy(a.origin); direction.copy(a.direction);
         const hit = w.raycastUnits(origin, direction, a.far, this.unitHit);
         if (!hit) return MISS;
         raycastResult.distance = hit.distance; return raycastResult;
       },
-      vehClock: () => { this.number.value = w.clock(); return this.number; },
       vehDamaged: (a) => {
         const v = hullAt(a.hull), amount = a.amount, attacker = a.attacker;
         this.hook(w.damaged, v, amount, attacker);

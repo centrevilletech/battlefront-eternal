@@ -58,7 +58,7 @@ export class F2Firing {
     const a = this.supplyRow; a.hull = v; a.life = v.aiTarget.generation; a.amount = amount;
     const previous = this.bridge.x; this.bridge.x = this.phase.x;
     try { this.bridge.callArgs(this.supplyArgs, a); } finally { this.bridge.x = previous; }
-    this.phase.counters.inputFields += this.supplyArgs.words;
+
     const ptr = this.phase.x.f2_firing_supply();
     const result = this.bridge.callResult(this.supplyResultType, ptr, this.supplyResult);
     this.sync(result.output, 0); return result.changed;
@@ -159,8 +159,7 @@ export class F2Firing {
     const f = b.f;
     if (ptr) {
       const base = (ptr / 8) | 0, n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
-      this.phase.counters.outputFields += n * stride + f[base + 3];
-      this.phase.counters.outputFiring += n * stride + f[base + 3];
+
       for (let ri = 0; ri < n; ri++) {
         const at = base + 5 + ri * stride;
         const row = syncFfHullOut(b, f, at, heap, this.rows[f[at]]), v = row.hull;
@@ -180,8 +179,7 @@ export class F2Firing {
     // leaving an old cable attached to a respawned hull.
     if (cables) {
       const base = (cables / 8) | 0, n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
-      this.phase.counters.outputFields += n * stride + f[base + 3];
-      this.phase.counters.outputFiring += n * stride + f[base + 3];
+
       for (let i = 0; i < n; i++) {
         const row = syncFfCableOut(b, f, base + 5 + i * stride, heap, this.cableRow);
         let t = this.vs.tethers.get(row.source);
@@ -233,7 +231,7 @@ export class F2Firing {
     for (let at = base + 1; at < end; at += 2 + f[at + 1]) {
       const e = EVENT_TABLE[f[at]], r = e.record;
       const a = r.sync(b, f, at + 2, at + 2 + r.words, this.eventRows[f[at]]);
-      this.phase.counters.outputFields += f[at + 1]; this.phase.counters.outputFiring += f[at + 1];
+
       if (e.name === 'f2Shot') this.presentShot(a);
       else if (e.name === 'f2Tow') this.presentTow(a);
     }

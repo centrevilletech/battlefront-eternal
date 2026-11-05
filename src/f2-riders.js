@@ -51,8 +51,7 @@ export class F2Riders {
       const at = base + 5 + i * stride, unit = b.refs[KIND_UNIT].at(f[at], f[at + 1]);
       syncF2RiderOut(b, f, at, heap, this.rows.get(unit));
     }
-    this.phase.counters.outputFields += count * stride + f[base + 3];
-    this.phase.counters.outputRiders += count * stride + f[base + 3];
+
   }
   // Unit.updateSpheres owns when the samples become its hit shapes. Do not
   // touch spheresTick here, including across boarding and synchronous deaths.
