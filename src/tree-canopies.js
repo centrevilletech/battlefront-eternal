@@ -4,7 +4,6 @@ import { lighting } from "./materials.js";
 const NEAR = 140, FAR = 220;
 const MAX_GROUPS = 12;
 const LEAVES = 8 * 84 + 4 * 60;
-const noise = "fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453)";
 
 function random(seed) {
   let state = seed >>> 0;
@@ -210,15 +209,6 @@ export class TreeCanopies {
     const material=mesh.material;
     material.uniforms.treeStates={value:this.stateMap};
     material.uniforms.treeStateCount={value:this.groups.length};
-    material.vertexShader="attribute float treeGroup;\nvarying float vTreeGroup;\n"+material.vertexShader;
-    material.vertexShader=material.vertexShader.replace("void main() {","void main() {\nvTreeGroup=treeGroup;");
-    material.fragmentShader="uniform sampler2D treeStates;\nuniform float treeStateCount;\nvarying float vTreeGroup;\n"+material.fragmentShader;
-    material.fragmentShader=material.fragmentShader.replace("void main() {",`void main() {
-      if(vTreeGroup > -0.5 && texture2D(treeStates,vec2((vTreeGroup+0.5)/treeStateCount,0.5)).r > 0.5) {
-        float detail=1.0-smoothstep(${NEAR}.0,${FAR}.0,distance(vWorld,cameraPosition));
-        if(${noise} < detail)discard;
-      }
-    `);
     material.needsUpdate=true;
     mesh.userData.treeCanopyPieces=assigned;
   }

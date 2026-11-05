@@ -1,5 +1,6 @@
+import { ownWorldMaterial } from "./rust-render/world-programs.js";
 import * as THREE from "three";
-import { describe, lighting, zeroMaterial } from "./materials.js";
+import { describe, lighting, zeroMaterial, worldMaterial } from "./materials.js";
 import { cullColorOnly } from "./shadow-casters.js";
 import { TerrainPatches } from "./terrain-patches.js";
 import { addFabricWind } from "./fabric.js";
@@ -106,7 +107,7 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
       patches = new TerrainPatches(geometry);
       const [first, second] = record.layers || [record.texture];
       const lit = sunlit(geometry);
-      material = zeroMaterial("terrain", {
+      material = worldMaterial("terrain", {
         map: textureFor(first),
         layer1Map: textureFor(second || first),
         detailMap: record.detail ? textureFor(record.detail) : null,
@@ -121,7 +122,7 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
       if (low?.texture) {
         const extent = geometry.boundingBox;
         const repeats = low.scale > 0 ? low.scale : 1;
-        const farMaterial = zeroMaterial("terrain", {
+        const farMaterial = worldMaterial("terrain", {
           map: textureFor(low.texture), far: true,
           farOrigin: [extent.min.x, extent.min.z],
           layerScales: [(extent.max.x - extent.min.x) / repeats, (extent.max.z - extent.min.z) / repeats],
@@ -132,10 +133,11 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
         });
         far.name = "far-terrain";
         if (far.matrix.equals(IDENTITY)) farMaterial.defines.WORLD_SPACE = "";
+        ownWorldMaterial(farMaterial);
         graphics.farScene.add(far);
       }
     } else {
-      material = zeroMaterial(look.kind, {
+      material = (look.kind === "sky" ? zeroMaterial : worldMaterial)(look.kind, {
         ...look,
         map: map0,
         bumpMap: record.bump ? textureFor(record.bump) : null,
@@ -180,6 +182,7 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
     mesh.matrixAutoUpdate = false;
     if (mesh.matrix.equals(IDENTITY)) for (const m of [].concat(mesh.material)) if (m?.defines) m.defines.WORLD_SPACE = "";
     if (look.far) {
+      ownWorldMaterial(material, geometry);
       // The far scene's buckets span the map too: each view draws only the
       // cells in its frustum, as the near scene's do (render-culling.js).
       if (!look.blending) cullColorOnly(mesh);
@@ -192,6 +195,7 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
     if (!look.blending && look.kind !== "terrain") {
       if (fabric) graphics.caster(mesh); else graphics.staticCaster(mesh);
     }
+    ownWorldMaterial(material, mesh.geometry);
     graphics.scene.add(mesh);
     meshes.push(mesh);
   }

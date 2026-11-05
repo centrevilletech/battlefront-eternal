@@ -670,6 +670,18 @@ const fragmentShader = /* glsl */ `
 //   (takes point lights), scroll [u, v], specular [exponent, r, g, b],
 //   alphaTest, blending ("normal" | "additive" | null), doubleSided, far.
 export function zeroMaterial(kind, options = {}) {
+  return materialFor(kind, options, values => new THREE.ShaderMaterial({ ...values, vertexShader, fragmentShader }));
+}
+
+// Static map resources have values and fixed-function state, with source
+// supplied by the Rust world catalog rather than a browser shader material.
+export function worldMaterial(kind, options = {}) {
+  const material = materialFor(kind, options, values => Object.assign(new THREE.Material(), values));
+  material.userData.bfeFamily = "world";
+  return material;
+}
+
+function materialFor(kind, options, create) {
   const defines = { ZERO_LIGHTS };
   if (kind === "dynamic") defines.DYNAMIC = "";
   if (kind === "baked") defines.BAKED = "";
@@ -711,12 +723,10 @@ export function zeroMaterial(kind, options = {}) {
   // The shared uniforms are shared objects: one change reaches every material.
   Object.assign(uniforms, lighting);
   const blended = Boolean(options.blending);
-  const material = new THREE.ShaderMaterial({
+  const material = create({
     name: `zero:${kind}`,
     defines,
     uniforms,
-    vertexShader,
-    fragmentShader,
     lights: true,
     transparent: blended,
     depthWrite: !blended && kind !== "sky",

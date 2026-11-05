@@ -100,7 +100,7 @@ export function addFabricWind(mesh) {
   const original = mesh.geometry;
   mesh.geometry = fabricGeometry(original);
   original.dispose();
-  patch(mesh.material, true);
+  if (mesh.material.userData.bfeFamily !== "world") patch(mesh.material, true);
   mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: mesh.material.map, alphaTest: mesh.material.alphaTest, side: mesh.material.side });
   patch(mesh.customDepthMaterial, false);
   mesh.userData.fabricWind = true;

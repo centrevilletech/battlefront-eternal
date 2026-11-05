@@ -1,9 +1,8 @@
+import { ownedWorldProgram } from "./world-programs.js";
 // The world pass (world.rs): the map's opaque meshes in the near scene, the
-// static world's buckets. Each is registered once three has drawn it with
-// its material as it is now (which gives the material its program), then
-// hidden from three; the renderer culls and draws them in the near phase,
-// before the soldiers. A material changed since (needsUpdate: another
-// program) goes back to three until three has drawn it again.
+// static world's buckets. Each registers its declared Rust source variant
+// before drawing, then Rust culls and draws it before the soldiers. Changed
+// material versions register another declared variant without a browser draw.
 //
 // Buckets with shader hooks draw here too: scrolling ones (their scroll and
 // the frame's time), the banners' wind (fabric.js: its time is the frame's,
@@ -11,32 +10,12 @@
 // (tree-canopies.js: the canopies' state texture and count).
 import * as THREE from "three";
 
-// add_program's kind for the map's meshes (web/mod.rs).
-export const WORLD = 0;
 // Texture units (core.rs): the tree canopies' state, the terrain's layers.
 export const UNIT_TREE_STATES = 3, UNIT_LAYER1 = 4, UNIT_DETAIL = 5, UNIT_LAYERS = 6;
 // The material values a world program may read, which the renderer sets per
 // draw (world.rs world_uniform); receiveShadow is the mesh's own (a shadow
 // receiver's, with shadows on).
 const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "scroll", "treeStateCount", "receiveShadow"]);
-// Uniforms a world program may read besides the frame block: its textures,
-// those material values, the point lights the renderer gives each draw, and
-// lamp lighting's (with lamps on, from the lamp table: lamps). shadows: this
-// pass gives a draw its receiveShadow and shows three's shadow pass the
-// casters it hides (reveal), so a shadow receiver's program is its to draw.
-// lamps: it gives each DYNAMIC bucket's draw its lamps each frame.
-const POLICY = {
-  uniforms: new Set(["map", "farMap", "bumpMap", "treeStates", ...MATERIAL, "zeroLights", "zeroLightCount", "localLightPositions", "localLightColors", "localLightCount"]),
-  material: MATERIAL,
-  shadows: true,
-  lamps: true,
-};
-
-// Whether three has drawn the material as it is now: its program is current.
-export function drawnAsIs(renderer, material) {
-  const props = renderer.properties.get(material);
-  return Boolean(props.currentProgram) && props.__version === material.version;
-}
 const IDENTITY = new THREE.Matrix4();
 
 class WorldPass {
@@ -63,7 +42,7 @@ class WorldPass {
       if (entry.stale || entry.mesh.material.version === entry.version) continue;
       entry.stale = true;
       this.core.rust.world_shown(entry.id, false);
-      entry.mesh.material.visible = true;
+      entry.mesh.material.visible = false;
       this.pending.push(entry.mesh);
     }
     // The canopies' state, when it changed (three uploads it as it binds it;
@@ -82,21 +61,19 @@ class WorldPass {
 
   // The map's opaque meshes in the near scene that the renderer can draw.
   registerWorld() {
-    const core = this.core, scene = core.graphics.scene, renderer = core.renderer, rust = core.rust;
+    const core = this.core, scene = core.graphics.scene, rust = core.rust;
     if (!this.pending) {
       this.pending = scene.children.filter((o) => o.isMesh && !o.matrixAutoUpdate && o.matrix.equals(IDENTITY) && !Array.isArray(o.material)
         && o.material.defines && "WORLD_SPACE" in o.material.defines && !("TERRAIN" in o.material.defines) && !o.material.transparent);
     }
     this.pending = this.pending.filter((mesh) => {
       const material = mesh.material, geometry = mesh.geometry;
-      if (!drawnAsIs(renderer, material)) return true;
-      const threeProgram = renderer.properties.get(material).currentProgram;
       // A bucket render-culling.js culls by cell (cellLights) has the draw
       // range of the last view three drew it in; the renderer draws its
       // cells from the whole index.
       const partial = geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0);
       if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || (partial && !mesh.userData.cellLights)) return false;
-      const program = core.program(threeProgram, WORLD, material, POLICY);
+      const program = ownedWorldProgram(core, material);
       if (!program) return false;
       const g = core.geometry(geometry, program);
       if (g === null) return false;

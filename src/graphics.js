@@ -1,3 +1,4 @@
+import { compileUnowned } from "./rust-render/world-programs.js";
 import { loadRustRenderer } from "./rust-render/load.js";
 import * as THREE from "three";
 import { Bloom, applyValues, fullScreenPass, ownedFullScreenPass } from "./render-passes.js";
@@ -435,7 +436,7 @@ export class Graphics {
       const current = renderer.getRenderTarget();
       try {
         renderer.setRenderTarget(target);
-        renderer.compile(object, camera, scene);
+        compileUnowned(renderer, object, camera, scene);
       } finally {
         renderer.setRenderTarget(current);
       }
@@ -500,10 +501,10 @@ export class Graphics {
     const target = renderer.getRenderTarget();
     try {
       renderer.setRenderTarget(this.sceneTarget);
-      renderer.compile(this.scene, this.camera);
-      renderer.compile(this.viewScene, this.viewCamera);
+      compileUnowned(renderer, this.scene, this.camera);
+      compileUnowned(renderer, this.viewScene, this.viewCamera);
       renderer.setRenderTarget(this.farTarget);
-      renderer.compile(this.farScene, this.farCamera);
+      compileUnowned(renderer, this.farScene, this.farCamera);
       if (this.csm) {
         const stage = new THREE.Scene(), variants = new Set(), shadowSide = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide, [THREE.DoubleSide]: THREE.DoubleSide };
         const plain = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });

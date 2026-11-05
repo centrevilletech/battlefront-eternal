@@ -1,3 +1,4 @@
+import { ownedWorldProgram } from "./world-programs.js";
 // The far pass (far.rs): the far scene (graphics.farScene, seen from the
 // far camera into graphics.farTarget), drawn by the renderer in place of
 // three's render of it. graphics.js asks the core to cover the far phase
@@ -245,7 +246,7 @@ class FarPass {
 
   // Its item for the material and program it has now, registered if it can be.
   find(object, material, groupOrder) {
-    const program = material && !Array.isArray(material) ? this.core.renderer.properties.get(material).currentProgram : null;
+    const program = material?.userData?.bfeFamily === "world" ? ownedWorldProgram(this.core, material, this.core.graphics.farScene, this.camera) : material && !Array.isArray(material) ? this.core.renderer.properties.get(material).currentProgram : null;
     let item = null;
     for (const i of this.items.get(object) || []) if (i.material === material && i.threeProgram === program) { item = i; break; }
     if (!item && program && this.failed.get(object) !== material) {
@@ -272,7 +273,7 @@ class FarPass {
     // An instanced mesh three culls by its instances' bounds: not here.
     const instanced = Boolean(mesh.isInstancedMesh);
     if (instanced && mesh.frustumCulled) return null;
-    if (Array.isArray(material) || !material.isShaderMaterial || material.wireframe || material.stencilWrite || material.polygonOffset || material.clippingPlanes?.length) return null;
+    if (Array.isArray(material) || (!material.isShaderMaterial && material.userData.bfeFamily !== "world") || material.wireframe || material.stencilWrite || material.polygonOffset || material.clippingPlanes?.length) return null;
     // three draws a two-sided blended material in two passes.
     if (material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass) return null;
     if (mesh.matrixWorld.determinant() < 0) return null;
@@ -287,13 +288,13 @@ class FarPass {
     if (blend === undefined || DEPTH[material.depthFunc] === undefined) return null;
     // Its uniforms: the frame block's when every frame value it reads is
     // the shared one, else each its own.
-    const p = threeProgram.program, active = [];
-    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
+    const p = threeProgram.program, active = threeProgram.owned ? threeProgram.inputs.map(u => ({...u, name:u.name.replace(/\[0\]$/, "")})) : [];
+    for (let i = 0, n = threeProgram.owned ? 0 : gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
       const u = gl.getActiveUniform(p, i);
       active.push({ name: u.name.replace(/\[0\]$/, ""), type: u.type, size: u.size });
     }
     const shared = active.every(({ name }) => !FRAME_NAMES.has(name) || name in CAMERA || material.uniforms?.[name] === lighting[name]);
-    const program = shared ? core.program(threeProgram, WORLD, material, ANY) : this.plainProgram(threeProgram);
+    const program = threeProgram.owned ? threeProgram : shared ? core.program(threeProgram, WORLD, material, ANY) : this.plainProgram(threeProgram);
     if (!program) return null;
     const own = shared ? active.filter(({ name }) => !FRAME_NAMES.has(name)) : active;
     // A zero material's values are its own and never change (materials.js):

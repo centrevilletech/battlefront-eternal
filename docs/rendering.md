@@ -379,8 +379,8 @@ individual sprays do not add shadow draws. The native foliage textures remain
 the source-detail limit, and headless validation is not a hardware FPS claim.
 
 Checks: `node tests/foliage.mjs`, `node --test tests/tree-canopies.mjs`,
-`python3 tests/test_foliage_export.py`, and `node tools/renderer-corpus.mjs`
-(with `PLAYWRIGHT_MODULE` when needed). GPU pixel checks verify a glow behind
+`python3 tests/test_foliage_export.py`, and the frozen-build renderer corpus
+(`tools/renderer-corpus.mjs`). GPU pixel checks verify a glow behind
 leaves is occluded, a glow in front remains visible, and transparent leaf holes
 remain open. Canopy checks cover footprint containment, the draw budget,
 Original/Enhanced switching, retained unmatched cards, and reculling after

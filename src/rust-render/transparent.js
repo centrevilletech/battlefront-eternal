@@ -1,3 +1,4 @@
+import { ownedWorldProgram } from "./world-programs.js";
 // The transparent pass (transparent.rs): what the near scene blends, drawn
 // in three's back-to-front order, as three's transparent list would. Any
 // pass whose draws blend (the effects, the water...) is a source of items
@@ -254,6 +255,7 @@ class TransparentPass {
   takes(item) {
     const entry = this.taken.get(item.object);
     if (!this.active || !entry || entry.material !== item.material || item.group) return false;
+    if (entry.material.userData.bfeFamily === "world") return entry.version === entry.material.version && entry.frame <= this.frameNo;
     const props = this.core.renderer.properties.get(entry.material);
     return props.currentProgram === entry.program && drawnAsNow(props, entry) && entry.frame <= this.frameNo;
   }
@@ -359,12 +361,18 @@ class TransparentPass {
       // Another material since (the game swapped it): looked at again.
       if (entry && entry.material !== item.material) { this.taken.delete(item.object); entry = undefined; }
       else if (entry && item.group) entry = null;
+      else if (entry && entry.material.userData.bfeFamily === "world") {
+        if (entry.version !== entry.material.version) { this.taken.delete(item.object); entry = undefined; }
+      }
       else if (entry) {
         const props = renderer.properties.get(entry.material);
         if (props.currentProgram !== entry.program) { this.taken.delete(item.object); entry = undefined; }
         else if (!drawnAsNow(props, entry) || entry.frame >= this.frameNo) entry = null;
       }
-      if (entry === undefined && this.candidate(item)) this.candidates.push(item);
+      if (entry === undefined && this.candidate(item)) {
+        if (item.material.userData.bfeFamily === "world") { entry = this.registerBucket(item); if (entry !== undefined) this.taken.set(item.object, entry); }
+        else this.candidates.push(item);
+      }
       if (entry && n < 512) {
         const o = 1 + n * stride;
         if (entry.bucket) {
@@ -394,7 +402,7 @@ class TransparentPass {
     if (item.group || Array.isArray(object.material)) return false;
     if (OBJECT_KINDS[material.type] !== undefined) return true;
     return Boolean(object.isMesh && object.parent === this.core.graphics.scene && !object.matrixAutoUpdate && object.matrix.equals(IDENTITY)
-      && material.defines && "WORLD_SPACE" in material.defines && !("TERRAIN" in material.defines) && material.isShaderMaterial);
+      && material.defines && "WORLD_SPACE" in material.defines && !("TERRAIN" in material.defines) && (material.isShaderMaterial || material.userData.bfeFamily === "world"));
   }
 
   writeObject(r, o, entry, item) {
@@ -451,6 +459,9 @@ class TransparentPass {
   passesOf(material, policy, cache = undefined) {
     const core = this.core, renderer = core.renderer;
     const sides = sidesOf(material);
+    if (material.userData.bfeFamily === "world") {
+      return { sides, programs: sides.map(side => ownedWorldProgram(core, material, core.graphics.scene, core.graphics.camera, side)), current: null };
+    }
     const three = sides.map((side) => programForSide(renderer, material, side));
     if (three.some((p) => !p)) return null;
     const programs = three.map((p) => core.program(p, WORLD, material, policy, cache));
@@ -465,7 +476,7 @@ class TransparentPass {
     const core = this.core, renderer = core.renderer, rust = core.rust;
     const { object: mesh, material } = item, geometry = mesh.geometry;
     const props = renderer.properties.get(material);
-    if (!props.currentProgram || props.__version !== material.version) return undefined;
+    if (material.userData.bfeFamily !== "world" && (!props.currentProgram || props.__version !== material.version)) return undefined;
     if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return null;
     if (mesh.onBeforeRender !== baseBeforeRender || mesh.onAfterRender !== baseAfterRender) return null;
     const blend = blendOf(material), state = stateOf(material);
@@ -492,7 +503,7 @@ class TransparentPass {
       }
     });
     this.buckets++;
-    return { bucket: true, id, material, program: passes.current, frame: this.frameNo };
+    return { bucket: true, id, material, program: passes.current, version: material.version, frame: this.frameNo - (material.userData.bfeFamily === "world" ? 1 : 0) };
   }
 
   // An object three drew as it is now, with a material this pass draws:

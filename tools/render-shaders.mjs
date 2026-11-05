@@ -31,7 +31,7 @@ export function generate(check = false) {
         return size === 1 ? { name, type } : { name, type, size };
       });
       const hash = createHash('sha256').update(JSON.stringify({ vertex, fragment, attributes, uniforms, kind, source, lamps })).digest('hex');
-      sources[p.key] = { attributes, uniforms, hash, kind, source, lamps };
+      sources[p.key] = { attributes, uniforms, hash, kind, source, lamps, ...(p.selector ? { selector: p.selector, inputs: p.inputs } : {}) };
       if (p.key === "post-hud/hud") interfaceShader = { vertex, fragment };
       const pairs = (xs) => xs.map(([n,v]) => `(${JSON.stringify(n)}, ${v})`).join(', ');
       rows.push(`    Spec { key: ${JSON.stringify(p.key)}, vertex: include_str!("../shaders/${family}/${p.vertex}"), fragment: include_str!("../shaders/${family}/${p.fragment}"), kind: Kind::${kind}, expanded: ${source === "expanded"}, lamps: ${lamps}, attributes: &[${pairs(attributes)}], uniforms: &[${pairs(uniforms.map(u => [u.name, u.type]))}], uniform_sizes: &[${pairs(uniforms.filter(u => u.size).map(u => [u.name, u.size]))}] },`);

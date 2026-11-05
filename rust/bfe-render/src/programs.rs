@@ -54,17 +54,22 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
         let gl = &self.gl;
         let program = self.programs[id as usize].program;
         let validation = (|| unsafe {
-            for i in 0..gl.get_active_uniforms(program) {
-                // Block members are validated by the shared frame/shadow rewrite,
-                // not material slots. Standalone inputs still require declarations.
-                let block = gl.get_active_uniforms_parameter(program, &[i], glow::UNIFORM_BLOCK_INDEX)[0];
-                if block >= 0 {
-                    let name = gl.get_active_uniform_block_name(program, block as u32);
-                    if s.kind != Kind::World || !matches!(name.as_str(), "BfeFrame" | "BfeShadow") {
-                        return Err(format!("{key}: undeclared uniform block {name}"));
-                    }
-                    continue;
+            // glow's per-uniform block-index query is unsupported on WebGL.
+            // Enumerate each block's member indices through the portable API.
+            let count = gl.get_active_uniforms(program);
+            let mut members = vec![false; count as usize];
+            for block in 0..gl.get_program_parameter_i32(program, glow::ACTIVE_UNIFORM_BLOCKS) as u32 {
+                let name = gl.get_active_uniform_block_name(program, block);
+                if s.kind != Kind::World || !matches!(name.as_str(), "BfeFrame" | "BfeShadow") {
+                    return Err(format!("{key}: undeclared uniform block {name}"));
                 }
+                let count = gl.get_active_uniform_block_parameter_i32(program, block, glow::UNIFORM_BLOCK_ACTIVE_UNIFORMS);
+                let mut indices = vec![0; count as usize];
+                gl.get_active_uniform_block_parameter_i32_slice(program, block, glow::UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES, &mut indices);
+                for index in indices { members[index as usize] = true; }
+            }
+            for i in 0..count {
+                if members[i as usize] { continue; }
                 let u = gl.get_active_uniform(program, i).ok_or("missing active uniform")?;
                 let name = u.name.strip_suffix("[0]").unwrap_or(&u.name);
                 let size = s.uniform_sizes.iter().find(|(n, _)| *n == name).map_or(1, |(_, size)| *size);
@@ -113,6 +118,11 @@ mod tests {
             let (v, f) = sources(s);
             assert!(v.starts_with("#version 300 es\n") && f.starts_with("#version 300 es\n"));
             assert!(!v.contains("#include") && !f.contains("#include"));
+            if s.key.starts_with("world/") {
+                for (source, stage) in [(&v, crate::shader::Stage::Vertex), (&f, crate::shader::Stage::Fragment)] {
+                    crate::shader::rewrite_lamps(source, stage, s.kind, s.lamps).unwrap_or_else(|e| panic!("{}: {e}", s.key));
+                }
+            }
             if s.key.starts_with("post-hud/") { assert!(s.uniforms.len() <= 12); }
         }
         assert_eq!(catalog::PROGRAMS.iter().filter(|s| s.key.starts_with("post-hud/")).count(), 12);
