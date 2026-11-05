@@ -6,19 +6,8 @@
 // blending) and, where a varying must be interpolated over three's own
 // triangles, three's geometry for it.
 //
-// The far scene's image (graphics.background) is the first: three draws it
-// last of the near scene's opaque objects, at the far plane and depth tested
-// (less or equal), so it fills only the samples nothing opaque covered. The
-// renderer draws it at that very point: first in the transparent phase (or a
-// mirror's), which starts right after three's last opaque item. Three leaves
-// it out of a render of the near scene whose transparent phase draws it:
-// place() decides as three starts the render (the scene's onBeforeRender,
-// before three lists anything), with the near hook's own test (the frame's
-// camera into the scene's target, or a mirror's camera) and the renderer's
-// state; any other render of the near scene (the fountain's reflection)
-// keeps three's. A near scene drawn whole in three's place (near.js) has its
-// image already (its begin phase).
 import * as THREE from "three";
+import { compileFor } from "./instances.js";
 import { plainProgram, writeUniform } from "./post.js";
 import { blendOf, stateOf } from "./transparent.js";
 
@@ -99,107 +88,6 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
   return true;
 }
 
-// The far scene's image, drawn first in the transparent phase of a render
-// of the near scene that leaves it out (place()).
-class ImagePass {
-  constructor(core) {
-    this.core = core;
-    this.name = "image";
-    this.phase = "transparent";
-    this.on = true;
-    // Three's programs for the image's material the renderer has made its
-    // own of (the image is left out of three's renders from the next one).
-    this.made = new WeakSet();
-    // The render whose transparent phase draws the image: its camera and
-    // target, as three started it.
-    this.pending = null;
-    // For the measurement tools: images drawn, and transparent phases of a
-    // render the image was left out of that could not draw it (should stay 0).
-    this.drawn = 0;
-    this.missed = 0;
-  }
-
-  // As three starts each render of the near scene, before it lists
-  // anything (chained to the scene's onBeforeRender, as particle-depth.js
-  // and point-lights.js are).
-  register() {
-    const scene = this.core.graphics?.scene, pass = this;
-    if (!scene) return;
-    const previous = scene.onBeforeRender;
-    scene.onBeforeRender = function (...args) {
-      previous.apply(this, args);
-      pass.place(...args);
-    };
-  }
-
-  // Whether this render's transparent phase draws the image: a render the
-  // near hook draws in (index.js pass(): the frame's camera into the scene's
-  // target, or a mirror's camera), the renderer on and covering the battle's
-  // configuration, and a program of its own made for three's (draw()). Then
-  // three leaves the image out of its list; else three draws it.
-  place(renderer, scene, camera, target) {
-    const core = this.core, graphics = core.graphics, background = graphics.background, material = background?.material;
-    this.pending = null;
-    if (!material || scene !== graphics.scene) return;
-    const ours = (camera === graphics.camera && target === graphics.sceneTarget) || camera.userData?.mirror === true;
-    const take = ours && this.on && core.enabled && core.active && !core.lost && background.parent === scene && background.visible
-      && core.supported() && this.made.has(renderer.properties.get(material).currentProgram);
-    material.visible = !take;
-    if (take) this.pending = { camera, target };
-  }
-
-  // The transparent phase (a mirror's too): the image's step, first, when
-  // place() left it out of this render. Three's program for it is made the
-  // renderer's here, inside a phase (whose end resets three's state).
-  draw(ctx) {
-    const core = this.core, background = core.graphics.background, material = background?.material;
-    const pending = this.pending;
-    this.pending = null;
-    if (!material) return;
-    const threeProgram = core.renderer.properties.get(material).currentProgram;
-    if (threeProgram && !this.made.has(threeProgram)) {
-      const program = screenProgram(core, material);
-      if (program) { this.made.add(threeProgram); ctx.reset = true; }
-    }
-    if (!pending || ctx.walked || ctx.camera !== pending.camera || ctx.renderer.getRenderTarget() !== pending.target) {
-      if (pending && !ctx.walked) this.missed++;
-      return;
-    }
-    const program = screenProgram(core, material);
-    if (!program || !writeScreenStep(core, 0, program, material, background, ctx.camera)) {
-      // Left out and not drawn: three draws it from the next render on.
-      this.missed++;
-      this.made.delete(threeProgram);
-      return;
-    }
-    // Opaque-scene copies made by the effects and water passes below must
-    // already contain the background, as they do after three draws it.
-    core.phase("image", ctx.renderer, ctx.scene, ctx.camera, ctx.defer, null, { steps: 1 });
-    this.drawn++;
-  }
-
-  // Off (this pass alone): three draws the image.
-  setActive(on) {
-    this.on = on;
-    if (!on) this.show();
-  }
-
-  restore() {
-    this.on = false;
-    this.show();
-  }
-
-  show() {
-    this.pending = null;
-    const material = this.core.graphics?.background?.material;
-    if (material) material.visible = true;
-  }
-}
-
-export function imagePass(core) {
-  return new ImagePass(core);
-}
-
 // A full-screen pass three renders on its own (renderer.render of the mesh,
 // or of a scene holding it), drawn by the renderer in a phase of its own
 // (graphics' callers ask the core to cover it): the storm's cloud panorama
@@ -214,7 +102,6 @@ class ScreenPass {
     this.core = core;
     this.name = name;
     this.phase = phase;
-    this.on = true;
     this.complete = false;
     this.drawn = 0;
     this.size = null;
@@ -235,11 +122,12 @@ class ScreenPass {
 
   draw(ctx) {
     this.complete = false;
-    if (!this.on) return;
+
     const core = this.core, renderer = ctx.renderer;
     if (renderer.autoClear) return;
     const mesh = this.mesh(ctx.scene, ctx.camera);
     if (!mesh || Array.isArray(mesh.material) || mesh.geometry.groups.length || mesh.isInstancedMesh || mesh.isSkinnedMesh) return;
+    if (!renderer.properties.get(mesh.material).currentProgram) compileFor(renderer, [[mesh, mesh.material]], ctx.camera, ctx.scene);
     const program = screenProgram(core, mesh.material);
     if (!program) return;
     const target = renderer.getRenderTarget();
@@ -259,10 +147,6 @@ class ScreenPass {
     this.drawn++;
   }
 
-  // Off (this pass alone): three draws it.
-  setActive(on) {
-    this.on = on;
-  }
 }
 
 export function cloudsPass(core) {
@@ -290,7 +174,6 @@ class FogPass {
     this.core = core;
     this.name = "fog";
     this.phase = "transparent";
-    this.on = true;
     // Three's programs for the composite's material the renderer has made
     // its own of, with its geometry: three program -> { id, count }.
     this.made = new WeakMap();
@@ -313,6 +196,19 @@ class FogPass {
     return this.core.graphics?.scene?.userData.water?.underwaterFog ?? null;
   }
 
+  beforeSort() {
+    const core = this.core, fog = this.composite();
+    if (!fog) return;
+    const current = core.renderer.properties.get(fog.material).currentProgram;
+    if (!current || this.made.has(current)) return;
+    const program = screenProgram(core, fog.material);
+    if (!program) throw new Error("Missing Rust underwater fog program");
+    const geometry = core.geometry(fog.geometry, { id: program.id, attributes: [["position", 0], ["uv", 1]] });
+    if (geometry === null || geometry === undefined) throw new Error("Missing Rust underwater fog geometry");
+    this.made.set(current, { id: geometry, count: fog.geometry.index.count });
+    core.stale = true;
+  }
+
   // As three starts a render of the near scene: the frame's own, the
   // composite shown, the renderer on in the battle's configuration and its
   // program the renderer's: three leaves it out.
@@ -320,8 +216,8 @@ class FogPass {
     const core = this.core, graphics = core.graphics, fog = this.composite();
     this.pending = null;
     if (!fog || scene !== graphics.scene) return;
-    const take = this.on && core.enabled && core.active && !core.lost && fog.visible && fog.parent === scene && camera === graphics.camera
-      && target === graphics.sceneTarget && core.supported() && this.made.has(renderer.properties.get(fog.material).currentProgram);
+    const take = !core.contextLost && fog.visible && fog.parent === scene && camera === graphics.camera
+      && target === graphics.sceneTarget && this.made.has(renderer.properties.get(fog.material).currentProgram);
     fog.material.visible = !take;
     if (take) this.pending = { camera, target };
   }
@@ -347,7 +243,7 @@ class FogPass {
   // composite.
   drawComposite(renderer, scene, camera) {
     const core = this.core, fog = this.composite(), water = core.graphics.scene.userData.water;
-    if (!fog || !water || !core.enabled || !core.active) { this.missed++; return; }
+    if (!fog || !water) { this.missed++; return; }
     water.captureSurface(renderer, camera);
     const program = screenProgram(core, fog.material), geometry = this.made.get(renderer.properties.get(fog.material).currentProgram);
     if (!program || !geometry || !writeScreenStep(core, 0, program, fog.material, fog, camera, { geometry })) { this.missed++; return; }
@@ -355,16 +251,7 @@ class FogPass {
     this.drawn++;
   }
 
-  // Off (this pass alone): three draws it.
-  setActive(on) {
-    this.on = on;
-    if (!on) this.show();
-  }
 
-  restore() {
-    this.on = false;
-    this.show();
-  }
 
   show() {
     this.pending = null;

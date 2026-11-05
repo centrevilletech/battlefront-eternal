@@ -10,6 +10,7 @@ test('the colour rig phase leaves crowd depth casters to the shadow pass', () =>
   const { BfeRenderer, memory, calls } = standinModule();
   const { graphics, renderer, scene, camera } = standinThree(calls);
   const core = new RustRender(graphics, { memory }, BfeRenderer);
+  core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   const crowd = new THREE.SkinnedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
   crowd.name = 'crowd-shadows';
   crowd.castShadow = true;

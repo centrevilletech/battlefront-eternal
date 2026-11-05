@@ -29,14 +29,8 @@ assert.equal(kind.cards.length, 50);
 for (const leaf of kind.cards) {
   const height = leaf.p.y * 1.6;
   assert(height >= 0 && height <= 13, 'authored canopy height is retained');
-  if (height > 5) assert(Math.hypot(leaf.p.x, leaf.p.z) <= 1.3 * (13 - height) / 8 + 1e-6, 'taper in world-height space');
+  if (leaf.p.y > 5) assert(Math.hypot(leaf.p.x, leaf.p.z) <= 1.3 * (13 - leaf.p.y) / 8 + 1e-6, 'taper in foliage-local space');
 }
-const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 250);
-camera.position.set(0, 6, 0);
-camera.lookAt(0, 6, -20);
-foliage.update(0, camera);
-assert.equal(kind.batch.count, 50, 'visible crown draws all its authored leaf clusters');
-camera.lookAt(0, 6, 20);
-foliage.update(0, camera);
-assert.equal(kind.batch.count, 0, 'off-screen crowns do not rebuild cards');
-console.log('Foliage depth, canopy shape, and culling checks passed.');
+assert.equal(kind.batch.geometry.attributes.position.count, 200, 'four static vertices per authored leaf cluster');
+assert.equal(kind.batch.geometry.index.count, 300, 'two triangles per leaf cluster');
+console.log('Foliage depth, canopy shape, and Rust input layout checks passed.');

@@ -25,7 +25,6 @@ class CanopiesPass {
     // { program, attributes: [{ attribute, size, at }], max }, null when the
     // renderer can't draw the mesh, undefined until three has drawn it.
     this.entry = undefined;
-    this.on = true;
   }
 
   draw(ctx) {
@@ -44,7 +43,7 @@ class CanopiesPass {
     core.views();
     const input = core.canopiesInput;
     input[C.SHOWN] = 0;
-    if (!this.on || !core.active) return;
+
     // The leaves that changed into the renderer's copy, each attribute's at
     // its instances' places.
     const dirty = canopies.takeDirty();
@@ -85,18 +84,10 @@ class CanopiesPass {
     core.addView("canopiesInput", Float64Array, () => core.rust.canopies_input_ptr(), () => core.rust.canopies_input_len());
     core.addView("canopiesLeaves", Float32Array, () => core.rust.canopies_leaves_ptr(), () => core.rust.canopies_leaves_len());
     this.entry = { program, attributes, max };
-    canopies.setExternal(this.on && core.active);
+    canopies.setExternal(true);
   }
 
-  // Off: three draws the canopies (and uploads its copy of them whole).
-  setActive(on) {
-    this.on = on;
-    if (this.entry) this.canopies?.setExternal(on);
-  }
 
-  restore() {
-    this.setActive(false);
-  }
 }
 
 export function canopiesPass(core) {

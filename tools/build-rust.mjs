@@ -174,6 +174,10 @@ export async function main(args) {
       await simSchema(check ? ['--check'] : []);
       if (process.exitCode) problems.push("the store's generated code is stale: node tools/sim-schema.mjs");
     }
+    if (name === 'renderer') {
+      const generated = spawnSync(process.platform === 'win32' ? 'python' : 'python3', [join(ROOT, 'tools/renderer-recovery.py'), ...(check ? ['--check'] : [])], { stdio: 'inherit' });
+      if (generated.status !== 0) throw Error('Renderer recovery journal generation failed');
+    }
     artifact.stage(cargoBuild(artifact.crate, env, artifact.lib), rustc);
     const built = contents(STAGE, artifact);
     if (check) {

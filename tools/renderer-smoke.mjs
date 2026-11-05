@@ -10,7 +10,7 @@ import { join } from 'node:path';
 const backend = process.argv[2] ?? (process.platform === 'win32' ? 'warp' : 'swiftshader');
 if (!['warp', 'gl', 'swiftshader'].includes(backend)) throw new Error('Expected warp, gl or swiftshader');
 if (backend === 'warp' && process.platform !== 'win32') throw new Error('WARP requires Windows');
-const server = await createServer({ publicDir: false, server: { host: '127.0.0.1', port: 0 }, clearScreen: false });
+const server = await createServer({ publicDir: false, server: { host: '127.0.0.1', port: Number(process.env.BFE_SMOKE_PORT || 18450), strictPort: false, hmr: false }, clearScreen: false });
 await server.listen();
 const url = server.resolvedUrls.local[0];
 // Electron treats a present ELECTRON_RUN_AS_NODE as enabled on Windows,

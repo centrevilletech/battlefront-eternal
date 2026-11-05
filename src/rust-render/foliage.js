@@ -9,6 +9,8 @@
 // updates nor draws it (its material is hidden). The selection is then the
 // renderer's, made as FoliageGpuBatch.update makes it, from the camera the
 // page's update was given; the near phase draws it.
+import { compileFor } from "./instances.js";
+
 const WORLD = 0;
 // The material values the card shaders read, set per draw from the class.
 const MATERIAL = ["foliageEye", "foliageRight", "foliageUp", "foliageBack", "foliageTime", "foliageEnd", "foliageWiggle", "foliageFogRange", "foliageFogColor", "diffuse", "opacity", "alphaTest"];
@@ -38,11 +40,13 @@ class FoliagePass {
 
   // The near phase: the map's foliage, once it has one, takes this pass as
   // its drawer (the classes it registered are drawn in the renderer's call).
-  draw() {
+  draw(ctx) {
     const foliage = this.core.graphics.scene.userData.foliage;
-    if (!foliage || foliage.drawer === this || this.on === false) return;
+    if (!foliage) return;
+    if (foliage.drawer === this && this.foliage === foliage && this.classes.size === foliage.kinds.size) return;
     if (foliage !== this.foliage) { this.foliage = foliage; this.classes = new Map(); }
     foliage.drawer = this;
+    this.selectClasses(foliage, ctx.camera);
   }
 
   // Whether the renderer draws a kind (Foliage.update leaves it alone).
@@ -57,6 +61,9 @@ class FoliagePass {
   }
 
   selectClasses(foliage, camera) {
+    if (this.core.contextLost) return;
+    if (foliage !== this.foliage) { this.foliage = foliage; this.classes.clear(); }
+    this.camera = camera;
     for (const kind of foliage.kinds.values()) if (!this.classes.has(kind)) this.registerClass(kind);
     if (!this.classes.size) return;
     const core = this.core;
@@ -76,11 +83,12 @@ class FoliagePass {
     const core = this.core, batch = kind.batch, material = batch?.material;
     const geometry = batch?.geometry;
     if (!geometry?.isInstancedBufferGeometry || !geometry.index) { this.classes.set(kind, null); return; }
+    if (!core.renderer.properties.get(material).currentProgram) compileFor(core.renderer, [[batch.mesh, material]], this.camera || core.graphics.camera, core.graphics.scene);
     const threeProgram = core.renderer.properties.get(material).currentProgram;
     if (!threeProgram) return; // until three has made its program
     const program = core.program(threeProgram, WORLD, material, POLICY);
     const texture = core.texture(material.map);
-    if (!program || texture < 0) { this.classes.set(kind, null); return; }
+    if (!program || texture < 0) return;
     const at = new Map(program.attributes);
     const locations = Int32Array.from([...VERTEX.map(([name]) => at.get(name) ?? -1), ...ROW.map((name) => at.get(name) ?? -1)]);
     // The cards' vertices, interleaved.
@@ -111,20 +119,11 @@ class FoliagePass {
     if (map.matrixAutoUpdate) map.updateMatrix();
     const id = core.rust.foliage_class(program.id, texture, Boolean(kind.grass), batch.uniforms.foliageWiggle.value, vertices, index, locations, rows, bounds,
       Float32Array.from(map.matrix.elements), Float32Array.of(material.color.r, material.color.g, material.color.b), material.opacity, material.alphaTest);
-    material.visible = !core.active;
+    material.visible = false;
     this.classes.set(kind, id);
   }
 
-  setActive(on) {
-    for (const [kind, id] of this.classes) if (id != null) kind.batch.material.visible = !on;
-    if (this.foliage) this.foliage.drawer = on ? this : null;
-    this.core.rust.foliage_on?.(on);
-    this.on = on;
-  }
 
-  restore() {
-    this.setActive(false);
-  }
 }
 
 export function foliagePass(core) {

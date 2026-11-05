@@ -16,7 +16,7 @@ export function ownedProgram(core, material, attributes) {
     if (attributes !== layout) throw Error(`attribute layout for ${key}: ${attributes}`);
     entry = { id: core.rust.add_owned_program(key), uniforms: source.uniforms, attributes: null };
   } catch (error) {
-    core.errors.push(`${key}: ${String(error).slice(0, 300)}`);
+    core.fail(error);
   }
   (core.shaderPrograms ||= []).push({ key, owned: true, hash: source?.hash, ms: performance.now() - start, accepted: !!entry });
   cache.set(key, entry);

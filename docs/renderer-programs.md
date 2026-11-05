@@ -2,8 +2,8 @@
 
 `rust/bfe-render/shaders/<family>/manifest.json` declares source-owned program
 variants. The `post-hud` family contains the stable full-screen and HUD shaders.
-Other draws still use the compiled-source bridge. Three remains the fallback for
-an unavailable renderer, an explicitly disabled pass, or a rejected program.
+Other draws still use the compiled-source bridge. Rust is required for all battle draws. Unavailable modules and rejected
+programs stop loading with the GPU name and original error.
 
 Each variant has a unique `<family>/<name>` key, self-contained vertex and
 fragment bodies, explicit attribute locations, and named uniform slots with the
@@ -45,71 +45,41 @@ existing pass bindings: numeric context-local program/geometry/texture handles,
 f64 phase inputs, the five view blocks, and the existing BfeFrame/BfeShadow
 layouts. This change does not change draw order, texture ownership, target
 resolve rules or temporal commits. Future frame/resource schema changes must be
-versioned independently of shader keys. Cache entries must not survive context
-loss: the bridge disables itself and three rebuilds its own resources.
+versioned independently of shader keys. Context restoration recreates GPU programs and buffers from the Rust resource
+journal while keeping logical handles stable. Three reuploads its textures.
 
 # Reusable pixel corpus
 
-Run `node tools/renderer-corpus.mjs --runner EXECUTABLE --dist DIST --out OUTPUT
---jobs N`. The executable receives `DIST CASE_ID OUTPUT` and must launch an
-isolated application with draws enabled, then run
-`node tools/renderer-corpus/capture.mjs`. Set `CDP_PORT`, `BFE_CORPUS_CASE`, `OUT`,
-`LABEL` (the case ID), `BFE_SETTINGS_FILE` when the desktop settings need writing,
-and `BFE_GPU_LOG` for the application log. `BFE_APP_URL` defaults to the desktop
-app URL. The runner must exit with the capture's exit status. Use Node with
-built-in fetch and WebSocket. No content is distributed with the corpus.
+Run `node tools/renderer-corpus.mjs --runner EXECUTABLE --dist DIST --against
+REFERENCE_DIST --out OUTPUT --jobs N`. The runner receives
+`DIST CASE_ID CASE_OUTPUT REFERENCE_DIST`. It must run three separate application
+sessions in that case directory's `reference`, `control` and `candidate`
+subdirectories, invoking `node tools/renderer-corpus/capture.mjs` for each. The
+first two sessions use the frozen reference; the last uses the candidate. Each
+session uses the same immutable case query and settings and must retain draws.
+Build both distributions with `--minify false`. The harness isolates object UUID
+randomness from procedural foliage/effect randomness, so deleting helper objects
+does not change the sampled world. It fails if that isolation cannot be verified.
 
-The immutable manifest freezes all 17 map queries, valid player classes,
-Classic/Balanced/High settings at requested 2x MSAA, four walking/turning capture
-points, and four history frames per variant. Additional cases cover Ultra water
-on the ocean/mirror maps, bilinear/spatial/fast FXAA, and deliberate context loss.
-`--cases id,id` is an iteration smoke, not the complete gate. The summary records missing required variants and
-whether the whole manifest ran and its SHA-256. Driver-supported sample counts
-are reported rather than silently assumed.
+Set `CDP_PORT`, `BFE_CORPUS_CASE`, `OUT` and `BFE_SETTINGS_FILE` for each session.
+Set `BFE_CANDIDATE=1` only for the candidate, and `BFE_FORCE_RESTORE=1` to exercise
+the context-loss case on it. `BFE_APP_URL` defaults to the desktop application.
+The runner must propagate capture failures. Use Node with built-in fetch and
+WebSocket. No content is distributed with the corpus.
 
-Each point captures three, the previous Rust compiled-source bridge, the owned
-sources, and three again. All variants see the same tick and temporal jitter
-sequence. Two frames settle a renderer transition before history is reset and
-the four-frame measured history sequence begins; static shadow caches are
-redrawn. The bridge variant also replays the whole post chain on identical
-inputs, while the owned variant pairs its individual steps. Far and resolved scene stages and the presented image including
-the weapon and HUD are checked. GPU deaths, context loss, blank frames, disabled
-Rust, absent draws, mismatched ticks and GL errors invalidate a point. The final
-context-loss case separately verifies restored three fallback.
+The manifest freezes all 17 maps at Classic/Balanced/High, valid first-person
+player queries, requested 2x MSAA, four walking/turning points and four history
+frames. Supplemental cases cover Ultra water and mirrors, upscaling and context
+restoration. `--cases id,id` is a smoke, not the full matrix. Captures include
+actual ticks, compressed RGBA, context events, material-state census, Rust draw
+counts and the battle draw guard's count. Candidate renderer errors are fatal.
 
-Each post step is also replayed on identical inputs with the bridge and owned
-program, and the HUD is replayed over the identical pre-HUD canvas. Half-float
-targets are compared as half-float bits. The requested variant runs last so
-complete-frame comparisons keep their original meaning. The per-step gate is
-exact; complete-frame owned-versus-bridge differences are also reported. Three-versus-three and both three-versus-
-Rust comparisons are retained separately. In particular smoke/flames on geo1,
-steam on bes2, rain/lightning on kam1 and dry ice on rhn1 can change between
-renders without a simulation tick. A noisy control is evidence to inspect, not
-a blanket tolerance. High yav2 already has a pre-existing three-versus-Rust
-residual; the baseline verdict remains separate and must not be called exact.
-The corpus does not claim to visit every possible effect or camera position.
-
-# Compilation and caches
-
-Owned source removes the dependency on three's first draw and makes variants
-known before drawing. It enables prewarming, pacing work behind the loading
-screen, source/layout content-addressed caches, and eventually avoiding three's
-duplicate compile for covered materials. Tagged post and HUD passes can draw before three has compiled their materials,
-avoiding that duplicate compilation on the covered path. Three compiles them
-on demand when fallback is exercised. This packet keeps the preparation frames
-and initial three compilation required by unported families.
-Consequently it does not promise to remove the existing long loading task.
-
-The current cache is bounded by the fixed variants used in one context. It
-avoids repeated linking of that variant across materials, not driver work for a
-new context. A persistent source cache would include shader/schema version,
-variant flags, content hashes, backend and driver/GPU identity. WebGL offers no
-portable program-binary persistence; Chromium/ANGLE's disk shader cache is
-opportunistic. Native program binaries require fingerprint validation and a
-source fallback. Source ownership alone cannot remove ANGLE translation or the
-first driver's compile. Timings must separate generation, compile/link and
-status/reflection waits, total ready time and worst main-thread task; farm
-correctness timings are not slow-PC performance measurements.
+The page and workers use seeded randomness. Capture-time lamp selection uses a
+fixed advancing clock. Reference/control must be pixel-exact across separate
+sessions; noisy controls fail and must be investigated. Candidate comparisons
+also require exact RGB pixels, dimensions and ticks. There is no per-count or
+noise-envelope allowance. Raw captures stay outside the repository and should
+be removed after recording results.
 
 `tools/renderer-corpus/load.mjs` uses the same loader and case settings for
 local load diagnostics. Set `BFE_SHADER_BRIDGE=1` for the old compiled-source
@@ -120,17 +90,3 @@ registers all declared variants and repeats each registration after loading,
 recording context-local ID reuse separately from startup work. Use fresh applications in
 interleaved rounds; record whether driver caches were retained. It deliberately
 does not run through the farm performance gate.
-
-The planar mirror case aims from above four water cells and requires Rust mirror
-phase draws and reflection-stage captures; the ocean cases use the ocean's own
-reflection path. Each point records differences outside its control's per-pixel
-amplitude envelope, including differences on pixels where the control was stable.
-Control counts are not used as a blanket pixel budget. Shader pairing compares all RGBA channels, including temporal weight alpha;
-presented-frame and scene-stage comparisons retain the existing RGB criterion.
-
-Expanded three GLSL and active program layouts are collected after the controls
-have exercised fallback, since a covered program need never be compiled by
-three during loading. The oracle check requires both original shader bodies in
-a captured three program for each observed owned variant. Source fixtures are
-written under the output's `shaders` directory by content hash; they are test
-artifacts, not the permanent source of truth or application assets.

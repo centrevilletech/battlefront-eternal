@@ -1,3 +1,4 @@
+import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { teamStatsLayout, statsPageLayout, rowAt, ICON, PITCH, STRING_PAD, DISPLAY_PAD, AWARDS_ROWS } from "./layout.js";
 import { StatsPage } from "./pages.js";
@@ -582,7 +583,7 @@ export class ClassicView {
       if (icon.root.visible) this.place(icon, icon.team);
     }
     renderer.clearDepth();
-    renderer.render(this.models, this.interface.camera);
+    renderInterface(renderer, this.models, this.interface.camera, "classic-scoreboard");
   }
 
   // --- what a click lands on --------------------------------------------

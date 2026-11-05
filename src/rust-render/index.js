@@ -1,42 +1,12 @@
-// The default Rust battle renderer (rust/bfe-render, built to src/rust-pkg).
-// ?rustOff skips loading this renderer; ?rust is accepted for old links.
-// Three.js draws unsupported items and takes over after a context loss.
-//
-// It draws inside the near scene's pass, first of its opaque objects (from
-// an anchor at the start of three's opaque list; the far scene's image,
-// graphics.background, is drawn last of them): the map's opaque buckets,
-// then every visible soldier's body and held gun, instanced. Three's state
-// is reset after it (renderer.resetState) and three draws the rest of the
-// scene. What it draws three does not (each such material is set
-// invisible, which three's render lists respect), but three's scene update
-// still composes their matrices and bones, which the page's other code
-// reads. It draws them with programs made from the GLSL three compiled for
-// them (shader.rs), so they light as three's do.
-//
-// Only what it supports moves; everything else stays with three, item by
-// item: a program that reads what the renderer can't give it yet (the
-// Enhanced lamps, a shadow receiver of a pass that doesn't feed shadows)
-// stays three's (program()). The shadow receivers read the cascades from a
-// block of their own (BfeShadow), written once a frame.
-//
-// It is made of passes, a file each here as in the renderer (renderer.rs):
-// the world (world.js), the instanced soldiers, guns and rigs
-// (instances.js), the far scene, terrain, the
-// transparent pass, effects, foliage, the first-person view and the post
-// passes. Each draws in a phase of the frame: far, near, transparent, view,
-// post (and mirror: the near phase's passes from a mirror's camera;
-// farMirror and probe: the far phase's, from a water mirror's camera and for
-// a sky probe's faces). A
-// scene whose passes draw all of it is left out of three's frame (cover).
-// This file is their core: the WASM renderer and what every pass
-// registers through it (textures, programs, geometries), the frame block,
-// typed views of the renderer's memory, and the registry that runs each
-// phase's passes and then the renderer's call that draws them.
+// Rust draws every battle phase. Three supplies scene updates, compiled GLSL,
+// textures and targets. This core registers those resources, publishes frame
+// inputs, and treats incomplete coverage or a failed program as a fatal error.
+import { rendererFailure } from "./failure.js";
 import * as THREE from "three";
 import { lighting } from "../materials.js";
 import { packed } from "../point-lights.js";
 import { worldPass } from "./world.js";
-import { instancesPass } from "./instances.js";
+import { instancesPass, compileFor } from "./instances.js";
 import { farPass, seaPass } from "./far.js";
 import { terrainPass } from "./terrain.js";
 import { transparentPass } from "./transparent.js";
@@ -50,7 +20,7 @@ import { nearPass } from "./near.js";
 import { canopiesPass } from "./canopies.js";
 import { motionPass } from "./motion.js";
 import { shadowPass } from "./shadow.js";
-import { imagePass, cloudsPass, underwaterPass, fogPass } from "./screen.js";
+import { cloudsPass, underwaterPass, fogPass } from "./screen.js";
 import { mirrorPass } from "./mirror.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
@@ -91,14 +61,14 @@ const PHASES = {
   far: { view: VIEW_FAR, draw: (rust) => rust.far_frame() },
   near: { view: VIEW_NEAR, draw: (rust, ctx) => rust.frame(ctx.records) },
   // ctx.image: the far scene's image drawn first (screen.js).
-  transparent: { view: VIEW_NEAR, draw: (rust, ctx) => rust.transparent_frame(ctx.three ?? 0, ctx.image ?? 0) },
+  transparent: { view: VIEW_NEAR, draw: (rust, ctx) => rust.transparent_frame(ctx.commands ?? 0, ctx.image ?? 0) },
   view: { view: VIEW_FIRST_PERSON, draw: (rust, ctx) => rust.view_frame(ctx.records) },
   post: { view: null, draw: (rust, ctx) => rust.post_frame(ctx.steps ?? 0) },
   hud: { view: null, draw: (rust) => rust.hud_frame() },
   // The near phase's passes from a mirror camera (water.js's reflection).
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
   // The transparent phase's passes from that mirror camera.
-  mirrorTransparent: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_transparent_frame(ctx.three ?? 0, ctx.image ?? 0) },
+  mirrorTransparent: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_transparent_frame(ctx.commands ?? 0, ctx.image ?? 0) },
   // The near scene's start when it is drawn in place of three's render
   // (near.js): its target cleared, the far scene's image drawn into it.
   begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
@@ -136,7 +106,7 @@ function recorder(rust, recording) {
     get(target, name) {
       const value = target[name];
       if (typeof value !== "function") return value;
-      if (/frame$|_segment$|_(ptr|len)$|^(records_at|record_stride)$/.test(String(name))) return value.bind(target);
+      if (/frame$|_segment$|_(ptr|len)$|^(records_at|record_stride|rebuild)$/.test(String(name))) return value.bind(target);
       return (...args) => {
         const result = value.apply(target, args);
         recording.calls.push([name, args.map((a) => (ArrayBuffer.isView(a) ? a.slice() : a?.constructor?.name === "WebGLTexture" ? null : a)), result]);
@@ -183,17 +153,15 @@ export class RustRender {
     this.viewSpecs = [];
     this.programs = new Map(); // three's program -> Rust's (or null: unsupported)
     this.geometries = new Map(); // "geometry uuid:program" -> Rust geometry
+    this.textureSources = [];
+    this.textureTargets = new Map();
     this.textures = new Map(); // WebGLTexture -> Rust texture
     this.farTexture = null;
     this.phaseStats = {};
     this.phaseMs = {};
-    this.enabled = true;
-    this.active = !new URLSearchParams(location.search).has("rustOff");
     this.ownedShaderSources = !new URLSearchParams(location.search).has("rustShaderBridge");
     this.errors = [];
-    // The Enhanced configuration the battle started in (supported()), and
-    // the cascades' maps last given to the renderer.
-    this.config = null;
+    // The cascades' maps last given to the renderer.
     this.shadowMaps = "";
     this.shadowView = false;
     // Programs whose lamps come from the lamp table (a pass that gives each
@@ -215,10 +183,21 @@ export class RustRender {
     this.stale = false;
     this.settleThree = null;
     this.watchThree();
-    // A lost context takes every object the renderer made with it (three
-    // makes its own again when it is restored): three draws everything.
-    this.lost = false;
-    this.renderer.domElement?.addEventListener?.("webglcontextlost", () => { this.lost = true; this.fail(new Error("WebGL context lost")); });
+    const initTarget = this.renderer.initRenderTarget?.bind(this.renderer);
+    if (initTarget) this.renderer.initRenderTarget = (target) => {
+      this.textureTargets.set(target.texture, target);
+      if (target.depthTexture) this.textureTargets.set(target.depthTexture, target);
+      return initTarget(target);
+    };
+    this.contextLost = false;
+    this.renderer.domElement?.addEventListener?.("webglcontextlost", (event) => {
+      event.preventDefault();
+      this.contextLost = true;
+      this.stale = false;
+    });
+    this.renderer.domElement?.addEventListener?.("webglcontextrestored", () => {
+      try { this.rebuild(); } catch (error) { this.fail(error); }
+    });
     // The passes' work before three lists a render of the near scene
     // (beforeSort): hooked first, so that what hooks in after it
     // (particle-depth.js's copier) sees what they registered.
@@ -233,22 +212,50 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, imagePass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass]) this.addPass(make(this));
-    // The near phase's hook: first in three's opaque list of the near scene
-    // (graphics.background, the far scene's image, is drawn last of it).
-    this.nearAnchor = graphics.scene ? this.anchor(graphics.scene, { renderOrder: -1e9 }, (renderer, scene, camera) => this.pass(renderer, scene, camera)) : null;
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass]) this.addPass(make(this));
   }
 
-  // A pass: { name, phase, register?(), draw?(ctx), setActive?(on),
-  // restore?(), afterPhase?(name, ctx) }. register() runs once, as it is
-  // added; draw(ctx) in each of its phase's frames, in the order the passes
-  // were added, to register what it draws (the first time three has drawn
-  // it, which gives its material a program) and write its inputs;
-  // setActive(on) moves what it registered back to three (off) or to the
-  // renderer (on); restore() gives three anything it hid outside the near
-  // scene, for good; afterPhase(name, ctx) runs for every pass after any
-  // phase's renderer call (a pass that draws later in the same render of
-  // three's, such as the transparent list, arms itself there).
+  // The scene and texture owners keep their CPU resources. Rust replays its
+  // retained resource descriptions into the restored context, preserving ids.
+  rebuild() {
+    this.stale = false;
+    const renderer = this.renderer, handles = [];
+    this.graphics.warmup();
+    // Native program objects change on restore; Rust replay keeps its ids.
+    for (const entry of this.byName.transparent.taken.values()) entry.program = renderer.properties.get(entry.material).currentProgram;
+    const targets = new Set();
+    for (const texture of this.textureSources) {
+      const target = this.textureTargets.get(texture);
+      if (target) targets.add(target);
+    }
+    for (const target of targets) renderer.initRenderTarget(target);
+    this.textures.clear();
+    for (let id = 0; id < this.textureSources.length; id++) {
+      const texture = this.textureSources[id];
+      if (!texture.isRenderTargetTexture && !texture.isDepthTexture) renderer.initTexture(texture);
+      const handle = renderer.properties.get(texture).__webglTexture;
+      if (!handle) throw new Error(`Missing restored texture ${texture.name || id}`);
+      handles[id] = handle;
+      this.textures.set(handle, id);
+    }
+    this.rust.rebuild(this.gl, handles);
+    this.buffer = null;
+    this.views();
+    this.shadowMaps = "";
+    this.byName.hud.full = true;
+    this.byName.water.full = true;
+    for (const window of this.graphics.cascadeWindows || []) window.invalidate();
+    const water = this.graphics.scene.userData.water;
+    if (water) {
+      water.reflectFrames = 0;
+      if (water.ocean?.probe) water.ocean.probe.last = -Infinity;
+      if (water.ocean?.storm) water.ocean.storm.lastCloud = -Infinity;
+    }
+    this.graphics.upscaler?.invalidate?.();
+    renderer.resetState();
+    this.contextLost = false;
+  }
+
   addPass(pass) {
     if (!this.phases[pass.phase]) throw new Error(`rust-render: pass ${pass.name} has no phase ${pass.phase}`);
     this.passes.push(pass);
@@ -257,38 +264,16 @@ export class RustRender {
     pass.register?.();
   }
 
-  // The Enhanced configuration: the shadow cascades (0: none), lamps, the
-  // temporal upscaler.
-  configKey() {
-    const graphics = this.graphics;
-    const cascades = this.renderer.shadowMap.enabled ? graphics.csm?.lights.length ?? -1 : 0;
-    return `${cascades}:${graphics.settings.get("lampLighting") ? 1 : 0}:${graphics.upscaling === "temporal" ? 1 : 0}`;
-  }
-
-  // The configuration the renderer covers: the one the battle started in.
-  // Within it each pass leaves to three, item by item, what it can't draw
-  // (program()); a change of it gives everything back to three for the rest
-  // of the battle (programs registered for the old one would be stale).
-  supported() {
-    const key = this.configKey();
-    this.config ??= key;
-    return key === this.config;
-  }
-
   // Whether the frame has shadow receivers' inputs to give (C2: the cascades'
   // block and maps).
   shadowsOn() {
     return this.renderer.shadowMap.enabled && Boolean(this.graphics.csm) && lighting.cascadeMaps.value.length > 0;
   }
 
-  // Three's own renders that must see what the passes took from it (by its
-  // material's visibility or its layers): three's shadow pass, whose casters
-  // include buckets the world pass draws (graphics.js renderCascades), and the
-  // temporal upscaler's motion pass, which draws the first-person view again
-  // for its mask (upscaler.drawMotion). fn runs with them shown to three
-  // (each pass's reveal(on)).
+  // Shadow and motion walks need the materials and layers hidden by the
+  // colour passes. Reveal them only for those Rust walks, then hide them.
   reveal(fn) {
-    if (!this.enabled || !this.active) return fn();
+
     for (const pass of this.passes) pass.reveal?.(true);
     try {
       return fn();
@@ -297,19 +282,9 @@ export class RustRender {
     }
   }
 
-  // three's render list of the near scene being drawn (a pass's phase runs
-  // inside three's render of it): the one whose opaque list holds the near
-  // phase's hook or the far scene's image (three lists the image only where
-  // the renderer doesn't draw it: screen.js; lists are kept per render
-  // depth).
+  // Transparent candidates retained as roots enter the battle scene.
   nearList(renderer, scene) {
-    const anchor = this.nearAnchor, background = this.graphics.background;
-    for (let depth = 0; depth < 4; depth++) {
-      const list = renderer.renderLists.get(scene, depth);
-      if (!list.opaque.length) return null;
-      if (list.opaque.some((item) => item.object === anchor || item.object === background)) return list;
-    }
-    return null;
+    return this.sceneItems ?? null;
   }
 
   // A typed view of the renderer's memory, kept as this[name]: a Type over
@@ -335,6 +310,7 @@ export class RustRender {
     let id = this.textures.get(handle);
     if (id === undefined) {
       id = this.rust.add_texture(handle);
+      this.textureSources[id] = texture;
       this.textures.set(handle, id);
       if (this.recording) this.recording.textures[id] = { handle, width: texture.image?.width ?? texture.mipmaps?.[0]?.width ?? texture.width ?? 0, height: texture.image?.height ?? texture.mipmaps?.[0]?.height ?? texture.height ?? 0 };
     }
@@ -385,7 +361,7 @@ export class RustRender {
         if (member && u.size === 1 && UNIFORM_SIZES[u.type] === member.size) aliases.push([name, member.name]);
         else ok = false;
       }
-      if (!ok) { this.errors.push(`p${threeProgram.id} ${name}${why}`); break; }
+      if (!ok) this.fail(new Error(`Program ${threeProgram.id} (${material.name || material.type}) cannot bind ${name}${why}`));
     }
     if (ok) {
       const attributes = [];
@@ -401,7 +377,7 @@ export class RustRender {
         entry = { id: add.call(this.rust, kind, source(vs), source(fs), attributes.join(","), names.filter((name) => policy.material.has(name)).join(",")),
           attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }), names: new Set(names), aliased: aliases.length > 0, lamps: lamped };
       } catch (error) {
-        this.errors.push(`p${threeProgram.id}: ${String(error).slice(0, 300)}`);
+        this.fail(error);
       }
     }
     cache.set(threeProgram, entry);
@@ -547,25 +523,6 @@ export class RustRender {
     return out;
   }
 
-  // A point inside three's render lists, for a pass that must draw there
-  // (the start of the transparent list...): a zero-instance mesh that keeps
-  // its callbacks without a GL draw. It is never culled; onAfterRender calls
-  // back with (renderer, scene, camera).
-  // transparent: in the transparent list, else the opaque one; renderOrder:
-  // its place in that list, which three sorts by first.
-  anchor(scene, { transparent = false, renderOrder = 0 } = {}, callback) {
-    const geometry = new THREE.InstancedBufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-    geometry.instanceCount = 0;
-    const material = new THREE.MeshBasicMaterial({ transparent, colorWrite: false, depthWrite: false, depthTest: false });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = "rust-render anchor";
-    mesh.frustumCulled = false;
-    mesh.renderOrder = renderOrder;
-    mesh.onAfterRender = (renderer, scene, camera) => callback(renderer, scene, camera);
-    scene.add(mesh);
-    return mesh;
-  }
 
   // The scene's onBeforeRender, as three starts a render of it (before it
   // lists and sorts it): each pass's beforeSort(renderer, scene, camera,
@@ -581,35 +538,44 @@ export class RustRender {
     const watch = (root) => root.traverse((o) => { if (!watched.has(o)) { watched.add(o); o.addEventListener("childadded", onAdded); } });
     scene.onBeforeRender = (...args) => {
       previous?.apply(scene, args);
-      if (!this.enabled || !this.active || this.lost || !this.supported()) return;
-      const [, , camera, target] = args;
+      if (this.contextLost) return;
+      const [renderer, , camera, target] = args;
       let roots = null;
       if (camera === this.graphics.camera && target === this.graphics.sceneTarget) {
         roots = added ?? [scene];
         added = [];
         for (const root of roots) watch(root);
       }
+      if (roots?.length) this.registerItems(renderer, scene, camera, roots);
       for (const pass of this.passes) pass.beforeSort?.(...args, roots);
     };
   }
 
-  // Off: three draws everything again (for comparisons in one battle); on:
-  // what is registered moves back.
-  setActive(on) {
-    on = Boolean(on);
-    if (on === this.active) return;
-    this.active = on;
-    for (const pass of this.passes) pass.setActive?.(on);
+  // Discover scene resources without asking three to submit a draw. Keep
+  // candidates between frames; the near walk supplies the camera's order.
+  registerItems(renderer, scene, camera, roots) {
+    const list = this.sceneItems ??= { opaque: [], transmissive: [], transparent: [] };
+    const known = this.knownItems ??= new WeakSet();
+    const fresh = [];
+    for (const root of roots) root.traverse((object) => {
+      if (!(object.isMesh || object.isSprite) || object === this.graphics.background || known.has(object)) return;
+      known.add(object);
+      const material = object.material;
+      if (!material || Array.isArray(material) || !material.visible) return;
+      if (!renderer.properties.get(material).currentProgram) fresh.push([object, material]);
+      if (material.transparent) list.transparent.push({ object, material, geometry: object.geometry, group: null });
+    });
+    if (fresh.length) compileFor(renderer, fresh, camera, scene);
+    this.byName.effects.listed({ renderer, scene, camera });
+    const transparent = this.byName.transparent;
+    for (const item of list.transparent) {
+      if (transparent.taken.has(item.object) || !transparent.candidate(item)) continue;
+      const entry = item.material.isShaderMaterial && "WORLD_SPACE" in (item.material.defines || {}) ? transparent.registerBucket(item) : transparent.registerObject(item, true);
+      if (entry) transparent.taken.set(item.object, entry);
+    }
   }
 
-  // The near anchor's onAfterRender: the near scene's pass, at the start of
-  // three's opaque list.
-  pass(renderer, scene, camera) {
-    if (camera === this.graphics.camera && renderer.getRenderTarget() === this.graphics.sceneTarget) this.phase("near", renderer, scene, camera);
-    // A mirror's render of the near scene (camera.userData.mirror: water.js)
-    // draws what the renderer took from three too.
-    else if (camera.userData.mirror) this.phase("mirror", renderer, scene, camera);
-  }
+
 
   // A phase of the frame, at its point in three's: the frame block written
   // for its view, its passes in order, then the renderer's call that draws
@@ -622,8 +588,9 @@ export class RustRender {
   // walked the scene for three's render it draws in place of (ctx.walked).
   // values: more of the phase's values (ctx), for its passes and its call.
   phase(name, renderer, scene, camera, defer = false, walked = null, values = null) {
-    if (!this.enabled || !this.active) return;
-    if (!this.supported()) { this.restore(); return; }
+    if (this.contextLost) return;
+
+
     const phase = PHASES[name], target = renderer.getRenderTarget();
     if (phase.view !== null) this.writeFrame(scene, camera, phase.view);
     // What the passes have written into the renderer's input so far: records
@@ -636,6 +603,7 @@ export class RustRender {
       this.views();
       this.recording.frames.push({ records: ctx.records, input: this.input.slice(0, this.recordsAt + ctx.records * this.stride), bones: this.bones.slice(0, ctx.bones * 16) });
     }
+    if (ctx.priming) { this.stale = true; return; }
     const t0 = performance.now();
     const stats = this.phaseStats[name] = phase.draw(this.rust, ctx);
     this.phaseMs[name] = performance.now() - t0;
@@ -673,7 +641,15 @@ export class RustRender {
       const f = renderer[name];
       if (typeof f !== "function") continue;
       const bridge = this;
-      renderer[name] = function (...args) { bridge.settleThree?.(); return f.apply(this, args); };
+      renderer[name] = function (...args) {
+        if (name === "setRenderTarget" && args[0]) {
+          const target = args[0];
+          bridge.textureTargets.set(target.texture, target);
+          if (target.depthTexture) bridge.textureTargets.set(target.depthTexture, target);
+        }
+        bridge.settleThree?.();
+        return f.apply(this, args);
+      };
     }
   }
 
@@ -690,7 +666,8 @@ export class RustRender {
   // render does as it ends is done too: the target resolved (when it is
   // multisampled), the scene's onAfterRender.
   cover(name, renderer, scene, camera) {
-    if (!this.enabled || !this.active) return false;
+    if (this.contextLost) return true;
+
     const target = renderer.getRenderTarget();
     try {
       if (scene.matrixWorldAutoUpdate) scene.updateMatrixWorld();
@@ -698,27 +675,27 @@ export class RustRender {
       const passes = this.phases[name];
       for (const pass of passes) pass.complete = false;
       this.phase(name, renderer, scene, camera, true);
-      const complete = this.enabled && passes.length > 0 && passes.every((pass) => pass.complete === true);
+      const complete = passes.length > 0 && passes.every((pass) => pass.complete === true);
       if (complete) {
         this.resolve(renderer.getRenderTarget());
         if (scene.isScene) scene.onAfterRender(renderer, scene, camera);
       }
-      return complete;
+      if (!complete) throw new Error(`Incomplete Rust phase ${name}: ${passes.filter((p) => !p.complete).map((p) => p.name).join(", ")}`);
+      return true;
     } catch (error) {
       this.fail(error, renderer, target);
       return false;
     }
   }
 
-  // An error in a pass: kept, and everything given back to three for good
-  // (restore), three's state reset and the target it was drawing into bound
-  // again, so the frame goes on with three.
+  // Keep the failure visible and stop this battle. No other drawer takes over.
   fail(error, renderer = this.renderer, target = renderer.getRenderTarget()) {
-    this.errors.push(`failed: ${String(error?.stack || error).slice(0, 400)}`);
-    console.warn("Rust renderer failed, three draws everything:", error);
-    try { this.restore(); } catch (e) { this.errors.push(`restore: ${String(e).slice(0, 200)}`); }
-    renderer.resetState();
-    renderer.setRenderTarget(target);
+    const failure = rendererFailure(renderer, error);
+    this.failure = failure;
+    this.errors.push(failure.message);
+    const hud = globalThis.document?.querySelector("#hud");
+    if (hud) hud.textContent = failure.message;
+    throw failure;
   }
 
   // A multisampled target's samples into its texture, as three's
@@ -747,34 +724,41 @@ export class RustRender {
   // graphics.js: the frame's post passes (Graphics.postSteps), drawn by the
   // post pass when it can draw every one; true when it did.
   post(renderer, steps) {
+    if (this.contextLost) return true;
     const target = renderer.getRenderTarget();
-    try { return this.byName.post?.cover(renderer, steps) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
+    try { if (!this.byName.post.cover(renderer, steps)) this.fail(new Error("Incomplete Rust post chain")); return true; } catch (error) { this.fail(error, renderer, target); return false; }
   }
 
   // graphics.js: the near scene, drawn in place of three's render of it when
   // nothing in it is left for three (near.js); true when it was.
   coverNear(renderer, scene, camera) {
-    return this.byName.near?.cover(renderer, scene, camera) ?? false;
+    if (this.contextLost) return true;
+    if (!this.byName.near.cover(renderer, scene, camera)) this.fail(new Error(`Incomplete Rust near scene: ${this.byName.near.stopped?.name || this.byName.near.stopped?.type || "configuration"}`));
+    return true;
   }
 
   // graphics.js renderCascades: a shadow cascade's pass (shadow.js), drawn by
   // the shadow pass when it can draw all of it; true when it was.
   coverShadow(renderer, light, scene, camera, from) {
+    if (this.contextLost) return true;
     const target = renderer.getRenderTarget();
-    try { return this.byName.shadow?.cover(renderer, light, scene, camera, from) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
+    try { if (!this.byName.shadow.cover(renderer, light, scene, camera, from)) this.fail(new Error(`Incomplete Rust shadow: ${this.byName.shadow.why}`)); return true; } catch (error) { this.fail(error, renderer, target); return false; }
   }
 
   // water.js: a water mirror's render of the near scene, drawn in place of
   // three's render of it when nothing in it is left for three (mirror.js);
   // true when it was.
   coverMirror(renderer, scene, camera) {
-    return this.byName.mirrorCover?.cover(renderer, scene, camera) ?? false;
+    if (this.contextLost) return true;
+    if (!this.byName.mirrorCover.cover(renderer, scene, camera)) this.fail(new Error("Incomplete Rust mirror scene"));
+    return true;
   }
 
   // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.
   coverHud(renderer, hud) {
+    if (this.contextLost) return true;
     const target = renderer.getRenderTarget();
-    try { return this.byName.hud?.cover(renderer, hud) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
+    try { if (!this.byName.hud.cover(renderer, hud)) this.fail(new Error(`Incomplete Rust HUD: ${this.byName.hud.why || "batch"}`)); return true; } catch (error) { this.fail(error, renderer, target); return false; }
   }
 
   // The near phase's stats and the time its renderer call took, as the
@@ -786,12 +770,4 @@ export class RustRender {
   get bodyRecords() { return this.byName.instances.bodyRecords; }
   get meshRecords() { return this.byName.instances.meshRecords; }
 
-  // Everything back to three (the configuration left what it covers): the
-  // near scene's hidden materials, then whatever a pass hid elsewhere.
-  restore() {
-    this.enabled = false;
-    this.errors.push("unsupported configuration: three draws everything");
-    this.graphics.scene.traverse((o) => { for (const m of [].concat(o.material || [])) if (m && m.visible === false && m.isShaderMaterial) m.visible = true; });
-    for (const pass of this.passes) pass.restore?.();
-  }
 }

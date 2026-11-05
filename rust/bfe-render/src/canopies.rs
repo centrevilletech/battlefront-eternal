@@ -41,6 +41,15 @@ pub struct CanopiesPass<C: HasContext> {
 }
 
 impl<C: HasContext> CanopiesPass<C> {
+    // A restored context has fresh buffers but the CPU mirrors are current.
+    pub fn reupload<M: MultiDraw>(&self, core: &mut Core<C, M>) {
+        if let Some(mesh) = &self.mesh { for &(buffer, size, at) in &mesh.attributes { unsafe {
+            core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+            core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(&self.leaves[at..at + mesh.max * size]));
+        }}}
+        unsafe { core.gl.bind_buffer(glow::ARRAY_BUFFER, None); }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> CanopiesPass<C> {
         CanopiesPass { input: vec![0.0; INPUT_LEN], leaves: vec![], mesh: None }
     }

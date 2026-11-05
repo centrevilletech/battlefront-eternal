@@ -1,26 +1,6 @@
-// The instance pass (instances.rs): every visible soldier's body and the
-// guns in his hand, and the scene's other skinned meshes (vehicles' and
-// props' rigs; ?rustRigs=0 leaves those to three, for comparisons), each a
-// record the renderer draws instanced in the near phase, after the world;
-// and the flying models (rounds, grenades, droids' pieces, items:
-// flying()). Each is registered the first time
-// three has drawn it (which gives its material a program), then hidden from
-// three. A dying droideka's body dissolves in heated copies of its
-// materials (units.js dissolve): a record of its own, its heat and dissolve
-// its row's (writeExtras); a body in other materials of its own goes back
-// to three. A rig whose material blends (bes1's jedi fighter) is drawn by
-// the renderer as an item of the transparent list (instances.rs
-// KIND_BLENDED), at the place three's sort would draw it, and so are the arc
-// caster's shock glow over a struck body (a rig of his body's buffers and
-// skeleton, its values in its row) and a flying model's part that blends (a
-// round's glow: KIND_BLENDED_RIGID).
-//
-// Only what three's render lists by the camera's frustum is written, culled
-// here as three culls it (the renderer culls the records again by the same
-// spheres): a battle's other soldiers and rigs cost the page nothing. A
-// written body's bones are the ones three worked out as it listed the body
-// in this render (or drew its shadow), as its own draw of it would read
-// them; worked out here only when three has not (writeBody).
+// Rust draws soldiers, held guns, vehicle and prop rigs, and flying pieces.
+// New programs are compiled before registration. Dissolves, shock overlays and
+// blended rigid parts publish their values and ordered transparent records.
 import * as THREE from "three";
 import { blendOf, stateOf, sidesOf, programForSide } from "./transparent.js";
 
@@ -154,9 +134,6 @@ class InstancePass {
     this.bodies = new WeakMap(); // root -> its body's record, or null
     this.heated = new WeakMap(); // a dissolving body -> its heated record, or null
     this.meshes = new WeakMap(); // a gun's mesh -> its record, or null
-    // Vehicles' and props' skinned meshes too, but with ?rustRigs=0 (a
-    // developer's comparison).
-    this.rigsOn = new URLSearchParams(location.search).get("rustRigs") !== "0";
     this.rigList = null;
     this.bodyRecords = [];
     this.meshRecords = [];
@@ -168,7 +145,6 @@ class InstancePass {
     this.listed = -1;
     // What beforeSort found new this frame.
     this.fresh = [];
-    this.presortFailed = false;
   }
 
   // Before three lists the frame's own render of the near scene (the core's
@@ -178,23 +154,22 @@ class InstancePass {
   // programs built by three first where it has none yet (compileFor).
   beforeSort(renderer, scene, camera, target, added) {
     const graphics = this.core.graphics;
-    if (this.active === false || this.presortFailed || scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
+    if (scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
     try {
       this.standIn(renderer, scene, camera, added);
       const fresh = this.fresh, roots = graphics.playerRoot ? [...graphics.cullRoots, graphics.playerRoot] : graphics.cullRoots;
       fresh.length = 0;
       const add = (mesh, materials) => { if (unbuilt(renderer, materials)) fresh.push([mesh, materials]); };
       for (const root of roots) this.newParts(root, (o) => add(o, o.isSkinnedMesh ? this.usedOf(o) : o.material));
-      if (this.rigsOn && this.rigList) for (const mesh of this.rigList) if (!this.bodies.has(mesh)) add(mesh, mesh.material);
+      if (this.rigList) for (const mesh of this.rigList) if (!this.bodies.has(mesh)) add(mesh, mesh.material);
       if (this.flyingPending?.size) for (const group of this.flyingPending) group.traverse((o) => { if (o.isMesh && !this.flyingByMesh.has(o)) add(o, o.material); });
       if (fresh.length) compileFor(renderer, fresh, camera, scene);
       fresh.length = 0;
       for (const root of roots) this.newParts(root, (o) => { if (o.isSkinnedMesh) this.registerBody(o); else this.registerMesh(o); });
-      if (this.rigsOn && this.rigList) for (const mesh of this.rigList) if (!this.bodies.has(mesh)) this.registerRig(mesh);
+      if (this.rigList) for (const mesh of this.rigList) if (!this.bodies.has(mesh)) this.registerRig(mesh);
       if (this.flyingRecords) this.registerPending();
     } catch (error) {
-      this.core.errors.push(`instances before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
-      this.presortFailed = true;
+      this.core.fail(error);
     }
   }
 
@@ -245,8 +220,7 @@ class InstancePass {
   // ctx: the phase's camera, and what has been written to the renderer's
   // input so far (records, bones, skeletons).
   draw(ctx) {
-    // Off: no records (three draws what this pass took).
-    if (this.active === false) return;
+
     const { camera } = ctx, graphics = this.core.graphics;
     this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
@@ -257,15 +231,8 @@ class InstancePass {
     this.listed = count === undefined ? Infinity : count - 1;
     for (const root of graphics.cullRoots) this.soldier(root, camera, ctx);
     if (graphics.playerRoot) this.soldier(graphics.playerRoot, camera, ctx);
-    if (this.rigsOn) this.rigs(camera, ctx);
-    // An error with the flying models gives them back to three for good.
-    if (!this.flyingFailed) {
-      try { this.flying(camera, ctx); } catch (error) {
-        this.core.errors.push(`flying models failed: ${String(error?.stack || error).slice(0, 400)}`);
-        this.flyingFailed = true;
-        try { this.restoreFlying(); } catch {}
-      }
-    }
+    this.rigs(camera, ctx);
+    this.flying(camera, ctx);
     this.frames++;
   }
 
@@ -287,7 +254,7 @@ class InstancePass {
       // Dissolving (units.js dissolve): its heated record, registered once
       // three has drawn the heated materials; any other materials of its
       // own: three draws them.
-      let heated = body.userData.heated ? this.heated.get(body) : null;
+      let heated = body.userData.heated ? this.heated.get(body) : this.registerBody(body);
       if (heated !== null && (heated === undefined || !sameMaterials(heated.materials, body.material))) {
         heated = this.registerBody(body, true);
         if (heated !== undefined) this.heated.set(body, heated);
@@ -301,7 +268,7 @@ class InstancePass {
       for (const mesh of group.children) {
         if (!mesh.isMesh || !mesh.visible || !camera.layers.test(mesh.layers)) continue;
         let rec = this.meshes.get(mesh);
-        if (rec === undefined) rec = this.registerMesh(mesh);
+        if (rec === undefined || rec && mesh.material !== rec.material) rec = this.registerMesh(mesh);
         if (rec && mesh.material === rec.material) {
           if (this.inView(mesh)) at = this.writeMesh(rec, at);
         } else if (rec) mesh.material.visible = true;
@@ -321,6 +288,7 @@ class InstancePass {
     const all = [].concat(body.material);
     const merged = core.groups(body.geometry);
     const used = [...new Set(merged.length ? merged.map((g) => all[g.materialIndex]) : [all[0]])];
+    if (unbuilt(core.renderer, used)) compileFor(core.renderer, [[body, used]], core.graphics.camera, core.graphics.scene);
     const programs = used.map((m) => m && core.renderer.properties.get(m).currentProgram);
     const why = !programs[0] ? "" : !programs.every((p) => p === programs[0]) ? "programs differ" : merged.length > 4 ? "groups" : !("RIGID_SKIN" in (used[0].defines || {})) ? "not rigid" : null;
     if (why) core.errors.push(`body: ${why}`);
@@ -357,7 +325,7 @@ class InstancePass {
     if (!this.rigList || this.frames % 120 === 0) this.findRigs();
     for (const mesh of this.rigList) {
       let rec = this.bodies.get(mesh);
-      if (rec === undefined) rec = this.registerRig(mesh);
+      if (rec === undefined || rec && mesh.material !== rec.materials) rec = this.registerRig(mesh);
       if (!rec) continue;
       if (mesh.material !== rec.materials) { mesh.material.visible = true; continue; }
       if (!camera.layers.test(mesh.layers)) continue;
@@ -372,7 +340,9 @@ class InstancePass {
   registerRig(mesh) {
     const core = this.core;
     let record = null;
-    const material = mesh.material, threeProgram = core.renderer.properties.get(material).currentProgram;
+    const material = mesh.material;
+    if (unbuilt(core.renderer, material)) compileFor(core.renderer, [[mesh, material]], core.graphics.camera, core.graphics.scene);
+    const threeProgram = core.renderer.properties.get(material).currentProgram;
     if (threeProgram && material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
       record = this.registerBlended(mesh);
       if (record === undefined) return undefined;
@@ -406,7 +376,7 @@ class InstancePass {
     if (texture === undefined) return undefined;
     const geometry = core.geometry(mesh.geometry, programs[0]);
     if (geometry === null || geometry === undefined) return null;
-    const blendId = core.rust.inst_add_blend(new Uint32Array(blend), state.flags & 3, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
+    const blendId = core.rust.inst_add_blend(new Uint32Array(blend), state.flags & ~4, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
     const record = { body: mesh, materials: material, used: [material], program: programs[programs.length - 1].id, geometry, textures: [texture], whole: true, look: material.uniforms, blend: blendId,
       lamps: programs.some((p) => p.lamps) };
     material.visible = false;
@@ -417,7 +387,9 @@ class InstancePass {
   registerMesh(mesh) {
     const core = this.core;
     let record = null;
-    const material = mesh.material, threeProgram = !Array.isArray(material) && core.renderer.properties.get(material).currentProgram;
+    const material = mesh.material;
+    if (unbuilt(core.renderer, material)) compileFor(core.renderer, [[mesh, material]], core.graphics.camera, core.graphics.scene);
+    const threeProgram = !Array.isArray(material) && core.renderer.properties.get(material).currentProgram;
     if (threeProgram && !material.transparent && !mesh.geometry.groups.length && "DYNAMIC" in (material.defines || {})) {
       const program = core.program(threeProgram, RIGID, material, POLICIES[RIGID]);
       const geometry = program && core.geometry(mesh.geometry, program);
@@ -436,14 +408,14 @@ class InstancePass {
   }
 
   writeBody(record, at) {
-    if (at.records >= MAX_RECORDS) return at;
+    if (at.records >= MAX_RECORDS) this.core.fail(new Error("Too many instance records"));
     const core = this.core;
     core.views();
     const { body } = record, input = core.input, skeleton = body.skeleton;
     const bones = skeleton.bones.length;
     let boneAt = at.skeletons.get(skeleton);
     if (boneAt === undefined) {
-      if (at.bones + bones > core.bones.length / 16) return at;
+      if (at.bones + bones > core.bones.length / 16) core.fail(new Error("Too many instance bones"));
       // Its bones as three worked them out in this render: as it listed the
       // body (at the count before this one) or drew a shadow (at this one).
       stamp(skeleton, core.renderer.info);
@@ -458,6 +430,7 @@ class InstancePass {
     if (record.blend !== undefined) { input[o + R.BLEND] = record.blend; input[o + R.BLEND + 1] = groupOrderOf(body); input[o + R.BLEND + 2] = body.renderOrder; input[o + R.BLEND + 3] = body.id; }
     for (let g = 0; g < record.textures.length; g++) input[o + R.TEXTURES + g] = record.textures[g];
     input[o + R.BONES] = bones; input[o + R.BONE_AT] = boneAt;
+    if (!body.boundingSphere) body.computeBoundingSphere();
     const s = body.boundingSphere;
     input[o + R.SPHERE] = s.center.x; input[o + R.SPHERE + 1] = s.center.y; input[o + R.SPHERE + 2] = s.center.z; input[o + R.SPHERE + 3] = s.radius;
     const w = body.matrixWorld.elements, b = body.bindMatrixInverse.elements, bind = body.bindMatrix.elements;
@@ -477,7 +450,7 @@ class InstancePass {
   }
 
   writeMesh(record, at) {
-    if (at.records >= MAX_RECORDS) return at;
+    if (at.records >= MAX_RECORDS) this.core.fail(new Error("Too many instance records"));
     const core = this.core;
     core.views();
     const { mesh, material } = record, input = core.input, geometry = mesh.geometry;
@@ -500,16 +473,6 @@ class InstancePass {
     return at;
   }
 
-  // Off (this pass alone, or the whole renderer): three draws the bodies,
-  // guns, rigs and flying parts again, and this pass writes no records.
-  setActive(on) {
-    this.active = on;
-    if (!on && this.warm?.material) this.warm.material.visible = true;
-    const set = (m) => { if (m) m.visible = !on; };
-    for (const record of this.bodyRecords) for (const m of record.used) set(m);
-    for (const record of this.meshRecords) set(record.material);
-    this.flyingActive(on);
-  }
 
   // What this pass took from three shown to three (on) for a render of
   // three's own that must still see it (its shadow pass, its motion pass:
@@ -517,25 +480,12 @@ class InstancePass {
   // materials, the flying parts' layers. Nothing while the renderer is off
   // (three has it all already).
   reveal(on) {
-    if (!this.core.enabled || !this.core.active) return;
+
     for (const record of this.bodyRecords) for (const m of record.used) if (m) m.visible = on;
     for (const record of this.meshRecords) if (record.material) record.material.visible = on;
-    this.flyingActive(!on);
+    this.revealFlying(!on);
   }
 
-  // Flying models (game.js flyingModel: rounds, grenades, droids' pieces,
-  // items), groups the game adds to the scene tagged userData.flying, their
-  // parts drawn as rigid records, dynamic (lit) and unlit zero materials
-  // alike: an unlit part's program reads no look values, so its record's go
-  // unread. A part shares its material with every copy of its model, which
-  // the renderer may not draw (one not yet registered, one inside another
-  // object), so a part it draws is hidden from three by its layers (on
-  // FLYING_LAYER), not by its material; its own layers stay in its record,
-  // tested against the camera's as three would test them. A part whose
-  // material blends is an item of the transparent list (registerFlying). A
-  // part made with a heated material (the destruction's burning pieces)
-  // takes its heat and look from the object. A part three gives another
-  // material (destruction.js heats a wreck's) goes back to three.
   flying(camera, at) {
     if (!this.flyingRecords) this.watchFlying();
     this.registerPending();
@@ -544,8 +494,10 @@ class InstancePass {
       const record = this.flyingRecords[i], mesh = record.mesh;
       if (mesh.material !== record.material) {
         mesh.layers.mask = record.layers;
-        this.flyingByMesh.set(mesh, null);
         this.flyingRecords.splice(i--, 1);
+        const replacement=this.registerFlying(mesh);
+        if (!replacement) this.core.fail(new Error(`Unregistered flying material: ${mesh.name}`));
+        this.flyingByMesh.set(mesh,replacement);
         continue;
       }
       if (!(record.layers & mask)) continue;
@@ -556,8 +508,6 @@ class InstancePass {
     return at;
   }
 
-  // The flying groups added and not all registered yet: their parts
-  // registered (or left to three) as their models' programs come.
   registerPending() {
     for (const group of this.flyingPending) {
       let waiting = false;
@@ -571,12 +521,10 @@ class InstancePass {
     }
   }
 
-  // The scene's flying groups, now and as the game adds and removes them: a
-  // group taken out of the scene has its parts given back to three.
   watchFlying() {
     const scene = this.core.graphics.scene;
     this.flyingRecords = [];
-    this.flyingByMesh = new WeakMap(); // part -> its record, or null (three draws it)
+    this.flyingByMesh = new WeakMap(); // part -> its record, or null (unregistered)
     this.flyingBlends = new WeakMap(); // a blending part's material -> its blend (inst_add_blend) and programs
     this.flyingPending = new Set(scene.children.filter((o) => o.userData?.flying));
     scene.addEventListener("childadded", ({ child }) => { if (child.userData?.flying) this.flyingPending.add(child); });
@@ -599,6 +547,7 @@ class InstancePass {
   registerFlying(mesh) {
     const core = this.core, material = mesh.material;
     if (mesh.isSkinnedMesh || mesh.isInstancedMesh || Array.isArray(material) || !material?.isShaderMaterial) return null;
+    if (unbuilt(core.renderer, material)) compileFor(core.renderer, [[mesh, material]], core.graphics.camera, core.graphics.scene);
     const threeProgram = core.renderer.properties.get(material).currentProgram;
     if (!threeProgram) return undefined;
     const defines = material.defines || {};
@@ -615,7 +564,7 @@ class InstancePass {
       const key = programs.map((p, i) => `${p.id}:${sides[i]}`).join();
       let held = this.flyingBlends.get(material);
       if (!held || held.key !== key) {
-        held = { key, blend: core.rust.inst_add_blend(new Uint32Array(how), state.flags & 3, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]]))) };
+        held = { key, blend: core.rust.inst_add_blend(new Uint32Array(how), state.flags & ~4, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]]))) };
         this.flyingBlends.set(material, held);
       }
       blend = held.blend;
@@ -631,13 +580,13 @@ class InstancePass {
     // heatMaterial: the destruction's burning pieces) takes its heat and
     // look from the object, as its onBeforeRender sets them.
     const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend, heated: "HEATED" in defines, lamps: programs.some((p) => p?.lamps) };
-    if (this.core.active) mesh.layers.set(FLYING_LAYER);
+    mesh.layers.set(FLYING_LAYER);
     this.flyingRecords.push(record);
     return record;
   }
 
   // On: the flying parts hidden from three again; off: back to their layers.
-  flyingActive(on) {
+  revealFlying(on) {
     for (const record of this.flyingRecords || []) {
       if (on) record.mesh.layers.set(FLYING_LAYER);
       else record.mesh.layers.mask = record.layers;
@@ -645,16 +594,7 @@ class InstancePass {
   }
 
   // Everything three may draw again, for good: the flying parts' layers.
-  restore() {
-    this.restoreFlying();
-  }
 
-  restoreFlying() {
-    this.flyingActive(false);
-    this.flyingRecords = [];
-    this.flyingPending?.clear();
-    this.flyingFailed = true;
-  }
 }
 
 export function instancesPass(core) {

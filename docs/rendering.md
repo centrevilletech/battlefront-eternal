@@ -4,10 +4,13 @@ The original gamma-space lighting, texture palette, baked lighting, near/far
 scene dissolve, map blur, and HUD ordering are preserved. Bloom, FXAA, and soft
 particle intersections are optional additions.
 
-The Rust battle renderer is enabled by default and shares Three.js's WebGL2
-context. Three.js draws unsupported items and takes over after a renderer
-failure. Launch with `?rustOff` to skip the Rust renderer and its WebAssembly
-entirely. WebGL2 is still required.
+Rust is the required battle drawer on the shared WebGL2 context. Three.js
+still provides shader compilation, textures, targets and scene objects, but
+cannot submit battle draws. The runtime draw guard rejects accidental three.js
+render calls; only the explicitly listed menu, spawn-screen and scoreboard
+preview scenes retain their interface renderer. Module or shader-link failure
+stops the battle with the GPU name and error. Context loss suspends drawing;
+restoration rebuilds Rust's GPU resources and resumes the same battle.
 
 ## Findings and fixes
 
@@ -513,7 +516,7 @@ work while walking or spinning the camera without changing vertex output.
 
 Checks: `node --test tests/animation-continuity.test.js tests/view-motion.test.js
 tests/camera.test.js tests/soldier-presentation.test.js
-tests/movement-continuity.test.js tests/foliage-buffers.test.js`.
+tests/movement-continuity.test.js tests/rust-render-frame.test.js`.
 With Vite and local assets, `tests/animation-browser.mjs` and
 `tests/movement-browser.mjs` exercise the integrated game. The latter checks
 60 Hz physics with 60/120/144 Hz presentation and both views on Theed/Bespin

@@ -17,14 +17,15 @@ Each backend runs with WEBGL_multi_draw, then with that extension hidden to
 exercise the repeated-draw fallback. A successful run requires:
 
 - Every compiled program links, every observed draw and frame is free of
-  WebGL errors, and Rust remains enabled without per-item fallback errors.
+  WebGL errors, and the required Rust renderer reports no errors.
 - All 15 Rust pass counters report actual draws: world, instances, far,
   terrain, transparent, effects, foliage, view, post, HUD, water, shadow,
   motion, canopies and screen.
-- The generated scene is visible and its alternating three/Rust frames
-  match with at most two levels of difference per RGB channel. Repeated
-  frames from either owner must also be stable. The motion target is
-  compared separately.
+- The generated scene is visible, repeated Rust frames are stable, and the
+  unlit HUD texture matches its known generated RGB colour. The motion target
+  contains nonzero velocity and is stable across repeated Rust draws.
+- Forced context loss and restoration rebuild the Rust resources and reproduce
+  the generated frame. The battle draw guard records no three.js calls.
 - Terrain has two separated visible index runs, an unpainted layer between
   painted layers, and a deliberately prebound comparison texture on the
   unpainted layer's unit. Rust must replace it with its empty color texture
@@ -33,15 +34,13 @@ exercise the repeated-draw fallback. A successful run requires:
 The report prints the renderer, Electron/Chromium versions, program count,
 pass counters, multi-draw count and individual assertions. Pixel failures
 remain failures; the report can contain passing assertions alongside them.
-The water case also delegates just the near-water pass back to three as a
-diagnostic, while retaining the full Rust water comparison as a gate.
 
 This checks the programs instantiated by these fixtures. It cannot enumerate
 every game material, shader define combination, effect, texture format or
 rendering configuration. The scene covers bump on/off, shadows, alpha
 blending, skinned and rigid instances, bloom and soft focus, but is not a
-qualification of all temporal-upscaling modes or game scenes. Two engines
-can also share a shader bug: matching pixels alone cannot detect an
+qualification of all temporal-upscaling modes or game scenes. A renderer and its fixtures
+can share a shader bug: stable pixels alone cannot detect an
 unwanted texture fetch hoisted by a compiler. WARP exercises the Windows
 shader translation/compiler/runtime path, not physical GPU drivers, VRAM
 pressure, device removal, or GPU performance.

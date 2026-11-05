@@ -47,6 +47,17 @@ pub struct HudPass<C: HasContext> {
 }
 
 impl<C: HasContext> HudPass<C> {
+    // A restored context has fresh buffers but the CPU mirrors are current.
+    pub fn reupload<M: MultiDraw>(&self, core: &mut Core<C, M>) {
+        for (k, data) in [&self.position, &self.uv, &self.mask_uv, &self.tint].iter().enumerate() {
+            if let Some(buffer) = self.buffers.get(k) { unsafe {
+                core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buffer));
+                core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(data));
+            }}
+        }
+        unsafe { core.gl.bind_buffer(glow::ARRAY_BUFFER, None); }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> HudPass<C> {
         let v = QUADS * 4;
         HudPass {

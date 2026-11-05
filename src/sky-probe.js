@@ -69,7 +69,7 @@ export class SkyProbe {
     camera.children.forEach((face, i) => {
       if (i === 5) target.texture.generateMipmaps = mipmaps;
       renderer.setRenderTarget(target, i, camera.activeMipmapLevel);
-      if (!rust?.cover("probe", renderer, scene, face)) renderer.render(scene, face);
+      rust.cover("probe", renderer, scene, face);
     });
     renderer.setRenderTarget(current, currentFace, currentLevel);
     renderer.xr.enabled = xr;

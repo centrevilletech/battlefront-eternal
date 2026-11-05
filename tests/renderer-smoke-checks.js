@@ -56,7 +56,7 @@ export async function checkRenderer(backend) {
   const g = new Graphics(document.body, settings);
   try {
     await g.rustReady;
-    assert('Rust WASM initialized', g.rust?.enabled, g.rust?.errors);
+    assert('Rust WASM initialized', Boolean(g.rust), g.rust.errors);
     const gl = g.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
     const renderer = debug && gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
     assert('Requested ANGLE backend selected', backend === 'warp' ? /Direct3D11/i.test(renderer) && /Microsoft|WARP|Basic Render/i.test(renderer) : backend === 'gl' ? /ANGLE.*OpenGL/i.test(renderer) : /SwiftShader/i.test(renderer), renderer);
@@ -108,7 +108,7 @@ export async function checkRenderer(backend) {
     g.scene.add(ground);
     const particles = new ParticleRenderer(g.scene).batch(white, 'additive');
     particles.begin(); particles.push(-1, 1, .5, 1, .4, .2, 1, .3); particles.end();
-    const batch = new Batch(), hudScene = new THREE.Scene(), hudCamera = new THREE.OrthographicCamera(0,320,240,0,-10,10);
+    const batch = new Batch(), hudScene = new THREE.Scene(), hudCamera = new THREE.OrthographicCamera(0,320,0,240,-10,10);
     batch.begin(); batch.quad(new THREE.Matrix4(), 12, 12, 48, 40, white, [0,0,1,1], [1,1,1,1]); batch.end(); hudScene.add(batch.mesh);
     const hud = { batch, scene: hudScene, camera: hudCamera };
     g.treeCanopies = new TreeCanopies(g, { texture: 'leaves', instances: [{ matrix: new THREE.Matrix4().makeTranslation(-6,2,-10).elements, bounds: [[-3,-3,-1],[3,3,1]] }] }, () => white);
@@ -121,11 +121,15 @@ export async function checkRenderer(backend) {
     const phaseDraws = {}, passDraws = Array(15).fill(0);
     // Seed the formerly unpainted unit with a comparison texture. A missing
     // rebind must reject the whole terrain draw, not merely shade it wrong.
-    const poison = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, poison);
+    const makePoison = () => {
+    const texture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT16, 1, 1, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+      return texture;
+    };
+    let poison = makePoison();
     g.renderer.resetState();
     const rust = g.rust.rust;
     g.rust.rust = new Proxy(rust, { get(target, name) {
@@ -143,43 +147,36 @@ export async function checkRenderer(backend) {
         return value;
       };
     } });
-    let waterDelegated = false;
-    const capture = (on) => {
-      g.rust.setActive(on);
-      if (on && waterDelegated) g.rust.byName.water.setActive(false);
+    g.warmup();
+    const capture = () => {
       g.camera.updateMatrixWorld(true);
       const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(g.camera.projectionMatrix,g.camera.matrixWorldInverse));
-      if (on && foliage.drawer) foliage.drawer.select(foliage,g.camera);
-      else foliageBatch.update(instances,0,g.camera,new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1),frustum,100);
+      if (foliage.drawer) foliage.drawer.select(foliage,g.camera);
+
 
       g.render(0);
       g.renderer.setRenderTarget(null); g.renderer.autoClear = false;
-      if (!g.rust.coverHud(g.renderer, hud)) g.renderer.render(hudScene, hudCamera);
+      g.rust.coverHud(g.renderer, hud);
       g.renderer.autoClear = true;
-      if (!g.rust.enabled || g.rust.errors.length) throw new Error(`Rust fallback: ${JSON.stringify(g.rust.errors)}`);
+      if (g.rust.errors.length || g.renderer.battleThreeCalls) throw new Error(`Rust fallback: ${JSON.stringify(g.rust.errors)}`);
       const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
       gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
       const error = gl.getError(); if (error) throw new Error(`Frame: WebGL 0x${error.toString(16)}`);
       return pixels;
     };
     const compare = (name) => {
-      // Warm both owners before comparing, then alternate on one context.
-      for (let i = 0; i < 4; i++) capture(true);
-      for (let i = 0; i < 3; i++) capture(false);
-      const a = capture(false), a2 = capture(false);
-      for (let i = 0; i < 3; i++) capture(true);
-      const b = capture(true), b2 = capture(true);
-      assert(`${name}: stable three frame`, a.every((v,i) => v === a2[i]));
-      assert(`${name}: stable Rust frame`, b.every((v,i) => v === b2[i]));
-      let max = 0, changed = 0, visible = 0;
-      for (let i = 0; i < a.length; i += 4) {
-        let delta = 0;
-        for (let k = 0; k < 3; k++) delta = Math.max(delta, Math.abs(a[i+k] - b[i+k]));
-        max = Math.max(max, delta); if (delta > 2) changed++;
-        if (a[i] > 40 || a[i+1] > 40 || a[i+2] > 90) visible++;
-      }
+      console.log(`renderer smoke: ${name}`);
+      for (let i = 0; i < 4; i++) capture();
+      const a = capture(), b = capture();
+      assert(`${name}: stable Rust frame`, a.every((v,i) => v === b[i]));
+      let visible = 0;
+      for (let i = 0; i < a.length; i += 4) if (a[i] > 40 || a[i+1] > 40 || a[i+2] > 90) visible++;
       assert(`${name}: visible fixture`, visible > 100, { visible });
-      assert(`${name}: three/Rust pixels`, changed === 0, { max, changed, pixels: a.length / 4 });
+      // The HUD uses an unlit one-pixel texture, without post processing.
+      const x = Math.floor(gl.drawingBufferWidth * 30 / 320);
+      const y = Math.floor(gl.drawingBufferHeight * (240 - 25) / 240);
+      const at = 4 * (y * gl.drawingBufferWidth + x);
+      assert(`${name}: generated HUD colour`, [200,150,90].every((v,k) => Math.abs(a[at+k]-v) <= 1), [...a.slice(at,at+4)]);
     };
     compare('opaque, far, terrain, transparent, view and composite');
     lighting.bump.value = 0; compare('bump switched off'); lighting.bump.value = 1;
@@ -198,15 +195,14 @@ export async function checkRenderer(backend) {
     const depth = new THREE.DataTexture(depthValues,64,64,THREE.RedFormat,THREE.FloatType); depth.needsUpdate = true;
     const current = new THREE.Matrix4().multiplyMatrices(g.camera.projectionMatrix,g.camera.matrixWorldInverse);
     const previous = current.clone(); previous.elements[12] += .02;
-    const motion = (on) => {
-      g.rust.setActive(on);
+    const motion = () => {
       motionVectors.render(g.renderer,{target:motionTarget,root:g.scene,camera:g.camera,viewScene:g.viewScene,view:g.viewCamera,depth,current,previous});
       const pixels = new Uint16Array(64*64*4); g.renderer.readRenderTargetPixels(motionTarget,0,0,64,64,pixels); return pixels;
     };
-    motion(false); motion(true);
-    const motionThree = motion(false), motionRust = motion(true);
-    assert('Motion proxy writes nonzero velocity', motionThree.some((v,i) => i % 4 === 0 && v !== 0));
-    assert('Motion target matches three', motionThree.every((v,i) => v === motionRust[i]));
+    motion(); motion();
+    const motionFirst = motion(), motionRust = motion();
+    assert('Motion proxy writes nonzero velocity', motionFirst.some((v,i) => i % 4 === 0 && v !== 0));
+    assert('Motion target is stable', motionFirst.every((v,i) => v === motionRust[i]));
     motionVectors.release(proxy); motionTarget.dispose();
     // Water's far copies and transparent surface have their own programs,
     // checked after the other fixture's independent comparisons.
@@ -214,14 +210,47 @@ export async function checkRenderer(backend) {
     g.scene.userData.water = water;
     water.update(0,g.camera);
     compare('water surface');
-    waterDelegated = true;
-    compare('water delegated to three');
-    g.rust.byName.water.setActive(true);
+    const tintScene = new THREE.Scene(), tintCamera = new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+    tintScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2), new THREE.ShaderMaterial({
+      uniforms:{color:{value:new THREE.Vector4(.1,.2,.3,.5)}},
+      vertexShader:'void main(){gl_Position=vec4(position,1.0);}',
+      fragmentShader:'uniform vec4 color; void main(){gl_FragColor=color;}',
+      transparent:true,depthTest:false,depthWrite:false,
+    })));
+    tintScene.children[0].frustumCulled=false;
+    g.renderer.compile(tintScene,tintCamera);
+    g.renderer.autoClear=false;
+    g.rust.cover('underwater',g.renderer,tintScene,tintCamera);
+    g.renderer.autoClear=true;
+    const beforeLoss = capture();
+    const loss = gl.getExtension('WEBGL_lose_context');
+    if (!loss) throw new Error('Context-loss extension unavailable');
+    const canvas = g.renderer.domElement;
+    console.log("renderer smoke: context loss");
+    const lost = new Promise(resolve => canvas.addEventListener('webglcontextlost', resolve, { once: true }));
+    loss.loseContext();
+    await lost;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const restored = new Promise((resolve,reject) => {
+      const timer=setTimeout(()=>reject(new Error(`Context restore timeout: ${g.rust.failure?.stack || "no renderer error"}`)),30000);
+      canvas.addEventListener("webglcontextrestored",()=>{clearTimeout(timer);resolve();},{once:true});
+    });
+    loss.restoreContext();
+    await restored;
+    poison = makePoison();
+    g.renderer.resetState();
+    for (let i=0;i<4;i++) capture();
+    const afterLoss = capture();
+    assert('Restored Rust frame matches its generated fixture', beforeLoss.every((v,i) => v === afterLoss[i]));
+    assert('Battle never invokes three draw', g.renderer.battleThreeCalls === 0);
     assert('Every shader rewrite kind links', [0,1,2,3,4,9].every(k => programKinds.has(k)), [...programKinds]);
     assert('All Rust passes draw', passDraws.every(n => n > 0), { names: ['world','instances','far','terrain','transparent','effects','foliage','view','post','hud','water','shadow','motion','canopies','screen'], counts: passDraws });
     assert('Multi-draw path exercised', fallback ? multiDraws === 0 : multiDraws > 0, { fallback, multiDraws });
     assert('Every compiled program links', links.length > 0 && links.every(Boolean), { count: links.length });
     return { ok: results.every(r => r.ok), backend, fallback, multiDraws, renderer, results, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };
+  } catch (error) {
+    const stopped=g.rust.byName.near.stopped;
+    throw new Error(`${error.stack}\nCause: ${error.cause?.stack || "none"}\nStopped: ${JSON.stringify(stopped && {name:stopped.name,material:stopped.material?.name,uniforms:Object.keys(stopped.material?.uniforms||{}),background:stopped===g.background,layer:stopped.layers.mask})}`);
   } finally {
     proto.getExtension = getExtension;
     for (const [name, original] of originals) proto[name] = original;

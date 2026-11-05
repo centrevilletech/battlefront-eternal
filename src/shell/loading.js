@@ -686,8 +686,9 @@ export function runView(view, canvas, size, frame = (fn) => requestAnimationFram
 export async function handover({ loaded, isDone, tick, onReady = () => {}, load = LOAD_CAP, cap = SEQUENCE_CAP, now = () => performance.now() }) {
   let timer = null;
   const expiry = new Promise((resolve) => { timer = setTimeout(() => resolve(false), load); });
-  const settled = await Promise.race([Promise.resolve(loaded).then(() => true, () => false), expiry]);
-  clearTimeout(timer);
+  let settled;
+  try { settled = await Promise.race([Promise.resolve(loaded).then(() => true), expiry]); }
+  finally { clearTimeout(timer); }
   onReady();
   const until = now() + cap;
   while (!isDone() && now() < until) await tick();
@@ -695,7 +696,7 @@ export async function handover({ loaded, isDone, tick, onReady = () => {}, load 
 }
 
 // Without the screen (?loading=0) the battle starts as soon as it is built.
-const nothing = { progress() {}, done(game) { game?.begin?.(); return Promise.resolve(); }, close() {}, closed: true, value: 1, sequence: null, sound: null };
+const nothing = { progress() {}, async done(game) { await (game?.loaded ? game.loaded() : game?.ready); game?.begin?.(); }, close() {}, closed: true, value: 1, sequence: null, sound: null };
 
 // The loading screen for this page's battle. Returns { progress(step,
 // loaded, total), done(game), close(), value, sequence, sound }: progress is
@@ -764,14 +765,18 @@ export function createLoadingScreen({ query = location.search, parent = document
         onReady: () => report("ready"),
         isDone: () => closed || (screen.endsAt !== null && clock() >= screen.endsAt),
         tick: () => new Promise((resolve) => setTimeout(resolve, 50)),
-      }).then(() => new Promise((resolve) => {
+      }).then(async () => {
+        // A sequence timeout may end the animation, never resource preparation.
+        await loaded;
+        return new Promise((resolve) => {
         game?.unveil?.();
         requestAnimationFrame(() => requestAnimationFrame(() => {
           close();
           game?.begin?.();
           resolve();
         }));
-      }));
+      });
+      });
     },
     close,
   };

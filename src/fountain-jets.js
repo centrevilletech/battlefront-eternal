@@ -1074,6 +1074,7 @@ const fragmentShader = /* glsl */`
 // Each jet mesh's FountainJets, for a renderer that draws the jets itself
 // (src/rust-render/effects.js).
 export const fountainJets = new WeakMap();
+export const fountainCopies = new WeakMap();
 
 export class FountainJets {
   // The jets share the fountains' sources with the basin splashes (spray);
@@ -1081,6 +1082,11 @@ export class FountainJets {
   // texture, if there is one; `tier`, whether the fountains stand in Theed's
   // two-tier basins (the overflow and the outer arcs need them).
   constructor(scene, spray, graphics, { foam = null, tier = false } = {}) {
+    this.scene = scene;
+    let copies = fountainCopies.get(scene);
+    if (!copies) fountainCopies.set(scene, copies = new Set());
+    copies.add(this);
+    this.copyNeeded = false;
     this.atlas = sprayAtlas();
     this.levels = new Float32Array(FOUNTAINS);
     this.lows = new Float32Array(FOUNTAINS);
@@ -1206,28 +1212,11 @@ export class FountainJets {
       draw('fountain-ropes-near', ribbons('before'), [ribbonVertex, ribbonFragment, 1]),
       soft('before'),
     ];
-    // The frame so far is copied just before the first jet draws, by this
-    // object (it draws nothing) three draws just before them: a renderer
-    // that draws the jets itself (src/rust-render/effects.js) leaves it to
-    // three, so the copy is made at the same point of the list either way.
-    const copierGeometry = new THREE.BufferGeometry();
-    copierGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
-    this.copier = new THREE.Mesh(copierGeometry, new THREE.ShaderMaterial({
-      vertexShader: 'void main(){gl_Position=vec4(2.,2.,2.,1.);}', fragmentShader: 'void main(){gl_FragColor=vec4(0.);}',
-      transparent: true, depthTest: false, depthWrite: false, colorWrite: false,
-    }));
-    this.copier.name = 'fountain-frame-copy';
-    this.copier.renderOrder = 9 - 0.025;
-    this.copier.frustumCulled = false;
-    this.copier.visible = false;
-    this.copier.onBeforeRender = (r) => this.capture(r);
-    scene.add(this.copier);
     for (const [k, mesh] of this.meshes.entries()) {
       mesh.renderOrder = 9 + k * 0.05;
       mesh.frustumCulled = false;
       mesh.visible = false;
-      if (mesh.userData.spray) mesh.onBeforeRender = (r, s, c) => this.drawSpray(r, c, mesh);
-      else mesh.onBeforeRender = (r, s, c) => {
+      if (!mesh.userData.spray) mesh.onBeforeRender = (r, s, c) => {
         const u = mesh.material.uniforms;
         u.hasDepth.value = particleDepth.capture(r, s, c, true) ? 1 : 0;
         u.hasScene.value = this.capture(r) ? 1 : 0;
@@ -1239,29 +1228,6 @@ export class FountainJets {
   }
   // Draws one half's soft spray into its half-size target, just before its
   // composite lays it over the frame.
-  drawSpray(renderer, camera, composite) {
-    const source = renderer.getRenderTarget(), enabled = composite.material.uniforms.enabled;
-    enabled.value = source === this.graphics.sceneTarget && particleDepth.capture(renderer, null, camera, true) ? 1 : 0;
-    composite.material.uniformsNeedUpdate = true;
-    if (!enabled.value) return;
-    const width = Math.max(1, Math.ceil(source.width / 2)), height = Math.max(1, Math.ceil(source.height / 2));
-    const target = composite.userData.target;
-    target.setSize(width, height);
-    this.sprayResolution.value.set(width, height);
-    this.fragScale.value.set(source.width / width, source.height / height);
-    renderer.getClearColor(this.clearColor);
-    const alpha = renderer.getClearAlpha(), autoClear = renderer.autoClear;
-    try {
-      renderer.autoClear = true;
-      renderer.setClearColor(0, 0);
-      renderer.setRenderTarget(target);
-      renderer.render(composite.userData.scene, camera);
-    } finally {
-      renderer.setRenderTarget(source);
-      renderer.setClearColor(this.clearColor, alpha);
-      renderer.autoClear = autoClear;
-    }
-  }
   capture(renderer) {
     const source = renderer.getRenderTarget();
     if (source !== this.graphics.sceneTarget) return false;
@@ -1314,7 +1280,7 @@ export class FountainJets {
       drawn.geometry.instanceCount = drawn.geometry.userData.perFountain * shown;
       mesh.visible = shown > 0;
     }
-    this.copier.visible = shown > 0;
+    this.copyNeeded = shown > 0;
   }
   dispose() {
     for (const mesh of this.meshes) {
@@ -1322,7 +1288,7 @@ export class FountainJets {
       if (spray) { spray.removeFromParent(); spray.geometry.dispose(); spray.material.dispose(); }
       mesh.removeFromParent(); mesh.geometry.dispose(); mesh.material.dispose();
     }
-    this.copier.removeFromParent(); this.copier.geometry.dispose(); this.copier.material.dispose();
+    fountainCopies.get(this.scene)?.delete(this);
     this.atlas.dispose();
     this.behind.dispose();
     for (const target of this.sprayTargets) target.dispose();

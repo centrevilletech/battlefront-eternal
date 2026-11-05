@@ -511,12 +511,6 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
-     * @param {boolean} on
-     */
-    foliage_on(on) {
-        wasm.bferenderer_foliage_on(this.__wbg_ptr, on);
-    }
-    /**
      * @param {number} _class
      * @returns {number}
      */
@@ -1283,6 +1277,16 @@ export class BfeRenderer {
     post_target(texture) {
         const ret = wasm.bferenderer_post_target(this.__wbg_ptr, texture);
         return ret >>> 0;
+    }
+    /**
+     * @param {WebGL2RenderingContext} context
+     * @param {Array<any>} textures
+     */
+    rebuild(context, textures) {
+        const ret = wasm.bferenderer_rebuild(this.__wbg_ptr, context, textures);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
     }
     /**
      * @returns {number}
@@ -2201,8 +2205,22 @@ function __wbg_get_imports() {
             const ret = arg0.getUniformLocation(arg1, getStringFromWasm0(arg2, arg3));
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
+        __wbg_get_d7176cfb76d71114: function(arg0, arg1) {
+            const ret = arg0[arg1 >>> 0];
+            return ret;
+        },
         __wbg_get_unchecked_e6325ad374eff861: function(arg0, arg1) {
             const ret = arg0[arg1 >>> 0];
+            return ret;
+        },
+        __wbg_instanceof_WebGlTexture_78228014a0d9a90f: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof WebGLTexture;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
             return ret;
         },
         __wbg_length_b03a0fabb109b1e9: function(arg0) {

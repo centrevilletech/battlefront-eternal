@@ -32,7 +32,19 @@ export function writeSettings(settings) {
   if (process.env.BFE_SETTINGS_FILE) fs.writeFileSync(process.env.BFE_SETTINGS_FILE, JSON.stringify({ complete: true, values: settings }));
 }
 
-const SEED_SRC = `let seed = 0x9e3779b9; Math.random = () => { seed = (seed + 0x6d2b79f5) | 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };`;
+// Object UUID allocation changes when dead render helpers are deleted. Keep
+// that stream separate from procedural foliage/effect randomness, in both
+// the page and its workers. Capture builds retain names (minify: false).
+export const SEED_SRC = `let seed = 0x9e3779b9, uuidSeed = 0x12345678;
+  globalThis.__gateRandom = {uuidCalls:0,valueCalls:0};
+  Math.random = () => {
+    const uuid = new Error().stack.includes('at generateUUID ');
+    if(uuid)__gateRandom.uuidCalls++;else __gateRandom.valueCalls++;
+    let t = uuid ? (uuidSeed = (uuidSeed + 0x6d2b79f5) | 0) : (seed = (seed + 0x6d2b79f5) | 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };`;
+
 
 // Context loss, seen from the first line of the page: a capture listener on window gets the
 // canvas's (non-bubbling) events. Counts and times (ms since navigation).
@@ -44,7 +56,7 @@ export const CONTEXT_SRC = `window.__gateGl = { lost: 0, restored: 0, events: []
 // own flag, and the bridge's (RustRender.lost on builds that have it).
 export const GL_STATE = `(() => { const b = __bf, g = b.graphics, gl = b.renderer.getContext(), G = window.__gateGl || null;
   return { lostEvents: G ? G.lost : null, restoredEvents: G ? G.restored : null, events: G ? G.events.slice(0, 8) : null,
-    contextLost: gl.isContextLost(), rustLost: g.rust ? (g.rust.lost ?? null) : null, rustEnabled: g.rust ? g.rust.enabled : null }; })()`;
+    contextLost: gl.isContextLost(), rustLost: g.rust ? (g.rust.contextLost ?? g.rust.lost ?? false) : null }; })()`;
 
 // Xvfb is EMU_SCREEN, but the Electron window opens smaller. Pixel parity needs the
 // window to fill that screen. Fullscreen is the window state that matches it.

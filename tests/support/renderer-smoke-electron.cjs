@@ -16,6 +16,7 @@ app.whenReady().then(async () => {
   report({ stage: 'window' });
   const errors = [];
   window.webContents.on('console-message', (event) => {
+    if (event.message.startsWith('renderer smoke:')) console.log(event.message);
     if (event.level === 'error') errors.push(event.message);
   });
   window.webContents.on('render-process-gone', (_event, details) => { report({ crash: details }); app.exit(1); });

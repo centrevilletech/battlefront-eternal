@@ -1,28 +1,8 @@
-// The far pass (far.rs): the far scene (graphics.farScene, seen from the
-// far camera into graphics.farTarget), drawn by the renderer in place of
-// three's render of it. graphics.js asks the core to cover the far phase
-// first (index.js cover(): three's start of render, the phase, three's end);
-// when this pass drew it all, three doesn't render the far scene. A water's
-// mirror (water.js reflect) asks the same for its far scene (the farMirror
-// phase: the mirror camera, its sky pass and then the rest drawn over it).
-//
-// Each frame (draw(), in the far phase) it walks the far scene as three's
-// projectObject does (what is shown, on the camera's layers) and finds each
-// mesh three would draw among its items, registering one the first time its
-// material has a program (graphics.warmup compiles them at load; else three
-// draws it once first). The far terrain is one item for all its runs. When
-// every mesh three would draw is an item, the renderer clears the target as
-// three would and draws them in three's order (complete); else (a mesh it
-// can't draw yet) it draws nothing and three draws the frame. Nothing is
-// hidden from three: whichever renderer draws each render of the far scene
-// (the eye's, a water mirror's, the sky probe's), the other has it all.
-//
-// A material that reads only the frame's shared values gets a program with
-// the frame block; any other (the water's, which keeps a time of its own) a
-// plain one, all of whose uniforms the page writes each frame. The map's
-// zero materials' own values are fixed at registration; any other
-// material's are written each frame.
+// Rust draws the far scene, water reflections, sky probes and the near ocean.
+// Resources are compiled and registered before their first draw. Each camera
+// uses the same material programs and ordering as the scene describes.
 import * as THREE from "three";
+import { compileFor } from "./instances.js";
 import { lighting } from "../materials.js";
 import { VIEW_FAR } from "./index.js";
 
@@ -102,7 +82,6 @@ class FarPass {
     this.name = "far";
     this.phase = "far";
     // For comparisons: false leaves the far scene to three.
-    this.on = true;
     this.items = new Map(); // object -> its items (one a material and program)
     this.all = []; // every item
     this.tables = new Map(); // Rust program -> its uniform table, or null
@@ -121,14 +100,13 @@ class FarPass {
     this.frustum = new THREE.Frustum();
     this.matrix = new THREE.Matrix4();
     // This frame: whether the renderer drew all of the far scene, else
-    // "three" and how many meshes three draws that the pass can't.
+    // "incomplete" and how many meshes three draws that the pass can't.
     this.complete = false;
-    this.mode = "three";
-    this.threeObjects = 0;
+    this.mode = "incomplete";
+    this.unclaimed = 0;
     // The near scene's items (drawNear): mesh -> its own layers' mask, while
     // it is hidden from three.
     this.hidden = new Map();
-    this.nearOn = true;
   }
 
   register() {
@@ -141,23 +119,16 @@ class FarPass {
   // culls is drawn by neither); else the renderer draws nothing. An error
   // leaves the far scene to three for good.
   draw(ctx) {
-    try {
-      this.frame(ctx);
-    } catch (error) {
-      this.core.errors.push(`far: ${String(error?.stack || error).slice(0, 400)}`);
-      this.on = false;
-      this.complete = false;
-      this.mode = "three";
-      this.write(ctx.renderer, false);
-    }
+    this.frame(ctx);
   }
 
   frame(ctx) {
     const { renderer, scene, camera } = ctx, core = this.core;
     this.near = false;
     this.count = 0;
-    this.threeObjects = 0;
+    this.unclaimed = 0;
     this.camera = camera;
+    this.scene = scene;
     // A sky probe's face (sky-probe.js): which one (far_probe_frame).
     const cube = camera.parent?.type === "CubeCamera" ? camera.parent : null;
     ctx.face = cube ? Math.max(0, cube.children.indexOf(camera)) : 0;
@@ -168,20 +139,20 @@ class FarPass {
     // (registering can move the module's memory).
     const texture = cube?.renderTarget?.texture;
     this.mipmaps = texture?.generateMipmaps ? 1 + core.texture(texture) : 0;
-    if (this.on && !this.sharing) this.share(scene);
-    if (this.on) this.walk(scene, camera, 0);
+    if (!this.sharing) this.share(scene);
+    this.walk(scene, camera, 0);
     this.frustum.setFromProjectionMatrix(this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     for (let i = 0; i < this.count; i++) {
       const f = this.found[i];
       if (f.item) continue;
       if (f.object.frustumCulled && !f.object.isGroup && !this.frustum.intersectsObject(f.object)) continue;
-      this.threeObjects++;
+      this.unclaimed++;
     }
-    const complete = this.on && this.threeObjects === 0;
+    const complete = this.unclaimed === 0;
     if (complete) this.prepare(renderer, scene, camera);
     this.write(renderer, complete);
     this.complete = complete;
-    this.mode = complete ? "full" : "three";
+    this.mode = complete ? "full" : "incomplete";
   }
 
   // The near phase's part (a mirror's too): the near scene's meshes the pass
@@ -191,23 +162,38 @@ class FarPass {
   // item; hidden from three by its layers from the next frame on (three
   // listed it in this render already: it draws it this once), its own layers
   // kept and tested against the camera's as three would.
+  adoptNear(scene, camera) {
+    const sea = this.core.graphics.scene.userData.water?.oceanSurface?.near;
+    if (!sea || this.hidden.has(sea)) return;
+    this.camera = camera;
+    this.scene = scene;
+    this.count = 0;
+    this.find(sea, sea.material, 0);
+    if (!this.found[0].item) this.core.fail(new Error("Unregistered ocean surface"));
+    this.hidden.set(sea, sea.layers.mask);
+    sea.layers.set(HIDDEN_LAYER);
+  }
+
   drawNear(ctx) {
     const { renderer, scene, camera } = ctx, core = this.core;
     this.near = true;
     this.count = 0;
-    this.threeObjects = 0;
+    this.unclaimed = 0;
     this.camera = camera;
+    this.scene = scene;
     this.mipmaps = 0;
     const sea = core.graphics.scene.userData.water?.oceanSurface?.near ?? null;
     let draw = false;
-    if (this.on && this.nearOn && sea) {
+    if (sea) {
       let shown = Boolean(sea.material?.visible);
       for (let n = sea; shown && n && n !== scene; n = n.parent) if (!n.visible) shown = false;
       if (shown && (this.ownLayers(sea) & camera.layers.mask) !== 0) {
         this.find(sea, sea.material, 0);
         const item = this.found[this.count - 1].item;
-        if (item && this.hidden.has(sea)) draw = true;
-        else if (item) { this.hidden.set(sea, sea.layers.mask); sea.layers.set(HIDDEN_LAYER); }
+        if (item) {
+          if (!this.hidden.has(sea)) { this.hidden.set(sea, sea.layers.mask); sea.layers.set(HIDDEN_LAYER); }
+          draw = true;
+        }
       }
     }
     if (draw) this.prepare(renderer, scene, camera);
@@ -219,13 +205,6 @@ class FarPass {
     return this.hidden.get(mesh) ?? mesh.layers.mask;
   }
 
-  // The near scene's items back to three (off), or hidden again (on).
-  nearActive(on) {
-    this.nearOn = on;
-    if (on) return;
-    for (const [mesh, mask] of this.hidden) mesh.layers.mask = mask;
-    this.hidden.clear();
-  }
 
   // The far scene as three's projectObject walks it: each mesh it would draw
   // (shown, on the camera's layers), with its group order; the terrain whole.
@@ -245,6 +224,10 @@ class FarPass {
 
   // Its item for the material and program it has now, registered if it can be.
   find(object, material, groupOrder) {
+    if (material && !Array.isArray(material) && !this.core.renderer.properties.get(material).currentProgram) {
+      const mesh = object.userData.patches ? object.children[0] : object;
+      compileFor(this.core.renderer, [[mesh, material]], this.camera, this.scene);
+    }
     const program = material && !Array.isArray(material) ? this.core.renderer.properties.get(material).currentProgram : null;
     let item = null;
     for (const i of this.items.get(object) || []) if (i.material === material && i.threeProgram === program) { item = i; break; }
@@ -272,7 +255,7 @@ class FarPass {
     // An instanced mesh three culls by its instances' bounds: not here.
     const instanced = Boolean(mesh.isInstancedMesh);
     if (instanced && mesh.frustumCulled) return null;
-    if (Array.isArray(material) || !material.isShaderMaterial || material.wireframe || material.stencilWrite || material.polygonOffset || material.clippingPlanes?.length) return null;
+    if (Array.isArray(material) || !material.isShaderMaterial || material.wireframe || material.clippingPlanes?.length) return null;
     // three draws a two-sided blended material in two passes.
     if (material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass) return null;
     if (mesh.matrixWorld.determinant() < 0) return null;
@@ -576,7 +559,7 @@ class FarPass {
       entry = { id: core.rust.add_program(PLAIN, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes.join(","), ""),
         attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }) };
     } catch (error) {
-      core.errors.push(`far p${threeProgram.id}: ${String(error).slice(0, 300)}`);
+      core.fail(error);
     }
     this.plainPrograms.set(threeProgram, entry);
     return entry;
@@ -691,8 +674,7 @@ export function seaPass(core) {
   return {
     name: "sea",
     phase: "near",
+    beforeSort: (renderer, scene, camera) => { if (scene === core.graphics.scene) far().adoptNear(scene, camera); },
     draw: (ctx) => far().drawNear(ctx),
-    setActive: (on) => far().nearActive(on),
-    restore: () => far().nearActive(false),
   };
 }

@@ -223,6 +223,19 @@ pub struct FarPass<C: HasContext> {
 }
 
 impl<C: HasContext> FarPass<C> {
+    // A restored context has fresh buffers but the CPU mirrors are current.
+    pub fn reupload<M: MultiDraw>(&self, core: &mut Core<C, M>) {
+        for item in &self.items { for refresh in &item.refresh {
+            let (slot, at, floats) = *refresh;
+            let buffer = core.geometries[item.geometry].buffers[slot];
+            unsafe {
+                core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+                core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, crate::core::bytes(&self.vertices[at..at + floats]));
+            }
+        }}
+        unsafe { core.gl.bind_buffer(glow::ARRAY_BUFFER, None); }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> FarPass<C> {
         FarPass { input: vec![0.0; FAR_INPUT_LEN], vertices: vec![0.0; FAR_VERTICES_LEN], tables: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new(), probe_ubos: vec![], counted: PASS_FAR }
     }
