@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { worldMaterial } from "../src/materials.js";
+import { ownWorldMaterial } from "../src/rust-render/world-programs.js";
 
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
@@ -154,10 +156,19 @@ function standIns(core, names) {
   core.texture = () => 0;
 }
 
-test("the ground registers once three has drawn it as it is now, as a world bucket with the patches' cells", () => {
+function mapMaterial(scene, terrain = true) {
+  for(let i=0;i<14;i++)scene.add(new THREE.PointLight(0,0,1));
+  const material=worldMaterial(terrain?"terrain":"unlit",{map:new THREE.Texture(),lights:terrain});
+  material.defines.WORLD_SPACE="";
+  if(terrain){material.defines.TERRAIN_LAYERS=3;Object.assign(material.uniforms,{layerMap0:{value:material.map},layerMap1:{value:null},layerMap2:{value:null}});}
+  ownWorldMaterial(material);return material;
+}
+
+test("the ground registers its owned program before any browser draw", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   standIns(core, ["map", "layer1Map", "brightness", "layerScales"]);
-  const material = new THREE.ShaderMaterial({ defines: { TERRAIN: "", WORLD_SPACE: "" }, uniforms: { brightness: { value: 1 }, layerScales: { value: new THREE.Vector2(8, 4) } } });
+  const material=mapMaterial(scene);
+  material.uniforms.layerScale0.value.set(8,4,2,1);
   const group = new THREE.Group(), index = new THREE.BufferAttribute(new Uint32Array(6), 1), geometry = new THREE.BufferGeometry();
   geometry.setIndex(index);
   group.add(new THREE.Mesh(geometry, material));
@@ -165,19 +176,15 @@ test("the ground registers once three has drawn it as it is now, as a world buck
   const box = (x) => new THREE.Box3(new THREE.Vector3(x, 0, 0), new THREE.Vector3(x + 1, 1, 1));
   group.userData.patches = { full: { index, cells: [{ start: 0, end: 3, box: box(0) }, { start: 3, end: 6, box: box(5) }] }, bounds: new THREE.Sphere(new THREE.Vector3(), 9) };
   scene.add(group);
-  const props = renderer.properties.get(material);
   core.phase("near", renderer, scene, camera);
-  assert.equal(calls.filter((c) => c[0] === "add_world").length, 0, "not drawn by three yet");
-  props.currentProgram = {};
-  props.__version = material.version;
-  core.phase("near", renderer, scene, camera);
+  assert.equal(renderer.properties.get(material).currentProgram,undefined);
   const add = calls.find((c) => c[0] === "add_world");
   assert.ok(add && add[4] & 32 && add[4] & 8, "a world bucket counted for the terrain, writing depth");
   assert.deepEqual([...calls.find((c) => c[0] === "world_runs")[2]], [0, 3, 3, 6]);
-  assert.deepEqual([...calls.find((c) => c[0] === "world_uniform" && c[2] === "layerScales")[3]], [8, 4]);
+  assert.deepEqual([...calls.find((c) => c[0] === "world_uniform" && c[2] === "layerScale0")[3]], [8, 4, 2, 1]);
   assert.equal(material.visible, false);
   assert.equal(group.userData.drawnElsewhere, true);
-  // Changed since: three's again, until it has drawn it.
+  // A material change hides the old native bucket and registers its replacement.
   material.needsUpdate = true;
   calls.length = 0;
   core.phase("near", renderer, scene, camera);
@@ -190,7 +197,7 @@ test("the ground registers once three has drawn it as it is now, as a world buck
 test("a bucket culled by cell registers whatever draw range three's last view left it", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   standIns(core, ["map"]);
-  const material = new THREE.ShaderMaterial({ defines: { WORLD_SPACE: "" }, uniforms: {} });
+  const material=mapMaterial(scene,false);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
   geometry.setIndex([0, 1, 2]);
@@ -199,9 +206,6 @@ test("a bucket culled by cell registers whatever draw range three's last view le
   mesh.matrixAutoUpdate = false;
   mesh.userData.cellLights = true;
   scene.add(mesh);
-  const props = renderer.properties.get(material);
-  props.currentProgram = {};
-  props.__version = material.version;
   core.phase("near", renderer, scene, camera);
   assert.equal(calls.filter((c) => c[0] === "add_world").length, 1);
   assert.equal(calls.filter((c) => c[0] === "world_cells").length, 1);
@@ -221,9 +225,8 @@ test("painted terrain binds an empty color texture for an unpainted layer betwee
   standIns(core, ["layerMap0", "layerMap1", "layerMap2"]);
   const textures = [], first = new THREE.Texture(), last = new THREE.Texture();
   core.texture = (texture) => { textures.push(texture); return textures.length - 1; };
-  const material = new THREE.ShaderMaterial({ defines: { TERRAIN: "", WORLD_SPACE: "", TERRAIN_LAYERS: 3 }, uniforms: {
-    layerMap0: { value: first }, layerMap1: { value: null }, layerMap2: { value: last },
-  } });
+  const material=mapMaterial(scene);
+  Object.assign(material.uniforms,{layerMap0:{value:first},layerMap1:{value:null},layerMap2:{value:last}});
   const geometry = new THREE.BufferGeometry(), index = new THREE.BufferAttribute(new Uint32Array([0, 1, 2]), 1);
   geometry.setIndex(index);
   const group = new THREE.Group();
@@ -231,11 +234,10 @@ test("painted terrain binds an empty color texture for an unpainted layer betwee
   group.material = material;
   group.userData.patches = { full: { index, cells: [{ start: 0, end: 3, box: new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) }] }, bounds: new THREE.Sphere(new THREE.Vector3(), 2) };
   scene.add(group);
-  Object.assign(renderer.properties.get(material), { currentProgram: {}, __version: material.version });
   core.phase("near", renderer, scene, camera);
   const bindings = calls.filter((c) => c[0] === "world_texture");
-  assert.deepEqual(bindings.map((c) => c[2]), [6, 7, 8], "every active sampler gets a binding, including the zero-weight layer");
-  const bound = bindings.map((c) => textures[c[3]]);
+  assert.deepEqual(bindings.filter(c=>c[2]>=6).map((c) => c[2]), [6, 7, 8], "every active sampler gets a binding, including the zero-weight layer");
+  const bound = bindings.filter(c=>c[2]>=6).map((c) => textures[c[3]]);
   assert.equal(bound[0], first);
   assert.equal(bound[2], last);
   assert.ok(bound[1].isDataTexture);
