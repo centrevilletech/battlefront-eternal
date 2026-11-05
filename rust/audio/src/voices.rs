@@ -48,7 +48,7 @@ use crate::commands::PLACE as LIGHT_PLACE;
 pub(crate) use crate::commands::arity;
 
 /// Channel-major PCM, at the decoded asset's rate.
-pub struct Sample { pub rate:f64, pub channels:usize, pub frames:usize, pub data:Vec<f32> }
+pub struct Sample { pub rate:f64, pub channels:usize, pub frames:usize, pub data:Vec<f32>, pub ring:Option<crate::streaming::Ring> }
 
 // TimeToSampleFrame rounds at 1024 times the context rate before rounding
 // to a playback frame; offset and start use different rounding directions.
@@ -271,7 +271,7 @@ impl Engine {
         if self.samples.len() <= id {
             self.samples.resize_with(id + 1, || None);
         }
-        self.samples[id] = Some(Sample { rate, channels: 1, frames, data: vec![0.0; frames] });
+        self.samples[id] = Some(Sample { rate, channels: 1, frames, data: vec![0.0; frames], ring:None });
         &mut self.samples[id].as_mut().unwrap().data
     }
 

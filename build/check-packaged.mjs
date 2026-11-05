@@ -29,6 +29,7 @@ for (const archive of files) {
   if (existsSync(join(resources, 'host-runtime/engine/src/rust-pkg'))) throw Error('The host runtime must not carry the Rust renderer');
   for (const stack of ['node-datachannel', 'werift']) if (existsSync(join(resources, 'host-runtime/server/node_modules', stack))) throw Error(`Host package must not contain the retired WebRTC stack (${stack})`);
   if (!existsSync(join(resources, 'tools/content-version.json'))) throw Error('Missing preparation version resource');
+  for (const file of ["Claxon.txt", "Opus.txt"]) if (!existsSync(join(resources, "legal", "audio-codecs", file))) throw Error(`Missing codec license ${file}`);
   // The updater reuses an installed build's files by this index (build/tree-index.cjs).
   if (!existsSync(join(resources, 'bfe-tree.json'))) throw Error('Missing the build file index (resources/bfe-tree.json)');
   // Cross-built Windows archives receive all structural checks above.

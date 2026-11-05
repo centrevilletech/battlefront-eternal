@@ -5,7 +5,13 @@ use crate::timeline::Timeline;
 use crate::voices::Sample;
 use crate::FRAMES;
 
+// StreamOut and FrontendAudio use the same scheduled source semantics.
+// The worklet owns Source and its PCM/ring; the loading worker can only send
+// new windows. No decoder, network read or allocation belongs in process.
 pub const CHANNELS: usize = 12;
+// AudioScheduledSourceHandler rounds scheduling times through a 1/1024
+// sample grid before selecting an integer frame. Starts/stops round upward;
+// unity-rate buffer offsets use nearest-frame rounding instead.
 fn frame(time: f64, rate: f64, up: bool) -> f64 {
     let v = (time * rate * 1024.0).round() / 1024.0;
     if up {
@@ -14,6 +20,9 @@ fn frame(time: f64, rate: f64, up: bool) -> f64 {
         v.round()
     }
 }
+// This is the state formerly held by each AudioBufferSourceNode: an
+// absolute context start/stop and a fractional source cursor. Copying Source
+// copies numbers only; PCM ownership remains in the sample table.
 #[derive(Clone, Copy)]
 pub struct Source {
     pub on: bool,
@@ -44,6 +53,9 @@ impl Default for Source {
     }
 }
 impl Source {
+    // StreamOut.start and FrontendAudio.play pass seconds, just as BufferSource
+    // start did. Clamp offsets to asset duration and retain source/device rate
+    // scaling even though most decoded assets already use the device rate.
     pub fn start(
         &mut self,
         sample: usize,
@@ -61,6 +73,9 @@ impl Source {
         *self = Self {
             on: true,
             sample,
+            // The host's unity playback path snaps an offset to a source frame.
+            // Pitched playback retains fractional offsets for linear interpolation;
+            // applying one rounding rule to both paths would shift loop starts.
             pos: if pitch == 1.0 {
                 frame(offset, data.rate, false)
             } else {
@@ -68,6 +83,9 @@ impl Source {
             },
             start,
             stop: f64::INFINITY,
+            // A start rounded to the next context frame still advances the cursor by
+            // the fractional interval that elapsed. Apply this once on first render,
+            // not every time a quantum resumes after waiting for stream PCM.
             offset: when * rate - start,
             begun: false,
             step: (data.rate / rate * pitch).clamp(0.0, 1024.0),
@@ -78,14 +96,23 @@ impl Source {
             looping,
         };
     }
+    // Stopping uses the context timeline, independent of source pitch. A
+    // future stop remains scheduled even if several quanta pass before it.
     pub fn stop(&mut self, when: f64, rate: f64) {
         self.stop = frame(when, rate, true);
     }
+    // Write only the source's active span into the caller's preallocated
+    // planar scratch. add distinguishes the first segment from overlapping
+    // segments feeding the same former stream GainNode.
     pub(crate) fn process(&mut self, data: &Sample, block: f64, out: &mut [f32], add: bool) {
         if !self.on || self.start >= block + FRAMES as f64 {
             return;
         }
         let frames = data.frames;
+        // The compressed tail predicts duration before playback. EOF confirms the
+        // actual ring sample count; update the endpoint without replacing its buffer
+        // or resetting a cursor already moving through the stream.
+        if data.ring.as_ref().is_some_and(|r| r.eof) { self.end = (frames as f64 / data.rate)*data.rate; }
         if !self.looping && self.pos >= frames as f64 {
             self.on = false;
             return;
@@ -93,6 +120,8 @@ impl Source {
         if self.looping && self.pos >= self.end {
             self.pos = 0.0;
         }
+        // Resolve the scheduled fractional start only once. A Source bound before
+        // its start can remain idle for many blocks without advancing its PCM cursor.
         if !self.begun {
             self.begun = true;
             if self.offset < 0.0 {
@@ -106,20 +135,18 @@ impl Source {
             && self.start <= block
             && self.stop >= block + FRAMES as f64
             && self.pos + FRAMES as f64 <= frames as f64
+            && data.available(self.pos as usize + FRAMES - 1)
         {
+            // The unity fast path is still a scheduled source: its predicates exclude
+            // partial starts, stops, loop boundaries and incomplete ring windows. A
+            // contiguous or wrapped copy preserves exactly the same source samples.
             let at = self.pos as usize;
             for c in 0..data.channels.min(CHANNELS) {
-                let src = &data.data[c * frames + at..c * frames + at + FRAMES];
                 let dst = &mut out[c * FRAMES..(c + 1) * FRAMES];
-                if add {
-                    for i in 0..FRAMES {
-                        dst[i] += src[i];
-                    }
-                } else {
-                    dst.copy_from_slice(src);
-                }
+                data.copy_chunk(c, at, dst, add);
             }
             self.pos += FRAMES as f64;
+            data.consumed(self.pos as usize);
             if self.pos >= self.end {
                 if self.looping {
                     self.pos = 0.0;
@@ -137,22 +164,37 @@ impl Source {
         for i in begin..limit {
             let index = self.pos as usize;
             let fraction = self.pos - index as f64;
+            // Interpolate across a loop boundary using the wrapped next frame, rather
+            // than repeating the last sample. Nonlooping sources clamp the neighbor at
+            // the end and preserve the host's separate tail extrapolation below.
             let next = if self.looping && (index + 1) as f64 >= self.end {
                 ((self.pos + 1.0 - self.end).max(0.0) as usize).min(frames - 1)
             } else {
                 (index + 1).min(frames - 1)
             };
             let index = index.min(frames - 1);
+            // Underrun is a producer failure, not clean source completion. Leave the
+            // unwritten scratch silent and flag the ring for the host to report. Never
+            // block the audio thread waiting for another compressed or PCM window.
+            if !data.available(next) || !data.available(index) {
+                if let Some(r)=&data.ring { r.underrun.set(true); }
+                break;
+            }
             for c in 0..data.channels.min(CHANNELS) {
-                let at = c * frames;
+                // The former buffer source extrapolates from the last two frames when a
+                // fractional read falls just beyond its final whole frame. Preserve this
+                // small tail instead of silently changing it to a held endpoint sample.
                 let value = if index == next && index >= 1 {
-                    let a = data.data[at + index - 1] as f64;
-                    let b = data.data[at + index] as f64;
+                    let a = data.value(c, index - 1) as f64;
+                    let b = data.value(c, index) as f64;
                     b + (b - a) * fraction
                 } else {
-                    (1.0 - fraction) * data.data[at + index] as f64
-                        + fraction * data.data[at + next] as f64
+                    (1.0 - fraction) * data.value(c, index) as f64
+                        + fraction * data.value(c, next) as f64
                 };
+                // Cursor interpolation uses doubles, then rounds to the source's f32
+                // output before any overlapping-source sum. Combining these operations
+                // would erase the former BufferSource-to-GainNode rounding boundary.
                 let value = value as f32;
                 if add {
                     out[c * FRAMES + i] += value;
@@ -170,12 +212,16 @@ impl Source {
                 }
             }
         }
+        data.consumed(self.pos as usize);
         if self.stop < block + FRAMES as f64 {
             self.on = false;
         }
     }
 }
 
+// A logical bed owns three scheduled segment sources and one shared gain.
+// Overlaps sum before that gain, matching StreamOut's stream input node.
+// Filters and decorrelation delays live as long as the bed, not a segment.
 pub struct Stream {
     pub on: bool,
     pub channels: usize,
@@ -218,6 +264,9 @@ impl Stream {
                 0.0,
                 rate,
             ),
+            // Reserve enough history for the longest fractional tap plus a quantum.
+            // The extra sample supplies interpolation at wrap; output routing never
+            // resizes these rings while audio is rendering.
             delays: std::array::from_fn(|i| {
                 vec![0.0; (rate * [0.012, 0.017, 0.008, 0.011][i]).ceil() as usize + FRAMES + 1]
             }),
@@ -225,12 +274,18 @@ impl Stream {
             gains: [0.0; FRAMES],
         }
     }
+    // Binding records the lane width learned from the first segment. Later
+    // narrower segments leave missing lanes at zero in the cleared output;
+    // they do not cause browser-style implicit channel-width changes.
     pub fn configure(&mut self, channels: usize, kind: u32, spatial: bool) {
         self.on = true;
         self.channels = channels.min(CHANNELS);
         self.kind = kind;
         self.spatial = spatial;
     }
+    // Clear once, then preserve scheduled segment order during overlap. The
+    // first source writes and later sources add into the same fixed scratch;
+    // the shared stream gain is applied only after every segment contributes.
     pub fn process(&mut self, samples: &[Option<Sample>], block: u64, rate: f64, x86: bool) {
         self.output.fill(0.0);
         let mut added = false;
@@ -242,6 +297,9 @@ impl Stream {
                 }
             }
         }
+        // GainNode uses a per-sample curve only when automation reaches this
+        // quantum. Preserve its constant zero/unity shortcuts, including avoiding
+        // multiplication at unity, and reuse the fixed gain array for active curves.
         if self.gain.sample_accurate(block, rate) {
             self.gain.a_rate(block, &mut self.gains, rate, x86);
             for c in 0..self.channels {

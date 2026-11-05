@@ -197,7 +197,7 @@ export class GameAudio {
   configured() {
     const r = this.engine.renderer;
     this.engine.applyVolumes();
-    if (r.enhanced) this.engine.enhanced?.preload();
+    if (r.enhanced) this.engine.enhanced?.preload().catch((error) => r.fail(error));
     // The original's reverb is the sub-level's space; the enhanced mode's
     // follows the room around the listener (acoustics.js).
     this.engine.shape = r.enhanced ? (voice) => this.enhancedShape(voice) : (voice) => this.originalShape(voice);

@@ -1,9 +1,10 @@
-import { prepareAudioPcm, scalePcm } from "./pcm.js";
+import { prepareAudioPcm } from "./pcm.js";
 import { VOICE } from "./commands.js";
 import { Target } from "./automation.js";
 import { ALSOFT, LAYOUTS, autoLayout } from "./layouts.js";
 import { loadAudioDsp } from "./wasm-dsp.js";
-import { decodeAudioAsset } from "./decode.js";
+import { loadAudioPcm } from "./codec.js";
+import { attachAudioStream } from "./stream-pcm.js";
 
 // The page chooses sounds and sends context-timed control commands. Rust
 // owns every sample, source, bed, panner, decoder and master operation.
@@ -27,24 +28,39 @@ export const DYNAMICS = {
 };
 export const LIGHT_LEVELS = { home: -10.2, normal: -6.1, night: -5.7 };
 
+// This object lives on the page thread. It chooses layouts, assigns slots,
+// and expresses game decisions in context time; it never renders a sample.
+// The worklet owns source cursors, filter histories and all output DSP.
 export class Renderer {
   constructor(ctx) {
     this.ctx = ctx;
     this.config = { quality: "enhanced", output: "auto", dynamics: "normal", mono: false, clarity: true };
     this.voices = new Set(); this.beds = new Set();
     this.slots = []; this.streamSlots = []; this.commands = []; this.batch = [];
+    this.streamWaits = new Map();
+    // Sample IDs name Rust storage, not browser nodes. Weak identity avoids
+    // uploading the same retained effect twice; stream segments instead recycle
+    // three dedicated IDs whose decoder jobs are explicitly closed on reuse.
     this.freeStreamSamples = []; this.sampleIds = new WeakMap(); this.uploaded = new Set(); this.nextSample = 0;
     this.roomParams = null; this.masterVolume = 1; this.decoder = null;
     this.engineGen = 0; this.waits = new Map(); this.nextId = 0;
     this.onLimiter = null; this.onMeter = null; this.onError = null;
   }
+  // Module, processor and producer failures are audible failures. Reject
+  // pending readiness promises and notify the player instead of resolving a
+  // partially built graph that appears healthy but produces missing audio.
   fail(error) {
     this.error = error instanceof Error ? error : new Error(String(error));
     this.onError?.(this.error);
     for (const wait of this.waits.values()) wait.reject(this.error);
     this.waits.clear();
+    for (const wait of this.streamWaits.values()) wait.reject(this.error);
+    this.streamWaits.clear();
     return this.error;
   }
+  // Compile once on the page, then hand the required module to each thin
+  // host. The PCM worker has its own instance and never shares mutable DSP
+  // state with the audio thread. Asset preparation can allocate asynchronously.
   async worklets() {
     if (!this.modules) this.modules = Promise.all([
       this.ctx.audioWorklet.addModule(new URL("./worklets/output.js?no-inline", import.meta.url)),
@@ -59,17 +75,24 @@ export class Renderer {
     await this.loaded;
     return true;
   }
+  // SADIE is optional content, not an alternate implementation of the same
+  // filter. When absent, headphones use the Rust IRCAM database. A present
+  // but incomplete SADIE decoder is an error rather than a partly silent field.
   async loadDecoder(root) {
     const info = await fetch(`${root}/${DECODER}.json`).then((r) => r.ok ? r.json() : null);
     if (!info) return null;
     const ears = await Promise.all(["left", "right"].map(async (ear) => {
       const response = await fetch(`${root}/${DECODER}_${ear}.wav`);
       if (!response.ok) throw new Error(`audio: missing ${ear} headphone decoder`);
-      return decodeAudioAsset(this.ctx, await response.arrayBuffer());
+      // The codec worker performs explicit device-rate conversion and restores
+      // the former impulse-area sourceRate/deviceRate scale. These WAV lanes are
+      // harmonic filters; host codec channel interpretation must never reorder them.
+      return loadAudioPcm(await response.arrayBuffer(), { rate: this.ctx.sampleRate, compensate: true });
     }));
     if (ears.some((ear) => ear.numberOfChannels !== 16)) throw new Error("audio: headphone decoder must have sixteen channels");
-    const scale = (info.rate || 48000) / this.ctx.sampleRate;
-    await Promise.all(ears.map((buffer) => scalePcm(buffer, scale, false)));
+    // AudioBuffers here package two typed impulse lanes for upload only.
+    // They are never connected to a browser ConvolverNode or BufferSourceNode;
+    // Rust constructs sixteen independent two-ear convolvers from these samples.
     const filters = [];
     for (let c = 0; c < 16; c++) {
       const b = this.ctx.createBuffer(2, ears[0].length, this.ctx.sampleRate);
@@ -81,6 +104,9 @@ export class Renderer {
     this.decoder = { info, filters };
     return this.decoder;
   }
+  // The device limits the requested speaker width. Mono is a Rust fold of
+  // the selected mix, so it does not ask the browser for a speaker downmix or
+  // change the channel layout used by the game to place voices.
   resolve(output) {
     const max = this.ctx.destination.maxChannelCount || 2;
     let mode = output === "auto" || !LAYOUTS[output] ? autoLayout(max) : output;
@@ -92,6 +118,9 @@ export class Renderer {
     await this.worklets();
     await this.build();
   }
+  // Reconfigure one persistent host so device/layout changes do not create
+  // parallel graphs. Rust replaces layout-dependent DSP between callbacks,
+  // while active source cursors and their timed gain commands survive.
   async build() {
     const config = this.config;
     this.mode = this.resolve(config.output); this.layout = LAYOUTS[this.mode]; this.channels = this.layout.channels;
@@ -102,6 +131,9 @@ export class Renderer {
     this.alsoft = !this.enhanced && this.mode !== "headphones" ? ALSOFT[this.mode] : null;
     this.engine = true; this.master = !this.light; this.lfe = this.enhanced && this.layout.lfe >= 0;
     const destination = this.ctx.destination;
+    // The worklet reserves twelve output lanes. The destination truncates them
+    // discretely to the selected device width; it must not fold rear, centre or
+    // LFE samples into other channels after Rust has completed the mix.
     destination.channelCount = this.channels; destination.channelCountMode = "explicit"; destination.channelInterpretation = "discrete";
     const id = ++this.nextId;
     const options = this.options(id);
@@ -115,13 +147,20 @@ export class Renderer {
       });
       this.mixer.port.onmessage = ({ data }) => {
         if (data.type === "ready") { this.waits.get(data.id)?.resolve(); this.waits.delete(data.id); }
+        else if (data.type === "primed") { this.streamWaits.get(data.token)?.resolve(); this.streamWaits.delete(data.token); }
         else if (data.type === "error") this.fail(new Error(data.message));
         else if (data.reduction !== undefined) this.onLimiter?.(data);
       };
       this.mixer.addEventListener("processorerror", () => this.fail(new Error("audio: the Rust render processor stopped; reload the game")));
       this.mixer.connect(destination);
       this.output = this.mixer;
+    // The existing worklet owns its module and PCM storage. Only configuration
+    // crosses this port again; passing another serialized module is unnecessary
+    // and fails deserialization on the packaged app's repeated configuration path.
     } else {
+      // The host retains its required module instance. Electron cannot
+      // deserialize that module again through this MessagePort.
+      delete options.dsp;
       this.mixer.port.postMessage({ type: "configure", options });
       for (const voice of this.voices) voice.rebuild();
       for (const bed of this.beds) bed.voice?.rebuild();
@@ -130,6 +169,9 @@ export class Renderer {
     if (this.meterNode) { this.output.disconnect(this.meterNode); this.meterNode.disconnect(); this.meterNode = null; }
     if (this.meterOn) this.meter(true);
   }
+  // These numbers are setup/control data, not a second implementation of
+  // sample processing. Rust receives the selected law, speaker table, EQ and
+  // impulse pairs and performs all interpolation, routing and filtering.
   options(id) {
     const layout = this.layout;
     const clarity = this.enhanced && this.config.clarity !== false;
@@ -152,20 +194,32 @@ export class Renderer {
   stream(channels, kind = "plain", voice = null) {
     const out = new StreamOut(this, channels, kind, voice); this.beds.add(out); return out;
   }
+  // Batch controls on the page and transfer their storage once. f64 preserves
+  // context times and command values until Rust applies the original float
+  // parameter boundaries. No per-render callback arrays are built on this thread.
   flush() {
     if (!this.mixer || this.error) return;
     if (this.batch.length) { const data = Float64Array.from(this.batch); this.mixer.port.postMessage({ type: "params", data }, [data.buffer]); this.batch.length = 0; }
     if (this.commands.length) { const data = Float64Array.from(this.commands); this.mixer.port.postMessage({ type: "voices", data }, [data.buffer]); this.commands.length = 0; }
   }
+  // A microtask flush preserves command ordering within one page turn while
+  // allowing a start, placement and gain update to cross as a single batch.
+  // Scheduling remains in AudioContext time, independent of page timer jitter.
   command(...values) {
     this.commands.push(...values);
     if (!this.flushQueued) { this.flushQueued = true; queueMicrotask(() => { this.flushQueued = false; this.flush(); }); }
   }
+  // Retained effects cross as channel-major PCM. Transfer a staging copy so
+  // the page's reusable AudioBuffer stays intact; Rust owns the uploaded copy
+  // until the matching sample release message arrives between render calls.
   uploadSample(buffer, id) {
     const data = new Float32Array(buffer.length * buffer.numberOfChannels);
     for (let c = 0; c < buffer.numberOfChannels; c++) data.set(buffer.getChannelData(c), c * buffer.length);
     this.mixer.port.postMessage({ type: "sample", id, frames: buffer.length, channels: buffer.numberOfChannels, rate: buffer.sampleRate, data }, [data.buffer]);
   }
+  // An effect asset's stable identity is independent of its many voice slots.
+  // Multiple sources can read the same Rust PCM without duplicating the asset
+  // or sharing their playback-rate, filter or gain state.
   engineSample(buffer) {
     let id = this.sampleIds.get(buffer);
     if (id === undefined) { id = this.nextSample++; this.sampleIds.set(buffer, id); }
@@ -175,6 +229,9 @@ export class Renderer {
     }
     return id;
   }
+  // The speaker panel's waveform also comes from Rust. A separate page-side
+  // instance can allocate a short signal without touching the worklet's memory
+  // or asking its render callback to synthesize/upload a buffer.
   async testBuffer(tone, seconds) {
     try { this.signalDsp ||= new WebAssembly.Instance(this.dsp).exports; }
     catch (error) { throw this.fail(new Error(`audio: Rust test signals could not start: ${error.message}`)); }
@@ -184,6 +241,9 @@ export class Renderer {
     buffer.copyToChannel(new Float32Array(x.memory.buffer, at, frames), 0);
     return buffer;
   }
+  // Metering taps the completed output without returning samples to the mix.
+  // LFE has zero loudness weight; surround lanes use BS.1770's increased weight.
+  // Only the Rust meter filters and integrates the signal.
   meter(on) {
     this.meterOn = on;
     if (on && !this.mixer) return;
@@ -198,6 +258,9 @@ export class Renderer {
 }
 
 // AudioParam-shaped controls produce only commands, never browser nodes.
+// Keep the former AudioParam-shaped call sites while sending explicit
+// commands. The local value is control state, not a computed DSP result;
+// negative tau encodes cancellation separately from set and target events.
 function parameter(renderer, send, initial = 0) {
   let value = initial;
   return { get value() { return value; }, set value(v) { value = v; send(v, renderer.ctx.currentTime, 0, true); },
@@ -206,6 +269,9 @@ function parameter(renderer, send, initial = 0) {
     cancelScheduledValues(now) { send(value, now, -1, false); },
   };
 }
+// One page object owns a real effect slot or a placed stream's control slot.
+// Rust separately owns the corresponding mono feed(s). A disposed real voice
+// returns its slot only after a stop command is queued ahead of later binds.
 class VoiceOut {
   constructor(r, voice, stream = null) {
     this.r = r; this.voice = voice; this.stream = stream; this.level = 1; this.cutoff = 20000;
@@ -224,6 +290,9 @@ class VoiceOut {
     this.rebuild();
   }
   rebuild() { this.sides = this.r.light ? [0, 1].map((c) => ({ gain: this.sideParam(c) })) : null; this.sent.fill(NaN); }
+  // Translate game-space placement decisions into listener-relative controls.
+  // Light stereo uses its two side-gain timelines; IRCAM uses position targets;
+  // other layouts receive one changed placement row for Rust's selected pan law.
   update(local, distance, pan, extra = {}) {
     const r = this.r, now = r.ctx.currentTime;
     let x, y, z;
@@ -237,6 +306,9 @@ class VoiceOut {
       let spread = extra.spread ?? 0;
       if (local && r.enhanced) spread = Math.max(spread, Math.min(Math.max(1 - distance / 1.5, 0), 1) * 0.6);
       const lfe = r.enhanced && r.lfe ? (extra.lfe ?? 0) * 0.5 : 0;
+      // Compare at the wire's float precision. Unchanged positions must not
+      // republish all placement rows every page frame or restart interpolation.
+      // The saved row belongs to this source and is invalidated after rebuilding.
       if (this.sent[0] !== Math.fround(x) || this.sent[1] !== Math.fround(y) || this.sent[2] !== Math.fround(z) || this.sent[3] !== Math.fround(spread) || this.sent[4] !== Math.fround(lfe)) {
         this.sent.set([x, y, z, spread, lfe]);
         const slot = this.stream ? SLOTS + this.stream.slot * 12 : this.slot;
@@ -253,6 +325,9 @@ class VoiceOut {
     if (this.sides) for (const side of this.sides) side.gain.value = 0;
   }
   engineGain(value) { this.r.commands.push(VOICE.GAIN_SET, this.slot, value, this.r.ctx.currentTime); }
+  // Preserve the original release envelope: Classic light fades both side
+  // gains, while other layouts fade source gain. A separately timed stop gives
+  // either curve room to decay before the slot can be reclaimed.
   engineRelease(tau, after) {
     const now = this.r.ctx.currentTime;
     if (this.sides) { for (const side of this.sides) { side.gain.cancelScheduledValues(now); side.gain.setTargetAtTime(0, now, tau); } this.r.command(VOICE.STOP_AT, this.slot, now + after); }
@@ -261,6 +336,9 @@ class VoiceOut {
   sideParam(c) { return parameter(this.r, (v, at, tau, set) => this.r.commands.push(tau < 0 ? VOICE.CANCEL : set ? VOICE.SIDE_SET : VOICE.SIDE, this.slot, c, ...(tau < 0 ? [at] : set ? [v, at] : [v, tau, at]))); }
   dispose() { if (this.lost) return; this.lost = true; if (!this.stream) { this.r.command(VOICE.STOP, this.slot); this.r.slots.push(this.slot); this.r.voices.delete(this); } }
 }
+// A bed reserves three scheduled parts for segment advances and overlaps.
+// Each part owns its decoder asset until it ends or is replaced; dispose closes
+// all of them before recycling their Rust sample IDs for another bed.
 class StreamOut {
   constructor(r, channels, kind, voice) {
     this.r = r; this.slot = r.streamSlots.pop(); this.parts = [null, null, null]; this.samples = Array.from({ length: 3 }, () => r.freeStreamSamples.pop() ?? r.nextSample++); this.channels = channels; this.kind = Number.isInteger(kind) ? kind : (KINDS[kind] ?? 0); this.spatial = voice?.mode3D ? 1 : 0;
@@ -268,6 +346,20 @@ class StreamOut {
     r.commands.push(VOICE.STREAM_BIND, this.slot, channels, Number.isInteger(kind) ? kind : (KINDS[kind] ?? 0), voice?.mode3D ? 1 : 0);
     this.gain = parameter(r, (v, at, tau, set) => r.commands.push(VOICE.STREAM_GAIN, this.slot, v, tau, at, set ? 1 : 0), 1);
     this.voice = voice ? new VoiceOut(r, voice, this) : null;
+  }
+  // Attach the loading worker directly to the worklet, bypassing page PCM
+  // copies. Wait for bounded preroll before start; metadata alone does not mean
+  // the producer has supplied enough samples to meet the first render deadline.
+  async prepare(asset) {
+    const r = this.r;
+    const part = this.parts.findIndex((p) => !p || p.ends <= r.ctx.currentTime);
+    if (part < 0) { asset.close(); throw r.fail(Error("audio: all Rust segment slots are already scheduled")); }
+    this.parts[part]?.asset?.close();
+    const prepared = { part, asset, ends: Infinity, streaming: true, length: asset.length, duration: asset.duration, sampleRate: asset.sampleRate, numberOfChannels: asset.numberOfChannels };
+    this.parts[part] = prepared;
+    try { await attachAudioStream(asset, r.mixer, this.samples[part], r.streamWaits, (error) => r.fail(error)); }
+    catch (error) { asset.close(); this.parts[part] = null; throw error; }
+    return prepared;
   }
   start(buffer, when = this.r.ctx.currentTime, pitch = 1, loop = false, offset = 0) {
     const r = this.r;
@@ -277,13 +369,18 @@ class StreamOut {
       this.boundFormat = true;
       if (this.channels !== buffer.numberOfChannels) { this.channels = buffer.numberOfChannels; r.commands.push(VOICE.STREAM_BIND, this.slot, this.channels, this.kind, this.spatial); }
     }
-    let part = this.parts.findIndex((p) => !p || p.ends <= r.ctx.currentTime);
+    let part = buffer.streaming ? buffer.part : this.parts.findIndex((p) => !p || p.ends <= r.ctx.currentTime);
     if (part < 0) throw r.fail(new Error("audio: all Rust segment slots are already scheduled"));
+    // The page estimates slot availability from duration, offset and pitch.
+    // Rust still enforces sample-accurate starts/stops in the context clock; this
+    // record only controls when a segment slot and its decoder may be replaced.
     const playing = { part, ends: loop ? Infinity : when + (buffer.duration - offset) / pitch, stop: (at) => { playing.ends = Math.min(playing.ends, at); r.command(VOICE.STREAM_STOP, this.slot, part, at); } };
+    if (!buffer.streaming) this.parts[part]?.asset?.close();
+    if (buffer.streaming) playing.asset = buffer.asset;
     this.parts[part] = playing;
-    r.uploadSample(buffer, this.samples[part]);
+    if (!buffer.streaming) r.uploadSample(buffer, this.samples[part]);
     r.command(VOICE.STREAM_START, this.slot, part, this.samples[part], when, offset, pitch, loop ? 1 : 0);
     return playing;
   }
-  dispose() { if (this.disposed) return; this.disposed = true; this.r.command(VOICE.STREAM_RELEASE, this.slot); this.r.flush(); this.r.mixer.port.postMessage({ type: "release-samples", ids: this.samples }); this.r.freeStreamSamples.push(...this.samples); this.r.streamSlots.push(this.slot); this.r.beds.delete(this); }
+  dispose() { if (this.disposed) return; this.disposed = true; for (const part of this.parts) part?.asset?.close(); this.r.command(VOICE.STREAM_RELEASE, this.slot); this.r.flush(); this.r.mixer.port.postMessage({ type: "release-samples", ids: this.samples }); this.r.freeStreamSamples.push(...this.samples); this.r.streamSlots.push(this.slot); this.r.beds.delete(this); }
 }

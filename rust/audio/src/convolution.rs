@@ -10,6 +10,9 @@ pub struct Complex {
     pub re: f32,
     pub im: f32,
 }
+// Keep complex products as four float multiplies and two float additions.
+// The stored precision and accumulation order are part of the headphone
+// response; fused or reassociated arithmetic need not produce the same PCM.
 impl Complex {
     pub fn product(self, b: Self) -> Self {
         Self {
@@ -19,12 +22,18 @@ impl Complex {
     }
 }
 
+// The plan is immutable after construction and can be reused for multiple
+// ear histories. Bit-reversal indices and twiddle roots are computed once,
+// so no transform allocates or calls trigonometry during rendering.
 pub struct Fft {
     len: usize,
     reverse: Vec<usize>,
     roots: Vec<Complex>,
 }
 impl Fft {
+    // Radix two requires a power-of-two size. Compute roots in double
+    // precision, then store them as floats as the former FFTFrame did; later
+    // butterflies operate entirely on those stored coefficients.
     pub fn new(len: usize) -> Self {
         assert!(len.is_power_of_two());
         let bits = len.trailing_zeros();
@@ -46,14 +55,22 @@ impl Fft {
             roots,
         }
     }
+    // Transform the caller's scratch in place. Construction and validation
+    // establish the size; every stage stays inside that same span. Inverse
+    // normalization is a separate float multiply after the butterflies.
     pub fn process(&self, data: &mut [Complex], inverse: bool) {
         assert_eq!(data.len(), self.len);
+        // Swap each bit-reversed pair only once. This permutation precedes the
+        // iterative stages and needs no second transform-sized work buffer.
         for i in 0..self.len {
             let j = self.reverse[i];
             if j > i {
                 data.swap(i, j);
             }
         }
+        // Stages combine adjacent transforms of successively doubled size.
+        // Twiddle indices use the full plan's root table so each stage can borrow
+        // the same coefficients without calculating or allocating a smaller plan.
         let mut size = 2;
         while size <= self.len {
             let half = size / 2;
@@ -72,6 +89,8 @@ impl Fft {
             for start in (0..self.len).step_by(size) {
                 for j in 0..half {
                     let mut w = self.roots[j * self.len / size];
+                    // Conjugating the root changes transform direction. Leave the same
+                    // butterfly ordering in both directions so scalar and SIMD agree.
                     if inverse {
                         w.im = -w.im;
                     }
@@ -89,6 +108,9 @@ impl Fft {
             }
             size *= 2;
         }
+        // Apply inverse normalization after all sums, matching the transform's
+        // stored float boundaries. Folding the reciprocal into roots or kernels
+        // would round products differently even though the algebra is equivalent.
         if inverse {
             let scale = 1.0 / self.len as f32;
             for c in data {
@@ -120,6 +142,9 @@ impl Fft {
                 let imaginary = f32x4(-first.im, first.im, -second.im, second.im);
                 let low = v128_load(ptr.add(start + j).cast());
                 let high = v128_load(ptr.add(start + j + half).cast());
+                // Each register holds re0,im0,re1,im1. Swapping neighboring lanes supplies
+                // the cross terms; signed imaginary roots implement complex multiplication
+                // without a horizontal reduction or a different summation tree.
                 let swapped = i32x4_shuffle::<1, 0, 3, 2>(high, high);
                 let product = f32x4_add(f32x4_mul(high, real), f32x4_mul(swapped, imaginary));
                 v128_store(ptr.add(start + j).cast(), f32x4_add(low, product));
@@ -157,9 +182,15 @@ pub struct StereoConvolver {
     at: usize,
 }
 impl StereoConvolver {
+    // SADIE impulse pairs can exceed one quantum. Split them into 128-frame
+    // partitions, zero-pad each to 256, and retain their spectra for the lifetime
+    // of this decoder. Construction happens in a configuration message.
     pub fn new(left: &[f32], right: &[f32]) -> Self {
         let len = 2 * FRAMES;
         let plan = Fft::new(len);
+        // Allow different ear lengths by zero-extending the shorter filter.
+        // Even an empty impulse keeps one silent partition so history and modulo
+        // indexing remain valid without a special render-time allocation path.
         let count = left.len().max(right.len()).div_ceil(FRAMES).max(1);
         let mut kernels = Vec::with_capacity(count);
         for part in 0..count {
@@ -183,6 +214,9 @@ impl StereoConvolver {
             at: 0,
         }
     }
+    // One mono feed supplies both ears. The newest input spectrum replaces
+    // one history slot, and each impulse partition selects the correspondingly
+    // older quantum. History depth depends only on impulse length.
     pub fn process(&mut self, input: &[f32], output: &mut [[f32; FRAMES]; 2]) {
         let len = 2 * FRAMES;
         let current = &mut self.history[self.at];
@@ -192,11 +226,17 @@ impl StereoConvolver {
                 im: 0.0,
             };
         }
+        // Zero padding makes the frequency-domain product a linear convolution
+        // for this partition. Its upper half is carried into the next output block,
+        // rather than wrapping around into the current block as circular aliasing.
         current[FRAMES..].fill(Complex::default());
         self.plan.process(current, false);
         for sum in &mut self.sums {
             sum.fill(Complex::default());
         }
+        // Accumulate partitions in increasing order, separately for each ear.
+        // Only nonnegative bins are needed for real signals; pack reconstructs the
+        // negative-frequency partners for the shared inverse transform.
         for (part, kernels) in self.kernels.iter().enumerate() {
             let history = &self.history[(self.at + self.history.len() - part) % self.history.len()];
             for ear in 0..2 {
@@ -207,6 +247,9 @@ impl StereoConvolver {
                 }
             }
         }
+        // DC and Nyquist are self-conjugate endpoints. Write those bins once;
+        // only interior bins have distinct negative-frequency destinations in the
+        // packed transform, avoiding overwriting an endpoint with its partner.
         for i in 0..=FRAMES {
             let (positive, negative) = pack(self.sums[0][i], self.sums[1][i]);
             self.scratch[i] = positive;
@@ -214,12 +257,18 @@ impl StereoConvolver {
                 self.scratch[len - i] = negative;
             }
         }
+        // The inverse transform's real lane is left and imaginary lane is right.
+        // Add the previous upper half before replacing overlap with this block's
+        // tail. All spectra, sums and overlap storage were allocated in new.
         self.plan.process(&mut self.scratch, true);
         for i in 0..FRAMES {
             output[0][i] = self.scratch[i].re + self.overlap[i].re;
             output[1][i] = self.scratch[i].im + self.overlap[i].im;
             self.overlap[i] = self.scratch[i + FRAMES];
         }
+        // Advance the spectrum history after both ears consume the current block.
+        // No sample history is shifted: partition age is resolved through the ring
+        // index, keeping render work independent of memory movement.
         self.at = (self.at + 1) % self.history.len();
     }
 }
@@ -235,6 +284,9 @@ pub struct BufferedStereoConvolver {
     at: usize,
 }
 impl BufferedStereoConvolver {
+    // IRCAM HRTFPanner's FFTConvolver collects a half-transform before
+    // publishing it. Keep that latency instead of substituting the SADIE
+    // partitioner; source arrival time is part of the browser response.
     pub fn new(len: usize) -> Self {
         Self {
             input: vec![Complex::default(); len],
@@ -259,12 +311,18 @@ impl BufferedStereoConvolver {
                 re: input[0][i],
                 im: input[1][i],
             };
+            // Emit the previously completed half while collecting the next input.
+            // The two ears can have different fractional delays before this stage, so
+            // input is a packed pair of real signals, not duplicated mono PCM.
             output[0][i] = self.output[self.at].re;
             output[1][i] = self.output[self.at].im;
             self.at += 1;
             if self.at == half {
                 self.output.copy_from_slice(&self.input);
                 plan.process(&mut self.output, false);
+                // Separate the two real spectra using conjugate partners from the packed
+                // forward transform. Filter each ear independently, then pack them again
+                // for one inverse transform; DC and Nyquist are included exactly once.
                 for k in 0..=half {
                     let a = self.output[k];
                     let b = self.output[(len - k) % len];
@@ -285,6 +343,9 @@ impl BufferedStereoConvolver {
                     }
                 }
                 plan.process(&mut self.scratch, true);
+                // Overlap-add retains the full linear response while publishing only the
+                // next half-transform. Both banks have independent overlap during a panner
+                // crossfade; sharing it would mix old and new kernel histories.
                 for k in 0..half {
                     self.output[k] = Complex {
                         re: self.scratch[k].re + self.overlap[k].re,
@@ -302,6 +363,9 @@ impl BufferedStereoConvolver {
 mod tests {
     use super::*;
     #[test]
+    // Unequal ear taps straddle multiple partition edges. Silent blocks after
+    // the impulse must still emit the retained tail, with no left/right leakage
+    // from packing both ears into one complex inverse transform.
     fn partition_boundaries_preserve_both_ear_impulses_and_tails() {
         let mut left = vec![0.0; 258];
         let mut right = left.clone();

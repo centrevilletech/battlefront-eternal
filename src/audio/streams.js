@@ -1,9 +1,8 @@
-import { decodeAudioAsset } from "./decode.js";
+import { openAudio } from "./codec.js";
 import { Target } from "./automation.js";
 import { placeVoice } from "./engine.js";
 import { hashKey, keyOf } from "./hash.js";
 import { distanceGain, gate, openAlFalloff, pickSample, prop, rollGain, rollPitch } from "./props.js";
-import { scale } from "./enhanced.js";
 
 // Streamed sound: music, voice-over, and ambience. Each OpenAudioStream call
 // in the mission opens one slot on a stream file (Theed opens nab2 twice),
@@ -261,20 +260,9 @@ export class Streams {
   }
 
   enhancedSegment(index, segmentKey, file) {
-    const id = `${index.name}|${segmentKey}|${file.url}`;
-    if (this.decoded.has(id)) {
-      this.order = this.order.filter((k) => k !== id).concat(id);
-      return this.decoded.get(id);
-    }
-    const promise = fetch(file.url)
-      .then((r) => r.arrayBuffer())
-      .then((data) => decodeAudioAsset(this.engine.ctx, data))
-      .then((buffer) => scale(buffer, file.playback))
-      .catch(() => null);
-    this.decoded.set(id, promise);
-    this.order.push(id);
-    this.trim();
-    return promise;
+    // Compressed beds are not entries in the decoded-track cache. Each
+    // playing segment retains only its decoder and output PCM window.
+    return openAudio(file.url, { rate: this.engine.ctx.sampleRate, gain: file.playback });
   }
 
   trim() {
@@ -400,11 +388,18 @@ class StreamVoice {
       return;
     }
     this.segmentKey = key;
-    const buffer = await this.streams.segment(this.index, key).catch(() => null);
-    if (this.done) return;
+    let buffer;
+    try { buffer = await this.streams.segment(this.index, key); }
+    catch (error) { if (!this.done) { this.engine.renderer.fail(error); this.finish(); } return; }
+    if (this.done) { buffer?.close?.(); return; }
     if (!buffer) {
       this.finish();
       return;
+    }
+    if (buffer.attach) {
+      try { buffer = await this.out.prepare(buffer); }
+      catch (error) { if (!this.done) { this.engine.renderer.fail(error); this.finish(); } return; }
+      if (this.done) { buffer.asset.close(); return; }
     }
     const ctx = this.engine.ctx;
     const when = this.current ? Math.max(this.current.ends, ctx.currentTime) : ctx.currentTime;

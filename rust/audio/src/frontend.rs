@@ -3,6 +3,9 @@
 // Bus numbers are the shell's two gain trees: effects and music.
 // All storage, including completion events, exists before the first block.
 use crate::{commands::*, master::gain_product, pcm::Source, voices::Sample, FRAMES};
+// FrontendAudio sends assets and timed controls from the page. This module
+// reproduces ShellAudio and LoadingSound's BufferSource/GainNode tree; its
+// worklet owns all mutable sources, bus sums and fade state.
 pub const SLOTS: usize = FRONT_SLOTS;
 // GainNode endpoints are float32, while time and interpolation stay f64.
 // A replacement fade starts at the host's last completed gain sample.
@@ -22,6 +25,9 @@ impl Linear {
             end: 0.0,
         }
     }
+    // A completed or not-yet-started ramp returns an exact endpoint. Inside
+    // the ramp, compute in f64 and store once to f32, matching GainNode's linear
+    // automation rather than accumulating a float increment over time.
     fn value(&self, frame: f64) -> f32 {
         if frame < self.start {
             self.from
@@ -44,6 +50,9 @@ impl Linear {
         };
     }
 }
+// generation identifies the page's logical playback, independently of its
+// reusable slot. Completion messages carry both so a late onended cannot
+// release a new track that has already taken the old slot.
 struct Voice {
     source: Source,
     gain: Linear,
@@ -62,6 +71,9 @@ impl Default for Voice {
         }
     }
 }
+// All render scratch and the worst-case completion record are fixed-size.
+// Message handlers may install/release samples and grow command storage;
+// process only mutates existing buffers and never frees finished PCM.
 pub struct Frontend {
     rate: f64,
     voices: [Voice; SLOTS],
@@ -77,6 +89,9 @@ pub struct Frontend {
     fx_gain: f32,
     dip: Linear,
 }
+// Preserve GainNode's zero and unity shortcuts and its f32 multiply
+// boundary. Do not fold voice, bus and master levels into a single gain:
+// rounding at each former node contributes to the recorded output.
 fn gain(value: f32, level: f32) -> f32 {
     if level == 1.0 {
         value
@@ -87,6 +102,9 @@ fn gain(value: f32, level: f32) -> f32 {
     }
 }
 impl Frontend {
+    // Match ShellAudio's initial music/effect levels. A source can begin
+    // before the page sends a volume update, so defaults are audible behavior,
+    // not merely placeholder state for configuration.
     pub fn new(rate: f64) -> Self {
         Self {
             rate,
@@ -113,6 +131,7 @@ impl Frontend {
             channels,
             rate,
             data,
+            ring: None,
         });
         self.samples[slot].as_mut().unwrap().data.as_mut_ptr()
     }
@@ -128,6 +147,9 @@ impl Frontend {
             }
             let c = &self.commands[at + 1..at + n + 1];
             match op {
+                // Starting replaces one scheduled source after PCM is installed. The
+                // page supplies a generation and chooses the effects/music bus; restarting
+                // a slot resets its voice fade without resetting either bus's gain.
                 FRONT_START => {
                     let slot = c[0] as usize;
                     if slot < SLOTS {
@@ -142,6 +164,9 @@ impl Frontend {
                         }
                     }
                 }
+                // LoadingSound.dispose fades then stops at the same context time.
+                // Retiring at fade start would lose the release; leaving the source alive
+                // after fade end would delay onended and retain its PCM unnecessarily.
                 FRONT_FADE => {
                     if let Some(v) = self.voices.get_mut(c[0] as usize) {
                         v.gain.ramp(0.0, c[1] * self.rate, c[2] * self.rate);
@@ -153,11 +178,16 @@ impl Frontend {
                         v.source.stop(c[1], self.rate);
                     }
                 }
+                // These are GainNode value assignments, not ramps. Store float endpoints
+                // separately even when a subsequent master multiplication could be combined.
                 FRONT_VOLUME => {
                     self.master_gain = c[0] as f32;
                     self.music_gain = c[1] as f32;
                     self.fx_gain = c[2] as f32;
                 }
+                // ShellAudio.fadeBus ducks music without changing the configured music
+                // volume. Effects stay outside that dip, so loading or UI pulses retain
+                // their own level while a track fades under another sound.
                 FRONT_DIP => {
                     self.dip
                         .ramp(c[0] as f32, c[2] * self.rate, (c[2] + c[1]) * self.rate);
@@ -182,6 +212,9 @@ impl Frontend {
                 break;
             }
         }
+        // Each active voice can end once in this quantum, so the fixed record has
+        // room for every slot. Report after rendering and let a later message free
+        // its PCM; no completion callback or allocation runs inside this loop.
         let mut ended = 0;
         for (slot, v) in self.voices.iter_mut().enumerate() {
             if !v.active {
@@ -219,6 +252,9 @@ impl Frontend {
                         // Mono is duplicated; stereo passes through. Surround
                         // assets use Web Audio's defined speakers downmix.
                         let s = &self.scratch;
+                        // The former shell output used speaker interpretation for quad and 5.1.
+                        // Keep its half-level quad sum and sqrt(1/2) centre/surround contribution.
+                        // LFE is omitted from stereo, rather than folded into both channels.
                         let (l, r) = match sample.channels {
                             1 => (s[i], s[i]),
                             4 => (
@@ -248,6 +284,9 @@ impl Frontend {
                 ended += 1;
             }
         }
+        // Apply voice gain before summing, music dip before music level, then
+        // combine the two buses before master level. Each gain call retains its
+        // former f32 store, including the mono path's final duplication.
         for i in 0..FRAMES {
             let dip = self.dip.value((frame + i as u64) as f64);
             for c in 0..if mono { 1 } else { 2 } {
@@ -259,6 +298,8 @@ impl Frontend {
                 );
             }
         }
+        // The former mono bus widens only at the destination. Duplicate the final
+        // stored sample rather than recomputing right-channel gain arithmetic.
         if mono {
             let (left, right) = self.output.split_at_mut(FRAMES);
             right.copy_from_slice(left);

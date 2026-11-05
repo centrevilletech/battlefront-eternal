@@ -476,4 +476,37 @@ mod allocation_tests {
         assert_eq!(count,0);assert_eq!(ended,1);
     }
 
+    #[test]
+    fn streamed_pcm_wraps_without_render_allocations_or_changed_samples() {
+        use crate::{pcm::Source, voices::Sample};
+        const TOTAL:usize=40000;
+        for channels in [1,2,4,6,8,12] { for source_rate in [44100.0,48000.0] { for capacity in [8192,32768] { for pitch in [0.73,1.0,1.07,2.3] {
+            let mut streamed=Sample::streaming(TOTAL,channels,source_rate,capacity);
+            let mut whole=Sample::streaming(TOTAL,channels,source_rate,TOTAL);
+            let pcm:Vec<f32>=(0..TOTAL*channels).map(|i|((i%997) as f32-400.0)/2000.0).collect();
+            assert!(whole.append(&pcm,TOTAL,true));
+            // A full-capacity ring with EOF is a reference PCM array here.
+            whole.ring=None;
+            let mut a=Source::default(); let mut b=Source::default();
+            a.start(0,&streamed,0.0,0.0,pitch,false,48000.0);
+            b.start(0,&whole,0.0,0.0,pitch,false,48000.0);
+            let(mut out_a,mut out_b)=([0.0;12*FRAMES],[0.0;12*FRAMES]);
+            let mut chunk=vec![0.0;4096*channels]; let mut written=0;
+            for block in 0..(TOTAL as f64/(source_rate/48000.0*pitch)/FRAMES as f64).ceil() as usize+1 {
+                if streamed.writable()>=4096 && written<TOTAL {
+                    let n=(TOTAL-written).min(4096);
+                    for c in 0..channels {chunk[c*n..(c+1)*n].copy_from_slice(&pcm[c*TOTAL+written..c*TOTAL+written+n]);}
+                    assert!(streamed.append(&chunk[..n*channels],n,written+n==TOTAL)); written+=n;
+                }
+                out_a.fill(0.0);out_b.fill(0.0);
+                ALLOCS.with(|n|n.set(Some(0)));
+                a.process(&streamed,(block*FRAMES) as f64,&mut out_a,false);
+                b.process(&whole,(block*FRAMES) as f64,&mut out_b,false);
+                let count=ALLOCS.with(|n|n.replace(None).unwrap());
+                assert_eq!(count,0); assert_eq!(out_a,out_b);
+            }
+            assert!(!streamed.ring.as_ref().unwrap().underrun.get());
+        } } } }
+    }
+
 }

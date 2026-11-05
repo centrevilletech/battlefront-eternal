@@ -13,7 +13,7 @@ the game, on the player's machine.
 | Component | Where | Copyright | License |
 | --- | --- | --- | --- |
 | [Saira](https://github.com/Omnibus-Type/Saira) typeface | `electron/ui/fonts/saira-latin.woff2`; also used to draw `electron/assets/steam/` | Copyright 2020 The Saira Project Authors | SIL Open Font License 1.1 (full text in `electron/ui/fonts/OFL.txt`) |
-| Chromium audio platform | `rust/audio/src/hrtf.rs` translates HRTF kernel preparation, spatial convolution and delay; `rust/audio/data/irc-composite.f32` is its decoded composite response resource | Copyright the Chromium Authors; Copyright (C) 2010 Google Inc. | BSD-3-Clause and the WebKit two-clause license (below) |
+| Chromium audio platform | `rust/audio/src/hrtf.rs` translates HRTF kernel preparation, spatial convolution and delay; `rust/audio-decode/src/resample.rs` translates streaming asset-rate conversion; `rust/audio/data/irc-composite.f32` is its decoded composite response resource | Copyright the Chromium Authors; Copyright (C) 2010 Google Inc. | BSD-3-Clause and the WebKit two-clause license (below) |
 | [OpenAL Soft](https://github.com/kcat/openal-soft) 1.20.1 | `rust/audio/src/stabilizer.rs` translates its band splitter and front stabilizer; `rust/audio/src/stereo.rs` retains its stereo panning law; `src/audio/layouts.js` carries its speaker decoder coefficients | Copyright the OpenAL Soft authors | LGPL-2.0-or-later. The derived code is distributed under GPL-3.0-only, as section 3 of that license allows. |
 | [libebur128](https://github.com/jiixyj/libebur128) | The K-weighting filter design in `rust/audio/src/meter.rs` and `tools/enhance_audio.py` | Copyright (c) 2011 Jan Kokemüller | MIT |
 | AMD FidelityFX Super Resolution 1 | The RCAS sharpening pass in `src/shell/video-sharpen.js` follows its design | Copyright (c) Advanced Micro Devices, Inc. | MIT |
@@ -26,6 +26,8 @@ the game, on the player's machine.
 
 | Component | Copyright | License |
 | --- | --- | --- |
+| [Claxon](https://github.com/ruuda/claxon) 0.4.3, pure Rust FLAC decoder | Copyright 2014-2019 Ruud van Asseldonk and contributors | Apache-2.0 (full text in `rust/audio-decode/licenses/Claxon.txt`, installed as `legal/audio-codecs/Claxon.txt`) |
+| [opus-pure](https://github.com/stephenberry/opus-pure) 0.2.2, pure Rust Opus decoder | Copyright 2026 Stephen Berry; Copyright 2026 restsend.com; Copyright 2001-2023 Xiph.Org and contributors | BSD-3-Clause (full notices in `rust/audio-decode/licenses/Opus.txt`, installed as `legal/audio-codecs/Opus.txt`) |
 | [three.js](https://threejs.org), including addons such as CSM, KTX2Loader and FXAAShader (FXAA algorithm by NVIDIA; C# implementation by Jasper Flick; GLSL port by Dave Hoskins) | Copyright 2010-2024 three.js authors | MIT |
 | [Basis Universal](https://github.com/BinomialLLC/basis_universal) transcoder (shipped with three.js) | Copyright Binomial LLC | Apache-2.0 |
 | [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) | Copyright (c) 2018 Garrett Johnson | MIT |

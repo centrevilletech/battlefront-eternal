@@ -7,6 +7,9 @@ use crate::convolution::{BufferedStereoConvolver, Complex, Fft};
 use crate::{host, FRAMES};
 use std::f64::consts::PI;
 
+// The recorded IRCAM grid has 24 azimuths at 15-degree intervals.
+// HRTFDatabase expands it eightfold to 1.875-degree selections. Elevation
+// coverage varies by azimuth and uses the resource's original ordering.
 const AZIMUTHS: usize = 192;
 const ELEVATIONS: usize = 10;
 const RAW: &[u8] = include_bytes!("../data/irc-composite.f32");
@@ -15,10 +18,16 @@ const MAX_ELEVATIONS: [i32; 24] = [
 ];
 const ELEVATION_ORDER: [i32; 10] = [0, 15, 30, 45, 60, 75, 90, -45, -30, -15];
 
+// Kernel spectra have bulk delay removed; delay is restored separately
+// per ear before convolution. This split lets adjacent direction changes
+// interpolate arrival time without smearing the whole impulse spectrum.
 pub struct Kernel {
     pub spectrum: Vec<Complex>,
     pub delay: f32,
 }
+// One output instance shares this read-only database across its panners.
+// The worklet constructs it between render calls; kernel interpolation and
+// resource conversion may allocate here but never in Panner.process.
 pub struct Database {
     pub plan: Fft,
     pub size: usize,
@@ -32,6 +41,9 @@ fn resample(input: &[f32], rate: f64) -> Vec<f32> {
     if rate == 44100.0 {
         return input.to_vec();
     }
+    // This is AudioBus's embedded-resource conversion, distinct from decoded
+    // asset conversion in audio-decode. Its coefficient intermediates round to
+    // f32 at different points; merging the two would change the IRCAM database.
     let ratio = 44100.0 / rate;
     let scale = if ratio > 1.0 { 0.9 / ratio } else { 0.9 };
     let mut kernels = [[0.0f32; 32]; 33];
@@ -44,6 +56,9 @@ fn resample(input: &[f32], rate: f64) -> Vec<f32> {
             kernels[offset][i] = (window as f64 * if pre == 0.0 { scale } else { host::sin(scale * pre as f64) / pre as f64 }) as f32;
         }
     }
+    // Truncate the converted resource length and zero-extend the sinc window.
+    // The resource is short enough that no 512-frame phase wrap is needed.
+    // Its four-lane accumulation still follows the host's float summation order.
     let length = (input.len() as f64 / ratio) as usize;
     let mut output = vec![0.0; length];
     let mut position = 0.0f64;
@@ -69,16 +84,24 @@ fn resample(input: &[f32], rate: f64) -> Vec<f32> {
     output
 }
 
+// HRTFKernel analyzes magnitude and phase in double precision even though
+// FFT bins are floats. Preserve that widening before magnitude weighting;
+// rounding the phase early changes the estimated interaural delay.
 fn spectrum_parts(c: Complex) -> (f64, f64) {
     let (re, im) = (c.re as f64, c.im as f64);
     ((re * re + im * im).sqrt(), host::atan2(im, re))
 }
+// Return to float storage at the FFT boundary. Trigonometric evaluation
+// stays in double precision, matching the host's kernel construction.
 fn polar(magnitude: f64, phase: f64) -> Complex {
     Complex {
         re: (magnitude * host::cos(phase)) as f32,
         im: (magnitude * host::sin(phase)) as f32,
     }
 }
+// Adjacent wrapped phase values differ by at most one full turn here.
+// Choose the nearest branch around +/-pi; absolute phase is less useful
+// than these continuous differences for delay removal and interpolation.
 fn unwrap(mut phase: f64) -> f64 {
     if phase < -PI {
         phase += 2.0 * PI;
@@ -88,6 +111,9 @@ fn unwrap(mut phase: f64) -> f64 {
     }
     phase
 }
+// Real impulses require conjugate negative-frequency bins. DC and Nyquist
+// are their own partners and are left intact; only interior positive bins
+// are mirrored before an inverse transform.
 fn mirror(data: &mut [Complex]) {
     let n = data.len();
     for i in 1..n / 2 {
@@ -100,6 +126,9 @@ fn mirror(data: &mut [Complex]) {
 
 impl Database {
     pub fn new(rate: f64) -> Self {
+        // HRTFKernel chooses the lower power of two near 256 source-rate taps,
+        // not the next larger size. Keep the minimum and size rounding because
+        // FFTConvolver latency and its tail window both depend on this choice.
         let analysis_size = (1usize << ((256.0 * rate / 44100.0).log2() as u32)).max(32);
         let size = analysis_size * 2;
         let analysis = Fft::new(analysis_size);
@@ -109,6 +138,9 @@ impl Database {
             let angle = -45 + elevation as i32 * 15;
             let mut raw = Vec::with_capacity(48);
             for azimuth in 0..24 {
+                // The database repeats the nearest available elevation above each raw
+                // measurement's coverage. ELEVATION_ORDER reflects file order, not ascending
+                // angle, so use a lookup rather than indexing directly by elevation.
                 let actual = angle.min(MAX_ELEVATIONS[azimuth]);
                 let e = ELEVATION_ORDER.iter().position(|v| *v == actual).unwrap();
                 for ear in 0..2 {
@@ -117,6 +149,9 @@ impl Database {
                         let at = (((azimuth * 10 + e) * 256 + i) * 2 + ear) * 4;
                         *sample = f32::from_le_bytes(RAW[at..at + 4].try_into().unwrap());
                     }
+                    // Convert the resource before spectral analysis. Resize may truncate the
+                    // converted impulse to the analysis span, as HRTFKernel did, before the
+                    // later zero padding used for linear convolution.
                     let mut response = resample(&input, rate);
                     response.resize(analysis_size, 0.0);
                     let mut spectrum: Vec<Complex> = response[..analysis_size].iter().map(|v| Complex { re: *v, im: 0.0 }).collect();
@@ -137,10 +172,16 @@ impl Database {
                         weight += magnitude;
                         last = phase;
                     }
+                    // The magnitude-weighted phase slope estimates bulk group delay.
+                    // HRTFKernel retains a twenty-frame lead-in when possible; removing the
+                    // entire delay would shift the browser's impulse onset.
                     let mut delay = -(sum / weight) / (2.0 * PI / analysis_size as f64);
                     if delay > 20.0 {
                         delay -= 20.0;
                     }
+                    // Rotate phase to remove only that bulk delay, then clear DC. The final
+                    // per-ear Delay restores the removed part during playback while the kernel
+                    // retains its short lead-in and direction-dependent spectral detail.
                     let adjust = delay * 2.0 * PI / analysis_size as f64;
                     for i in 1..analysis_size / 2 {
                         let (m, p) = spectrum_parts(spectrum[i]);
@@ -149,6 +190,9 @@ impl Database {
                     spectrum[0].re = 0.0;
                     mirror(&mut spectrum);
                     analysis.process(&mut spectrum, true);
+                    // Fade roughly the last ten source-rate samples before zero padding.
+                    // This softens the truncated impulse edge; fading the padded tail instead
+                    // would leave the discontinuity in the actual response unchanged.
                     let fade = (rate / 4410.0) as usize;
                     let mut result = vec![Complex::default(); size];
                     for i in 0..analysis_size {
@@ -166,6 +210,9 @@ impl Database {
                     });
                 }
             }
+            // Exact measured directions keep their original spectra. Only the seven
+            // intermediate directions are reconstructed, with wrap from the last raw
+            // azimuth to zero; no interpolation allocation occurs during rendering.
             for azimuth in 0..AZIMUTHS {
                 let a = azimuth / 8;
                 for ear in 0..2 {
@@ -184,6 +231,9 @@ impl Database {
         }
         Self { plan, size, kernels }
     }
+    // FFTFrame.createInterpolatedFrame blends magnitudes in dB and continuous
+    // phase differences, rather than linearly blending complex bins. This
+    // preserves the shape of the ear's directional notches between measurements.
     fn interpolate(plan: &Fft, a: &Kernel, b: &Kernel, x: f64) -> Kernel {
         let n = a.spectrum.len();
         let mut spectrum = vec![Complex::default(); n];
@@ -195,6 +245,9 @@ impl Database {
             let (mb, pb) = spectrum_parts(b.spectrum[i]);
             let (da, db) = (20.0 * host::log10(ma), 20.0 * host::log10(mb));
             let (mut sa, mut sb) = (1.0 - x, x);
+            // Favor a deeper below-zero notch when the two magnitudes differ enough.
+            // The two/five dB threshold and 0.75 weight exponent are intentional browser
+            // constants; ordinary linear magnitude interpolation fills those notches.
             let threshold = if i > 16 { 5.0 } else { 2.0 };
             if da - db < -threshold && da < 0.0 {
                 sa = host::pow(sa, 0.75);
@@ -206,6 +259,9 @@ impl Database {
             let (dpa, dpb) = (unwrap(pa - last_a), unwrap(pb - last_b));
             last_a = pa;
             last_b = pb;
+            // Blend neighboring phase increments on a common branch before accumulating.
+            // Interpolating wrapped absolute phases would jump by a turn near +/-pi
+            // and introduce a different time-domain impulse.
             let change = if dpa - dpb > PI {
                 sa * dpa + sb * (2.0 * PI + dpb)
             } else if dpb - dpa > PI {
@@ -218,6 +274,9 @@ impl Database {
         }
         mirror(&mut spectrum);
         plan.process(&mut spectrum, true);
+        // Projection back to a real, half-length impulse removes interpolation
+        // energy in the padded half. Transform again only after clearing that tail;
+        // otherwise circular energy would leak into later audio blocks.
         spectrum[n / 2..].fill(Complex::default());
         for c in &mut spectrum {
             c.im = 0.0;
@@ -228,12 +287,18 @@ impl Database {
             delay: ((1.0 - x) * a.delay as f64 + x * b.delay as f64) as f32,
         }
     }
+    // HRTFDatabase quantizes elevation downward into fifteen-degree slices.
+    // It does not interpolate between slices at render time. Preserve clamp
+    // and truncation at the grid boundaries to match native kernel selection.
     fn kernel(&self, azimuth: usize, elevation: f64, ear: usize) -> &Kernel {
         let elevation = ((elevation.clamp(-45.0, 90.0) + 45.0) / 15.0) as usize;
         &self.kernels[(elevation * AZIMUTHS + azimuth) * 2 + ear]
     }
 }
 
+// Each ear owns an independent fractional DelayDSPKernel-style ring.
+// The ring includes a quantum plus a neighbor beyond the maximum two ms;
+// Panner.process can change delay without allocating or shifting history.
 struct Delay {
     data: Vec<f32>,
     at: usize,
@@ -247,6 +312,9 @@ impl Delay {
     }
     fn process(&mut self, frames: f64, input: &[f32], output: &mut [f32]) {
         let len = self.data.len();
+        // Compute the read origin before advancing the write cursor. Write the
+        // whole input quantum before reading so a short delay can reference current
+        // samples; interpolate neighboring floats at one block-constant fraction.
         let read = (self.at as f64 + len as f64 - frames).rem_euclid(len as f64);
         let index = read as usize;
         let fraction = (read - index as f64) as f32;
@@ -262,6 +330,9 @@ impl Delay {
     }
 }
 
+// HRTFPanner holds two persistent convolution banks. One is audible while
+// the other receives a new direction, then both run during a crossfade.
+// All ear delays and scratch are private to this bound source.
 pub struct Panner {
     azimuth: [usize; 2],
     elevation: [f64; 2],
@@ -290,14 +361,23 @@ impl Panner {
         }
     }
     pub fn process(&mut self, database: &Database, rate: f64, azimuth: f64, elevation: f64, input: &[f32], output: &mut [[f32; FRAMES]; 2]) {
+        // PannerHandler's azimuth sign is opposite the database's clockwise grid.
+        // Wrap before dividing so directions crossing zero use adjacent kernels,
+        // not a discontinuity from a negative index.
         let azimuth = (-azimuth).rem_euclid(360.0) / 1.875;
         let index = (azimuth as usize).min(AZIMUTHS - 1);
         let fraction = azimuth - index as f64;
+        // A newly created PannerNode starts at the requested direction without a
+        // fade from an arbitrary default. Seed both banks together on its first
+        // quantum so their initial histories and selection agree.
         if self.initial {
             self.azimuth = [index; 2];
             self.elevation = [elevation; 2];
             self.initial = false;
         }
+        // Native HRTFPanner uses 2048 samples through 48 kHz, 4096 above it.
+        // Update only the inactive bank at a fade endpoint; movement during a fade
+        // does not restart or retarget the active convolution halfway through.
         let fade = if rate <= 48000.0 { 2048.0 } else { 4096.0 };
         if self.blend == 0.0 && self.selection == 0 && (index != self.azimuth[0] || elevation != self.elevation[0]) {
             self.increment = 1.0 / fade;
@@ -314,11 +394,17 @@ impl Panner {
             let k1 = database.kernel(self.azimuth[1], self.elevation[1], ear);
             let next0 = database.kernel((self.azimuth[0] + 1) % AZIMUTHS, self.elevation[0], ear);
             let next1 = database.kernel((self.azimuth[1] + 1) % AZIMUTHS, self.elevation[1], ear);
+            // Arrival delay interpolates between neighboring azimuths and then across
+            // the two bank selections. Spectral kernels remain on the dense grid; delay
+            // has a continuous fraction even while the selected spectrum is discrete.
             let d0 = (1.0 - fraction) * k0.delay as f64 + fraction * next0.delay as f64;
             let d1 = (1.0 - fraction) * k1.delay as f64 + fraction * next1.delay as f64;
             let delay = (1.0 - self.blend as f64) * d0 + self.blend as f64 * d1;
             self.delays[ear].process(delay, input, &mut self.delayed[ear]);
         }
+        // Run both histories during a fade, but only the selected history while
+        // stationary. Borrow immutable kernels from the shared database; no cloning,
+        // FFT planning or buffer construction is allowed in this render path.
         for selection in 0..2 {
             if self.selection == selection || self.increment != 0.0 {
                 let left = database.kernel(self.azimuth[selection], self.elevation[selection], 0);
@@ -337,6 +423,9 @@ impl Panner {
                 output[ear].copy_from_slice(&self.scratch[self.selection][ear]);
             }
         } else {
+            // Crossfade gains advance as f32 once per sample, shared by both ears.
+            // The accumulation and endpoint snap mirror HRTFPanner's transition, avoiding
+            // a different envelope from recomputing a double-precision ramp each block.
             let mut x = self.blend;
             for i in 0..FRAMES {
                 for ear in 0..2 {
@@ -345,6 +434,9 @@ impl Panner {
                 x += self.increment;
             }
             self.blend = x;
+            // Snap within one increment so float accumulation cannot strand the fade
+            // just below its endpoint. Only at that endpoint may the other bank become
+            // the next inactive destination for a moving source.
             if self.increment > 0.0 && (x - 1.0).abs() < self.increment {
                 self.selection = 1;
                 self.blend = 1.0;
@@ -424,6 +516,9 @@ mod tests {
 pub fn angles(position: [f32; 3]) -> (f64, f64) {
     let [mut x, mut y, mut z] = position;
     let length = ((x as f64 * x as f64 + y as f64 * y as f64) + z as f64 * z as f64).sqrt() as f32;
+    // PannerHandler treats a coincident source/listener as straight ahead.
+    // The threshold avoids division by an effectively zero float length, keeping
+    // subsequent azimuth and elevation selection finite.
     if length < 1.0e-10 {
         return (0.0, 0.0);
     }
@@ -436,11 +531,17 @@ pub fn angles(position: [f32; 3]) -> (f64, f64) {
     } else {
         (x, z)
     };
+    // Resolve quadrants in the host's listener convention: forward is -Z,
+    // right is +X. Keep its acos/quadrant formulation rather than replacing it
+    // with atan2, whose boundary rounding can pick a neighboring grid cell.
     let mut azimuth = (px.clamp(-1.0, 1.0) as f64).acos() * 180.0 / PI;
     if -pz < 0.0 {
         azimuth = 360.0 - azimuth;
     }
     azimuth = if azimuth <= 270.0 { 90.0 - azimuth } else { 450.0 - azimuth };
+    // Normalization itself rounded each component to f32. Recompute the
+    // length of that rounded vector before elevation, then round the degree
+    // result to float as PannerHandler does before returning its double value.
     let normalized_length = ((x as f64 * x as f64 + y as f64 * y as f64) + z as f64 * z as f64).sqrt() as f32;
     let elevation = 90.0 - (((y / normalized_length).clamp(-1.0, 1.0) as f64).acos() * 180.0 / PI) as f32 as f64;
     (azimuth, elevation)

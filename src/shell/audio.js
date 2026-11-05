@@ -1,7 +1,7 @@
 import { listenSounds } from "../audio/events.js";
 import { SoundData } from "../audio/data.js";
 import { FrontendAudio } from "../audio/frontend.js";
-import { decodeAudioAsset } from "../audio/decode.js";
+import { loadAudioPcm, openAudio } from "../audio/codec.js";
 import { prepareAudioPcm, normalizePcm16 } from "../audio/pcm.js";
 
 // The front end's sound, as the original's shell plays it (Sound/shell.lvl,
@@ -192,15 +192,13 @@ export class ShellAudio {
     const handle = this.music.handle;
     if (!this.running || !handle || handle.stopped || handle.loading || handle.source) return;
     handle.loading = true;
-    this.decode(handle).then((buffer) => {
-      if (handle.stopped) return;
-      if (!buffer) { this.music.ended(handle); return; }
-      handle.source = this.output.play(buffer, { bus: 1 });
-      // Only the worklet needs the PCM after upload. A long music track
-      // must not leave a second decoded copy in its page-side handle.
-      handle.buffer = null;
+    openAudio(handle.url, { rate: this.ctx.sampleRate }).then(async (asset) => {
+      if (handle.stopped) { asset.close(); return; }
+      handle.asset = asset;
+      handle.source = await this.output.playStream(asset, { bus: 1 });
+      if (handle.stopped) { handle.source.stop(); return; }
       handle.source.onended = () => { if (!handle.stopped) this.music.ended(handle); };
-    }).catch((error) => this.output.fail(error));
+    }).catch((error) => { if (!handle.stopped) this.output.fail(error); });
   }
 
   startTrack(track) {
@@ -212,7 +210,8 @@ export class ShellAudio {
 
   stopTrack(handle) {
     handle.stopped = true;
-    handle.source?.stop();
+    if (handle.source) handle.source.stop();
+    else handle.asset?.close();
     handle.buffer = null;
   }
 
@@ -236,8 +235,8 @@ export class ShellAudio {
     if (entry.buffer) return Promise.resolve(entry.buffer);
     if (!this.ctx) return Promise.resolve(null);
     entry.buffer = Promise.resolve(entry.bytes || fetchBytes(entry.url))
-      .then((bytes) => (bytes ? decodeAudioAsset(this.ctx, bytes.slice(0)) : null))
-      .catch(() => null);
+      .then((bytes) => (bytes ? loadAudioPcm(bytes.slice(0), { rate: this.ctx.sampleRate }) : null))
+      .catch((error) => { this.output.fail(error); return null; });
     return entry.buffer;
   }
 

@@ -18,6 +18,7 @@ pub mod clarity;
 pub mod convolution;
 pub mod hrtf;
 pub mod pcm;
+mod streaming;
 pub mod stereo;
 pub mod output;
 pub mod frontend;
@@ -878,7 +879,7 @@ pub extern "C" fn output_rebuild(h:u32,channels:u32,enhanced:u32,headphones:u32,
 }
 
 /// Asset decoding happens off the audio thread, using separate module
-/// instances in the loader worker. The only host codec is FLAC/Opus I/O.
+/// instances in the loader worker. Compressed assets never use a host codec.
 #[no_mangle]
 pub extern "C" fn adpcm_input(length: u32) -> *mut u8 { let d=&mut state().adpcm; d.bytes.resize(length as usize,0); d.bytes.as_mut_ptr() }
 #[no_mangle]
@@ -899,11 +900,6 @@ pub extern "C" fn asset_i16(frames:u32)->*mut i16 {let s=state();s.asset_i16.res
 pub extern "C" fn asset_normalize()->*mut f32 {let s=state();for i in 0..s.asset_i16.len(){s.asset_pcm[i]=(s.asset_i16[i] as f64/32768.0) as f32;}s.asset_pcm.as_mut_ptr()}
 #[no_mangle]
 pub extern "C" fn asset_pcm(frames:u32)->*mut f32 {let s=state();s.asset_pcm.resize(frames as usize,0.0);s.asset_pcm.as_mut_ptr()}
-#[no_mangle]
-pub extern "C" fn asset_gain(db:f64)->f64 {host::pow(10.0,db/20.0)}
-#[no_mangle]
-pub extern "C" fn asset_scale(gain:f64){for value in &mut state().asset_pcm{*value=(*value as f64*gain) as f32;}}
-
 // Front-end output: PCM and commands are staged between render quanta.
 #[no_mangle]
 pub extern "C" fn front_new(rate: f64) -> u32 { let s=state(); s.frontends.push(frontend::Frontend::new(rate)); (s.frontends.len()-1) as u32 }
@@ -923,3 +919,34 @@ pub extern "C" fn front_commands_ptr(h:u32,len:u32)->*mut f64 {let f=&mut state(
 pub extern "C" fn front_commands(h:u32) {state().frontends[h as usize].apply();}
 #[no_mangle]
 pub extern "C" fn front_process(h:u32,frame:f64)->u32 {state().frontends[h as usize].process(frame as u64) as u32}
+
+// Streaming sample storage is sized once. Incoming chunks use the shared
+// loading scratch between quanta; render calls never grow the ring.
+#[no_mangle]
+pub extern "C" fn output_stream_new(h:u32,id:u32,frames:u32,channels:u32,rate:f64,capacity:u32) {
+    let samples=&mut output(h).voices.samples;
+    if samples.len()<=id as usize {samples.resize_with(id as usize+1,||None);}
+    samples[id as usize]=Some(voices::Sample::streaming(frames as usize,channels as usize,rate,capacity as usize));
+}
+#[no_mangle]
+pub extern "C" fn front_stream_new(h:u32,id:u32,frames:u32,channels:u32,rate:f64,capacity:u32) {
+    state().frontends[h as usize].samples[id as usize]=Some(voices::Sample::streaming(frames as usize,channels as usize,rate,capacity as usize));
+}
+#[no_mangle]
+pub extern "C" fn output_stream_push(h:u32,id:u32,frames:u32,eof:u32)->u32 {
+    let s=state();let pcm=&s.asset_pcm;
+    s.outputs[h as usize].voices.samples[id as usize].as_mut().unwrap().append(pcm,frames as usize,eof!=0) as u32
+}
+#[no_mangle]
+pub extern "C" fn front_stream_push(h:u32,id:u32,frames:u32,eof:u32)->u32 {
+    let s=state();let pcm=&s.asset_pcm;
+    s.frontends[h as usize].samples[id as usize].as_mut().unwrap().append(pcm,frames as usize,eof!=0) as u32
+}
+#[no_mangle]
+pub extern "C" fn output_stream_free(h:u32,id:u32)->u32 {output(h).voices.samples.get(id as usize).and_then(|s|s.as_ref()).map_or(0,|s|s.writable()) as u32}
+#[no_mangle]
+pub extern "C" fn front_stream_free(h:u32,id:u32)->u32 {state().frontends[h as usize].samples.get(id as usize).and_then(|s|s.as_ref()).map_or(0,|s|s.writable()) as u32}
+#[no_mangle]
+pub extern "C" fn output_stream_error(h:u32,id:u32)->u32 {output(h).voices.samples.get(id as usize).and_then(|s|s.as_ref()).and_then(|s|s.ring.as_ref()).is_some_and(|r|r.underrun.get()) as u32}
+#[no_mangle]
+pub extern "C" fn front_stream_error(h:u32,id:u32)->u32 {state().frontends[h as usize].samples.get(id as usize).and_then(|s|s.as_ref()).and_then(|s|s.ring.as_ref()).is_some_and(|r|r.underrun.get()) as u32}

@@ -1,0 +1,190 @@
+{
+  "scenes": [
+    {
+      "name": "flac16-all",
+      "file": "flac16-all.flac",
+      "sourceRate": 44100,
+      "channels": 1,
+      "bits": 16,
+      "codec": "flac",
+      "mapping": 0,
+      "frames": 65536,
+      "sha256": "303c1b4d2fd259ac545d7705bc04b477ff1c1fe9472d23136090f2260027a8f5"
+    },
+    {
+      "name": "flac16-stereo",
+      "file": "flac16-stereo.flac",
+      "sourceRate": 44100,
+      "channels": 2,
+      "bits": 16,
+      "codec": "flac",
+      "mapping": 0,
+      "frames": 8191,
+      "sha256": "11ff80308ece6d0ea0314deed7bd3208d1fcc0e86afd0c0adffd3c3a58315f44"
+    },
+    {
+      "name": "flac16-22050",
+      "file": "flac16-22050.flac",
+      "sourceRate": 22050,
+      "channels": 1,
+      "bits": 16,
+      "codec": "flac",
+      "mapping": 0,
+      "frames": 8191,
+      "sha256": "d6253c917bc9f08067ab5db12c0e8a657f7cd3723fd396a86bed50db47f324b9"
+    },
+    {
+      "name": "flac24-mono",
+      "file": "flac24-mono.flac",
+      "sourceRate": 48000,
+      "channels": 1,
+      "bits": 24,
+      "codec": "flac",
+      "mapping": 0,
+      "frames": 8191,
+      "sha256": "b5a5a1665ffe3eff592d1fc42fd18bb48f6098aa35e68d2e6146d2924c4d9594"
+    },
+    {
+      "name": "flac24-stereo",
+      "file": "flac24-stereo.flac",
+      "sourceRate": 48000,
+      "channels": 2,
+      "bits": 24,
+      "codec": "flac",
+      "mapping": 0,
+      "frames": 8191,
+      "sha256": "ca825ae1c8caf4cfe5d2270129a06608da453f981405dbc987303a6483f5f9e1"
+    },
+    {
+      "name": "opus-1ch",
+      "file": "opus-1ch.opus",
+      "sourceRate": 48000,
+      "channels": 1,
+      "bits": 16,
+      "codec": "opus",
+      "mapping": 0,
+      "frames": 25441,
+      "sha256": "25305fabc3819d387384b918c790f01bbb943bbdeab88e318cde4f76179a9376"
+    },
+    {
+      "name": "opus-2ch",
+      "file": "opus-2ch.opus",
+      "sourceRate": 48000,
+      "channels": 2,
+      "bits": 16,
+      "codec": "opus",
+      "mapping": 0,
+      "frames": 25441,
+      "sha256": "b9f3d713ef92f80f2bbde5553d3650777ffc822dcce27429e98ea19f51ddc1fb"
+    },
+    {
+      "name": "opus-4ch",
+      "file": "opus-4ch.opus",
+      "sourceRate": 48000,
+      "channels": 4,
+      "bits": 16,
+      "codec": "opus",
+      "mapping": 255,
+      "frames": 25441,
+      "sha256": "525475e173eb8c402feac2e998c0fa533410cd449f8609a3447a5d5a40cf11e1"
+    },
+    {
+      "name": "opus-6ch",
+      "file": "opus-6ch.opus",
+      "sourceRate": 48000,
+      "channels": 6,
+      "bits": 16,
+      "codec": "opus",
+      "mapping": 255,
+      "frames": 25441,
+      "sha256": "6739ebd7b8473f65975ce3da060d1247e91907490cb9a736db4568017c8c7db2"
+    },
+    {
+      "name": "opus-8ch",
+      "file": "opus-8ch.opus",
+      "sourceRate": 48000,
+      "channels": 8,
+      "bits": 16,
+      "codec": "opus",
+      "mapping": 255,
+      "frames": 25441,
+      "sha256": "9175870c15353f77c7922e17eaa01bf67fc9ab4abc900d754b40c090d71af35c"
+    },
+    {
+      "name": "opus-vorbis-6ch",
+      "file": "opus-vorbis-6ch.opus",
+      "sourceRate": 48000,
+      "channels": 6,
+      "bits": 16,
+      "codec": "opus",
+      "mapping": 1,
+      "frames": 25441,
+      "sha256": "8205ecf6df546d2b0c91ec9172974da3795b089fd41ae874585000f191163062"
+    },
+    {
+      "name": "opus-vorbis-8ch",
+      "file": "opus-vorbis-8ch.opus",
+      "sourceRate": 48000,
+      "channels": 8,
+      "bits": 16,
+      "codec": "opus",
+      "mapping": 1,
+      "frames": 25441,
+      "sha256": "c382f2d530bdc9d1720d77636a7fa6b5e9ed1c47b10ac34ec550eb1d80511ea3"
+    },
+    {
+      "name": "hrir-float16",
+      "file": "hrir-float16.wav",
+      "sourceRate": 48000,
+      "channels": 16,
+      "bits": 32,
+      "codec": "wav",
+      "frames": 256,
+      "sha256": "24ffd0abcbb16e646f838f10975858f2c5263abcbb532ddc1a34f89b23458d18"
+    },
+    {
+      "name": "flac24-libsndfile",
+      "file": "flac24-libsndfile.flac",
+      "sourceRate": 48000,
+      "channels": 2,
+      "bits": 24,
+      "codec": "flac",
+      "frames": 8191,
+      "encoder": "libsndfile PCM_24",
+      "sha256": "f6e81c14c3570287f46477db7f5bfc785df2782e6cdee8a66d764acb95925035"
+    },
+    {
+      "name": "opus-silk",
+      "file": "opus-silk.opus",
+      "sourceRate": 48000,
+      "channels": 1,
+      "bits": 16,
+      "codec": "opus",
+      "mapping": 0,
+      "frames": 96339,
+      "sha256": "45715f707633bc13161af992bff29f40fa6b4fa62dfba9b411a5c268fa177e4b"
+    },
+    {
+      "name": "opus-hybrid",
+      "file": "opus-hybrid.opus",
+      "sourceRate": 48000,
+      "channels": 1,
+      "bits": 16,
+      "codec": "opus",
+      "mapping": 0,
+      "frames": 96113,
+      "sha256": "701fef02329fcd3de86da05802975adbb2363d8b2311ae08b2636fa4c9b67726"
+    },
+    {
+      "name": "hrir-libsndfile16",
+      "file": "hrir-libsndfile16.wav",
+      "sourceRate": 48000,
+      "channels": 16,
+      "bits": 32,
+      "codec": "wav",
+      "frames": 256,
+      "encoder": "libsndfile FLOAT WAV",
+      "sha256": "18637659a6831ec28cad1c7de8c341781c8c71de4cf98c3256a20c23c2d89ace"
+    }
+  ]
+}
