@@ -20,6 +20,7 @@ import { Soldier } from '../src/soldier.js';
 import { attachF2 } from '../src/f2-sim.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
+import { loadRayKernel } from '../src/ray-kernel.js';
 import { leaveKilled } from '../src/boarding.js';
 
 const same = (actual, expected, message) => assert.ok(actual === expected, message ?? `${typeof actual} !== ${typeof expected}`);
@@ -81,9 +82,9 @@ function rider(team = 1) {
 // 1.5 m up over a box 1 m tall; seat 1 is a gunner's seat that shows him
 // too; settings for each seat's section. healthType: 'animal' for a riding
 // animal. enclose: the hull's collision box swallows the riders.
-function mount({ seats = [{}], healthType = null, enclose = false } = {}) {
+function mount({ seats = [{}], healthType = null, enclose = false, rays } = {}) {
   const floor = box(0, -1, 0, 4000, 2, 4000);
-  const collision = new CollisionWorld(floor.positions, floor.indices, floor.polygons);
+  const collision = new CollisionWorld(floor.positions, floor.indices, floor.polygons, undefined, undefined, rays);
   const bones = [{ name: 'dummyroot', parent: -1, local: new THREE.Matrix4().toArray() },
     { name: 'hp_seat', parent: 0, local: new THREE.Matrix4().makeTranslation(0, 1.5, 0).toArray() },
     { name: 'hp_gunner', parent: 0, local: new THREE.Matrix4().makeTranslation(0, 1.5, -1.5).toArray() }];
@@ -393,11 +394,12 @@ test('a crewman hidden inside a hull that is destroyed stays out of sight in tha
 // sampler-only twin. It also exercises lazy bounds after native body writes.
 test('live F2 retains exposed rider samples and body timing without game files', async () => {
   async function run(native, animal) {
-    const world = mount({ healthType: animal ? 'animal' : null });
+    const instance = await loadSim();
+    const world = mount({ healthType: animal ? 'animal' : null, rays: await loadRayKernel(instance) });
     const { system, collision, v } = world;
     system.clock = () => system.time;
     try {
-      if (native) attachF2(system, bridgeFor(await loadSim(), { classes: { Unit, Vehicle } }),
+      if (native) attachF2(system, bridgeFor(instance, { classes: { Unit, Vehicle } }),
         { killY: -300, deathRegions: [], scripted: [] }, world.pack, Unit);
       const u = rider(); u.id = 41;
       u.soldier = new Soldier(collision, {}); u.soldier.position.set(30, 0, 0);
