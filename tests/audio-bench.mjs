@@ -1,6 +1,6 @@
 // Live whole-engine cost over synthetic PCM. Offline renders do not reach
 // real-time optimizing tiers and must not be reported as playback cost.
-// Connect to an already running Chromium (use a local emulator slot for
+// Connect to a dedicated, already running Chromium (use a local emulator slot for
 // comparable numbers), with a Vite server serving this checkout:
 //   AUDIO_CDP_URL=http://127.0.0.1:9222 AUDIO_TEST_URL=http://127.0.0.1:18449 \
 //     node tests/audio-bench.mjs
@@ -33,7 +33,9 @@ function counters(pids) {
 const browser = await chromium.connectOverCDP(endpoint, { timeout: 5000 });
 const context = browser.contexts()[0];
 if (!context) throw new Error("The connected browser has no audio-capable context");
-const page = await context.newPage();
+// Electron exposes its existing app tab but cannot create another target.
+const page = context.pages()[0];
+if (!page) throw new Error("Open a blank tab in the dedicated benchmark browser");
 try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -104,4 +106,4 @@ try {
   }
   values.sort((a, b) => a - b);
   console.log(`${quality} ${output}, mono=${mono}, binaural=${binaural}, ${voices} voices + 3 beds: median ${((values[Math.floor((values.length - 1) / 2)] + values[Math.floor(values.length / 2)]) / 2).toFixed(1)}% of a core`);
-} finally { await page.close(); await browser.close(); }
+} finally { await page.goto("about:blank"); await browser.close(); }

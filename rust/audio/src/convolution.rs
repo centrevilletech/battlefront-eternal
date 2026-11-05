@@ -5,6 +5,7 @@
 use crate::{host, FRAMES};
 
 #[derive(Clone, Copy, Default)]
+#[repr(C)]
 pub struct Complex {
     pub re: f32,
     pub im: f32,
@@ -27,7 +28,9 @@ impl Fft {
     pub fn new(len: usize) -> Self {
         assert!(len.is_power_of_two());
         let bits = len.trailing_zeros();
-        let reverse = (0..len).map(|i| i.reverse_bits() >> (usize::BITS - bits)).collect();
+        let reverse = (0..len)
+            .map(|i| i.reverse_bits() >> (usize::BITS - bits))
+            .collect();
         let roots = (0..len / 2)
             .map(|i| {
                 let angle = -2.0 * std::f64::consts::PI * i as f64 / len as f64;
@@ -37,7 +40,11 @@ impl Fft {
                 }
             })
             .collect();
-        Self { len, reverse, roots }
+        Self {
+            len,
+            reverse,
+            roots,
+        }
     }
     pub fn process(&self, data: &mut [Complex], inverse: bool) {
         assert_eq!(data.len(), self.len);
@@ -50,6 +57,18 @@ impl Fft {
         let mut size = 2;
         while size <= self.len {
             let half = size / 2;
+            // Two adjacent complex butterflies fit one SIMD register. The
+            // first stage has only one butterfly and stays scalar. The
+            // browser target requires SIMD; native hosts use this same
+            // arithmetic below, with no alternate audio implementation.
+            #[cfg(target_arch = "wasm32")]
+            if half >= 2 {
+                unsafe {
+                    self.vector_stage(data, size, inverse);
+                }
+                size *= 2;
+                continue;
+            }
             for start in (0..self.len).step_by(size) {
                 for j in 0..half {
                     let mut w = self.roots[j * self.len / size];
@@ -75,6 +94,36 @@ impl Fft {
             for c in data {
                 c.re *= scale;
                 c.im *= scale;
+            }
+        }
+    }
+
+    // Work on pairs, retaining each complex product's f32 multiply/add
+    // boundaries. A stage is one internal call, rather than a call per
+    // butterfly. All loads/stores are inside the validated FFT span.
+    #[cfg(target_arch = "wasm32")]
+    #[target_feature(enable = "simd128")]
+    unsafe fn vector_stage(&self, data: &mut [Complex], size: usize, inverse: bool) {
+        use core::arch::wasm32::*;
+        let half = size / 2;
+        let stride = self.len / size;
+        let ptr = data.as_mut_ptr();
+        for start in (0..self.len).step_by(size) {
+            for j in (0..half).step_by(2) {
+                let mut first = self.roots[j * stride];
+                let mut second = self.roots[(j + 1) * stride];
+                if inverse {
+                    first.im = -first.im;
+                    second.im = -second.im;
+                }
+                let real = f32x4(first.re, first.re, second.re, second.re);
+                let imaginary = f32x4(-first.im, first.im, -second.im, second.im);
+                let low = v128_load(ptr.add(start + j).cast());
+                let high = v128_load(ptr.add(start + j + half).cast());
+                let swapped = i32x4_shuffle::<1, 0, 3, 2>(high, high);
+                let product = f32x4_add(f32x4_mul(high, real), f32x4_mul(swapped, imaginary));
+                v128_store(ptr.add(start + j).cast(), f32x4_add(low, product));
+                v128_store(ptr.add(start + j + half).cast(), f32x4_sub(low, product));
             }
         }
     }
@@ -138,7 +187,10 @@ impl StereoConvolver {
         let len = 2 * FRAMES;
         let current = &mut self.history[self.at];
         for i in 0..FRAMES {
-            current[i] = Complex { re: input[i], im: 0.0 };
+            current[i] = Complex {
+                re: input[i],
+                im: 0.0,
+            };
         }
         current[FRAMES..].fill(Complex::default());
         self.plan.process(current, false);
@@ -192,7 +244,14 @@ impl BufferedStereoConvolver {
             at: 0,
         }
     }
-    pub fn process(&mut self, plan: &Fft, left: &[Complex], right: &[Complex], input: &[[f32; FRAMES]; 2], output: &mut [[f32; FRAMES]; 2]) {
+    pub fn process(
+        &mut self,
+        plan: &Fft,
+        left: &[Complex],
+        right: &[Complex],
+        input: &[[f32; FRAMES]; 2],
+        output: &mut [[f32; FRAMES]; 2],
+    ) {
         let half = self.overlap.len();
         let len = 2 * half;
         for i in 0..FRAMES {

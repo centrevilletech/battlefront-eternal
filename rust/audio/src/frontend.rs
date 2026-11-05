@@ -172,6 +172,16 @@ impl Frontend {
     pub fn process(&mut self, frame: u64) -> usize {
         self.music.fill(0.0);
         self.fx.fill(0.0);
+        // Loading pulses are mono. Keep that bus and its gain arithmetic
+        // mono until the final device copy, as the former graph did. Music
+        // or a stereo effect widens the whole quantum before mixing.
+        let mut mono = true;
+        for (voice, sample) in self.voices.iter().zip(&self.samples) {
+            if voice.active && sample.as_ref().is_some_and(|s| s.channels != 1) {
+                mono = false;
+                break;
+            }
+        }
         let mut ended = 0;
         for (slot, v) in self.voices.iter_mut().enumerate() {
             if !v.active {
@@ -186,28 +196,35 @@ impl Frontend {
                 } else {
                     &mut self.fx
                 };
-                for i in 0..FRAMES {
-                    let level = v.gain.value((frame + i as u64) as f64);
-                    // Mono is duplicated; stereo passes through. Surround
-                    // assets use Web Audio's defined speakers downmix.
-                    let s = &self.scratch;
-                    let (l, r) = match sample.channels {
-                        1 => (s[i], s[i]),
-                        4 => (
-                            0.5 * (s[i] + s[2 * FRAMES + i]),
-                            0.5 * (s[FRAMES + i] + s[3 * FRAMES + i]),
-                        ),
-                        6 => (
-                            s[i] + std::f32::consts::FRAC_1_SQRT_2
-                                * (s[2 * FRAMES + i] + s[4 * FRAMES + i]),
-                            s[FRAMES + i]
-                                + std::f32::consts::FRAC_1_SQRT_2
-                                    * (s[2 * FRAMES + i] + s[5 * FRAMES + i]),
-                        ),
-                        _ => (s[i], s[FRAMES + i]),
-                    };
-                    bus[i] += gain(l, level);
-                    bus[FRAMES + i] += gain(r, level);
+                if mono {
+                    for i in 0..FRAMES {
+                        let level = v.gain.value((frame + i as u64) as f64);
+                        bus[i] += gain(self.scratch[i], level);
+                    }
+                } else {
+                    for i in 0..FRAMES {
+                        let level = v.gain.value((frame + i as u64) as f64);
+                        // Mono is duplicated; stereo passes through. Surround
+                        // assets use Web Audio's defined speakers downmix.
+                        let s = &self.scratch;
+                        let (l, r) = match sample.channels {
+                            1 => (s[i], s[i]),
+                            4 => (
+                                0.5 * (s[i] + s[2 * FRAMES + i]),
+                                0.5 * (s[FRAMES + i] + s[3 * FRAMES + i]),
+                            ),
+                            6 => (
+                                s[i] + std::f32::consts::FRAC_1_SQRT_2
+                                    * (s[2 * FRAMES + i] + s[4 * FRAMES + i]),
+                                s[FRAMES + i]
+                                    + std::f32::consts::FRAC_1_SQRT_2
+                                        * (s[2 * FRAMES + i] + s[5 * FRAMES + i]),
+                            ),
+                            _ => (s[i], s[FRAMES + i]),
+                        };
+                        bus[i] += gain(l, level);
+                        bus[FRAMES + i] += gain(r, level);
+                    }
                 }
             }
             // Retire once, without freeing PCM on the render call. The
@@ -221,7 +238,7 @@ impl Frontend {
         }
         for i in 0..FRAMES {
             let dip = self.dip.value((frame + i as u64) as f64);
-            for c in 0..2 {
+            for c in 0..if mono { 1 } else { 2 } {
                 let at = c * FRAMES + i;
                 self.output[at] = gain(
                     gain(gain(self.music[at], dip), self.music_gain)
@@ -229,6 +246,10 @@ impl Frontend {
                     self.master_gain,
                 );
             }
+        }
+        if mono {
+            let (left, right) = self.output.split_at_mut(FRAMES);
+            right.copy_from_slice(left);
         }
         ended
     }

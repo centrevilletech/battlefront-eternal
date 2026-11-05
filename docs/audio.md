@@ -464,6 +464,8 @@ uses OpenAL Soft's decoder and front stabilizer. Classic headphones and
 Enhanced headphones without the optional dummy-head filters use the IRCAM
 HRTF database. Its kernel preparation, interaural delays and crossfades run
 in Rust. The dummy-head path uses 32 partitioned ear convolutions.
+The browser FFT uses WebAssembly SIMD for adjacent complex butterflies.
+The front end keeps an all-mono mix in one lane until the final stereo copy.
 
 Mono keeps the frozen routing, including its existing 7.1/7.1.4 behavior:
 the first channel is copied to every output. Stereo and 5.1 use their
@@ -658,6 +660,9 @@ Things only a person with the hardware can check, in rough order:
    the original did on stereo before it (the same levels and placing); on a
    map whose original space has a reverb (Kamino, Bespin) it is dry. Moving
    sources should pan smoothly, and the loudest moments shouldn't crackle.
+10. **Menus and loading**: listen to the first track starting, rapid menu
+    changes during a music dip, track endings and the loading pulses. Leave
+    the loading screen during a pulse's end fade; it should end cleanly.
 
 ## Open questions
 
