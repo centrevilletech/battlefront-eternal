@@ -2346,15 +2346,15 @@ pub fn import_explosion_in(context: &crate::abi::context::Context, args: &BlastA
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
 #[cfg(target_arch = "wasm32")]
-pub fn import_f2_fired(args: &FfShot) -> () {
-    crate::store::calls::import_out(FfShot::WORDS, |row, heap| args.put(row, heap));
+pub fn import_f2_fired(args: &FfFired) -> () {
+    crate::store::calls::import_out(FfFired::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_f2_fired() };
 }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_f2_fired_in(context: &crate::abi::context::Context, args: &FfShot) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(FfShot::WORDS, |row, heap| args.put(row, heap));
+pub fn import_f2_fired_in(context: &crate::abi::context::Context, args: &FfFired) -> Result<(), crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(FfFired::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_FIRED, args)?;
     Ok(())
 }

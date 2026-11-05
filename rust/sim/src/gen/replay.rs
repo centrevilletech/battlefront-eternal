@@ -4468,6 +4468,25 @@ impl FfShot {
     }
 }
 
+impl FfFired {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(FfFired {
+            shot: { let p = format!("{path}.shot"); FfShot::from_value(v.get("shot"), cx, &p)? },
+            events: { let p = format!("{path}.events"); (int(v.get("events"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = self.shot.to_value(cx, a); fields.push(("shot", x)); }
+        { let x = Value::Num(self.events as f64); fields.push(("events", x)); }
+        a.object("", fields)
+    }
+}
+
 impl FfTow {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

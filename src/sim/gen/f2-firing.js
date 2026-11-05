@@ -932,6 +932,40 @@ export function exportFfShot(o, cx) {
   return v;
 }
 
+export class FfFiredMirror {
+  constructor() {
+    this.shot = new FfShotMirror();
+    this.events = 0;
+  }
+}
+
+export function syncFfFired(b, f, at, h, m) {
+  m.shot = syncFfShot(b, f, at + 0, h, m.shot ?? new FfShotMirror());
+  m.events = f[at + 61];
+  return m;
+}
+
+export function putFfFired(b, o, f, at, heap) {
+  putFfShot(b, o.shot, f, at + 0, heap);
+  f[at + 61] = o.events;
+}
+
+export function sameFfFired(a, b) {
+  { const d = sameFfShot(a.shot, b.shot); if (d) return ".shot" + d; }
+  if (!Object.is(a.events, b.events)) return ".events";
+  return null;
+}
+
+export function exportFfFired(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.shot = exportFfShot(o.shot, cx);
+  v.events = o.events;
+  return v;
+}
+
 export class FfTowMirror {
   constructor() {
     this.source = null;

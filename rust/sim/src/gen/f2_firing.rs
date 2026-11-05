@@ -656,6 +656,31 @@ impl FfShot {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct FfFired {
+    pub shot: FfShot,
+    pub events: u32,
+}
+
+impl FfFired {
+    pub const WORDS: usize = 62;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 62] = (&mut row[..62]).try_into().unwrap();
+        self.shot.put(&mut row[0..], heap);
+        row[61] = self.events as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 62] = (&row[..62]).try_into().unwrap();
+        Self {
+            shot: FfShot::take(&row[0..], heap),
+            events: word_u32(row[61]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FfTow {
     pub source: Ref<Vehicle>,
     pub life: f64,

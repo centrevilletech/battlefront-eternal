@@ -487,7 +487,7 @@ fn emit(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, yaw: f64,
     // would change AI reactions and nested damage seen by later weapons.
     let event = FfShot { state: state().weapons.get(wr).unwrap().state.clone(), hull: r, life, seat: seat as u32, weapon: weapon as u32, owner, yaw, pitch, charge, target_id, target_generation, origin: v3(&muzzle), direction: v3(&direction) };
     event.emit(&mut sim().events);
-    import_f2_fired(&event);
+    import_f2_fired(&FfFired { shot: event, events: sim().events.ptr() as usize as u32 });
 }
 
 /// Shared Ordnance.fire seam for hulls and stationary crews. Beam emitters

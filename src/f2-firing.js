@@ -25,6 +25,7 @@ export class F2Firing {
     this.phaseFields = new FfPhaseMirror();
     this.eventRows = [];
     for (const e of EVENT_TABLE) if (e && (e.name === 'f2Shot' || e.name === 'f2Tow')) this.eventRows[e.code ?? EVENT_TABLE.indexOf(e)] = new e.record.Mirror();
+    this.drainedWords = 0;
     this.rows = []; this.cableRow = new FfCableOutMirror();
     this.inputWords = FfWeaponInputLayout.words;
     this.change = { hull: null, seat: 0, weapon: 0, input: null };
@@ -43,10 +44,15 @@ export class F2Firing {
       // VehiclesWorld.fired can change AI or trigger damage immediately. Keep
       // that listener synchronous with the shot; sound, flash and cable visuals
       // use the ordered presentation journal instead.
-      f2Fired: a => {
+      f2Fired: notice => {
+        // Vehicle.emitShot journals a tow transition and its visuals before
+        // the synchronous fired listener journals the shot. Drain this prefix
+        // now; the phase-end drain resumes after it, including nested shots.
+        const a = notice.shot;
         const w = a.hull.seats[a.seat].weapons[a.weapon].state;
         copyMountedWeapon(w, a.state);
         w.def = w.levels[a.state.level]; w.level = a.state.level;
+        this.drain(notice.events);
         this.vs.world.fired(a.hull, a.seat, this.shot(a), a.owner, a.origin.clone(), a.direction.clone());
       },
     });
@@ -225,15 +231,18 @@ export class F2Firing {
   // The event buffer is ordered across shots and cable transitions. Reuse
   // decoders, while effects that retain a position receive their own event
   // value. These are shot/lifecycle allocations, not idle phase scratch.
-  drain() {
+  drain(ptr = this.phaseFields.events) {
     const b = this.bridge; b.views();
-    const f = b.f, base = (this.phaseFields.events / 8) | 0, end = base + 1 + f[base];
-    for (let at = base + 1; at < end; at += 2 + f[at + 1]) {
+    const f = b.f, base = (ptr / 8) | 0, end = base + 1 + f[base];
+    for (let at = base + 1 + this.drainedWords; at < end;) {
+      // Advance before a listener can reenter and drain the same journal.
+      const next = at + 2 + f[at + 1]; this.drainedWords = next - base - 1;
       const e = EVENT_TABLE[f[at]], r = e.record;
       const a = r.sync(b, f, at + 2, at + 2 + r.words, this.eventRows[f[at]]);
 
       if (e.name === 'f2Shot') this.presentShot(a);
       else if (e.name === 'f2Tow') this.presentTow(a);
+      at = base + 1 + this.drainedWords;
     }
   }
   // Vehicle.emitShot emits sound and flash even when no projectile survives

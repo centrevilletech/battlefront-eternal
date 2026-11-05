@@ -29,7 +29,6 @@ const NOSE = new THREE.Vector3(0, 0, 1);
 const DOWN = new THREE.Vector3(0, -1, 0);
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
 const DEG = Math.PI / 180;
-const FIXED_STEP = 1 / 120;
 const DEATH_BLEND = 0.3; // s at most a dying walker takes from its last pose into its death clip (the port's)
 const num = (v, fallback = 0) => Number.isFinite(parseFloat(v)) ? parseFloat(v) : fallback;
 const clockSeconds = () => (globalThis.performance?.now?.() ?? Date.now()) / 1000;
@@ -37,7 +36,6 @@ const vector = (v, fallback) => v ? String(v).split(/\s+/).map(Number) : fallbac
 const angle = (v) => Math.atan2(Math.sin(v), Math.cos(v));
 const approach = (v, target, delta) => v + THREE.MathUtils.clamp(target - v, -delta, delta);
 const idle = Object.freeze({ forward: 0, right: 0, turn: 0, brake: false });
-const noTrigger = Object.freeze({ held: false, pressed: false });
 const ZERO = Object.freeze(new THREE.Vector3());
 const vec3 = (v, fallback = null) => {
   const a = v === undefined || v === null ? null : String(v).trim().split(/\s+/).map(Number);

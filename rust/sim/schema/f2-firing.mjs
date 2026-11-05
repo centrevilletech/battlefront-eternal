@@ -26,13 +26,14 @@ export default {
     FfTargetFacts: { alive: 'bool', eligible: 'bool', relation: 'f64', category: 'u32', center: 'vec3', radius: 'f64', aim: 'vec3', body: 'f64' },
     FfShot: { hull: 'ref:vehicle', life: 'f64', seat: 'u32', weapon: 'u32', state: 'rec:Weapon', owner: 'union:OrdnanceOwner',
       yaw: 'f64', pitch: 'f64', charge: 'f64', targetId: 'f64', targetGeneration: 'f64', origin: 'vec3', direction: 'vec3' },
+    FfFired: { shot: 'rec:FfShot', events: 'u32' },
     FfTow: { source: 'ref:vehicle', life: 'f64', seat: 'u32', weapon: 'u32', reason: 'str' },
   },
   imports: {
     f2Posed: { args: 'VehNothing', result: null },
     f2WeaponDraw: { args: 'FfDraw', result: 'VehNumber' },
     f2TargetFacts: { args: 'FfTargetQuery', result: 'FfTargetFacts' },
-    f2Fired: { args: 'FfShot', result: null },
+    f2Fired: { args: 'FfFired', result: null },
   },
   events: { f2Shot: 'FfShot', f2Tow: 'FfTow' },
 };

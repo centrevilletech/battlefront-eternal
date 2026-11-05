@@ -195,6 +195,7 @@ class F2 {
     this.seats.prepare();
 
     const memory = b.memory.buffer;
+    this.firing.drainedWords = 0;
     this.x.f2_step(dt, tick);
     if (this.debug && b.memory.buffer !== memory) throw Error('F2 memory grew during the phase');
     this.sync();
