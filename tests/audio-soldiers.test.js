@@ -1,3 +1,4 @@
+import { prepareAudioPcm } from "../src/audio/pcm.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Object3D } from "three";
@@ -158,7 +159,8 @@ function engineRig(sounds) {
   return engine;
 }
 
-test("a one-shot asked for out of earshot takes no voice; loops and 2D sounds still start", () => {
+test("a one-shot asked for out of earshot takes no voice; loops and 2D sounds still start", async () => {
+  await prepareAudioPcm();
   const shot = { type: "SoundProperties", Name: "shot", Mode3D: 1, MinDistance: 11, MaxDistance: 400, MuteDistance: 400, RollOff: 3.5, SampleList: [["s", 1]] };
   const engine = engineRig({ shot, hum: { ...shot, Name: "hum", Looping: 1 }, flat: { ...shot, Name: "flat", Mode3D: 0 } });
   assert.equal(engine.play("shot", { position: { x: 0, y: 0, z: -500 } }), null);

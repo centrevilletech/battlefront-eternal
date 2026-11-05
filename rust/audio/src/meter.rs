@@ -1,4 +1,4 @@
-//! The loudness meter (src/audio/worklets/meter.js) after ITU-R BS.1770 /
+//! The loudness meter (meter DSP) after ITU-R BS.1770 /
 //! EBU R128: K-weighting designed the way libebur128 does (MIT, see
 //! THIRD-PARTY-NOTICES.md), channel weights, 100 ms blocks, momentary,
 //! short-term and gated integrated loudness, true peak (4x oversampled)
@@ -42,7 +42,8 @@ pub struct Reading {
     pub integrated: f64,
     pub peak: f64,
     pub true_peak: f64,
-    pub channels: Vec<f64>,
+    pub channels: [f64; 16],
+    pub count: usize,
 }
 
 pub struct Meter {
@@ -56,12 +57,13 @@ pub struct Meter {
     count: usize,
     peak: f64,
     true_peak: f64,
-    chan_peak: Vec<f64>,
+    chan_peak: [f64; 16],
     phases: [[f32; TAPS]; PHASES],
-    state: Vec<[f64; 8]>,
-    hist: Vec<Vec<f32>>,
+    state: [[f64; 8]; 16],
+    hist: [[f32; 2 * TAPS]; 16],
     hpos: usize,
-    energy: Vec<f64>,
+    energy: [f64; crate::FRAMES],
+    default_weights: [f64; 16],
 }
 
 impl Meter {
@@ -86,18 +88,19 @@ impl Meter {
             filters: k_weighting(rate),
             block: js_round(rate / 10.0) as usize,
             channels: 0,
-            blocks: Vec::new(),
-            integrated: Vec::new(),
+            blocks: Vec::with_capacity(31),
+            integrated: Vec::with_capacity(36000),
             acc: 0.0,
             count: 0,
             peak: 0.0,
             true_peak: 0.0,
-            chan_peak: Vec::new(),
+            chan_peak: [0.0; 16],
             phases,
-            state: Vec::new(),
-            hist: Vec::new(),
+            state: [[0.0; 8]; 16],
+            hist: [[0.0; 2 * TAPS]; 16],
             hpos: 0,
-            energy: Vec::new(),
+            energy: [0.0; crate::FRAMES],
+            default_weights: [1.0; 16],
         }
     }
 
@@ -116,51 +119,37 @@ impl Meter {
 
     fn setup(&mut self, channels: usize) {
         self.channels = channels;
-        self.state = vec![[0.0; 8]; channels];
-        // Each channel's last TAPS samples, written twice (at p and
-        // p + TAPS) so the interpolator reads them in one run.
-        self.hist = (0..channels).map(|_| vec![0.0; 2 * TAPS]).collect();
+        assert!(channels <= 16);
+        self.state.fill([0.0; 8]);
+        self.hist.fill([0.0; 2 * TAPS]);
         self.hpos = 0;
-        self.chan_peak = vec![0.0; channels];
-        self.energy = Vec::new();
-        let ok = self.weights.as_ref().is_some_and(|w| w.len() == channels);
-        if !ok {
-            // Defaults by count: stereo 1,1; 5.1 L R C LFE SL SR; 7.1 ...
-            let mut w = vec![1.0; channels];
-            if channels >= 6 {
-                w[3] = 0.0;
-                for v in w.iter_mut().skip(4) {
-                    *v = 1.41;
-                }
-            }
-            self.weights = Some(w);
+        self.chan_peak.fill(0.0);
+        self.default_weights.fill(1.0);
+        if channels >= 6 {
+            self.default_weights[3] = 0.0;
+            self.default_weights[4..channels].fill(1.41);
         }
     }
 
-    /// One block; returns a reading per 100 ms block it completes.
-    pub fn process(&mut self, input: &Block) -> Vec<Reading> {
-        let mut readings = Vec::new();
-        if input.channels == 0 {
-            return readings;
-        }
-        if input.channels != self.channels {
-            self.setup(input.channels);
-        }
-        let n = input.frames;
-        if self.energy.len() < n {
-            self.energy = vec![0.0; n];
-        }
-        // A run of samples at a time, up to the end of each 100 ms block.
+    /// Reserve more integrated history between render quanta. The host
+    /// requests this with a minute left in the current hour's capacity.
+    pub fn reserve(&mut self) { self.integrated.reserve(36000); }
+    pub fn remaining(&self) -> usize { self.integrated.capacity() - self.integrated.len() }
+
+    /// A render quantum completes at most one 100 ms meter block.
+    pub fn process(&mut self, input: &Block) -> Option<Reading> {
+        if input.channels == 0 { return None; }
+        assert!(input.frames <= crate::FRAMES);
+        if input.channels != self.channels { self.setup(input.channels); }
+        let mut reading = None;
         let mut from = 0;
-        while from < n {
-            let to = usize::min(n, from + self.block - self.count);
+        while from < input.frames {
+            let to = usize::min(input.frames, from + self.block - self.count);
             self.run(input, from, to);
             from = to;
-            if self.count >= self.block {
-                readings.push(self.end_block());
-            }
+            if self.count >= self.block { reading = Some(self.end_block()); }
         }
-        readings
+        reading
     }
 
     // Samples from..to of every channel: each channel's K-weighted power
@@ -176,7 +165,7 @@ impl Meter {
         let h0 = self.hpos;
         for c in 0..self.channels {
             let x = input.ch(c);
-            let w = self.weights.as_ref().unwrap()[c];
+            let w = self.weights.as_ref().filter(|w| w.len() == self.channels).map_or(self.default_weights[c], |w| w[c]);
             let s = &mut self.state[c];
             let (mut s0, mut s1, mut s2, mut s3, mut s4, mut s5, mut s6, mut s7) = (s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]);
             let mut chan_peak = self.chan_peak[c];
@@ -252,26 +241,34 @@ impl Meter {
         let lufs = |ms: f64| if ms > 0.0 { -0.691 + 10.0 * host::log10(ms) } else { f64::NEG_INFINITY };
         let momentary_ms = mean(4);
         if self.blocks.len() >= 4 {
+            assert!(self.remaining() > 0, "audio: meter history reservation exhausted");
             self.integrated.push(momentary_ms);
         }
         // Integrated: absolute gate at -70 LUFS, then the relative gate 10
         // LU under the mean of what passed.
-        let passed: Vec<f64> = self.integrated.iter().copied().filter(|&ms| lufs(ms) > -70.0).collect();
+        // Preserve chronological addition order in both gates, without
+        // materializing the passed/gated subsets on the audio thread.
+        let mut passed_sum = 0.0;
+        let mut passed_count = 0;
+        for &ms in &self.integrated { if lufs(ms) > -70.0 { passed_sum += ms; passed_count += 1; } }
         let mut integrated = f64::NEG_INFINITY;
-        if !passed.is_empty() {
-            let rel = lufs(passed.iter().fold(0.0, |s, x| s + x) / passed.len() as f64) - 10.0;
-            let gated: Vec<f64> = passed.iter().copied().filter(|&ms| lufs(ms) > rel).collect();
-            if !gated.is_empty() {
-                integrated = lufs(gated.iter().fold(0.0, |s, x| s + x) / gated.len() as f64);
-            }
+        if passed_count > 0 {
+            let rel = lufs(passed_sum / passed_count as f64) - 10.0;
+            let mut sum = 0.0;
+            let mut count = 0;
+            for &ms in &self.integrated { if lufs(ms) > -70.0 && lufs(ms) > rel { sum += ms; count += 1; } }
+            if count > 0 { integrated = lufs(sum / count as f64); }
         }
+        let mut channels = [f64::NEG_INFINITY; 16];
+        for c in 0..self.channels { let p = self.chan_peak[c]; channels[c] = if p > 0.0 { 20.0 * host::log10(p) } else { f64::NEG_INFINITY }; }
         let reading = Reading {
             momentary: lufs(momentary_ms),
             short_term: lufs(mean(30)),
             integrated,
             peak: if self.peak > 0.0 { 20.0 * host::log10(self.peak) } else { f64::NEG_INFINITY },
             true_peak: if self.true_peak > 0.0 { 20.0 * host::log10(self.true_peak) } else { f64::NEG_INFINITY },
-            channels: self.chan_peak.iter().map(|&p| if p > 0.0 { 20.0 * host::log10(p) } else { f64::NEG_INFINITY }).collect(),
+            channels,
+            count: self.channels,
         };
         self.peak = 0.0;
         self.chan_peak.fill(0.0);
