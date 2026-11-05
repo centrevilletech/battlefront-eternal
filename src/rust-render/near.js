@@ -73,7 +73,7 @@ export class NearPass {
       this.drawn++;
       return true;
     } catch (error) {
-      core.fail(error, renderer, target);
+      core.fail(error, renderer);
       return false;
     }
   }

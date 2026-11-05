@@ -719,14 +719,8 @@ export class RustRender {
     this.settleThree?.();
   }
 
-  // A scene's phase drawn in place of three's render of it (graphics.js
-  // renders the scene with three only when this returns false): what three's
-  // render does first (the scene's world matrices, where it keeps them up to
-  // date itself, and its onBeforeRender, which packs its point lights), then
-  // the phase. True when every pass of the phase drew all of the scene that
-  // three would have (each sets `complete` as it draws); then what three's
-  // render does as it ends is done too: the target resolved (when it is
-  // multisampled), the scene's onAfterRender.
+  // Keep the scene's matrix/light hooks and MSAA resolve around a required
+  // Rust phase. Incomplete ownership stops drawing with the missing pass.
   cover(name, renderer, scene, camera) {
     if (this.contextLost) return true;
 
@@ -745,13 +739,12 @@ export class RustRender {
       if (!complete) throw new Error(`Incomplete Rust phase ${name}: ${passes.filter((p) => !p.complete).map((p) => p.name).join(", ")}`);
       return true;
     } catch (error) {
-      this.fail(error, renderer, target);
-      return false;
+      this.fail(error, renderer);
     }
   }
 
   // Keep the failure visible and stop this battle. No other drawer takes over.
-  fail(error, renderer = this.renderer, target = renderer.getRenderTarget()) {
+  fail(error, renderer = this.renderer) {
     const failure = rendererFailure(renderer, error);
     this.failure = failure;
     this.errors.push(failure.message);
@@ -786,8 +779,7 @@ export class RustRender {
   // graphics.js: draw every post step; incomplete ownership is fatal.
   post(renderer, steps) {
     if (this.contextLost) return true;
-    const target = renderer.getRenderTarget();
-    try { if (!this.byName.post.cover(renderer, steps)) this.fail(new Error("Incomplete Rust post chain")); return true; } catch (error) { this.fail(error, renderer, target); return false; }
+    try { if (!this.byName.post.cover(renderer, steps)) this.fail(new Error("Incomplete Rust post chain")); return true; } catch (error) { this.fail(error, renderer); }
   }
 
   // Draw every near-scene item through Rust; incomplete ownership is fatal.
@@ -800,8 +792,7 @@ export class RustRender {
   // graphics.js renderCascades: Rust draws every caster in this cascade.
   coverShadow(renderer, light, scene, camera, from) {
     if (this.contextLost) return true;
-    const target = renderer.getRenderTarget();
-    try { if (!this.byName.shadow.cover(renderer, light, scene, camera, from)) this.fail(new Error(`Incomplete Rust shadow: ${this.byName.shadow.why}`)); return true; } catch (error) { this.fail(error, renderer, target); return false; }
+    try { if (!this.byName.shadow.cover(renderer, light, scene, camera, from)) this.fail(new Error(`Incomplete Rust shadow: ${this.byName.shadow.why}`)); return true; } catch (error) { this.fail(error, renderer); }
   }
 
   // Draw the complete reflected scene through Rust.
@@ -814,8 +805,7 @@ export class RustRender {
   // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.
   coverHud(renderer, hud) {
     if (this.contextLost) return true;
-    const target = renderer.getRenderTarget();
-    try { if (!this.byName.hud.cover(renderer, hud)) this.fail(new Error(`Incomplete Rust HUD: ${this.byName.hud.why || "batch"}`)); return true; } catch (error) { this.fail(error, renderer, target); return false; }
+    try { if (!this.byName.hud.cover(renderer, hud)) this.fail(new Error(`Incomplete Rust HUD: ${this.byName.hud.why || "batch"}`)); return true; } catch (error) { this.fail(error, renderer); }
   }
 
   // The near phase's stats and the time its renderer call took, as the
