@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { connect, loadBattle, HELPERS_SRC } from './battle.mjs';
 import { expand } from './manifest.mjs';
 import { programOwnership } from './ownership.mjs';
-const manifest = expand(JSON.parse(fs.readFileSync(new URL('./manifest.json', import.meta.url))));
+const manifest = expand(JSON.parse(fs.readFileSync(new URL('./world-manifest.json', import.meta.url))));
 const testCase = manifest.cases.find(c => c.id === process.env.BFE_CORPUS_CASE);
 if (!testCase || !process.env.OUT) throw Error('Supply BFE_CORPUS_CASE and OUT');
 const c = await connect();

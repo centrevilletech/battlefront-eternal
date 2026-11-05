@@ -28,7 +28,7 @@ export async function programOwnership() {
   const passes = g.rust.byName;
   for (const entry of passes.world?.meshes || []) describe(entry.mesh.material, entry.mesh, 'near', 'world');
   for (const entry of passes.terrain?.grounds || []) describe(entry.material, entry.group, 'near', 'terrain');
-  for (const [kind, entry] of passes.foliage?.classes || []) if (entry) describe(kind.batch?.material, kind.batch, 'near', 'foliage');
+  for (const [kind, entry] of passes.foliage?.classes || []) if (entry !== null && entry !== undefined) describe(kind.batch?.material, kind.batch, 'near', 'foliage');
   for (const entry of passes.far?.all || []) {
     describe(entry.material, entry.object, 'far', 'far');
     registrations.push({ pass: 'far', material: entry.material.id, key: entry.threeProgram?.cacheKey,

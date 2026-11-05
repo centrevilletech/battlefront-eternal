@@ -139,3 +139,36 @@ on the default path. `BFE_SHADER_CACHE_PROBE=1` repeats all registered keys to
 measure context-local ID reuse separately. Compare fresh applications against a
 frozen reference in interleaved local rounds, recording driver-cache state. Farm
 timings are correctness diagnostics, not slow-PC performance measurements.
+
+# Frozen world shader inputs
+
+`tools/renderer-world-corpus.mjs` runs the source gate independently of the
+renderer lifecycle corpus. Its runner receives candidate distribution, case id,
+output directory and frozen reference distribution. Launch reference, candidate
+and repeat reference in that order, invoking
+`tools/renderer-corpus/world-capture.mjs` with the corresponding
+`BFE_CORPUS_ROLE`; then invoke `world-compare.mjs` with output directory and case
+id. The world manifest includes the 51 map/preset cases, three-cascade shadows,
+a close canopy view, water and scale cases. Shortened captures cannot pass
+completeness.
+
+The reference records actual default Rust submissions: vertex/index and uniform
+block bytes, standalone uniforms, sampler mip texels or compressed blocks,
+filter/wrap/comparison/anisotropy parameters, raster state and multi-draw ranges.
+Source replay uses Rust-registered linked programs and fresh targets with the
+same sample count. Depth inputs retain their original depth format. This checks
+world/far, terrain, foliage and canopy arithmetic and alpha-to-coverage without
+incoming colour/depth history from unrelated draws. Post/HUD replay retains its
+phase records. Reference self-replay, candidate replay and repeat-reference
+replay must all match every RGBA channel and half-float bit exactly. Shader and
+layout hashes accompany the reports; transient buffers are deleted after
+comparison. Whole-frame differences remain a separate verdict.
+
+World source prefixes are explicit `vertexPrefix`/`fragmentPrefix` manifest
+fields. Rust concatenates each prefix with a shared expanded body at registration;
+the generator hashes the complete expanded text. This shares identical bodies
+without changing shader bytes or emitting browser GLSL. World resource shells
+never enter three's compiler. Scene features select an exact declared key;
+unknown combinations fail rather than choosing another variant. Map programs
+are prewarmed before preparation draws. The world shader license is retained in
+`shaders/world/NOTICE`.

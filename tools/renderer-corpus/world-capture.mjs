@@ -55,6 +55,13 @@ try {
     const reflect=water.reflect;water.reflect=function(c){aim(c);this.reflectFrames=0;return reflect.call(this,c);};
     const render=g.render;g.render=function(...a){aim(g.camera);return render.apply(this,a);};return 1;
   })()`);
+  if (testCase.camera === 'canopy') await c.ev(`(() => {
+    const b=__bf,g=b.graphics,T=window.__corpus,V=b.THREE.Vector3,trees=g.treeCanopies;
+    if(!trees?.groups.length)throw Error('No tree canopy groups');
+    const group=trees.groups[0],at=group.sphere.center.clone(),eye=at.clone().add(new V(0,1,Math.min(35,group.sphere.radius+12)));
+    const render=g.render;g.render=function(...args){g.camera.position.copy(eye);g.camera.lookAt(at);g.camera.updateMatrixWorld(true);return render.apply(this,args);};
+    return 1;
+  })()`);
   const captures=Number(process.env.BFE_CORPUS_POINTS || manifest.captures);
   if(!Number.isInteger(captures) || captures<1 || captures>manifest.captures)throw Error('Invalid capture count');
   for (let k=0;k<captures;k++) {
@@ -70,7 +77,7 @@ try {
       G.resetFrame();T.stages={};T.records=[];T.blobs={};T.want=true;const tick=await b.lockstep(0,true);T.want=false;
       const s=T.stages.presented;if(!s)throw Error('HUD did not draw');
       let lit=0;for(let i=0;i<s.buf.length;i+=64)if(s.buf[i]>8 || s.buf[i+1]>8 || s.buf[i+2]>8)lit++;
-      return {k:${k},tick,lit:lit/(s.buf.length/64),rustDraws:G.rustDraws(),rustPhases:Object.keys(G.frameStats),errors:[...g.rust.errors],gl:{...${GL_STATE},error:gl.getError()},stages:Object.fromEntries(Object.entries(T.stages).map(([n,s])=>[n,{w:s.w,h:s.h,bytes:s.bytes}]))};
+      return {k:${k},tick,lit:lit/(s.buf.length/64),rustDraws:G.rustDraws(),rustPhases:Object.keys(G.frameStats),errors:[...g.rust.errors],gl:{...${GL_STATE},rustEnabled:Boolean(g.rust && g.rust.enabled!==false && !g.rust.failure),error:gl.getError()},stages:Object.fromEntries(Object.entries(T.stages).map(([n,s])=>[n,{w:s.w,h:s.h,bytes:s.bytes}]))};
     })()`);
     for (const [name, stage] of Object.entries(point.stages)) {
       const data=await c.ev(`(() => {const s=window.__corpus.stages[${JSON.stringify(name)}],buf=new Uint8Array(s.buf.buffer);let str='';for(let i=0;i<buf.length;i+=0x8000)str+=String.fromCharCode.apply(null,buf.subarray(i,i+0x8000));return btoa(str);})()`);
@@ -78,10 +85,14 @@ try {
       fs.writeFileSync(stage.file,Buffer.from(data,'base64'));
     }
     if (role==='reference') {
-      const payload=await c.ev(`({records:window.__corpus.records,blobs:Object.fromEntries(Object.entries(window.__corpus.blobs).map(([key,buf])=>[key,{type:buf.constructor.name}]))})`);
+      const payload=await c.ev(`({records:window.__corpus.records,blobs:Object.fromEntries(Object.entries(window.__corpus.blobs).map(([key,buf])=>[key,{type:buf.constructor.name,bytes:buf.byteLength}]))})`);
       for (const [key,blob] of Object.entries(payload.blobs)) {
-        const data=await c.ev(`(() => {const b=window.__corpus.blobs[${JSON.stringify(key)}],buf=new Uint8Array(b.buffer,b.byteOffset,b.byteLength);let str='';for(let i=0;i<buf.length;i+=0x8000)str+=String.fromCharCode.apply(null,buf.subarray(i,i+0x8000));return btoa(str);})()`);
-        blob.file=`${rawDir}/${k}-replay-${key}.bin`;fs.writeFileSync(blob.file,Buffer.from(data,'base64'));
+        blob.file=`${rawDir}/${k}-replay-${key}.bin`;
+        const fd=fs.openSync(blob.file,'w');
+        try { for(let offset=0;offset<blob.bytes;offset+=1048576) {
+          const data=await c.ev(`(() => {const b=window.__corpus.blobs[${JSON.stringify(key)}],buf=new Uint8Array(b.buffer,b.byteOffset+${offset},Math.min(1048576,b.byteLength-${offset}));let str='';for(let i=0;i<buf.length;i+=0x8000)str+=String.fromCharCode.apply(null,buf.subarray(i,i+0x8000));return btoa(str);})()`);
+          fs.writeSync(fd,Buffer.from(data,'base64'));
+        }} finally {fs.closeSync(fd);}
       }
       point.replayFile=`${rawDir}/${k}-replay.json`;fs.writeFileSync(point.replayFile,JSON.stringify(payload));
       point.selfReplay=await c.ev(`window.__corpus.replay(window.__corpus.records,window.__corpus.blobs)`);
@@ -89,8 +100,12 @@ try {
       const payload=JSON.parse(fs.readFileSync(`${process.env.BFE_CORPUS_RAW || out}/${id}-reference/${k}-replay.json`));
       await c.ev(`window.__corpus.payload={records:${JSON.stringify(payload.records)},blobs:{}};1`);
       for(const [key,blob] of Object.entries(payload.blobs)) {
-        const data=fs.readFileSync(blob.file).toString('base64');
-        await c.ev(`(() => {const raw=atob(${JSON.stringify(data)}),bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));window.__corpus.payload.blobs[${JSON.stringify(key)}]=new window[${JSON.stringify(blob.type)}](bytes.buffer);return 1;})()`);
+        const data=fs.readFileSync(blob.file);
+        await c.ev(`window.__corpus.payload.blobs[${JSON.stringify(key)}]=new window[${JSON.stringify(blob.type)}](new ArrayBuffer(${data.length}));1`);
+        for(let offset=0;offset<data.length;offset+=1048576) {
+          const chunk=data.subarray(offset,offset+1048576).toString('base64');
+          await c.ev(`(() => {const raw=atob(${JSON.stringify(chunk)}),b=window.__corpus.payload.blobs[${JSON.stringify(key)}],bytes=new Uint8Array(b.buffer);for(let i=0;i<raw.length;i++)bytes[${offset}+i]=raw.charCodeAt(i);return 1;})()`);
+        }
       }
       point.replay=await c.ev(`window.__corpus.replay(window.__corpus.payload.records,window.__corpus.payload.blobs)`);
       await c.ev(`window.__corpus.payload=null;1`);
@@ -110,6 +125,9 @@ try {
      const stages=[];
      for(const shader of gl.getAttachedShaders(p.program) || []){const source=gl.getShaderSource(shader),h=await hash(text(source));shaders.push({stage:gl.getShaderParameter(shader,gl.SHADER_TYPE),hash:h,source});stages.push(h);}
      programs.push({key:p.cacheKey,stages,attributes,uniforms});
+   }
+   for(const [key,source] of window.__corpus.worldProgramSources)for(const [stage,body] of Object.entries(source)){
+     const h=await hash(text(body));shaders.push({key,stage,hash:h,source:body});
    }
    const textures=new Set();
    const material=m=> {if(!m)return;for(const u of Object.values(m.uniforms || {}))if(u.value?.isTexture)textures.add(u.value);if(m.map)textures.add(m.map);};

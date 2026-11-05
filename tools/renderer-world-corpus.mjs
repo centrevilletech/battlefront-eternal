@@ -4,6 +4,7 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { programLayouts } from '../src/render-programs.js';
 const manifestBytes = readFileSync(new URL('./renderer-corpus/world-manifest.json', import.meta.url));
 const manifest = JSON.parse(manifestBytes);
 const args = process.argv.slice(2);
@@ -39,9 +40,11 @@ async function worker() {
 }
 await Promise.all(Array.from({ length: Math.max(1, Math.min(jobs, cases.length)) }, worker));
 results.sort((a,b) => a.id.localeCompare(b.id));
-const programs = new Set();
-for (const c of cases) { try { const r=JSON.parse(readFileSync(`${out}/${c.id}.json`)); for(const p of r.shaderPrograms || []) if(p.accepted && p.hash) programs.add(p.key); } catch {} }
+const programs = new Set(),replayed = new Set();
+for (const c of cases) { try { const r=JSON.parse(readFileSync(`${out}/${c.id}.json`)); for(const key of r.worldPrograms || [])replayed.add(key);for(const p of r.shaderPrograms || []) if(p.accepted && p.hash) programs.add(p.key); } catch {} }
 const missingPrograms = (manifest.programs || []).filter(key => !programs.has(key));
-const summary = { missingPrograms, programs: [...programs].sort(), version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, reference, complete: cases.length === manifest.cases.length, cases: results, baselinePass: results.every(r=>r.baselinePass), pass: results.length === cases.length && results.every(r => r.pass) && (cases.length < manifest.cases.length || missingPrograms.length === 0) };
+const worldKeys=Object.keys(programLayouts).filter(k=>k.startsWith('world/'));
+const worldCoverage={registered:worldKeys.filter(k=>programs.has(k)),replayed:[...replayed].sort(),unregistered:worldKeys.filter(k=>!programs.has(k)),unreplayed:worldKeys.filter(k=>!replayed.has(k))};
+const summary = { worldCoverage, missingPrograms, programs: [...programs].sort(), version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, reference, complete: cases.length === manifest.cases.length, cases: results, baselinePass: results.every(r=>r.baselinePass), pass: results.length === cases.length && results.every(r => r.pass) && (cases.length < manifest.cases.length || missingPrograms.length === 0) };
 writeFileSync(`${out}/summary.json`, JSON.stringify(summary, null, 2));
 process.exitCode = summary.pass ? 0 : 1;
