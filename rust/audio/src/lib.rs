@@ -20,6 +20,7 @@ pub mod hrtf;
 pub mod pcm;
 pub mod stereo;
 pub mod output;
+pub mod frontend;
 pub mod limiter;
 pub mod master;
 pub mod meter;
@@ -141,6 +142,7 @@ struct MasterStaged {
 #[derive(Default)]
 struct State {
     outputs: Vec<output::Output>,
+    frontends: Vec<frontend::Frontend>,
     adpcm: adpcm::Decoder,
     signal: Vec<f32>,
     asset_pcm: Vec<f32>,
@@ -901,3 +903,23 @@ pub extern "C" fn asset_pcm(frames:u32)->*mut f32 {let s=state();s.asset_pcm.res
 pub extern "C" fn asset_gain(db:f64)->f64 {host::pow(10.0,db/20.0)}
 #[no_mangle]
 pub extern "C" fn asset_scale(gain:f64){for value in &mut state().asset_pcm{*value=(*value as f64*gain) as f32;}}
+
+// Front-end output: PCM and commands are staged between render quanta.
+#[no_mangle]
+pub extern "C" fn front_new(rate: f64) -> u32 { let s=state(); s.frontends.push(frontend::Frontend::new(rate)); (s.frontends.len()-1) as u32 }
+#[no_mangle]
+pub extern "C" fn front_out(h:u32)->*mut f32 {state().frontends[h as usize].output.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn front_ended_len()->u32 {(commands::FRONT_END_STRIDE*frontend::SLOTS) as u32}
+#[no_mangle]
+pub extern "C" fn front_ended(h:u32)->*mut u32 {state().frontends[h as usize].ended.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn front_sample(h:u32,slot:u32,frames:u32,channels:u32,rate:f64)->*mut f32 {state().frontends[h as usize].sample(slot as usize,frames as usize,channels as usize,rate)}
+#[no_mangle]
+pub extern "C" fn front_release(h:u32,slot:u32) {state().frontends[h as usize].samples[slot as usize]=None;}
+#[no_mangle]
+pub extern "C" fn front_commands_ptr(h:u32,len:u32)->*mut f64 {let f=&mut state().frontends[h as usize];f.commands.resize(len as usize,0.0);f.commands.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn front_commands(h:u32) {state().frontends[h as usize].apply();}
+#[no_mangle]
+pub extern "C" fn front_process(h:u32,frame:f64)->u32 {state().frontends[h as usize].process(frame as u64) as u32}

@@ -6,6 +6,9 @@ let constructing;
 class Port {
   constructor() { this.onmessage = null; this.pending = []; }
   postMessage(data) {
+    // MessagePort snapshots reused event/readings buffers when posting.
+    // Delivering their live objects loses earlier completions offline.
+    data = structuredClone(data);
     const peer = this.peer;
     queueMicrotask(() => { if (peer.onmessage) peer.onmessage({ data }); else peer.pending.push(data); });
   }

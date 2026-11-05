@@ -70,7 +70,7 @@ pub fn kind(n: u32) -> Kind {
 
 // Native GainNodes flush subnormal products, while a unity gain copies
 // its input verbatim (including subnormals produced by a worklet).
-fn gain_product(sample: f32, gain: f32) -> f32 {
+pub(crate) fn gain_product(sample: f32, gain: f32) -> f32 {
     let sample = if sample.abs() < f32::MIN_POSITIVE { 0.0f32.copysign(sample) } else { sample };
     let value = sample * gain;
     if value.abs() < f32::MIN_POSITIVE { 0.0f32.copysign(value) } else { value }
@@ -458,6 +458,22 @@ mod allocation_tests {
             assert_eq!(count,0,"enhanced={enhanced}, channels={channels}, headphones={headphones}, binaural={binaural}");
             assert!(o.output.iter().all(|v|v.is_finite()));
         }
+    }
+
+    #[test]
+    fn front_end_allocates_nothing_while_sources_start_end_and_fade() {
+        use crate::{frontend::Frontend, commands::*};
+        let mut f=Frontend::new(48000.0);
+        f.sample(0,2800,1,8000.0);
+        f.samples[0].as_mut().unwrap().data.fill(0.2);
+        f.commands=vec![FRONT_START as f64,0.0,1.0,0.013,0.027,1.8,1.0,0.7,0.0,FRONT_FADE as f64,0.0,0.31,0.32,
+            FRONT_VOLUME as f64,0.8,0.42,0.15,FRONT_DIP as f64,0.05,0.25,0.03];
+        f.apply();
+        let mut ended=0;
+        ALLOCS.with(|n|n.set(Some(0)));
+        for block in 0..400 { ended+=f.process(block*FRAMES as u64); }
+        let count=ALLOCS.with(|n|n.replace(None).unwrap());
+        assert_eq!(count,0);assert_eq!(ended,1);
     }
 
 }

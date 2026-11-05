@@ -22,3 +22,8 @@ These derived responses use the resource notices in THIRD-PARTY-NOTICES.md.
 
 Goldens are recorded reference data, never regenerated from the candidate
 when checking it. Every approximate comparison is below −96 dBFS per sample.
+
+`frontend.json` records the frozen shell/loading gain topology over generated
+mono/stereo tones at 44.1/48 kHz, including resampled one-shots, late loop
+offsets, music dips and pulse end fades. The inputs live in
+`audio-frontend-fixture.js`; the live node reference was removed.

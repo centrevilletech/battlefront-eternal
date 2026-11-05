@@ -8,6 +8,7 @@ const moduleHash = createHash("sha256").update(Buffer.from(AUDIO_DSP_WASM, "base
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.env.AUDIO_TEST_URL || "http://127.0.0.1:18449";
 const manifest = JSON.parse(await readFile(new URL("./fixtures/audio/renders.json", import.meta.url)));
+manifest.scenes.push(...JSON.parse(await readFile(new URL("./fixtures/audio/frontend.json", import.meta.url))).scenes);
 const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
 let failed = 0, total = 0;
 try {

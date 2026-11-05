@@ -24,6 +24,7 @@ pub struct Source {
     offset: f64,
     begun: bool,
     step: f64,
+    end: f64,
     looping: bool,
 }
 impl Default for Source {
@@ -37,6 +38,7 @@ impl Default for Source {
             offset: 0.0,
             begun: false,
             step: 1.0,
+            end: 0.0,
             looping: false,
         }
     }
@@ -60,17 +62,23 @@ impl Source {
             offset: when * rate - start,
             begun: false,
             step: (data.rate / rate * pitch).clamp(0.0, 1024.0),
+            // Native buffer duration travels through seconds before becoming
+            // its loop/end frame. At 44.1 kHz this can exceed the integer by
+            // an ulp and emit one extrapolated tail sample within a quantum.
+            end: (frames as f64 / data.rate) * data.rate,
             looping,
         };
     }
     pub fn stop(&mut self, when: f64, rate: f64) {
         self.stop = frame(when, rate, true);
     }
-    fn process(&mut self, data: &Sample, block: f64, out: &mut [f32], add: bool) {
+    pub(crate) fn process(&mut self, data: &Sample, block: f64, out: &mut [f32], add: bool) {
         if !self.on || self.start >= block + FRAMES as f64 {
             return;
         }
         let frames = data.frames;
+        if !self.looping && self.pos >= frames as f64 { self.on = false; return; }
+        if self.looping && self.pos >= self.end { self.pos = 0.0; }
         if !self.begun {
             self.begun = true;
             if self.offset < 0.0 {
@@ -98,7 +106,7 @@ impl Source {
                 }
             }
             self.pos += FRAMES as f64;
-            if self.pos >= frames as f64 {
+            if self.pos >= self.end {
                 if self.looping {
                     self.pos = 0.0;
                 } else {
@@ -121,8 +129,8 @@ impl Source {
             }
             let index = self.pos as usize;
             let fraction = self.pos - index as f64;
-            let next = if self.looping && index + 1 >= frames {
-                ((self.pos + 1.0 - frames as f64).max(0.0) as usize).min(frames - 1)
+            let next = if self.looping && (index + 1) as f64 >= self.end {
+                ((self.pos + 1.0 - self.end).max(0.0) as usize).min(frames - 1)
             } else {
                 (index + 1).min(frames - 1)
             };
@@ -144,9 +152,9 @@ impl Source {
                 }
             }
             self.pos += self.step;
-            if self.pos >= frames as f64 {
+            if self.pos >= self.end {
                 if self.looping {
-                    self.pos = (self.pos - frames as f64) % (frames as f64);
+                    self.pos = (self.pos - self.end) % self.end;
                 } else {
                     self.on = false;
                 }
