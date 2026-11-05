@@ -62,6 +62,10 @@ With the local extracted `public/maps/nab2` and `bes2` assets:
 node tools/benchmark-world.mjs
 ```
 
+This offline tool measures the collision and movement workloads. The historical
+JavaScript foliage sweep above has been removed with that selector; foliage
+selection now runs in the required Rust renderer and is measured in drawn frames.
+
 The script loads the real collision geometry and live-prop states, performs
 warmups, and reports medians and p95. `PERF_ROUNDS`, `PERF_CYCLES`, and
 `PERF_FRAMES` control sample counts. Optional `PERF_REFERENCE_COLLISION` and

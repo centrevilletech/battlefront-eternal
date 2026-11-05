@@ -1,5 +1,5 @@
 // Offline CPU workload using extracted maps and their actual live-prop bodies.
-// Optional PERF_REFERENCE_COLLISION / PERF_REFERENCE_FOLIAGE module paths add
+// Optional PERF_REFERENCE_COLLISION module paths add
 // interleaved before/after measurements and output-equivalence checks.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,13 +8,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as THREE from 'three';
 import { CollisionWorld, makeHit } from '../src/collision.js';
 import { Soldier } from '../src/soldier.js';
-import { Foliage } from '../src/foliage.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const integer = (name, fallback, minimum) => Math.max(minimum, Math.floor(Number(process.env[name]) || fallback));
 const rounds = integer('PERF_ROUNDS', 7, 3);
 const cycles = integer('PERF_CYCLES', 10, 1);
-const frames = integer('PERF_FRAMES', 720, 30);
 async function variants(name, symbol, current) {
   const path = process.env[name];
   return path ? [['reference', (await import(pathToFileURL(resolve(path))))[symbol]], ['current', current]] : [['current', current]];
@@ -44,13 +42,6 @@ function mapWorld(name, Kind) {
   }
   return world;
 }
-function foliage(Kind, data) {
-  const original = Math.random;
-  let seed = 991;
-  Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-  try { return new Kind(new THREE.Scene(), data, { texture: () => new THREE.Texture(), nearEnd: () => 250 }); }
-  finally { Math.random = original; }
-}
 const report = { scope: 'CPU only; excludes map loading, renderer, GPU, audio, and frame pacing.', collision: {} };
 const collisionVariants = await variants('PERF_REFERENCE_COLLISION', 'CollisionWorld', CollisionWorld);
 for (const map of ['nab2', 'bes2']) {
@@ -78,37 +69,4 @@ for (const map of ['nab2', 'bes2']) {
     enabledBodies: subjects[0].world.bodies.filter(body => body.enabled).length,
     ...Object.fromEntries(subjects.map(s => [s.name, quantiles(s.timings)])), finalPosition: subjects[0].position };
 }
-const foliageVariants = await variants('PERF_REFERENCE_FOLIAGE', 'Foliage', Foliage);
-const data = JSON.parse(fs.readFileSync(`${root}public/maps/nab2/map.json`)).foliage;
-const subjects = foliageVariants.map(([name, Kind]) => ({ name, foliage: foliage(Kind, data), timings: [] }));
-const camera = new THREE.PerspectiveCamera(60, 1.6, .1, 500);
-camera.position.set(-168, -47, -25);
-let minimumCards = Infinity, maximumCards = 0, maxAttributeDifference = 0;
-for (let pass = 0; pass < rounds; pass++) {
-  for (let frame = 0; frame < frames; frame++) {
-    camera.rotation.set(Math.sin(frame * .011) * .6, frame * Math.PI / 360, 0);
-    for (const subject of frame % 2 ? [...subjects].reverse() : subjects) {
-      const start = performance.now(); subject.foliage.update(1 / 60, camera);
-      if (pass >= 2) subject.timings.push(performance.now() - start);
-    }
-    if (pass !== 0) continue;
-    let cards = 0;
-    for (const [name, kind] of subjects[0].foliage.kinds) {
-      cards += kind.batch.count;
-      if (subjects.length < 2) continue;
-      const other = subjects[1].foliage.kinds.get(name);
-      assert.equal(kind.batch.count, other.batch.count, 'visible foliage count changed');
-      for (const [attribute, stride] of [['positions', 12], ['colors', 16], ['uvs', 8]]) {
-        for (let i = 0; i < kind.batch.count * stride; i++) {
-          const delta = Math.abs(kind.batch[attribute][i] - other.batch[attribute][i]);
-          maxAttributeDifference = Math.max(maxAttributeDifference, delta);
-          assert(delta <= 3e-5, `${name}.${attribute}: vertex output changed by ${delta}`);
-        }
-      }
-    }
-    minimumCards = Math.min(minimumCards, cards); maximumCards = Math.max(maximumCards, cards);
-  }
-}
-report.foliage = { ...Object.fromEntries(subjects.map(s => [s.name, quantiles(s.timings)])),
-  visibleCards: [minimumCards, maximumCards], maxAttributeDifference: subjects.length > 1 ? maxAttributeDifference : null };
 console.log(JSON.stringify(report, null, 2));
