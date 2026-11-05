@@ -527,7 +527,16 @@ const fragmentShader = /* glsl */ `
 //   (takes point lights), scroll [u, v], specular [exponent, r, g, b],
 //   alphaTest, blending ("normal" | "additive" | null), doubleSided, far.
 export function zeroMaterial(kind, options = {}) {
-  return materialFor(kind, options, values => new THREE.ShaderMaterial({ ...values, vertexShader, fragmentShader }));
+  const material = materialFor(kind, options, values => new THREE.ShaderMaterial({ ...values, vertexShader, fragmentShader }));
+  material.onBeforeRender = (renderer, scene, camera, geometry, object) => {
+    const again = drawsAgain(material);
+    if (kind === "dynamic") localLighting.select(object, scene.userData.isViewScene);
+    // The map's culled buckets chose theirs by the cells they draw
+    // (render-culling.js).
+    if (material.userData.pointLit && !object.userData.cellLights) selectLights(material, object, geometry, scene, camera);
+    if (again && (kind === "dynamic" || material.userData.pointLit)) material.uniformsNeedUpdate = true;
+  };
+  return material;
 }
 
 // Static map resources have values and fixed-function state, with source
@@ -603,14 +612,6 @@ function materialFor(kind, options, create) {
   // Whether its shaders add point lights at all (unlit, terrain, sky and the
   // far scene's don't).
   material.userData.pointLit = !options.far && options.lights !== false && (kind === "lit" || kind === "dynamic" || kind === "baked");
-  material.onBeforeRender = (renderer, scene, camera, geometry, object) => {
-    const again = drawsAgain(material);
-    if (kind === "dynamic") localLighting.select(object, scene.userData.isViewScene);
-    // The map's culled buckets chose theirs by the cells they draw
-    // (render-culling.js).
-    if (material.userData.pointLit && !object.userData.cellLights) selectLights(material, object, geometry, scene, camera);
-    if (again && (kind === "dynamic" || material.userData.pointLit)) material.uniformsNeedUpdate = true;
-  };
   return material;
 }
 
