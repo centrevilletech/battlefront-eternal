@@ -152,7 +152,20 @@ export async function mountedGameGate([actor, observer]) {
   const start=await observer.evaluate(id=>__bf.vehicles.vehicles.find(v=>v.aiTarget.id===id).position.toArray(),choice.vehicleId);
   await actor.keyboard.down('KeyW');
   await actor.waitForFunction(()=>{const p=__bf.client.vehiclePrediction,v=__bf.driver.vehicle;return p&&p.predictionTick>__bf.worldClock.tick&&p.position.distanceTo(v.position)>.02;},null,{timeout:15000});
-  await observer.waitForFunction(({id,start})=>{const v=__bf.vehicles.vehicles.find(v=>v.aiTarget.id===id);return v&&Math.hypot(...v.position.toArray().map((x,i)=>x-start[i]))>.5;},{id:choice.vehicleId,start},{timeout:15000});
+  try {
+    await observer.waitForFunction(({id,start})=>{const v=__bf.vehicles.vehicles.find(v=>v.aiTarget.id===id);return v&&Math.hypot(...v.position.toArray().map((x,i)=>x-start[i]))>.5;},{id:choice.vehicleId,start},{timeout:15000});
+  } catch (error) {
+    const inspect = ({id,start}) => {
+      const v=__bf.vehicles.vehicles.find(v=>v.aiTarget.id===id),c=__bf.client;
+      return {tick:__bf.worldClock.tick,latest:c.latest,ready:c.ready,closed:c.host.closed,
+        alive:__bf.playerUnit.alive,seat:__bf.playerUnit.seat?.index,control:c.entity.previous?.controlMode,
+        hullAlive:v?.alive,hullDistance:v&&Math.hypot(...v.position.toArray().map((x,i)=>x-start[i])),
+        velocity:v?.velocity.toArray(),driver:v?.seats[0].lease?.unit?.id,
+        predicted:c.vehiclePrediction?.predictionTick,correctionWorst:c.vehicleSmoother.worst};
+    };
+    console.log('mounted-drive-timeout',JSON.stringify(await Promise.all([actor,observer].map(page=>page.evaluate(inspect,{id:choice.vehicleId,start})))));
+    throw error;
+  }
   const pilot=await actor.evaluate(()=>({tick:__bf.client.vehiclePrediction.predictionTick,authority:__bf.worldClock.tick,control:__bf.client.entity.previous.controlMode}));
   await actor.keyboard.up('KeyW');await actor.mouse.click(320,240);
   await actor.evaluate(()=>window.__restoreMountedTransport());await actor.waitForTimeout(700);
