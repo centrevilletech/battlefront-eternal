@@ -970,6 +970,14 @@ journal and WebAssembly. `node --test tests/rust-render*.test.js
 fixtures without game content. The renderer smoke fixture checks driver links,
 GL errors, real Rust draw counters, generated HUD colours, repeated frame
 stability and forced context restoration, without an alternate drawer.
+It discovers every `rust/bfe-render/shaders/*/manifest.json` at launch and
+compiles and links every variant through Rust on the selected ANGLE backend.
+The report records variant keys, driver failures, and compile time per family.
+Generated fixtures then verify phase draws, post/FXAA settings, visible stable
+frames, texture rebinding and context restoration. This needs no game files.
+Windows CI uses WARP for Direct3D translation coverage; it does not qualify
+physical GPU drivers. The smoke child has a twelve-minute watchdog within the
+job's fifteen-minute timeout, and CI retains its progress/results artifact.
 
 Cross-build pixel checks use `tools/renderer-corpus.mjs --against` with a frozen
 reference dist. Each case runs a reference session, another reference session

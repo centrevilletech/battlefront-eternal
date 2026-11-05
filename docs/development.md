@@ -227,6 +227,14 @@ Three parts of the engine are written in Rust and compiled to WebAssembly, in th
 - `rust/bfe-render`, the required battle renderer, committed as wasm-bindgen's output in `src/rust-pkg/`: an ES module and the `.wasm` it fetches, which Vite bundles as an asset. The desktop app serves it from its archive as `application/wasm`; the dedicated server's copy of the engine leaves it out.
   Initialization and program-link failures report the GPU name and stop battle loading. Context restoration rebuilds GPU resources from Rust's retained descriptions; it never selects another drawer.
 
+The generated renderer driver check needs no installed game content. Run
+`node tools/renderer-smoke.mjs gl` on Linux or
+`node tools/renderer-smoke.mjs warp` on Windows. It discovers shader manifests
+at runtime, reports each variant's compile/link result and compile time per
+family, then checks Rust draws and context restoration with generated scenes.
+`BFE_SMOKE_OUTPUT` optionally saves the JSON-lines report. The CI renderer-smoke
+job runs these backends and uploads that report even when the driver fails.
+
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.
 
 `rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ. Node 24 hands `Math.pow` and `**` to the C library, so their results depend on the server: `v8math::pow` computes what glibc's `pow` computes on an x86-64 CPU with FMA and AVX2, which the game's servers have. `rust/v8math-check` compares it with V8, natively and as WebAssembly, and should run again whenever the server's Node or C library changes:
