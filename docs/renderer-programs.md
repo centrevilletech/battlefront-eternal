@@ -2,7 +2,8 @@
 
 `rust/bfe-render/shaders/<family>/manifest.json` declares source-owned program
 variants. The `post-hud` family owns twelve stable full-screen and battle HUD
-programs. The FXAA source license is retained in `shaders/post-hud/NOTICE`.
+programs. The `world` family owns static near/far geometry, terrain, foliage
+and canopy programs, including their Enhanced variants. The FXAA source license is retained in `shaders/post-hud/NOTICE`.
 Those passes register Rust source directly. They have no source switch,
 compiled-three-program bridge, or shader fallback. Registration errors throw a
 message naming the variant. Unported shader families still borrow three programs.
@@ -18,7 +19,8 @@ attribute locations against the declaration. Unknown keys, incompatible layouts
 and link failures are errors.
 
 `programs::sources` emits GLSL ES 3.00 with explicit high precision and the
-compatibility vocabulary the bodies use. It injects no lighting, colour-space or
+compatibility vocabulary the bodies use in `body` mode; `expanded` mode keeps
+the declared version and vocabulary. It injects no lighting, colour-space or
 tone-map chunks. Source and arithmetic belong to Rust. Run
 `node tools/render-shaders.mjs` to regenerate `program_catalog.rs` and the
 browser's `render-programs.js` layout/hash metadata. The latter contains no shader

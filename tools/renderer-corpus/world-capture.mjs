@@ -24,6 +24,7 @@ try {
   result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query, extraSrc: `(${installWorldTrace.toString()})()` });
   if (result.loaded.error || !result.loaded.spawned) throw Error(result.loaded.error || 'player not spawned');
   await c.ev(HELPERS_SRC);
+  await c.ev(`window.__worldTrace.ready=true;1`);
   result.setup = await c.ev(`(() => {
     const b=__bf,g=b.graphics,R=g.renderer,gl=R.getContext();
     const T=window.__corpus={want:false,stages:{}};
@@ -77,7 +78,17 @@ try {
       G.resetFrame();T.stages={};T.records=[];T.blobs={};T.want=true;const tick=await b.lockstep(0,true);T.want=false;
       const s=T.stages.presented;if(!s)throw Error('HUD did not draw');
       let lit=0;for(let i=0;i<s.buf.length;i+=64)if(s.buf[i]>8 || s.buf[i+1]>8 || s.buf[i+2]>8)lit++;
-      return {k:${k},tick,lit:lit/(s.buf.length/64),rustDraws:G.rustDraws(),rustPhases:Object.keys(G.frameStats),errors:[...g.rust.errors],gl:{...${GL_STATE},rustEnabled:Boolean(g.rust && g.rust.enabled!==false && !g.rust.failure),error:gl.getError()},stages:Object.fromEntries(Object.entries(T.stages).map(([n,s])=>[n,{w:s.w,h:s.h,bytes:s.bytes}]))};
+      // Old references can reject an unported program before another pass
+      // takes it. Preserve those diagnostics with the actual linked source;
+      // a world diagnostic or an unidentified program still invalidates replay.
+      const externalDiagnostics=[],worldErrors=[];
+      for(const message of g.rust.errors){
+        const match=/^p(\\d+) [A-Za-z_][A-Za-z_0-9]*(?: \([^)]*\))?$/.exec(message),program=match&&(g.renderer.info.programs||[]).find(p=>p.id===Number(match[1]));
+        const source=program&&(gl.getAttachedShaders(program.program)||[]).map(s=>gl.getShaderSource(s)).join('\\n');
+        if(source&&!/^#define (WORLD_SPACE|TERRAIN)[ \t]*$/m.test(source)&&!source.includes('foliageCorner')&&!source.includes('leafCenter'))externalDiagnostics.push({message,program:program.id,key:program.cacheKey});
+        else worldErrors.push(message);
+      }
+      return {k:${k},tick,externalDiagnostics,worldErrors,lit:lit/(s.buf.length/64),rustDraws:G.rustDraws(),rustPhases:Object.keys(G.frameStats),errors:[...g.rust.errors],gl:{...${GL_STATE},rustEnabled:Boolean(g.rust && g.rust.enabled!==false && !g.rust.failure),error:gl.getError()},stages:Object.fromEntries(Object.entries(T.stages).map(([n,s])=>[n,{w:s.w,h:s.h,bytes:s.bytes}]))};
     })()`);
     for (const [name, stage] of Object.entries(point.stages)) {
       const data=await c.ev(`(() => {const s=window.__corpus.stages[${JSON.stringify(name)}],buf=new Uint8Array(s.buf.buffer);let str='';for(let i=0;i<buf.length;i+=0x8000)str+=String.fromCharCode.apply(null,buf.subarray(i,i+0x8000));return btoa(str);})()`);
@@ -124,7 +135,7 @@ try {
      for(let i=0;i<gl.getProgramParameter(p.program,gl.ACTIVE_UNIFORMS);i++){const u=gl.getActiveUniform(p.program,i);uniforms.push({name:u.name,type:u.type,size:u.size});}
      const stages=[];
      for(const shader of gl.getAttachedShaders(p.program) || []){const source=gl.getShaderSource(shader),h=await hash(text(source));shaders.push({stage:gl.getShaderParameter(shader,gl.SHADER_TYPE),hash:h,source});stages.push(h);}
-     programs.push({key:p.cacheKey,stages,attributes,uniforms});
+     programs.push({id:p.id,key:p.cacheKey,stages,attributes,uniforms});
    }
    for(const [key,source] of window.__corpus.worldProgramSources)for(const [stage,body] of Object.entries(source)){
      const h=await hash(text(body));shaders.push({key,stage,hash:h,source:body});
@@ -140,10 +151,11 @@ try {
   fs.mkdirSync(shaderDir, { recursive: true });
   for (const shader of result.inputHashes.shaders) { fs.writeFileSync(`${shaderDir}/${shader.hash}.glsl`, shader.source); delete shader.source; }
 
+  result.lateWorldSources=await c.ev(`window.__worldTrace.lateWorldSources`);
   result.shaderPrograms=await c.ev(`__bf.graphics.rust.shaderPrograms || []`);
   result.gpuDeaths=gpuDeaths();
   const size=result.setup.buffer[0]===1600 && result.setup.buffer[1]===900 && result.setup.target[0]===Math.round(1600*testCase.settings.renderScale) && result.setup.target[1]===Math.round(900*testCase.settings.renderScale);
-  result.valid=size && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>p.lit>=.2 && p.rustDraws>0 && !p.gl.lostEvents && p.gl.lostEvents!==null && !p.gl.contextLost && !p.gl.rustLost && p.gl.rustEnabled && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
+  result.valid=!result.lateWorldSources && size && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>p.lit>=.2 && !(role==='candidate'?p.errors:p.worldErrors).length && p.rustDraws>0 && !p.gl.lostEvents && p.gl.lostEvents!==null && !p.gl.contextLost && !p.gl.rustLost && p.gl.rustEnabled && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
 } catch(error) { result.error=String(error.stack || error);result.valid=false; }
 finally {
   result.console=c.consoleErrors.slice(0,30);

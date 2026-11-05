@@ -4,9 +4,9 @@
 // preserve alpha-to-coverage sample tests and the actual multi-draw ranges.
 export function installWorldTrace() {
   const P=WebGL2RenderingContext.prototype;
-  const T=window.__worldTrace={programs:new Map(),shaders:new WeakMap(),textures:new WeakMap()};
+  const T=window.__worldTrace={programs:new Map(),shaders:new WeakMap(),textures:new WeakMap(),ready:false,lateWorldSources:0};
   const shaderSource=P.shaderSource,attach=P.attachShader;
-  P.shaderSource=function(shader,source){T.shaders.set(shader,source);return shaderSource.call(this,shader,source);};
+  P.shaderSource=function(shader,source){T.shaders.set(shader,source);if(T.ready&&(/^#define (WORLD_SPACE|TERRAIN)[ \t]*$/m.test(source)||source.includes('foliageCorner')||source.includes('leafCenter')))T.lateWorldSources++;return shaderSource.call(this,shader,source);};
   P.attachShader=function(program,shader){let row=T.programs.get(program);if(!row)T.programs.set(program,row={});row[this.getShaderParameter(shader,this.SHADER_TYPE)===this.VERTEX_SHADER?'vertex':'fragment']=T.shaders.get(shader);return attach.call(this,program,shader);};
   for(const name of ['texImage2D','compressedTexImage2D','texStorage2D']){
     const fn=P[name];P[name]=function(...a){
@@ -53,6 +53,7 @@ export function installWorldReplay(layouts) {
     const data=new Uint8Array(gl.getBufferParameter(gl.COPY_READ_BUFFER,gl.BUFFER_SIZE));gl.getBufferSubData(gl.COPY_READ_BUFFER,0,data);gl.bindBuffer(gl.COPY_READ_BUFFER,old);
     const blob=store(data);cache.set(handle,blob);return blob;
   };
+  const check=label=>{const error=gl.getError();if(error)throw Error(label+' GL '+error);};
   const fb=gl.createFramebuffer();
   const depthCopies=new Map();
   const postFrame=core.rust.post_frame.bind(core.rust);
@@ -75,13 +76,18 @@ export function installWorldReplay(layouts) {
     const count=params[0][1]>=9984&&params[0][1]<=9987?Math.floor(Math.log2(Math.max(meta.w,meta.h)))+1:1;
     const depth=[gl.DEPTH_COMPONENT,gl.DEPTH_COMPONENT16,gl.DEPTH_COMPONENT24,gl.DEPTH_COMPONENT32F].includes(meta.format),levels=[];
     if(depth){
+      check('Depth snapshot begin');
       const before=R.getRenderTarget(),face=R.getActiveCubeFace(),mip=R.getActiveMipmapLevel(),key=meta.w+':'+meta.h;
+      // Capture runs before the host resets three's cache after the native
+      // phase. Reset it before allocating the float copy, then bind the depth
+      // source after allocation so texture setup cannot replace that binding.
+      R.resetState();
       let target=depthCopies.get(key);
       if(!target){target=new b.THREE.WebGLRenderTarget(meta.w,meta.h,{type:b.THREE.FloatType,depthBuffer:false,minFilter:b.THREE.NearestFilter,magFilter:b.THREE.NearestFilter});R.initRenderTarget(target);depthCopies.set(key,target);}
-      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_COMPARE_MODE,gl.NONE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
       const id=core.rust.add_texture(handle),program=core.rust.add_owned_program('post-hud/copy'),output=core.byName.post.target(target);
       core.views();const saved=core.postInput.slice();core.postInput.fill(0);core.postInput.set([program,output,meta.w,meta.h,1,0,32,id]);
-      try{postFrame(1);const captured=read(target),data=T.blobs[captured.blob],texels=new Float32Array(meta.w*meta.h);for(let i=0;i<texels.length;i++)texels[i]=data[4*i];delete T.blobs[captured.blob];return {w:meta.w,h:meta.h,params,levels:[store(texels)],depth:meta.format,type:gl.FLOAT};}
+      gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,handle);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_COMPARE_MODE,gl.NONE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+      try{check('Depth copy setup');postFrame(1);check('Depth copy draw '+JSON.stringify({format:meta.format,w:meta.w,h:meta.h,compare:gl.getTexParameter(gl.TEXTURE_2D,gl.TEXTURE_COMPARE_MODE),status:gl.checkFramebufferStatus(gl.FRAMEBUFFER),blend:gl.isEnabled(gl.BLEND)}));const captured=read(target),data=T.blobs[captured.blob],texels=new Float32Array(meta.w*meta.h);for(let i=0;i<texels.length;i++)texels[i]=data[4*i];delete T.blobs[captured.blob];return {w:meta.w,h:meta.h,params,levels:[store(texels)],depth:meta.format,type:gl.FLOAT};}
       finally{core.views();core.postInput.set(saved);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,handle);for(const [p,v] of params)gl.texParameteri(gl.TEXTURE_2D,p,v);gl.bindTexture(gl.TEXTURE_2D,bound);gl.activeTexture(active);R.resetState();R.setRenderTarget(before,face,mip);}
     }
     const previous=gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,fb);
@@ -100,6 +106,7 @@ export function installWorldReplay(layouts) {
     const error=gl.getError();if(error)throw Error('World replay texture GL '+error);
     return {w:meta.w,h:meta.h,params,levels,type,compressed,srgb:meta.format===gl.SRGB8_ALPHA8||meta.format===gl.SRGB8};
   };
+  // getUniform at array[0] returns only that element on WebGL.
   const uniformValues=(program,u)=>{
     const out=[];
     for(let i=0;i<(u.size||1);i++){
@@ -126,6 +133,7 @@ export function installWorldReplay(layouts) {
     const active=gl.getParameter(gl.ACTIVE_TEXTURE);
     for(let i=0;i<gl.getProgramParameter(program,gl.ACTIVE_UNIFORMS);i++){
       const u=gl.getActiveUniform(program,i),location=gl.getUniformLocation(program,u.name);if(location===null)continue;
+      // Binary uniform payloads retain signed zero across the CDP boundary.
       const v=uniformValues(program,u);uniforms.push({name:u.name,type:u.type,size:u.size,value:store([gl.INT,gl.BOOL,gl.SAMPLER_2D,gl.SAMPLER_2D_SHADOW].includes(u.type)?Int32Array.from(v):Float32Array.from(v))});
       if(u.type===gl.SAMPLER_2D||u.type===gl.SAMPLER_2D_SHADOW)for(const unit of v){gl.activeTexture(gl.TEXTURE0+unit);const handle=gl.getParameter(gl.TEXTURE_BINDING_2D);if(!handle)throw Error('World replay sampler is unbound '+u.name);let id=capture.textureIds.get(handle);if(id===undefined){id=capture.textures.length;capture.textures.push(handle);capture.textureIds.set(handle,id);}samplers.push([unit,id]);}
     }
@@ -156,6 +164,7 @@ export function installWorldReplay(layouts) {
   const drawRows=(row,blobs,owned)=>{
     const before=R.getRenderTarget(),face=R.getActiveCubeFace(),mip=R.getActiveMipmapLevel(),target=targetFor(row);R.resetState();R.setRenderTarget(target);gl.disable(gl.SCISSOR_TEST);gl.colorMask(true,true,true,true);gl.depthMask(true);gl.clearColor(0,0,0,0);gl.clearDepth(1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     const buffers=new Map(),textures=row.textures.map(s=>uploadTexture(s,blobs)),vao=gl.createVertexArray();gl.bindVertexArray(vao);
+    // WebGL fixes a buffer's index/vertex role at its first binding.
     const uploaded=(key,target=gl.ARRAY_BUFFER)=>{let buffer=buffers.get(key);if(!buffer){buffer=gl.createBuffer();gl.bindBuffer(target,buffer);gl.bufferData(target,blobs[key],gl.STATIC_DRAW);buffers.set(key,buffer);}return buffer;};
     const enabled=new Set(),uniformState=new Map();
     try{
