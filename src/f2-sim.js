@@ -519,10 +519,7 @@ class F2 {
   // scene or let a stale hull command address a replacement collider.
   bodiesIn() {
     const c = this.collision, rays = c?.rays;
-    if (!rays) {
-      if (this.kernel) { this.x.veh_collision(-1, -1); this.kernel = false; }
-      return;
-    }
+    if (!rays) throw Error('The vehicle phase requires the native collision kernel');
     if (!this.kernel) {
       const blockers = c.vehicleBlockers ? rays.fixedSet(c.blockerSet(c.vehicleBlockers), c.vehicleBlockers.bvh) : -1;
       this.x.veh_collision(c.rayWorld, blockers);
@@ -599,6 +596,10 @@ class F2 {
       body.inverse.fromArray(f, o + PLACED.inverse);
     }
   }
+
+  // Foreign target facts still name opaque collision bodies until units move.
+  // Resolve their existing identity without querying or recomputing geometry.
+  bodySlot(body) { return body ? this.bridge.refs[KIND_BODY].slotOf(body) : -1; }
 
   // VehicleWorld queries remain synchronous where unported units or damage
   // can affect the current phase. Query result objects are reused; hooks read

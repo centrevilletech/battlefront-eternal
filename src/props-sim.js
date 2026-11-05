@@ -9,7 +9,6 @@ import { putPbConfiguration, putPbInput, PbResultMirror, syncPbResult } from "./
 import { putPaConfiguration, putPaInput, PaResultMirror, syncPaResult } from "./sim/gen/props.js";
 import { putPqInput, PqResultMirror, syncPqResult } from "./sim/gen/props.js";
 import { makeRiderPoints, riderPoints } from "./rider-pose.js";
-import { TurretsSim } from "./turrets-sim.js";
 
 const num = value => {
   const n = Number.parseFloat(Array.isArray(value) ? value[0] : value);
@@ -62,7 +61,6 @@ export class PropsSim {
     });
     this.animated = new AnimatedPropsSim(bridge, live);
     this.queries = live.center && live.toward ? new LiveQueriesSim(this, live) : null;
-    this.turrets = live.f2Seats ? null : new TurretsSim(bridge, live);
   }
 
   identity(object) {

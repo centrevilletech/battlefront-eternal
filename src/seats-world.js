@@ -1,4 +1,4 @@
-import { updateWeaponLock, seatLockTarget } from "./weapon-targeting.js";
+
 import { bindMountedRound } from "./muzzles.js";
 import { emitSound } from "./audio/events.js";
 import { SeatUnit } from "./seats.js";
@@ -30,18 +30,6 @@ export class SeatsWorld {
     // relation() as a function of two teams (src/boarding.js boardingSeat),
     // reaching the method as it stands when called.
     this.relate = (a, b) => this.relation(a, b);
-  }
-
-  // The collision world's first hit along a ray (CollisionWorld.cast), into
-  // `out`, leaving out ignoreBody; null for none.
-  cast(origin, direction, far, out, ignoreBody) {
-    return this.system.collision.cast(origin, direction, far, out, ignoreBody);
-  }
-
-  // Whether a sphere overlaps anything solid but ignoreBody
-  // (CollisionWorld.overlapsSphere).
-  overlapsSphere(center, radius, ignoreBody) {
-    return this.system.collision.overlapsSphere(center, radius, ignoreBody);
   }
 
   // The first unit along a ray within `far` (Units.raycast), `exclude` left
@@ -84,24 +72,6 @@ export class SeatsWorld {
   // lease each time it takes a seat.
   controllable(lease) {
     return new SeatUnit(lease);
-  }
-
-  // A launcher's lock as a seat's or turret's bot holds it
-  // (updateWeaponLock), its target the bot's own (seatLockTarget).
-  updateLock(weapon, dt, origin, dir, viewer, ignoreBody, lease) {
-    updateWeaponLock(weapon, dt, { units: this.system.ordnance?.units, collision: this.system.collision,
-      origin, dir, viewer, ignoreBody, target: seatLockTarget(lease) });
-  }
-
-  // A weapon's tick (Weapon.update): the shots it fires.
-  weaponUpdate(weapon, dt, selected, trigger, reload, options) {
-    return weapon.update(dt, selected, trigger, reload, options);
-  }
-
-  // A round of `def` (Ordnance.fire): a rocket's, missile's or shell's
-  // record, nothing for the rest.
-  fire(def, origin, direction, owner, ignoreBody, emitter, shot) {
-    return this.system.ordnance?.fire(def, origin, direction, owner, null, ignoreBody, emitter, shot);
   }
 
   // Which mount, seat, weapon and barrel a round is drawn leaving

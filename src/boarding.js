@@ -67,12 +67,6 @@ export function boardingSeat(vehicle, { team = 0, person = false, relation = tea
 
 // Makes seat `index` his: a bot holding it moves on to the next free seat,
 // or gets out (Vehicles.displace). Whether the seat is free now.
-export function claimSeat(vehicle, index) {
-  const lease = vehicle.seats[index]?.lease;
-  if (lease && !lease.released && !personLease(lease)) vehicle.system?.displace?.(lease);
-  return vehicle.seatFree(index);
-}
-
 // What a soldier's use key (E) gets him into: the nearest vehicle in reach
 // ahead of him that he may board (Vehicles.enterable), else the turret he
 // faces (LiveObjects.enterable). Null for nothing, or when he may not board.
@@ -122,14 +116,14 @@ export function mayLeave(vehicle, lease) {
 // among soldiers again (a corpse rounds still meet),
 // and while the hull lives the last bot aboard takes the seat over, as after
 // any exit. The hull goes on without him: a hover slows to a stop at its
-// Deceleration, a craft in flight holds its course (src/flight/pilotless.js),
+// Deceleration, a craft in flight holds its course (the native flight solver),
 // and anyone may take it. He isn't flung off: the 2004 game throws a dead
 // rider (9 m/s along the round, lifted) only from a seat whose class sets
 // hash 81bce0f9 to 0, which no retail class does. A turret's gunner leaves
 // his gun the same way (the armed building seats its pilot through the same
 // code), and the turret waits for whoever comes next. For a bot or a network
 // human (Vehicles.vacate, TurretSeats.vacate) and the player
-// (VehicleDriver.release, Gunner.exit) alike. Returns whether he held a
+// (page view release) alike. Returns whether he held a
 // seat.
 export function leaveKilled(unit) {
   const lease = unit?.seat;
@@ -143,35 +137,6 @@ export function leaveKilled(unit) {
     else turret.crew?.vacate(lease, { placement: false, reason: "killed" });
   } else return false;
   return true;
-}
-
-// A person's seat switch (the seat keys: 1 and 2 in a craft, F and the
-// wheel elsewhere): on to the next seat that way that no other person
-// holds. A bot there trades places with him. Into a gunner's seat his view
-// goes with him, inside its arc; back at the controls he aims along the
-// hull. Leaving the pilot's seat lets go of the stick (a craft with nobody
-// at the controls holds its course: src/flight/pilotless.js). from: the seat
-// he holds (the player's may have no lease in a fixture). Returns the new
-// seat, or -1 with none to take.
-export function switchSeat(system, vehicle, lease, from = lease?.index ?? 0, direction = 1) {
-  const n = vehicle?.seats?.length ?? 0;
-  if (!vehicle?.alive || n < 2) return -1;
-  for (let k = 1; k < n; k++) {
-    const to = (((from + direction * k) % n) + n) % n;
-    const occupant = vehicle.seats[to].lease;
-    if (occupant && occupant !== lease && personLease(occupant)) continue;
-    // The player's seat, seen from a network human's switch.
-    if (vehicle.driver && vehicle.seatIndex === to && !lease?.human) continue;
-    const a = vehicle.seats[from], b = vehicle.seats[to];
-    if (to > 0) { b.aimYaw = a.aimYaw; b.pitch = a.pitch; b.lookYaw = a.lookYaw; b.lookPitch = a.lookPitch; }
-    if (lease) system.move(lease, to);
-    if (occupant && occupant !== lease) system.move(occupant, from);
-    if (to === 0) vehicle.restAim(0);
-    else vehicle.clampAim(to);
-    if (from === 0) vehicle.stickX = vehicle.stickY = 0;
-    return to;
-  }
-  return -1;
 }
 
 // What a seat's keys and mouse do to the hull: the pilot of a craft flies it
@@ -192,23 +157,8 @@ export const seatScheme = (vehicle, bindings) => (vehicle?.flying ? flightBindin
 // Mouse counts on a seat: a craft's pilot moves its virtual stick (the
 // flight sensitivity and invert); any other seat turns its aim, held inside
 // the seat's limits (the mouse scale and invert).
-export function seatLook(vehicle, index, dx, dy, { scale = 1, invert = false, flightScale = 1, flightInvert = false } = {}) {
-  if (vehicle.system?.f2?.seats) {
-    vehicle.system.f2.seats.look(vehicle, index, dx, dy, { scale, invert, flightScale, flightInvert }); return;
-  }
-  if (seatControl(vehicle, index) === "flight") {
-    const stick = vehicle;
-    stick.stickX = THREE.MathUtils.clamp(stick.stickX + (dx * flightScale) / 120, -1, 1);
-    stick.stickY = THREE.MathUtils.clamp(stick.stickY + ((flightInvert ? -dy : dy) * flightScale) / 120, -1, 1);
-    const radius = Math.max(1, Math.hypot(stick.stickX, stick.stickY));
-    stick.stickX /= radius;
-    stick.stickY /= radius;
-    return;
-  }
-  const seat = vehicle.seats[index];
-  seat.lookYaw = (seat.lookYaw ?? seat.aimYaw) - (dx * scale) / 2048;
-  seat.lookPitch = (seat.lookPitch ?? seat.pitch) + ((invert ? dy : -dy) * scale) / 2048;
-  vehicle.clampAim(index);
+export function seatLook(vehicle, index, dx, dy, settings) {
+  vehicle.system.f2.seats.look(vehicle, index, dx, dy, settings);
 }
 
 // A seat's keys this tick, as the hull takes them (seatControl): the flight

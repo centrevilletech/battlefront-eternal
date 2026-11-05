@@ -21,11 +21,7 @@ import { blastBlocked } from "./ordnance.js";
 export class VehiclesWorld {
   constructor(vehicles) {
     this.vehicles = vehicles;
-    // pushWalls' own scratch, for the collision without its WebAssembly.
-    this.point = new THREE.Vector3();
-    this.probeStart = new THREE.Vector3();
-    this.normal = new THREE.Vector3();
-    this.nearest = new THREE.Vector3();
+
   }
 
   // The collision world's first hit along a ray (CollisionWorld.cast), into
@@ -44,47 +40,7 @@ export class VehiclesWorld {
   // Returns whether a push went deeper than 0.15 m (the hull's turn this
   // step is undone). hull: whose probes these are (their gather caches).
   pushWalls(hull, probes, radius, q, own, previous, position, velocity, terrain) {
-    const c = this.vehicles.collision;
-    // In the collision's WebAssembly, whole: the same pushes in the same
-    // order, with no polygon or triangle lists made for them here.
-    if (c.rays) try {
-      return c.rayPushWalls(probes, radius, hull.wallCaches, q, own, previous, position, velocity, terrain);
-    } catch (error) { c.dropRays(error); }
-    let undo = false;
-    for (let pass = 0; pass < 2; pass++) for (let i = 0; i < probes.length; i++) {
-      const probe = probes[i];
-      this.point.copy(probe).applyQuaternion(q).add(position);
-      if (own) this.probeStart.copy(probe).applyQuaternion(own).add(previous);
-      for (const polygon of c.gather(this.point, radius, true, hull.wallCaches[i])) for (const tri of polygon.triangles) {
-        if (this.pushOut(tri, radius, position, velocity, own && polygon.moving)) undo = true;
-      }
-      if (terrain) for (const tri of c.terrainNear(this.point, radius)) if (this.pushOut(tri, radius, position, velocity)) undo = true;
-    }
-    return undo;
-  }
-
-  // One probe (this.point) out of one triangle: whether it went deeper
-  // than 0.15 m. other: a moving hull's (see pushWalls).
-  pushOut(tri, radius, position, velocity, other = false) {
-    tri.getNormal(this.normal);
-    if (Math.abs(this.normal.y) > .65) return false; // suspension handles floors
-    tri.closestPointToPoint(this.point, this.nearest);
-    this.normal.subVectors(this.point, this.nearest);
-    const distance = this.normal.length();
-    if (distance >= radius || distance < 1e-6) return false;
-    this.normal.divideScalar(distance);
-    let depth = radius - distance + .002;
-    if (other) {
-      // How far this probe came toward the other hull this step.
-      const came = -(this.normal.x * (this.point.x - this.probeStart.x) + this.normal.y * (this.point.y - this.probeStart.y) + this.normal.z * (this.point.z - this.probeStart.z));
-      depth = Math.min(depth, Math.max(0, came));
-      if (!(depth > 0)) return false;
-    }
-    position.addScaledVector(this.normal, depth);
-    this.point.addScaledVector(this.normal, depth);
-    const into = velocity.dot(this.normal);
-    if (into < 0) velocity.addScaledVector(this.normal, -into);
-    return depth > .15;
+    return this.vehicles.collision.rayPushWalls(probes, radius, hull.wallCaches, q, own, previous, position, velocity, terrain);
   }
 
   // The terrain straight under (x, z) from `top` down (CollisionWorld.ground):
@@ -169,9 +125,7 @@ export class VehiclesWorld {
     this.vehicles.ordnance.explosion(def, position, owner);
   }
 
-  fire(def, origin, direction, owner, ignoreBody, emitter, shot) {
-    return this.vehicles.ordnance.fire(def, origin, direction, owner, null, ignoreBody, emitter, shot);
-  }
+  
 
   // What a page shows and hears of them: an effect at a point (recorded by
   // a world for its page), a muzzle's flash, a sound (the presentation

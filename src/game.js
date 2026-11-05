@@ -1659,28 +1659,6 @@ async function start() {
     },
   };
   const eyePoint = new THREE.Vector3();
-  function toggleTurret() {
-    if (driver?.active) { driver.exit(); return; }
-    if (gunner.active) {
-      gunner.exit(soldier);
-      animator.reset(soldier.aimYaw);
-      combat.mounted = false;
-      return;
-    }
-    if (combat.dead) return;
-    // What his E reaches, by the rules every boarder follows (src/boarding.js).
-    const mount = mountInReach({ vehicles, live }, playerUnit, true);
-    const vehicle = mount?.vehicle;
-    if (vehicle && driver.enter(vehicle)) { if (vehicle.flying) setPerspective(Boolean(settings.get('flightFirstPerson'))); return; }
-    const turret = mount?.turret;
-    if (turret) {
-      // Taking over from a bot gunner: his crew sets him down first.
-      if (turret.lease && !turret.lease.released && !personLease(turret.lease)) turret.crew?.vacate(turret.lease);
-      gunner.enter(turret, soldier);
-      combat.mounted = true;
-      hud.message(turret.label);
-    }
-  }
 
   // The jetpack's flames (the class's JetEffect; its effects come with the
   // body), hung from the ribcage while the soldier hovers; when he stops
@@ -2122,7 +2100,7 @@ async function start() {
           }
           commandHistory.put(command);
           if (!worldControls.accept(command)) throw new Error('stale world command');
-          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; (vehicles?.f2 ?? vehicles?.sim)?.retune(name, key, value); }
+          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles?.f2?.retune(name, key, value); }
           const fs = command.flightSettings || {};
           if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
           const yawBeforeLook = soldier.aimYaw;
@@ -2139,7 +2117,7 @@ async function start() {
         case 'takeSquad': return { flag: tickControls.take(stepSquads[value][0]) };
         case 'squad': ai.playerCommand(stepSquads[value][1]); hud.squadCommand(stepSquads[value][2]); break;
         case 'takeUse': return { flag: tickControls.take('use') };
-        case 'toggleTurret': toggleTurret(); break;
+        case 'toggleTurret': break;
         case 'player': stepPlayer(dt); break;
         case 'playerCount': playerUnit.tickCount = value; break;
         case 'eye': combat.eye(soldier.position, simulationEye); simulationZoom = 1; break;
@@ -2173,9 +2151,9 @@ async function start() {
           const seated = driver.vehicle;
           vehicles.update(dt, seated, seated ? seatInput(seated, seated.seatIndex, tickControls, command) : undefined); break;
         }
-        case 'driver': driver.update(dt, tickControls); break;
-        case 'turretSeats': if (!vehicles?.f2) turretSeats.update(dt); break;
-        case 'gunner': gunner.update(dt, soldier, tickControls, 1); break;
+        case 'driver': break;
+        case 'turretSeats': break;
+        case 'gunner': break;
         case 'remotes': remotes.update(dt, flag ? droidInput : null, tickControls); break;
         case 'networkRemotes': networkRemotes.finish(tick, dt); break;
         case 'muzzles': samplePlayerMuzzles(dt); break;
@@ -2237,7 +2215,7 @@ async function start() {
     }
     commandHistory.put(command);
     if (!worldControls.accept(command)) throw new Error("stale world command");
-    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; (vehicles?.f2 ?? vehicles?.sim)?.retune(name, key, value); }
+    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; vehicles?.f2?.retune(name, key, value); }
     const fs = command.flightSettings || {};
     if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
     const yawBeforeLook = soldier.aimYaw;
@@ -2263,7 +2241,7 @@ async function start() {
         ai.playerCommand(kind); hud.squadCommand(label);
       }
     }
-    if (!remotes.active && !walker && tickControls.take("use")) toggleTurret();
+
     if (!game.serverWorld) stepPlayer(dt);
     playerUnit.tickCount += 1;
 
@@ -2320,10 +2298,10 @@ async function start() {
       // network human's are read for his.
       const seated = driver.vehicle;
       vehicles.update(dt, seated, seated ? seatInput(seated, seated.seatIndex, tickControls, command) : undefined);
-      if (driver.active) driver.update(dt, tickControls);
+
     }
-    if (!vehicles?.f2) turretSeats?.update(dt);
-    if (gunner.active) gunner.update(dt, soldier, tickControls, 1);
+
+
     remotes.update(dt, remotes.active ? droidInput : null, tickControls);
     networkRemotes?.finish(tick, dt);
     samplePlayerMuzzles(dt);

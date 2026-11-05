@@ -665,18 +665,7 @@ export class Turret extends Building {
 
   // Mouse turn and pitch rates (as the soldier reads them) steer the aim,
   // inside the class's yaw arc and pitch limits.
-  steer(dt, turnInput, pitchInput, zoom = 1) {
-    const k = Math.min(1, this.filter * dt);
-    const rate = this.turnRate / zoom;
-    this.yawVel += (turnInput * rate - this.yawVel) * k;
-    this.pitchVel += (pitchInput * rate - this.pitchVel) * k;
-    const yaw = this.yaw + this.yawVel * dt;
-    this.yaw = this.yawLimits ? Turret.prototype.holdYaw.call(this, yaw) : Math.atan2(Math.sin(yaw), Math.cos(yaw));
-    // Held at the arc's end, the drum stands still (its gunner's turn
-    // frames and the look preview go by yawVel).
-    if (this.yawLimits && Math.abs(Math.atan2(Math.sin(yaw - this.yaw), Math.cos(yaw - this.yaw))) > 1e-9) this.yawVel = 0;
-    this.pitch = THREE.MathUtils.clamp(this.pitch + this.pitchVel * dt, this.pitchLimits[0], this.pitchLimits[1]);
-  }
+  
 
   // The aim frame (the original game's camera subject for the seat): at the
   // drum's pivot, looking along the aim (yaw from the heading, pitch up
@@ -750,10 +739,7 @@ export class Turret extends Building {
   // part), then the drum and gun posed from the angles (present's). Both
   // hosts integrate; a page showing a worker's battle poses from the
   // replicated angles alone (LiveObjects.present).
-  pose(dt, target) {
-    this.aimGun(dt, target);
-    this.present();
-  }
+  
 
   // The drum and gun from the aim and the gun's own angles. The drum is the
   // aim frame's turn (by YawTurnFactor and PitchTurnFactor) about its pivot,
@@ -792,20 +778,13 @@ export class Turret extends Building {
 
   // The gun's aim integration alone: toward the target at its yaw and pitch
   // rates, inside its limits.
-  aimGun(dt, target) {
-    if (!this.gun) return;
-    const want = this.gunWant(target, gunWanted);
-    const step = (from, to, rate) => from + THREE.MathUtils.clamp(to - from, -rate * dt, rate * dt);
-    this.gunYaw = step(this.gunYaw, want.yaw, this.gunYawRate);
-    this.gunPitch = step(this.gunPitch, want.pitch, this.gunPitchRate);
-  }
+  
 
   // The direction the gun points, and its fire point, in the world.
   muzzle(position, direction, advance = false) {
     if (this.f2Seats) { if (direction) direction.copy(this.f2Pose.muzzleDirection); return position.copy(this.f2Pose.muzzle); }
     this.rig.root.updateMatrixWorld(true);
     const point = this.firePoints?.length > 1 ? this.firePoints[this.barrel % this.firePoints.length] : this.firePoint;
-    if (advance) this.barrel++;
     (point || this.gun || this.rig.root).getWorldPosition(position);
     if (direction) direction.set(0, 0, 1).transformDirection((this.gun || this.rig.root).matrixWorld);
     return position;
@@ -1582,7 +1561,6 @@ export class LiveObjects {
     for (const station of this.stations) station.update(dt, target, this.vehicleTargets);
     for (const turret of this.turrets) {
       turret.regenerate(dt);
-      if (!this.f2Seats && !turret.gunner && turret.alive) turret.aimGun(dt, null);
     }
     this.f2Seats?.idleTurrets(dt);
     if ((this.animated || []).length) {
