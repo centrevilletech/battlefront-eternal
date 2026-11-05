@@ -1,4 +1,4 @@
-//! The room reverb (src/audio/worklets/reverb.js): a feedback delay
+//! The room reverb (reverb DSP): a feedback delay
 //! network of 8 lines mixed by a Householder matrix, each line damped by
 //! a one-pole lowpass, fed through input diffusers after early
 //! reflections and a pre-delay, each output channel reading its own
@@ -175,7 +175,7 @@ impl Reverb {
         self.in_a = if rh >= 0.999 { 0.0 } else { js_min(js_max(1.0 - rh, 0.0), 0.95) };
     }
 
-    fn scratch(&mut self, n: usize) {
+    pub(crate) fn scratch(&mut self, n: usize) {
         if self.ys.len() >= n {
             return;
         }

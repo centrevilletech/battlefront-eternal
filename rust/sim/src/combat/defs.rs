@@ -306,12 +306,28 @@ const KEYS: [&str; 55] = [
 pub struct Level {
     pub obj: Rc<JsObj>,
     vals: Vec<Js>,
+    pub cosmetic_round: bool,
+    pub(crate) melee_swings: Vec<MeleeSwing>,
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct MeleeSwing { pub duration: Js, pub hit: Js }
 
 impl Level {
     pub fn new(obj: Rc<JsObj>) -> Level {
         let vals = KEYS.iter().map(|k| obj.get(k).clone()).collect();
-        Level { obj, vals }
+        // PredictedShots.fire admits these ordnance classes before selecting a
+        // droideka barrel. Resolve the content once, outside the replay loop.
+        let ordnance = obj.get("ordnance");
+        let cosmetic_round = ordnance.truthy() && !matches!(ordnance.get("base").str(), Some("sticky" | "grenade" | "emitterordnance"));
+        // heroes.js meleeSwings: retain immutable durations/hit times once.
+        let source = obj.get("swings");
+        let melee_swings = if source.len() > 0 {
+            (0..source.len().min(3)).map(|i| MeleeSwing {
+                duration: source.at(i).get("duration").clone(), hit: source.at(i).get("hit").clone(),
+            }).collect()
+        } else { vec![MeleeSwing { duration: Js::Num(1.0), hit: Js::Num(0.5) }] };
+        Level { obj, vals, cosmetic_round, melee_swings }
     }
 
     #[inline]

@@ -8,7 +8,7 @@ The port's sound has two modes, switched live in Settings → Audio:
   through what the build's OpenAL Soft 1.20.1 output does with them.
   `docs/formats.md` ("Sound") has the rules. On stereo speakers it plays
   through the light mix (below): the same mix without the reverb, summed by
-  the Rust voice engine by default, with browser nodes as the fallback.
+  the Rust output engine. Both modes use Rust for every playback and DSP operation.
 - **Enhanced (2026)** keeps every one of those decisions (which sound, when,
   how loud in the mix, from where) and renders them for a 2026 room: a
   spatial sound stage for headphones, stereo, 5.1, 7.1 and 7.1.4, rooms and
@@ -51,7 +51,7 @@ python3 -m venv .venv-audio
 These write `public/audio/enhanced/nab2cw/` (41 MB of FLAC samples, 86 MB
 of Opus streams, and a manifest) and `public/audio/hrtf/`. Without the
 enhanced folder the enhanced mode renders the original samples; without
-the headphone filters it uses the browser's HRTF on headphones.
+the headphone filters it uses the Rust IRCAM HRTF decoder on headphones.
 
 Each sample and stream segment is made once, in `public/audio/enhanced/samples/`
 and `streams/<stream>/` (with a `.json` beside it recording its settings
@@ -97,16 +97,16 @@ panner.
 `window.__bf.audio` is the `GameAudio` object: `engine` (voices, buses,
 `stats`, `culled` among them: one-shots asked for out of earshot),
 `engine.renderer` (the graph; its `dsp` is the WebAssembly module, built
-from `rust/audio`, that the worklets run, or null with `?audio=js`, which
-runs their JavaScript instead: the same samples to the bit, for A/B; its
-`engine` is whether the voices play in the module's voice engine, as they
-do unless `?voices=native`, and `master` whether the chain after them does, unless `?master=native`: see "The voice engine"), `streams` (`queues`: the lines waiting),
-`music`, `vo`, `player`, `soldiers`, `chatter`, `scene`, `ambience`,
-`acoustics`, `data`, and `log` (sounds asked for that don't exist).
+from `rust/audio`, shared by the output and optional meter worklets. `engine`
+and `master` describe the active Rust graph; `streams` (`queues`: lines
+waiting) and the voice counts describe its inputs. There is one audio
+implementation. A required module that fails to compile, instantiate or
+render produces a visible player error.
 
 ## How it fits together
 
-Everything is in `src/audio/`. Gameplay code reports discrete events
+The battle engine is in `src/audio/`; `src/shell/audio.js` and
+`loading-audio.js` select the front end's sounds. Gameplay code reports discrete events
 through `events.js` (one-line hooks); the rest is read off the game's objects
 each frame, as the original's entities poll their own state.
 
@@ -127,7 +127,10 @@ each frame, as the original's entities poll their own state.
 | `acoustics.js`, `mixer.js` | Enhanced only: air, occlusion, rooms; the loudness window. |
 | `enhanced.js` | The upscaled assets, loaded in the background. |
 | `panel.js`, `options.js` | The panel and the settings' choices. |
-| `worklets/` | `spatial-mixer` (every 3D voice's panning), `stabilizer` (OpenAL Soft's), `clarity` (the enhanced mode's attacks and top octave), `reverb` (an FDN), `limiter` (compressor and true-peak limiter), `meter` (BS.1770). |
+| `worklets/` | Thin required-module hosts: `output` copies the Rust render quantum to the device; `frontend` copies the menu/loading output; `meter` copies PCM in and loudness readings out. |
+| `rust/audio/src/output.rs` | Owns voice and stream playback, placement, convolution, room sends, mono and the complete master phase. |
+| `frontend.js`, `rust/audio/src/frontend.rs` | Menu music, whooshes, interface sounds and loading pulses: timed playback, resampling, bus gains and linear fades in Rust. |
+| `decode.js` | The temporary, single `decodeAudioData` boundary for compressed asset I/O. |
 
 Each frame: the listener follows the camera; the player and scene modules
 start, stop and steer their sounds; voices are scored and the top 32 play;
@@ -169,7 +172,7 @@ What stands in for something:
 
 - **Headphones.** OpenAL Soft turns on its HRTF (the MIT KEMAR set) when
   Windows reports headphones, and pans every source and stream channel
-  through it. The port uses the browser's HRTF panner (Chromium's is the
+  through it. The port uses the Rust IRCAM HRTF decoder (Chromium's is the
   IRCAM LISTEN composite), brought to the same level as a source ahead on
   speakers. If Windows didn't report your headphones, the original played
   its stereo panning: choose Stereo instead.
@@ -182,8 +185,8 @@ What stands in for something:
   so the two modes match in loudness. Nothing else in the mix changes.
 - **7.1.4** is beyond OpenAL Soft 1.20.1: the original plays 7.1, the
   heights silent.
-- **Resampling** follows Chromium's linear interpolation, in Rust for engine
-  voices and in browser buffer sources for fallback voices. It does not use
+- **Playback resampling** follows Chromium's linear interpolation in Rust for
+  every voice and stream. It does not use
   OpenAL Soft's resampler.
 
 Footsteps: the two detectors keep the original game's rules for when a step
@@ -215,48 +218,20 @@ bots' chatter: the AI's "vo" records stay on the server.
 
 ### The light mix (stereo)
 
-On stereo speakers (and Automatic on a stereo device, which is every laptop)
-the original plays through the light mix (`Renderer.buildLight` in
-`src/audio/spatial.js`). A 2014 laptop with an A8-6410 (four 2 GHz cores
-sharing 15 W with the GPU) spent 31 to 43% of a core on the audio thread in
-a battle in the original's full output, at real-time priority, taking it
-from the page and the world worker that already had none to spare. The
-light mix keeps every decision the game makes (which sound, when, how loud,
-the distance curve and the Steam build's falloff, Doppler, the pitch
-glides, the 32 heard voices of 64 and how they are ranked and stolen) and
-sums the result with the Rust voice engine by default. If WebAssembly is
-unavailable, or `?voices=native` is selected, browser nodes provide the
-fallback. The paths share the same voice decisions and stereo law:
+On stereo speakers (and Automatic on a stereo device), Classic uses the
+light mix in `rust/audio/src/output.rs`. It keeps the same sound choices,
+distance curve, Doppler, pitch glides and voice ranking.
 
-- The default voice worklet mixes decoded samples in Rust with per-voice
-  levels, pitch glides and stereo gains. It does not create a browser buffer
-  source and gain nodes for each voice.
-- In the browser fallback, each voice is its buffer source and two gains, one into each speaker,
-  carrying its level times OpenAL Soft's first-order stereo law for its
-  direction (front azimuths widened 1.5 times, as before): three nodes, as
-  many as before, with no gain node of its own, no filter, no send and no
-  mixer input. Both gains ease as the engine eases a level (15 ms), the
-  first at once, and a change of a thousandth or less isn't sent.
-- Streams play at OpenAL Soft's angles for their channels, in as few nodes
-  as that takes: a stereo pair lands hard left and right, so a music stream
-  goes straight into the mix; a mono line ahead through one gain into both
-  speakers (0.5957 each); a quad bed's front pair straight to its speakers
-  and its rear pair through a gain to each (0.667 on its own side, 0.167 on
-  the other).
-- The master: the mix at the original's stereo level (+1.5 dB), the mono
-  fold if chosen, the dynamics profile as a level (Home theater −10.2 dB,
-  Normal −6.1, Night −5.7), a soft clip (unity to −1 dBFS, then a knee that
-  reaches full scale 6 dB over it), the master volume. With no compressor
-  the levels are what put a battle at the enhanced mode's loudness:
-  `tests/audio-loudness.mjs` on 60 s of Theed gave Home −22.9 LUFS, Normal
-  −18.8, Night −18.4 against the enhanced mode's −21.8, −18.7 and −18.2,
-  true peak at most −1.3 dBTP (the soft clip only guards), and a loudness
-  range of 9.3 LU in every profile.
-- No worklet, no reverb, no limiter. A context that never loads a worklet
-  renders on the device's own audio thread, without a second real-time
-  thread to hand each block across; the worklets load if the player later
-  picks a graph that needs them (Enhanced, surround, headphones, or the
-  audio panel's meter), the light mix playing until they are in.
+- Rust mixes each voice through OpenAL Soft's first-order stereo gains.
+  Both gains ease over 15 ms, the first value applies immediately, and
+  changes of a thousandth or less are held.
+- Rust places stream channels at OpenAL Soft's angles: stereo hard left
+  and right, mono ahead, and a quad bed's rear pair spread across both ears.
+- The master applies the original stereo level (+1.5 dB), optional mono,
+  the dynamics profile's level (Home theater −10.2 dB, Normal −6.1,
+  Night −5.7), the 4097-entry soft-clip curve and master volume.
+- This mode has no reverb or compressor. It uses the same single Rust
+  output worklet as every other mode.
 
 Against the full original output on stereo it drops the sub-level's reverb
 (Theed, the Dune Sea and Endor's are dry; on the other maps it is the
@@ -359,12 +334,12 @@ right ear):
 
 Third order follows the head to within about 2.5 dB up to 4 kHz (the file
 also has 500 Hz and 2 kHz), except deep in the far ear's shadow, which it
-fills in by up to 6.5 dB at 4 kHz. The browser's chain
+fills in by up to 6.5 dB at 4 kHz. The decoder chain
 reproduces the decoder's levels to within 0.3 dB at 22.05, 44.1, 48 and 96
 kHz (decoding resamples the filters to the context's rate, which scales
 their gain; the loader undoes that).
 
-Without the filters, each 3D voice gets the browser's HRTF panner, at
+Without the filters, each 3D voice uses Rust's IRCAM HRTF decoder, at
 about twice the cost with 32 voices and 2.6 times with 64 (below).
 
 ### The listener
@@ -431,7 +406,7 @@ rendering. The enhanced mode's master chain opens with a clarity stage
 
 - **EQ**: −2 dB around 220 Hz (where many sounds at once pile up), +1.5 dB
   presence around 3.2 kHz, +3 dB air above 8.5 kHz.
-- **Attacks** (`worklets/clarity.js`): two envelopes of the whole mix's
+- **Attacks** (`rust/audio/src/clarity.rs`): two envelopes of the whole mix's
   power, fast (1 ms up, 40 ms down) and slow (25 ms up, 250 ms down), linked
   across the channels so the image holds. Where the fast one stands over the
   slow one an attack is under way, and the gain rises by a quarter of the
@@ -472,302 +447,107 @@ True peak stayed at or under −1 dBTP throughout. The meter in the panel is
 the same BS.1770 meter (K-weighting, 400 ms blocks, absolute and relative
 gates).
 
-## Browser practice
+## Runtime ownership
 
-- One AudioContext, created at load and resumed on the first click, key
-  or touch; suspended while the page is hidden and resumed when it shows.
-- The DSP runs in AudioWorklets (panning, stabilizer, reverb, dynamics,
-  meter) and native nodes (filters, convolvers); the main thread only
-  decides, and sends each frame's voice directions in one message. The
-  light mix uses the Rust voice worklet by default. Its browser fallback
-  pans with two native gains per voice, set from the main thread.
-- Per-battle decoding: only the sub-level's samples load (24 MB of PCM, or
-  the enhanced FLACs in the background, six at a time). Streams are
-  fetched by byte range per segment, decoded in a worker, and kept for at
-  most 600 s of sound.
+One AudioContext supplies the clock and device. The page resumes it on the
+first gesture, suspends it while hidden, selects assets and sends timed
+commands. One zero-input AudioWorklet owns a required Rust module. Every
+render quantum calls `output_process` once and copies the finished PCM to
+the device. Its twelve discrete output lanes allow layout changes without
+replacing the live host; unused lanes are zero and the device truncates them.
 
-## Cost
+Rust owns PCM normalization and loading-time gain compensation as well as
+sample cursors, playback-rate interpolation, automation, gain,
+filters, panning, stream routing and upmix delays, both headphone decoders,
+reverb, EQ, clarity, mono, dynamics, limiting and volume. Classic surround
+uses OpenAL Soft's decoder and front stabilizer. Classic headphones and
+Enhanced headphones without the optional dummy-head filters use the IRCAM
+HRTF database. Its kernel preparation, interaural delays and crossfades run
+in Rust. The dummy-head path uses 32 partitioned ear convolutions.
+The browser FFT uses WebAssembly SIMD for adjacent complex butterflies.
+The front end keeps an all-mono mix in one lane until the final stereo copy.
 
-`tests/audio-bench.mjs` renders offline in headless Chromium and reads the
-render thread's own CPU time: the whole renderer per mode with 0, 32 and 64
-voices that move every frame (as the engine moves them), each worklet
-alone, and the engine's main-thread update. On this machine (8 cores,
-shared with other work, so cells move by up to a fifth run to run), as a
-percentage of one core, best of three, the version before the changes below
-against this one, measured back to back:
+Mono keeps the frozen routing, including its existing 7.1/7.1.4 behavior:
+the first channel is copied to every output. Stereo and 5.1 use their
+recorded downmix coefficients. Changing this is a separate audible change.
 
-| Rendering | 0 voices | 32 voices | 64 voices |
-| --- | --- | --- | --- |
-| Original, stereo | 10.0 → 4.2% | 38.3 → 29.2% | 59.2 → 47.5% |
-| Original, 5.1 | 24.8 → 8.8% | 43.8 → 39.5% | 84.4 → 61.9% |
-| Original, headphones (HRTF) | 12.7 → 3.5% | 113 → 128% | 230 → 233% |
-| Enhanced, stereo | 14.6 → 7.2% | 59.4 → 35.7% | 112 → 52.4% |
-| Enhanced, 5.1 | 31.4 → 11.9% | 80.3 → 35.9% | 125 → 77.5% |
-| Enhanced, 7.1.4 | 32.3 → 18.7% | 80.4 → 44.0% | 112 → 82.5% |
-| Enhanced, headphones (dummy-head decoder) | 26.8 → 15.8% | 65.9 → 57.9% | 117 → 77.2% |
-| Enhanced, headphones (browser HRTF fallback) | 16.8 → 6.8% | 119 → 112% | 265 → 200% |
+The meter is an optional second thin host for Rust's BS.1770 meter.
+Speaker-panel signals are generated by Rust and played through Rust lanes;
+the speaker test targets a device channel after the muted game mix.
+There are no browser source, gain, filter, panner, convolution, delay,
+shaper, splitter or merger DSP nodes in the game, menus or loading screen.
+The front end uses its own two-channel Rust host on its context, retaining
+its music and shellfx gain stages and linear fades. Music is fetched and
+decoded one track at a time, rather than played by an HTML audio element;
+this keeps playback and resampling inside Rust but holds that track's
+decoded PCM in memory until it ends or is replaced.
 
-The game hears at most 32 voices. In the game itself (Theed, a scripted
-battle, about 5 voices heard of some 50), the audio thread went from about
-37% of a core to 25% in the enhanced mode, and from 24-31% to 18-20% in the
-original. The engine's main-thread update with 48 voices went from about
-240 to 140-160 µs; the acoustics' rays from 0.44 to 0.33 ms a frame.
+Sources, filters, delay lines, FFT buffers and render scratch are reserved
+before their first block. PCM and command messages may allocate between
+blocks. Stream segments use three reusable sample slots per lane; finished
+lanes release their PCM. Meter integrated history reserves another hour
+between blocks, requested with one minute of capacity remaining.
 
-What made the difference, all without changing the output (the original
-mode renders bit for bit the same on speakers, and within rounding, -130
-dBFS, on headphones; the enhanced mode within -105 dBFS, the spread
-Chromium shows between two identical runs):
+### Temporary host codec I/O
 
-- The limiter checks true peaks only in blocks that could reach the
-  ceiling, keeps its window's minimum in a running queue, and skips the
-  compressor's logarithms under the knee: 2 channels 7.9 → 1.6%, 12
-  channels 25 → 3.4%.
-- The reverb runs a block at a time (its delay lines are all longer than a
-  block) and not at all while silence goes in and it holds only zeros
-  (Theed's original room, always): 12 channels 5.3 → 1.8%.
-- The meter and the stabilizer work channel by channel, without
-  allocations.
-- A param's target is no longer sent again every frame once it has
-  settled; while the browser has an automation event pending it works the
-  param out sample by sample, and some nodes take a slower path for it
-  (`src/audio/automation.js`).
-- The enhanced mode's per-voice low-pass moves its corner once a block
-  (2.7 ms) rather than every sample: several times cheaper while it glides,
-  a waveform difference under -49 dB.
-- The mixer has 64 inputs, not 96 (each costs a little every block, used or
-  not), pans two channels a pass, and skips silent inputs; the engine ranks
-  its voices without new lists every frame and caches bus gains and each
-  voice's distance curve.
+`src/audio/decode.js: decodeAudioAsset(context, bytes)` is the only
+`decodeAudioData` call. It remains for this branch; the next decoder work
+moves FLAC first, then Opus, into Rust. Xbox IMA ADPCM already decodes in
+Rust in the stream loader worker. AudioBuffers hold decoded PCM only.
 
-What still costs most: each voice's own native nodes (the buffer source,
-its gain, its filter; on headphones without the decoder, an HRTF panner of
-about 3.5% each), the headphone decoder's 16 convolvers (about 8% of a
-core), and on 7.1.4 the meter while the audio panel shows it. A JavaScript
-FFT convolver wouldn't beat the browser's convolvers; a WebAssembly one
-might, and was left for later.
+Host decoding currently returns **context-rate PCM**, and rejects a result
+at any other rate. This affects menu tracks, enhanced sample and segment frame counts,
+durations, loop/offset timing and the playback-rate scale. Headphone HRIRs
+are decoded at that rate too; their gain is compensated by the source-rate
+to context-rate ratio. A replacement decoder must preserve these contracts
+or explicitly own the same conversion before playback. The runtime's linear
+playback resampler is separate from this asset conversion.
 
-### The light mix
+The IRCAM resource generator also records a signed-16 host detail: negative
+samples multiply by float32 `1/32768`, nonnegative samples by float32
+`1/32767`. Double-precision division changes some HRTF kernel preparation
+results. This observation covers that FLAC resource; FLAC assets with other
+bit depths and Opus need their own bit-exact codec fixtures. Regenerate it
+with `node tools/audio-hrtf.mjs path/to/Composite.flac --check`.
 
-The original on stereo before the light mix (its full output: the spatial
-mixer, the reverb and the limiter in worklets) against the light mix, on a
-16-core Xeon E5-2690 v4 in a virtual machine shared with other work (single
-runs move by up to half, so these are medians of runs alternating between
-the two versions), as a percentage of one core:
+## Recorded render gates
 
-| `tests/audio-bench.mjs`'s scene, offline at 48 kHz | Full output | Light mix |
-| --- | --- | --- |
-| A stereo music bed, no voices | 5.7% | 1.2% |
-| and 8 voices moving every frame | 12.5% | 6.6% |
-| and 16 | 18.4% | 11.6% |
-| and 32 | 22.1% | 19.7% |
+`tests/fixtures/audio` contains synthetic reference renders frozen before
+the old graph was removed. Its manifest records the source revision and
+Chromium version. No game assets are included. The graph fixture exercises
+both quality modes, stereo, 5.1, 7.1, 7.1.4 and headphones, each with mono
+on/off; headphones cover both IRCAM HRTF and a synthetic dummy-head decoder.
+Additional stream-only cases schedule three overlapping segments at 22.05,
+44.1 and 48 kHz with offsets, fractional playback rates, gain automation and
+stop times. They cover placed voice-over and 6/8-channel bed routing.
+Twelve moving voices and quad ambience, stereo music and mono voice-over
+beds exercise routing, room changes and volume automation. Strict cases
+cover two-voice stereo and full voice lifetimes, including one-shot end,
+fade stop and starting a loop partway through after entering earshot.
+Menu/loading goldens at 44.1 and 48 kHz cover stereo music, mono effects,
+bus dips, pitched pulses joined late, scheduled end fades and screen exits
+that replace a pulse fade mid-curve.
 
-| A battle (the Classic AI, a scripted player, 20 s at 44.1 kHz) | Voices heard, streams | Full output | Light mix |
-| --- | --- | --- | --- |
-| Theed | 13, 2.5 | 24.5% | 16.7% |
-| Kamino (the full output runs its reverb) | 4, 3.2 | 22.5% | 11.6% |
+Strict cases compare SHA-256 of the float32 bytes. Other cases require every
+sample's difference from the frozen native render to stay below −96 dBFS.
+Component goldens cover 3,289,466 samples and readings exactly. Separate
+recorded HRTF impulses cover 44.1 and 48 kHz, azimuth and elevation. Rust
+allocation tests count allocations from the first block, including stream,
+convolution, front-end playback and meter report paths.
 
-In the battles that is every audio thread of the page: the full output's
-worklet thread and the device's (which hands each block across, about 2%),
-the light mix's device thread alone. The engine's update on the main thread
-(48 voices, 12 heard) went from about 196 to 115 µs: the light mix sends no
-mixer batch and no reverb sends.
+`tests/audio-bench.mjs` measures the complete live engine over generated
+voices and beds using a running Chromium debug endpoint. It no longer
+builds isolated browser/worklet DSP graphs. Its header gives the endpoint,
+mode, warm-up and measurement options. Use calibrated local slots when
+comparing revisions; a reference run uses its own frozen build.
 
-Before the Rust voice engine, the remaining cost was the voices themselves:
-the browser resamples a voice by
-interpolating whenever it plays at any rate but its sample's own (the
-game's samples are mostly 22.05 kHz), about 13 to 14% of a core for 32
-voices at 48 kHz against 0.9% at their own rate, and in real time every
-node costs something each block. Two alternatives were measured:
-
-- A context at 22.05 kHz, the rate of most of the game's samples: the
-  light mix measured 10% of a core on Theed against 17%. But the music and
-  ambience (48 and 44.1 kHz) have about −30 dB of their energy above 11
-  kHz, which it would cut, and Theed's 52 samples at 44.1 kHz −29 dB (one
-  −16 dB), which the browser's interpolation would fold back down unless
-  they were first resampled with a low-pass; and a context's rate holds for
-  its battle, so Enhanced chosen mid-battle would play at it too.
-- Every voice resampled, levelled and panned in one AudioWorklet: 3.5 to
-  3.9% of a core for 32 voices against 9 to 14% for the browser's buffer
-  sources, the same linear interpolation. It moves the playing of every
-  voice (starts, loops, offsets, fades, ends) into the worklet, a larger
-  change subsequently implemented in Rust and enabled by default for
-  Enhanced speaker output and the light mix (see "The voice engine").
-
-## The voice engine
-
-The enhanced mode's voices on speakers play in the spatial mixer's
-WebAssembly (`rust/audio/src/voices.rs`) instead of each through its own
-browser nodes (a buffer source, a gain, a low-pass and a reverb send), and
-the light mix's (Classic on stereo, the low-end default) play in one
-worklet of their own, `voice-engine`, instead of a buffer source and two
-speaker gains each. `?voices=native` in the address keeps the browser's
-nodes, a developer's A/B switch: the two sound the same (below), and the
-engine costs the audio thread about half as much. On headphones without
-the dummy-head decoder the voices keep the browser's HRTF panners. A voice
-that plays through a node of its own (a stream's line said somewhere, the
-audio panel's test) keeps the browser's nodes beside the engine.
-
-Unless `?master=native`, the enhanced mode's master chain follows the voices
-into the same module (`rust/audio/src/master.rs`): the reverb and its
-high-pass, the LFE's filters, the clarity EQ and stage, the limiter and
-the volume, in place of three worklets and the browser's nodes between
-them. One worklet's output is then the finished sound, and what still comes
-through the browser's nodes (the stream beds, a voice that keeps them)
-reaches it through two more inputs, the mixer needing only those and eight
-for such voices, not one for each of its 64 slots. The binaural decoder's
-convolvers and the mono fold keep the nodes. The stream beds stay in the
-browser's nodes too, a source and two gains and, on stereo, as few routes
-as they take: with the chain in the module three beds cost the audio thread
-under a point of a core, too little to pay for moving decoded streams into
-it. Not built yet, in this order: Classic on surround, and headphones.
-
-The page still decides everything (ranking, distance, Doppler, levels,
-air, sends). Instead of AudioParam calls it sends one message a frame of
-commands, each carrying the context time its AudioParam call would have
-had. The module plays each voice as Chromium's nodes compute it: the
-buffer source's linear interpolation at a double-precision read position,
-from its start frame to its stop frame (the start time's fraction of a
-frame moving the read position on, a loop wrapping with its fraction, a
-one-shot's last frame extrapolated from its last two); the AudioParam
-timeline's
-arithmetic for setValueAtTime, setTargetAtTime and cancelScheduledValues
-(`rust/audio/src/timeline.rs`, including the four-values-at-a-time fill
-Chromium's x86 build uses for setTargetAtTime); and the low-pass's
-coefficients from fdlibm, as the browser's are. Each sample is posted to
-the worklet once, and nothing allocates while it renders.
-
-### Exactness
-
-The engine must sound exactly as the browser's own nodes do, and is held
-to this gate:
-
-1. Each voice's chain is bit-identical to Chromium's nodes wherever
-   Chromium reproduces its own output: one or two voices into an input,
-   across automation, starts, stops, loops and playback rates.
-2. With three or more voices into one input, the engine sums them in slot
-   order. In the light mix its render may differ from a native render by
-   no more than two native renders of the same scene differ from each
-   other (the largest difference over several pairs of pages). In the
-   enhanced mode every sample must stay within -96 dBFS of every native
-   render, under the smallest step of 16-bit sound: below for why.
-
-The second rule is there because Chromium's own output is not
-reproducible in that case. A node input adds up its connections in the
-order of a hash set of their outputs' addresses
-(`AudioSummingJunction::outputs_` is a `HashSet<AudioNodeOutput*>`,
-copied to `rendering_outputs_` in its order, which
-`AudioNodeInput::SumAllConnections` follows). Floating-point addition is
-not associative, so the order shows in the last bits, and it changes from
-one graph to the next: one graph of three sources into one GainNode,
-rendered eight times in one page, summed (a+b)+c five times and (a+c)+b
-three times. Two pages rendering the same scene (Chromium offline on
-Linux, each frame's messages applied before its block renders):
-
-| Scene | Native against native | Engine against native |
-| --- | --- | --- |
-| Enhanced, reverb silent, 12 to 32 voices | identical | identical |
-| Enhanced, reverb on, 2 voices | identical | identical |
-| Enhanced, reverb on, 3 voices | -118.3 dBFS at most, -135.2 rms | -118.3 dBFS at most, -135.1 rms |
-| Enhanced, reverb on, 24 voices | -109.5 dBFS at most, -130.5 rms | -111.4 dBFS at most, -130.8 rms |
-| Light mix, 1 or 2 voices | identical | identical |
-| Light mix, 3 voices | -132.5 dBFS at most | -132.5 dBFS at most |
-| Light mix, 24 voices | -126.4 dBFS at most, -146.3 rms | -126.4 dBFS at most, -146.1 rms |
-
-That spread is far below hearing and below 16-bit resolution (-96 dBFS).
-The engine sums in a fixed order, so its own output is the same every
-time.
-
-The master chain in the module meets the same rules against the browser's
-nodes and worklets, the voices in the engine on both sides. Every sum in
-the chain has two terms on a channel, so without beds the two are bit for
-bit the same: stereo, 5.1, 7.1 and 7.1.4, 3 to 32 voices, every dynamics
-profile, clarity off, 44.1 kHz, and the room and the volume moving. A third
-term into the mix (several beds) goes in Chromium's own order, and the
-difference is then -110 dBFS at most. One thing Chromium does not reproduce
-here: with a voice sounding in the very first block a graph renders, its
-LFE filters take that block's input in about half its renders and miss it
-in the rest, a difference gone within 0.4 s. The module takes it every
-time, and the checks start their voices a few frames in.
-
-The reference is Chromium on Linux on x86. Elsewhere the browser's nodes
-compute some things differently (on macOS its biquads run through vDSP;
-off x86 setTargetAtTime fills one value at a time), so there the engine
-and the nodes can differ at the same rounding level.
-
-`tests/audio-checks.js` holds the engine to the first rule, bit for bit:
-twelve voices with the reverb silent, two with it on, and a voice's whole
-life in both modes (a loop as the listener moves, a one-shot that ends, a
-loop stopped with a fade, a loop that comes into earshot partway through
-its sample and starts there).
-
-They hold the master chain in the module to it too: stereo and 5.1, the
-room and the volume moving, bit for bit, and beds with a voice that keeps
-its nodes within -96 dBFS.
-
-`tests/audio-engine-gate.mjs` measures the second, over several seeds (a
-scene of 24 voices, each seed its own noise and listener's path), each
-rendered with the browser's nodes in six pages and once with the engine.
-
-- The light mix takes the rule as written: the engine's largest
-  difference from any native render within the largest between any two
-  of them. It lands exactly on the natives' own largest every time: 8, 24
-  and 32 voices, -132.5, -126.4 and -126.4 dBFS; at 24 voices twelve
-  seeds of twelve.
-- In the enhanced mode the reverb spreads the rounding over its tail, so
-  the largest difference is an extreme value that moves from seed to seed,
-  and an extreme taken over more pairs runs larger: six natives make
-  fifteen pairs among themselves, the engine against them only six, and
-  judged by its six against their fifteen it came out above, by 0.1 to
-  1.7 dB, in three runs of seven. An engine no different from one more
-  native render would meet the natives' own largest only about half the
-  time, on any comparison of extremes. So the rule here is a limit: sound
-  plays on each player's own machine and feeds nothing back into the
-  world, and a difference this far down is under the smallest step of
-  16-bit sound, in bits Chromium does not reproduce itself. Over four
-  runs of twelve seeds, with and without a battle's three beds and with
-  the master chain in the module or not, every difference is below -107
-  dBFS, 11 dB under the limit, and the natives' own pairs reach -107.5.
-  The gate still reports the comparison like with like (six native pairs
-  drawn at random from the seed against the engine's six, its largest
-  within theirs, its median within 0.5 dB of theirs), and it moves with
-  Chromium's own orders: from run to run the largest within the natives'
-  in 4 to 8 seeds of the twelve, the medians in 4 to 7, both in 2 to 5.
-
-### What it saves
-
-The enhanced mode, offline in Chromium (32 voices moving every frame, 48
-kHz, the render thread's own CPU): 339 ms a second of sound down to 138
-on stereo, 313 to 198 on 5.1. The engine's update on the main thread with
-32 voices went from 385 to 194 µs a frame. On the 2014 low-power laptop
-the game must run well on (AMD A8-6410, Enhanced on stereo, battles on
-Bespin Platforms and Hoth, native and engine runs in alternating order),
-the AudioWorklet thread went from 72 to 74% of a core to 34% on Bespin
-and from 68 to 37% on Hoth, the page's audio phase from 3.3-3.5 to
-2.6-2.7 ms a frame, and the frame rate rose from 25 to 29-30 fps on
-Bespin and from 24 to 26.5 on Hoth. Most of what is left on that thread is the worklets
-themselves (the mixer with the engine is about half of that), then the
-master chain's gains and filters and the stream beds' nodes.
-
-The master chain in the module, on a live context (offline renders run too
-fast for the module's code to reach its optimizing tier), 32 voices moving
-and three beds on a desktop: the audio threads took 26.8% of a core with
-the chain in nodes and 23.0 with it in the module. On the slow-PC emulator
-(Enhanced on stereo, alternating runs), the AudioWorklet thread went from
-28-30% to 23% on Bespin Platforms and from 27-28 to 24-26% on Theed, and
-with the chain switched back and forth inside one battle the frame rate
-stayed within its noise, 1 to 2 fps up if anything. The rest of that
-thread is mostly the voices' own work, then the reverb, clarity and
-limiter's, spread evenly enough that no one stage stands out.
-
-The light mix, offline (the same scene): 110 ms a second of sound down to
-58 with 32 voices, 46 to 34 with 8; with a single voice the worklet costs
-more than the browser's three nodes (11 against 23 ms), the two meeting
-at about four voices. On the laptop (Classic on stereo, the same battles
-and order), the light mix's thread, the device's own, took 38% of a core;
-with the engine the worklet thread takes 16 to 19% and the device's,
-which only hands its blocks over then, 1.7%. The page's audio phase went
-from 2.1-2.3 to 1.8-2.0 ms a frame and the frame rate rose by 1 to 2 fps
-(28.4-29.9 to 30.5-30.8 on Bespin, 26.8 to 27.9 on Hoth).
+Offline rendering proves samples, not real-time cost: it never reaches the
+same optimizing tiers as a live context. CPU measurements must use a live
+context after warm-up, with the frozen dist and candidate running the same
+synthetic scene in alternating order. Count all audio threads and verify
+nonzero output and the requested layout before measuring. Hardware listening
+still needs to check device channel order, headphone placement, mode changes
+and glitches during a battle.
 
 ## Upscaling (`tools/enhance_audio.py`)
 
@@ -808,7 +588,7 @@ AP-BWE (MIT) is for speech only; AudioSR needs an old NumPy and Python and
 
 | Component | Used for | License |
 | --- | --- | --- |
-| OpenAL Soft 1.20.1 | decoder coefficients (`src/audio/layouts.js`) and its band splitter and front stabilizer, translated to JavaScript (`src/audio/worklets/stabilizer.js`), for the original mode | LGPL-2.0-or-later; see `THIRD-PARTY-NOTICES.md` |
+| OpenAL Soft 1.20.1 | decoder coefficients (`src/audio/layouts.js`) and its band splitter and front stabilizer, translated to Rust (`rust/audio/src/stabilizer.rs`), for the original mode | LGPL-2.0-or-later; see `THIRD-PARTY-NOTICES.md` |
 | SADIE II database, subject D1 (University of York) | the headphone decoder's HRIRs | Apache-2.0 |
 | spaudiopy 0.2.0 | MagLS decoder design | MIT |
 | NumPy 2.5.3, SciPy 1.18.1 | DSP in the tools | BSD-3-Clause |
@@ -822,44 +602,32 @@ The game's sound is the user's own copy and stays out of git.
 
 ## Tests
 
-```
-node --test tests/audio-units.test.js            # 20: hashing, ADPCM, distance, picks, graphs, panning, Doppler, music, voice-over, footsteps
-node --test tests/audio-soldiers.test.js         # 9: other soldiers' weapons and voices, out of earshot, the chatter's queue and lines, online hurts
-node --test tests/audio-light.test.js            # 14: the light mix's graph, panning law and soft clip; Enhanced's graph after a trip through it; worklets loaded only when needed; voices moving between graphs; the graphs with the voice engine and the master chain in the module
-python3 -m unittest tests/test_zero_sound.py      # 5: the archive reader on made-up chunks
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio.mjs
-                                                  # 80 offline checks in Chromium (no game assets)
-PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-engine-gate.mjs
-                                                  # the voice engine's gate, its second rule (VOICES, PAGES)
-PLAYWRIGHT_MODULE=... GAME_URL=http://127.0.0.1:18449 node tests/audio-loudness.mjs
-                                                  # the loudness table above (needs the extracted map)
-PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-bench.mjs
-                                                  # the cost table above (BENCH_REPS, BENCH_SECONDS, BENCH_ONLY)
+No game assets are needed for the recorded gates:
+
+```sh
+node --test tests/audio-*.test.js
+cargo test --manifest-path rust/Cargo.toml -p audio
+node tools/build-rust.mjs audio --check
 ```
 
-The browser runs are safest against a Vite server without hot reload: an
-edit elsewhere reloads the page under a running test.
+The Node render host supplies PCM storage and context scheduling only. It
+runs the real page command handoff, output worklet and Rust module against
+the recorded fixtures, so it runs in CI. The component golden gate is also
+available directly as `node tests/audio-dsp-parity.mjs`.
 
-`tests/audio.mjs` runs `tests/audio-checks.js` in the browser on
-OfflineAudioContexts with generated signals: every layout's panning at unit
-power, the LFE route and its filter, voice-over on the centre, the limiter
-on EBU Tech 3341's cases and a true peak between samples, the meter, the
-reverb's decay time and decorrelation, the voice engine's ranking, limit,
-bus gains and duck, OpenAL Soft's decoders against hand-worked gains, the
-front stabilizer (its delay, a side signal untouched, a low centre sound a
-third of the way to the centre), a 2D sound through the whole original
-chain on 5.1, the light mix (voices where OpenAL Soft's stereo law puts
-them, with no worklet; streams at its angles; overs clipped softly; an
-engine voice's level on its speaker gains), the clarity stage (a top octave in proportion, nothing added
-under its band, an attack lifted while a steady bed stays put, the LFE
-untouched), the voice engine against the browser's own nodes (bit for
-bit: twelve voices moving with the reverb silent, two with it on, a voice's
-whole life in the enhanced mode and the light mix, and a voice that keeps
-its nodes beside it), the master chain in the module against the browser's
-nodes, and the headphone decoder (the encoder's harmonics against
-spaudiopy's, spread keeping the energy, each ear's level per direction
-against the decoder's own, a 2D sound left as stereo). The decoder checks
-are skipped when `tools/make_binaural.py` hasn't been run.
+For the actual browser host, start Vite and run Chromium offline:
+
+```sh
+AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-engine-gate.mjs
+AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio.mjs
+```
+
+Set `PLAYWRIGHT_MODULE` if Playwright is installed outside the project.
+`OUTPUT` and `QUALITY` select a subset. Both entrypoints use
+`tests/audio-checks.js` and the same goldens. A failed module or silent
+render fails the gate. `tests/audio-loudness.mjs` uses extracted Theed assets
+to measure live final-output Rust meter readings for each dynamics profile.
+It no longer records a browser DSP reference or rebuilds the mix in nodes.
 
 ## Listening checklist
 
@@ -892,6 +660,9 @@ Things only a person with the hardware can check, in rough order:
    the original did on stereo before it (the same levels and placing); on a
    map whose original space has a reverb (Kamino, Bespin) it is dry. Moving
    sources should pan smoothly, and the loudest moments shouldn't crackle.
+10. **Menus and loading**: listen to the first track starting, rapid menu
+    changes during a music dip, track endings and the loading pulses. Leave
+    the loading screen during a pulse's end fade; it should end cleanly.
 
 ## Open questions
 

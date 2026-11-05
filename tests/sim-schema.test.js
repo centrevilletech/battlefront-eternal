@@ -280,3 +280,15 @@ test('two types of one name, or a type named after a comparison, are refused', (
   assert.throws(() => buildModel(schema({ kinds: { shelf: { singleton: true, fields: { m: 'map:ref:nobody:f64' } } } })), /no kind or union nobody/);
   assert.throws(() => buildModel(schema({ unions: { U: ['null', 'Float64Array(2)'] } })), /cannot be a union's variant/);
 });
+
+
+test('direct publication names only mutable scalar or vector fields', () => {
+  const model = fields => buildModel([{ file: 'publication', schema: { records: { Pose: fields } } }]);
+  const pose = model({ $layout: true, $publish: ['position', 'tick'], position: 'vec3', tick: 'f64', fixed: 'f64' }).records.get('Pose');
+  assert.deepEqual(pose.publish, ['position', 'tick']);
+  assert.equal(pose.fields.length, 3, 'publication metadata adds no words to the record');
+  assert.throws(() => model({ $publish: ['missing'], tick: 'f64' }), /distinct fields/);
+  assert.throws(() => model({ $publish: ['tick', 'tick'], tick: 'f64' }), /distinct fields/);
+  assert.throws(() => model({ $publish: ['history'], history: 'list:f64' }), /scalar and vec3/);
+  assert.throws(() => model({ $publish: ['position'], position: 'vec3|null' }), /vectors cannot be optional/);
+});

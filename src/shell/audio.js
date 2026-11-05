@@ -1,5 +1,8 @@
 import { listenSounds } from "../audio/events.js";
 import { SoundData } from "../audio/data.js";
+import { FrontendAudio } from "../audio/frontend.js";
+import { decodeAudioAsset } from "../audio/decode.js";
+import { prepareAudioPcm, normalizePcm16 } from "../audio/pcm.js";
 
 // The front end's sound, as the original's shell plays it (Sound/shell.lvl,
 // core.lvl's buses; docs/shell.md):
@@ -118,7 +121,7 @@ export class ShellAudio {
     this.data = data;
     this.settings = settings;
     this.ctx = null;
-    this.nodes = null;
+    this.output = null;
     this.whooshes = (data?.whooshes || []).map((url) => ({ url, bytes: null, buffer: null }));
     this.whooshIndex = 0;
     this.sounds = new Map(); // name -> { buffer|Promise, gain, pitch, interval, last }
@@ -140,7 +143,7 @@ export class ShellAudio {
   }
 
   get running() {
-    return this.ctx?.state === "running";
+    return this.ctx?.state === "running" && this.output?.isReady;
   }
 
   // Inside a click or key press: make or wake the AudioContext. Returns
@@ -151,8 +154,6 @@ export class ShellAudio {
       if (!Context) return false;
       this.ctx = new Context({ latencyHint: "interactive" });
       this.build();
-      for (const whoosh of this.whooshes) this.decode(whoosh);
-      for (const name of INTERFACE_SOUNDS) this.sound(name);
     }
     if (this.ctx.state === "suspended") this.ctx.resume().then(() => this.retry(), () => {});
     this.retry();
@@ -161,16 +162,14 @@ export class ShellAudio {
 
   build() {
     const ctx = this.ctx;
-    const master = ctx.createGain();
-    const music = ctx.createGain();
-    const dip = ctx.createGain();
-    const fx = ctx.createGain();
-    dip.gain.value = this.dip;
-    dip.connect(music).connect(master);
-    fx.connect(master);
-    master.connect(ctx.destination);
-    this.nodes = { master, music, dip, fx };
-    this.applyVolumes();
+    this.output = new FrontendAudio(ctx);
+    this.output.ready.then(() => {
+      this.applyVolumes();
+      this.output.dip(this.dip);
+      for (const whoosh of this.whooshes) this.decode(whoosh);
+      for (const name of INTERFACE_SOUNDS) this.sound(name);
+      this.retry();
+    }).catch((error) => this.output.fail(error));
     // Hidden tabs go quiet.
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) ctx.suspend();
@@ -184,48 +183,37 @@ export class ShellAudio {
   }
 
   applyVolumes() {
-    if (!this.nodes) return;
-    this.nodes.master.gain.value = this.volume("masterVolume");
-    this.nodes.music.gain.value = BUSES.shellmusic * this.volume("musicVolume");
-    this.nodes.fx.gain.value = BUSES.shellfx * this.volume("interfaceVolume");
+    if (!this.output?.isReady) return;
+    this.output.volumes(this.volume("masterVolume"), BUSES.shellmusic * this.volume("musicVolume"), BUSES.shellfx * this.volume("interfaceVolume"));
   }
 
   // A track asked for before the context was there starts once it is.
   retry() {
     const handle = this.music.handle;
-    if (handle && !handle.stopped && this.route(handle) && handle.element.paused) handle.element.play().catch(() => {});
-  }
-
-  // A track's element feeds the shellmusic bus; it never plays straight to
-  // the speakers.
-  route(handle) {
-    if (!handle.source && this.ctx) {
-      handle.source = this.ctx.createMediaElementSource(handle.element);
-      handle.source.connect(this.nodes.dip);
-    }
-    return Boolean(handle.source);
+    if (!this.running || !handle || handle.stopped || handle.loading || handle.source) return;
+    handle.loading = true;
+    this.decode(handle).then((buffer) => {
+      if (handle.stopped) return;
+      if (!buffer) { this.music.ended(handle); return; }
+      handle.source = this.output.play(buffer, { bus: 1 });
+      // Only the worklet needs the PCM after upload. A long music track
+      // must not leave a second decoded copy in its page-side handle.
+      handle.buffer = null;
+      handle.source.onended = () => { if (!handle.stopped) this.music.ended(handle); };
+    }).catch((error) => this.output.fail(error));
   }
 
   startTrack(track) {
-    const element = new Audio();
-    element.preload = "auto";
-    element.src = track.url;
-    const handle = { track, element, stopped: false, source: null };
-    const end = () => {
-      if (!handle.stopped) this.music.ended(handle);
-    };
-    element.addEventListener("ended", end);
-    element.addEventListener("error", end);
-    if (this.route(handle)) element.play().catch(() => {});
+    const handle = { track, url: track.url, stopped: false, source: null, loading: false };
+    // ShellMusic installs its handle after startTrack returns.
+    queueMicrotask(() => this.retry());
     return handle;
   }
 
   stopTrack(handle) {
     handle.stopped = true;
-    handle.element.pause();
-    handle.element.removeAttribute("src");
-    handle.element.load();
-    handle.source?.disconnect();
+    handle.source?.stop();
+    handle.buffer = null;
   }
 
   // ScriptCB_SndBusFade for the front end's buses: shellmusic's level ramps
@@ -233,13 +221,7 @@ export class ShellAudio {
   fadeBus(bus, level, seconds = 0) {
     if (bus !== "shellmusic") return;
     this.dip = level;
-    if (!this.nodes) return;
-    const gain = this.nodes.dip.gain;
-    const now = this.ctx.currentTime;
-    gain.cancelScheduledValues(now);
-    gain.setValueAtTime(gain.value, now);
-    if (seconds > 0) gain.linearRampToValueAtTime(level, now + seconds);
-    else gain.setValueAtTime(level, now);
+    if (this.output?.isReady) this.output.dip(level, seconds);
   }
 
   // The next whoosh in turn (shell_transition1..10).
@@ -254,23 +236,14 @@ export class ShellAudio {
     if (entry.buffer) return Promise.resolve(entry.buffer);
     if (!this.ctx) return Promise.resolve(null);
     entry.buffer = Promise.resolve(entry.bytes || fetchBytes(entry.url))
-      .then((bytes) => (bytes ? this.ctx.decodeAudioData(bytes.slice(0)) : null))
+      .then((bytes) => (bytes ? decodeAudioAsset(this.ctx, bytes.slice(0)) : null))
       .catch(() => null);
     return entry.buffer;
   }
 
   playBuffer(buffer, { gain = 1, pitch = 1 } = {}) {
     if (!this.running || !buffer) return;
-    const source = this.ctx.createBufferSource();
-    source.buffer = buffer;
-    source.playbackRate.value = pitch;
-    if (gain === 1) source.connect(this.nodes.fx);
-    else {
-      const level = this.ctx.createGain();
-      level.gain.value = gain;
-      source.connect(level).connect(this.nodes.fx);
-    }
-    source.start();
+    return this.output.play(buffer, { gain, pitch });
   }
 
   // A menu sound by name, at most once per its PlayInterval.
@@ -356,7 +329,8 @@ export function coreSounds() {
         const pcm = new Int16Array(bytes);
         const buffer = ctx.createBuffer(1, Math.max(pcm.length, 1), Math.max(rate, 8000));
         const out = buffer.getChannelData(0);
-        for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 32768;
+        await prepareAudioPcm();
+        normalizePcm16(pcm, out);
         // Under 8 kHz the buffer runs faster; the pitch makes it up.
         into.pitch *= rate / Math.max(rate, 8000);
         return buffer;

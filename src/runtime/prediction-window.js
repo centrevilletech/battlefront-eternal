@@ -2,11 +2,9 @@
 // A locally simulated checkpoint continues through a downstream blackout. A
 // fresh authoritative state replaces it; a snapshot older than the retained
 // replay window cannot rewind it using an incomplete command history.
-const nativeWindows = new WeakMap();
 export class PredictionWindow {
-  constructor(limit = 120, { native = null } = {}) {
+  constructor(limit = 120) {
     this.limit = limit;
-    if (native) nativeWindows.set(this, native);
     this.reset();
   }
   reset() { this.checkpoint = null; }
@@ -16,19 +14,14 @@ export class PredictionWindow {
   select({ source, identity, epoch, generation, authorityTick, pending, held }, exact = null) {
     const c = this.checkpoint;
     const sameLife = c && c.source === source && c.identity === identity && c.epoch === epoch && c.generation === generation;
-    const native = nativeWindows.get(this), decision = native?.windowDecision(this, c, sameLife, authorityTick);
-    let checkpoint, compare;
-    if (decision) { checkpoint = decision.mode === 1 ? c : null; compare = decision.mode === 2; }
-    else {
-      checkpoint = sameLife && (authorityTick === c.authorityTick || authorityTick < c.tick - this.limit) ? c : null;
-      compare = !checkpoint && sameLife && authorityTick > c.authorityTick && authorityTick <= c.tick;
-    }
+    let checkpoint = sameLife && (authorityTick === c.authorityTick || authorityTick < c.tick - this.limit) ? c : null;
+    const compare = !checkpoint && sameLife && authorityTick > c.authorityTick && authorityTick <= c.tick;
     if (compare && exact?.(c)) { c.authorityTick = authorityTick; checkpoint = c; }
     if (!checkpoint) this.reset();
     return {
       checkpoint, from: checkpoint?.tick ?? authorityTick,
       held: checkpoint?.held ?? held,
-      commands: checkpoint ? native?.filterCommands(pending, checkpoint) ?? pending.filter(command => command.sequence > checkpoint.sequence) : pending,
+      commands: checkpoint ? pending.filter(command => command.sequence > checkpoint.sequence) : pending,
     };
   }
   save({ source, identity, epoch, generation, authorityTick, tick, commands, held, state }) {
@@ -43,14 +36,12 @@ export class PredictionWindow {
 // reusing the exact Soldier object and generation number. It is a different
 // prediction identity, not a same-life correction to the provisional body.
 export function resetPredictionIdentity(client) {
-  client.predictionWindow.reset(); client.vehicleWindow.reset();
+  client.vehicleWindow.reset();
   client.smoother.reset(); client.vehicleSmoother.reset();
   client.predictedTick = 0; client.vehiclePrediction = null;
   client.held = []; client.heldGeneration = 0;
 }
 
-export function retainPredictionCommands(commands, tick, generation, epoch, limit = 120, { native = null } = {}) {
-  const retained = native?.retainCommands(commands, tick, generation, epoch, limit);
-  if (retained) return retained;
+export function retainPredictionCommands(commands, tick, generation, epoch, limit = 120) {
   return commands.filter(command => command.generation === generation && command.epoch === epoch && command.tick > tick - limit).slice(-limit);
 }

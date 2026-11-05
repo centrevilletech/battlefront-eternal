@@ -27,6 +27,9 @@ export class PredictedShots {
     this.collision=collision;this.now=now;this.ordnance=ordnance;
     this.shots=new Map();this.cooldowns=new WeakMap();this.heldSerial=0;this.claims=new Map();this.from=new THREE.Vector3();
   }
+  slots(epoch, unit) {
+    return this.life === `${epoch}:${unit.id}:${unit.generation}` ? Math.max(0, 32 - this.shots.size) : 32;
+  }
   fire(edge, unit, command, predictedShot = null) {
     if(!edge.pressed || !unit?.alive || unit.combat?.dead)return false;
     const identity=`${edge.epoch??1}:${unit.id}:${unit.generation}`;
@@ -77,16 +80,17 @@ export class PredictedShots {
       }
     } else if(!lease){
       const soldier=unit.soldier;
-      if(soldier?.nextVisualGun){
+      if(soldier?.visualGunAt){
         // A droideka's built-in guns have no held fire point, and the page
         // combat's gun origin is never stepped (it sits at the world
         // origin): leave from the next visible barrel (the first-person
         // barrels in that view), converging on the reticle point as the
         // authority's emitGunRound does from its physical rig.
         origin=new THREE.Vector3();
-        const at=soldier.nextVisualGun(origin);
+        const selected=predictedShot?.visualGun;
+        const at=selected ? soldier.visualGunAt(origin,selected) : null;
         if(at){
-          if(combat.firstPerson)combat.view?.muzzlePoint?.(soldier.lastGun,origin);
+          if(combat.firstPerson)combat.view?.muzzlePoint?.(selected,origin);
           const eye=soldier.eye?soldier.eye(soldier.position,new THREE.Vector3()):origin.clone();
           const seen={point:new THREE.Vector3(),normal:new THREE.Vector3()};
           const contact=this.collision?.cast(eye,direction,512,seen);

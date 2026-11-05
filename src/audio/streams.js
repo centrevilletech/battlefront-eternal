@@ -1,3 +1,4 @@
+import { decodeAudioAsset } from "./decode.js";
 import { Target } from "./automation.js";
 import { placeVoice } from "./engine.js";
 import { hashKey, keyOf } from "./hash.js";
@@ -182,9 +183,19 @@ export class Streams {
   }
 
   decode(bytes, index) {
+    if (this.engine.renderer.error) return Promise.reject(this.engine.renderer.error);
     if (!this.worker) {
       this.worker = new Worker(new URL("./stream-worker.js", import.meta.url), { type: "module" });
+      const fail = (message) => {
+        const error = new Error(`audio: required Rust stream decoding failed: ${message}`);
+        this.engine.renderer.fail(error);
+        for (const job of this.jobs.values()) job.reject(error);
+        this.jobs.clear();
+        this.worker.terminate(); this.worker = null;
+      };
+      this.worker.onerror = (event) => { event.preventDefault(); fail(event.message || "worker module could not load"); };
       this.worker.onmessage = (event) => {
+        if (event.data.fatal) { fail(event.data.error); return; }
         const job = this.jobs.get(event.data.id);
         this.jobs.delete(event.data.id);
         if (!job) return;
@@ -257,7 +268,7 @@ export class Streams {
     }
     const promise = fetch(file.url)
       .then((r) => r.arrayBuffer())
-      .then((data) => this.engine.ctx.decodeAudioData(data))
+      .then((data) => decodeAudioAsset(this.engine.ctx, data))
       .then((buffer) => scale(buffer, file.playback))
       .catch(() => null);
     this.decoded.set(id, promise);
@@ -360,11 +371,10 @@ class StreamVoice {
     this.sounding = false;
     this.current = null;
     this.queued = null;
-    const ctx = this.engine.ctx;
-    this.out = ctx.createGain();
+    this.out = this.engine.renderer.stream((index.channels || 1) * (index.substreams || 1), this.kind, this.mode3D ? this : null);
+    this.voiceOut = this.out.voice;
     this.out.gain.value = 0;
     this.outLevel = new Target();
-    this.bed = null;
     this.fadeTo(1, options.fadeIn ?? 0);
   }
 
@@ -397,29 +407,9 @@ class StreamVoice {
       return;
     }
     const ctx = this.engine.ctx;
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.playbackRate.value = this.pitch;
-    if (this.mode3D) {
-      if (!this.voiceOut) {
-        this.voiceOut = this.engine.renderer.voice(this, true);
-        this.voiceOut.attach(this.out);
-      }
-      source.connect(this.out);
-    } else {
-      if (!this.bed) this.bed = this.engine.renderer.bed(buffer.numberOfChannels, this.out, this.kind);
-      source.connect(this.bed.input);
-    }
     const when = this.current ? Math.max(this.current.ends, ctx.currentTime) : ctx.currentTime;
-    source.start(when);
-    const playing = { source, ends: when + buffer.duration / this.pitch, key };
-    source.onended = () => {
-      source.disconnect();
-      if (this.current === playing) {
-        this.current = null;
-        if (!this.queued) this.finish();
-      }
-    };
+    const source = this.out.start(buffer, when, this.pitch);
+    const playing = { source, ends: source.ends, key };
     if (this.current) this.queued = playing;
     else this.current = playing;
     this.sounding = true;
@@ -433,6 +423,7 @@ class StreamVoice {
       this.current = this.queued;
       this.queued = null;
     }
+    if (this.current && ctx.currentTime >= this.current.ends && !this.queued && !this.pending) { this.current = null; this.finish(); return; }
     if (this.loop && this.current && !this.queued && !this.pending && this.current.ends - ctx.currentTime < 8) {
       this.pending = true;
       this.next().finally(() => {
@@ -508,11 +499,9 @@ class StreamVoice {
     this.done = true;
     this.sounding = false;
     this.streams.voices.delete(this);
-    const bed = this.bed;
     const voiceOut = this.voiceOut;
     setTimeout(() => {
-      this.out.disconnect();
-      bed?.dispose();
+      this.out.dispose();
       voiceOut?.dispose();
     }, 3000);
     this.options.onEnd?.(this);

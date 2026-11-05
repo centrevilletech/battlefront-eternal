@@ -268,7 +268,7 @@ test('only a bolt is drawn ahead of the authority; a rocket shows its flash and 
   } finally {stop();}
 });
 
-test('a droideka cosmetic leaves its next visible gun, converging on the reticle',async()=>{
+test('a droideka cosmetic uses the session barrel, converging on the reticle without advancing the checkpoint',async()=>{
   const { Droideka } = await import('../src/droideka.js');
   const f=fixture();
   const root=new THREE.Group(); root.position.set(10,0,10); f.scene.add(root);
@@ -282,10 +282,11 @@ test('a droideka cosmetic leaves its next visible gun, converging on the reticle
   // stayed undrawn, so the droideka showed no bolts at all.
   f.unit.combat.origin.set(999,999,999);
   f.unit.combat.soldier=body;
-  const predicted={weapon:f.weapon,yaw:0,pitch:0};
+  const predicted={weapon:f.weapon,yaw:0,pitch:0,visualGun:{index:0,barrel:0}};
   assert.equal(f.shots.fire(f.edge,f.unit,{},predicted),true);
-  f.setTime(.1);
+  f.setTime(.1);predicted.visualGun={index:1,barrel:0};
   assert.equal(f.shots.fire({...f.edge,id:2},f.unit,{},predicted),true);
+  assert.equal(body.gun,0,'presentation leaves the Rust checkpoint cursor alone');
   const shots=[...f.shots.shots.values()];
   assert.deepEqual(shots[0].origin.toArray(),[10.5,1,10.3],'first round from the first gun');
   assert.deepEqual(shots[1].origin.toArray(),[9.5,1,10.3],'second round from the other gun');

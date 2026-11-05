@@ -260,21 +260,22 @@ function fakeContext({ state = "running", current = 5, stamp = 4.96, heard = clo
     getOutputTimestamp: () => ({ contextTime: stamp, performanceTime: heard - performance.timeOrigin }),
     resume() { ctx.state = "running"; return Promise.resolve(); },
     close() { ctx.state = "closed"; ctx.closed = true; return Promise.resolve(); },
-    createGain() {
-      const ramps = [];
-      const node = { gain: { value: 1, ramps, setValueAtTime(v, t) { ramps.push(["set", v, t]); }, linearRampToValueAtTime(v, t) { ramps.push(["ramp", v, t]); }, cancelScheduledValues() {} },
-        connect(to) { node.to = to; return to; } };
-      return node;
-    },
-    createBufferSource() {
-      const source = { buffer: null, loop: false, playbackRate: { value: 1 }, when: null, offset: null, end: null,
-        connect(to) { source.to = to; return to; },
-        start(when, offset) { source.when = when; source.offset = offset; ctx.started.push(source); },
-        stop(when) { source.end = when; } };
-      return source;
-    },
+
   };
   return ctx;
+}
+
+// Scheduling tests inspect timed commands. The PCM phase itself is
+// checked against recorded renders in audio-render.test.js.
+function fakePlayer(ctx) {
+  return { isReady: true, ready: Promise.resolve(),
+    volumes(master, music, fx) { this.levels = { master, music, fx }; },
+    play(buffer, { gain, pitch, loop, when, offset }) {
+      const source = { buffer, loop, playbackRate: { value: pitch }, when, offset, end: null, ramps: [],
+        fade(start, end) { this.ramps.push([start, end]); this.end = end; }, stop(end) { this.end = end; } };
+      ctx.started.push(source); return source;
+    },
+  };
 }
 
 // A stand-in for coreSounds(): the sounds as core.lvl has them;
@@ -293,12 +294,12 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 test("the sound: the whole plan goes on the audio clock at once, each sound heard just after the frame that shows its moment", async () => {
   const heard = clock();
   const ctx = fakeContext({ stamp: 4.96, heard });
-  const sound = new LoadingSound({ context: ctx, sounds: fakeCore, volumes: () => ({ master: 0.8, interface: 0.5 }) }).start();
+  const sound = new LoadingSound({ player: fakePlayer, context: ctx, sounds: fakeCore, volumes: () => ({ master: 0.8, interface: 0.5 }) }).start();
   await settle();
   await settle();
   assert.deepEqual([...sound.sounds.keys()].sort(), ["load_xtracking", "load_ytracking", "load_zoom"]);
-  assert.equal(sound.nodes.master.gain.value, 0.8);
-  assert.ok(close(sound.nodes.bus.gain.value, 0.15), "shellfx: 0.3 of the interface volume");
+  assert.equal(sound.output.levels.master, 0.8);
+  assert.ok(close(sound.output.levels.fx, 0.15), "shellfx: 0.3 of the interface volume");
   const plan = new LoadingTimeline({ track: 3.5, zoom: 1, targets: GEO1 }).sounds();
   const start = clock() + 100;
   sound.schedule(plan, start);
@@ -315,9 +316,9 @@ test("the sound: the whole plan goes on the audio clock at once, each sound hear
       // Each pulse stops as its lines come to rest, faded over its last
       // few milliseconds.
       assert.ok(close(source.end, when(start + (event.until + AV) * 1000), 1e-9));
-      const level = source.to.gain.ramps;
-      assert.deepEqual(level.at(-1).slice(0, 2), ["ramp", 0]);
-      assert.ok(close(level.at(-1)[2], source.end, 1e-9));
+      const ramp = source.ramps.at(-1);
+      assert.ok(close(ramp[1], source.end, 1e-9));
+      assert.ok(ramp[0] < ramp[1]);
       assert.equal(source.offset, 0, "from the loop's start");
       assert.equal(source.playbackRate.value, event.cue === "ytrack" ? 1.8 : 2.1);
     }
@@ -336,7 +337,7 @@ test("the sound, joining late: a context that only runs later plays what is left
   const heard = clock();
   const ctx = fakeContext({ state: "suspended", heard });
   ctx.resume = () => new Promise(() => {}); // the browser never resumes it on its own
-  const sound = new LoadingSound({ context: ctx, sounds: fakeCore }).start();
+  const sound = new LoadingSound({ player: fakePlayer, context: ctx, sounds: fakeCore }).start();
   await settle();
   await settle();
   const plan = new LoadingTimeline({ track: 3.5, zoom: 1, targets: GEO1 }).sounds();
@@ -353,7 +354,7 @@ test("the sound, joining late: a context that only runs later plays what is left
   assert.equal(ctx.started.length, plan.filter((s) => s.cue !== "transition").length, "the rest as planned");
   sound.dispose();
   // A zoom past by more than LATE is dropped; one just due still plays.
-  const late = new LoadingSound({ context: fakeContext({ heard }), sounds: fakeCore }).start();
+  const late = new LoadingSound({ player: fakePlayer, context: fakeContext({ heard }), sounds: fakeCore }).start();
   await settle();
   await settle();
   late.schedule([{ cue: "zoom", at: 0, until: null }, { cue: "zoom", at: 1, until: null }], clock() - AV * 1000 - (LATE * 1000 + 20));
@@ -364,7 +365,7 @@ test("the sound, joining late: a context that only runs later plays what is left
 test("the sound: samples that load after the plan came play what is left; a sound without a sample is let go", async () => {
   let release;
   const ctx = fakeContext();
-  const sound = new LoadingSound({ context: ctx, sounds: () => new Promise((resolve) => { release = resolve; }).then(fakeCore) }).start();
+  const sound = new LoadingSound({ player: fakePlayer, context: ctx, sounds: () => new Promise((resolve) => { release = resolve; }).then(fakeCore) }).start();
   const plan = new LoadingTimeline({ track: 3.5, zoom: 1, targets: GEO1 }).sounds();
   sound.schedule(plan, clock() + 50);
   assert.equal(ctx.started.length, 0);

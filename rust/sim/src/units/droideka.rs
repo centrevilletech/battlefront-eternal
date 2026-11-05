@@ -394,19 +394,16 @@ fn collide(id: u32, d: &mut Droideka, world: &mut dyn UnitsWorld) {
         let c = Vector3 { x: position.x, y: position.y + r, z: position.z };
         let mut best = f64::INFINITY;
         let mut moving = false;
-        world.gather(id, &c, r, if ball { 1 } else { 0 }, &mut polygons);
-        for polygon in &polygons {
-            for tri in &polygon.triangles {
-                let p = closest_point_to_point(arr(&tri[0]), arr(&tri[1]), arr(&tri[2]), arr(&c));
-                let closest = v3(p);
-                let distance = closest.distance_to(&c);
-                if distance < r && distance < best && distance > 1e-5 {
-                    best = distance;
-                    moving = polygon.moving;
-                    n.sub_vectors(&c, &closest).divide_scalar(distance);
-                }
+        world.visit_gathered(id, &c, r, if ball { 1 } else { 0 }, &mut polygons, &mut |is_moving, tri| {
+            let p = closest_point_to_point(arr(&tri[0]), arr(&tri[1]), arr(&tri[2]), arr(&c));
+            let closest = v3(p);
+            let distance = closest.distance_to(&c);
+            if distance < r && distance < best && distance > 1e-5 {
+                best = distance;
+                moving = is_moving;
+                n.sub_vectors(&c, &closest).divide_scalar(distance);
             }
-        }
+        });
         let mut depth = if best < f64::INFINITY { r - best } else { 0.0 };
         let mut wall = depth > 0.0;
         // The terrain is a height field under the centre.

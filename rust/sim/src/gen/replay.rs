@@ -2789,6 +2789,367 @@ impl BfCharacters {
     }
 }
 
+impl ClientWeapons {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientWeapons {
+            count: { let p = format!("{path}.count"); (int(v.get("count"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientArsenalTail {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientArsenalTail {
+            primary: { let p = format!("{path}.primary"); num(v.get("primary"), &p)? },
+            secondary: { let p = format!("{path}.secondary"); num(v.get("secondary"), &p)? },
+            zoom_step: { let p = format!("{path}.zoomStep"); num(v.get("zoomStep"), &p)? },
+            barrels_count: { let p = format!("{path}.barrelsCount"); (int(v.get("barrelsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Num(self.primary); fields.push(("primary", x)); }
+        { let x = Value::Num(self.secondary); fields.push(("secondary", x)); }
+        { let x = Value::Num(self.zoom_step); fields.push(("zoomStep", x)); }
+        { let x = Value::Num(self.barrels_count as f64); fields.push(("barrelsCount", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientBarrelResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientBarrelResult {
+            barrel: { let p = format!("{path}.barrel"); num(v.get("barrel"), &p)? },
+            written: { let p = format!("{path}.written"); boolean(v.get("written"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.barrel); fields.push(("barrel", x)); }
+        { let x = Value::Bool(self.written); fields.push(("written", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientMount {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientMount {
+            advance: { let p = format!("{path}.advance"); boolean(v.get("advance"), &p)? },
+            tow: { let p = format!("{path}.tow"); boolean(v.get("tow"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Bool(self.advance); fields.push(("advance", x)); }
+        { let x = Value::Bool(self.tow); fields.push(("tow", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientMuzzles {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientMuzzles {
+            barrels: { let p = format!("{path}.barrels"); { let mut out = Vec::new(); for (i, e) in list(v.get("barrels"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push((int(e, &at, 0.0, u32::MAX as f64)? as u32)); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = { let mut items = Vec::new(); for e in self.barrels.iter() { let x = Value::Num((*e) as f64); items.push(x); } a.array(items) }; fields.push(("barrels", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientFrame {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientFrame {
+            epoch: { let p = format!("{path}.epoch"); num(v.get("epoch"), &p)? },
+            identity: { let p = format!("{path}.identity"); num(v.get("identity"), &p)? },
+            generation: { let p = format!("{path}.generation"); num(v.get("generation"), &p)? },
+            source: { let p = format!("{path}.source"); num(v.get("source"), &p)? },
+            authority_tick: { let p = format!("{path}.authorityTick"); num(v.get("authorityTick"), &p)? },
+            mode: { let p = format!("{path}.mode"); ClientMode::from_u8(name_of(v.get("mode"), &ClientMode::NAMES, &p)?).unwrap() },
+            mounts_at: { let p = format!("{path}.mountsAt"); (int(v.get("mountsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            mounts_count: { let p = format!("{path}.mountsCount"); (int(v.get("mountsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            world: { let p = format!("{path}.world"); (int(v.get("world"), &p, 0.0, u32::MAX as f64)? as u32) },
+            ignored: { let p = format!("{path}.ignored"); num(v.get("ignored"), &p)? },
+            movement: { let p = format!("{path}.movement"); boolean(v.get("movement"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+            underwater: { let p = format!("{path}.underwater"); boolean(v.get("underwater"), &p)? },
+            shield: { let p = format!("{path}.shield"); boolean(v.get("shield"), &p)? },
+            actor_at: { let p = format!("{path}.actorAt"); (int(v.get("actorAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            actor_words: { let p = format!("{path}.actorWords"); (int(v.get("actorWords"), &p, 0.0, u32::MAX as f64)? as u32) },
+            correction_at: { let p = format!("{path}.correctionAt"); (int(v.get("correctionAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            correction_bytes: { let p = format!("{path}.correctionBytes"); (int(v.get("correctionBytes"), &p, 0.0, u32::MAX as f64)? as u32) },
+            weapons_at: { let p = format!("{path}.weaponsAt"); (int(v.get("weaponsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            weapons_words: { let p = format!("{path}.weaponsWords"); (int(v.get("weaponsWords"), &p, 0.0, u32::MAX as f64)? as u32) },
+            flags_at: { let p = format!("{path}.flagsAt"); (int(v.get("flagsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            flags_count: { let p = format!("{path}.flagsCount"); (int(v.get("flagsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            commands_at: { let p = format!("{path}.commandsAt"); (int(v.get("commandsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            commands_count: { let p = format!("{path}.commandsCount"); (int(v.get("commandsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            crowd_at: { let p = format!("{path}.crowdAt"); (int(v.get("crowdAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            crowd_count: { let p = format!("{path}.crowdCount"); (int(v.get("crowdCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            held: { let p = format!("{path}.held"); (int(v.get("held"), &p, 0.0, u32::MAX as f64)? as u32) },
+            presented_through: { let p = format!("{path}.presentedThrough"); num(v.get("presentedThrough"), &p)? },
+            cosmetic_slots: { let p = format!("{path}.cosmeticSlots"); (int(v.get("cosmeticSlots"), &p, 0.0, u32::MAX as f64)? as u32) },
+            mouse_scale: { let p = format!("{path}.mouseScale"); num(v.get("mouseScale"), &p)? },
+            invert: { let p = format!("{path}.invert"); boolean(v.get("invert"), &p)? },
+            kick: { let p = format!("{path}.kick"); numbers::<3>(v.get("kick"), &p)? },
+            check_tick: { let p = format!("{path}.checkTick"); num(v.get("checkTick"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(33);
+        { let x = Value::Num(self.epoch); fields.push(("epoch", x)); }
+        { let x = Value::Num(self.identity); fields.push(("identity", x)); }
+        { let x = Value::Num(self.generation); fields.push(("generation", x)); }
+        { let x = Value::Num(self.source); fields.push(("source", x)); }
+        { let x = Value::Num(self.authority_tick); fields.push(("authorityTick", x)); }
+        { let x = Value::Str(ClientMode::NAMES[self.mode as usize].to_string()); fields.push(("mode", x)); }
+        { let x = Value::Num(self.mounts_at as f64); fields.push(("mountsAt", x)); }
+        { let x = Value::Num(self.mounts_count as f64); fields.push(("mountsCount", x)); }
+        { let x = Value::Num(self.world as f64); fields.push(("world", x)); }
+        { let x = Value::Num(self.ignored); fields.push(("ignored", x)); }
+        { let x = Value::Bool(self.movement); fields.push(("movement", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = Value::Bool(self.underwater); fields.push(("underwater", x)); }
+        { let x = Value::Bool(self.shield); fields.push(("shield", x)); }
+        { let x = Value::Num(self.actor_at as f64); fields.push(("actorAt", x)); }
+        { let x = Value::Num(self.actor_words as f64); fields.push(("actorWords", x)); }
+        { let x = Value::Num(self.correction_at as f64); fields.push(("correctionAt", x)); }
+        { let x = Value::Num(self.correction_bytes as f64); fields.push(("correctionBytes", x)); }
+        { let x = Value::Num(self.weapons_at as f64); fields.push(("weaponsAt", x)); }
+        { let x = Value::Num(self.weapons_words as f64); fields.push(("weaponsWords", x)); }
+        { let x = Value::Num(self.flags_at as f64); fields.push(("flagsAt", x)); }
+        { let x = Value::Num(self.flags_count as f64); fields.push(("flagsCount", x)); }
+        { let x = Value::Num(self.commands_at as f64); fields.push(("commandsAt", x)); }
+        { let x = Value::Num(self.commands_count as f64); fields.push(("commandsCount", x)); }
+        { let x = Value::Num(self.crowd_at as f64); fields.push(("crowdAt", x)); }
+        { let x = Value::Num(self.crowd_count as f64); fields.push(("crowdCount", x)); }
+        { let x = Value::Num(self.held as f64); fields.push(("held", x)); }
+        { let x = Value::Num(self.presented_through); fields.push(("presentedThrough", x)); }
+        { let x = Value::Num(self.cosmetic_slots as f64); fields.push(("cosmeticSlots", x)); }
+        { let x = Value::Num(self.mouse_scale); fields.push(("mouseScale", x)); }
+        { let x = Value::Bool(self.invert); fields.push(("invert", x)); }
+        { let x = { let items = self.kick.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("kick", x)); }
+        { let x = Value::Num(self.check_tick); fields.push(("checkTick", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientCommand {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientCommand {
+            tick: { let p = format!("{path}.tick"); num(v.get("tick"), &p)? },
+            generation: { let p = format!("{path}.generation"); num(v.get("generation"), &p)? },
+            sequence: { let p = format!("{path}.sequence"); num(v.get("sequence"), &p)? },
+            sent: { let p = format!("{path}.sent"); boolean(v.get("sent"), &p)? },
+            held: { let p = format!("{path}.held"); (int(v.get("held"), &p, 0.0, u32::MAX as f64)? as u32) },
+            actions: { let p = format!("{path}.actions"); (int(v.get("actions"), &p, 0.0, u32::MAX as f64)? as u32) },
+            look_at: { let p = format!("{path}.lookAt"); (int(v.get("lookAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            look_count: { let p = format!("{path}.lookCount"); (int(v.get("lookCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            mouse_scale: { let p = format!("{path}.mouseScale"); match v.get("mouseScale").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("mouseScale"), &p)?) } },
+            invert: { let p = format!("{path}.invert"); match v.get("invert").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("invert"), &p)?) } },
+            primary_count: { let p = format!("{path}.primaryCount"); (int(v.get("primaryCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            primary_id: { let p = format!("{path}.primaryId"); num(v.get("primaryId"), &p)? },
+            secondary_count: { let p = format!("{path}.secondaryCount"); (int(v.get("secondaryCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            secondary_id: { let p = format!("{path}.secondaryId"); num(v.get("secondaryId"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        { let x = Value::Num(self.tick); fields.push(("tick", x)); }
+        { let x = Value::Num(self.generation); fields.push(("generation", x)); }
+        { let x = Value::Num(self.sequence); fields.push(("sequence", x)); }
+        { let x = Value::Bool(self.sent); fields.push(("sent", x)); }
+        { let x = Value::Num(self.held as f64); fields.push(("held", x)); }
+        { let x = Value::Num(self.actions as f64); fields.push(("actions", x)); }
+        { let x = Value::Num(self.look_at as f64); fields.push(("lookAt", x)); }
+        { let x = Value::Num(self.look_count as f64); fields.push(("lookCount", x)); }
+        { let x = match &self.mouse_scale { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("mouseScale", x)); }
+        { let x = match &self.invert { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("invert", x)); }
+        { let x = Value::Num(self.primary_count as f64); fields.push(("primaryCount", x)); }
+        { let x = Value::Num(self.primary_id); fields.push(("primaryId", x)); }
+        { let x = Value::Num(self.secondary_count as f64); fields.push(("secondaryCount", x)); }
+        { let x = Value::Num(self.secondary_id); fields.push(("secondaryId", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientLook {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientLook {
+            x: { let p = format!("{path}.x"); num(v.get("x"), &p)? },
+            y: { let p = format!("{path}.y"); num(v.get("y"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.x); fields.push(("x", x)); }
+        { let x = Value::Num(self.y); fields.push(("y", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientCrowd {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientCrowd {
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+            height: { let p = format!("{path}.height"); num(v.get("height"), &p)? },
+            center: { let p = format!("{path}.center"); num(v.get("center"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        { let x = Value::Num(self.height); fields.push(("height", x)); }
+        { let x = Value::Num(self.center); fields.push(("center", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientResult {
+            tick: { let p = format!("{path}.tick"); num(v.get("tick"), &p)? },
+            continued: { let p = format!("{path}.continued"); boolean(v.get("continued"), &p)? },
+            sequence: { let p = format!("{path}.sequence"); num(v.get("sequence"), &p)? },
+            held: { let p = format!("{path}.held"); (int(v.get("held"), &p, 0.0, u32::MAX as f64)? as u32) },
+            ticks: { let p = format!("{path}.ticks"); (int(v.get("ticks"), &p, 0.0, u32::MAX as f64)? as u32) },
+            actor_at: { let p = format!("{path}.actorAt"); (int(v.get("actorAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            actor_words: { let p = format!("{path}.actorWords"); (int(v.get("actorWords"), &p, 0.0, u32::MAX as f64)? as u32) },
+            correction_at: { let p = format!("{path}.correctionAt"); (int(v.get("correctionAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            correction_bytes: { let p = format!("{path}.correctionBytes"); (int(v.get("correctionBytes"), &p, 0.0, u32::MAX as f64)? as u32) },
+            weapons_at: { let p = format!("{path}.weaponsAt"); (int(v.get("weaponsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            weapons_words: { let p = format!("{path}.weaponsWords"); (int(v.get("weaponsWords"), &p, 0.0, u32::MAX as f64)? as u32) },
+            shots_at: { let p = format!("{path}.shotsAt"); (int(v.get("shotsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            shots_count: { let p = format!("{path}.shotsCount"); (int(v.get("shotsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            before_at: { let p = format!("{path}.beforeAt"); (int(v.get("beforeAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            before_shot: { let p = format!("{path}.beforeShot"); (int(v.get("beforeShot"), &p, 0.0, u32::MAX as f64)? as u32) },
+            look_yaw: { let p = format!("{path}.lookYaw"); num(v.get("lookYaw"), &p)? },
+            check_found: { let p = format!("{path}.checkFound"); boolean(v.get("checkFound"), &p)? },
+            check_position: { let p = format!("{path}.checkPosition"); vec3(v.get("checkPosition"), &p)? },
+            kick: { let p = format!("{path}.kick"); numbers::<3>(v.get("kick"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(19);
+        { let x = Value::Num(self.tick); fields.push(("tick", x)); }
+        { let x = Value::Bool(self.continued); fields.push(("continued", x)); }
+        { let x = Value::Num(self.sequence); fields.push(("sequence", x)); }
+        { let x = Value::Num(self.held as f64); fields.push(("held", x)); }
+        { let x = Value::Num(self.ticks as f64); fields.push(("ticks", x)); }
+        { let x = Value::Num(self.actor_at as f64); fields.push(("actorAt", x)); }
+        { let x = Value::Num(self.actor_words as f64); fields.push(("actorWords", x)); }
+        { let x = Value::Num(self.correction_at as f64); fields.push(("correctionAt", x)); }
+        { let x = Value::Num(self.correction_bytes as f64); fields.push(("correctionBytes", x)); }
+        { let x = Value::Num(self.weapons_at as f64); fields.push(("weaponsAt", x)); }
+        { let x = Value::Num(self.weapons_words as f64); fields.push(("weaponsWords", x)); }
+        { let x = Value::Num(self.shots_at as f64); fields.push(("shotsAt", x)); }
+        { let x = Value::Num(self.shots_count as f64); fields.push(("shotsCount", x)); }
+        { let x = Value::Num(self.before_at as f64); fields.push(("beforeAt", x)); }
+        { let x = Value::Num(self.before_shot as f64); fields.push(("beforeShot", x)); }
+        { let x = Value::Num(self.look_yaw); fields.push(("lookYaw", x)); }
+        { let x = Value::Bool(self.check_found); fields.push(("checkFound", x)); }
+        { let x = a.vec3(self.check_position); fields.push(("checkPosition", x)); }
+        { let x = { let items = self.kick.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("kick", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientShot {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientShot {
+            tick: { let p = format!("{path}.tick"); num(v.get("tick"), &p)? },
+            sequence: { let p = format!("{path}.sequence"); num(v.get("sequence"), &p)? },
+            press: { let p = format!("{path}.press"); num(v.get("press"), &p)? },
+            held: { let p = format!("{path}.held"); boolean(v.get("held"), &p)? },
+            button: { let p = format!("{path}.button"); (int(v.get("button"), &p, 0.0, u32::MAX as f64)? as u32) },
+            weapon: { let p = format!("{path}.weapon"); (int(v.get("weapon"), &p, 0.0, u32::MAX as f64)? as u32) },
+            level: { let p = format!("{path}.level"); num(v.get("level"), &p)? },
+            kind: { let p = format!("{path}.kind"); (int(v.get("kind"), &p, 0.0, u32::MAX as f64)? as u32) },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            pitch: { let p = format!("{path}.pitch"); num(v.get("pitch"), &p)? },
+            charge: { let p = format!("{path}.charge"); num(v.get("charge"), &p)? },
+            target: { let p = format!("{path}.target"); num(v.get("target"), &p)? },
+            target_generation: { let p = format!("{path}.targetGeneration"); num(v.get("targetGeneration"), &p)? },
+            swing: { let p = format!("{path}.swing"); num(v.get("swing"), &p)? },
+            actor_at: { let p = format!("{path}.actorAt"); (int(v.get("actorAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            visual_gun: { let p = format!("{path}.visualGun"); match v.get("visualGun").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(LastGun::from_value(v.get("visualGun"), cx, &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(16);
+        { let x = Value::Num(self.tick); fields.push(("tick", x)); }
+        { let x = Value::Num(self.sequence); fields.push(("sequence", x)); }
+        { let x = Value::Num(self.press); fields.push(("press", x)); }
+        { let x = Value::Bool(self.held); fields.push(("held", x)); }
+        { let x = Value::Num(self.button as f64); fields.push(("button", x)); }
+        { let x = Value::Num(self.weapon as f64); fields.push(("weapon", x)); }
+        { let x = Value::Num(self.level); fields.push(("level", x)); }
+        { let x = Value::Num(self.kind as f64); fields.push(("kind", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.pitch); fields.push(("pitch", x)); }
+        { let x = Value::Num(self.charge); fields.push(("charge", x)); }
+        { let x = Value::Num(self.target); fields.push(("target", x)); }
+        { let x = Value::Num(self.target_generation); fields.push(("targetGeneration", x)); }
+        { let x = Value::Num(self.swing); fields.push(("swing", x)); }
+        { let x = Value::Num(self.actor_at as f64); fields.push(("actorAt", x)); }
+        { let x = match &self.visual_gun { Some(v) => v.to_value(cx, a), None => Value::Undefined }; fields.push(("visualGun", x)); }
+        a.object("", fields)
+    }
+}
+
 impl Melee {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -6166,44 +6527,6 @@ impl BpActionArgs {
         { let x = match &self.name { Some(v) => cx.str_out((*v)), None => Value::Null }; fields.push(("name", x)); }
         { let x = { let items = self.position.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("position", x)); }
         { let x = Value::Num(self.number); fields.push(("number", x)); }
-        a.object("", fields)
-    }
-}
-
-impl PredictionHullQuery {
-    /// Its fields from a value (the export of the JavaScript object).
-    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
-        object(v, path)?;
-        Ok(PredictionHullQuery {
-            session: { let p = format!("{path}.session"); num(v.get("session"), &p)? },
-            op: { let p = format!("{path}.op"); (int(v.get("op"), &p, 0.0, u32::MAX as f64)? as u32) },
-            args: { let p = format!("{path}.args"); { let mut out = Vec::new(); for (i, e) in list(v.get("args"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
-        })
-    }
-
-    /// Its value, as the export of the JavaScript object it stands for.
-    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
-        { let x = Value::Num(self.session); fields.push(("session", x)); }
-        { let x = Value::Num(self.op as f64); fields.push(("op", x)); }
-        { let x = { let mut items = Vec::new(); for e in self.args.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("args", x)); }
-        a.object("", fields)
-    }
-}
-
-impl PredictionHullReply {
-    /// Its fields from a value (the export of the JavaScript object).
-    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
-        object(v, path)?;
-        Ok(PredictionHullReply {
-            values: { let p = format!("{path}.values"); { let mut out = Vec::new(); for (i, e) in list(v.get("values"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
-        })
-    }
-
-    /// Its value, as the export of the JavaScript object it stands for.
-    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
-        { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
         a.object("", fields)
     }
 }

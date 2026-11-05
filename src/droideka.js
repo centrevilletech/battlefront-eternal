@@ -258,19 +258,8 @@ export class Droideka {
     this.muzzleActor.root.updateMatrixWorld(true);
   }
 
-  // The next gun's visible muzzle, in turn: the page's cosmetic copy of a
-  // round leaves from the barrel as drawn (nextGun is the worker's, off
-  // the physical rig). Advancing the same counter keeps the alternation
-  // the authority fires with.
-  nextVisualGun(out) {
-    if (!this.guns?.length) return null;
-    const index = this.gun % this.guns.length;
-    const barrel = Math.floor(this.gun / this.guns.length) % (this.gunBarrels?.[index]?.length || 1);
-    this.lastGun = { index, barrel };
-    this.gun = (this.gun + 1) % (this.guns.length * 2);
-    return this.visualGunAt(out, this.lastGun);
-  }
-
+  // The session selects a barrel; presentation reads its visible muzzle.
+  // nextGun is the authoritative world's physical rig and shared cursor.
   visualGunAt(out, selected = this.lastGun) {
     const bone = this.gunBarrels?.[selected?.index]?.[selected?.barrel] || this.guns[selected?.index];
     if (!bone) return null;

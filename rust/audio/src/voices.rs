@@ -1,4 +1,4 @@
-//! The enhanced mode's voices rendered in one place, for `?voices=rust`:
+//! Voices rendered in one Rust phase:
 //! what each voice's chain of browser nodes does (src/audio/engine.js and
 //! VoiceOut in src/audio/spatial.js), worked out here and written into the
 //! spatial mixer's slot instead of reaching it through the nodes. Per voice,
@@ -43,46 +43,18 @@ use crate::FRAMES;
 /// The command codes the page sends, and how many numbers each takes after
 /// its code (slot first). `at` is the context time the page set it at (its
 /// AudioParam call's).
-pub const START: u32 = 1; // slot, sample, offset (s), loop, rate, cutoff (Hz), at
-pub const GAIN_SET: u32 = 2; // slot, value, at
-pub const GAIN: u32 = 3; // slot, target, time constant (s), at
-pub const RATE: u32 = 4; // slot, target, time constant, at
-pub const CUTOFF: u32 = 5; // slot, target (Hz), time constant, at
-pub const SEND: u32 = 6; // slot, target, time constant, at
-pub const RELEASE: u32 = 7; // slot, time constant, stop after (s), at
-pub const STOP: u32 = 8; // slot
-// The light mix's speaker gains (side 0 left, 1 right): AudioParam.value
-// set, setTargetAtTime, cancelScheduledValues; and the source's stop(at).
-pub const SIDE_SET: u32 = 9; // slot, side, value, at
-pub const SIDE: u32 = 10; // slot, side, target, time constant, at
-pub const CANCEL: u32 = 11; // slot, side, at
-pub const STOP_AT: u32 = 12; // slot, at
+pub use crate::commands::{START, GAIN_SET, GAIN, RATE, CUTOFF, SEND, RELEASE, STOP, SIDE_SET, SIDE, CANCEL, STOP_AT};
+use crate::commands::PLACE as LIGHT_PLACE;
+pub(crate) use crate::commands::arity;
 
-fn arity(op: u32) -> usize {
-    match op {
-        START => 7,
-        GAIN_SET => 3,
-        GAIN | RATE | CUTOFF | SEND | RELEASE | SIDE_SET => 4,
-        SIDE => 5,
-        CANCEL => 3,
-        STOP_AT => 2,
-        STOP => 1,
-        _ => 0,
-    }
-}
+/// Channel-major PCM, at the decoded asset's rate.
+pub struct Sample { pub rate:f64, pub channels:usize, pub frames:usize, pub data:Vec<f32> }
 
-/// A sample the voices play: mono (a voice's chain reaches the mixer as its
-/// first channel), at its own rate.
-pub struct Sample {
-    pub rate: f64,
-    pub data: Vec<f32>,
-}
-
-// The browser's TimeToSampleFrame: the time in frames at 1024 times the
-// rate, rounded, then rounded up (or to the nearest).
-fn time_to_frame(time: f64, rate: f64, up: bool) -> f64 {
-    let frame = (time * rate * 1024.0).round() / 1024.0;
-    if up { frame.ceil() } else { frame.round() }
+// TimeToSampleFrame rounds at 1024 times the context rate before rounding
+// to a playback frame; offset and start use different rounding directions.
+fn time_to_frame(time:f64,rate:f64,up:bool)->f64 {
+    let frame=(time*rate*1024.0).round()/1024.0;
+    if up {frame.ceil()} else {frame.round()}
 }
 
 #[derive(Clone, Copy)]
@@ -107,6 +79,8 @@ struct Voice {
     cutoff: Timeline,
     // The light mix's two speaker gains (a GainNode's gain starts at 1).
     sides: [Timeline; 2],
+    light_levels: [f64; 2],
+    placed: bool,
     // The lowpass: its coefficients (for the cutoff `made_for`) and state.
     made_for: f32,
     b: [f64; 5],
@@ -133,6 +107,8 @@ impl Default for Voice {
             send: Timeline::new(0.0),
             cutoff: Timeline::new(0.0),
             sides: [Timeline::new(1.0); 2],
+            light_levels: [0.0; 2],
+            placed: false,
             made_for: f32::NAN,
             b: [0.0; 5],
             x1: 0.0,
@@ -145,6 +121,7 @@ impl Default for Voice {
 
 pub struct Engine {
     rate: f64,
+    pub filtered: bool,
     nyquist: f64,
     // The lowpass's Q (in dB, as the browser takes a lowpass's) as its
     // linear resonance.
@@ -155,7 +132,7 @@ pub struct Engine {
     // else says they are empty).
     inputs: usize,
     voices: Vec<Voice>,
-    samples: Vec<Option<Sample>>,
+    pub(crate) samples: Vec<Option<Sample>>,
     commands: Vec<f64>,
     /// The block's reverb send, summed over the voices (the mixer's third
     /// output).
@@ -266,6 +243,7 @@ impl Engine {
         let x = ((q_db / 20.0) * std::f64::consts::LN_10) as f32;
         Engine {
             rate,
+            filtered: true,
             nyquist: rate / 2.0,
             resonance: v8math::exp(x as f64) as f32 as f64,
             x86,
@@ -293,8 +271,17 @@ impl Engine {
         if self.samples.len() <= id {
             self.samples.resize_with(id + 1, || None);
         }
-        self.samples[id] = Some(Sample { rate, data: vec![0.0; frames] });
+        self.samples[id] = Some(Sample { rate, channels: 1, frames, data: vec![0.0; frames] });
         &mut self.samples[id].as_mut().unwrap().data
+    }
+
+    /// Channel-major decoded PCM shared by voices and stream sources.
+    pub fn sample_channels(&mut self, id:usize, frames:usize, channels:usize, rate:f64)->&mut [f32] {
+        self.sample_storage(id,frames*channels,rate);
+        let sample=self.samples[id].as_mut().unwrap();
+        sample.channels=channels;
+        sample.frames=frames;
+        &mut sample.data
     }
 
     /// Room for `len` command numbers (allocates; between blocks).
@@ -332,7 +319,7 @@ impl Engine {
                     // frame when the source starts at rate 1, as the
                     // browser's (its interpolation then reads the samples
                     // as they are).
-                    let offset = a[2].clamp(0.0, s.data.len() as f64 / s.rate);
+                    let offset = a[2].clamp(0.0, s.frames as f64 / s.rate);
                     let pos = if a[4] == 1.0 { time_to_frame(offset, s.rate, false) } else { offset * s.rate };
                     let start = time_to_frame(a[6], rate, true);
                     *v = Voice {
@@ -370,6 +357,19 @@ impl Engine {
                         SIDE => side.insert(true, a[2] as f32, a[4], a[3], frame, rate),
                         _ => side.cancel(a[2]),
                     }
+                }
+                LIGHT_PLACE => {
+                    let gains=crate::stereo::alsoft(a[1],a[2],a[3]);
+                    for c in 0..2 {
+                        let value=gains[c]*a[4];
+                        if !value.is_finite(){continue;}
+                        let last=v.light_levels[c];
+                        if !v.placed {v.sides[c].set_value(value as f32);v.sides[c].insert(false,value as f32,a[5],0.0,frame,rate);}
+                        else if (value-last).abs()>1e-3*value.abs().max(last.abs())||(value==0.0)!=(last==0.0){v.sides[c].insert(true,value as f32,a[5],0.015,frame,rate);}
+                        else{continue;}
+                        v.light_levels[c]=value;
+                    }
+                    v.placed=true;
                 }
                 STOP_AT => v.stop = time_to_frame(a[1], rate, true),
                 _ => {}
@@ -422,28 +422,32 @@ impl Engine {
             } else {
                 sends.fill(v.send.value());
             }
-            source_block(v, &sample.data, step, frame, src);
-            let [b0, b1, b2, a1, a2] = v.b;
-            let (mut x1, mut x2, mut y1, mut y2) = (v.x1, v.x2, v.y1, v.y2);
+            source_block(v, &sample.data[..sample.frames], step, frame, src);
             let out = &mut inputs[slot * FRAMES..(slot + 1) * FRAMES];
             for i in 0..FRAMES {
-                let s = src[i];
-                let g = if gain_zero { 0.0 } else { s * gains[i] };
-                if !send_zero {
-                    send[i] += g * sends[i];
-                }
-                let x = g as f64;
-                let y = (b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) as f32;
-                out[i] = y;
-                x2 = x1;
-                x1 = x;
-                y2 = y1;
-                y1 = y as f64;
+                let g = if gain_zero { 0.0 } else { src[i] * gains[i] };
+                if !send_zero { send[i] += g * sends[i]; }
+                out[i] = g;
             }
-            v.x1 = flush(x1);
-            v.x2 = flush(x2);
-            v.y1 = flush(y1);
-            v.y2 = flush(y2);
+            // Classic voices have no lowpass at all. Keep their gain's
+            // samples, without paying for a bypassed biquad recurrence.
+            if self.filtered {
+                let [b0, b1, b2, a1, a2] = v.b;
+                let (mut x1, mut x2, mut y1, mut y2) = (v.x1, v.x2, v.y1, v.y2);
+                for sample in out {
+                    let x = *sample as f64;
+                    let y = (b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) as f32;
+                    *sample = y;
+                    x2 = x1;
+                    x1 = x;
+                    y2 = y1;
+                    y1 = y as f64;
+                }
+                v.x1 = flush(x1);
+                v.x2 = flush(x2);
+                v.y1 = flush(y1);
+                v.y2 = flush(y2);
+            }
             present[slot] = 1;
         }
     }
@@ -470,7 +474,7 @@ impl Engine {
                 continue;
             };
             let step = (sample.rate / rate * v.rate.k_rate(block, rate) as f64).clamp(0.0, 1024.0);
-            let playing = source_block(v, &sample.data, step, frame, src);
+            let playing = source_block(v, &sample.data[..sample.frames], step, frame, src);
             for (c, side) in v.sides.iter_mut().enumerate() {
                 let zero = !side.has_events() && side.value() == 0.0;
                 if side.has_events() {
@@ -604,4 +608,14 @@ mod tests {
         e.render(&mut inputs, &mut present);
         assert!(inputs.iter().all(|&x| x == 0.0));
     }
+    #[test]
+    fn voices_use_the_first_pcm_channel_and_its_frame_count() {
+        let mut e=Engine::new(48000.0,1,-3.0103,true);e.filtered=false;
+        let pcm=e.sample_channels(0,8,2,48000.0);pcm[..8].fill(0.25);pcm[8..].fill(0.75);
+        let commands=[START as f64,0.0,0.0,0.0,0.0,1.0,24000.0,0.0,GAIN_SET as f64,0.0,1.0,0.0];
+        e.command_storage(commands.len()).copy_from_slice(&commands);e.apply_commands(commands.len());
+        let mut output=[0.0;FRAMES];let mut present=[0];e.render(&mut output,&mut present);
+        assert!(output[..8].iter().all(|&v|v==0.25));assert!(output[8..].iter().all(|&v|v==0.0));
+    }
+
 }

@@ -11,7 +11,7 @@ import { loadSim } from '../src/sim/module.js';
 // the live reference rather than a second transcription of its arithmetic.
 const source = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
 const begin = source.indexOf('  const MAIN_BODY = ');
-const end = source.indexOf('  // The predicted own soldier', begin);
+const end = source.indexOf('  const localWorldHost = {', begin);
 assert.ok(begin >= 0 && end > begin);
 const reference = new Function('units', 'playerUnit', 'scope', `
   const game = { worldSim: null }, driver = { active: false }, gunner = { active: false }, combat = { dead: scope.playerOut };

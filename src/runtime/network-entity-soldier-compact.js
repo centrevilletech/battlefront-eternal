@@ -12,23 +12,42 @@ export function captureCompactSoldier(s, native = null) { return typeof native?.
 // bytes) and returned as a view of it, valid until the next capture into
 // it: a checkpoint copies the correction straight into its own payload.
 export function captureCompactSoldierInto(s, into, native = null) { return typeof native?.soldier === 'function' ? native.soldier(s, into) : capture(s, into); }
-function capture(s, into) {
+// The replay boundary keeps one maximum-size writer. Return its byte count,
+// rather than allocating a subarray merely to describe the current checkpoint.
+export const COMPACT_SOLDIER_MAX_BYTES = 149;
+// A page retaining a checkpoint can prebuild its views instead of allocating
+// a new subarray whenever settled or dive state changes the compact length.
+export const COMPACT_SOLDIER_LENGTHS = Object.freeze([124, 125, 148, 149]);
+function number(into, n) {
+  if (!Number.isFinite(n)) throw Error('nonfinite Soldier correction');
+  into.view.setFloat64(into.at, n, true); into.at += 8;
+}
+function vector(into, v, key) {
+  if (!v?.isVector3) throw Error(`missing Soldier vector ${key}`);
+  number(into, v.x); number(into, v.y); number(into, v.z);
+}
+export function writeCompactSoldier(s, into) {
   if (s.contactCount !== 0 || s.contactMean.lengthSq() !== 0) throw Error('Soldier correction requires completed collision pass');
   const settled = !(Object.is(s.settled.x, s.position.x) && Object.is(s.settled.y, s.position.y) && Object.is(s.settled.z, s.position.z)), diving = s.dive !== 0;
-  const length = 124 + (settled ? 24 : 0) + (diving ? 1 : 0);
-  const bytes = into ? into.bytes : new Uint8Array(length);
-  const view = into ? into.view : new DataView(bytes.buffer); let at = 4;
-  const number = n => { if (!Number.isFinite(n)) throw Error('nonfinite Soldier correction'); view.setFloat64(at, n, true); at += 8; };
-  const posture = postures.indexOf(s.posture), air = airs.indexOf(s.air);
+  const posture = postures.indexOf(s.posture), air = airs.indexOf(s.air), bytes = into.bytes;
   if (posture < 0 || air < 0 || typeof s.grounded !== 'boolean') throw Error('invalid Soldier state');
   bytes[0] = Number(settled) | (Number(diving) << 1); bytes[1] = posture; bytes[2] = air; bytes[3] = Number(s.grounded);
-  for (const key of numbers) number(s[key]);
-  // The vectors in order (position, velocity, normal, then settled), each x,
-  // y, z: a correction is captured for every player every snapshot.
-  const vector = (v, key) => { if (!v?.isVector3) throw Error(`missing Soldier vector ${key}`); number(v.x); number(v.y); number(v.z); };
-  vector(s.position, 'position'); vector(s.velocity, 'velocity'); vector(s.normal, 'normal');
-  if (settled) vector(s.settled, 'settled');
-  if (diving) { const n = postures.indexOf(s.diveFrom); if (n < 0) throw Error('invalid dive posture'); bytes[at++] = n; }
+  into.at = 4;
+  // captureCompactSoldier's existing wire order, without dynamic field reads
+  // or per-call number/vector closures. Full-precision doubles stay unchanged.
+  number(into, s.fuel); number(into, s.aimYaw); number(into, s.aimPitch);
+  number(into, s.dive); number(into, s.stateTime); number(into, s.lock);
+  vector(into, s.position, 'position'); vector(into, s.velocity, 'velocity'); vector(into, s.normal, 'normal');
+  if (settled) vector(into, s.settled, 'settled');
+  if (diving) { const n = postures.indexOf(s.diveFrom); if (n < 0) throw Error('invalid dive posture'); bytes[into.at++] = n; }
+  return into.at;
+}
+function capture(s, into) {
+  const settled = !(Object.is(s.settled.x, s.position.x) && Object.is(s.settled.y, s.position.y) && Object.is(s.settled.z, s.position.z));
+  const length = 124 + (settled ? 24 : 0) + (s.dive !== 0 ? 1 : 0);
+  const bytes = into ? into.bytes : new Uint8Array(length);
+  const writer = into || { bytes, view: new DataView(bytes.buffer), at: 0 };
+  writeCompactSoldier(s, writer);
   return into ? bytes.subarray(0, length) : bytes;
 }
 function readCompactSoldier(s, bytes) {

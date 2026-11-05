@@ -75,92 +75,10 @@ export const ALSOFT = {
   "7.1": { front: 0, streamFront: 0, rows: X71 },
   "7.1.4": { front: 0, streamFront: 0, rows: [...X71, null, null, null, null] },
 };
-// Where OpenAL Soft puts a stream's channels (alc/alu.cpp): azimuth in
-// degrees, positive to the left as in LAYOUTS. A mono stream plays ahead; a
-// quad stream is a stereo pair and a rear pair (AL_FORMAT_REAR16).
-export const ALSOFT_STREAM_ANGLES = { 1: [0], 2: [30, -30], 4: [30, -30, 150, -150] };
-
-// The gains OpenAL Soft 1.20.1 gives a direction (x right, y up, z back,
-// unit length) on a layout: the original mode's law, as the spatial mixer
-// runs it; for tests and the speaker panel. `front` widens azimuths ahead.
-export function alsoftGains(layout, x, y, z, front = ALSOFT[layout].front) {
-  const { rows } = ALSOFT[layout];
-  let az = Math.atan2(x, -z); // OpenAL Soft's: positive to the right
-  const ev = Math.asin(Math.max(-1, Math.min(1, y)));
-  if (front > 0 && Math.abs(az) < Math.PI / 2) az = Math.sign(az) * Math.min(Math.abs(az) * front, Math.PI / 2);
-  const X = Math.cos(az) * Math.cos(ev);
-  const Y = -Math.sin(az) * Math.cos(ev);
-  const h = [1, Math.sqrt(3) * Y, Math.sqrt(3) * X, Math.sqrt(15) * X * Y, (Math.sqrt(15) / 2) * (X * X - Y * Y), Math.sqrt(35 / 8) * Y * (3 * X * X - Y * Y), Math.sqrt(35 / 8) * X * (X * X - 3 * Y * Y)];
-  return rows.map((row) => (row ? row.reduce((s, g, k) => s + g * h[k], 0) : 0));
-}
-
-// The same stereo gains, [left, right] into `out`, for any direction (it
-// needn't be unit length; none at all is ahead) and without a new array:
-// the light mix pans every voice with it every frame (src/audio/spatial.js).
-export function alsoftStereo(x, y, z, out, front = ALSOFT.stereo.front) {
-  const len = Math.sqrt(x * x + y * y + z * z);
-  if (len < 1e-6) {
-    x = 0;
-    y = 0;
-    z = -1;
-  } else {
-    x /= len;
-    y /= len;
-    z /= len;
-  }
-  let az = Math.atan2(x, -z);
-  if (front > 0 && Math.abs(az) < Math.PI / 2) az = Math.sign(az) * Math.min(Math.abs(az) * front, Math.PI / 2);
-  const ce = Math.cos(Math.asin(Math.max(-1, Math.min(1, y))));
-  const X = Math.sqrt(3) * Math.cos(az) * ce;
-  const Y = -Math.sqrt(3) * Math.sin(az) * ce;
-  const [left, right] = ALSOFT.stereo.rows;
-  out[0] = left[0] + left[1] * Y + left[2] * X;
-  out[1] = right[0] + right[1] * Y + right[2] * X;
-  return out;
-}
-
 // The layout for a device's channel count, when the output is "auto".
 export function autoLayout(maxChannels) {
   if (maxChannels >= 12) return "7.1.4";
   if (maxChannels >= 8) return "7.1";
   if (maxChannels >= 6) return "5.1";
   return "stereo";
-}
-
-// Gains of a direction over a layout's ear-level ring by pairwise panning
-// (the same law the spatial mixer runs); for tests and the speaker panel.
-export function vbap(layout, azimuthDeg) {
-  const ring = layout.speakers
-    .map((s, c) => (s && s[1] < 20 ? [c, (s[0] * Math.PI) / 180] : null))
-    .filter(Boolean)
-    .sort((a, b) => a[1] - b[1]);
-  const out = new Array(layout.channels).fill(0);
-  const az = (azimuthDeg * Math.PI) / 180;
-  for (let i = 0; i < ring.length; i++) {
-    let [c1, a1] = ring[i];
-    let [c2, a2] = ring[(i + 1) % ring.length];
-    if (i === ring.length - 1) a2 += 2 * Math.PI;
-    let a = az;
-    if (a < a1) a += 2 * Math.PI;
-    if (a < a1 || a > a2) continue;
-    if (a2 - a1 > Math.PI) {
-      // A pair more than half a turn apart (stereo, seen from behind): fold
-      // the source onto their front arc, front and back alike.
-      const front = (a1 + a2) / 2 - Math.PI;
-      a = 2 * (front + Math.PI / 2) - a;
-      [c1, a1, c2, a2] = [c2, a2 - 2 * Math.PI, c1, a1];
-      while (a > a2) a -= 2 * Math.PI;
-      while (a < a1) a += 2 * Math.PI;
-    }
-    const det = Math.cos(a1) * Math.sin(a2) - Math.cos(a2) * Math.sin(a1);
-    let g1 = (Math.cos(a) * Math.sin(a2) - Math.cos(a2) * Math.sin(a)) / det;
-    let g2 = (Math.cos(a1) * Math.sin(a) - Math.cos(a) * Math.sin(a1)) / det;
-    g1 = Math.max(g1, 0);
-    g2 = Math.max(g2, 0);
-    const n = Math.hypot(g1, g2) || 1;
-    out[c1] += g1 / n;
-    out[c2] += g2 / n;
-    break;
-  }
-  return out;
 }
