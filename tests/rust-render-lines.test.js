@@ -43,3 +43,11 @@ test('transparent lines join the blended command stream at the authored group an
   assert.deepEqual([...f.pass.transparent[0].key].slice(0,2),[5,17]);
   assert.equal(object.material.visible,true);
 });
+
+test('line depth keys use the bundled renderer clip-space sphere centre without division',()=>{
+  const f=fixture(),object=f.line();object.material.transparent=true;object.position.z=-8;f.discover([object]);
+  // WebGLRenderer.projectObject uses Vector4 for mesh and line bounds.
+  const center=new THREE.Vector4().copy(object.geometry.boundingSphere.center).applyMatrix4(object.matrixWorld).applyMatrix4(f.pass.screen);
+  assert.equal(f.pass.transparent[0].key[2],center.z);
+  assert.notEqual(f.pass.transparent[0].key[2],center.z/center.w);
+});
