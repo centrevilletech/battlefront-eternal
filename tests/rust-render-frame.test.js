@@ -682,3 +682,69 @@ test("a command post's beam, hidden until the player comes near: registered befo
   scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
   assert.equal(compiled.length, 1, "nothing added since: nothing looked over");
 });
+
+test("a water mirror's render of the near scene: drawn in place of three's when everything three would list is the renderer's", () => {
+  const { core, calls, renderer, scene, setTarget } = nearBridge();
+  const mirror = new THREE.PerspectiveCamera();
+  mirror.userData.mirror = true;
+  mirror.updateMatrixWorld(true);
+  const reflection = { name: "reflection", samples: 0, width: 8, height: 4 };
+  setTarget(reflection);
+  // On by default (?rustMirror=0 turns it off), apart from the frame's cover (?rustNear).
+  assert.equal(core.byName.mirrorCover.on, true);
+  const hidden = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ visible: false }));
+  scene.add(hidden);
+  scene.updateMatrixWorld(true);
+  assert.equal(core.coverMirror(renderer, scene, mirror), true);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "mirror_frame", "mirror_transparent_frame"]);
+  assert.deepEqual(calls.find((c) => c[0] === "mirror_transparent_frame").slice(1), [0, 0], "the image drawn by the begin phase, not again");
+  assert.equal(core.postInput[1], -2, "the image into the target bound now");
+  assert.equal(core.stale, true, "three's state reset when three is next used");
+  // Not the frame's camera, nor a render something three draws itself is in.
+  assert.equal(core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), false);
+  const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
+  wall.position.set(0, 0, -5);
+  scene.add(wall);
+  scene.updateMatrixWorld(true);
+  calls.length = 0;
+  assert.equal(core.coverMirror(renderer, scene, mirror), false);
+  assert.equal(core.byName.mirrorCover.stopped, wall);
+  assert.ok(!calls.some((c) => /frame$|^near_begin$/.test(c[0])), "three renders it");
+  // Switched off alone: three's.
+  wall.material.visible = false;
+  core.byName.mirrorCover.setActive(false);
+  assert.equal(core.coverMirror(renderer, scene, mirror), false);
+  core.byName.mirrorCover.setActive(true);
+  assert.equal(core.coverMirror(renderer, scene, mirror), true);
+});
+
+test("the view scene: a gun's part whose zero material blends is a record of its own kind, drawn from its row in three's order among what blends", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
+  view.updateMatrixWorld(true);
+  const part = new THREE.Mesh(partGeometry(), partMaterial(properties));
+  // The glass: a zero material that blends (BLENDED, DYNAMIC), its lights and lamps per instance.
+  const glassMaterial = partMaterial(properties);
+  glassMaterial.transparent = true;
+  glassMaterial.depthWrite = false;
+  glassMaterial.defines.BLENDED = "";
+  const glass = new THREE.Mesh(partGeometry(), glassMaterial);
+  glass.position.z = -2;
+  const flashMaterial = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  properties.get(flashMaterial).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT], ["map", GL.SAMPLER_2D], ["mapTransform", GL.FLOAT_MAT3]], ["position", "uv"]);
+  const flash = new THREE.Mesh(partGeometry(), flashMaterial);
+  flash.position.z = -1;
+  viewScene.add(part, glass, flash);
+  viewScene.updateMatrixWorld(true);
+  assert.equal(core.cover("view", renderer, viewScene, view), true, `every part the renderer's: three left out (${core.errors.join("; ")})`);
+  assert.equal(glassMaterial.visible, false);
+  assert.ok(calls.some((c) => c[0] === "inst_add_blend"), "its blending and passes registered");
+  const input = core.viewInput, D = 1, DRAW = 17 + 32 * 18;
+  assert.equal(input[0], 2, "two draws that blend");
+  assert.deepEqual([input[D], input[D + 1]], [-1, 0], "the farther, the glass: the first record that blends");
+  assert.ok(input[D + DRAW] >= 0, "then the flash, three's program");
+  const records = calls.filter((c) => c[0] === "view_frame").pop()[1];
+  assert.equal(records, 2, "the part and the glass written");
+  const o = core.recordsAt + core.stride;
+  assert.equal(core.input[o], 4, "the glass's record of its own kind");
+});

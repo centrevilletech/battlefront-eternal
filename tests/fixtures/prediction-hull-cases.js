@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CollisionWorld } from '../../src/collision.js';
+import { CollisionWorld } from '../../tools/collision-fixture.mjs';
 import { Vehicles } from '../../src/vehicles.js';
 import { captureGroundCorrection } from '../../src/runtime/network-entity-ground.js';
 import { captureFlightCorrection } from '../../src/runtime/network-entity-flight.js';

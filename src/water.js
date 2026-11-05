@@ -1121,7 +1121,9 @@ export class Water extends WaterState {
         // only this mirror draws it before render() does.
         graphics.updateScene?.();
         renderer.setRenderTarget(this.target);
-        renderer.render(graphics.scene, mirror);
+        // The Rust renderer draws it all where nothing in it is left for
+        // three (src/rust-render/mirror.js), else three (its mirror phase inside).
+        if (!graphics.rust?.coverMirror(renderer, graphics.scene, mirror)) renderer.render(graphics.scene, mirror);
       }
     } finally {
       this.group.visible = visible;
@@ -1140,14 +1142,15 @@ export class Water extends WaterState {
     }
   }
 
-  // The screen's tint with the eye under the surface over water.
+  // The screen's tint with the eye under the surface over water (the Rust
+  // renderer's underwater phase where it draws it: src/rust-render).
   drawUnderwater(renderer, camera) {
     if (this.quality.scale) return;
     if (camera.position.y >= this.level || !this.over(camera.position.x, camera.position.z)) return;
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
     renderer.setRenderTarget(null);
-    renderer.render(this.underwaterScene, this.passCamera);
+    if (!this.graphics.rust?.cover("underwater", renderer, this.underwaterScene, this.passCamera)) renderer.render(this.underwaterScene, this.passCamera);
     renderer.autoClear = autoClear;
   }
 }

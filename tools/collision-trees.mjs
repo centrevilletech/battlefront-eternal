@@ -31,7 +31,7 @@ const casts = Number(option('casts', 0));
 if (!out) throw new Error('--out FILE');
 
 const THREE = await import('three');
-const { CollisionWorld } = await import('../src/collision.js');
+const { CollisionWorld } = await import('./collision-fixture.mjs');
 
 const read = (name) => {
   const bytes = fs.readFileSync(path.join(content, 'maps', map, name));

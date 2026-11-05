@@ -84,6 +84,7 @@ let writer = null, fd = null;
 if (valuesFile) { fd = fs.openSync(valuesFile, 'w'); fs.writeSync(fd, MAGIC); writer = new Writer(); }
 
 export function battle({ game: g, options, index }) {
+  if (!g.ordnance.sim || !g.items.sim) throw Error('Rust rounds and items are required');
   game = g;
   label = `${options.map} ${options.side} seed ${options.seed}${index ? ` battle ${index + 1}` : ''}`;
 }

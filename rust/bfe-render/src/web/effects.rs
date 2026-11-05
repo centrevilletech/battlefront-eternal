@@ -32,6 +32,8 @@ impl BfeRenderer {
     pub fn fx_batch_interleaved(&mut self, batch: u32) { self.r.effects.batch_interleaved(batch) }
     // A batch three draws single-sided: its side (0 front, 1 back).
     pub fn fx_batch_side(&mut self, batch: u32, side: u32) { self.r.effects.batch_side(batch, side) }
+    // A batch's depth state when it isn't a particle's: flags (1 test, 2 write), function.
+    pub fn fx_batch_depth(&mut self, batch: u32, flags: u32, func: u32) { self.r.effects.batch_depth(batch, flags, func) }
     pub fn fx_batch_sampler(&mut self, batch: u32, name: &str, unit: u32, texture: i32) { self.r.effects.batch_sampler(&self.r.core, batch, name, unit, texture) }
     // A 3D texture a batch samples (the jetpack flame's noise).
     pub fn fx_batch_sampler_3d(&mut self, batch: u32, name: &str, unit: u32, texture: i32) { self.r.effects.batch_sampler_3d(&self.r.core, batch, name, unit, texture) }

@@ -2,7 +2,7 @@
 // Include it in all three sim-capture runs so scan/capture/plain hashes
 // still prove the recording shims leave the battle alone:
 // node tools/sim-capture.mjs --out DIR --specs traps --every 7 --around 1 --
-//   --map end1 --side all --seed 1 --ticks 1400 --sim js
+//   --map end1 --side all --seed 1 --ticks 1400
 //   --plugin tools/traps-capture-probe.mjs
 // The map's actual trap, cutter repair path, AT-ST and death callbacks run.
 // Actions happen after each published tick, while capture is still open.

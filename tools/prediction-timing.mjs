@@ -12,7 +12,7 @@ import {pathToFileURL} from 'node:url';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {Soldier} from '../src/soldier.js';
-import {CollisionWorld} from '../src/collision.js';
+import { CollisionWorld } from './collision-fixture.mjs';
 import {MovementKernel} from '../src/movement-kernel.js';
 import {loadRayKernel} from '../src/ray-kernel.js';
 import {SoldierPresentation} from '../src/soldier-presentation.js';

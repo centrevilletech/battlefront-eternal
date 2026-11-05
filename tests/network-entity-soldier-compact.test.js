@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Soldier} from '../src/soldier.js';
-import {CollisionWorld} from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import {captureCompactSoldier, restoreCompactSoldier} from '../src/runtime/network-entity-soldier-compact.js';
 const world = () => new CollisionWorld(new Float32Array([-100,0,-100,100,0,-100,100,0,100,-100,0,100]),new Uint32Array([0,2,1,0,3,2]),new Uint32Array([0,1]));
 const make = w => { const s=new Soldier(w,{});s.spawn(0,0,0,0);s.diveTime=.4;s.getupTime=.2;return s; };

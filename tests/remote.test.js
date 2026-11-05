@@ -1,8 +1,8 @@
+import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { Ordnance } from '../src/ordnance.js';
 import { RemoteDroids } from '../src/remote.js';
 
 const collision = { cast: () => null, gather: () => [] };
@@ -61,7 +61,7 @@ for (const side of ['rep', 'cis', 'all', 'imp']) {
       remote.updateStrikes(1.5); assert.equal(shots.length, 4); assert.equal(d.dead, true);
       assert.equal(blasts.length, 1); assert.equal(remote.active, false);
       const impacts = [], effects = [];
-      const ordnance = new Ordnance({ scene: new THREE.Scene(), texture: () => null,
+      const ordnance = rustOrdnance({ scene: new THREE.Scene(), texture: () => null,
         lights: { add() {}, flash() {} }, effects: { play: name => effects.push(name) },
         onExplode: (def, at) => impacts.push({ def, at: at.clone() }),
         collision: { cast(at, dir, reach) {
@@ -74,7 +74,7 @@ for (const side of ['rep', 'cis', 'all', 'imp']) {
         assert.ok(shot.def.Velocity * shot.def.LifeSpan > destruct.AimDistance);
         assert.ok(shot.def.ExplosionImpact.Effect); assert.equal(shot.def.ExplosionImpact.Damage, 500);
       }
-      for (let tick = 0; tick < 180; tick++) for (const bolt of ordnance.bolts) if (bolt.life > 0) ordnance.stepBolt(bolt, 1 / 60, false);
+      for (let tick = 0; tick < 180; tick++) for (const bolt of ordnance.bolts) if (bolt.life > 0) ordnance.update(1 / 60);
       assert.equal(impacts.length, 4, 'every sky bolt reaches the ground and explodes');
       assert.ok(impacts.every(hit => Math.abs(hit.at.y - .2) < 1e-5));
       assert.equal(effects.filter(name => name === 'atat_explosion').length, 4);

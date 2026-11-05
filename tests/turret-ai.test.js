@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Turret } from '../src/props.js';
 import { TurretSeats } from '../src/seats.js';
 import { stationaryInput } from '../src/ai/classic/vehicles/steering.js';

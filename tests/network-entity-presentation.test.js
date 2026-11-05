@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { SoldierPresentation } from '../src/soldier-presentation.js';
 import { Vehicles } from '../src/vehicles.js';
 import { Unit } from '../src/units.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { EntityPresentation } from '../src/runtime/network-entity-presentation.js';
 import { EntityTimeline } from '../src/runtime/network-entity-timeline.js';
 import { EntityReceiver } from '../src/runtime/network-entity-stream.js';

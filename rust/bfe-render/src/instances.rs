@@ -284,6 +284,18 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for InstancePass<C> {
     }
 
     fn draw_run(&mut self, core: &mut Core<C, M>, _view: &View, run: &[Item]) {
+        for item in run {
+            self.draw_blended(core, item.record as usize);
+        }
+    }
+}
+
+impl<C: HasContext> InstancePass<C> {
+    // The k-th blending rig or part of the records drawn last (its row and
+    // bones uploaded then): each of its material's passes with its blending,
+    // depth and culling as three sets them. The transparent list draws them
+    // in its order; the first-person view in its own (view.rs).
+    pub fn draw_blended<M: MultiDraw>(&mut self, core: &mut Core<C, M>, k: usize) {
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         let (programs, geometries, textures) = (&core.programs, &core.geometries, &core.textures);
@@ -291,9 +303,9 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for InstancePass<C> {
         state.bind_texture(gl, stats, UNIT_BONES, Some(self.bone_texture));
         state.color_mask(gl, stats, [true; 4]);
         state.alpha_to_coverage(gl, stats, false);
-        for item in run {
-            let Some(b) = self.blended.get(item.record as usize) else { continue };
-            let (Some(blend), Some(geo)) = (self.blends.get(b.blend), geometries.get(b.geometry)) else { continue };
+        {
+            let Some(b) = self.blended.get(k) else { return };
+            let (Some(blend), Some(geo)) = (self.blends.get(b.blend), geometries.get(b.geometry)) else { return };
             state.bind_texture(gl, stats, UNIT_MAP, Some(textures.get(b.texture as usize).copied().unwrap_or(self.empty)));
             let f = &blend.blend;
             state.blend(gl, stats, f[0] != 0);

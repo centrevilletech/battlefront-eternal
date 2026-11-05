@@ -1,3 +1,5 @@
+import { KIND_GRENADE } from '../src/sim/gen/index.js';
+import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {Scene,Vector3} from 'three';
 import {Ordnance} from '../src/ordnance.js';
@@ -8,9 +10,9 @@ import {presentEntityEvent,presentationRecord} from '../src/runtime/entity-prese
 import {encodeCosmeticEvent} from '../src/runtime/snapshot-cosmetics.js';
 const def={Velocity:60,LifeSpan:.07123,LaserLength:2,ImpactEffectStatic:'spark'};
 function fixture(){let tick=10;const capture=new CombatCapture({tick:()=>tick,definitionId:()=>1});const effects=[];
- const authority=new Ordnance({scene:new Scene(),collision:{cast:()=>({distance:3,point:new Vector3(0,0,3),normal:new Vector3(0,0,-1)})},effects:{play(){}},lights:{add(){}},texture:()=>null});
+ const authority=rustOrdnance({scene:new Scene(),collision:{cast:()=>({distance:3,point:new Vector3(0,0,3),normal:new Vector3(0,0,-1)})},effects:{play(){}},lights:{add(){}},texture:()=>null});
  authority.onLaunch=b=>capture.launch(b);authority.onImpact=(b,h)=>capture.impact(b,h);
- const client=new Ordnance({scene:new Scene(),collision:{cast(){throw Error('client collision forbidden');}},effects:{play:(...x)=>effects.push(x)},lights:{add(){}},texture:()=>null});
+ const client=rustOrdnance({scene:new Scene(),collision:{cast(){throw Error('client collision forbidden');}},effects:{play:(...x)=>effects.push(x)},lights:{add(){}},texture:()=>null});
  client.onHit=client.onHitUnit=()=>{throw Error('client damage forbidden');};
  let confirmed=0,predict=false,muzzles=[];const presentation=new CombatPresentation({ordnance:client,definition:()=>def,predictedShots:{claim(){confirmed++;return predict;}},muzzle:(event,d)=>{muzzles.push([event.ownerId,d]);return muzzle;}});let muzzle=null;
  return{authority,client,capture,presentation,effects,muzzles,setTick:n=>tick=n,confirmed:()=>confirmed,predict:value=>{predict=value;},muzzle:at=>{muzzle=at;}};}
@@ -28,7 +30,7 @@ function heldFixture(){
  f.authority.collision.cast=()=>null;
  const launch=(executionTick,viewTick=90)=>{
   f.setTick(executionTick);f.authority.onLaunch=bolt=>f.capture.launch(bolt,{tick:viewTick});
-  const bolt=f.authority.bolt({...def,LifeSpan:2},new Vector3(),new Vector3(0,0,1),unit);
+  const bolt=f.authority.fire({...def,LifeSpan:2},new Vector3(),new Vector3(0,0,1),unit);
   return {bolt,record:transfer(f.capture.drain()[0].record)};
  };
  const sound=(executionTick,id=1000)=>presentationRecord({id,generation:1,tick:executionTick,event:{kind:'shot',ownerId:7,ownerGeneration:2,weaponId:1,fireId:0}});
@@ -120,11 +122,11 @@ test('simultaneous primary and secondary presses retain independent IDs through 
  dispose();
 });
 test('actual authoritative bolt launches, renders cosmetic flight, impacts once without client simulation',()=>{
- const f=fixture(),bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
+ const f=fixture(),bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
  const launch=transfer(f.capture.drain()[0].record);assert.equal(decodeCombat(launch).life,.05);
  f.presentation.receive(launch,{epoch:1,tick:10});f.presentation.present(10);f.presentation.present(11);assert.equal(f.client.drawnAt.z,1);assert.equal(f.confirmed(),1);
  assert.deepEqual(f.muzzles,[[7,def]],'drawn from the shooter\'s gun as this page draws it');
- f.setTick(13);f.authority.stepBolt(bolt,.06,false);const terminal=transfer(f.capture.drain()[0].record);
+ f.setTick(13);f.authority.update(.06);const terminal=transfer(f.capture.drain()[0].record);
  // The terminal arrives before this page's clock reaches the impact: the
  // bolt flies on to the impact point and the impact shows when it gets there.
  f.presentation.receive(terminal,{epoch:1,tick:13});assert.equal(f.effects.length,0);f.presentation.receive(terminal,{epoch:1,tick:14});
@@ -133,29 +135,29 @@ test('actual authoritative bolt launches, renders cosmetic flight, impacts once 
  assert.equal(f.presentation.records.get(launch.id).schema,2);assert.ok(f.presentation.records.get(launch.id).bolt,'the terminal keeps the bolt it ends');
 });
 test('a launch the player predicted is not drawn twice: his cosmetic round flies as drawn',()=>{
- const f=fixture();f.predict(true);f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
+ const f=fixture();f.predict(true);f.authority.fire(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
  const launch=transfer(f.capture.drain()[0].record);f.presentation.receive(launch,{epoch:1,tick:10});
  f.client.drawnAt.set(9,9,9);f.presentation.present(11);assert.deepEqual(f.client.drawnAt.toArray(),[9,9,9],'no authoritative bolt drawn');
  assert.equal(f.presentation.records.get(launch.id).predicted,true);assert.equal(f.presentation.records.get(launch.id).bolt,undefined);assert.equal(f.muzzles.length,0);
 });
 test('a remote launch leaves the gun where this page draws it and joins its path; a muzzle far from the launch is ignored',()=>{
- const f=fixture();f.muzzle(new Vector3(.3,-.2,.5));f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);
+ const f=fixture();f.muzzle(new Vector3(.3,-.2,.5));f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);
  const launch=transfer(f.capture.drain()[0].record);f.presentation.receive(launch,{epoch:1,tick:10});
  f.presentation.present(10);const bolt=f.presentation.records.get(launch.id).bolt;assert.deepEqual(bolt.offset.toArray(),[.3,-.2,.5]);assert.equal(bolt.visualMuzzle,null,'resolved once');
  assert.ok(Math.abs(f.client.drawnAt.x-.3)<1e-9,'at launch the bolt is drawn at the muzzle');
- f.muzzle(new Vector3(0,0,-30));f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);const far=transfer(f.capture.drain()[0].record);f.presentation.receive(far,{epoch:1,tick:10});f.presentation.present(10);
+ f.muzzle(new Vector3(0,0,-30));f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);const far=transfer(f.capture.drain()[0].record);f.presentation.receive(far,{epoch:1,tick:10});f.presentation.present(10);
  assert.deepEqual(f.presentation.records.get(far.id).bolt.offset.toArray(),[0,0,0]);
 });
 test('terminal before launch prevents revival, survives cosmetic TTL, and expires bounded identity',()=>{
- const f=fixture(),bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);const launch=f.capture.drain()[0].record;
- f.setTick(13);f.authority.stepBolt(bolt,.06,false);const terminal=f.capture.drain()[0].record;
+ const f=fixture(),bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);const launch=f.capture.drain()[0].record;
+ f.setTick(13);f.authority.update(.06);const terminal=f.capture.drain()[0].record;
  f.presentation.receive(terminal,{epoch:1,tick:40});assert.equal(f.effects.length,0);
  assert.equal(f.presentation.receive(launch,{epoch:1,tick:40}),false);assert.equal(f.presentation.records.size,1);
  f.presentation.present(200);assert.equal(f.presentation.records.size,0);assert.equal(f.presentation.receive(launch,{epoch:1,tick:200}),false);
 });
 test('pellets sharing one fire edge have separate projectile identities and exact fractional lifetime',()=>{
  const f=fixture();f.authority.collision.cast=()=>null;
- for(let i=0;i<2;i++)f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
+ for(let i=0;i<2;i++)f.authority.fire(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
  const records=f.capture.drain().map(x=>decodeCombat(transfer(x.record)));assert.notEqual(records[0].id,records[1].id);assert.equal(records[0].fireId,records[1].fireId);assert.equal(records[0].life,.07123);
 });
 
@@ -172,7 +174,7 @@ test('authoritative hit feedback survives packet duplication and never changes t
 });
 
 test('late old packet cannot resurrect an expired identity after bounded GC',()=>{
- const f=fixture();f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);const launch=f.capture.drain()[0].record;
+ const f=fixture();f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);const launch=f.capture.drain()[0].record;
  f.presentation.receive(launch,{epoch:1,tick:10});f.presentation.present(200);
  assert.equal(f.presentation.receive(launch,{epoch:1,tick:10}),false);assert.equal(f.presentation.records.size,0);
  f.presentation.reset(2);assert.equal(f.presentation.receive(launch,{epoch:1,tick:10}),false);
@@ -183,13 +185,13 @@ test('capture failures report bounded diagnostics without changing shared simula
  // Restore ordinary hooks, then attach the networking observer as production does.
  f.authority.onLaunch=()=>{};f.authority.onImpact=()=>{};
  const dispose=attachCombatCapture({ordnance:f.authority,simEvents:new SimEvents()},f.capture);
- for(let i=0;i<12;i++)assert.doesNotThrow(()=>f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null));
+ for(let i=0;i<12;i++)assert.doesNotThrow(()=>f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null));
  assert.equal(f.authority.bolts.length,12);assert.equal(f.capture.drainFaults().length,8);dispose();
 });
 
 test('multi-pellet volley draws every bolt but emits its muzzle presentation once',()=>{
  const f=fixture();f.authority.collision.cast=()=>null;let flashes=0;f.presentation.onLaunch=()=>flashes++;
- for(let i=0;i<3;i++)f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
+ for(let i=0;i<3;i++)f.authority.fire(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
  for(const {record}of f.capture.drain())f.presentation.receive(transfer(record),{epoch:1,tick:10});
  assert.equal(f.presentation.records.size,3);assert.equal(flashes,1);
 });
@@ -199,9 +201,9 @@ test('shared Ordnance impact and shared Combat.damage produce feedback without r
  const f=fixture(),attacker={id:7,generation:2,team:1},target={id:8,generation:3,team:2,classDef:{}};let died=0,hits=0,kills=0;
  const combat=Object.create(PlayerCombat.prototype);target.combat=combat;
  Object.assign(combat,{soldier:{air:null},health:10,dead:false,chunks:0,animator:{die(){died++;}},updateHeld(){},onDamaged(amount,source){f.capture.event({kind:'damage',target:{unit:target,generation:3},attacker:{unit:source,generation:2},team:2,attackerTeam:1,position:[0,0,1]});},onDeath(){f.capture.event({kind:'death',target:{unit:target,generation:3},attacker:{unit:attacker,generation:2},team:2,attackerTeam:1,position:[0,0,1]});}});
- f.authority.castUnits=()=>({unit:target,point:new Vector3(0,0,1),normal:new Vector3(0,0,-1),part:'body'});
+ f.authority.world.raycastUnits=()=>({unit:target,point:new Vector3(0,0,1),normal:new Vector3(0,0,-1),part:'body'});
  f.authority.onHitUnit=(unit,def,point,owner)=>unit.combat.damage(20,20,point,owner);
- const bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),attacker);f.capture.drain();f.setTick(11);f.authority.stepBolt(bolt,1/60,false);
+ const bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),attacker);f.capture.drain();f.setTick(11);f.authority.update(1/60);
  assert.equal(combat.health,0);assert.equal(died,1);
  f.presentation.onFeedback=event=>presentFeedback({playerUnit:attacker,units:{byId:id=>id===7?attacker:target,relation:()=>-1},hud:{hit(){hits++;},killMessage(){kills++;}}},event);
  for(const {record}of f.capture.drain())f.presentation.receive(transfer(record),{epoch:1,tick:11});
@@ -217,15 +219,15 @@ test('shared projectile presentation changes visuals without advancing weapons o
 });
 
 test('same-tick terminal ends an already displayed launch where it hits, not before it is drawn',()=>{
- const f=fixture(),bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);
+ const f=fixture(),bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);
  const launch=f.capture.drain()[0].record;f.presentation.receive(transfer(launch),{epoch:1,tick:10});
- f.authority.stepBolt(bolt,.06,false);const terminal=f.capture.drain()[0].record;assert.equal(terminal.tick,launch.tick);
+ f.authority.update(.06);const terminal=f.capture.drain()[0].record;assert.equal(terminal.tick,launch.tick);
  assert.equal(f.presentation.receive(transfer(terminal),{epoch:1,tick:10}),true);assert.equal(f.presentation.records.get(launch.id).schema,2);assert.equal(f.effects.length,0);
  f.presentation.present(10);f.presentation.present(11);assert.equal(f.client.drawnAt.z,1,'drawn on its way to the impact');
  f.presentation.present(13);assert.equal(f.effects.length,1);
 });
 test('a bolt that ends before the next drain keeps its launch beside its terminal',()=>{
- const f=fixture(),bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);f.authority.stepBolt(bolt,.06,false);
+ const f=fixture(),bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);f.authority.update(.06);
  const records=f.capture.drain().map(x=>transfer(x.record));assert.deepEqual(records.map(r=>r.schema),[1,2]);assert.equal(records[0].id,records[1].id);
  for(const record of records)f.presentation.receive(record,{epoch:1,tick:10});
  f.presentation.present(10);f.presentation.present(11);assert.equal(f.client.drawnAt.z,1,'the short shot is drawn, not just its impact');
@@ -234,8 +236,8 @@ test('a bolt that ends before the next drain keeps its launch beside its termina
  assert.equal(f.presentation.receive(records[0],{epoch:1,tick:12}),false);
 });
 test('a drained event carries its record decoded at capture, as publication would decode it',()=>{
- const f=fixture(),bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
- f.capture.explosion({...def,Damage:5},new Vector3(4,5,6));f.setTick(11);f.authority.stepBolt(bolt,.06,false);
+ const f=fixture(),bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
+ f.capture.explosion({...def,Damage:5},new Vector3(4,5,6));f.setTick(11);f.authority.update(.06);
  const events=f.capture.drain();assert.deepEqual(events.map(e=>e.record.schema),[1,5,2]);
  for(const event of events){
   assert.deepEqual(event.view,decodeCombat(event.record));
@@ -243,7 +245,7 @@ test('a drained event carries its record decoded at capture, as publication woul
  }
 });
 test('a launch lost and sent again after its terminal still flies to that impact',()=>{
- const f=fixture(),bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);f.authority.stepBolt(bolt,.06,false);
+ const f=fixture(),bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);f.authority.update(.06);
  const [launch,terminal]=f.capture.drain().map(x=>transfer(x.record));
  f.presentation.receive(terminal,{epoch:1,tick:12});f.presentation.present(8);assert.equal(f.effects.length,0,'the impact waits for its tick');
  assert.equal(f.presentation.receive(launch,{epoch:1,tick:14}),true);
@@ -253,15 +255,15 @@ test('a launch lost and sent again after its terminal still flies to that impact
 
 test('impact-only short shot still presents its muzzle once, late expiry does not',()=>{
  const f=fixture();let flashes=0;f.presentation.onLaunch=()=>flashes++;
- const bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);f.authority.stepBolt(bolt,.06,false);
+ const bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);f.authority.update(.06);
  const terminal=f.capture.drain()[1].record;assert.equal(terminal.schema,2);f.presentation.receive(transfer(terminal),{epoch:1,tick:10});assert.equal(flashes,1);
- const later=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);f.capture.drain();f.setTick(40);f.authority.stepBolt(later,.06,false);
+ const later=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);f.capture.drain();f.setTick(40);f.authority.update(.06);
  assert.equal(f.capture.pending.size,1,'a drained launch leaves its terminal alone');
  f.presentation.receive(transfer(f.capture.drain()[0].record),{epoch:1,tick:40});assert.equal(flashes,1);
 });
 
 test('replicated tracers join the shared renderer batch before it is finalized',()=>{
- const f=fixture();f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);f.presentation.receive(f.capture.drain()[0].record,{epoch:1,tick:10});
+ const f=fixture();f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);f.presentation.receive(f.capture.drain()[0].record,{epoch:1,tick:10});
  let active=false,draws=0;const begin=f.client.renderer.begin.bind(f.client.renderer),end=f.client.renderer.end.bind(f.client.renderer),draw=f.client.drawBolt.bind(f.client);
  f.client.renderer.begin=()=>{active=true;begin();};f.client.renderer.end=()=>{assert.equal(draws,1);end();active=false;};
  f.client.drawBolt=(...args)=>{assert.equal(active,true,'draw must survive the same-frame batch reset');draws++;return draw(...args);};
@@ -321,18 +323,18 @@ test('actual grenade and shell samples render authoritative bounce/flight state 
  const f=fixture();f.authority.collision.cast=()=>null;f.client.model=()=>()=>new Object3D();
  attachCombatCapture({ordnance:f.authority,simEvents:new SimEvents()},f.capture);
  const definition={base:'grenade',GeometryName:'grenade',Velocity:6,LifeSpan:1,Gravity:1};f.presentation.definition=()=>definition;f.presentation.dynamic.definition=()=>definition;
- f.authority.throw(definition,new Vector3(0,10,0),new Vector3(0,0,1),null);
+ f.authority.fire(definition,new Vector3(0,10,0),new Vector3(0,0,1),null);
  const grenade=f.authority.grenades[0];let record=f.capture.drain()[0].record;
  assert.equal(record.schema,6);f.presentation.receive(transfer(record),{epoch:1,tick:10});
- f.authority.stepGrenade(grenade,.05);f.setTick(13);record=f.capture.drain()[0].record;
+ f.authority.update(.05);f.setTick(13);record=f.capture.drain()[0].record;
  const decoded=decodeCombat(transfer(record));assert.ok(Math.abs(decoded.position[1]-grenade.position.y)<1e-6);assert.ok(Math.abs(decoded.quaternion[3])<1,'headless authority retains visible grenade tumble');
  f.presentation.receive(transfer(record),{epoch:1,tick:13});f.presentation.present(13);
  const view=f.presentation.dynamic.objects.get(record.id);assert.ok(view.mesh.position.distanceTo(grenade.position)<1e-6);
- f.authority.explode(grenade);f.setTick(14);const terminal=f.capture.drain()[0].record;assert.equal(terminal.schema,7);
+ grenade.resting=true;grenade.fuse=0;f.authority.sim.bridge.writeSome(KIND_GRENADE,[grenade],true);f.authority.update(0,false);f.setTick(14);const terminal=f.capture.drain()[0].record;assert.equal(terminal.schema,7);
  f.presentation.receive(transfer(terminal),{epoch:1,tick:14});assert.equal(f.presentation.dynamic.objects.size,1,'ends when the playout clock reaches it');
  f.presentation.present(14);assert.equal(f.presentation.dynamic.objects.size,0);assert.equal(view.mesh.parent,null);
  assert.equal(f.presentation.receive(transfer(record),{epoch:1,tick:16}),false,'late sample cannot revive retired projectile');
- const shellDef={...definition,base:'shell'};const shell=f.authority.round(shellDef,new Vector3(0,10,0),new Vector3(0,0,1),null);f.capture.drain();f.authority.stepRound(shell,.05);f.setTick(17);
+ const shellDef={...definition,base:'shell'};const shell=f.authority.fire(shellDef,new Vector3(0,10,0),new Vector3(0,0,1),null);f.capture.drain();f.authority.update(.05);f.setTick(17);
  const shellSample=f.capture.drain().map(x=>decodeCombat(x.record)).find(x=>x.type==='round');assert.ok(shellSample.velocity[1]<0);assert.ok(Math.abs(shellSample.position[2]-shell.position.z)<1e-6);
 });
 
@@ -340,7 +342,7 @@ test('beam uses sampled authoritative endpoints and disappears on lifecycle term
  const {SimEvents}=await import('../src/sim-events.js');const {attachCombatCapture}=await import('../src/runtime/network-entity-combat.js');
  const f=fixture();f.authority.collision.cast=()=>({distance:20,point:new Vector3(0,0,20),normal:new Vector3(0,0,-1)});attachCombatCapture({ordnance:f.authority,simEvents:new SimEvents()},f.capture);
  const definition={base:'beam',LifeSpan:.2};f.presentation.dynamic.definition=()=>definition;
- f.authority.beam(definition,new Vector3(),new Vector3(0,0,1),null,null);const beam=f.authority.beams[0];f.authority.stepBeam(beam,1/60,false);
+ f.authority.fire(definition,new Vector3(),new Vector3(0,0,1),null,null);const beam=f.authority.beams[0];f.authority.update(1/60);
  const record=f.capture.drain()[0].record;f.presentation.receive(transfer(record),{epoch:1,tick:10});
  let draws=0;f.client.drawBeam=sample=>{draws++;assert.equal(sample.end.z,20);};f.presentation.present(10);assert.equal(draws,1);
  beam.life=0;f.setTick(11);f.presentation.receive(transfer(f.capture.drain()[0].record),{epoch:1,tick:11});f.presentation.present(11);assert.equal(draws,1);
@@ -359,7 +361,7 @@ test('dynamic shot confirmation keeps the original fire identity across later sa
  const {SimEvents}=await import('../src/sim-events.js');const {attachCombatCapture}=await import('../src/runtime/network-entity-combat.js');
  const f=fixture();f.authority.collision.cast=()=>null;attachCombatCapture({ordnance:f.authority,simEvents:new SimEvents()},f.capture);
  const owner={id:7,generation:2,networkShot:{id:9}},definition={base:'missile',Velocity:20,LifeSpan:2};let flashes=0;f.presentation.onLaunch=()=>flashes++;
- f.authority.round(definition,new Vector3(),new Vector3(0,0,1),owner);owner.networkShot={id:10};
+ f.authority.fire(definition,new Vector3(),new Vector3(0,0,1),owner);owner.networkShot={id:10};
  let record=f.capture.drain()[0].record;assert.equal(decodeCombat(record).fireId,9);f.presentation.receive(transfer(record),{epoch:1,tick:10});
  f.setTick(13);record=f.capture.drain()[0].record;f.presentation.receive(transfer(record),{epoch:1,tick:13});
  assert.equal(flashes,1);assert.equal(f.confirmed(),2,'both samples refer to the same original prediction identity');
@@ -370,9 +372,9 @@ test('actual missile snapshots recover after lost intermediate samples without r
  const {SimEvents}=await import('../src/sim-events.js');const {attachCombatCapture}=await import('../src/runtime/network-entity-combat.js');const {Object3D}=await import('three');
  const f=fixture();f.authority.collision.cast=()=>null;attachCombatCapture({ordnance:f.authority,simEvents:new SimEvents()},f.capture);f.client.model=()=>()=>new Object3D();
  const definition={base:'missile',GeometryName:'missile',Velocity:20,LifeSpan:2,TurnRate:20,WaverTurn:2,ScaleTime:1};f.presentation.dynamic.definition=()=>definition;
- const missile=f.authority.round(definition,new Vector3(0,10,0),new Vector3(0,0,1),null);
+ const missile=f.authority.fire(definition,new Vector3(0,10,0),new Vector3(0,0,1),null);
  const first=f.capture.drain()[0].record;f.presentation.receive(transfer(first),{epoch:1,tick:10});
- for(let i=1;i<=6;i++){f.setTick(10+i);f.authority.stepRound(missile,1/60);if(i===3)f.capture.drain();}
+ for(let i=1;i<=6;i++){f.setTick(10+i);f.authority.update(1/60);if(i===3)f.capture.drain();}
  const latest=f.capture.drain()[0].record;f.presentation.receive(transfer(latest),{epoch:1,tick:16});f.presentation.present(16);
  const visible=f.presentation.dynamic.objects.get(latest.id);assert.ok(visible.mesh.position.distanceTo(missile.position)<1e-5);
  assert.equal(f.presentation.receive(transfer(first),{epoch:1,tick:19}),false);assert.ok(visible.mesh.position.distanceTo(missile.position)<1e-5);
@@ -433,8 +435,8 @@ test('actual shell collision replaces its sampled body with one authoritative im
  const {SimEvents}=await import('../src/sim-events.js');const {attachCombatCapture}=await import('../src/runtime/network-entity-combat.js');
  const f=fixture();f.authority.collision.cast=()=>null;attachCombatCapture({ordnance:f.authority,simEvents:new SimEvents()},f.capture);
  const definition={base:'shell',Velocity:20,LifeSpan:2,ImpactEffectStatic:'spark'};f.presentation.definition=()=>definition;f.presentation.dynamic.definition=()=>definition;
- const shell=f.authority.round(definition,new Vector3(0,10,0),new Vector3(0,0,1),null);const sample=f.capture.drain()[0].record;f.presentation.receive(transfer(sample),{epoch:1,tick:10});
- f.authority.collision.cast=()=>({distance:.1,point:new Vector3(0,10,.1),normal:new Vector3(0,0,-1)});f.setTick(11);f.authority.stepRound(shell,1/60);
+ const shell=f.authority.fire(definition,new Vector3(0,10,0),new Vector3(0,0,1),null);const sample=f.capture.drain()[0].record;f.presentation.receive(transfer(sample),{epoch:1,tick:10});
+ f.authority.collision.cast=()=>({distance:.1,point:new Vector3(0,10,.1),normal:new Vector3(0,0,-1)});f.setTick(11);f.authority.update(1/60);
  const terminal=f.capture.drain()[0].record;assert.equal(terminal.schema,2);assert.equal(terminal.id,sample.id);
  f.presentation.receive(transfer(terminal),{epoch:1,tick:11});assert.equal(f.effects.length,0);
  f.presentation.present(10.5);const body=f.presentation.dynamic.objects.get(sample.id);assert.ok(body.position.z>0&&body.position.z<.1,'flown on toward the impact point');
@@ -484,7 +486,7 @@ test('enhanced destruction suppresses local sprites while replicating the canoni
 test('a class with a FadeOutTime keeps its bolt past the terminal, cut at the impact, and fades there',()=>{
  const f=fixture(),sniper={...def,Velocity:2000,LifeSpan:.15,LaserLength:20,LaserWidth:.15,GlowLength:24,BlurLength:32,FadeOutTime:1};
  f.presentation.definition=()=>sniper;f.authority.collision.cast=()=>null;
- const bolt=f.authority.bolt(sniper,new Vector3(),new Vector3(0,0,1),null);
+ const bolt=f.authority.fire(sniper,new Vector3(),new Vector3(0,0,1),null);
  const launch=transfer(f.capture.drain()[0].record);assert.equal(decodeCombat(launch).life,.15);
  f.presentation.receive(launch,{epoch:1,tick:10});
  // A soldier 50 m out stops it on the second tick; the terminal arrives
@@ -505,7 +507,7 @@ test('a FadeOutTime terminal whose launch never arrived is drawn from the shoote
  const f=fixture(),sniper={...def,Velocity:2000,LifeSpan:.15,LaserLength:20,GlowLength:24,BlurLength:32,FadeOutTime:1};
  f.presentation.definition=()=>sniper;f.authority.collision.cast=()=>null;f.muzzle(new Vector3(1,0,0));
  // Fired and stopped 30 m out within one tick: only the terminal is sent.
- const bolt=f.authority.bolt(sniper,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});f.capture.drain();
+ const bolt=f.authority.fire(sniper,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});f.capture.drain();
  f.setTick(11);f.capture.impact(bolt,{point:new Vector3(1,0,30),normal:new Vector3(0,0,-1),surface:1});
  f.presentation.receive(transfer(f.capture.drain()[0].record),{epoch:1,tick:11});
  const drawn=f.presentation.records.get(1).bolt;assert.ok(drawn,'drawn from the terminal alone');
@@ -513,7 +515,7 @@ test('a FadeOutTime terminal whose launch never arrived is drawn from the shoote
  assert.ok(Math.abs(drawn.life-30/2000)<1e-12);
  f.presentation.present(11);f.client.drawnAt.set(-1,-1,-1);f.presentation.present(30);assert.deepEqual(f.client.drawnAt.toArray(),[1,0,30],'fading where it stopped');
  // A class without a FadeOutTime is gone with its terminal, as before.
- const g=fixture();g.muzzle(new Vector3(1,0,0));const plain=g.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);g.capture.drain();
+ const g=fixture();g.muzzle(new Vector3(1,0,0));const plain=g.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);g.capture.drain();
  g.setTick(11);g.capture.impact(plain,{point:new Vector3(0,0,3),normal:new Vector3(0,0,-1),surface:1});
  g.presentation.receive(transfer(g.capture.drain()[0].record),{epoch:1,tick:11});assert.equal(g.presentation.records.get(1).bolt,undefined);
 });

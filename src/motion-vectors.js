@@ -313,18 +313,6 @@ export class MotionVectors {
     restore();
   }
 
-  // The extras alone, by three, into the target cleared first: the Rust
-  // renderer draws the proxies and the mask after them (rust-render/
-  // motion.js). An extra covers only what the near scene left empty, which
-  // no proxy covers, so the order of the two is as three's.
-  drawExtras(renderer, camera, target) {
-    const restore = this.into(renderer, target), hidden = [];
-    for (const proxy of this.proxies) if (proxy.visible) { proxy.visible = false; hidden.push(proxy); }
-    renderer.render(this.scene, camera);
-    for (const proxy of hidden) proxy.visible = true;
-    restore();
-  }
-
   // three drawing into `target`, cleared to zero (static), with no clears of
   // its own and no shadow maps; returns what puts its settings back.
   into(renderer, target) {

@@ -1,10 +1,48 @@
 import assert from 'node:assert/strict';
 
+// Read inside the HUD callback, before the compositor can discard the frame.
+async function drawnFrame(page,stage) {
+  if(process.env.BFE_TEST_CPU==='1')return;
+  const result=await page.evaluate(()=>new Promise(resolve=>{
+    const g=__bf.graphics,r=g.renderer,gl=r.getContext(),hud=__bf.hud,render=hud.render;
+    hud.render=function(...args){
+      const value=render.apply(this,args);hud.render=render;
+      const w=gl.drawingBufferWidth,h=gl.drawingBufferHeight,bytes=new Uint8Array(w*h*4);
+      r.setRenderTarget(null);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,bytes);
+      let lit=0,min=255,max=0;
+      for(let i=0;i<bytes.length;i+=16){const n=Math.max(bytes[i],bytes[i+1],bytes[i+2]);if(n>8)lit++;min=Math.min(min,n);max=Math.max(max,n);}
+      resolve({w,h,lit,min,max,frame:g.frameCount,lost:gl.isContextLost()});return value;
+    };
+  }));
+  assert.ok(!result.lost&&result.frame>2&&result.lit>100&&result.max-result.min>16,'a nonblank gameplay frame reaches the drawn framebuffer');
+  console.log('drawn-frame',stage,JSON.stringify(result));
+}
+
+// A software draw can stall, while the server and native transport continue.
+// Wait for a fresh accepted input batch rather than imposing an FPS minimum.
+async function inputCadence(page) {
+  const until=Date.now()+60000;
+  let result;
+  do {
+    result=await page.evaluate(async()=>{const s=await __bf.client.host.call('inspect'),input=s.inputDiagnostics?.last;
+      return {fresh:input?.accepted===true&&!s.player.inputsStale&&Math.abs(input.tick-s.tick)<30,tick:s.tick,input};});
+    if(result.fresh)return;
+    await page.waitForTimeout(100);
+  }while(Date.now()<until);
+  assert.ok(result?.fresh,'the normal transport accepts fresh input before the next action');
+}
+
 // Ordinary spawn, walking, use and seat-cycle commands. No teleport, direct
 // board(), health edits or replacement physics are allowed in this gate.
 export async function mountedGameGate([actor, observer]) {
   await actor.bringToFront();
   await actor.evaluate(()=>{__bf.controls.locked=true;if(__bf.menu.isOpen)__bf.menu.close(true);});
+  await actor.evaluate(()=>{
+    window.__spawnEdges=[];
+    const sender=__bf.client.host.entityInput,add=sender.add.bind(sender),feedback=sender.feedback.bind(sender);
+    sender.add=(command,edge)=>{const value=add(command,edge);if(['team','spawn','suicide','cancel'].includes(edge.kind))window.__spawnEdges.push({sent:value});return value;};
+    sender.feedback=message=>{if(message.results?.length)window.__spawnEdges.push({feedback:message});return feedback(message);};
+  });
   const choose=(nearby=false)=>{
     const options=[];
     for(const team of Object.keys(__bf.spawnPort.teams()).map(Number)) {
@@ -31,15 +69,26 @@ export async function mountedGameGate([actor, observer]) {
   // Establish a real first life before proving the death-screen transition.
   async function spawn() {
     await actor.waitForFunction(()=>['unspawned','awaiting'].includes(__bf.spawnPort.humanState().phase),null,{timeout:60000});
-    await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
-    await actor.waitForFunction(c=>__bf.playerUnit.alive&&__bf.playerUnit.className===c.className&&__bf.playerTeam===c.team,choice,{timeout:60000});
+    await inputCadence(actor);
+    let failure;
+    for(let attempt=0;attempt<15;attempt++) {
+      await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
+      try { await actor.waitForFunction(c=>__bf.playerUnit.alive&&__bf.playerUnit.className===c.className&&__bf.playerTeam===c.team,choice,{timeout:2000});failure=null;break; }
+      catch(error) { failure=error; }
+    }
+    if(failure) {
+      console.log('spawn-timeout',JSON.stringify(await actor.evaluate(async()=>({phase:__bf.spawnPort.humanState(),alive:__bf.playerUnit.alive,team:__bf.playerTeam,loading:window.__loading?.closed,pending:__bf.texturesPending(),tick:__bf.worldClock.tick,running:__bf.client.running,hidden:document.hidden,edges:window.__spawnEdges,inspection:await __bf.client.host.call('inspect')}))));
+      throw failure;
+    }
     await actor.waitForFunction(()=>!__bf.spawnScreen?.isOpen&&__bf.controls.enabled&&!__bf.soldier.air&&__bf.soldier.lock<=0,null,{timeout:15000});
     await actor.bringToFront();
     await actor.evaluate(()=>{if(__bf.menu.isOpen)__bf.menu.close(true);__bf.controls.locked=true;});
   }
   if(!await actor.evaluate(()=>__bf.playerUnit.alive))await spawn();
   const first=await actor.evaluate(()=>({id:__bf.playerUnit.id,generation:__bf.playerUnit.generation}));
-  await observer.waitForFunction(({id,generation})=>{const u=__bf.units.byId(id);return u?.alive&&u.generation===generation;},first,{timeout:15000});
+  await observer.waitForFunction(({id,generation})=>{const u=__bf.units.byId(id);return u?.alive&&u.generation===generation&&u.actor?.root.visible;},first,{timeout:15000});
+  await drawnFrame(actor,'first-life');
+  await drawnFrame(observer,'observed-first-life');
   await actor.evaluate(()=>__bf.spawnPort.suicide());
   await actor.waitForFunction(()=>!__bf.playerUnit.alive,null,{timeout:15000});
   await observer.waitForFunction(({id,generation})=>{const u=__bf.units.byId(id);return !u?.alive||u.generation!==generation;},first,{timeout:15000});
@@ -88,8 +137,12 @@ export async function mountedGameGate([actor, observer]) {
   console.log('mounted-approach',JSON.stringify(navigation));
   assert.ok(navigation.distance<navigation.radius+2.5,'ordinary movement reaches boarding distance');
   await actor.waitForFunction(()=>!__bf.soldier.air&&__bf.soldier.lock<=0,null,{timeout:15000});
-  await actor.keyboard.press('KeyE');
-  await actor.waitForFunction(c=>__bf.playerUnit.seat?.vehicle?.aiTarget.id===c.vehicleId,choice,{timeout:15000});
+  await inputCadence(actor);
+  for(let attempt=0;attempt<10;attempt++) {
+    await actor.keyboard.press('KeyE');
+    try { await actor.waitForFunction(c=>__bf.playerUnit.seat?.vehicle?.aiTarget.id===c.vehicleId,choice,{timeout:1500});break; }
+    catch(error) { if(attempt===9) { console.log('boarding-timeout',JSON.stringify(await actor.evaluate(()=>({alive:__bf.playerUnit.alive,seat:__bf.playerUnit.seat?.index,enabled:__bf.controls.enabled,locked:__bf.controls.locked,edges:window.__spawnEdges}))));throw error; } }
+  }
   // Ordinary seat cycling may exchange a bot pilot with the human passenger.
   if(await actor.evaluate(()=>__bf.playerUnit.seat.index!==0))await actor.evaluate(()=>{__bf.pending.nextPrimary=true;});
   await actor.waitForFunction(()=>__bf.playerUnit.seat?.index===0&&__bf.client.entity.previous?.controlMode===4,null,{timeout:15000});
@@ -106,12 +159,13 @@ export async function mountedGameGate([actor, observer]) {
   await actor.evaluate(()=>{__bf.pending.nextPrimary=true;});
   await actor.waitForFunction(()=>__bf.playerUnit.seat?.index>0&&__bf.client.entity.previous?.controlMode===2,null,{timeout:15000});
   const before=await actor.evaluate(()=>__bf.driver.vehicle.seats[__bf.playerUnit.seat.index].aimYaw);
-  if(process.env.BFE_TEST_CPU==='1')await actor.evaluate(()=>document.dispatchEvent(new MouseEvent('mousemove',{movementX:80,movementY:20,bubbles:true})));
-  else await actor.mouse.move(460,190,{steps:8});
+  await actor.evaluate(()=>document.dispatchEvent(new MouseEvent('mousemove',{movementX:80,movementY:20,bubbles:true})));
   await actor.mouse.click(460,190);
   await actor.waitForFunction(before=>Math.abs(__bf.driver.vehicle.seats[__bf.playerUnit.seat.index].aimYaw-before)>.01,before,{timeout:15000});
   // Disconnect while occupying the hull, then prove the server releases it.
   const tick=await observer.evaluate(()=>__bf.worldClock.tick);
+  await drawnFrame(actor,'passenger');
+  await drawnFrame(observer,'observed-driving');
   await actor.evaluate(()=>__bf.client.host.dispose());
   await observer.waitForFunction(({id,vehicleId,tick})=>{const v=__bf.vehicles.vehicles.find(v=>v.aiTarget.id===vehicleId);return __bf.worldClock.tick>tick&&!__bf.units.byId(id)?.seat&&v?.seats.every(s=>s.lease?.unit?.id!==id);},{...identity,...choice,tick},{timeout:15000});
   console.log('Actual respawn, pilot prediction, driving, passenger aim and occupied disconnect passed',JSON.stringify({choice,pilot,identity}));

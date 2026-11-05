@@ -4,18 +4,8 @@ import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-// The collision's queries in WebAssembly (src/ray-kernel.js, ?rays=wasm),
-// and the soldiers' movement with them (src/movement-kernel.js,
-// ?movement=wasm), change no tick of a battle: tools/world-hash.mjs
-// fingerprints a few short battles in JavaScript, with the collision's
-// module, and with both modules, and every tick's three hashes (the replay
-// state, every unit, hull and round in full precision, and the snapshot
-// bytes published) must be the same. The three runs of a battle run at once.
-//
-// Like the other battle tests this needs the game's files (BFE_CONTENT_DIR,
-// or public/), so CI, which has none, skips it; tests/ray-kernel.test.js
-// holds the kernel to the JavaScript there, query by query, on a made-up
-// world. tools/check-ray-kernel.mjs and longer world-hash runs go further.
+// Content-gated repeatability of the required Rust world. Synthetic kernel
+// golden fixtures run in CI without these files.
 const root = fileURLToPath(new URL('../', import.meta.url));
 const content = process.env.BFE_CONTENT_DIR || `${root}public`;
 
@@ -42,8 +32,8 @@ function fingerprints(args) {
 for (const [map, side, seed, ticks, extra] of battles) {
   const args = ['--map', map, '--side', side, '--seed', String(seed), '--ticks', String(ticks), ...extra];
   test(`${args.join(' ')}: every tick the same in WebAssembly`, { skip: !existsSync(`${content}/maps/${map}/map.json`) && 'no game files' }, async () => {
-    const [js, rays, both] = await Promise.all([fingerprints(args), fingerprints([...args, '--rays', 'wasm']), fingerprints([...args, '--rays', 'wasm', '--movement', 'wasm'])]);
-    for (const [name, run] of [['collision', rays], ['collision and movement', both]]) {
+    const [js, rays] = await Promise.all([fingerprints(args), fingerprints(args)]);
+    for (const [name, run] of [['repeated world', rays]]) {
       assert.equal(run.length, ticks);
       const first = js.findIndex((line, i) => line !== run[i]);
       assert.equal(first, -1, first < 0 ? '' : `${name}: tick ${first + 1} differs:\n  js   ${js[first]}\n  wasm ${run[first]}`);

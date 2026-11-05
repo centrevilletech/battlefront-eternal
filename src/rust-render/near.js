@@ -22,7 +22,7 @@
 // three's render list for the scene is emptied (it listed nothing), and its
 // frame count moves on as a render's would.
 import * as THREE from "three";
-import { plainProgram, writeUniform } from "./post.js";
+import { plainProgram, plainProgramKnown, writeUniform } from "./post.js";
 
 // post.rs's step layout, and its target for the framebuffer bound now.
 const STEP = { PROGRAM: 0, TARGET: 1, WIDTH: 2, HEIGHT: 3, UNIFORMS: 4, FIRST: 5 };
@@ -31,11 +31,14 @@ const ATTRIBUTES = "position:0,uv:1";
 // The transparent pass's records a frame (transparent.rs MAX_OBJECTS).
 const MAX_ITEMS = 512;
 
-class NearPass {
+export class NearPass {
   constructor(core) {
     this.core = core;
     this.name = "near";
     this.phase = "begin";
+    // The phase that draws the scene's passes after the begin phase (a
+    // mirror's render: mirror.js).
+    this.scenePhase = "near";
     // Behind ?rustNear for now: it draws the near scene only on frames with
     // nothing left for three (a dissolving body, a held gun the instances
     // can't draw yet send the frame back to three), so on busy maps it
@@ -66,16 +69,20 @@ class NearPass {
     // Three's render of the scene draws its shadow cascades first: three's.
     if (renderer.shadowMap.enabled && (renderer.shadowMap.autoUpdate || renderer.shadowMap.needsUpdate)) return false;
     const target = renderer.getRenderTarget();
-    // Only the frame's own render of the near scene, in the configuration
-    // three's would draw as walked here: its clear (no background or fog of
-    // three's), its sort, and the far scene's image in it.
-    if (target !== graphics.sceneTarget || camera !== graphics.camera || scene !== graphics.scene || graphics.background.parent !== scene) return false;
+    // Only the frame's own render of the near scene (ours()), in the
+    // configuration three's would draw as walked here: its clear (no
+    // background or fog of three's), its sort, and the far scene's image in it.
+    if (!this.ours(renderer, scene, camera, target) || graphics.background.parent !== scene) return false;
     if (!renderer.autoClear || !renderer.autoClearColor || !renderer.autoClearDepth || !renderer.autoClearStencil || !renderer.sortObjects) return false;
     if (scene.background || scene.fog || scene.overrideMaterial || renderer.localClippingEnabled || renderer.clippingPlanes?.length) return false;
     // The far scene's image needs three's program for its material (three
-    // has drawn it once).
+    // has drawn it once). Making the renderer's (the first time) makes GL
+    // calls of its own: if three renders the scene after all, its state is
+    // reset first (left()).
+    const fresh = !plainProgramKnown(core, graphics.background.material);
+    const left = () => { if (fresh) core.stale = true; return false; };
     const program = plainProgram(core, graphics.background.material, ATTRIBUTES);
-    if (!program || program.uniforms.length > MAX_UNIFORMS) return false;
+    if (!program || program.uniforms.length > MAX_UNIFORMS) return left();
     try {
       if (scene.matrixWorldAutoUpdate === true) scene.updateMatrixWorld();
       if (camera.parent === null && camera.matrixWorldAutoUpdate === true) camera.updateMatrixWorld();
@@ -83,17 +90,17 @@ class NearPass {
       this.frustum.setFromProjectionMatrix(this.screen);
       // What stopped the last walk, still in view as it was: three renders
       // the scene, unwalked (and its onBeforeRender is three's alone).
-      if (this.stillStops(this.stopped, scene, camera)) { this.left++; this.early++; return false; }
+      if (this.stillStops(this.stopped, scene, camera)) { this.left++; this.early++; return left(); }
       scene.onBeforeRender(renderer, scene, camera, target);
       this.items.length = 0;
       this.stopped = null;
-      if (!this.walk(scene, camera, 0) || !this.writeImage(program, camera)) { this.left++; return false; }
+      if (!this.walk(scene, camera, 0) || !this.writeImage(program, camera)) { this.left++; return left(); }
       // three's render list of the scene: empty, as three listed nothing.
       renderer.renderLists.get(scene, 0).init();
       renderer.info.render.frame++;
       if (renderer.info.autoReset) renderer.info.reset();
       core.phase("begin", renderer, scene, camera, true);
-      core.phase("near", renderer, scene, camera, true, this.items);
+      core.phase(this.scenePhase, renderer, scene, camera, true, this.items);
       core.resolve(target);
       scene.onAfterRender(renderer, scene, camera);
       this.drawn++;
@@ -102,6 +109,13 @@ class NearPass {
       core.fail(error, renderer, target);
       return false;
     }
+  }
+
+  // The render this pass draws in three's place: the frame's own of the near
+  // scene.
+  ours(renderer, scene, camera, target) {
+    const graphics = this.core.graphics;
+    return target === graphics.sceneTarget && camera === graphics.camera && scene === graphics.scene;
   }
 
   // projectObject's walk: a hidden object hides its subtree; one on other
