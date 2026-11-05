@@ -611,6 +611,11 @@ export class TurretSeats {
     this.time = 0;
     this.ticks = 0;
     this.seatRandom = null; // () => [0, 1): the world's seat stream (seatWeaponPolicy)
+    // placeReplica still positions received riders on the page. Its scratch
+    // survives the removal of world crew posing and is reused across packets.
+    this.seatPoint = new THREE.Vector3();
+    this.seatTurn = new THREE.Quaternion();
+    this.riderPose = { clip: null, pitch: 0, turn: 0, time: null };
     // Everything the crews ask of the rest of the battle (src/seats-world.js).
     this.world = new SeatsWorld(this);
     for (const turret of this.turrets) turret.crew = this;
