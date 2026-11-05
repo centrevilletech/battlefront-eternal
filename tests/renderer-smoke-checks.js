@@ -289,7 +289,7 @@ export async function checkRenderer(backend, manifests) {
     motionVectors.release(proxy); motionTarget.dispose();
     // Water's far copies and transparent surface have their own programs,
     // checked after the other fixture's independent comparisons.
-    const water = new Water({ data: { height:-2,cell:12,offset:[6,6],grid:1,cells:[[0,0]],look:{PatchDivisions:[2]} }, texture: () => null, graphics: g });
+    const water = new Water({ data: { height:-2,cell:12,offset:[6,6],grid:2,cells:[[0,0]],look:{PatchDivisions:[2]} }, texture: () => null, graphics: g });
     g.scene.userData.water = water;
     water.update(0,g.camera);
     compare('water surface');
