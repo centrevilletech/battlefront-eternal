@@ -441,7 +441,7 @@ class EffectsPass {
   // once three has drawn it.)
   beforeSort(renderer, scene, camera, target, added) {
     const graphics = this.core.graphics;
-    if (scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
+    if (scene !== graphics.scene || (camera !== graphics.camera || target !== graphics.sceneTarget) && camera.userData?.mirror !== true) return;
     try {
       this.glowsAdded(renderer, scene, camera, added);
       this.lightning();

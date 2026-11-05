@@ -293,6 +293,22 @@ export async function checkRenderer(backend, manifests) {
     g.scene.userData.water = water;
     water.update(0,g.camera);
     compare('water surface');
+    const cameraAt=g.camera.position.clone(),cameraRotation=g.camera.quaternion.clone();
+    const basin=water.cellBounds[0].getCenter(new THREE.Vector3());
+    // A glow can be created between frames and first appear in a reflection.
+    const lateGlowMaterial=new THREE.MeshBasicMaterial({map:white,transparent:true,opacity:.7,depthWrite:false});
+    const lateGlow=new THREE.Mesh(new THREE.PlaneGeometry(1,1),lateGlowMaterial),lateGlowGroup=new THREE.Group();
+    lateGlowGroup.userData.material=lateGlowMaterial;lateGlowGroup.add(lateGlow);g.scene.add(lateGlowGroup);
+    lateGlow.position.set(basin.x,water.level+1,basin.z);lateGlow.frustumCulled=false;
+    settings.set('waterQuality','ultra');
+    g.camera.position.set(basin.x,water.level+3,basin.z+6);g.camera.lookAt(basin.x,water.level+1,basin.z);g.camera.updateMatrixWorld(true);
+    water.update(0,g.camera);const mirrors=g.rust.byName.mirrorCover.drawn;water.reflect(g.camera);
+    assert('Ultra reflection discovers a new glow before the main view',Boolean(g.rust.byName.effects.glows.get(lateGlow)));
+    assert('Ultra reflection draws the complete near scene',g.rust.byName.mirrorCover.drawn>mirrors);
+    compare('Ultra reflection with a new glow');
+    settings.set('waterQuality','low');
+    g.camera.position.copy(cameraAt);g.camera.quaternion.copy(cameraRotation);g.camera.updateMatrixWorld(true);water.update(0,g.camera);water.reflect(g.camera);
+
     const pendingId=g.rust.texture(pendingImage);
     pendingImage.needsUpdate=true;
     const uploaded=capture();

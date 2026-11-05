@@ -711,3 +711,22 @@ test("the view scene: a gun's part whose zero material blends is a record of its
   const o = core.recordsAt + core.stride;
   assert.equal(core.input[o], 4, "the glass's record of its own kind");
 });
+
+test('a reflection registers a newly added transparent object before the main camera sees it',()=>{
+ const {core,calls,renderer,graphics,scene,camera,setTarget,properties}=nearBridge();
+ const compiled=[];
+ renderer.compile=list=>list.traverse(o=>{compiled.push(o);properties.get(o.material).currentProgram=program([['modelViewMatrix',GL.FLOAT_MAT4],['diffuse',GL.FLOAT_VEC3],['opacity',GL.FLOAT]],['position']);});
+ scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
+ const logo=new THREE.Mesh(partGeometry(),new THREE.MeshBasicMaterial({transparent:true}));
+ const group=new THREE.Group();group.userData.material=logo.material;group.add(logo);
+ logo.position.z=-5;scene.add(group);
+ const mirror=camera.clone();mirror.userData.mirror=true;mirror.updateMatrixWorld(true);
+ setTarget({name:'reflection',samples:0,width:8,height:4});
+ assert.equal(core.coverMirror(renderer,scene,mirror),true);
+ assert.ok(compiled.includes(logo),'the reflected object compiles before its first Rust draw');
+ assert.ok(core.byName.effects.glows.get(logo));
+ assert.ok(calls.some(c=>c[0]==='mirror_transparent_frame'));
+ const count=compiled.length;
+ scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
+ assert.equal(compiled.length,count,'the main view reuses resources discovered by the reflection');
+});
