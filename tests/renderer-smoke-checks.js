@@ -373,6 +373,7 @@ export async function checkRenderer(backend, manifests) {
     assert('Dynamic line updates change visible pixels',movedLines.some((v,i)=>i%4!==3&&v!==withLines[i]));
     assert('Dynamic cables keep the retained Rust geometry',g.rust.byName.lines.records.get(cable).geometry===cableGeometry);
     assert('Every line topology is owned by Rust',lineObjects.every(object=>g.rust.byName.lines.owns(object)));
+    assert('Every line topology issues a Rust draw',g.rust.phaseStats.lines.at(-1)===lineObjects.length,[...g.rust.phaseStats.lines]);
     const beforeLoss = capture();
     const loss = gl.getExtension('WEBGL_lose_context');
     if (!loss) throw new Error('Context-loss extension unavailable');
