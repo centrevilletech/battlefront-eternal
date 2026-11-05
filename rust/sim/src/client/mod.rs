@@ -88,8 +88,8 @@ pub struct ClientPrediction {
 }
 
 impl ClientPrediction {
-    /// Immutable actor clips and weapon definitions are resolved at load/life
-    /// boundaries, never inside replay. The legacy kernels share these loaders.
+    /// InfantryPrediction / DroidekaPrediction constructors resolved class
+    /// clips once per body. Load them here, never while pending ticks replay.
     pub fn configure_actor(&mut self, input: &[f64], collision: &mut State) -> Result<(), &'static str> {
         self.kind = match input.first() { Some(n) if *n == f64::from(SOLDIER) => SOLDIER, Some(n) if *n == f64::from(DROIDEKA) => DROIDEKA, _ => return Err(INVALID) };
         self.actor.input.clear(); self.actor.input.extend_from_slice(input);
@@ -432,9 +432,9 @@ impl ClientPrediction {
         result.put(&mut self.output, &mut Vec::new());
         Ok(())
     }
-    // PlayerCombat zoomValues/currentZoom supplied the scale used by the old
-    // replayPrediction look loop. Keep the ascending levels and the continuous
-    // ZoomRate exception; an invalid selection behaves as unzoomed.
+    // PlayerCombat.zooms and its zoom getter supplied replayPrediction's look
+    // scale. Keep ascending levels and the continuous ZoomRate exception;
+    // an invalid selection behaves as unzoomed.
     fn zoom(&mut self) -> f64 {
         let a = Arsenal { weapons: &mut self.arsenal.weapons, selected: &mut self.arsenal.selected };
         let Some(i) = a.current(&self.arsenal.defs, 0) else { return 1.0 };

@@ -258,7 +258,7 @@ export function buildModel(files) {
       // Publication may copy a vector or assign a scalar. A nested row, table
       // or reference requires ownership rules; silently aliasing it is unsafe.
       const publishTypes = new Set(['f64', 'f32', 'i32', 'u32', 'u8', 'bool', 'enum', 'vec3']);
-      for (const field of parsed) if ($publish.includes(field.name) && !publishTypes.has(field.type.base)) fail(where, '$publish supports scalar and vec3 fields');
+      for (const field of parsed) if ($publish.includes(field.name) && (!publishTypes.has(field.type.base) || field.type.base === 'vec3' && optional(field.type))) fail(where, '$publish supports scalar and vec3 fields; vectors cannot be optional');
       model.records.set(name, { name, file, layout: $layout, publish: $publish, classes: [$class ?? []].flat(), fields: parsed });
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {

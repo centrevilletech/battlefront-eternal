@@ -54,7 +54,9 @@ export function packPredictionWeaponDefinition(words, value, depth = 0) {
   } else if (typeof value === 'object' && depth < 12) {
     const keys = Object.keys(value); words.push(OBJECT, keys.length);
     for (const key of keys) { text(words, key); packPredictionWeaponDefinition(words, value[key], depth + 1); }
-  // Kept loader quirk: functions and content beyond the depth limit become
-  // undefined. They are not callable hooks in the native prediction owner.
-  } else words.push(UNDEFINED);
+  } else {
+    // Kept loader quirk: functions and content beyond the depth limit become
+    // undefined. They are not callable hooks in the native prediction owner.
+    words.push(UNDEFINED);
+  }
 }

@@ -290,4 +290,5 @@ test('direct publication names only mutable scalar or vector fields', () => {
   assert.throws(() => model({ $publish: ['missing'], tick: 'f64' }), /distinct fields/);
   assert.throws(() => model({ $publish: ['tick', 'tick'], tick: 'f64' }), /distinct fields/);
   assert.throws(() => model({ $publish: ['history'], history: 'list:f64' }), /scalar and vec3/);
+  assert.throws(() => model({ $publish: ['position'], position: 'vec3|null' }), /vectors cannot be optional/);
 });
