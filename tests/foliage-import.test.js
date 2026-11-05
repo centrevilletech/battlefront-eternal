@@ -36,7 +36,7 @@ test('painted bushes use the layer distance and discard placement yaw while reta
     const f=build(gpu,{base:'leafpatch',NumParticles:1,MinSize:1,MaxSize:1,Radius:1,Height:1},
       [{matrix:m.toArray(),terrain:true,distance:30}]);
     f.update(0,new THREE.PerspectiveCamera(70,1,.1,200));
-    const kind=f.kinds.get('plant');assert.equal(kind.batch.count,0);
+    const kind=f.kinds.get('plant');assert.equal(kind.batch.mesh,undefined);assert.equal(kind.batch.geometry.attributes.foliagePatch,undefined);
     const basis=kind.instances[0].matrix.elements;
     assert.equal(basis[2],0); assert.ok(Math.abs(basis[6])>.01);
   }

@@ -75,7 +75,7 @@ class FoliagePass {
       offset += size;
     }
     const index = geometry.index.array instanceof Uint32Array ? geometry.index.array : Uint32Array.from(geometry.index.array);
-    // Each patch's row (what FoliageGpuBatch.update writes for it) and bounds.
+    // Immutable placement rows and bounds, selected and uploaded by Rust.
     const n = kind.instances.length, rows = new Float32Array(n * ROW_FLOATS), bounds = new Float64Array(n * BOUNDS);
     kind.instances.forEach((inst, i) => {
       const r = i * ROW_FLOATS, b = i * BOUNDS, m = inst.matrix.elements;

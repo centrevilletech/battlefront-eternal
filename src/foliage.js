@@ -189,12 +189,10 @@ export class Foliage {
     this.nearEnd = nearEnd;
     this.kinds = new Map();
     this.time = 0;
-    const counts = new Map();
-    for (const inst of data.instances || []) counts.set(inst.class, (counts.get(inst.class) || 0) + 1);
     for (const [name, def] of Object.entries(data.classes || {})) {
       const grass = def.base === "grasspatch";
       const cards = grass ? buildGrass(def) : buildLeaves(def);
-      const batch = new FoliageGpuBatch(scene, texture(def.Texture), cards, def, grass, counts.get(name) || 0);
+      const batch = new FoliageGpuBatch(texture(def.Texture), cards, def, grass);
       const bounds = new THREE.Box3();
       if (grass) for (const card of cards) {
         const center = new THREE.Vector3(card.x, card.y, card.z);

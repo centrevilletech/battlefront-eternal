@@ -10,9 +10,7 @@ const CORNERS = [[-.5,-.5],[.5,-.5],[-.5,.5],[.5,.5]];
 // wind and distance fade use uniforms, so looking around doesn't rebuild and
 // upload every leaf vertex on the input thread.
 export class FoliageGpuBatch {
-  constructor(scene, map, cards, def, grass, capacity) {
-    this.grass = grass; this.def = def; this.cardCount = cards.length;
-    this.count = 0;
+  constructor(map, cards, def, grass) {
     const geometry = this.geometry = new THREE.InstancedBufferGeometry();
     const vertices = cards.length * 4;
     const positions = new Float32Array(vertices * 3), colors = new Float32Array(vertices * 4);
@@ -42,30 +40,13 @@ export class FoliageGpuBatch {
       geometry.setAttribute(name,new THREE.BufferAttribute(array,size));
     }
     geometry.setIndex(new THREE.BufferAttribute(indices,1));
-    this.patch = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1,capacity)*3),3).setUsage(THREE.DynamicDrawUsage);
-    this.tint = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1,capacity)*3),3).setUsage(THREE.DynamicDrawUsage);
-    geometry.setAttribute('foliagePatch',this.patch); geometry.setAttribute('foliageTint',this.tint);
-    geometry.instanceCount = 0;
-    this.axes = ['foliageAxisX', 'foliageAxisY', 'foliageAxisZ'].map(name => {
-      const attribute = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, capacity) * 3), 3).setUsage(THREE.DynamicDrawUsage);
-      geometry.setAttribute(name, attribute);
-      return attribute;
-    });
-    this.distance = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, capacity)), 1).setUsage(THREE.DynamicDrawUsage);
-    geometry.setAttribute('foliageDistance', this.distance);
-    this.uniforms = {
-      foliageEye:{value:new THREE.Vector3()}, foliageRight:{value:new THREE.Vector3()},
-      foliageUp:{value:new THREE.Vector3()}, foliageBack:{value:new THREE.Vector3()},
-      foliageTime:{value:0}, foliageEnd:{value:100}, foliageWiggle:{value:def.WiggleAmount ?? .11},
-    };
+    this.uniforms = { foliageWiggle:{value:def.WiggleAmount ?? .11} };
     const material = this.material = new THREE.Material();
     material.map = map;
     material.color = new THREE.Color(1, 1, 1);
     material.alphaTest = .25;
     material.side = THREE.DoubleSide;
     material.alphaToCoverage = true;
-    const mesh = this.mesh = new THREE.Mesh(geometry,material);
-    mesh.frustumCulled = false; mesh.castShadow = mesh.receiveShadow = false;
 
   }
 

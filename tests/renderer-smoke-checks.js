@@ -162,7 +162,7 @@ export async function checkRenderer(backend, manifests) {
     batch.begin(); batch.quad(new THREE.Matrix4(), 12, 12, 48, 40, white, [0,0,1,1], [1,1,1,1]); batch.quad(new THREE.Matrix4(),88,12,120,40,pendingImage,[0,0,1,1],[1,1,1,1]); batch.end(); hudScene.add(batch.mesh);
     const hud = { batch, scene: hudScene, camera: hudCamera };
     g.treeCanopies = new TreeCanopies(g, { texture: 'leaves', instances: [{ matrix: new THREE.Matrix4().makeTranslation(-6,2,-10).elements, bounds: [[-3,-3,-1],[3,3,1]] }] }, () => white);
-    const foliageBatch = new FoliageGpuBatch(g.scene, white, [{ x:0,y:0,z:0,width:.4,height:.8,grey:1,part:0,phase:0,rate:1 }], { Alpha: 1 }, true, 1);
+    const foliageBatch = new FoliageGpuBatch(white, [{ x:0,y:0,z:0,width:.4,height:.8,grey:1,part:0,phase:0,rate:1 }], { Alpha: 1 }, true);
     const instances = [{ position: new THREE.Vector3(2,-1,1), matrix: new THREE.Matrix4(), tint: [1,1,1], sphere: null, cullDistance: Infinity, maxDistance: 100 }];
     const foliage = { kinds: new Map([[0,{ batch: foliageBatch, grass: true, instances }]]), nearEnd: () => 100, time: 0, drawer: null };
     g.scene.userData.foliage = foliage;
