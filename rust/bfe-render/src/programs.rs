@@ -7,6 +7,9 @@ mod catalog;
 
 pub struct Spec {
     pub key: &'static str,
+    pub kind: Kind,
+    pub expanded: bool,
+    pub lamps: bool,
     pub vertex: &'static str,
     pub fragment: &'static str,
     pub attributes: &'static [(&'static str, u32)],
@@ -25,6 +28,7 @@ pub fn spec(key: &str) -> Result<&'static Spec, String> {
 }
 
 pub fn sources(s: &Spec) -> (String, String) {
+    if s.expanded { return (s.vertex.to_string(), s.fragment.to_string()); }
     (format!("{PREFIX}{VERTEX}{}", s.vertex), format!("{PREFIX}{FRAGMENT}{}", s.fragment))
 }
 
@@ -45,11 +49,14 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
         let (vs, fs) = sources(s);
         let attributes = s.attributes.iter().map(|(n, l)| (n.to_string(), *l)).collect::<Vec<_>>();
         let uniforms = s.uniforms.iter().map(|(n, _)| n.to_string()).collect::<Vec<_>>();
-        let id = self.add_program(Kind::Plain, &vs, &fs, &attributes, &uniforms)?;
+        let id = self.add_program_lamps(s.kind, &vs, &fs, &attributes, &uniforms, s.lamps)?;
         let gl = &self.gl;
         let program = self.programs[id as usize].program;
         let validation = (|| unsafe {
             for i in 0..gl.get_active_uniforms(program) {
+                // Block members are validated by the shared frame/shadow rewrite,
+                // not material slots. Standalone inputs still require declarations.
+                if gl.get_active_uniforms_parameter(program, &[i], glow::UNIFORM_BLOCK_INDEX)[0] >= 0 { continue; }
                 let u = gl.get_active_uniform(program, i).ok_or("missing active uniform")?;
                 if u.size != 1 || !s.uniforms.iter().any(|(n, t)| *n == u.name && *t == uniform_type(u.utype)) {
                     return Err(format!("{key}: undeclared uniform {}", u.name));
@@ -76,6 +83,19 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn expanded_world_sources_keep_their_vocabulary_and_use_frame_rewrite() {
+        let s = Spec { key: "world/test", kind: Kind::World, expanded: true, lamps: false,
+            vertex: "#version 300 es\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nin vec3 position;\nvoid main() { gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0); }\n",
+            fragment: "#version 300 es\nprecision highp float;\nout vec4 color;\nvoid main() { color = vec4(1.0); }\n",
+            attributes: &[("position", 0)], uniforms: &[] };
+        let (v, f) = sources(&s);
+        assert_eq!(v, s.vertex);
+        assert_eq!(f, s.fragment);
+        let rewritten = crate::shader::rewrite_lamps(&v, crate::shader::Stage::Vertex, s.kind, s.lamps).unwrap();
+        assert!(rewritten.contains("uniform BfeFrame"));
+        assert!(rewritten.contains("projectionMatrix * viewMatrix * vec4(position, 1.0)"));
+    }
     #[test]
     fn registry_is_closed_and_sources_need_no_three_expansion() {
         assert!(spec("post-hud/unknown").is_err());

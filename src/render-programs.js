@@ -21,7 +21,10 @@ export const programLayouts = {
         "type": 2
       }
     ],
-    "hash": "3b186f5893fc6cdb825b76e278b7aa319e525d7c951a8f38051271fea1112038"
+    "hash": "b79d6a04504f4972ae059a23ee67913d78e3d39331b8e006cb345b07b8bcad87",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/bloom-blur": {
     "attributes": [
@@ -44,7 +47,10 @@ export const programLayouts = {
         "type": 2
       }
     ],
-    "hash": "42055c59af6efe41a676b13a31bee1dfb493393cadb0f3f5fdfc4bd13e49130b"
+    "hash": "b49349df75d716f59fd42ac68c5e057deefec6569473f22979487d0730b16a58",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/copy": {
     "attributes": [
@@ -63,7 +69,10 @@ export const programLayouts = {
         "type": 32
       }
     ],
-    "hash": "dd57d459ed294c5bb173d90bd5471efdb676df25fdb1526469abfd48402c5f76"
+    "hash": "3bfdbb5c6f3675868dd1376221ae82e3bfdf784f82ccb1377e47416096c10597",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/composite": {
     "attributes": [
@@ -106,7 +115,10 @@ export const programLayouts = {
         "type": 1
       }
     ],
-    "hash": "a470c7682cfcb85daa35b11186495a760a47b45bdb6f832e7da5e68da4f2252c"
+    "hash": "c32341ecb7315b314c5950a6119917b1ea4b975aae285f28580fc2999169bdee",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/motion": {
     "attributes": [
@@ -141,7 +153,10 @@ export const programLayouts = {
         "type": 16
       }
     ],
-    "hash": "9cbf2efb7b4fcf28a01d618a44651108c8b151980025030a1902c5eac8109182"
+    "hash": "9aaaca1a4a20aa8696c4649a5f40fe7a2a9683f157de60a92972c6a81e492a6a",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/resolve": {
     "attributes": [
@@ -192,7 +207,10 @@ export const programLayouts = {
         "type": 1
       }
     ],
-    "hash": "858d849d773c5d651fe619967c61d32c69b0769941fdc127842b9a1ec9ffcc03"
+    "hash": "a12e18172a9e873fcccd307cdd69a5334dd97f5e474f6fa1adcf9df5f1687b7b",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/sharpen": {
     "attributes": [
@@ -215,7 +233,10 @@ export const programLayouts = {
         "type": 1
       }
     ],
-    "hash": "05f8ad36bdd811449d5cacd6cdd5c49005861b4764923dc519c53b779f2cefeb"
+    "hash": "dbadc2d1de368b12bebede33009661f39e17443b371f4b99a025c76e4d7c530b",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/bilinear": {
     "attributes": [
@@ -234,7 +255,10 @@ export const programLayouts = {
         "type": 32
       }
     ],
-    "hash": "0c685a2bcdd0b3e99796007d329f2551c4ef381a4e657570f22cec981dca8ad4"
+    "hash": "bb9a6c750174feefd827bdbfd6bc344bec2fbe486c6aafac43f0384f7631dc47",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/spatial": {
     "attributes": [
@@ -261,7 +285,10 @@ export const programLayouts = {
         "type": 2
       }
     ],
-    "hash": "28e3b4982236aa30db61190683624b13f6546a89e351813835028668506b29b2"
+    "hash": "90526aa69ff19c0d96d8ec87d75ea0745340e2f114f90d635a67961ab0d7d5d3",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/fxaa": {
     "attributes": [
@@ -292,7 +319,10 @@ export const programLayouts = {
         "type": 2
       }
     ],
-    "hash": "7f18b469539b6240091b35c2ba649eb7a1bd12a99a760cf6db51d4023f097d00"
+    "hash": "b9a28c54e0a9d6a38b0a1d3c3575f2b905b838c6988b352c132fb829536ad4d2",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/fxaa-fast": {
     "attributes": [
@@ -323,7 +353,10 @@ export const programLayouts = {
         "type": 2
       }
     ],
-    "hash": "22537d5ddc897d4ee0120101841938fec969afb1d2610721a4c5265bbd3414e5"
+    "hash": "b9a2e8396bdb8c0b354725d74cd49955f35e86911e15cd4a1cfd4b917e46cd6d",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   },
   "post-hud/hud": {
     "attributes": [
@@ -366,6 +399,9 @@ export const programLayouts = {
         "type": 5
       }
     ],
-    "hash": "461f1ee73c4623c262bf6ef92900bb500136f39478990820cbc2b4c514463add"
+    "hash": "22d78d8eed52b13943fcf97c7647c5527802f6f04335f2b104a522a1e4722aa8",
+    "kind": "Plain",
+    "source": "body",
+    "lamps": false
   }
 };

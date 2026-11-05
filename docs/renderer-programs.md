@@ -47,9 +47,15 @@ sorted catalog. Regenerate after merging; do not merge generated output by hand.
 A manifest row declares `vertex`, `fragment`, `attributes` pairs and `uniforms`.
 Use the post-hud manifest as the concrete schema example.
 
-Registration currently accepts only Plain programs. Families needing instance,
-frame or shadow source rewrites must extend the descriptor/compiler explicitly;
-do not route instanced programs through Plain. Shader registration does not alter
+Manifest rows accept `kind: "Plain"` (the default) or `kind: "World"`.
+World uses the existing frame/shadow block rewrite and may declare `lamps: true`
+for the lamp-table rewrite. `source: "expanded"` supplies complete GLSL ES 3.00
+sources, including the version and precision declarations; the default `body`
+uses the post/HUD compatibility prefix. Expanded arithmetic is preserved before
+kind-specific input rewrites. Reflection validates standalone inputs against the
+manifest; block members belong to the shared frame/shadow layout. Families
+needing instance rewrites must extend the descriptor explicitly; do not route
+instanced programs through Plain. Shader registration does not alter
 `core.rs`, `post.rs` or `hud.rs` phase records: context-local resource handles,
 f64 phase inputs, five view blocks and BfeFrame/BfeShadow layouts remain their
 own contracts. Version resource/schema changes independently of source keys.
