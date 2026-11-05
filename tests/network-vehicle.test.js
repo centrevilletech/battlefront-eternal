@@ -1,177 +1,48 @@
-
-import * as THREE from 'three';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fixture } from './flight-fixture.js';
-import { predictVehicle, predictionVehicle } from '../src/runtime/vehicle-prediction.js';
-import { predictionVehicleInput as networkVehicleInput } from '../src/runtime/vehicle-prediction-input.js';
-import { CommandControls } from '../src/runtime/commands.js';
-const command = tick => ({ tick, sequence:tick, epoch:1, generation:1, down:['KeyW','ShiftLeft'], actions:tick===1?['takeoff']:[], look:tick>80?[[.4,.1]]:[], flightSettings:{sensitivity:1,invert:false}, mouseScale:1 });
-const vectors = v => Object.fromEntries(Object.entries(v).filter(([,x])=>x?.isVector3||x?.isQuaternion||x?.isMatrix4).map(([k,x])=>[k,x.toArray()]));
+import { hullFixture } from './fixtures/client-hull.js';
+import { createHullReplay } from './helpers/hull-prediction.js';
+import { captureGroundCorrection } from '../src/runtime/network-entity-ground.js';
+import { instrumentClientPrediction } from './fixtures/client-prediction-diagnostics.js';
 
-test('network flyer replay matches authoritative flight and never changes source or collider', () => {
-  const authoritative = fixture(), client = fixture();
-  const controls = new CommandControls();
-  const pending = Array.from({length:100},(_,i)=>command(i+1));
-  for (const c of pending) {
-    controls.accept(c);
-    const input=networkVehicleInput(authoritative.v,0,controls,c);
-    authoritative.v.tick(1/60,input);
-  }
-  const before=vectors(client.v), body=client.v.body.matrix.toArray();
-  const predicted=predictVehicle(client.v,pending,0,1);
-  assert.deepEqual(predicted.position.toArray(),authoritative.v.position.toArray());
-  assert.deepEqual(predicted.quaternion.toArray(),authoritative.v.quaternion.toArray());
-  assert.equal(predicted.power,authoritative.v.power);
-  assert.deepEqual(vectors(client.v),before);
-  assert.deepEqual(client.v.body.matrix.toArray(),body);
-  assert.equal(client.v.flightState,'Landed');
-  predicted.present(.5);
-  assert.ok(client.v.root.position.distanceTo(client.v.position)>1);
+// Frozen byte/physics comparisons live in client-hull-prediction.test.js.
+// These cases exercise the frame contract around missing and rolled-back input,
+// body isolation and reconnect identity without retaining a JavaScript replay.
+const command = (tick, sequence, generation = 1) => ({ tick, sequence, generation,
+  down: ['KeyW'], actions: [], look: [], mouseScale: 1 });
+test('native hull replay retains held keys through gaps and takes a rolled-back tick once', () => {
+  const f = hullFixture('hover'), replay = createHullReplay(f.vehicle);
+  instrumentClientPrediction(replay.session);
+  try {
+    const before = captureGroundCorrection(f.vehicle), body = f.vehicle.body.matrix.toArray();
+    const predicted = replay.predict([command(4, 1)], 0, ['KeyW']);
+    assert.equal(replay.session.result.tick, 4); assert.equal(replay.session.result.ticks, 4);
+    assert.ok(predicted.position.z > f.vehicle.position.z);
+    assert.deepEqual(captureGroundCorrection(f.vehicle), before);
+    assert.deepEqual(f.vehicle.body.matrix.toArray(), body);
+    const calls = replay.session.counters.calls;
+    replay.predict([], 0, ['KeyW']);
+    assert.equal(replay.session.result.tick, 4); assert.equal(replay.session.result.ticks, 0);
+    assert.equal(replay.session.counters.calls, calls + 1, 'one frame call even with no new command');
+    replay.predict([command(9, 2)], 10, ['KeyW']);
+    assert.equal(replay.session.result.tick, 11); assert.equal(replay.session.result.ticks, 1);
+    assert.equal(replay.session.result.shotsCount, 0, 'hull motion does not invent mounted shot notices');
+  } finally { replay.dispose(); f.system.dispose(); }
 });
-
-test('network seat aim uses desktop mouse scaling and respects seat limits', () => {
-  const {v}=fixture();v.flying=false;
-  const controls=new CommandControls();
-  const c={...command(1),look:[[2048,-2048]],down:[],actions:[]};controls.accept(c);
-  networkVehicleInput(v,0,controls,c);
-  assert.equal(v.seats[0].aimYaw,-1);
-  assert.ok(v.seats[0].pitch<=v.seats[0].view.pitchLimits[1]);
-});
-
-test('0–200ms RTT, jitter and 5% snapshot loss preserve replayed pilot motion', () => {
-  // Reliable inputs are retained until acknowledged; lost snapshots delay the
-  // baseline without deleting those inputs. Exercise the same replay path.
-  for (const ground of [false,true]) {
-    const {v}=fixture();
-    if(ground){v.flying=false;v.repulsor=true;v.rotation=new THREE.Euler();}
-    const controls=new CommandControls(), snapshots=[];
-    for(let tick=1;tick<=150;tick++) {
-      const c=command(tick);controls.accept(c);
-      const input=networkVehicleInput(v,0,controls,c);
-      if(v.flying)v.tick(1/60,input);else{v.tick(1/120,input);v.tick(1/120,input);}
-      if(tick%3===0)snapshots.push({tick, vehicle:predictionVehicle(v)});
-    }
-    for(const rtt of [0,50,100,200]) {
-      for(let target=30;target<=150;target+=6) {
-        const halfTrip=rtt/2000*60;
-        const baseline=snapshots.filter((s,i)=>i%20!==0&&s.tick+halfTrip+(i%4)*.3<=target-2).at(-1);
-        if(!baseline)continue;
-        const pending=Array.from({length:target-baseline.tick},(_,i)=>command(baseline.tick+i+1));
-        const predicted=predictVehicle(baseline.vehicle,pending,baseline.tick,1,command(baseline.tick).down);
-        const actual=snapshots.find(s=>s.tick===target).vehicle;
-        assert.ok(predicted.position.distanceTo(actual.position)<1e-8,`${ground?'ground':'air'} RTT${rtt} tick${target}`);
-        assert.ok(predicted.quaternion.angleTo(actual.quaternion)<1e-7);
-        assert.ok(predicted.predictionPath.size<=24);
-      }
-    }
-  }
-});
-
-test('network wheeled pilot steering matches local replay across held keyboard turns',()=>{
-  const a=fixture().v,b=fixture().v;
-  for(const v of [a,b]){v.flying=false;v.repulsor=false;v.wheeled=true;v.strafeSpeed=0;v.rotation=new THREE.Euler();}
-  a.driver=null;a.seats[0].lease={human:false,unit:{networkHuman:true},input:{turn:0,pitch:0}};
-  const controls=new CommandControls();
-  const pending=Array.from({length:60},(_,i)=>({...command(i+1),down:['KeyW','KeyD'],actions:[],look:[]}));
-  for(const c of pending){controls.accept(c);const input=networkVehicleInput(a,0,controls,c);a.tick(1/120,input);a.tick(1/120,input);}
-  const predicted=predictVehicle(b,pending,0,1);
-  assert.ok(Math.abs(a.yaw)>.1);
-  assert.ok(predicted.position.distanceTo(a.position)<1e-8);
-  assert.ok(Math.abs(predicted.yaw-a.yaw)<1e-8);
-});
-
-
-
-
-test('rolling predicted flight bases preserve authority identity and bounded scratch prototypes',()=>{
- const source=fixture().v,before=vectors(source),body=source.body.matrix.toArray();
- const commands=Array.from({length:180},(_,i)=>command(i+1));
- const full=predictVehicle(source,commands,0,1);
- let rolling=source;
- for(const c of commands){
-  rolling=predictVehicle(rolling,[c],c.tick-1,1,c.tick>1?command(c.tick-1).down:[]);
-  assert.equal(rolling.predictionSource,source);
-  assert.equal(Object.getPrototypeOf(rolling.system),source.system);
-  assert.equal(Object.getPrototypeOf(rolling.system.collision),source.system.collision);
-  assert.equal(rolling.body,source.body);
- }
- assert.deepEqual(rolling.position.toArray(),full.position.toArray());
- assert.deepEqual(rolling.quaternion.toArray(),full.quaternion.toArray());
- assert.deepEqual(vectors(source),before);assert.deepEqual(source.body.matrix.toArray(),body);
-});
-
-test('an acknowledged pilot with no pending input keeps the latest authoritative pose',()=>{
- const source=fixture().v,before=vectors(source);
- const predicted=predictVehicle(source,[],42,1);
- assert.ok(predicted);
- assert.equal(predicted.predictionTick,42);
- assert.deepEqual(predicted.position.toArray(),source.position.toArray());
- assert.equal(predicted.predictionPath.size,0);
- assert.deepEqual(vectors(source),before);
-});
-
-
-test('predicted collision queries share the callback owner scratch before an authoritative gather',()=>{
- const source=fixture().v,body=source.body.matrix.toArray(),predicted=predictionVehicle(source);
- const polygons=predicted.system.collision.gather(new THREE.Vector3(0,0,0),.5);
- assert.ok(polygons.some(p=>p.triangles.length));
- assert.equal(predictionVehicle(source).system.collision,predicted.system.collision);
- assert.deepEqual(source.body.matrix.toArray(),body);
-});
-
-
-test('network pilot replay is independent of target-dependent steering assist', () => {
-  const authority=fixture(),local=fixture(),controls=new CommandControls();
-  authority.system.flightAssists=true;local.system.flightAssists=true;
-  const pending=Array.from({length:180},(_,i)=>command(i+1));
-  for(const c of pending){
-    // Authority sees a changing target while the client has no received actor.
-    authority.v.flightAssistId=c.tick%9<6?123:-1;
-    controls.accept(c);
-    authority.v.tick(1/60,networkVehicleInput(authority.v,0,controls,c));
-  }
-  const predicted=predictVehicle(local.v,pending,0,1);
-  assert.deepEqual(predicted.position.toArray(),authority.v.position.toArray());
-  assert.deepEqual(predicted.quaternion.toArray(),authority.v.quaternion.toArray());
-  assert.equal(predicted.yawRate,authority.v.yawRate);
-  assert.equal(authority.system.flightAssists,true,'weapon/target assist setting is retained');
-});
-
-test('single-player flight retains target-dependent steering assist', () => {
-  const assisted=fixture(),unassisted=fixture();
-  for(const f of [assisted,unassisted]){
-    f.system.flightAssists=true;
-    for(let tick=0;tick<200;tick++)f.v.tick(1/60,{takeoff:tick===0});
-    assert.equal(f.v.flightState,'Flying');
-  }
-  assisted.v.flightAssistId=123;unassisted.v.flightAssistId=-1;
-  assisted.v.tick(1/60,{stickX:.4});unassisted.v.tick(1/60,{stickX:.4});
-  assert.ok(Math.abs(assisted.v.yawRate)<Math.abs(unassisted.v.yawRate));
-});
-
-test('a hover pilot\'s correction is the prediction exactly when the world stepped the same commands', async () => {
-  const { captureGroundCorrection, restoreGroundCorrection } = await import('../src/runtime/network-entity-ground.js');
-  const { predictedExactly } = await import('../src/runtime/vehicle-prediction.js');
-  const authority = fixture().v, source = fixture().v;
-  for (const v of [authority, source]) { v.flying = false; v.repulsor = true; v.rotation = new THREE.Euler(); }
-  const commands = Array.from({ length: 30 }, (_, i) => ({ ...command(i + 1), actions: [], look: i > 10 ? [[.3, 0]] : [] }));
-  const predicted = predictVehicle(source, commands.slice(0, 24), 0, 1);
-  const controls = new CommandControls();
-  for (const c of commands.slice(0, 20)) {
-    controls.accept(c);
-    const input = networkVehicleInput(authority, 0, controls, c);
-    authority.tick(1 / 120, input); authority.tick(1 / 120, input);
-  }
-  // A page's hull has its presentation history (Vehicle.captureTick).
-  source.previous ||= new THREE.Vector3(); source.tickFrom ||= new THREE.Vector3();
-  restoreGroundCorrection(source, captureGroundCorrection(authority));
-  assert.equal(predictedExactly(predicted, source, 20), true, 'the world\'s tick 20 is the predicted tick 20');
-  assert.equal(predictedExactly(predicted, source, 19), false, 'not another tick\'s');
-  // A continuation keeps what the prediction reached for earlier ticks.
-  const continued = predictVehicle(predicted, commands.slice(24), 24, 1, commands[23].down);
-  assert.equal(predictedExactly(continued, source, 20), true);
-  assert.equal(continued.predictionTick, 30);
-  source.position.x += 1e-9;
-  assert.equal(predictedExactly(continued, source, 20), false, 'any difference replays');
+test('a new unit life and a reconnect epoch each replace the private hull checkpoint', () => {
+  const f = hullFixture('hover'), replay = createHullReplay(f.vehicle);
+  try {
+    replay.predict([command(12, 1)], 0);
+    const unit = { id: 90, generation: 2, alive: true, combat: { dead: false }, seat: { vehicle: f.vehicle, index: 0 } };
+    f.vehicle.position.x = 50;
+    replay.session.mounted(unit, [], [command(5, 2, 2)], 4, [], f.vehicle, 1, captureGroundCorrection(f.vehicle), 10);
+    assert.equal(replay.session.result.continued, false);
+    assert.equal(replay.session.result.tick, 5);
+    assert.equal(replay.session.vehicle.position.x, 50);
+    f.vehicle.position.x = 80;
+    replay.session.mounted(unit, [], [], 4, [], f.vehicle, 2, captureGroundCorrection(f.vehicle), 10);
+    assert.equal(replay.session.result.continued, false);
+    assert.equal(replay.session.vehicle.position.x, 80);
+    assert.equal(replay.session.result.ticks, 0);
+  } finally { replay.dispose(); f.system.dispose(); }
 });

@@ -28,7 +28,7 @@ test('one mounted session matches frozen timers, ammo, heat and barrel checkpoin
    const random=entry.state.random=()=>{throw Error('authoritative random used');},admission=entry.state.admitShot=()=>{throw Error('authoritative admission used');};
    for(let n=1;n<=90;n++) {
     const before=session.counters.calls;
-    replay.predict(unit,commands.slice(0,n),0,[],{});
+    replay.predict(unit,commands.slice(0,n),0,[]);
     const actual={tick:replay.tick,bytes:Buffer.from(captureWeaponState(entry.state)).toString('hex'),barrel:scenario==='stationary'?turret.barrel:entry.barrel};
     assert.deepEqual(actual,frames[n-1],`${scenario} frame ${n}`);
     assert.equal(session.counters.calls-before,scenario==='flyer-frozen'?0:1,'one boundary for all pending ticks');

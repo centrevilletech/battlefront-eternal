@@ -6,7 +6,7 @@ import {createGame} from '../src/game.js';import {createMultiplayerWorld} from '
 import {captureOwnPlayer,applyOwnPlayer} from '../src/runtime/network-entity-player.js';
 import {captureCompactSoldier as captureSoldierCorrection} from '../src/runtime/network-entity-soldier-compact.js';
 const SOLDIER_REPLAY_SCHEMA=6;
-import {captureCompactFlight as captureFlightCorrection} from '../src/runtime/network-entity-flight-compact.js';import {predictionVehicle} from '../src/runtime/vehicle-prediction.js';
+import {captureCompactFlight as captureFlightCorrection} from '../src/runtime/network-entity-flight-compact.js';import {HullReplay,hullInput} from './hull-replay-fixture.mjs';
 import {captureCompactSoldier,restoreCompactSoldier} from '../src/runtime/network-entity-soldier-compact.js';import {encodeEntityPacket,decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
 const root=resolve(process.env.BFE_DATA_DIR||'public');globalThis.fetch=async path=>{const file=resolve(root,`.${path}`);assert.ok(file.startsWith(root+sep));try{return new Response(await readFile(file));}catch(e){if(e.code==='ENOENT')return new Response('',{status:404});throw e;}};
 const movement=true;
@@ -39,13 +39,21 @@ for(let tick=1;tick<=180;tick++){
  assert.deepEqual(replayed,captureSoldierCorrection(reference.soldier,SOLDIER_REPLAY_SCHEMA),`owned infantry replay${tick}`);
  infantryDigest.update(replayed);
 }
-const a=game.vehicles.vehicles.find(v=>v.flying&&/tie/i.test(v.name));assert.ok(a);for(const occupant of game.units.all())if(occupant.seat?.vehicle===a)game.vehicles.unboard(occupant,{force:true,placement:false});assert.ok(game.vehicles.board(u,a));a.driver={};a.seatIndex=0;a.captureTick();const initial=predictionVehicle(a);let b,flightBytes=0;
-for(let tick=1;tick<=300;tick++){
- const input={takeoff:tick===1,forward:tick<220?1:-1,stickX:tick>160?.1:0};u.intent.flight=input;a.captureTick();a.tick(1/60,input);
- if(tick===90){b=predictionVehicle(initial);target.seat={vehicle:b,index:0};const r=captureOwnPlayer({unit:u,vehicle:a,vehicleId:a.aiTarget.id,vehicleGeneration:a.aiTarget.generation,tick:tick+180,epoch:1,registry,classId:1,held:['KeyW'],view});const p=encodeEntityPacket({epoch:1,packetId:2,tick:tick+180,records:[r]});flightBytes=p.length;applyOwnPlayer({unit:target,vehicle:b,vehicleId:a.aiTarget.id,vehicleGeneration:a.aiTarget.generation,epoch:1,registry,record:decodeEntityPacket(p).records[0],previous:context});}
- else if(b){b.captureTick();b.tick(1/60,input);}
- if(b){const flown=captureFlightCorrection(b);assert.deepEqual(flown,captureFlightCorrection(a),`owned TIE envelope replay${tick}`);flightDigest.update(JSON.stringify(flown));}
-}
+const a=game.vehicles.vehicles.find(v=>v.flying&&/tie/i.test(v.name));assert.ok(a);for(const occupant of game.units.all())if(occupant.seat?.vehicle===a)game.vehicles.unboard(occupant,{force:true,placement:false});assert.ok(game.vehicles.board(u,a));
+const flight=new HullReplay(a);let b,flightBytes=0;
+try {
+ for(let tick=1;tick<=300;tick++){
+  const command=hullInput(tick,true),current=flight.step(command);
+  if(tick===90){
+   b=new HullReplay(a);const saved=u.seat.vehicle;u.seat.vehicle=current;target.seat={vehicle:b.source,index:0};
+   const r=captureOwnPlayer({unit:u,vehicle:current,vehicleId:a.aiTarget.id,vehicleGeneration:a.aiTarget.generation,tick:tick+180,epoch:1,registry,classId:1,held:command.down,view});u.seat.vehicle=saved;
+   const p=encodeEntityPacket({epoch:1,packetId:2,tick:tick+180,records:[r]});flightBytes=p.length;
+   const context=applyOwnPlayer({unit:target,vehicle:b.source,vehicleId:a.aiTarget.id,vehicleGeneration:a.aiTarget.generation,epoch:1,registry,record:decodeEntityPacket(p).records[0]});
+   b.restore(context.body,tick,command.down,context.bodySchema);
+  }else if(b)b.step(command);
+  if(b){const flown=captureFlightCorrection(b.current);assert.deepEqual(flown,captureFlightCorrection(current),`owned TIE envelope replay${tick}`);flightDigest.update(flown);}
+ }
+} finally {flight.dispose();b?.dispose();}
 const generation=u.generation;game.vehicles.unboard(u,{force:true,placement:false});target.seat=null;u.spawn(...u.soldier.position.toArray(),u.soldier.aimYaw);target.generation=u.generation;
 const spawned=captureOwnPlayer({unit:u,tick:500,epoch:1,registry,classId:1,held:[],view});assert.ok(applyOwnPlayer({unit:target,epoch:1,registry,record:spawned,previous:context}).reset);assert.ok(u.generation>generation);
 console.log(JSON.stringify({source:{revision:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),dirty:!!execFileSync('git',['status','--porcelain'],{encoding:'utf8'}).trim()},map:'bes1',className,vehicle:a.name,authoritativeShot:fired,capturedZoom,infantryPacketBytes:wire.length,flightPacketBytes:flightBytes,infantryReplayTicks:180,flightReplayTicks:210,generationReset:true,movement:movement?'wasm':'js',infantryReplayDigest:infantryDigest.digest('hex'),flightReplayDigest:flightDigest.digest('hex'),scope:'owned-content correction and physics replay, not transport/render/capacity'},null,2));

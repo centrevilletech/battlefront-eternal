@@ -1,42 +1,9 @@
-// Keep replay work bounded without making outbound input wait for snapshots.
-// A locally simulated checkpoint continues through a downstream blackout. A
-// fresh authoritative state replaces it; a snapshot older than the retained
-// replay window cannot rewind it using an incomplete command history.
-export class PredictionWindow {
-  constructor(limit = 120) {
-    this.limit = limit;
-    this.reset();
-  }
-  reset() { this.checkpoint = null; }
-  // `exact(checkpoint)`: whether the new authoritative state is the one the
-  // checkpoint's prediction reached for its tick; the checkpoint then goes on
-  // as if nothing had arrived (a replay from it would come out the same).
-  select({ source, identity, epoch, generation, authorityTick, pending, held }, exact = null) {
-    const c = this.checkpoint;
-    const sameLife = c && c.source === source && c.identity === identity && c.epoch === epoch && c.generation === generation;
-    let checkpoint = sameLife && (authorityTick === c.authorityTick || authorityTick < c.tick - this.limit) ? c : null;
-    const compare = !checkpoint && sameLife && authorityTick > c.authorityTick && authorityTick <= c.tick;
-    if (compare && exact?.(c)) { c.authorityTick = authorityTick; checkpoint = c; }
-    if (!checkpoint) this.reset();
-    return {
-      checkpoint, from: checkpoint?.tick ?? authorityTick,
-      held: checkpoint?.held ?? held,
-      commands: checkpoint ? pending.filter(command => command.sequence > checkpoint.sequence) : pending,
-    };
-  }
-  save({ source, identity, epoch, generation, authorityTick, tick, commands, held, state }) {
-    const last = commands.at(-1);
-    this.checkpoint = { source, identity, epoch, generation, authorityTick, tick, state,
-      sequence: last?.sequence ?? this.checkpoint?.sequence ?? 0,
-      held: last?.down ?? held };
-  }
-}
-
+// Page-owned input retention and visual identity reset. Native prediction
+// owns continuation eligibility and checkpoints; this file never replays ticks.
 // Initial network assignment can replace the mission's local player ID while
 // reusing the exact Soldier object and generation number. It is a different
 // prediction identity, not a same-life correction to the provisional body.
 export function resetPredictionIdentity(client) {
-  client.vehicleWindow.reset();
   client.smoother.reset(); client.vehicleSmoother.reset();
   client.predictedTick = 0; client.vehiclePrediction = null;
   client.held = []; client.heldGeneration = 0;

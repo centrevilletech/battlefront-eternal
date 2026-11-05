@@ -1,6 +1,5 @@
-// Exact flyer motion replay state (schema2). Ground vehicles are deliberately
-// unsupported until their wheel/support/contact state has its own audit.
-// Dependency audit: stepFlight, Vehicle.fly/tick/captureTick and flight targeting.
+// Exact flyer continuation checkpoint (schema2), shared by native replay
+// and snapshot fixtures. Ground pilots use their separate exact schema.
 // Excluded collision rays/matrices are overwritten before use by sweep/landingSite/
 // syncBody; class geometry/config and the world registry come from loaded content.
 export const FLIGHT_CORRECTION_SCHEMA=2;

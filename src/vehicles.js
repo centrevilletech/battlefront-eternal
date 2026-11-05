@@ -1,11 +1,10 @@
 import { poseFlightGear, gearFoot } from "./flight/gear.js";
-import { updateFlightTarget } from "./flight/targeting.js";
-import { initFlight, stepFlight, standHeight } from "./flight/model.js";
+import { initFlight, standHeight } from "./flight/model.js";
 import { groundMotion } from './vehicle-motion.js';
-import { HOVER_REST, hoverContacts, hoverPhysics, hoverSprings, hullQuaternion, restHeight } from './vehicle-hover.js';
+import { hullQuaternion, restHeight } from './vehicle-hover.js';
 import { updateFlightCamera, easeAxes, cameraTension } from './flight/camera.js';
 import { vehicleMissileDefinition } from "./weapon-targeting.js";
-import { waterDamageRule, waterDamageStep } from './vehicle-water.js';
+import { waterDamageRule } from './vehicle-water.js';
 import * as THREE from "three";
 import { descendantMuzzles, vehicleMuzzleTips } from "./muzzles.js";
 import { makeHit } from "./collision.js";
@@ -20,7 +19,6 @@ import { boardingSeat, canBoard, seatControl, teamRelation } from "./boarding.js
 import { makeRiderPoints, riderDropPoint, riderHitShapes, riderPoints } from "./rider-pose.js";
 
 import { VehiclesWorld } from "./vehicles-world.js";
-import { predictionSeatLook } from './runtime/vehicle-prediction-input.js';
 import { SeatsWorld } from "./seats-world.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -849,236 +847,9 @@ export class Vehicle {
   // The world owns health; combat and repair send synchronous commands.
   setHealth(value) { return this.system.f2.command(this, 1, value); }
 
-  tick(dt, input) {
-    this.previous.copy(this.position);
-    this.previousYaw = this.yaw;
-    this.previousTilt = this.tilt; this.previousRoll = this.roll;
-    for (const wheel of this.wheels) wheel.previous = wheel.phase;
-    if (!this.alive || this.sleeping && !this.occupied) return;
-    if (this.flying) { this.fly(dt, input); return; }
-    const oldYaw = this.yaw;
-    this.steer(dt, input, this.strafeSpeed === 0);
-    const response = 1 - Math.exp(-10 * dt);
-    this.forwardInput += ((input.forward || 0) - this.forwardInput) * response;
-    this.rightInput += ((input.right || 0) - this.rightInput) * response;
-    const driving = (this.seatIndex === 0 || this.crewed(0)) && !input.brake;
-    if (!this.walking) {
-      // A hover (src/vehicle-hover.js): its physics, then the collision pass
-      // (its wall spheres, then its springs), then its springs' forces.
-      hoverPhysics(this, dt, driving ? this.forwardInput : 0, driving ? this.rightInput : 0, Boolean(input.brake));
-      this.system.world.enableBody(this.body, false);
-      try {
-        this.pushWalls(oldYaw, hullQuaternion(this, this.q), true);
-        hoverContacts(this);
-      } finally { this.system.world.enableBody(this.body, this.alive); }
-      hoverSprings(this, dt);
-    } else this.walkGround(dt, input, driving, oldYaw);
-    if (this.wheeled) {
-      const dx = this.position.x - this.previous.x, dz = this.position.z - this.previous.z;
-      const distance = dx * Math.sin(this.yaw) + dz * Math.cos(this.yaw);
-      const turned = angle(this.yaw - this.previousYaw);
-      for (const wheel of this.wheels) wheel.phase += (distance - turned * wheel.x) / wheel.radius;
-    }
-    this.syncBody();
-    if (this.system.world.inDeathRegion(this.position) || this.position.y < -300) this.damage(Infinity);
-    // Deep water wears a walker down (src/vehicle-water.js).
-    if (this.walking && this.alive) {
-      const hurt = waterDamageStep(this, dt, this.system.water, this.waterRule, this.position, this.waterDepth);
-      if (hurt > 0) this.damage(hurt);
-    }
-    this.sleeping = !this.occupied && this.velocity.lengthSq() < (this.walking ? .0001 : HOVER_REST * HOVER_REST)
-      && this.previous.distanceToSquared(this.position) < .000001
-      && Math.abs(this.tilt - this.previousTilt) + Math.abs(this.roll - this.previousRoll) < 1e-5;
-  }
-
-  // A walker's or riding animal's tick on the ground: it moves at its
-  // speeds in the plane, its probes find the floor under it (an animal
-  // lies with it), and gravity takes over at ledges and map cuts.
-  walkGround(dt, input, driving, oldYaw) {
-    const w = this.system.world;
-    const forward = driving ? this.forwardInput * (this.forwardInput >= 0 ? this.speed : this.reverseSpeed) : 0;
-    const right = driving && this.strafeSpeed ? this.rightInput * this.strafeSpeed : 0;
-    const norm = Math.max(1, Math.hypot(this.forwardInput, this.strafeSpeed ? this.rightInput : 0));
-    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
-    const accel = (forward || right) ? this.acceleration : this.deceleration * (input.brake ? 2 : 1);
-    // +Z is forward in the assets; screen-right is -X in that frame.
-    this.velocity.x = approach(this.velocity.x, (sin * forward - cos * right) / norm, accel * dt);
-    this.velocity.z = approach(this.velocity.z, (cos * forward + sin * right) / norm, accel * dt);
-    const legs = !this.creature && this.def.fx?.legs;
-    if (!this.creature && !legs) {
-      this.roll -= this.roll * (1 - Math.exp(-5 * dt));
-      this.tilt -= this.tilt * (1 - Math.exp(-4 * dt));
-    }
-    this.position.x += this.velocity.x * dt;
-    this.position.z += this.velocity.z * dt;
-    w.enableBody(this.body, false);
-    try {
-      this.quaternion.setFromAxisAngle(UP, this.yaw);
-      this.pushWalls(oldYaw, this.quaternion, false);
-      if (legs) { this.standOnLegs(dt, legs); return; }
-      // Multiple suspension probes prevent the hull climbing walls or flying
-      // across a missing floor. Gravity takes over at ledges and map cuts.
-      let floor = -Infinity;
-      this.supportNormal.set(0, 0, 0);
-      let supports = 0, heightSum = 0;
-      for (const probe of this.supportProbes) {
-        this.from.copy(probe).applyQuaternion(this.quaternion).add(this.position);
-        this.from.y = this.position.y + this.bounds.min.y + 1.2;
-        const hit = w.cast(this.from, DOWN, 6, this.hit);
-        if (hit && hit.normal.y > .65) {
-          if (this.creature) {
-            // Project the contact plane back to the model origin. Taking the
-            // highest hull ray instead makes feet hover on sloping snow.
-            heightSum += hit.point.y + (hit.normal.x * (hit.point.x - this.position.x) + hit.normal.z * (hit.point.z - this.position.z)) / hit.normal.y;
-            this.supportNormal.add(hit.normal); supports++;
-          } else floor = Math.max(floor, hit.point.y);
-        }
-      }
-      if (supports) {
-        floor = heightSum / supports;
-        this.alignGround(this.supportNormal.normalize(), 1 - Math.exp(-14 * dt));
-      }
-      // A walker wades: the floor under the water holds it, not the surface
-      // (src/vehicle-water.js).
-      if (Number.isFinite(floor)) {
-        const target = floor + (this.creature ? 0 : -this.bounds.min.y + this.hover);
-        if (target > this.position.y + 1.1) {
-          this.position.x = this.previous.x; this.position.z = this.previous.z;
-          this.velocity.x = this.velocity.z = 0;
-        } else {
-          // Analytic easing is stable at every display and physics rate.
-          this.position.y += (target - this.position.y) * (this.creature ? 1 : 1 - Math.exp(-14 * dt));
-          this.velocity.y = 0;
-        }
-      } else {
-        this.velocity.y -= 20 * dt;
-        this.position.y += this.velocity.y * dt;
-      }
-    } finally { w.enableBody(this.body, this.alive); }
-  }
-
-  // A walker on its legs, as the 2004 game stands one (docs/vehicles.md
-  // "Standing on the ground"). Each foot
-  // of each LegPair casts straight down from LegRayHitLength (L) above its
-  // primitive's bottom, 2L long, onto terrain and buildings: h, the ground
-  // over the foot, in [-L, L]. A pair stands at the lower of its two feet,
-  // drawn toward the higher once that is more than L/2 up (WalkerOrientRoll:
-  // their mean), and keeps how much higher its left foot's ground is than
-  // its right's (legSide, -1..1, eased 0.4 a step), which the 2004 game
-  // blends its legs toward their _leftup/_rightup poses by. With two pairs
-  // or more (the AT-AT, the spider walker): no pair on the ground and it
-  // falls (29.4 m/s/s); else it pitches 0.01 of the front pair's height
-  // over the back's a step (up to 0.2955), rolls toward the pairs' mean
-  // side over WalkerWidth where it is wider than 1 (the spider's 22), and
-  // its root rises by the mean of the first two pairs' heights, sinking no
-  // more than 0.1 a step. One pair (the AT-ST): on the ground it rises to
-  // 0.1 under it; off it, it falls. The 2004 game's constants are per
-  // update; the port's steps are 1/60 s, which these scale to.
-  standOnLegs(dt, legs) {
-    const w = this.system.world, L = legs.rayLength, k = dt * 60;
-    const q = this.frameScratch.q.setFromEuler(this.legEuler.set(-this.tilt, this.yaw, this.roll, 'YXZ'));
-    const heights = [];
-    this.legSide ||= legs.pairs.map(() => 0);
-    legs.pairs.forEach((pair, i) => {
-      const h = ['left', 'right'].map((which) => {
-        this.from.fromArray(pair[which].at).applyQuaternion(q).add(this.position);
-        this.from.y += L;
-        const hit = w.cast(this.from, DOWN, 2 * L, this.hit);
-        return hit ? L - hit.distance : -L;
-      });
-      const lo = Math.min(h[0], h[1]), hi = Math.max(h[0], h[1]);
-      heights.push(legs.orientRoll ? (h[0] + h[1]) / 2 : lo + (hi - lo) * THREE.MathUtils.clamp((hi - L / 2) / (.4 * L), 0, 1));
-      const side = THREE.MathUtils.clamp(-.6 * (h[0] - h[1]), -1, 1);
-      this.legSide[i] += (side - this.legSide[i]) * Math.min(1, .4 * k);
-    });
-    // The rays meet terrain and buildings, not water: a walker wades in on
-    // the ground under it (src/vehicle-water.js).
-    if (heights.length >= 2) {
-      // (A centimetre's grace: a foot exactly on flat ground reads 0 and
-      // would drop and rise again every other step.)
-      if (!heights.some((h) => h > -.01)) {
-        this.velocity.y -= 29.4 * dt;
-        this.position.y += this.velocity.y * dt;
-        return;
-      }
-      this.velocity.y = 0;
-      const MAX = .2955;
-      this.tilt = THREE.MathUtils.clamp(this.tilt + .01 * k * (heights[0] - heights[heights.length - 1]), -MAX, MAX);
-      if (legs.width > 1) {
-        const side = this.legSide.reduce((a, b) => a + b, 0) / this.legSide.length;
-        this.roll += (THREE.MathUtils.clamp(Math.atan(side / legs.width), -MAX, MAX) - this.roll) * Math.min(1, .05 * k);
-      }
-      const rise = (Math.max(heights[0], -.1 * k) + Math.max(heights[1], -.1 * k)) / 2;
-      this.position.y += rise;
-      return;
-    }
-    const h = heights[0];
-    if (h >= 0) {
-      this.velocity.y = 0;
-      this.position.y += h - .1;
-    } else {
-      this.velocity.y -= 29.4 * dt;
-      this.position.y += Math.max(this.velocity.y * dt, h);
-    }
-  }
-
-  // The hull's sphere chain against walls (local spheres with small fixed
-  // steps catch corners and thin walls; no raycasts against visual meshes
-  // and no BVH rebuild on motion): each probe sphere, placed in the hull's
-  // frame q, is pushed out of the polygons of buildings, props, barriers and
-  // other hulls that are no floor, and with terrain of the terrain's steep
-  // faces too, and stops moving into them (src/vehicles-world.js pushWalls).
-  // A push deeper than 0.15 m undoes the step's turn.
-  //
-  // A walker against another hull (a moving body) gives way only as far as
-  // its own probe moved into it this step: the other hull answers for its
-  // own motion. The probes are spheres in the walker's box and reach past
-  // its body, so a hull stopped by the walker's body still sat inside them,
-  // and the walker, pushed fully out every step, was bulldozed at the other
-  // hull's speed (a hailfire drove an AT-TE across Geonosis at 8 m/s, and
-  // other contacts at up to 30 m/s).
-  pushWalls(oldYaw, q, terrain) {
-    const own = this.walking ? this.ownStart.setFromAxisAngle(UP, this.previousYaw) : null;
-    if (this.system.world.pushWalls(this, this.probes, this.probeRadius, q, own, this.previous, this.position, this.velocity, terrain)) this.yaw = oldYaw;
-  }
-
-  aimPlayerSeat(dt) {
-    // Mouse aim is direct. Hull steering below still has its own turn rate
-    // and acceleration; filtering the aim too adds latency to the reticle.
-    if (this.lookYaw !== null) {
-      this.aimYaw = this.lookYaw;
-      this.pitch = this.lookPitch;
-    }
-    if (this.driver) this.clampAim(this.seatIndex);
-  }
-
-  steer(dt, input, keyboardSteers = false) {
-    this.aimPlayerSeat(dt);
-    // The hull follows the pilot's aim: the player's in seat 0, or a bot's.
-    const bot = this.crewed(0);
-    if (this.seatIndex !== 0 && !bot) { this.yawRate *= Math.exp(-10 * dt); return; }
-    const pilot = this.seats[0];
-    const keys = THREE.MathUtils.clamp((input.turn || 0) + (keyboardSteers ? input.right || 0 : 0), -1, 1);
-    const delta = -keys * this.turnRate * dt;
-    pilot.aimYaw += delta;
-    if ((!bot || pilot.lease?.unit?.networkHuman) && this.lookYaw !== null) this.lookYaw += delta;
-    const error = angle(pilot.aimYaw - this.yaw);
-    const wanted = THREE.MathUtils.clamp(error * 5, -this.turnRate, this.turnRate);
-    this.yawRate += (wanted - this.yawRate) * (1 - Math.exp(-9 * dt));
-    const step = this.yawRate * dt;
-    this.yaw += Math.sign(step) === Math.sign(error) && Math.abs(step) > Math.abs(error) ? error : step;
-    // A turret's arc turns with the hull under it.
-    if (this.driver && this.seatIndex !== 0) this.clampAim(this.seatIndex);
-  }
-
-  fly(dt, input) {
-    if (this.driver && this.seatIndex !== 0) this.aimPlayerSeat(dt);
-    stepFlight(this, dt, input);
-    updateFlightTarget(this, dt, input.targetLock);
-  }
-
-  // The pose at the start of a world tick, for drawing between ticks.
-  captureTick() {
+  // Replica birth seeds renderer history before its first pilot correction.
+  // Ordinary tick endpoints come from the native hull session or F2 phase.
+  resetPresentationHistory() {
     (this.tickFrom ||= new THREE.Vector3()).copy(this.position);
     if (this.flying) (this.flightTickQ ||= new THREE.Quaternion()).copy(this.quaternion);
     this.tickFromYaw = this.yaw; this.tickFromTilt = this.tilt; this.tickFromRoll = this.roll;
@@ -1180,7 +951,7 @@ export class Vehicle {
   // live in the simulation host). The equivalent of render() without
   // placeRoot(). His own predicted hull is drawn between its last two ticks
   // (alpha), and so are its legs: the replay keeps the cycle as it was
-  // before its last tick (walkFromPhase, src/runtime/vehicle-prediction.js),
+  // before its last tick (walkFromPhase, the native prediction session),
   // so a planted foot stays where it is while the hull moves over it.
   // frameDt, the frame's: a craft drawn from its records moves its gear by
   // it (src/flight/gear.js).
@@ -1237,21 +1008,6 @@ export class Vehicle {
 
   // The walk cycle advanced by a tick (walkPhase, walkBlend: plain, so a
   // page showing a worker's battle poses from them).
-  walk(dt) {
-    if (!this.pose || dt <= 0) return;
-    const speed = Math.hypot(this.velocity.x, this.velocity.z);
-    const left = this.clips.get('walk_leftfoot_rightfoot'), right = this.clips.get('walk_rightfoot_leftfoot');
-    const length = (left?.duration || 0) + (right?.duration || 0);
-    const moving = speed > .05 && left && right && length > 0;
-    this.walkBlend += ((moving ? 1 : 0) - this.walkBlend) * (1 - Math.exp(-8 * dt));
-    if (this.walkBlend > .0001 && left && right && length > 0) {
-      const natural = Math.max(.1, (left.stride + right.stride) / length);
-      const forwardSpeed = this.velocity.x * Math.sin(this.yaw) + this.velocity.z * Math.cos(this.yaw);
-      const direction = this.creature && forwardSpeed < 0 ? -1 : 1;
-      this.walkPhase = ((this.walkPhase + dt * speed / natural * direction) % length + length) % length;
-    }
-  }
-
   // The walk cycle's length in seconds (both steps), 0 without one.
   get walkLength() {
     const left = this.clips?.get('walk_leftfoot_rightfoot'), right = this.clips?.get('walk_rightfoot_leftfoot');
@@ -1888,6 +1644,7 @@ export class VehicleDriver {
     this.point = new THREE.Vector3(); this.target = new THREE.Vector3(); this.direction = new THREE.Vector3();
     this.hit = makeHit(); this.cameraSet = false;
     this.speedEffect = 0;
+    this.lookSettings = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
     this.riderOffset = new THREE.Vector3();
     this.riderQuaternion = new THREE.Quaternion();
     this.riderLean = 0;
@@ -1900,7 +1657,10 @@ export class VehicleDriver {
   look(dx, dy, sensitivity, invert) {
     const v = this.vehicle;
     if (!v) return;
-    predictionSeatLook(v, v.seatIndex, dx, dy, { scale: sensitivity, invert, flightScale: this.flightSensitivity ?? 1, flightInvert: Boolean(this.flightInvert) });
+    const settings = this.lookSettings;
+    settings.scale = sensitivity; settings.invert = invert;
+    settings.flightScale = this.flightSensitivity ?? 1; settings.flightInvert = Boolean(this.flightInvert);
+    v.system.f2.seats.look(v, v.seatIndex, dx, dy, settings);
   }
   // Preview unacknowledged mouse counts for the reticle without changing
   // the authoritative seat or its weapon ray. Rebuild from the current seat
@@ -2001,6 +1761,7 @@ export class VehicleDriver {
     this.lease = null; this.riderLean = 0;
     this.presentation?.reset(); this.onRelease?.();
     this.speedEffect = 0;
+    this.lookSettings = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
     this.combat.mounted = false;
     this.actor.root.visible = true;
     this.actor.root.rotation.set(0, this.soldier.aimYaw, 0);

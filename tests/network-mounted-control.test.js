@@ -1,3 +1,4 @@
+import { prepareHullFixture } from './helpers/hull-prediction.js';
 import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -63,9 +64,10 @@ test('passenger baseline preserves nullable look overrides and preview follows s
   const page = new VehicleDriver({}); page.vehicle = client.v;
   const commands = [{ look: [[12, 8]], mouseScale: .5, invertMouse: false },
     { look: [[-4, 20]], mouseScale: .25, invertMouse: true }];
+  prepareHullFixture(source.v.system);
   for (const command of commands) {
     for (const [dx, dy] of command.look) driver.look(dx, dy, command.mouseScale, command.invertMouse);
-    source.v.aimPlayerSeat(1 / 60);
+    source.v.system.f2.seats.network(source.v,source.v.seatIndex,null,{look:[]});
   }
   const before = captureMountedControl(client.unit);
   page.preview(commands, null, .5, false);

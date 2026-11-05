@@ -468,6 +468,24 @@ fn flight_keys(name: &str) -> (Config, Option<GearClip>) {
     k
 }
 
+/// predictionVehicle resolved immutable content once per source. The client
+/// gets an independent hull, row, strings and query view; it never takes a
+/// working row out of the authoritative phase's reentrant pool.
+pub(crate) fn prediction_hull(r: Ref<Vehicle>) -> Option<crate::client::hulls::Session> {
+    let s = sim();
+    let v = s.store.vehicle.get(r)?;
+    let name = String::from_utf16_lossy(s.strings.units(v.name));
+    let class = classes().get(&name)?;
+    let mut hull = Hull::from_store(r, v, class, 0, &s.strings);
+    let (config, gear) = f2::flight_keys_for(r);
+    hull.flight = Flight::from_store(v, &s.strings, config, gear).ok()?;
+    hull.pose = Some(poses().get(r.slot as usize)?.as_ref()?.pose.clone());
+    Some(crate::client::hulls::Session::new(hull, v.clone(), s.strings.clone(),
+        collision_world()?.prediction_view(), map()?.clone(),
+        unsafe { (*addr_of_mut!(FLIGHT_ENV)).as_ref()?.clone() },
+        unsafe { *(*addr_of_mut!(TUNINGS)).as_ref()? }))
+}
+
 /// A craft as the phase works on it: the hull with its flight.
 fn load_flyer(r: Ref<Vehicle>, index: usize) -> Hull {
     let mut hull = load(r, index);

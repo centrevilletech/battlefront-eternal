@@ -1,8 +1,9 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 import test from 'node:test';import assert from 'node:assert/strict';import * as THREE from 'three';
 import {fixture} from './flight-fixture.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import {Vehicles} from '../src/vehicles.js';
-import {predictionVehicle} from '../src/runtime/vehicle-prediction.js';
+import {presentationHull} from '../src/runtime/client-hull.js';
 import {captureGroundCorrection,restoreGroundCorrection,groundCorrectionBytes} from '../src/runtime/network-entity-ground.js';
 function ground(kind){
  const shape=(w,h,d,y=0)=>{const g=new THREE.BoxGeometry(w,h,d).translate(0,y,0);return {positions:g.attributes.position.array,indices:g.index.array,polygons:new Uint32Array(g.index.count/3)};};
@@ -15,18 +16,18 @@ function ground(kind){
   def.springs=[{at:[-.8,.4,1],radius:1,length:.5,factors:[1,1,-1,1,-1,1]},{at:[.8,.4,1],radius:1,length:.5,factors:[1,1,-1,1,1,1]},{at:[0,.8,-1],radius:1.4,length:.5,factors:[1,1,2,1,0,1]}];}
  const data={models:{hull:{bones:[],parts:[]}},collision:{hull},classes:{[name]:def},spawns:[{name:'pad',matrix:new THREE.Matrix4().toArray(),team:1,post:'cp',respawnTime:2,classes:{1:name}}]};
  const system=new Vehicles({scene:new THREE.Scene(),data,buffer:new ArrayBuffer(0),indexBuffer:new ArrayBuffer(0),collision,texture:()=>null,camera:new THREE.PerspectiveCamera(),posts:{posts:[{desc:{name:'cp'},team:1}]},ordnance:{explosion(){}},effects:{play(){return null;}}});
- const v=system.vehicles[0];v.driver={};v.seatIndex=0;v.captureTick();return predictionVehicle(v);
+ const v=system.vehicles[0];v.driver={};v.seatIndex=0;v.resetPresentationHistory();stepPrediction(v.system,0,v,{});return v;
 }
 test('ground correction resumes exact 120Hz hover, spring, wheel, walker and creature motion',()=>{
  for(const kind of ['hover','springs','wheeled','walker','creature']){
   const a=ground(kind);let b;
   for(let tick=1;tick<=240;tick++){
    const input={forward:tick<150?1:-1,right:tick>40?.4:0,turn:tick>90?.2:0,brake:tick>200};
-   a.captureTick();a.tick(1/120,input);a.tick(1/120,input);
+   a.resetPresentationHistory();stepPrediction(a.system,1/60,a,input);
    if([10,80,155,210].includes(tick)){
     b=ground(kind);for(const x of Object.values(b))if(x?.isVector3)x.set(11,-42,7);
     const body=b.body.matrix.toArray();restoreGroundCorrection(b,captureGroundCorrection(a));assert.deepEqual(b.body.matrix.toArray(),body);assert.deepEqual(b.tickFrom,a.position);
-   }else if(b){b.captureTick();b.tick(1/120,input);b.tick(1/120,input);}
+   }else if(b){b.resetPresentationHistory();stepPrediction(b.system,1/60,b,input);}
    if(b)assert.deepEqual(captureGroundCorrection(b),captureGroundCorrection(a),`${kind} tick ${tick}`);
   }
  }

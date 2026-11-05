@@ -334,7 +334,7 @@ export class EntityGameState {
     vehicle.previous.copy(vehicle.position);
     // Semantic hull creation skips the simulation/baseline tick capture. Seed
     // shared presentation history before a pilot correction can restore it.
-    if (newLife || !vehicle.tickFrom) vehicle.captureTick();
+    if (newLife || !vehicle.tickFrom) vehicle.resetPresentationHistory();
     vehicle.power = record.power; vehicle.root.visible = vehicle.alive;
     vehicle.syncBody(); this.presentation.bindVehicle(record.id, record.generation, vehicle);
     // A mount can be acknowledged before its hull exists. Reuse its retained

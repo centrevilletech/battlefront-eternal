@@ -2,7 +2,7 @@
 // outside a craft's own tick (rust/sim/src/flight): a bot pilot's stick
 // (src/flight/ai.js pilotInput, with its altitude stage raiseOverTerrain),
 // the assisted shot and a flyer missile's seeker (src/flight/targeting.js
-// assistShot, navigateMissile), the transports' spawn points
+// navigateMissile), the transports' spawn points
 // (src/flight/spawn.js transportPosts) and a craft's class by its name
 // (src/flight/config.js flightClass), a network pilot's flight keys
 // (src/flight/controls.js flightInput) and the class tunings and their
@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { Writer, RECORD, MAGIC } from '../sim-capture/format.mjs';
 import { pilotInput, raiseOverTerrain } from '../../src/flight/ai.js';
-import { assistShot, navigateMissile } from '../../src/flight/targeting.js';
+import { navigateMissile } from '../../src/flight/targeting.js';
 import { transportPosts } from '../../src/flight/spawn.js';
 import { FLIGHT_CLASSES, flightClass } from '../../src/flight/config.js';
 import { FLIGHT_BINDINGS, flightBindings, flightInput } from '../../src/flight/controls.js';
@@ -121,20 +121,6 @@ function raiseCase(w) {
     height: Boolean(env.height), water: Boolean(env.water), point: before, blend }, calls, out: { point: v3(point), obstacle } });
 }
 
-function assistCase(w) {
-  const { kind, own, config: c } = config();
-  const target = chance(0.15) ? null : { alive: chance(0.85), point: vec() };
-  const id = chance(0.1) ? -1 : 5;
-  const v = { flightAssistId: id, flightConfig: c, system: { flightAssists: chance(0.85), units: { byId: (n) => (n === 5 ? target && { alive: target.alive, aimPoint: (o) => o.copy(target.point) } : null) } } };
-  const origin = vec();
-  const toward = target ? target.point.clone().sub(origin).normalize() : unitVec();
-  const direction = chance(0.6) ? toward.clone().add(unitVec().multiplyScalar(rand() * 0.1)).normalize() : unitVec();
-  const before = v3(direction);
-  assistShot(v, direction, origin);
-  w('assist', { input: { kind, assistId: id, assists: v.system.flightAssists, target: target && { alive: target.alive, point: v3(target.point) }, origin: v3(origin), direction: before },
-    out: { direction: v3(direction) } });
-}
-
 function missileCase(w) {
   const position = vec(400);
   const speed = chance(0.05) ? 0.5 : 50 + rand() * 300;
@@ -226,7 +212,7 @@ const w = (kind, value) => {
   if (writer.length > (8 << 20)) fs.writeSync(fd, writer.take());
 };
 writer.record(RECORD.header, 0, 'header', { format: 1, tool: 'sim-flight-cases', node: process.version, v8: process.versions.v8, cases: N });
-const kinds = [pilotCase, pilotCase, pilotCase, raiseCase, assistCase, missileCase, missileCase, transportCase, classCase, keysCase, tuningCase];
+const kinds = [pilotCase, pilotCase, pilotCase, raiseCase, missileCase, missileCase, transportCase, classCase, keysCase, tuningCase];
 for (let i = 0; i < N; i++) pick(kinds)(w);
 fs.writeSync(fd, writer.take());
 fs.closeSync(fd);

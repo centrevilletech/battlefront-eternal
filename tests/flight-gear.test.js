@@ -1,4 +1,4 @@
-import { stepPrediction } from './helpers/hull-prediction.js';
+import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
 // A flyer's landing gear, gear doors and S-foils: its bank's takeoff clip
 // posed at the flight state (src/flight/gear.js), the gear its own on the
 // host that steps or corrects its flight and its replicated flight state's
@@ -87,6 +87,7 @@ function craft({ clip = true, parts = [], rig = RIG, tracks = TRACKS, collisionB
     spawns: [{ name: 'pad', matrix: new THREE.Matrix4().toArray(), team: 1, post: 'cp', respawnTime: 2, classes: { 1: 'ship' } }] };
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer: model.buffer, indexBuffer: model.indexBuffer, animationBuffer: floats.buffer, collision, texture: () => null,
     camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } } });
+  registerHullFixture(system, { data, buffer: model.buffer, indexBuffer: model.indexBuffer, animationBuffer: floats.buffer });
   return { system, v: system.vehicles[0] };
 }
 const bone = (v, name) => v.bones[v.bones.findIndex((b) => b.name === name)];
@@ -363,14 +364,14 @@ test('an X-wing\'s lasers leave the foil tips where its gear has the foils, in t
   const muzzle = new THREE.Vector3();
   for (const gear of [1, .5, 0]) {
     v.gear = gear; v.flightState = gear === 1 ? 'Landed' : gear === 0 ? 'Flying' : 'TakingOff';
-    v.captureTick(); v.sleeping = false; v.present(1, 1 / 60);
+    v.resetPresentationHistory(); v.sleeping = false; v.present(1, 1 / 60);
     v.byName.hp_laser_01.getWorldPosition(muzzle);
     const angle = gear === .5 ? OPEN / 2 : gear === 1 ? 0 : OPEN;
     assert.ok(muzzle.distanceTo(tip(v.position, angle)) < 1e-5, `replica, gear ${gear}: from the tip with the foil ${THREE.MathUtils.radToDeg(angle)} degrees open (${muzzle.distanceTo(tip(v.position, angle))})`);
     // The pilot's page: his craft drawn at its replayed gear, his shot drawn
     // from its drawn tip, which is where the world's round leaves.
     page.position.copy(v.position); page.quaternion.copy(v.quaternion); page.gear = gear; page.flightState = 'Flying';
-    page.captureTick(); page.sleeping = false; page.present(1, 1 / 60);
+    page.resetPresentationHistory(); page.sleeping = false; page.present(1, 1 / 60);
     const shots = new PredictedShots(new THREE.Scene(), { cast: () => null }, () => 0, null);
     const unit = { id: 8, generation: 2, alive: true, seat: { vehicle: page, index: 0 }, combat: { dead: false, origin: new THREE.Vector3(), firePoint: () => null, flash() {}, animator: { fire() {} }, firstPerson: false } };
     assert.equal(shots.fire({ id: 1, generation: 2, pressed: true, button: 0, aimYaw: 0, aimPitch: 0 }, unit), true);

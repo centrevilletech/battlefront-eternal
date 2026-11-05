@@ -20,6 +20,7 @@ export default {
     // A wheel (the Hailfire's): its place across the hull and its radius,
     // its turn and the turn a step ago.
     VehicleWheel: {
+      $layout: true,
       x: fixed('f64'),
       radius: fixed('f64'),
       phase: 'f64',

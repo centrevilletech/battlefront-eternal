@@ -12,7 +12,9 @@ import {readFile} from 'node:fs/promises';
 import {resolve,sep} from 'node:path';
 import {createGame} from '../src/game.js';
 import {createMultiplayerWorld} from '../src/runtime/multiplayer-world.js';
-import {predictionVehicle,predictVehicle} from '../src/runtime/vehicle-prediction.js';
+import {presentationHull} from '../src/runtime/client-hull.js';
+import {createHullReplay} from '../tests/helpers/hull-prediction.js';
+import {Vector3} from 'three';
 import {NetworkInputs,predictionCommands} from '../src/runtime/network-inputs.js';
 import {FixedClock} from '../src/runtime/fixed-clock.js';
 import {InputLead,advanceInputClock,CorrectionSmoother} from '../src/runtime/reconcile.js';
@@ -54,6 +56,10 @@ const sender=new NetworkInputs({transitionBackups:redundantTransitions,state:mes
  else if(changed)droppedTransitions.push({at:now,sequence:command.sequence,tick:command.tick,down:command.down});
  return true;
 },events:message=>{queue(toWorld,{at:now+delay(message.id,1),kind:'actions',message});return true;},fire:()=>true});
+// Keep the page owner's source identity stable while delayed snapshots arrive.
+// The tool's forecast copies are diagnostic storage, outside the live replay.
+const predictionBase=presentationHull(aircraft),replay=createHullReplay(predictionBase,player.generation);
+const oldPose=new Vector3();let oldTick=0;
 const quantize=v=>{
  for(const[key,scale]of [['position',256],['velocity',128],['quaternion',8192]])for(const axis of key==='quaternion'?['x','y','z','w']:['x','y','z'])v[key][axis]=Math.round(v[key][axis]*scale)/scale;
  return v;
@@ -66,7 +72,7 @@ for(let micro=1;micro<=seconds*7200;micro++){
   const forecast=forecasts.get(game.worldClock.tick);if(forecast){forecastErrors.push(forecast.position.distanceTo(aircraft.position));angularErrors.push(forecast.quaternion.angleTo(aircraft.quaternion.clone().normalize()));forecasts.delete(game.worldClock.tick);}
   // The baseline below copies the actual hull, so only the consumed input
   // stamps are needed here. Snapshot encoding belongs to the snapshot host.
-  if(game.worldClock.tick%3===0){const {mailbox,actions}=world.players.get('pilot');if(!snapshotLossEvery||game.worldClock.tick/3%snapshotLossEvery)queue(toClient,{at:now+delay(game.worldClock.tick,2),tick:game.worldClock.tick,ack:mailbox.ack,ackTick:mailbox.ackTick,ackActions:actions.ack,vehicle:quantize(predictionVehicle(aircraft))});}
+  if(game.worldClock.tick%3===0){const {mailbox,actions}=world.players.get('pilot');if(!snapshotLossEvery||game.worldClock.tick/3%snapshotLossEvery)queue(toClient,{at:now+delay(game.worldClock.tick,2),tick:game.worldClock.tick,ack:mailbox.ack,ackTick:mailbox.ackTick,ackActions:actions.ack,vehicle:quantize(presentationHull(aircraft))});}
  }
  if(micro%(7200/fps)!==0)continue;
  while(toClient.length&&toClient[0].at<=now+1e-10){const packet=toClient.shift();packets.push(packet);latest=packet.tick;lead.arrive(packet.tick,now);playout.arrive(packet.tick,now);}
@@ -78,15 +84,21 @@ for(let micro=1;micro<=seconds*7200;micro++){
  },latest+lead.maxLead+7);if(batch.length)sender.send(batch);
  smoother.decay(1/fps);const clock=playout.advance(1/fps);
  while(packets.length&&interval.needsSample(clock)){
-  const packet=packets.shift();baseline=packet.vehicle;applied=packet.tick;sender.ack(packet.ack);interval.apply(packet.tick);ackActions=packet.ackActions;pendingActions=pendingActions.filter(c=>c.sequence>ackActions);
+  const packet=packets.shift();baseline=packet.vehicle;Object.assign(predictionBase,baseline);applied=packet.tick;sender.ack(packet.ack);interval.apply(packet.tick);ackActions=packet.ackActions;pendingActions=pendingActions.filter(c=>c.sequence>ackActions);
   while(pending.length&&pending[0].sequence<=packet.ack){const c=pending.shift();held=c.down;if(c.sequence===packet.ack)lead.acknowledge(packet.ackTick-c.tick);}
   if(takeoffSequence&&ackActions>=takeoffSequence&&takeoffAck===null)takeoffAck=now;
 
  }
  if(!baseline)continue;
- const commands=predictionCommands(pending,pendingActions,ackActions,held),predicted=predictVehicle(baseline,commands,applied,player.generation,held);
- const current=predicted||baseline;
- if(predicted&&previous){const comparison=predicted.predictionPath.get(previous.predictionTick);if(comparison){const distance=previous.position.distanceTo(comparison);if(distance>1e-6)corrections.push(distance);if(distance>.05&&outliers.length<16)outliers.push({at:now,meters:distance,appliedTick:applied,predictedTick:predicted.predictionTick,oldPredictionTick:previous.predictionTick,state:predicted.flightState});smoother.note(...previous.position.toArray(),...comparison.toArray());}}
+ const commands=predictionCommands(pending,pendingActions,ackActions,held);
+ if(previous){oldPose.copy(previous.position);oldTick=previous.predictionTick;}
+ const current=replay.predict(commands,applied,held),predicted=commands.length?current:null;
+ if(predicted&&previous&&replay.session.result.checkFound){
+  const check=replay.session.result.checkPosition,distance=oldPose.distanceTo(new Vector3(...check));
+  if(distance>1e-6)corrections.push(distance);
+  if(distance>.05&&outliers.length<16)outliers.push({at:now,meters:distance,appliedTick:applied,predictedTick:predicted.predictionTick,oldPredictionTick:oldTick,state:predicted.flightState});
+  smoother.note(oldPose.x,oldPose.y,oldPose.z,check[0],check[1],check[2]);
+ }
  const visual=current.tickFrom.clone().lerp(current.position,predicted?input.alpha:interval.alpha(clock));visual.x+=smoother.x;visual.y+=smoother.y;visual.z+=smoother.z;
  if(now>=1&&takeoffModeVisible===null&&current.flightState==='TakingOff')takeoffModeVisible=now;
  if(now<1)takeoffBaseline=visual.y;else if(takeoffVisible===null&&visual.y-takeoffBaseline>.01)takeoffVisible=now;
@@ -96,6 +108,7 @@ for(let micro=1;micro<=seconds*7200;micro++){
  lastVisual=visual;previous=predicted;
  assert.ok(aircraft.alive,'authoritative aircraft stays alive');assert.ok(visual.toArray().every(Number.isFinite),'finite predicted position');
 }
+replay.dispose();
 const stats=values=>{const sorted=[...values].sort((a,b)=>a-b);return {count:values.length,mean:values.reduce((a,b)=>a+b,0)/(values.length||1),p95:sorted[Math.floor(sorted.length*.95)]??0,max:sorted.at(-1)??0};};
 const result={redundantTransitions,stateBytesPerSecond:stateBytes/seconds,backupCommands,droppedTransitions,revision,runtimeSourceSha256,node:process.version,seconds,map:'bes1',vehicle:aircraft.name,army:world.roster.counts(),fps,rttMs:rtt*1000,jitterMs:jitter*1000,lossEvery,snapshotLossEvery,lossModel:'deterministic application messages, not SCTP',states:[...states],takeoffModeResponseMs:takeoffModeVisible===null?null:(takeoffModeVisible-1)*1000,takeoffResponseMs:takeoffVisible===null?null:(takeoffVisible-1)*1000,takeoffAckMs:takeoffAck===null?null:(takeoffAck-1)*1000,turnResponseMs:turnVisible===null?null:(turnVisible-3)*1000,brakeResponseMs:brakeVisible===null?null:(brakeVisible-5)*1000,correctionMeters:stats(corrections),outliers,forecastErrorMeters:stats(forecastErrors),forecastAngleRadians:stats(angularErrors),stampAheadTicks:stats(stampAhead),peakSpeed,finalSpeed:aircraft.airspeed,climb:aircraft.position.y-origin.y,rotationRadians:aircraft.quaternion.angleTo(rotation),finalVisualDistanceToCurrentServerMeters:lastVisual.distanceTo(aircraft.position),smoothingOffsetMeters:smoother.length,alive:aircraft.alive};
 console.log(JSON.stringify(result,null,2));

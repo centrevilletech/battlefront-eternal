@@ -246,3 +246,99 @@ fn melee_input(tick: f64) -> Vec<f64> {
     }
     frame.put(&mut words, &mut Vec::new()); words
 }
+
+// These are whole-session tests, not calls to an individual hull method.
+// Restoring every measured frame catches omitted leg history and decoder
+// buffers that would allocate repeatedly after ordinary authority packets.
+#[test]
+fn warm_hull_walker_and_flyer_sessions_allocate_neither_per_frame_nor_per_tick() {
+    for (walking, flying) in [(false, false), (true, false), (false, true)] {
+        let (mut session, mut collision, short, long) = hull_session(walking, flying);
+        check_allocations(if flying { "flyer" } else if walking { "walker" } else { "hull" },
+            &mut session, &mut collision, &short, &long);
+    }
+}
+fn hull_session(walking: bool, flying: bool) -> (ClientPrediction, State, Vec<f64>, Vec<f64>) {
+    use bfe_sim::client::hulls;
+    use bfe_sim::flight::{Config, Environment, FlightClass};
+    use bfe_sim::flight::config::Tunings;
+    use bfe_sim::gen::{ClientHullState, Vehicle, VehicleSeat, SeatView, SeatLeaseView};
+    use bfe_sim::store::{Ref, Strings};
+    use bfe_sim::vehicles::{Hull, native::{Collision, Collider, MapRules}, class::HullClass};
+    use bfe_sim::vehicles::hull::Legs;
+    use bfe_sim::vehicles::pose::{HullPose, SeatPose};
+    use bfe_sim::rig::hull::{HullDesc, HullRig};
+    use three::{Matrix4, Quaternion, Vector3};
+    let mut collision = floor_collision();
+    let matrix = Matrix4::default().elements;
+    collision.bodies.push(bfe_sim::collision::Body { tree: 0, moving: true, offset: 0.0,
+        bounds: [-1.0, 0.0, -2.0, 1.0, 2.0, 2.0], matrix, inverse: matrix });
+    collision.worlds[0].order.push(0);
+    let mut queries = Collision::new(0, None);
+    queries.add_collider(0, Collider { kernel: 0, local_bounds: [-1.0, 0.0, -2.0, 1.0, 2.0, 2.0], walls: Vec::new(), springs: Vec::new() });
+    let mut row = Vehicle { alive: true, sleeping: Some(false), walking, flying, health: 1000.0, team: Some(1.0),
+        position: [0.0, 2.0, 0.0], previous: [0.0, 2.0, 0.0], quaternion: [0.0, 0.0, 0.0, 1.0], matrix,
+        tick_from: Some([0.0, 2.0, 0.0]), tick_from_yaw: Some(0.0), tick_from_tilt: Some(0.0), tick_from_roll: Some(0.0),
+        speed: 10.0, reverse_speed: 5.0, strafe_speed: 4.0, acceleration: 5.0, deceleration: 7.0, turn_rate: 1.5,
+        bounds_min: [-1.0, 0.0, -2.0], bounds_max: [1.0, 2.0, 2.0], center: [0.0, 1.0, 0.0], size: [2.0, 2.0, 4.0],
+        bound_radius: 3.0, probe_radius: 0.5, max_health: 1000.0, body: Ref::new(0, 0),
+        seats: vec![VehicleSeat::default()], seat_views: vec![SeatView { pitch_limits: [-1.0, 1.0], ..SeatView::default() }],
+        seat_leases: vec![SeatLeaseView::default()], ..Vehicle::default() };
+    let mut strings = Strings::default(); strings.intern_str("");
+    let definition = bfe_content::json::parse(if !walking && !flying {
+        r#"{"springs":[{"at":[-0.8,0.4,1],"radius":1,"length":0.5,"factors":[1,1,-1,1,-1,1]},
+        {"at":[0.8,0.4,1],"radius":1,"length":0.5,"factors":[1,1,-1,1,1,1]},
+        {"at":[0,0.8,-1],"radius":1.4,"length":0.5,"factors":[1,1,2,1,0,1]}]}"#
+    } else { "{}" }).unwrap();
+    let class = HullClass::new(&definition, row.turn_rate);
+    let mut hull = Hull::from_store(Ref::new(0, 0), &row, &class, 0, &strings);
+    hull.pose = Some(HullPose { work: Default::default(), rig: HullRig::new(&HullDesc::default()),
+        visual: Vector3::default(), age: 0.0, hover_phase: 0.0, walk_phase: 0.0, walk_blend: 0.0,
+        has_pose: false, legs: walking, wheel_bones: Vec::new(), seats: vec![SeatPose::default()], clips: None, leg_pairs: None });
+    if walking {
+        // A fresh ground correction omits legSide. The next first-contact
+        // initialization must reuse storage rather than dropping its Vec.
+        hull.legs = Some(Legs { ray_length: 1.2, width: 2.0, orient_roll: false,
+            pairs: vec![[[-0.7, 0.0, 1.0], [0.7, 0.2, 1.0]], [[-0.7, 0.15, -1.0], [0.7, 0.0, -1.0]]] });
+    }
+    if flying {
+        hull.flight.init(FlightClass::Fighter, Config::of(&definition), &Quaternion::default());
+        hull.flight.team = row.team;
+        let texts = bfe_sim::flight::store::FlightTextIds::new(&mut strings);
+        hull.flight.to_store_cached(&mut row, &texts);
+    }
+    let state = ClientHullState::read(&row);
+    let mut owner = hulls::Session::new(hull, row, strings, queries,
+        MapRules { water: None, level: 0.0, kill_y: -300.0, regions: Vec::new() },
+        Environment { max_fly_height: 200.0, ..Environment::default() }, Tunings::default());
+    let bytes = owner.checkpoint().unwrap().to_vec();
+    let short = hull_frame(&state, &bytes, 1.0, flying); let long = hull_frame(&state, &bytes, 120.0, flying);
+    let mut session = ClientPrediction::default(); session.install_hull(owner);
+    (session, collision, short, long)
+}
+fn hull_frame(state: &bfe_sim::gen::ClientHullState, bytes: &[u8], tick: f64, flying: bool) -> Vec<f64> {
+    use bfe_sim::gen::{ClientHullState, ClientHull, ClientHullSeat, ClientFlightCommand, ClientMode};
+    let mut out = vec![0.0; ClientFrame::WORDS];
+    let mut heap = Vec::new();
+    let hull_at = out.len() as u32; out.resize(out.len() + ClientHull::WORDS, 0.0);
+    let state_at = out.len() as u32; out.resize(out.len() + ClientHullState::WORDS, 0.0); state.put(&mut out[state_at as usize..], &mut heap);
+    let seats_at = out.len() as u32; out.resize(out.len() + ClientHullSeat::WORDS, 0.0);
+    ClientHullSeat::default().put(&mut out[seats_at as usize..], &mut heap);
+    let flags_at = out.len() as u32; out.push(1.0);
+    let correction_at = out.len() as u32;
+    for chunk in bytes.chunks(4) { let mut word = [0; 4]; word[..chunk.len()].copy_from_slice(chunk); out.push(u32::from_le_bytes(word) as f64); }
+    let weapons_at = out.len() as u32; out.extend([0.0; 5]);
+    let commands_at = out.len() as u32; out.resize(out.len() + ClientCommand::WORDS, 0.0);
+    let flight_at = if flying {
+        let at = out.len() as u32; out.resize(out.len() + ClientFlightCommand::WORDS, 0.0);
+        ClientFlightCommand { curve: f64::NAN, scale: 1.0, ..ClientFlightCommand::default() }.put(&mut out[at as usize..], &mut heap); at
+    } else { 0 };
+    ClientCommand { tick, sequence: tick, generation: 1.0, sent: true, held: bfe_sim::client::FORWARD,
+        flight_at, ..ClientCommand::default() }.put(&mut out[commands_at as usize..], &mut heap);
+    ClientHull { slot: 0, generation: 0, state_at, seats_at, seats_count: 1,
+        correction_schema: if flying { 2 } else { 10 }, ..ClientHull::default() }.put(&mut out[hull_at as usize..], &mut heap);
+    ClientFrame { mode: ClientMode::Hull, epoch: 1.0, identity: 1.0, generation: 1.0, source: 1.0,
+        ignored: -1.0, hull_at, flags_at, flags_count: 1, correction_at, correction_bytes: bytes.len() as u32,
+        weapons_at, weapons_words: 5, commands_at, commands_count: 1, ..ClientFrame::default() }.put(&mut out, &mut heap);
+    out
+}

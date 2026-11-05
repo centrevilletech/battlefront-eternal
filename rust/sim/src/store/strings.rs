@@ -7,7 +7,7 @@ use super::StrId;
 /// Strings as their UTF-16 units, so any JavaScript string comes back the
 /// same, found by an open-addressed table of FNV-1a hashes (no HashMap:
 /// its hasher and its code are more than this needs).
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Strings {
     pub list: Vec<Vec<u16>>,
     /// Index + 1 of the string in each bucket (0 empty); a power of two long.

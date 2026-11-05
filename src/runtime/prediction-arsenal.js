@@ -10,7 +10,7 @@ const EMPTY_CONTEXT = Object.freeze({});
 // the private view, just as they did with captureArsenalState's checkpoint.
 // The network/simulation boundary already validates these live values. This
 // view neither parses packets nor needs a second wire-validation round trip.
-function copySnapshot(from, to) {
+export function copyPredictionWeapon(from, to) {
   const level = from.levels.indexOf(from.def);
   if (level < 0 || level > 255 || !to.levels[level]) throw Error('weapon state definition mismatch');
   to.level = level; to.def = to.levels[level];
@@ -68,7 +68,7 @@ export class PredictionArsenal {
     // is allocated for a warm frame. Selection still uses the authority slots.
     for (let i = 0; i < authority.weapons.length; i++) {
       const from = authority.weapons[i], to = this.arsenal.weapons[i];
-      copySnapshot(from, to);
+      copyPredictionWeapon(from, to);
       if (from.melee) {
         const state = this.meleeStates[i];
         state.time = from.melee.time; state.index = from.melee.index;

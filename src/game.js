@@ -9,12 +9,11 @@ import {predictRemote,RemotePredictionContext} from './runtime/network-remote-pr
 import {captureRemoteReplay,restoreRemoteReplay} from './runtime/network-remote-replay.js';
 import { restoreDroidekaState } from './runtime/network-droideka-state.js';
 import { retireAuthoritativeInputs } from './runtime/input-retirement.js';
-import { PredictionWindow, retainPredictionCommands, resetPredictionIdentity } from './runtime/prediction-window.js';
+import { retainPredictionCommands, resetPredictionIdentity } from './runtime/prediction-window.js';
 import { discreteActions, predictionCommands, expireMovement } from './runtime/network-inputs.js';
 import { commandBodyAim } from './runtime/command-body-aim.js';
 import { PredictedShots } from './runtime/predicted-shots.js';
 import { renderedViewTick } from './runtime/view-tick.js';
-import { predictVehicle, predictedExactly } from './runtime/vehicle-prediction.js';
 import { transportPosts } from './flight/spawn.js';
 import { FLIGHT_CLASSES } from './flight/config.js';
 import { flightBindings } from './flight/controls.js';
@@ -2701,7 +2700,6 @@ async function start() {
     release(() => client?.mountedWeapons?.dispose());
     release(() => client?.weapons?.dispose());
     release(() => { if (!headless) predictionSession.reset(); });
-    release(() => client?.vehicleWindow.reset());
     release(() => client?.remoteReplay.reset());
     if (client) {
       client.predictionFrame.clear();
@@ -2749,7 +2747,8 @@ async function start() {
     const actions = commands => commands.map(command => ({...command, actions: replayActions.actions.get(command.sequence) || []}));
     const pending = predictionCommands(actions(client.pending), actions([...client.pendingActions, ...replayActions.shieldCommands]), 0, client.held);
     if (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held) {
-      predictionSession.reset(); client.predictionFrame.clear();
+      if (combat.dead || playerUnit.removed || remotes.active || playerUnit.held) predictionSession.reset();
+      client.predictionFrame.clear();
     }
     if (remotes.piloted && !combat.dead && !playerUnit.removed) {
       const droid=remotes.piloted,state=captureRemoteReplay(remotes,droid);
@@ -2757,42 +2756,29 @@ async function start() {
         client.heldGeneration===playerUnit.generation?client.held:[],client.replayView,client.remoteReplay);
       restoreRemoteReplay(remotes,droid,prediction.state);
       client.remotePrediction={droid,state};client.predictedTick=prediction.tick;
-      client.vehicleWindow.reset();client.vehiclePrediction=null;
+      client.vehiclePrediction=null;
       return false;
     }
     client.remoteReplay.reset();
-    const previousVehiclePrediction = client.vehiclePrediction;
     client.vehiclePrediction = null;
-    // Entity protocol: a hull is replayed only once the server sends an exact
-    // correction for it; other mounted bodies use the hull's records until then.
-    const hullCorrected = client.entity?.previous?.vehicleId === driver?.vehicle?.aiTarget.id;
-    if (driver?.active && driver.vehicle.seatIndex === 0 && !combat.dead && hullCorrected) {
-      const context = { source: driver.vehicle, identity: playerUnit.id, epoch: commandHistory.epoch, generation: playerUnit.generation,
-        authorityTick: worldClock.tick, pending, held: client.heldGeneration === playerUnit.generation ? client.held : [] };
-      // Its state for the corrected tick exactly as predicted (as it nearly
-      // always is): the prediction goes on, rather than replaying every
-      // pending tick of hull physics, every frame, to the same result.
-      const continuation = client.vehicleWindow.select(context, (checkpoint) => predictedExactly(checkpoint.state, driver.vehicle, context.authorityTick));
-      client.vehiclePrediction = continuation.checkpoint && !continuation.commands.length ? continuation.checkpoint.state
-        : predictVehicle(continuation.checkpoint?.state || driver.vehicle, continuation.commands, continuation.from, playerUnit.generation, continuation.held);
-      if (client.vehiclePrediction) {
-        const previous = previousVehiclePrediction;
-        const current = client.vehiclePrediction;
-        const atPrevious = previous && current.predictionPath.get(previous.predictionTick);
-        if (!continuation.checkpoint) {
-          if (previous?.predictionSource === driver.vehicle && atPrevious) {
-            client.vehicleSmoother.note(...previous.position.toArray(), ...atPrevious.toArray());
-          } else client.vehicleSmoother.reset();
-        }
-        current.predictionSource = driver.vehicle;
-        client.vehicleWindow.save({ ...context, tick: current.predictionTick, commands: continuation.commands,
-          held: continuation.held, state: current });
-      }
-    } else client.vehicleWindow.reset();
+    // A pilot's exact correction admits native hull replay. Mounted weapons
+    // and hull motion share the same frame call; passengers have timers only.
+    const hullCorrected = client.entity?.previous?.vehicleId === driver?.vehicle?.aiTarget.id
+      && client.entity?.previous?.vehicleGeneration === driver?.vehicle?.aiTarget.generation;
+    const hull = driver?.active && driver.vehicle.seatIndex === 0 && driver.vehicle.alive && !combat.dead && hullCorrected ? driver.vehicle : null;
     if (playerUnit.seat && !combat.dead) {
       client.mountedWeapons ||= new MountedWeaponPrediction(predictionSession);
       client.mountedWeapons.predict(playerUnit, pending, worldClock.tick,
-        client.heldGeneration === playerUnit.generation ? client.held : []);
+        client.heldGeneration === playerUnit.generation ? client.held : client.predictionFrame.empty, hull, commandHistory.epoch, client.entity?.previous?.body, client.entity?.previous?.bodySchema);
+      if (hull) {
+        const result = predictionSession.result, previous = predictionSession.vehicleOldPosition;
+        client.vehiclePrediction = predictionSession.vehicle;
+        if (!result.continued) {
+          if (result.checkFound) client.vehicleSmoother.note(previous.x, previous.y, previous.z,
+            result.checkPosition.x, result.checkPosition.y, result.checkPosition.z);
+          else client.vehicleSmoother.reset();
+        }
+      }
     }
     if (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held) {
       client.predictedTick = 0;
@@ -2845,7 +2831,7 @@ async function start() {
       // correction that later retires it. The stamps the lead's cap set
       // are kept apart: their lateness is the cap's (reconcile.js acknowledge).
       commandStamps: new Map(), cappedStamps: new Set(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0, entitySentAt: 0, resumedAt: 0,
-      remoteReplay: new RemotePredictionContext(), vehicleWindow: new PredictionWindow(120), continuationState: new Map(),
+      remoteReplay: new RemotePredictionContext(), continuationState: new Map(),
       vehicleSmoother: new CorrectionSmoother({ snap: 3, tau: .05 }),
       smoother: new CorrectionSmoother({ snap: 2.5, tau: .05 }), predictedTick: 0, predictedPosition: new THREE.Vector3(),
       // The worker's own health, from its packets (simulation-worker.js).
@@ -2889,7 +2875,7 @@ async function start() {
             if (context.reset) { predictionSession.reset(); resetPredictionIdentity(client); view.reset(); bodyLaid = null; }
             worldClock.tick = context.tick; simTime = context.tick / 60;
             client.held = context.held; client.heldGeneration = context.generation; client.replayView = context.view;
-            const retiredInput=retireAuthoritativeInputs(client,{ack:packet.ackInput,discardedInput:context.discardedInput,heldInput:context.held,viewInput:context.view,generation:context.generation,tick:context.tick,measureLead:false});
+            const retiredInput=retireAuthoritativeInputs(client,{ack:packet.ackInput,discardedInput:context.discardedInput,heldInput:context.held,viewInput:context.view,generation:context.generation,tick:context.tick,measureLead:false},predictionSession.reset);
             client.pending = client.pending.filter(command => command.generation === context.generation);
             client.host.entityInput.ack(retiredInput);
             client.host.entityInput.applied(context.tick);
@@ -3008,7 +2994,7 @@ async function start() {
       if (!run) {
         restorePrediction();
         game.predictedShots?.clear();
-        client.vehicleWindow.reset(); client.remoteReplay.reset();
+        client.remoteReplay.reset();
         client.pending.length = 0;
         client.pendingActions.length = 0;
         client.inputClock.rebase();
@@ -3113,7 +3099,7 @@ async function start() {
       restorePrediction();
       // His rounds are the world's here, drawn as they come.
       game.predictedShots?.clear(); game.predictedShots = null;
-      client.vehicleWindow.reset(); client.remoteReplay.reset();
+      client.remoteReplay.reset();
       client.pending.length = 0; client.pendingActions.length = 0; client.vehiclePrediction = null;
       client.host.drainEntities();
       if (worldClock.tick !== tick) throw new Error(`lockstep: the page is at tick ${worldClock.tick}, the worker at ${tick}`);

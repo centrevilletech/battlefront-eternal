@@ -7,7 +7,8 @@ import { ClientOp_INDEX, ClientActorKind_INDEX, ClientHeld_INDEX, ClientAction_I
   putClientCrowd, ClientCrowdMirror, putClientMuzzles, putClientMount, ClientMountMirror,
   syncClientResult, ClientResultMirror, syncClientShot, ClientShotMirror,
   CLIENT_MUZZLES_WORDS, CLIENT_FRAME_WORDS, CLIENT_COMMAND_WORDS, CLIENT_LOOK_WORDS,
-  CLIENT_CROWD_WORDS, CLIENT_MOUNT_WORDS, CLIENT_SHOT_WORDS, CLIENT_WEAPONS_WORDS,
+  CLIENT_CROWD_WORDS, CLIENT_MOUNT_WORDS, CLIENT_SHOT_WORDS, CLIENT_WEAPONS_WORDS, CLIENT_COMMAND_OFFSETS, CLIENT_RESULT_WORDS,
+  CLIENT_HULL_WORDS, CLIENT_HULL_STATE_WORDS, CLIENT_HULL_SEAT_WORDS, CLIENT_HULL_MEMBER_WORDS,
   CLIENT_WEAPONS_OFFSETS, CLIENT_ARSENAL_TAIL_WORDS, CLIENT_ARSENAL_TAIL_OFFSETS,
   CLIENT_BARREL_RESULT_WORDS, CLIENT_BARREL_RESULT_OFFSETS } from '../sim/gen/client.js';
 import { putWeapon, syncWeapon, publishWeapon, WeaponMirror, WEAPON_WORDS } from '../sim/gen/combat.js';
@@ -17,13 +18,18 @@ import { putSoldier, putDroideka, syncSoldier, syncDroideka, publishSoldier, pub
 import { writeCompactSoldier, COMPACT_SOLDIER_MAX_BYTES } from './network-entity-soldier-compact.js';
 import { writeDroidekaState, DROIDEKA_STATE_MAX_BYTES } from './network-droideka-state.js';
 import { Droideka } from '../droideka.js';
+import { ClientHull } from './client-hull.js';
+import { FLIGHT_BINDINGS } from '../flight/controls.js';
+import { ClientFlightHeld_INDEX, ClientFlightAction_INDEX, ClientFlightCommandMirror, putClientFlightCommand, CLIENT_FLIGHT_COMMAND_WORDS } from '../sim/gen/client.js';
 import { HOLDS } from '../input.js';
 
 // The operation discriminants are shared with client_prediction_run. Resolve
 // their names at module load; a frame never interprets an unlabelled number.
 const CONFIGURE_ACTOR = ClientOp_INDEX.get('configureActor'), CONFIGURE_WEAPON = ClientOp_INDEX.get('configureWeapon');
+const CONFIGURE_HULL = ClientOp_INDEX.get('configureHull');
 const PREDICT = ClientOp_INDEX.get('predict'), RESET = ClientOp_INDEX.get('reset'), CONFIGURE_MUZZLES = ClientOp_INDEX.get('configureMuzzles');
 const SOLDIER = ClientActorKind_INDEX.get('soldier'), DROIDEKA = ClientActorKind_INDEX.get('droideka');
+const flightHeldNames = Object.freeze([...ClientFlightHeld_INDEX.keys()]);
 const FRAME = CLIENT_FRAME_WORDS, COMMAND = CLIENT_COMMAND_WORDS, LOOK = CLIENT_LOOK_WORDS;
 const CROWD = CLIENT_CROWD_WORDS, SHOT = CLIENT_SHOT_WORDS, EMPTY = Object.freeze([]), NO_VIEW = Object.freeze({});
 const rowContext = { defs: { unitClass: { id: () => 0, at: () => null }, weapon: { id: () => 0, at: () => null } } };
@@ -31,7 +37,9 @@ const seededMarker = () => { throw Error('prediction weapons are a presentation 
 // These sizes describe existing rows; diagnostic tests read them on demand.
 // The shipped frame path has no counter, transfer tally or diagnostic branch.
 const layout = Object.freeze({ frame: FRAME, command: COMMAND, look: LOOK, crowd: CROWD,
-  mount: CLIENT_MOUNT_WORDS, shot: SHOT, correctionBytesPerWord: 4 });
+  mount: CLIENT_MOUNT_WORDS, shot: SHOT, correctionBytesPerWord: 4, result: CLIENT_RESULT_WORDS,
+  commandOffsets: CLIENT_COMMAND_OFFSETS, flightCommand: CLIENT_FLIGHT_COMMAND_WORDS,
+  hull: CLIENT_HULL_WORDS, hullState: CLIENT_HULL_STATE_WORDS, hullSeat: CLIENT_HULL_SEAT_WORDS, hullMember: CLIENT_HULL_MEMBER_WORDS });
 
 // CommandControls.held used a temporary Set and a predicate for each command.
 // Controls.command already sends world keys, so resolve the fixed key table
@@ -44,6 +52,7 @@ function bindHeld(name, keys) {
 bindHeld('forward', ['KeyW', 'ArrowUp']); bindHeld('backward', ['KeyS', 'ArrowDown']);
 bindHeld('right', ['KeyD', 'ArrowRight']); bindHeld('left', ['KeyA', 'ArrowLeft']);
 bindHeld('turnRight', ['NumpadMultiply']); bindHeld('turnLeft', ['NumpadDivide']);
+bindHeld('space', ['Space']);
 bindHeld('primary', HOLDS.firePrimary); bindHeld('secondary', HOLDS.fireSecondary);
 function heldBits(keys) {
   let bits = 0;
@@ -53,6 +62,7 @@ function heldBits(keys) {
 
 export function createClientPrediction(instance, collision) {
   const bridge = bridgeFor(instance), x = bridge.x;
+  const hull = new ClientHull(bridge, collision);
   if (collision.rays?.x !== x) throw Error('prediction session requires shared collision');
   let handle = x.client_prediction_create(), body = null, source = null, kind = SOLDIER, sourceId = 0;
   let disposed = false, busy = false, dropAfter = false, active = false;
@@ -66,7 +76,9 @@ export function createClientPrediction(instance, collision) {
   const actorMirror = new SoldierMirror(), droidMirror = new DroidekaMirror();
   const frame = new ClientFrameMirror(), command = new ClientCommandMirror(), lookRow = new ClientLookMirror();
   const crowdRow = new ClientCrowdMirror(), mountRow = new ClientMountMirror();
+  const flightRow = new ClientFlightCommandMirror();
   const result = new ClientResultMirror(), notice = new ClientShotMirror(), mirrors = [];
+  const mountedWeapons = [];
   const noticeGun = { index: 0, barrel: 0 };
   const mirrorGun = { index: 0, barrel: 0 };
   // Compact soldier and droideka formats have bounded optional tails. The
@@ -147,7 +159,8 @@ export function createClientPrediction(instance, collision) {
   // replayTicks consumes the command order supplied by InputHistory. Do not
   // sort or drop rolled-back ticks: unsent commands still carry action edges,
   // while Rust alone decides which held keys and look deltas become effective.
-  function packCommands(pending, fireEdges) {
+  function packCommands(pending, fireEdges, flight = false) {
+    let flightSettings = NO_VIEW, gamepad = NO_VIEW;
     const commandsAt = reserve(pending.length * COMMAND);
     for (let i = 0; i < pending.length; i++) {
       const c = pending[i], look = c.worldLook ?? c.look ?? EMPTY, lookAt = reserve(look.length * LOOK);
@@ -174,6 +187,30 @@ export function createClientPrediction(instance, collision) {
       command.sent = c.sent !== false; command.held = heldBits(c.down || EMPTY); command.actions = actions;
       command.lookAt = lookAt; command.lookCount = look.length;
       command.mouseScale = c.mouseScale; command.invert = c.invertMouse;
+      command.flightAt = 0;
+      if (flight) {
+        // Decode key names once at the boundary. Rust consumes bit groups and
+        // fixed pad values without allocating Sets or visiting binding strings.
+        if (c.sent !== false) {
+          if (c.flightSettings !== undefined) flightSettings = c.flightSettings || NO_VIEW;
+          if (c.gamepad !== undefined) gamepad = c.gamepad || NO_VIEW;
+        }
+        flightRow.held = 0; flightRow.defaultHeld = 0; flightRow.actions = 0;
+        for (let n = 0; n < flightHeldNames.length; n++) {
+          const name = flightHeldNames[n], defaults = FLIGHT_BINDINGS[name], codes = flightSettings.bindings?.[name] || defaults;
+          for (let k = 0; k < defaults.length; k++) if (c.down?.includes(defaults[k])) { flightRow.defaultHeld |= 1 << n; break; }
+          for (let k = 0; k < codes.length; k++) if (c.down?.includes(codes[k])) { flightRow.held |= 1 << n; break; }
+        }
+        for (let n = 0; n < c.actions.length; n++) {
+          const bit = ClientFlightAction_INDEX.get(c.actions[n]); if (bit !== undefined) flightRow.actions |= 1 << bit;
+        }
+        flightRow.scale = flightSettings.sensitivity ?? 1; flightRow.invert = Boolean(flightSettings.invert);
+        flightRow.curve = flightSettings.curve ?? NaN;
+        for (let n = 0; n < 4; n++) flightRow.padAxes[n] = gamepad.axes?.[n] ?? 0;
+        flightRow.padButtons = Number(Boolean(gamepad.buttons?.[0]?.pressed)) | (Number(Boolean(gamepad.buttons?.[11]?.pressed)) << 1);
+        command.flightAt = reserve(CLIENT_FLIGHT_COMMAND_WORDS);
+        putClientFlightCommand(null, flightRow, input, command.flightAt, null);
+      }
       command.primaryCount = primaryCount; command.primaryId = primaryId;
       command.secondaryCount = secondaryCount; command.secondaryId = secondaryId;
       putClientCommand(null, command, input, commandsAt + i * COMMAND, null);
@@ -231,7 +268,10 @@ export function createClientPrediction(instance, collision) {
     bridge, layout,
     // Test wiring reads already-retained rows. Merely exposing them performs
     // no work during play; instrumentation lives entirely in test fixtures.
+    get vehicle() { return hull.view; }, get vehicleOldPosition() { return hull.oldPosition; },
     get frame() { return frame; }, get result() { return result; }, get inputWords() { return used; },
+    get input() { return input; },
+    get hullFrame() { return hull.frame; },
     get handle() { return handle; }, get disposed() { return disposed; },
     reset() { live(); if (active) { run(RESET, EMPTY); active = false; } },
     // An effect callback may dispose its battle during present(). Delay the
@@ -293,7 +333,7 @@ export function createClientPrediction(instance, collision) {
         // One header covers the whole pending block. Epoch and source are
         // part of continuation identity; tick alone cannot distinguish a new
         // battle, respawn or a changed private arsenal on a reused unit.
-        frame.mode = 'actor';
+        frame.mode = 'actor'; frame.hullAt = 0;
         frame.mountsAt = 0; frame.mountsCount = 0;
         frame.epoch = options.epoch; frame.identity = unit.id; frame.generation = unit.generation; frame.source = sourceId;
         frame.authorityTick = options.tick; frame.world = collision.rayWorld;
@@ -303,7 +343,7 @@ export function createClientPrediction(instance, collision) {
         frame.actorAt = actorAt; frame.actorWords = actorWords; frame.correctionAt = correctionAt; frame.correctionBytes = correctionBytes;
         frame.weaponsAt = weaponsAt; frame.weaponsWords = weaponsWords; frame.flagsAt = flagsAt; frame.flagsCount = collision.bodies.length;
         frame.commandsAt = commandsAt; frame.commandsCount = pending.length; frame.crowdAt = crowdAt; frame.crowdCount = crowd.length;
-        frame.held = heldBits(options.held ?? EMPTY); frame.presentedThrough = options.presentedThrough ?? options.tick;
+        frame.held = heldBits(options.held ?? EMPTY); frame.flightHeld = 0; frame.presentedThrough = options.presentedThrough ?? options.tick;
         // Admission and the already-presented horizon come from the page.
         // Rust can produce notices from them without consulting effects while
         // it replays an earlier command or a held trigger's repeat.
@@ -316,7 +356,7 @@ export function createClientPrediction(instance, collision) {
         return result;
       } finally { busy = false; if (dropAfter) drop(); }
     },
-    mounted(unit, entries, pending, tick, held) {
+    mounted(unit, entries, pending, tick, held, vehicle = null, epoch = 0, correction = null, correctionSchema = 0) {
       live(); if (busy) throw Error('prediction session is busy'); busy = true;
       try {
         const lease = unit.seat;
@@ -324,10 +364,25 @@ export function createClientPrediction(instance, collision) {
         // reload definitions, even when the same unit remains in the vehicle.
         if (body !== lease) {
           body = lease; source = null; run(CONFIGURE_ACTOR, [SOLDIER]);
-          for (let i = 0; i < entries.length; i++) {
-            const w = entries[i].weapon, words = [bridge.defs.weapon.id(w.levels[0])];
-            packPredictionWeaponDefinition(words, w.levels[0]); run(CONFIGURE_WEAPON, words);
-          }
+          mountedWeapons.length = 0;
+        }
+        // A flyer can start replay while takeoff freezes all weapon timers.
+        // Resolve its weapons on first admission without resetting hull motion
+        // when that same lease later reaches Flying.
+        for (let i = 0; i < entries.length; i++) {
+          const w = entries[i].weapon;
+          if (mountedWeapons[i] === w) continue;
+          const words = [bridge.defs.weapon.id(w.levels[0])];
+          packPredictionWeaponDefinition(words, w.levels[0]); run(CONFIGURE_WEAPON, words);
+          mountedWeapons[i] = w;
+        }
+        // Configure only at a hull/life transition. There is no eligibility
+        // crossing in the pending-tick loop; the frame always owns the decision.
+        if (vehicle && hull.configure(vehicle)) {
+          // Late replicas/variants must register their collider before the
+          // private owner copies immutable collider and gather-cache handles.
+          vehicle.system.f2.bodiesIn();
+          run(CONFIGURE_HULL, hull.setup);
         }
         used = FRAME;
         const weaponsWords = CLIENT_WEAPONS_WORDS + entries.length * WEAPON_WORDS + CLIENT_ARSENAL_TAIL_WORDS + entries.length;
@@ -344,7 +399,7 @@ export function createClientPrediction(instance, collision) {
           mountRow.advance = entries[i].advancesBarrel; mountRow.tow = entries[i].towHeld;
           putClientMount(null, mountRow, input, mountsAt + i * CLIENT_MOUNT_WORDS, null);
         }
-        const commandsAt = packCommands(pending, EMPTY);
+        const commandsAt = packCommands(pending, EMPTY, Boolean(vehicle?.flying));
         // The shared header is reused when entering or leaving a seat. Clear
         // actor-only ranges so diagnostics and future validation see no stale
         // collision, crowd or checkpoint words from the preceding actor frame.
@@ -356,9 +411,30 @@ export function createClientPrediction(instance, collision) {
         frame.presentedThrough = 0; frame.cosmeticSlots = 0; frame.mouseScale = 0; frame.invert = false; frame.checkTick = 0;
         frame.weaponsAt = weaponsAt; frame.weaponsWords = weaponsWords; frame.mountsAt = mountsAt; frame.mountsCount = entries.length;
         frame.commandsAt = commandsAt; frame.commandsCount = pending.length; frame.held = heldBits(held);
+        frame.flightHeld = 0;
+        if (vehicle?.flying) for (let i = 0; i < flightHeldNames.length; i++) {
+          const codes = FLIGHT_BINDINGS[flightHeldNames[i]];
+          for (let j = 0; j < codes.length; j++) if (held.includes(codes[j])) { frame.flightHeld |= 1 << i; break; }
+        }
         frame.kick[0] = frame.kick[1] = frame.kick[2] = 0;
+        frame.hullAt = 0;
+        if (vehicle) {
+          if (!(correction instanceof Uint8Array)) throw Error('hull prediction requires correction bytes');
+          hull.frame.correctionSchema = correctionSchema;
+          const count = hull.prepare(), at = reserve(count);
+          hull.pack(input, at);
+          frame.correctionBytes = correction.length; frame.correctionAt = reserve(Math.ceil(correction.length / 4));
+          for (let i = 0; i < correction.length; i += 4) {
+            input[frame.correctionAt + (i >>> 2)] = (correction[i] | ((correction[i + 1] || 0) << 8)
+              | ((correction[i + 2] || 0) << 16) | ((correction[i + 3] || 0) << 24)) >>> 0;
+          } frame.hullAt = at; frame.mode = 'hull'; frame.epoch = epoch;
+          frame.source = vehicle.aiTarget.generation; frame.world = collision.rayWorld;
+          frame.flagsAt = reserve(collision.bodies.length); frame.flagsCount = collision.bodies.length;
+          for (let i = 0; i < collision.bodies.length; i++) input[frame.flagsAt + i] = Number(collision.bodies[i].enabled);
+        }
         putClientFrame(null, frame, input, 0, null);
-        run(PREDICT, input, used); active = false;
+        run(PREDICT, input, used); active = Boolean(vehicle);
+        if (vehicle) hull.publish(output, result);
         // Publish directly to the mounted entries. They do not have actor
         // selections or zoom, so constructing a pretend combat/arsenal view
         // would allocate a second ownership structure for the same weapons.
