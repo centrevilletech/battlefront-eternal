@@ -222,9 +222,13 @@ export async function checkRenderer(backend, manifests) {
     assert('Post settings change visible pixels',effects.some((v,i)=>i%4!==3&&v!==baseline[i]));
     settings.set('bloom', false); settings.set('softFocus', false); g.setVehicleMotion(0,0); const plain=compare('post effects switched off');
     assert('Disabling post effects reproduces the plain frame',plain.every((v,i)=>v===baseline[i]));
-    settings.set('antialiasing','fxaa'); compare('FXAA');
-    settings.set('antialiasing','fxaa-fast'); compare('fast FXAA');
+    settings.set('antialiasing','fxaa'); const fxaa=compare('FXAA');
+    assert('FXAA changes fixture edge pixels',fxaa.some((v,i)=>i%4!==3&&v!==plain[i]));
+    settings.set('antialiasing','fxaa-fast'); const fastFxaa=compare('fast FXAA');
+    assert('Fast FXAA changes fixture edge pixels',fastFxaa.some((v,i)=>i%4!==3&&v!==plain[i]));
     settings.set('antialiasing','off');
+    const noFxaa=compare('FXAA switched off');
+    assert('Disabling FXAA restores the plain frame',noFxaa.every((v,i)=>v===plain[i]));
     settings.set('renderScale', .75);
     settings.set('upscaler','spatial'); compare('spatial upscale');
     // FXAA forces the explicit bilinear pass rather than the direct composite.
