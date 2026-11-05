@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { worldMaterial } from '../src/materials.js';
 import { TreeCanopies } from '../src/tree-canopies.js';
 
 const LEAVES = 912;
@@ -26,7 +27,7 @@ function cards(rectangles) {
   }
   const geometry=new THREE.BufferGeometry();
   geometry.setAttribute('position',new THREE.Float32BufferAttribute(position,3));geometry.setIndex(index);
-  const material=new THREE.ShaderMaterial({uniforms:{},vertexShader:'varying vec3 vWorld; void main() { vWorld=position; gl_Position=vec4(position,1.0); }',fragmentShader:'varying vec3 vWorld; void main() { gl_FragColor=vec4(1.0); }'});
+  const material=worldMaterial('unlit');
   return new THREE.Mesh(geometry,material);
 }
 
