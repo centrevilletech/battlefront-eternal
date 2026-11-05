@@ -30,7 +30,7 @@ try {
   });
   child.stdout.on('data', (data) => process.stdout.write(data));
   child.stderr.on('data', (data) => process.stderr.write(data));
-  const timer = setTimeout(() => child.kill(), 12 * 60_000);
+  const timer = setTimeout(() => {console.error(`Renderer smoke ${backend} exceeded the twelve-minute driver budget`);child.kill();}, 12 * 60_000);
   try {
     process.exitCode = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', (code, signal) => { console.log(`Electron exited: code=${code}, signal=${signal}`); resolve(code ?? 1); }); });
   } finally { clearTimeout(timer); }
