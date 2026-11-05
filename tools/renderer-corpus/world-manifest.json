@@ -854,6 +854,504 @@
       ],
       "preset": "high",
       "camera": "canopy"
+    },
+    {
+      "id": "transparent-high-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-high-yav1-tail",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 4
+    },
+    {
+      "id": "transparent-balanced-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "balanced",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-balanced-yav1-tail",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "balanced",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 4
+    },
+    {
+      "id": "transparent-medium-shadow-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-medium-shadow-yav1-tail",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 4
+    },
+    {
+      "id": "transparent-classic-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-classic-yav1-tail",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 4
+    },
+    {
+      "id": "transparent-high-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-balanced-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "balanced",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-classic-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-medium-shadow-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-high-hot1",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-medium-shadow-hot1",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-balanced-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "balanced",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-high-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-classic-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-balanced-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "balanced",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-classic-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-medium-shadow-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-balanced-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "balanced",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-medium-shadow-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-classic-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-medium-shadow-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-high-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-classic-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-high-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-classic-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-balanced-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "balanced",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-medium-shadow-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-balanced-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "balanced",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-balanced-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "balanced",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-high-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-high-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-high-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-medium-shadow-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-classic-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-medium-shadow-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "high",
+      "settings": {
+        "shadows": "medium"
+      },
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
+    },
+    {
+      "id": "transparent-classic-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "world-transparent",
+        "source-replay"
+      ],
+      "preset": "classic",
+      "camera": "world-transparent",
+      "advanceDraws": false,
+      "targetOffset": 0
     }
   ],
   "presets": {

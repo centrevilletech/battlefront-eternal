@@ -159,7 +159,7 @@ block bytes, standalone uniforms, sampler mip texels or compressed blocks,
 filter/wrap/comparison/anisotropy parameters, raster state and multi-draw ranges.
 Source replay uses Rust-registered linked programs and fresh targets with the
 same sample count. Depth inputs retain their original depth format. This checks
-world/far, terrain, foliage and canopy arithmetic and alpha-to-coverage without
+world/far, terrain, foliage, canopy and world-transparent arithmetic and alpha-to-coverage without
 incoming colour/depth history from unrelated draws. Post/HUD replay retains its
 phase records. Reference self-replay, candidate replay and repeat-reference
 replay must all match every RGBA channel and half-float bit exactly. Shader and
@@ -174,3 +174,11 @@ never enter three's compiler. Scene features select an exact declared key;
 unknown combinations fail rather than choosing another variant. Map programs
 are prewarmed before preparation draws. The world shader license is retained in
 `shaders/world/NOTICE`.
+
+Transparent source cases aim at authored triangles for each material feature
+set. Their simulation advances between points without drawing; settle and
+history frames produce the sampled inputs. They capture both transparent-list
+and segmented native submissions, including the mirror list. A transparent
+case must replay an actual world-transparent submission. Unbound samplers are
+recorded as null bindings. First-use source submissions invalidate the candidate;
+the frozen reference retains its original lazy compilation diagnostics.

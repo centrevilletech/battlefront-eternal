@@ -200,9 +200,9 @@ export function installWorldReplay(layouts) {
     for(let i=0;i<a.length;i+=4){let d=0;for(let j=0;j<4;j++)d=Math.max(d,Math.abs(a[i+j]-e[i+j]));if(d){differing++;maxDelta=Math.max(maxDelta,d);}}
     delete T.blobs[actual.blob];return {key:row.key,differing,maxDelta,pixels:a.length/4,samples:row.samples,programs:[...new Set(row.draws.map(d=>d.key))],draws:row.draws.length,multiDraws:row.draws.filter(d=>d.name.startsWith('multiDraw')).length,alphaToCoverage:row.draws.filter(d=>d.caps.some(([cap,on])=>cap===gl.SAMPLE_ALPHA_TO_COVERAGE&&on)).length};
   };
-  for(const [method,key,target] of [['frame','world/near',()=>R.getRenderTarget()||g.sceneTarget],['far_frame','world/far',()=>R.getRenderTarget()||g.farTarget],['mirror_frame','world/mirror',()=>R.getRenderTarget()],['far_mirror_frame','world/far-mirror',()=>R.getRenderTarget()],['far_probe_frame','world/probe',()=>R.getRenderTarget()]]){
+  for(const [method,key,target] of [['transparent_frame','world/transparent',()=>R.getRenderTarget()||g.sceneTarget],['mirror_transparent_frame','world/mirror-transparent',()=>R.getRenderTarget()],['transparent_segment','world/transparent-segment',()=>R.getRenderTarget()||g.sceneTarget],['frame','world/near',()=>R.getRenderTarget()||g.sceneTarget],['far_frame','world/far',()=>R.getRenderTarget()||g.farTarget],['mirror_frame','world/mirror',()=>R.getRenderTarget()],['far_mirror_frame','world/far-mirror',()=>R.getRenderTarget()],['far_probe_frame','world/probe',()=>R.getRenderTarget()]]){
     const original=core.rust[method].bind(core.rust);core.rust[method]=function(...args){
-      if(!T.want||!T.captureReplay)return original(...args);
+      if(!T.want||!T.captureReplay||T.transparentOnly&&!method.includes('transparent'))return original(...args);
       capture={draws:[],textures:[],textureIds:new Map(),buffers:new Map()};let result,data;
       try{result=original(...args);data=capture;}finally{capture=null;}
       if(!data.draws.length)return result;

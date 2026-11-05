@@ -63,13 +63,29 @@ try {
     const render=g.render;g.render=function(...args){g.camera.position.copy(eye);g.camera.lookAt(at);g.camera.updateMatrixWorld(true);return render.apply(this,args);};
     return 1;
   })()`);
+  if(testCase.camera==='world-transparent')await c.ev(`(() => {
+    const b=__bf,g=b.graphics,T=window.__corpus,V=b.THREE.Vector3,groups=new Map();
+    T.transparentOnly=true;
+    g.scene.traverse(o=>{const m=o.material;if(!m?.transparent||!m.defines||!('WORLD_SPACE' in m.defines)||!o.geometry?.index)return;
+      const key=JSON.stringify([Object.entries(m.defines).sort(([a],[z])=>a<z?-1:a>z?1:0),m.side,Boolean(o.geometry.attributes.fabricAnchor),Boolean(m.uniforms?.treeStates)]);
+      if(!groups.has(key))groups.set(key,o);
+    });
+    const targets=[...groups].sort(([a],[z])=>a<z?-1:a>z?1:0).map(([,o])=>o).slice(${testCase.targetOffset||0},${(testCase.targetOffset||0)+4});
+    if(!targets.length)throw Error('No world transparent targets');
+    T.place=k=>{const o=targets[k%targets.length],p=o.geometry.attributes.position,index=o.geometry.index.array,at=new V(),normal=new V();
+      for(let j=0;j<3;j++)at.add(new V().fromBufferAttribute(p,index[j]));at.multiplyScalar(1/3);
+      const a=new V().fromBufferAttribute(p,index[0]),c=new V().fromBufferAttribute(p,index[1]),d=new V().fromBufferAttribute(p,index[2]);normal.crossVectors(c.sub(a),d.sub(a)).normalize();if(!normal.lengthSq())normal.set(0,0,1);
+      T.pose={at,eye:at.clone().addScaledVector(normal,6)};
+    };
+    const render=g.render;g.render=function(...args){if(T.pose){g.camera.position.copy(T.pose.eye);g.camera.lookAt(T.pose.at);g.camera.updateMatrixWorld(true);}return render.apply(this,args);};return targets.length;
+  })()`);
   const captures=Number(process.env.BFE_CORPUS_POINTS || manifest.captures);
   if(!Number.isInteger(captures) || captures<1 || captures>manifest.captures)throw Error('Invalid capture count');
   for (let k=0;k<captures;k++) {
     const point = await c.ev(`(async () => {
       const b=__bf,g=b.graphics,G=window.__gate,T=window.__corpus,gl=g.renderer.getContext();
       G.key('KeyW',true);window.dispatchEvent(new MouseEvent('mousedown',{button:0,bubbles:true}));
-      for(let i=0;i<${manifest.gap};i++){const f=${k}*${manifest.gap}+i;if(f%90===0)G.key('KeyA',true);if(f%90===45)G.key('KeyA',false);G.look(Math.round(9*Math.sin(f*.07)),Math.round(3*Math.cos(f*.05)));await b.lockstep(1/60,true);}
+      for(let i=0;i<${manifest.gap};i++){const f=${k}*${manifest.gap}+i;if(f%90===0)G.key('KeyA',true);if(f%90===45)G.key('KeyA',false);G.look(Math.round(9*Math.sin(f*.07)),Math.round(3*Math.cos(f*.05)));await b.lockstep(1/60,${testCase.advanceDraws!==false});}
       window.dispatchEvent(new MouseEvent('mouseup',{button:0,bubbles:true}));G.key('KeyW',false);G.key('KeyA',false);T.place?.(${k});
       for(const w of g.cascadeWindows || [])w.invalidate();
       for(let i=0;i<${manifest.settleFrames || 2};i++)await b.lockstep(0,true);
@@ -155,6 +171,7 @@ try {
   result.shaderPrograms=await c.ev(`__bf.graphics.rust.shaderPrograms || []`);
   result.gpuDeaths=gpuDeaths();
   const size=result.setup.buffer[0]===1600 && result.setup.buffer[1]===900 && result.setup.target[0]===Math.round(1600*testCase.settings.renderScale) && result.setup.target[1]===Math.round(900*testCase.settings.renderScale);
+  result.transparentOnly=testCase.camera==='world-transparent';
   result.valid=(role!=='candidate'||!result.lateWorldSources) && size && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>p.lit>=.2 && !(role==='candidate'?p.errors:p.worldErrors).length && p.rustDraws>0 && !p.gl.lostEvents && p.gl.lostEvents!==null && !p.gl.contextLost && !p.gl.rustLost && p.gl.rustEnabled && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
 } catch(error) { result.error=String(error.stack || error);result.valid=false; }
 finally {
