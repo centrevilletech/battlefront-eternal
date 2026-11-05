@@ -105,7 +105,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     env:
-      BFE_SMOKE_OUTPUT: ${{ runner.temp }}/renderer-smoke.jsonl
+      BFE_SMOKE_OUTPUT: ${{ github.workspace }}/renderer-smoke.jsonl
     steps:
       - uses: actions/checkout@v7
         with:
@@ -131,5 +131,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: renderer-smoke-${{ matrix.backend }}
-          path: ${{ runner.temp }}/renderer-smoke.jsonl
+          path: ${{ github.workspace }}/renderer-smoke.jsonl
           if-no-files-found: warn
