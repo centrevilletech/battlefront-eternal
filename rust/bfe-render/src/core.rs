@@ -109,6 +109,10 @@ pub(crate) struct Geometry<C: HasContext> {
     pub(crate) index_bytes: i32,
     pub(crate) index_count: i32,
     pub(crate) groups: Vec<(i32, i32)>,
+    pub(crate) primitive: u32,
+    pub(crate) first: i32,
+    pub(crate) indexed: bool,
+    pub(crate) line_width: f32,
 }
 
 // What a phase counts. The first five are what the page has always read
@@ -421,6 +425,17 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         (self.textures.len() - 1) as u32
     }
 
+    // Pending image uploads replace a transparent sample with its real handle.
+    // Target attachments are allocated before registration and never use this.
+    pub fn replace_sample_texture(&mut self, id: usize, texture: C::Texture) -> Result<C::Texture, String> {
+        let old = *self.textures.get(id).ok_or("Unknown sample texture")?;
+        self.textures[id] = texture;
+        if self.far_map == Some(old) { self.far_map = Some(texture); }
+        for map in &mut self.shadow_maps { if *map == old { *map = texture; } }
+        self.state.reset();
+        Ok(old)
+    }
+
     pub fn set_far_map(&mut self, t: u32) {
         self.far_map = Some(self.textures[t as usize]);
     }
@@ -511,9 +526,19 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     pub fn add_geometry(&mut self) -> u32 {
         unsafe {
             let vao = self.gl.create_vertex_array().unwrap();
-            self.geometries.push(Geometry { vao, buffers: vec![], index_type: glow::UNSIGNED_INT, index_bytes: 4, index_count: 0, groups: vec![] });
+            self.geometries.push(Geometry { vao, buffers: vec![], index_type: glow::UNSIGNED_INT, index_bytes: 4, index_count: 0, groups: vec![], primitive: glow::TRIANGLES, first: 0, indexed: true, line_width: 1.0 });
         }
         (self.geometries.len() - 1) as u32
+    }
+
+    // Line and helper geometry shares the retained VAO/buffer owner. Mesh
+    // geometries retain their indexed-triangle default.
+    pub fn geometry_primitive(&mut self, g: u32, mode: u32, first: i32, indexed: bool, width: f32) {
+        let geo = &mut self.geometries[g as usize];
+        geo.primitive = mode;
+        geo.first = first;
+        geo.indexed = indexed;
+        geo.line_width = width;
     }
 
     // A vertex buffer of the geometry (one attribute's, or several

@@ -7,7 +7,7 @@ import { ParticleDepth, particleDepth } from "../src/particle-depth.js";
 // its sort orders it: each shown mesh whose material is shown, keyed by its
 // group order, render order, z (its bounding sphere's centre through its
 // world matrix and the view-projection, no divide) and id.
-function threeOrder(scene, camera) {
+function threeOrder(scene, camera, depth) {
   const screen = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   const items = [];
   const walk = (o, groupOrder) => {
@@ -22,6 +22,10 @@ function threeOrder(scene, camera) {
     for (const child of o.children) walk(child, groupOrder);
   };
   walk(scene, 0);
+  if (depth?.copier.visible) {
+    const v = new THREE.Vector4().setFromMatrixPosition(depth.copier.matrixWorld).applyMatrix4(screen);
+    items.push({ object: depth.copier, groupOrder: depth.group.renderOrder, renderOrder: depth.copier.renderOrder, z: v.z, id: -1 });
+  }
   items.sort((a, b) => (a.groupOrder !== b.groupOrder ? a.groupOrder - b.groupOrder : a.renderOrder !== b.renderOrder ? a.renderOrder - b.renderOrder : a.z !== b.z ? b.z - a.z : a.id - b.id));
   return items.map((item) => item.object);
 }
@@ -74,10 +78,10 @@ test("the copier: just before the earliest reader asked for, in three's own orde
     asks = [[late, true], [near, false]];
     start(true);
     assert.equal(depth.armed, true);
-    const order = threeOrder(scene, camera), at = order.indexOf(depth.copier);
+    const order = threeOrder(scene, camera, depth), at = order.indexOf(depth.copier);
     assert.deepEqual([order[at - 1], order[at + 1]], [between, near], "between the reader before it and the earliest asked for");
     const screen = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    const zOf = (o) => new THREE.Vector4().copy(o.geometry.boundingSphere.center).applyMatrix4(o.matrixWorld).applyMatrix4(screen).z;
+    const zOf = (o) => new THREE.Vector4().copy(o.geometry?.boundingSphere.center || new THREE.Vector3()).applyMatrix4(o.matrixWorld).applyMatrix4(screen).z;
     const gap = zOf(depth.copier) - zOf(near);
     assert.ok(gap > 0 && gap < 1e-12 * Math.max(1, Math.abs(zOf(near))), `a hair farther (${gap})`);
     assert.equal(order.indexOf(far), 0);
@@ -85,7 +89,7 @@ test("the copier: just before the earliest reader asked for, in three's own orde
     // Soft particles off: a reader that asks only while they are on asks for nothing.
     start(false);
     assert.equal(depth.armed, true, "the late reader asks whatever the setting");
-    const off = threeOrder(scene, camera);
+    const off = threeOrder(scene, camera, depth);
     assert.deepEqual(off.slice(off.indexOf(depth.copier) - 1, off.indexOf(depth.copier) + 2), [near, depth.copier, late]);
     // A reader below a group: its group's order.
     const group = new THREE.Group();
@@ -98,7 +102,7 @@ test("the copier: just before the earliest reader asked for, in three's own orde
       particleDepth.request(keyOf(grouped, -5), true);
     });
     start(true);
-    const grouped0 = threeOrder(scene, camera);
+    const grouped0 = threeOrder(scene, camera, depth);
     assert.equal(depth.group.renderOrder, -5);
     assert.equal(depth.copier.renderOrder, 3);
     assert.deepEqual(grouped0.slice(0, 2), [depth.copier, grouped], "first, as the grouped reader is");
@@ -115,7 +119,7 @@ test("nothing placed without a request or for another render, and the copier sho
     particleDepth.requester(scene, () => { if (ask) particleDepth.request(keyOf(mesh), false); });
     start(true);
     assert.equal(depth.armed, false);
-    assert.equal(depth.copier.visible, true, "shown for the first render, with nothing to take");
+    assert.equal(depth.copier.visible, false, "no dummy draw is needed to compile a copy command");
     start(true);
     assert.equal(depth.copier.visible, false, "then hidden while nothing is asked for");
     ask = true;
@@ -147,7 +151,7 @@ test("the copy: once a frame at the copier; readers ahead of their turn only lea
     start(true);
     assert.equal(ahead(true), true, "the depth will be there");
     assert.equal(depth.copies, 0, "not taken yet");
-    depth.copier.onBeforeRender(renderer, scene, camera);
+    depth.capture(camera, true);
     assert.equal(depth.copies, 1, "taken at the copier");
     assert.equal(particleDepth.capture(renderer, scene, camera), true, "a reader of three's after it");
     assert.equal(depth.capture(camera, true), true, "the upscaler's");
@@ -156,7 +160,7 @@ test("the copy: once a frame at the copier; readers ahead of their turn only lea
     start(true);
     assert.equal(ahead(false), true);
     assert.equal(depth.copies, 1);
-    depth.copier.onBeforeRender(renderer, scene, camera);
+    depth.capture(camera, true);
     assert.equal(depth.copies, 1);
     // One that renders with it at once: a copy of its own (once a frame),
     // and the copier's still at its place.
@@ -164,7 +168,7 @@ test("the copy: once a frame at the copier; readers ahead of their turn only lea
     assert.equal(early(), true);
     assert.equal(early(), true);
     assert.equal(depth.copies, 1);
-    depth.copier.onBeforeRender(renderer, scene, camera);
+    depth.capture(camera, true);
     assert.equal(depth.copies, 2);
     // Nothing asked for: its copy the frame's.
     start(false);

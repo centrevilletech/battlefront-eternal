@@ -104,6 +104,8 @@ jobs:
             backend: gl
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    env:
+      BFE_SMOKE_OUTPUT: ${{ runner.temp }}/renderer-smoke.jsonl
     steps:
       - uses: actions/checkout@v7
         with:
@@ -124,3 +126,10 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
           BFE_SMOKE_NO_SANDBOX: '1'
         run: xvfb-run -a node tools/renderer-smoke.mjs gl
+      - name: Keep shader-family compile and fixture results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: renderer-smoke-${{ matrix.backend }}
+          path: ${{ runner.temp }}/renderer-smoke.jsonl
+          if-no-files-found: warn

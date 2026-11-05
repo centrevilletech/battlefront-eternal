@@ -283,7 +283,15 @@ impl<C: HasContext> PostPass<C> {
                 if flags & STATE_OWN_GEOMETRY != 0 && geometry < core.geometries.len() {
                     let geo = &core.geometries[geometry];
                     core.gl.bind_vertex_array(Some(geo.vao));
-                    core.gl.draw_elements(glow::TRIANGLES, own[STATE_GEOMETRY + 1] as i32, geo.index_type, 0);
+                    if geo.primitive != glow::TRIANGLES {
+                        core.gl.line_width(geo.line_width);
+                        core.stats.gl_calls += 1;
+                    }
+                    if geo.indexed {
+                        core.gl.draw_elements(geo.primitive, own[STATE_GEOMETRY + 1] as i32, geo.index_type, geo.first * geo.index_bytes);
+                    } else {
+                        core.gl.draw_arrays(geo.primitive, geo.first, own[STATE_GEOMETRY + 1] as i32);
+                    }
                 } else {
                     core.gl.bind_vertex_array(Some(self.vao));
                     core.gl.draw_arrays(glow::TRIANGLES, 0, 3);

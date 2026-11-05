@@ -385,7 +385,9 @@ export function battle({ game: g, index, options }) {
     }
     for (const desc of Object.values(Object.getOwnPropertyDescriptors(o))) if ('value' in desc && desc.value && typeof desc.value === 'object') queue.push([desc.value, depth + 1]);
   }
-  for (const method of ['explosion', 'explode']) shim(game.ordnance, method, (base) => function counted(...args) { if (ticking) explosions++; return base.apply(this, args); });
+  // Explosion presentation and item blasts have separate owners. Count their
+  // real public boundaries without requiring an obsolete ordnance.explode alias.
+  for (const [owner, method] of [[game.ordnance, 'explosion'], [game.items, 'explode']]) shim(owner, method, (base) => function counted(...args) { if (ticking) explosions++; return base.apply(this, args); });
   if (scanFile) return;
   installShims();
   // The commit, from git, or from BFE_COMMIT where the checkout's history

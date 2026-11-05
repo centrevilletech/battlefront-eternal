@@ -35,7 +35,6 @@ use crate::instances::{InstancePass, BONES_LEN, INPUT_LEN};
 use crate::motion::MotionPass;
 use crate::post::PostPass;
 use crate::shadow::ShadowPass;
-use crate::terrain::TerrainPass;
 use crate::transparent::{self, Source, TransparentPass};
 use crate::view::ViewPass;
 use crate::water::WaterPass;
@@ -47,7 +46,6 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub world: WorldPass<C>,
     pub instances: InstancePass<C>,
     pub far: FarPass<C>,
-    pub terrain: TerrainPass<C>,
     pub transparent: TransparentPass<C>,
     pub effects: EffectsPass<C>,
     pub foliage: FoliagePass<C>,
@@ -66,7 +64,6 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let world = WorldPass::new(&mut core);
         let instances = InstancePass::new(&mut core);
         let far = FarPass::new(&mut core);
-        let terrain = TerrainPass::new(&mut core);
         let transparent = TransparentPass::new(&mut core);
         let effects = EffectsPass::new(&mut core);
         let foliage = FoliagePass::new(&mut core);
@@ -77,7 +74,17 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let shadow = ShadowPass::new(&mut core);
         let motion = MotionPass::new(&mut core);
         let canopies = CanopiesPass::new(&mut core);
-        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water, shadow, motion, canopies }
+        Renderer { core, world, instances, far, transparent, effects, foliage, view, post, hud, water, shadow, motion, canopies }
+    }
+
+    // Replace a pending image's sampler in every retained draw binding.
+    pub fn replace_sample_texture(&mut self, id: usize, texture: C::Texture) -> Result<C::Texture, String> {
+        let old = self.core.replace_sample_texture(id, texture)?;
+        self.world.replace_texture(old, texture);
+        self.effects.replace_texture(old, texture);
+        self.transparent.replace_texture(old, texture);
+        self.foliage.replace_texture(old, texture);
+        Ok(old)
     }
 
     // The far scene's phase, drawn into the far target before the near scene.
@@ -123,7 +130,6 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.canopies.draw(core);
         self.world.draw(core, &camera);
         self.instances.draw(core, &camera, records);
-        self.terrain.draw(core);
         self.foliage.draw(core);
         self.far.draw_near(core);
         Ok(core.end_phase())

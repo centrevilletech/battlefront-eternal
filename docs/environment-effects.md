@@ -226,7 +226,7 @@ This writes only `public/maps/<map>/environment/`: emitter definitions and trans
 - Near fog uses 18 integration samples, distant fog 12. Empty regions of each plume skip density/light/wake work. All volumes share a 32³ density texture and eight fixed character-wake slots.
 - Emitters outside the camera frustum or beyond 90 m do no particle/volume rendering.
 - Volumes, jets and spray share the renderer's single opaque-depth snapshot. The jets also take one copy of the frame's colour (a blit and a mipmap build) for the water to show what lies behind it. Required volume clipping works with soft sprite intersections disabled and with MSAA.
-- The basins reflect by a 16-step screen-space march over the opaque copy they capture once a frame; nothing renders the scene a second time. That copy holds no transparent plume, so the plume's reflection is analytic: where the mirrored eye ray passes a jet's axis within the plume's width at that height, unless the inner bowl's wall is in the way. (The shared 256×256 planar mirror of an earlier design is still in `fountain-water.js` but switched off.)
+- The basins reflect by a 16-step screen-space march over the opaque copy they capture once a frame; nothing renders the scene a second time. That copy holds no transparent plume, so the plume's reflection is analytic: where the mirrored eye ray passes a jet's axis within the plume's width at that height, unless the inner bowl's wall is in the way.
 
 ## Verification and reproduction
 

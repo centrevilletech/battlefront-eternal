@@ -9,7 +9,9 @@ use wasm_bindgen::prelude::*;
 impl BfeRenderer {
     pub fn post_input_ptr(&mut self) -> u32 { self.r.post.input.as_mut_ptr() as u32 }
     pub fn post_input_len(&self) -> u32 { self.r.post.input.len() as u32 }
-    pub fn post_target(&mut self, texture: u32) -> u32 { self.r.post.add_target(&mut self.r.core, texture) }
+    pub fn post_target(&mut self, texture: u32) -> u32 {
+        self.remember_post_target(texture); // recovery
+ self.r.post.add_target(&mut self.r.core, texture) }
     pub fn post_states_ptr(&mut self) -> u32 { self.r.post.states.as_mut_ptr() as u32 }
     pub fn post_states_len(&self) -> u32 { self.r.post.states.len() as u32 }
 }

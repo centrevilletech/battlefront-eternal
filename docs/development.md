@@ -224,8 +224,16 @@ Three parts of the engine are written in Rust and compiled to WebAssembly, in th
 
 - `rust/sim`, the simulation's module (`bfe_sim`, [docs/sim-store.md](sim-store.md)), committed as base64 in `src/sim-wasm.js`, which the world worker, the page and the dedicated server load as a JavaScript import (`src/sim/module.js`), one instance a battle. It holds the collision's ray kernel (required; [docs/performance.md](performance.md), "The collision's rays in WebAssembly"), the soldiers' movement (required; "The soldiers' movement in WebAssembly" there), the page's pose sampler (on by default; `?anim=js` keeps the JavaScript: the clip blending of `src/anim.js`'s `Pose`; a headless world keeps the JavaScript, so its ticks cannot change), and the entity store and bridge the port of the world's simulation builds on.
 - `rust/audio`, the required audio output engine and loudness meter, committed as base64 in `src/audio-dsp-wasm.js`. The page sends decoded PCM and timed commands; a thin worklet calls one Rust render quantum and copies the finished samples. Playback, mixing, filtering, resampling, convolution and both master chains run in Rust, with no alternate browser or JavaScript DSP path. Synthetic recorded-render and component goldens run in CI and Chromium offline; live contexts are required for CPU measurements. `rust/audio-decode`, committed in `src/audio-codec-wasm.js`, decodes FLAC, Ogg Opus and PCM/float WAV in a loading worker. It owns explicit asset-rate conversion and feeds bounded PCM rings for long tracks; there is no host decoder.
+- `rust/bfe-render`, the required battle renderer, committed as wasm-bindgen's output in `src/rust-pkg/`: an ES module and the `.wasm` it fetches, which Vite bundles as an asset. The desktop app serves it from its archive as `application/wasm`; the dedicated server's copy of the engine leaves it out.
+  Initialization and program-link failures report the GPU name and stop battle loading. Context restoration rebuilds GPU resources from Rust's retained descriptions; it never selects another drawer.
 
-- `rust/bfe-render`, the default battle renderer (`?rustOff` disables drawing for developer comparisons), committed as wasm-bindgen's output in `src/rust-pkg/`: an ES module and the `.wasm` it fetches, which Vite bundles as an asset. The desktop app serves it from its archive as `application/wasm`; the dedicated server's copy of the engine leaves it out.
+The generated renderer driver check needs no installed game content. Run
+`node tools/renderer-smoke.mjs gl` on Linux or
+`node tools/renderer-smoke.mjs warp` on Windows. It discovers shader manifests
+at runtime, reports each variant's compile/link result and compile time per
+family, then checks Rust draws and context restoration with generated scenes.
+`BFE_SMOKE_OUTPUT` optionally saves the JSON-lines report. The CI renderer-smoke
+job runs these backends and uploads that report even when the driver fails.
 
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.
 

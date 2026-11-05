@@ -56,7 +56,7 @@ test('boundary tuples preserve old afterstate and optionally record entry state 
       ] }] };
       process.argv = ['node', 'capture-test', '--capture-out', file, '--capture-specs', 'boundaryFixture', '--capture-every', '1'];
       const capture = await import('./tools/sim-capture/plugin.mjs');
-      capture.battle({ game: { units: { all: () => [] }, collision: { bodies: [] }, ordnance: { explosion() {}, explode() {} } }, index: 0, options: {} });
+      capture.battle({ game: { units: { all: () => [] }, collision: { bodies: [] }, ordnance: { explosion() {} }, items: { explode() {} } }, index: 0, options: {} });
       capture.tick(1); assert.equal(fixture.step(2), 8); capture.ticked(1, 'fixture'); capture.finish();
       const records = [...readRecords(new Uint8Array(fs.readFileSync(file)))].map(r => r.value);
       const oldCall = records.find(r => r.k === 'call' && r.n === 'old'), freshCall = records.find(r => r.k === 'call' && r.n === 'fresh');
@@ -171,4 +171,31 @@ test('the phases are the ones rust/sim-replay names, in the same order', { skip:
   const rust = fs.readFileSync(`${root}rust/sim-replay/src/phase.rs`, 'utf8');
   const named = [...rust.matchAll(/^\s*\(Phase::([A-Za-z]+), "([a-zA-Z]+)"\),/gm)].map((m) => [m[1], m[2]]);
   assert.deepEqual(named, PHASES.map((p) => [p.rust, p.name]));
+});
+
+// A scan must work without the deleted ordnance.explode method. It observes
+// both real owners, preserving their return values and receiver identity.
+test('capture scans count ordnance explosions and item blasts on their real owners', () => {
+  const script = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import os from 'node:os';
+    import path from 'node:path';
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'capture-explosions-'));
+    try {
+      const file=path.join(dir,'scan.json');
+      process.argv=['node','capture-test','--capture-scan',file,'--capture-specs','ticks'];
+      const capture=await import('./tools/sim-capture/plugin.mjs');
+      const ordnance={explosion(){assert.equal(this,ordnance);return 'round';}};
+      const items={explode(){assert.equal(this,items);return 'item';}};
+      capture.battle({game:{units:{all:()=>[]},collision:{bodies:[]},ordnance,items},index:0,options:{}});
+      capture.tick(1);
+      assert.equal(ordnance.explosion(),'round');assert.equal(items.explode(),'item');
+      capture.ticked(1,'fixture');capture.finish();
+      const scan=JSON.parse(fs.readFileSync(file,'utf8'));
+      assert.deepEqual(scan.events.filter(e=>e[1]==='explosion'),[[1,'explosion',2]]);
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+  `;
+  const result=spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:root,encoding:'utf8'});
+  assert.equal(result.status,0,result.stdout+result.stderr);
 });

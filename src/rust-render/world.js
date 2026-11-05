@@ -1,15 +1,8 @@
-// The world pass (world.rs): the map's opaque meshes in the near scene, the
-// static world's buckets. Each is registered once three has drawn it with
-// its material as it is now (which gives the material its program), then
-// hidden from three; the renderer culls and draws them in the near phase,
-// before the soldiers. A material changed since (needsUpdate: another
-// program) goes back to three until three has drawn it again.
-//
-// Buckets with shader hooks draw here too: scrolling ones (their scroll and
-// the frame's time), the banners' wind (fabric.js: its time is the frame's,
-// read from the frame block), and the leaves the tree canopies take over
-// (tree-canopies.js: the canopies' state texture and count).
+// Rust draws the map's opaque buckets before soldiers, preserving material
+// ordering. Three compiles new material versions before their registration.
+// Scrolling, fabric and canopy shaders share the frame's lighting inputs.
 import * as THREE from "three";
+import { compileFor } from "./instances.js";
 
 // add_program's kind for the map's meshes (web/mod.rs).
 export const WORLD = 0;
@@ -35,7 +28,7 @@ const POLICY = {
 // Whether three has drawn the material as it is now: its program is current.
 export function drawnAsIs(renderer, material) {
   const props = renderer.properties.get(material);
-  return Boolean(props.currentProgram) && props.__version === material.version;
+  return Boolean(props.currentProgram);
 }
 const IDENTITY = new THREE.Matrix4();
 
@@ -50,20 +43,16 @@ class WorldPass {
     this.lamped = []; // the entries whose program reads lamps from the lamp table
     this.lampValues = new Float32Array(5);
     this.stateTextures = []; // { texture, version }: the tree canopies' state
-    // three's own opaque order (by material) unless ?rustSort: sorting by
-    // program saves a few switches but moves which of two surfaces at the
-    // same depth wins at a few multisampled edges.
-    this.byProgram = new URLSearchParams(location.search).has("rustSort");
+
   }
 
   draw() {
-    // A material changed since it was registered goes back to three, to be
-    // registered again once three has drawn it.
     for (const entry of this.meshes) {
       if (entry.stale || entry.mesh.material.version === entry.version) continue;
       entry.stale = true;
       this.core.rust.world_shown(entry.id, false);
       entry.mesh.material.visible = true;
+      compileFor(this.core.renderer, [[entry.mesh, entry.mesh.material]], this.core.graphics.camera, this.core.graphics.scene);
       this.pending.push(entry.mesh);
     }
     // The canopies' state, when it changed (three uploads it as it binds it;
@@ -138,18 +127,9 @@ class WorldPass {
       this.count++;
       return false;
     });
-    rust.sort(this.byProgram);
+    rust.sort(false);
   }
 
-  // Off (this pass alone, or the whole renderer): three draws the buckets
-  // again and the renderer none of them; on: they come back.
-  setActive(on) {
-    for (const entry of this.meshes) {
-      if (entry.stale || !entry.mesh.material) continue;
-      entry.mesh.material.visible = !on;
-      this.core.rust.world_shown(entry.id, on);
-    }
-  }
 
   // Shown to three while one of three's own renders needs them (index.js
   // reveal): three's shadow pass draws the casters among the buckets taken

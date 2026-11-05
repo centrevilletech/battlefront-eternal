@@ -308,7 +308,10 @@ test("Video > Bolt Caster: Enhanced by default and in the richer presets; Classi
   const view = camera();
   lightning.spawn(BOLT, new THREE.Vector3(0, 1.5, 0), new THREE.Vector3(0, 1, 10), 1);
   lightning.update(1 / 60, view);
-  assert.equal(lightning.mesh.visible, true, "the ribbons");
+  // Rust consumes the live ribbon buffers; the scene shell stays hidden.
+  assert.ok(lightning.index > 0, "Classic publishes ribbon indices");
+  assert.equal(lightning.geometry.drawRange.count, lightning.index);
+  assert.equal(lightning.mesh.visible, false, "no native ribbon draw");
   values.arcCasterEffects = "enhanced";
   lightning.spawn(BOLT, new THREE.Vector3(0, 1.5, 0), new THREE.Vector3(0, 1, 10), 1);
   lightning.update(1 / 60, view);
@@ -317,7 +320,9 @@ test("Video > Bolt Caster: Enhanced by default and in the richer presets; Classi
   values.arcCasterEffects = "classic";
   lightning.update(1 / 60, view);
   assert.equal(lightning.enhanced.batch.count, 0, "switched back, nothing of it stays");
-  assert.equal(lightning.mesh.visible, true);
+  assert.ok(lightning.index > 0, "Classic ribbon data resumes");
+  assert.equal(lightning.geometry.drawRange.count, lightning.index);
+  assert.equal(lightning.mesh.visible, false);
 });
 
 test("a busy fight's capsules all draw: growing the batch lifts three's instance limit, and one range uploads them", () => {

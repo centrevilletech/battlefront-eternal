@@ -371,7 +371,7 @@ test('an X-wing\'s lasers leave the foil tips where its gear has the foils, in t
     // from its drawn tip, which is where the world's round leaves.
     page.position.copy(v.position); page.quaternion.copy(v.quaternion); page.gear = gear; page.flightState = 'Flying';
     page.captureTick(); page.sleeping = false; page.present(1, 1 / 60);
-    const shots = new PredictedShots(new THREE.Scene(), { cast: () => null }, () => 0, null);
+    const shots = new PredictedShots({ cast: () => null }, () => 0, {drawBolt(){}});
     const unit = { id: 8, generation: 2, alive: true, seat: { vehicle: page, index: 0 }, combat: { dead: false, origin: new THREE.Vector3(), firePoint: () => null, flash() {}, animator: { fire() {} }, firstPerson: false } };
     assert.equal(shots.fire({ id: 1, generation: 2, pressed: true, button: 0, aimYaw: 0, aimPitch: 0 }, unit), true);
     const shot = [...shots.shots.values()][0];

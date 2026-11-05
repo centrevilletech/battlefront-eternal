@@ -413,8 +413,8 @@ test("the hand-over waits for the battle and for the sequence, each capped", asy
   assert.ok(now >= 1000 && now < 1200, `gave up at ${now} ms`);
   // A battle that never loads is capped too, and reported.
   assert.equal(await handover({ loaded: new Promise(() => {}), isDone: () => true, tick, now: clockNow, load: 20 }), false);
-  // A failed load still hands over (the page shows the error).
-  assert.equal(await handover({ loaded: Promise.reject(new Error("no")), isDone: () => true, tick, now: clockNow }), false);
+  // A failed resource load must reach the caller, without starting the battle.
+  await assert.rejects(handover({ loaded: Promise.reject(new Error("no")), isDone: () => true, tick, now: clockNow }), /no/);
 });
 
 test("the LOADING disk keeps to the lower right corner on any screen", () => {

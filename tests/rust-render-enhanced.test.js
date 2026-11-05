@@ -28,6 +28,7 @@ function bridge({ shadows = false, lamps = false } = {}) {
   const three = standinThree(calls, { graphics: { csm, settings: { get: (k) => settings.get(k) ?? false } } });
   three.renderer.shadowMap.enabled = shadows;
   const core = new RustRender(three.graphics, { memory }, BfeRenderer);
+  core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   const material = new THREE.ShaderMaterial();
   for (const [name, value] of Object.entries(lighting)) material.uniforms[name] = value;
   return { core, calls, region, memory, settings, material, ...three };
@@ -43,17 +44,7 @@ function withCascades(fn) {
   try { return fn(); } finally { [lighting.cascadeMaps.value, lighting.cascadePlanes.value, lighting.cascades.value] = saved; }
 }
 
-test("the configuration the battle started in is the one the renderer covers, Enhanced ones included", () => {
-  const { core, settings, graphics, renderer } = bridge({ shadows: true, lamps: true });
-  graphics.upscaling = "temporal";
-  assert.equal(core.supported(), true, "shadows, lamps and the temporal upscaler: covered, item by item");
-  assert.equal(core.configKey(), "2:1:1");
-  settings.set("lampLighting", false);
-  assert.equal(core.supported(), false, "a change mid-battle: three's for the rest of it");
-  settings.set("lampLighting", true);
-  renderer.shadowMap.enabled = false;
-  assert.equal(core.supported(), false);
-});
+
 
 test("a shadow receiver's program is the renderer's only from a pass that feeds shadows, with shadows on", () => withCascades(() => {
   const { core, material } = bridge({ shadows: true });
@@ -63,25 +54,25 @@ test("a shadow receiver's program is the renderer's only from a pass that feeds 
   const not = { uniforms: new Set(["map", "receiveShadow"]), material: new Set(["receiveShadow"]) };
   assert.ok(core.program(fakeProgram(RECEIVER), WORLD, material, feeds), "world: the block and the maps are the core's; receiveShadow the pass's");
   assert.ok(core.program(fakeProgram(RECEIVER), SKINNED, material, instanced), "an instance's receiveShadow is its row's");
-  assert.equal(core.program(fakeProgram(RECEIVER), WORLD, material, instanced), null, "a world pass that gives no receiveShadow");
+  assert.throws(() => core.program(fakeProgram(RECEIVER), WORLD, material, instanced), /Program/);
   const p = fakeProgram(RECEIVER);
-  assert.equal(core.program(p, WORLD, material, not), null, "a pass that doesn't feed them");
-  assert.ok(core.errors.includes(`p${p.id} receiveShadow (shadows)`) || core.errors.some((e) => e.startsWith(`p${p.id} `) && e.endsWith("(shadows)")));
-  assert.equal(core.program(fakeProgram(RECEIVER), EFFECT, material, feeds), null, "the effect kind is never a receiver");
+  assert.throws(() => core.program(p, WORLD, material, not), /Program/);
+  assert.ok(core.errors.some(e => e.includes(`Program ${p.id}`) && e.endsWith("(shadows)")));
+  assert.throws(() => core.program(fakeProgram(RECEIVER), EFFECT, material, feeds), /Program/);
 }));
 
 test("with shadows off nothing of the shadow block is the renderer's to give", () => {
   const { core, material } = bridge({ shadows: false });
   const feeds = { uniforms: new Set(["map"]), material: new Set(), shadows: true };
-  assert.equal(core.program(fakeProgram(RECEIVER), WORLD, material, feeds), null);
+  assert.throws(() => core.program(fakeProgram(RECEIVER), WORLD, material, feeds), /Program/);
 });
 
 test("with lamps on a DYNAMIC program is the renderer's only from a pass that feeds lamps", () => {
   const { core, material } = bridge({ lamps: true });
   const uniforms = new Set(["map", "localLightPositions", "localLightColors", "localLightCount"]);
   const p = fakeProgram([["map", GL.SAMPLER_2D], ...LAMPS]);
-  assert.equal(core.program(p, SKINNED, material, { uniforms, material: new Set() }), null);
-  assert.ok(core.errors.includes(`p${p.id} localLightPositions (lamps)`));
+  assert.throws(() => core.program(p, SKINNED, material, { uniforms, material: new Set() }), /Program/);
+  assert.ok(core.errors.some(e => e.includes("localLightPositions (lamps)")));
   assert.ok(core.program(fakeProgram([["map", GL.SAMPLER_2D], ...LAMPS]), SKINNED, material, { uniforms, material: new Set(), lamps: true }));
   // Lamps off (Classic): unread placeholders, as before.
   const classic = bridge({ lamps: false });
@@ -100,12 +91,7 @@ test("reveal: three's own render runs with what each pass hid shown, hidden agai
   log.length = 0;
   assert.throws(() => core.reveal(() => { throw new Error("boom"); }));
   assert.deepEqual(log, [["a", true], ["b", true], ["a", false], ["b", false]]);
-  // Off (or disabled), nothing is the renderer's: the render runs as it is.
-  core.setActive(false);
-  log.length = 0;
-  core.reveal(() => log.push(["render"]));
-  assert.deepEqual(log, [["render"]]);
-});
+  });
 
 test("the world pass shows its taken buckets to three while three's render needs them", () => {
   const { core } = bridge();
@@ -148,7 +134,7 @@ test("with lamps on, a pass that gives lamps gets a program reading them from th
   const fed = core.program(three, SKINNED, material, { uniforms, material: new Set(), lamps: true });
   assert.ok(fed && fed.lamps);
   assert.equal(calls.filter((c) => c[0] === "add_program_lamps").length, 1);
-  assert.equal(core.program(three, SKINNED, material, { uniforms, material: new Set() }), null, "the same three program, from a pass that doesn't give lamps");
+  assert.throws(() => core.program(three, SKINNED, material, { uniforms, material: new Set() }), /Program/);
   assert.equal(core.program(three, SKINNED, material, { uniforms, material: new Set(), lamps: true }), fed, "made once");
   // A program reading no lamps is an ordinary one even from such a pass.
   const plain = core.program(fakeProgram([["map", GL.SAMPLER_2D]]), SKINNED, material, { uniforms, material: new Set(), lamps: true });
@@ -267,7 +253,7 @@ test("a caster the renderer can't draw leaves the whole pass to three", () => {
   mesh.customDepthMaterial = undefined;
   scene.add(mesh);
   scene.updateMatrixWorld(true);
-  assert.equal(core.coverShadow(renderer, light, scene, camera, null), false);
+  assert.throws(() => core.coverShadow(renderer, light, scene, camera, null), /Incomplete Rust/);
   assert.equal(new Float64Array(memory.buffer, region("caster_input"), 4)[0], -1, "the renderer draws nothing");
   assert.match(core.byName.shadow.why, /three's own depth material/);
 });
@@ -316,6 +302,6 @@ test("a caster's geometry rewritten since: sent as three sends it, its update ra
   assert.deepEqual(pass(), [["geometry_index_data", 96]]);
   // Another index altogether: three makes buffers for it, so three draws the pass.
   mesh.geometry.setIndex([0, 1, 2]);
-  assert.equal(core.coverShadow(renderer, light, scene, camera, null), false);
+  assert.throws(() => core.coverShadow(renderer, light, scene, camera, null), /Incomplete Rust/);
   assert.match(core.byName.shadow.why, /geometry/);
 });

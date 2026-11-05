@@ -1,3 +1,4 @@
+import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { IW } from "../../interface/space.js";
 import { InterfaceCamera, dressModel } from "../../interface/models.js";
@@ -778,7 +779,7 @@ export class PageView {
       }
     }
     renderer.clearDepth();
-    renderer.render(this.logoScene, this.camera.camera);
+    renderInterface(renderer, this.logoScene, this.camera.camera, "spawn-logo");
   }
 
   // --- the pointer ------------------------------------------------------

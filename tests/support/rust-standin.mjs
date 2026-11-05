@@ -139,6 +139,8 @@ export function standinThree(calls, { graphics: extra = {}, context = standinCon
     renderLists: { get: () => list },
     getContext: () => context,
     properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },
+    initRenderTarget() {},
+    compile() {},
     initTexture(texture) { calls.push(["initTexture", texture.name]); properties.get(texture).__version = texture.version; },
     shadowMap: { enabled: false },
     state: { bindFramebuffer: (t, fb) => calls.push(["bindFramebuffer", t, fb]) },

@@ -20,6 +20,17 @@ export class RenderProfiler {
     this.fences = [];
     this.behind = null;
     this.latency = null;
+    renderer.domElement.addEventListener("webglcontextlost", () => {
+      // Queries and fences belong to the lost context and cannot be polled.
+      this.pending.length = this.fences.length = 0;
+      this.active = null;
+      this.behind = this.latency = null;
+      this.cpu.length = this.gpu.length = 0;
+    });
+    renderer.domElement.addEventListener("webglcontextrestored", () => {
+      this.extension = this.gl.getExtension("EXT_disjoint_timer_query_webgl2");
+      this.frame = 0;
+    });
   }
 
   begin() {
@@ -62,7 +73,7 @@ export class RenderProfiler {
 
   // The whole frame is submitted (the scene, the water, the HUD).
   frameEnd() {
-    if (!this.fencing) return;
+    if (!this.fencing || this.gl.isContextLost()) return;
     const gl = this.gl;
     // A GPU three frames behind is behind either way.
     if (this.fences.length >= 3) gl.deleteSync(this.fences.shift().sync);
@@ -77,6 +88,7 @@ export class RenderProfiler {
   // round trip). Cheap enough for every animation frame and a timer.
   poll(now = performance.now()) {
     const gl = this.gl;
+    if (gl.isContextLost()) return;
     while (this.fences.length) {
       const fence = this.fences[0];
       if (gl.getSyncParameter(fence.sync, gl.SYNC_STATUS) !== gl.SIGNALED) break;

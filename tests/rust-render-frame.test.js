@@ -17,6 +17,7 @@ function bridge() {
   const { BfeRenderer, memory, calls } = standinModule();
   const { renderer, graphics, scene, camera, properties, setTarget } = standinThree(calls);
   const core = new RustRender(graphics, { memory }, BfeRenderer);
+  core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   return { core, calls, gl: renderer.getContext(), graphics, renderer, scene, camera, memory, properties, setTarget };
 }
 
@@ -48,7 +49,7 @@ test("cover: three's start of a render, the phase, and three's end when every pa
   scene.onBeforeRender = () => before++;
   scene.onAfterRender = () => after++;
   core.addPass({ name: "spy", phase: "view", draw() { this.complete = complete; } });
-  assert.equal(core.cover("view", renderer, scene, camera), false, "a pass of the phase short of the scene: three renders it");
+  assert.throws(() => core.cover("view", renderer, scene, camera), /Incomplete Rust/);
   assert.equal(before, 1, "the scene's onBeforeRender (its lights packed) before the phase");
   assert.equal(child.matrixWorld.elements[12], 1, "its world matrices brought up to date first");
   assert.ok(calls.some((c) => c[0] === "view_frame"));
@@ -64,14 +65,9 @@ test("cover: three's start of a render, the phase, and three's end when every pa
   assert.deepEqual(blit.slice(1), [0, 0, 8, 4, 0, 0, 8, 4, GL.COLOR_BUFFER_BIT, GL.NEAREST]);
   assert.deepEqual(calls.filter((c) => c[0] === "bindFramebuffer").map((c) => c.slice(1)), [[GL.READ_FRAMEBUFFER, "ms"], [GL.DRAW_FRAMEBUFFER, "fb"], [GL.READ_FRAMEBUFFER, null], [GL.DRAW_FRAMEBUFFER, null], [GL.DRAW_FRAMEBUFFER, "ms"]]);
   complete = false;
-  assert.equal(core.cover("view", renderer, scene, camera), false, "one pass short: three renders it");
-  // Off: three draws everything; the phase does nothing.
+  assert.throws(() => core.cover("view", renderer, scene, camera), /Incomplete Rust/);
   complete = true;
-  core.setActive(false);
-  calls.length = 0;
-  assert.equal(core.cover("view", renderer, scene, camera), false);
-  assert.deepEqual(calls, []);
-});
+  });
 
 test("a mirror's render of the near scene draws the near phase's passes for the mirror camera", () => {
   const { core, calls, renderer, scene, setTarget } = bridge();
@@ -79,15 +75,14 @@ test("a mirror's render of the near scene draws the near phase's passes for the 
   mirror.updateMatrixWorld(true);
   mirror.userData.mirror = true;
   setTarget({ name: "reflection" });
-  core.pass(renderer, scene, mirror);
+  core.phase("mirror", renderer, scene, mirror);
   assert.ok(calls.some((c) => c[0] === "mirror_frame"));
   assert.ok(!calls.some((c) => c[0] === "frame"));
   calls.length = 0;
-  core.pass(renderer, scene, new THREE.PerspectiveCamera());
-  assert.deepEqual(calls, [], "any other camera: nothing");
+  assert.throws(() => core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), /Incomplete Rust mirror/);
 });
 
-test("foliage: the drawer selects for the classes it registered, three keeps the rest", async () => {
+test("foliage: Rust selects every registered card class", async () => {
   const { core, calls, renderer, scene, properties } = bridge();
   const geometry = new THREE.InstancedBufferGeometry();
   const card = (name, size) => geometry.setAttribute(name, new THREE.BufferAttribute(new Float32Array(4 * size).map((_, i) => i), size));
@@ -99,10 +94,9 @@ test("foliage: the drawer selects for the classes it registered, three keeps the
   const batch = { geometry, material, uniforms: { foliageWiggle: { value: 0.11 } } };
   const instance = { position: new THREE.Vector3(1, 2, 3), matrix: new THREE.Matrix4().makeTranslation(1, 2, 3), tint: [0.5, 0.6, 0.7], sphere: null, cullDistance: Infinity, maxDistance: 100 };
   const kind = { grass: true, batch, instances: [instance] };
-  const other = { grass: false, batch: { geometry: new THREE.BufferGeometry(), material: new THREE.MeshBasicMaterial() }, instances: [] };
-  const foliage = { kinds: new Map([["a", kind], ["b", other]]), time: 2.5, nearEnd: () => 200, drawer: null };
+  const foliage = { kinds: new Map([["a", kind]]), time: 2.5, nearEnd: () => 200, drawer: null };
   scene.userData.foliage = foliage;
-  core.pass(renderer, scene, core.graphics.camera);
+  core.phase("near", renderer, scene, core.graphics.camera);
   assert.equal(foliage.drawer, core.byName.foliage, "the near phase attaches the drawer");
   const camera = new THREE.PerspectiveCamera();
   camera.position.set(4, 5, 6);
@@ -115,15 +109,11 @@ test("foliage: the drawer selects for the classes it registered, three keeps the
   assert.deepEqual([...added[8]].slice(15, 16), [100]);
   assert.deepEqual([...added[9]].slice(6, 9), [-1, Infinity, 100], "no sphere, always tested");
   assert.equal(material.visible, false);
-  assert.ok(foliage.drawer.covers(kind));
-  assert.ok(!foliage.drawer.covers(other), "a CPU batch stays three's");
+  assert.ok(foliage.drawer.classes.has(kind));
   assert.ok(calls.some((c) => c[0] === "foliage_frame"));
   const input = core.foliageInput;
   assert.deepEqual([input[48], input[49], input[50], input[51], input[52]], [4, 5, 6, 200, 2.5]);
-  core.setActive(false);
-  assert.equal(material.visible, true);
-  assert.equal(foliage.drawer, null);
-});
+  });
 
 test("foliage under shadows: a card program that reads modelMatrix (three's world position for USE_SHADOWMAP) is taken", () => {
   const { core, calls, renderer, scene, properties } = bridge();
@@ -136,10 +126,10 @@ test("foliage under shadows: a card program that reads modelMatrix (three's worl
   const kind = { grass: true, batch: { geometry, material, uniforms: { foliageWiggle: { value: 0 } } }, instances: [] };
   const foliage = { kinds: new Map([["a", kind]]), time: 0, nearEnd: () => 200, drawer: null };
   scene.userData.foliage = foliage;
-  core.pass(renderer, scene, core.graphics.camera);
+  core.phase("near", renderer, scene, core.graphics.camera);
   foliage.drawer.select(foliage, core.graphics.camera);
   assert.ok(calls.some((c) => c[0] === "foliage_class"), "registered");
-  assert.ok(foliage.drawer.covers(kind));
+  assert.ok(foliage.drawer.classes.has(kind));
 });
 
 test("the view scene: three's start of a render, the phase, and three left out when every part was drawn", () => {
@@ -174,25 +164,21 @@ test("the view scene: a part the renderer can't draw leaves three to render the 
   const flash = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({ transparent: true }));
   properties.get(flash.material).currentProgram = program([["map", GL.SAMPLER_2D]]);
   viewScene.add(part, flash);
-  assert.equal(core.cover("view", renderer, viewScene, view), false);
+  assert.throws(() => core.cover("view", renderer, viewScene, view), /Incomplete Rust/);
   assert.equal(part.material.visible, false);
   assert.equal(flash.material.visible, true);
   assert.equal(calls.filter((c) => c[0] === "blitFramebuffer").length, 0, "three's render resolves the target");
   // Hidden objects, and their subtrees, are not three's to draw.
   flash.visible = false;
   assert.equal(core.cover("view", renderer, viewScene, view), true);
-  // Off: three draws everything; the phase does nothing.
-  core.setActive(false);
-  assert.equal(part.material.visible, true);
-  assert.equal(core.cover("view", renderer, viewScene, view), false);
-});
+  });
 
 test("post uses declared Rust programs and initializes targets without a three draw", () => {
   const { core, calls, renderer, graphics, properties } = bridge();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const postTarget = { width: 8, height: 4, texture: new THREE.Texture() };
   properties.get(postTarget.texture).__webglTexture = undefined;
-  renderer.initRenderTarget = (target) => { calls.push(["initRenderTarget", target]); properties.get(target.texture).__webglTexture = {}; };
+  renderer.initRenderTarget = (target) => { calls.push(["initRenderTarget", target]); properties.get(target.texture).__webglTexture ||= {}; };
   const composite = ownedFullScreenPass("post-hud/composite", {
     map: { value: graphics.farTarget.texture }, blurred: { value: null }, glow: { value: null },
     blend: { value: .3 }, bloomStrength: { value: 0 }, speedBlur: { value: 0 }, speedTurn: { value: 0 },
@@ -201,13 +187,16 @@ test("post uses declared Rust programs and initializes targets without a three d
   assert.equal(core.post(renderer, [{ pass: composite, target: postTarget, camera }, { pass: fxaa, target: null, camera }]), true);
   assert.deepEqual(calls.filter(c => c[0] === "add_owned_program").map(c => c[1]), ["post-hud/composite", "post-hud/fxaa"]);
   assert.equal(calls.filter(c => c[0] === "add_program").length, 0);
-  assert.equal(calls.filter(c => c[0] === "initRenderTarget").length, 1);
+  assert.equal(calls.filter(c => c[0] === "initRenderTarget").length, 2);
   const input = core.postInput, step = 5 + 12 * 18;
+
   assert.deepEqual([...input.subarray(0, 5)], [0, 0, 8, 4, 7]);
   assert.deepEqual([...input.subarray(5 + 2 * 18, 5 + 2 * 18 + 3)], [2, 32, -1]);
   assert.deepEqual([...input.subarray(5 + 3 * 18, 5 + 3 * 18 + 3)], [3, 1, .3]);
   assert.deepEqual([...input.subarray(step, step + 5)], [1, -1, 800, 600, 4]);
   assert.deepEqual([...input.subarray(step + 5 + 3 * 18, step + 5 + 3 * 18 + 4)], [3, 2, .125, .25]);
+  assert.throws(() => core.post(renderer, [{ run: () => {} }]), /Incomplete Rust/);
+
 });
 
 test("the post steps' values: set on a step's material as it is written, bloom's blur drawn twice with other values", () => {
@@ -299,13 +288,7 @@ test("the HUD's batch: every vertex the first time, the batch's update range aft
   batch.end();
   assert.equal(core.coverHud(renderer, hud), true);
   assert.deepEqual([input[IN.UPLOAD], input[IN.UPLOAD + 1]], [4, 8]);
-  // Off: three draws, and sends its whole arrays.
-  core.setActive(false);
-  const position = batch.geometry.attributes.position, version = position.version;
-  assert.equal(core.coverHud(renderer, hud), false);
-  assert.equal(position.updateRanges.length, 0);
-  assert.equal(position.version, version + 1);
-});
+  });
 
 test("water: its Low surface and rings are items of the transparent list, with three's sort key, range and uniforms", () => {
   const { core, calls, scene, camera, properties } = bridge();
@@ -353,9 +336,7 @@ test("water: its Low surface and rings are items of the transparent list, with t
   group.visible = false;
   core.phase("transparent", core.renderer, scene, camera);
   assert.equal(input[0], 0, "a hidden parent hides it");
-  core.setActive(false);
-  assert.equal(lowPass.material.visible, true);
-});
+  });
 
 test("water at High and Ultra: the tint and mirror passes with their waders, the opaque copy first, and the shore drawn instanced", () => {
   const { core, calls, scene, camera, properties, graphics } = bridge();
@@ -437,18 +418,15 @@ test("water at High and Ultra: the tint and mirror passes with their waders, the
   assert.equal(graphics.scene, scene);
 });
 
-test("an error in a pass gives everything back to three, its state reset and its target bound again", () => {
-  const { core, calls, renderer, scene, camera, setTarget } = bridge();
-  const target = { name: "drawing" };
-  setTarget(target);
-  core.addPass({ name: "broken", phase: "view", draw() { throw new Error("broken pass"); } });
-  const warn = console.warn;
-  console.warn = () => {};
-  try { assert.equal(core.cover("view", renderer, scene, camera), false); } finally { console.warn = warn; }
-  assert.equal(core.enabled, false);
-  assert.ok(core.errors.some((e) => e.startsWith("failed: Error: broken pass")));
-  assert.deepEqual(calls.slice(-2), [["resetState"], ["setRenderTarget", target]]);
-  assert.equal(core.cover("view", renderer, scene, camera), false, "and stays three's");
+test("an error in a pass stops rendering with the GPU in the error", () => {
+ const {core,renderer,scene,camera,calls}=bridge();
+ const material=new THREE.ShaderMaterial();material.visible=false;scene.add(new THREE.Mesh(new THREE.BufferGeometry(),material));
+ renderer.compile = () => {};
+ core.addPass({name:"broken",phase:"view",draw(){throw Error("broken pass");}});
+ assert.throws(()=>core.cover("view",renderer,scene,camera), /Battle renderer failed on unknown GPU: broken pass/);
+ assert.equal(material.visible,false);
+ assert.equal(core.failure.rendererFailure,true);
+ assert.equal(calls.some(c=>c[0]==="resetState"),false,"a failed frame is not continued by three");
 });
 
 test("the view scene's muzzle flash: a blended basic draw after the parts, in three's order, both sides in turn", () => {
@@ -480,7 +458,7 @@ test("the view scene's muzzle flash: a blended basic draw after the parts, in th
   hooked.onBeforeCompile = () => {};
   properties.get(hooked).currentProgram = program([["diffuse", GL.FLOAT_VEC3]], ["position"]);
   viewScene.add(new THREE.Mesh(partGeometry(), hooked));
-  assert.equal(core.cover("view", renderer, viewScene, view), false);
+  assert.throws(() => core.cover("view", renderer, viewScene, view), /Incomplete Rust/);
 });
 
 test("the view scene: an unlit part (a sight whose texture scrolls) is drawn as three compiled it, opaque, before what blends", () => {
@@ -551,15 +529,13 @@ function nearBridge() {
   three.scene.add(background);
   three.properties.get(background.material).currentProgram = program([["map", GL.SAMPLER_2D]], ["position", "uv"]);
   const core = new RustRender(three.graphics, { memory }, BfeRenderer);
-  // ?rustNear
-  core.byName.near.allowed = true;
-  core.byName.near.setActive(true);
+  core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   three.renderer.setRenderTarget(three.graphics.sceneTarget);
   calls.length = 0;
   return { core, calls, ...three };
 }
 
-test("the near scene: drawn in place of three's render when everything three would list is the renderer's", () => {
+test("the near scene: Rust draws every registered item", () => {
   const { core, calls, renderer, graphics, scene, camera, properties, list } = nearBridge();
   let before = 0;
   scene.onBeforeRender = () => { before++; };
@@ -577,38 +553,38 @@ test("the near scene: drawn in place of three's render when everything three wou
   const threeProgram = { id: 3 };
   properties.get(material).currentProgram = threeProgram;
   properties.get(material).__version = material.version;
-  core.byName.transparent.taken.set(holo, { bucket: false, id: 7, material, program: threeProgram, frame: 0 });
+  core.byName.transparent.taken.set(holo, { bucket: false, id: 7, material, program: threeProgram, frame: 0, version: material.version });
   list.opaque.push({ object: graphics.background });
   assert.equal(core.coverNear(renderer, scene, camera), true);
   assert.equal(before, 1, "three's start of a render");
-  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "frame", "transparent_frame"]);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "frame", "screen_frame", "transparent_frame"]);
   const begin = calls.find((c) => c[0] === "near_begin");
   assert.deepEqual([...begin[1]], [0, 0, 0, 1], "three's clear colour");
-  assert.equal(begin[2], 1, "the far scene's image, one step");
+  assert.equal(begin[2], 0, "clear before opaque geometry; the far image follows it");
   assert.equal(core.postInput[1], -2, "into the target bound now");
   // The hologram's record, keyed as projectObject keys it.
   const z = new THREE.Vector4().copy(holo.geometry.boundingSphere.center).applyMatrix4(holo.matrixWorld)
     .applyMatrix4(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)).z;
   assert.deepEqual([...core.transparentObjects.subarray(0, 6)], [1, 7, 0, 2, z, holo.id]);
-  assert.equal(list.opaque.length, 0, "three's list of the scene is empty");
   assert.equal(renderer.info.render.frame, 1);
   assert.ok(calls.some((c) => c[0] === "blitFramebuffer"), "the target resolved");
   assert.ok(!calls.some((c) => c[0] === "resetState"), "three's state is reset when three is next used");
   assert.equal(core.stale, true);
 });
 
-test("the near scene: left to three when it would list something no pass draws", () => {
-  const { core, calls, renderer, scene, camera } = nearBridge();
+test("the near scene: an unregistered item fails the required Rust draw", () => {
+  const { core, calls, renderer, scene, camera, properties } = nearBridge();
   const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
+  properties.get(wall.material).currentProgram = program([], ["position"]);
   wall.position.set(0, 0, -5);
   scene.add(wall);
   scene.updateMatrixWorld(true);
-  assert.equal(core.coverNear(renderer, scene, camera), false);
+  assert.throws(() => core.coverNear(renderer, scene, camera), /Incomplete Rust/);
   assert.equal(core.byName.near.stopped, wall);
   assert.ok(!calls.some((c) => /frame$|^near_begin$/.test(c[0])), "nothing drawn: three renders the scene");
   // Nor when three is to draw the scene for another camera or target.
   wall.material.visible = false;
-  assert.equal(core.coverNear(renderer, scene, new THREE.PerspectiveCamera()), false);
+  assert.throws(() => core.coverNear(renderer, scene, new THREE.PerspectiveCamera()), /Incomplete Rust/);
   assert.equal(core.coverNear(renderer, scene, camera), true);
 });
 
@@ -647,7 +623,7 @@ test("a command post's beam, hidden until the player comes near: registered befo
   scene.add(lightning);
   // three starts the frame's render of the near scene.
   scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
-  assert.deepEqual(compiled, [beam], "the beam's program built (the lightning's vertices change: not this pass's)");
+  assert.ok(compiled.includes(beam), "the beam is compiled without a draw");
   const entry = core.byName.transparent.taken.get(beam);
   assert.ok(entry, `registered before three drew it (${core.errors.join("; ")})`);
   assert.equal(calls.filter((c) => c[0] === "transparent_object").length, 1);
@@ -679,39 +655,34 @@ test("a command post's beam, hidden until the player comes near: registered befo
 });
 
 test("a water mirror's render of the near scene: drawn in place of three's when everything three would list is the renderer's", () => {
-  const { core, calls, renderer, scene, setTarget } = nearBridge();
+  const { core, calls, renderer, scene, setTarget, properties } = nearBridge();
   const mirror = new THREE.PerspectiveCamera();
   mirror.userData.mirror = true;
   mirror.updateMatrixWorld(true);
   const reflection = { name: "reflection", samples: 0, width: 8, height: 4 };
   setTarget(reflection);
-  // On by default (?rustMirror=0 turns it off), apart from the frame's cover (?rustNear).
-  assert.equal(core.byName.mirrorCover.on, true);
   const hidden = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ visible: false }));
   scene.add(hidden);
   scene.updateMatrixWorld(true);
   assert.equal(core.coverMirror(renderer, scene, mirror), true);
-  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "mirror_frame", "mirror_transparent_frame"]);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "mirror_frame", "screen_frame", "mirror_transparent_frame"]);
   assert.deepEqual(calls.find((c) => c[0] === "mirror_transparent_frame").slice(1), [0, 0], "the image drawn by the begin phase, not again");
   assert.equal(core.postInput[1], -2, "the image into the target bound now");
   assert.equal(core.stale, true, "three's state reset when three is next used");
   // Not the frame's camera, nor a render something three draws itself is in.
-  assert.equal(core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), false);
+  assert.throws(() => core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), /Incomplete Rust/);
   const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
+  properties.get(wall.material).currentProgram = program([], ["position"]);
   wall.position.set(0, 0, -5);
   scene.add(wall);
   scene.updateMatrixWorld(true);
   calls.length = 0;
-  assert.equal(core.coverMirror(renderer, scene, mirror), false);
+  assert.throws(() => core.coverMirror(renderer, scene, mirror), /Incomplete Rust/);
   assert.equal(core.byName.mirrorCover.stopped, wall);
   assert.ok(!calls.some((c) => /frame$|^near_begin$/.test(c[0])), "three renders it");
   // Switched off alone: three's.
   wall.material.visible = false;
-  core.byName.mirrorCover.setActive(false);
-  assert.equal(core.coverMirror(renderer, scene, mirror), false);
-  core.byName.mirrorCover.setActive(true);
-  assert.equal(core.coverMirror(renderer, scene, mirror), true);
-});
+  });
 
 test("the view scene: a gun's part whose zero material blends is a record of its own kind, drawn from its row in three's order among what blends", () => {
   const { core, calls, renderer, properties } = bridge();
@@ -742,4 +713,23 @@ test("the view scene: a gun's part whose zero material blends is a record of its
   assert.equal(records, 2, "the part and the glass written");
   const o = core.recordsAt + core.stride;
   assert.equal(core.input[o], 4, "the glass's record of its own kind");
+});
+
+test('a reflection registers a newly added transparent object before the main camera sees it',()=>{
+ const {core,calls,renderer,graphics,scene,camera,setTarget,properties}=nearBridge();
+ const compiled=[];
+ renderer.compile=list=>list.traverse(o=>{compiled.push(o);properties.get(o.material).currentProgram=program([['modelViewMatrix',GL.FLOAT_MAT4],['diffuse',GL.FLOAT_VEC3],['opacity',GL.FLOAT]],['position']);});
+ scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
+ const logo=new THREE.Mesh(partGeometry(),new THREE.MeshBasicMaterial({transparent:true}));
+ const group=new THREE.Group();group.userData.material=logo.material;group.add(logo);
+ logo.position.z=-5;scene.add(group);
+ const mirror=camera.clone();mirror.userData.mirror=true;mirror.updateMatrixWorld(true);
+ setTarget({name:'reflection',samples:0,width:8,height:4});
+ assert.equal(core.coverMirror(renderer,scene,mirror),true);
+ assert.ok(compiled.includes(logo),'the reflected object compiles before its first Rust draw');
+ assert.ok(core.byName.effects.glows.get(logo));
+ assert.ok(calls.some(c=>c[0]==='mirror_transparent_frame'));
+ const count=compiled.length;
+ scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
+ assert.equal(compiled.length,count,'the main view reuses resources discovered by the reflection');
 });

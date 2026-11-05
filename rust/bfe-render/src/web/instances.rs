@@ -13,6 +13,7 @@ impl BfeRenderer {
     // side pairs); records of KIND_BLENDED and KIND_BLENDED_RIGID name it
     // (REC_BLEND).
     pub fn inst_add_blend(&mut self, blend: &[u32], depth_flags: u32, depth_func: u32, passes: &[u32]) -> u32 {
-        self.r.instances.add_blend(blend, depth_flags, depth_func, passes)
+        self.remember_inst_add_blend(blend, depth_flags, depth_func, passes); // recovery
+ self.r.instances.add_blend(blend, depth_flags, depth_func, passes)
     }
 }

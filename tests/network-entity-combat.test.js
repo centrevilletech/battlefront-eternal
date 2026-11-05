@@ -22,7 +22,7 @@ function heldFixture(){
  const f=fixture();let now=0;
  const weapon={name:'rifle',def:{ordnance:{...def,base:'bolt'},ShotDelay:.1},canShoot:true,wait:0,levels:[{}]};
  const unit={id:7,generation:2,alive:true,combat:{origin:new Vector3(),arsenal:{current:()=>weapon,weapons:[weapon]},firePoint(){},flash(){},presentProjectileShot(){throw Error('predicted flash replayed');}}};
- const shots=new PredictedShots(new Scene(),null,()=>now);
+ const shots=new PredictedShots(null,()=>now,{drawBolt(){}});
  for(let i=0;i<4;i++){now=i*.11;assert.equal(shots.fire({pressed:true,held:true,button:0,id:0,aimYaw:0,aimPitch:0},unit),true);}
  f.presentation.predictedShots=shots;
  const game={units:{byId:id=>id===unit.id?unit:null},predictedShots:shots},registry={weapons:new Map([[1,'rifle']])};

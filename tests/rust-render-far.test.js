@@ -96,6 +96,7 @@ function bridge() {
   };
   const graphics = { renderer, scene, farScene, camera, farCamera: camera, sceneTarget, farTarget, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   const core = new RustRender(graphics, { memory }, BfeRenderer);
+  core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   return { core, calls, renderer, farScene, camera, far: core.byName.far };
 }
 
@@ -144,27 +145,13 @@ test("a mesh it can't draw in view: the renderer draws nothing and three the fra
   const { core, calls, renderer, farScene, camera, far } = bridge();
   const dust = mesh("dust", BUCKET, { renderOrder: 5, points: true, values: values() });
   farScene.add(mesh("zero:sky", SKY, { renderOrder: -1e9, values: values(), matrixAutoUpdate: true }), mesh("zero:lit", BUCKET, { values: values() }), dust);
-  assert.equal(core.cover("far", renderer, farScene, camera), false);
-  assert.deepEqual([far.mode, far.threeObjects], ["three", 1]);
+  assert.throws(() => core.cover("far", renderer, farScene, camera), /Incomplete Rust/);
+  assert.deepEqual([far.mode, far.unclaimed], ["incomplete", 1]);
   core.views();
   assert.equal(core.farInput[4], 0);
   // The phase's call (which draws nothing) and no resolve; three's state is
   // reset as three renders the frame.
   assert.deepEqual(calls.slice(calls.findIndex((c) => c[0] === "far_frame")).map((c) => c[0]), ["far_frame"]);
-  renderer.render(farScene, camera);
-  assert.deepEqual(calls.slice(-3).map((c) => c[0]), ["resetState", "setRenderTarget", "render"]);
-  // Out of view, three would draw it no more than the renderer.
-  dust.position.set(0, 0, 100);
-  dust.updateMatrix();
-  dust.updateMatrixWorld();
-  assert.equal(core.cover("far", renderer, farScene, camera), true);
-  // Off (for comparisons): the phase draws nothing, three the frame.
-  far.on = false;
-  calls.length = 0;
-  assert.equal(core.cover("far", renderer, farScene, camera), false);
-  core.views();
-  assert.equal(core.farInput[4], 0);
-  assert.equal(calls.some((c) => c[0] === "blitFramebuffer"), false);
 });
 
 test("a far bucket with no texture: the renderer samples an empty one there, as three does, and draws the frame", () => {
@@ -185,11 +172,8 @@ test("an error in the far pass leaves the far scene to three for good", () => {
   const { core, renderer, farScene, camera, far } = bridge();
   farScene.add(mesh("zero:lit", BUCKET, { values: values() }));
   core.rust.far_item = () => { throw new Error("no"); };
-  assert.equal(core.cover("far", renderer, farScene, camera), false);
-  assert.deepEqual([far.on, far.mode], [false, "three"]);
-  assert.match(core.errors.at(-1), /^far: Error: no/);
-  core.views();
-  assert.equal(core.farInput[4], 0);
+  assert.throws(() => core.cover("far", renderer, farScene, camera), /no/);
+  assert.equal(core.failure.rendererFailure, true);
 });
 
 test("the map's far buckets laid out alike share one vertex array, each drawn from where its index starts", () => {
@@ -332,7 +316,7 @@ test("an unindexed mesh (the storm's bolt): an index of the pass's own, its rang
   assert.deepEqual([core.farInput[item.rangeAt], core.farInput[item.rangeAt + 1]], [0, 6]);
 });
 
-test("the near scene's Enhanced ocean surface: the far pass's item drawn in the near phase, hidden from three by its layers from the next frame", () => {
+test("the near ocean surface draws in Rust on its first frame", () => {
   const { core, calls, renderer, farScene, camera, far } = bridge();
   const near = new THREE.Scene();
   const sea = mesh("native-ocean", [["modelMatrix", MAT4], ["projectionMatrix", MAT4], ["time", FLOAT]], { values: { time: { value: 2 } }, matrixAutoUpdate: true });
@@ -348,8 +332,8 @@ test("the near scene's Enhanced ocean surface: the far pass's item drawn in the 
   assert.ok(sea_, "the sea pass, in the near phase");
   sea_.draw({ renderer, scene: near, camera });
   core.views();
-  assert.equal(core.farInput[4], 0, "registered, three draws it this frame");
-  assert.equal(sea.layers.mask, 1 << 30, "hidden from three from the next frame");
+  assert.equal(core.farInput[4], 1, "registered and drawn immediately");
+  assert.equal(sea.layers.mask, 1 << 30, "owned by the sea pass");
   sea_.draw({ renderer, scene: near, camera });
   core.views();
   assert.deepEqual([core.farInput[4], core.farInput[5], core.farInput[7]], [1, 1, 1], "drawn by the near phase, over what is there");
@@ -359,7 +343,4 @@ test("the near scene's Enhanced ocean surface: the far pass's item drawn in the 
   core.cover("far", renderer, farScene, camera);
   core.views();
   assert.equal(core.farInput[7], 0);
-  // Off: back on its own layers.
-  sea_.setActive(false);
-  assert.equal(sea.layers.mask, 1);
 });

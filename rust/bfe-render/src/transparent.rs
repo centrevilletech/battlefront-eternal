@@ -201,6 +201,7 @@ pub struct DrawState {
     pub depth_func: u32,
     pub depth_write: bool,
     pub color_write: bool,
+    pub alpha_to_coverage: bool,
 }
 
 impl DrawState {
@@ -208,7 +209,7 @@ impl DrawState {
     pub fn from(blend: &[u32], depth_func: u32, flags: u32) -> DrawState {
         let mut b = [0u32; 7];
         b.copy_from_slice(&blend[..7]);
-        DrawState { blend: b, depth_test: flags & 1 != 0, depth_func, depth_write: flags & 2 != 0, color_write: flags & 4 != 0 }
+        DrawState { blend: b, depth_test: flags & 1 != 0, depth_func, depth_write: flags & 2 != 0, color_write: flags & 4 != 0, alpha_to_coverage: flags & 8 != 0 }
     }
 }
 
@@ -218,7 +219,7 @@ pub fn apply<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>, state: &DrawSta
     let (gl, st, stats) = (&core.gl, &mut core.state, &mut core.stats);
     st.cull(gl, stats, if side == 2 { 2 } else { 0 });
     st.front_face(gl, stats, if side == 1 { glow::CW } else { glow::CCW });
-    st.alpha_to_coverage(gl, stats, false);
+    st.alpha_to_coverage(gl, stats, state.alpha_to_coverage);
     let b = &state.blend;
     st.blend(gl, stats, b[0] != 0);
     if b[0] != 0 {
@@ -303,6 +304,11 @@ pub struct TransparentPass<C: HasContext> {
 }
 
 impl<C: HasContext> TransparentPass<C> {
+    pub fn replace_texture(&mut self, old: C::Texture, new: C::Texture) {
+        for bucket in &mut self.buckets { for (_, texture) in &mut bucket.textures { if *texture == old { *texture = new; } } }
+        for object in &mut self.things { if object.texture == Some(old) { object.texture = Some(new); } }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> TransparentPass<C> {
         TransparentPass {
             list: List::default(), keys: vec![0.0; MAX_THREE * KEY_STRIDE], objects: vec![0.0; 1 + MAX_OBJECTS * OBJ_STRIDE],
@@ -521,9 +527,9 @@ mod tests {
     }
 
     #[test]
-    fn segments_around_three() {
+    fn segments_around_copy_commands() {
         let mut list = List { items: vec![item(0.0, 0.0, 0.9, 1.0), item(0.0, 0.0, 0.5, 2.0), item(0.0, 0.0, 0.1, 3.0), item(0.0, 10.0, 0.9, 4.0)], ..Default::default() };
-        // three's own two items: one between z 0.9 and 0.5, one after render order 10.
+        // Two copy commands: one between z 0.9 and 0.5, one after render order 10.
         let keys = [0.0, 0.0, 0.7, 50.0, 0.0, 20.0, 0.5, 51.0];
         list.order(&keys, 2);
         assert_eq!(list.segments, vec![0, 1, 4, 4]);
@@ -531,6 +537,16 @@ mod tests {
         assert_eq!(list.segment(1).iter().map(|i| i.id).collect::<Vec<_>>(), vec![2.0, 3.0, 4.0]);
         assert!(list.segment(2).is_empty());
         assert!(list.segment(3).is_empty());
+    }
+
+    #[test]
+    fn material_alpha_to_coverage_is_preserved() {
+        let blend = [1, glow::FUNC_ADD, glow::FUNC_ADD, glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::ONE, glow::ONE_MINUS_SRC_ALPHA];
+        let state = DrawState::from(&blend, glow::LEQUAL, 1 | 4 | 8);
+        assert!(state.alpha_to_coverage);
+        assert!(state.depth_test && state.color_write);
+        assert!(!state.depth_write);
+        assert!(!DrawState::from(&blend, glow::LEQUAL, 1 | 4).alpha_to_coverage);
     }
 
     #[test]

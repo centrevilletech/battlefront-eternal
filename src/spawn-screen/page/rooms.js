@@ -1,3 +1,4 @@
+import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 
 // What the page spawn screen's stage (stage.js) stands in, by look:
@@ -95,7 +96,7 @@ export class GridRoom {
   // Under everything (it is the room the camera stands in).
   render(renderer, camera) {
     if (!this.material.uniforms.map.value) return;
-    renderer.render(this.scene, camera);
+    renderInterface(renderer, this.scene, camera, "spawn-room");
   }
 
   dispose() {

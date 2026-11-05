@@ -108,7 +108,6 @@ struct Slots {
 pub struct FoliagePass<C: HasContext> {
     classes: Vec<Class<C>>,
     // Off: three draws the foliage (the page's switch for this pass alone).
-    pub on: bool,
     pub input: Vec<f64>,
     // The view matrix each program last had (modelViewMatrix: the cards are
     // in world space, so it is the camera's), by program.
@@ -152,8 +151,12 @@ fn float(v: f32) -> Value {
 }
 
 impl<C: HasContext> FoliagePass<C> {
+    pub fn replace_texture(&mut self, old: C::Texture, new: C::Texture) {
+        for class in &mut self.classes { if class.texture == old { class.texture = new; } }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> FoliagePass<C> {
-        FoliagePass { classes: vec![], on: true, input: vec![0.0; INPUT_LEN], model_views: HashMap::new(), map_matrices: HashMap::new(), models: std::collections::HashSet::new() }
+        FoliagePass { classes: vec![], input: vec![0.0; INPUT_LEN], model_views: HashMap::new(), map_matrices: HashMap::new(), models: std::collections::HashSet::new() }
     }
 
     // A class: three's program for its cards (core.add_program's), its
@@ -323,9 +326,6 @@ impl<C: HasContext> FoliagePass<C> {
     // Each class's cards over its selected patches, as three draws them:
     // depth tested and written, both sides, alpha to coverage, no blending.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
-        if !self.on {
-            return;
-        }
         let mut view_matrix = [0.0f32; 16];
         view_matrix.copy_from_slice(&core.frame[16..32]);
         let fog_range = Value::F(2, [core.frame[68], core.frame[69], 0.0, 0.0]);

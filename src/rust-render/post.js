@@ -8,8 +8,7 @@
 // material as the step is written, as three's postStep sets them); the
 // renderer uses source-owned programs for tagged post/HUD materials and the
 // compiled-source bridge for unported materials (Kind::Plain). A refused step
-// leaves the whole chain to three. The temporal commit (`after`) runs once,
-// whoever drew the steps.
+// stops the battle. The temporal commit (`after`) runs once per completed chain.
 import * as THREE from "three";
 import { ownedProgram } from "./programs.js";
 import { applyValues } from "../render-passes.js";
@@ -84,7 +83,7 @@ export function plainProgram(core, material, attributes) {
     try {
       entry = { id: core.rust.add_program(PLAIN, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes, uniforms.map((u) => u.name).join(",")), uniforms, attributes: locations };
     } catch (error) {
-      core.errors.push(`plain p${threeProgram.id}: ${String(error).slice(0, 300)}`);
+      core.fail(error);
     }
   } else core.errors.push(`plain p${threeProgram.id}: ${uniforms.filter((u) => !u.type || u.size !== 1).map((u) => u.name).join(" ")}`);
   plainPrograms.set(threeProgram, entry);
@@ -141,7 +140,7 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
     const p = core.renderer.properties.get(value);
     // An image three would upload as it draws.
     if (!value.isRenderTargetTexture && value.version > 0 && p.__version !== value.version && value.image) core.renderer.initTexture(value);
-    out[o + 2] = p.__webglTexture ? core.texture(value) : -1;
+    out[o + 2] = core.texture(value);
     return true;
   }
   if (typeof value === "number") { out[o + 2] = value; return true; }
@@ -170,10 +169,21 @@ class PostPass {
   // is a pass the renderer has a program for; true when it drew them.
   cover(renderer, steps) {
     const core = this.core;
-    if (!core.enabled || !core.active || this.on === false || !steps.length || steps.length > MAX_STEPS) return false;
+    if (!steps.length || steps.length > MAX_STEPS) return false;
     for (const step of steps) {
-      if (!step.pass || !ownedProgram(core, step.pass.material.userData.bfeProgram, ATTRIBUTES)) return false;
+      if (!step.pass) return false;
+      const program=ownedProgram(core,step.pass.material.userData.bfeProgram,ATTRIBUTES);
       if (step.target && this.target(step.target) < 0) return false;
+      // Sampler registration may grow memory; complete it before draw() takes
+      // shared views. Values supplied by a later step are registered there too.
+      for(const uniform of program.uniforms){
+        const value=step.values && Object.hasOwn(step.values,uniform.name)?step.values[uniform.name]:step.pass.material.uniforms?.[uniform.name]?.value;
+        if(value?.isTexture){
+          const props=renderer.properties.get(value);
+          if(!value.isRenderTargetTexture && value.version>0 && props.__version!==value.version && value.image)renderer.initTexture(value);
+          core.texture(value);
+        }
+      }
     }
     this.pending = steps;
     this.complete = false;
@@ -182,16 +192,12 @@ class PostPass {
     return this.complete;
   }
 
-  // Off (this pass alone): three draws the post passes.
-  setActive(on) {
-    this.on = on;
-  }
 
   // A target of three's, by its colour texture (made again on a resize).
   target(target) {
     const core = this.core;
-    let handle = core.renderer.properties.get(target.texture).__webglTexture;
-    if (!handle) { core.renderer.initRenderTarget(target); handle = core.renderer.properties.get(target.texture).__webglTexture; }
+    core.renderer.initRenderTarget(target);
+    const handle = core.renderer.properties.get(target.texture).__webglTexture;
     if (!handle) throw Error("Post target allocation failed");
     let id = this.targets.get(handle);
     if (id === undefined) {

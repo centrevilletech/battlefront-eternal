@@ -1,7 +1,7 @@
 # Renderer smoke check
 
 `node tools/renderer-smoke.mjs warp` runs the committed Rust renderer WASM
-and three.js in Electron on Windows, requesting ANGLE D3D11 WARP. It fails
+in Electron on Windows, requesting ANGLE D3D11 WARP. It fails
 if the unmasked renderer does not identify Microsoft software D3D11. No
 prepared game directory, downloads of game content, or game loader are used.
 The workflow-dispatch-only `renderer-smoke` job in CI uses GitHub-hosted
@@ -13,18 +13,32 @@ command with `swiftshader` selects ANGLE SwiftShader. A Linux installation
 without a configured Electron sandbox can set `BFE_SMOKE_NO_SANDBOX=1` for
 this isolated test process.
 
-Each backend runs with WEBGL_multi_draw, then with that extension hidden to
-exercise the repeated-draw fallback. A successful run requires:
+At startup the launcher reads every `rust/bfe-render/shaders/*/manifest.json`.
+It passes the discovered keys through a temporary catalog to Electron, which
+registers every variant through Rust before drawing the fixtures. No family or
+variant list is hardcoded. Reports include each variant's compile/link result,
+shader/link call counts, cache status and elapsed milliseconds, plus compile
+milliseconds per family. Rejected variants are reported by key. CI retains the
+JSON-lines report as `renderer-smoke-<backend>`; local runs can save it with
+`BFE_SMOKE_OUTPUT`. These are registration/driver-wait timings; a new context
+can still reuse the driver's disk shader cache.
 
-- Every compiled program links, every observed draw and frame is free of
-  WebGL errors, and Rust remains enabled without per-item fallback errors.
+Each backend runs with WEBGL_multi_draw, then with that extension hidden to
+exercise repeated Rust draws. The driver process has a twelve-minute limit
+within the CI job's fifteen-minute limit. A successful run requires:
+
+- Every manifest variant compiles and links. Every declared post/HUD program
+  also draws; all other programs instantiated by the fixture link. Every observed draw and frame is free of
+  WebGL errors, and the required Rust renderer reports no errors.
 - All 15 Rust pass counters report actual draws: world, instances, far,
   terrain, transparent, effects, foliage, view, post, HUD, water, shadow,
-  motion, canopies and screen.
-- The generated scene is visible and its alternating three/Rust frames
-  match with at most two levels of difference per RGB channel. Repeated
-  frames from either owner must also be stable. The motion target is
-  compared separately.
+  motion, canopies and screen. Both FXAA variants and bilinear, spatial and
+  temporal post passes execute. A repeated temporal sequence is pixel-exact.
+- The generated scene is visible, repeated Rust frames are stable, and the
+  unlit HUD texture matches its known generated RGB colour. The motion target
+  contains nonzero velocity and is stable across repeated Rust draws.
+- Forced context loss and restoration rebuild the Rust resources and reproduce
+  the generated frame. The battle draw guard records no three.js calls.
 - Terrain has two separated visible index runs, an unpainted layer between
   painted layers, and a deliberately prebound comparison texture on the
   unpainted layer's unit. Rust must replace it with its empty color texture
@@ -33,15 +47,13 @@ exercise the repeated-draw fallback. A successful run requires:
 The report prints the renderer, Electron/Chromium versions, program count,
 pass counters, multi-draw count and individual assertions. Pixel failures
 remain failures; the report can contain passing assertions alongside them.
-The water case also delegates just the near-water pass back to three as a
-diagnostic, while retaining the full Rust water comparison as a gate.
 
-This checks the programs instantiated by these fixtures. It cannot enumerate
-every game material, shader define combination, effect, texture format or
-rendering configuration. The scene covers bump on/off, shadows, alpha
-blending, skinned and rigid instances, bloom and soft focus, but is not a
-qualification of all temporal-upscaling modes or game scenes. Two engines
-can also share a shader bug: matching pixels alone cannot detect an
+The catalog check covers every declared Rust-owned source variant, including
+families added later. Generated draws exercise a smaller set of material and
+phase contracts; they cannot enumerate unported game materials, shader define
+combinations, effects, texture formats or rendering configurations. The scene covers bump on/off, shadows, alpha
+blending, skinned and rigid instances, bloom and soft focus, including settings changes, but does not qualify all game scenes. A renderer and its fixtures
+can share a shader bug: stable pixels alone cannot detect an
 unwanted texture fetch hoisted by a compiler. WARP exercises the Windows
 shader translation/compiler/runtime path, not physical GPU drivers, VRAM
 pressure, device removal, or GPU performance.

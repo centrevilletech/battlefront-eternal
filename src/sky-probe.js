@@ -52,8 +52,8 @@ export class SkyProbe {
   }
 
   // The six faces, as CubeCamera.update draws them, each drawn by the Rust
-  // renderer's far pass where it draws all of it (src/rust-render: the probe
-  // phase), else by three. The mipmaps come after the last face.
+  // renderer's far pass (src/rust-render: the required probe phase).
+  // The mipmaps come after the last face, once every level-zero face is ready.
   capture(renderer, scene) {
     const camera = this.camera, target = this.target, rust = this.graphics.rust;
     if (camera.parent === null) camera.updateMatrixWorld();
@@ -69,7 +69,7 @@ export class SkyProbe {
     camera.children.forEach((face, i) => {
       if (i === 5) target.texture.generateMipmaps = mipmaps;
       renderer.setRenderTarget(target, i, camera.activeMipmapLevel);
-      if (!rust?.cover("probe", renderer, scene, face)) renderer.render(scene, face);
+      rust.cover("probe", renderer, scene, face);
     });
     renderer.setRenderTarget(current, currentFace, currentLevel);
     renderer.xr.enabled = xr;
