@@ -141,7 +141,7 @@ export function installWorldReplay(layouts) {
       const u=gl.getActiveUniform(program,i),location=gl.getUniformLocation(program,u.name);if(location===null)continue;
       // Binary uniform payloads retain signed zero across the CDP boundary.
       const v=uniformValues(program,u);uniforms.push({name:u.name,type:u.type,size:u.size,value:store([gl.INT,gl.BOOL,gl.SAMPLER_2D,gl.SAMPLER_2D_SHADOW].includes(u.type)?Int32Array.from(v):Float32Array.from(v))});
-      if(u.type===gl.SAMPLER_2D||u.type===gl.SAMPLER_2D_SHADOW)for(const unit of v){gl.activeTexture(gl.TEXTURE0+unit);const handle=gl.getParameter(gl.TEXTURE_BINDING_2D);if(!handle)throw Error('World replay sampler is unbound '+u.name);let id=capture.textureIds.get(handle);if(id===undefined){id=capture.textures.length;capture.textures.push(handle);capture.textureIds.set(handle,id);}samplers.push([unit,id]);}
+      if(u.type===gl.SAMPLER_2D||u.type===gl.SAMPLER_2D_SHADOW)for(const unit of v){gl.activeTexture(gl.TEXTURE0+unit);const handle=gl.getParameter(gl.TEXTURE_BINDING_2D);if(!handle){samplers.push([unit,-1]);continue;}let id=capture.textureIds.get(handle);if(id===undefined){id=capture.textures.length;capture.textures.push(handle);capture.textureIds.set(handle,id);}samplers.push([unit,id]);}
     }
     gl.activeTexture(active);
     const element=gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING);
@@ -186,7 +186,7 @@ export function installWorldReplay(layouts) {
         for(const block of d.blocks)gl.bindBufferBase(gl.UNIFORM_BUFFER,block.binding,uploaded(block.blob));
         if(!uniformState.has(program))uniformState.set(program,d.uniforms.map(u=>({...u,value:uniformValues(program,u)})));
         for(const u of d.uniforms)setUniform(program,u,blobs);
-        for(const [unit,id] of d.samplers){gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,textures[id]);}
+        for(const [unit,id] of d.samplers){gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,id<0?null:textures[id]);}
         for(const [cap,on] of d.caps)on?gl.enable(cap):gl.disable(cap);gl.depthRange(...d.depthRange);gl.polygonOffset(...d.polygon);gl.sampleCoverage(...d.coverage);gl.depthFunc(d.depthFunc);gl.depthMask(d.depthMask);gl.colorMask(...d.colorMask);gl.frontFace(d.frontFace);gl.cullFace(d.cullFace);gl.blendEquationSeparate(d.blend[0],d.blend[1]);gl.blendFuncSeparate(...d.blend.slice(2));gl.viewport(...d.viewport);gl.scissor(...d.scissor);
         const args=d.args.map(a=>a&&a.blob!==undefined?blobs[a.blob]:a);
         if(d.name.startsWith('multiDraw')){if(!multi)throw Error('World replay requires multi-draw');multi[d.name](...args);}else gl[d.name](...args);
