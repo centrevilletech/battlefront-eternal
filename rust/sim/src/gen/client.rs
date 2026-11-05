@@ -5,6 +5,100 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
+pub enum ClientOp {
+    #[default] ConfigureActor = 0,
+    ConfigureWeapon = 1,
+    Predict = 2,
+    Reset = 3,
+    ConfigureMuzzles = 4,
+}
+
+impl ClientOp {
+    pub const NAMES: [&'static str; 5] = ["configureActor", "configureWeapon", "predict", "reset", "configureMuzzles"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(ClientOp::ConfigureActor),
+            1 => Some(ClientOp::ConfigureWeapon),
+            2 => Some(ClientOp::Predict),
+            3 => Some(ClientOp::Reset),
+            4 => Some(ClientOp::ConfigureMuzzles),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ClientMode {
+    #[default] Actor = 0,
+    Mounted = 1,
+}
+
+impl ClientMode {
+    pub const NAMES: [&'static str; 2] = ["actor", "mounted"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(ClientMode::Actor),
+            1 => Some(ClientMode::Mounted),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ClientActorKind {
+    #[default] Soldier = 0,
+    Droideka = 1,
+}
+
+impl ClientActorKind {
+    pub const NAMES: [&'static str; 2] = ["soldier", "droideka"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(ClientActorKind::Soldier),
+            1 => Some(ClientActorKind::Droideka),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ClientValueKind {
+    #[default] Undefined = 0,
+    Null = 1,
+    False = 2,
+    True = 3,
+    Number = 4,
+    String = 5,
+    Array = 6,
+    Object = 7,
+}
+
+impl ClientValueKind {
+    pub const NAMES: [&'static str; 8] = ["undefined", "null", "false", "true", "number", "string", "array", "object"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(ClientValueKind::Undefined),
+            1 => Some(ClientValueKind::Null),
+            2 => Some(ClientValueKind::False),
+            3 => Some(ClientValueKind::True),
+            4 => Some(ClientValueKind::Number),
+            5 => Some(ClientValueKind::String),
+            6 => Some(ClientValueKind::Array),
+            7 => Some(ClientValueKind::Object),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ClientHeld {
     #[default] Forward = 0,
     Backward = 1,
@@ -72,6 +166,84 @@ impl ClientAction {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClientWeapons {
+    pub count: u32,
+}
+
+impl ClientWeapons {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = self.count as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            count: word_u32(row[0]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClientArsenalTail {
+    pub primary: f64,
+    pub secondary: f64,
+    pub zoom_step: f64,
+    pub barrels_count: u32,
+}
+
+impl ClientArsenalTail {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.primary;
+        row[1] = self.secondary;
+        row[2] = self.zoom_step;
+        row[3] = self.barrels_count as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            primary: row[0],
+            secondary: row[1],
+            zoom_step: row[2],
+            barrels_count: word_u32(row[3]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClientBarrelResult {
+    pub barrel: f64,
+    pub written: bool,
+}
+
+impl ClientBarrelResult {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.barrel;
+        row[1] = if self.written { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            barrel: row[0],
+            written: row[1] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClientMount {
     pub advance: bool,
     pub tow: bool,
@@ -125,7 +297,7 @@ pub struct ClientFrame {
     pub generation: f64,
     pub source: f64,
     pub authority_tick: f64,
-    pub mode: u32,
+    pub mode: ClientMode,
     pub mounts_at: u32,
     pub mounts_count: u32,
     pub world: u32,
@@ -165,7 +337,7 @@ impl ClientFrame {
         row[2] = self.generation;
         row[3] = self.source;
         row[4] = self.authority_tick;
-        row[5] = self.mode as f64;
+        row[5] = self.mode as u8 as f64;
         row[6] = self.mounts_at as f64;
         row[7] = self.mounts_count as f64;
         row[8] = self.world as f64;
@@ -203,7 +375,7 @@ impl ClientFrame {
             generation: row[2],
             source: row[3],
             authority_tick: row[4],
-            mode: word_u32(row[5]),
+            mode: ClientMode::from_u8(word_u32(row[5]) as u8).unwrap_or_default(),
             mounts_at: word_u32(row[6]),
             mounts_count: word_u32(row[7]),
             world: word_u32(row[8]),

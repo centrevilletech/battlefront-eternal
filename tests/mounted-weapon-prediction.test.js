@@ -1,3 +1,4 @@
+import { instrumentClientPrediction } from './fixtures/client-prediction-diagnostics.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -17,7 +18,7 @@ const commands=Array.from({length:90},(_,i)=>({sequence:i+1,tick:i+1,generation:
 test('one mounted session matches frozen timers, ammo, heat and barrel checkpoints and restores the authority',async()=>{
  const text=gunzipSync(readFileSync(new URL('./fixtures/prediction-reference/mounted.json.gz',import.meta.url))).toString('utf8').trimEnd();
  assert.equal(createHash('sha256').update(text).digest('hex'),'e9dc569aaa66b0ebba9ae9afa57eebbd8f83942fe74e7b81f2abdd6992b23050');
- const instance=await loadSim(),course=actorCourse(await loadRayKernel(instance)),session=createClientPrediction(instance,course.world);
+ const instance=await loadSim(),course=actorCourse(await loadRayKernel(instance)),session=instrumentClientPrediction(createClientPrediction(instance,course.world));
  try {
   for(const [scenario,frames] of Object.entries(JSON.parse(text))) {
    const entry={state:new Weapon(def,{random:()=>.5}),barrel:0,muzzles:scenario==='no-muzzles'?[]:[{}]},turret={weapon:entry.state,barrel:0};

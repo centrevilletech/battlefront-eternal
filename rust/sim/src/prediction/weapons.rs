@@ -6,7 +6,7 @@ use crate::combat::defs::{Js, JsObj, WeaponClass, WeaponDefs, K};
 use crate::combat::weapons::{
     Admission, Aim, Arsenal, ArsenalInput, Shot, ShotKind, Trigger, WeaponDraws,
 };
-use crate::gen::{Posture, Weapon};
+use crate::gen::{Posture, Weapon, ClientValueKind, ClientWeapons, ClientArsenalTail, ClientBarrelResult};
 use crate::store::DefId;
 use jsrt::conv::{js_max, js_mod};
 use std::rc::Rc;
@@ -65,14 +65,15 @@ impl<'a> Reader<'a> {
         if depth > 16 {
             return Err(INVALID);
         }
-        Ok(match self.count()? {
-            0 => Js::Undefined,
-            1 => Js::Null,
-            2 => Js::Bool(false),
-            3 => Js::Bool(true),
-            4 => Js::Num(self.word()?),
-            5 => Js::Str(self.text()?),
-            6 => {
+        let tag = u8::try_from(self.count()?).ok().and_then(ClientValueKind::from_u8).ok_or(INVALID)?;
+        Ok(match tag {
+            ClientValueKind::Undefined => Js::Undefined,
+            ClientValueKind::Null => Js::Null,
+            ClientValueKind::False => Js::Bool(false),
+            ClientValueKind::True => Js::Bool(true),
+            ClientValueKind::Number => Js::Num(self.word()?),
+            ClientValueKind::String => Js::Str(self.text()?),
+            ClientValueKind::Array => {
                 let n = self.count()?;
                 if n > self.words.len() - self.at {
                     return Err(INVALID);
@@ -83,7 +84,7 @@ impl<'a> Reader<'a> {
                 }
                 Js::Arr(Rc::new(values))
             }
-            7 => {
+            ClientValueKind::Object => {
                 let n = self.count()?;
                 if n > self.words.len() - self.at {
                     return Err(INVALID);
@@ -94,7 +95,6 @@ impl<'a> Reader<'a> {
                 }
                 Js::Obj(Rc::new(JsObj { fields, def: None }))
             }
-            _ => return Err(INVALID),
         })
     }
     fn done(&self) -> Result<(), &'static str> {
@@ -386,17 +386,24 @@ impl Session {
     }
 
     fn write(&mut self) {
-        self.output.push(self.weapons.len() as f64);
+        let count = ClientWeapons { count: self.weapons.len() as u32 };
+        self.output.resize(ClientWeapons::WORDS, 0.0);
+        count.put(&mut self.output, &mut Vec::new());
         for weapon in &self.weapons {
             let at = self.output.len();
             self.output.resize(at + Weapon::WORDS, 0.0);
             weapon.put(&mut self.output[at..], &mut Vec::new());
         }
-        self.output.extend(self.selected);
-        self.output.push(self.zoom);
-        self.output.push(self.barrels.len() as f64);
+        // client-prediction.js reads the same generated selection/zoom tail.
+        // Preserve the old Session.write word order for frozen checkpoints.
+        let tail = ClientArsenalTail { primary: self.selected[0], secondary: self.selected[1],
+            zoom_step: self.zoom, barrels_count: self.barrels.len() as u32 };
+        let at = self.output.len(); self.output.resize(at + ClientArsenalTail::WORDS, 0.0);
+        tail.put(&mut self.output[at..], &mut Vec::new());
         for (value, written) in self.barrels.iter().zip(&self.barrel_writes) {
-            self.output.extend([*value, *written as u8 as f64]);
+            let row = ClientBarrelResult { barrel: *value, written: *written };
+            let at = self.output.len(); self.output.resize(at + ClientBarrelResult::WORDS, 0.0);
+            row.put(&mut self.output[at..], &mut Vec::new());
         }
         self.output.push(self.shots.len() as f64);
         for shot in &self.shots {

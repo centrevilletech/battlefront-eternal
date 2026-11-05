@@ -1,3 +1,4 @@
+import { instrumentClientPrediction } from './fixtures/client-prediction-diagnostics.js';
 // Two rendered clients using the real desktop identity bridge and the native UDP
 // transport (BFE_TEST_ELECTRON=1: actual Electron, preload and network process).
 // Start bfeserver with owned Theed content first. No retail data enters artifacts.
@@ -142,6 +143,7 @@ try {
       };
     }
   })));
+  await Promise.all(pages.map(page => page.evaluate(instrumentClientPrediction)));
   const initial = await Promise.all(pages.map(page => page.evaluate(async cpu => { await __bf.ready; if(cpu){__bf.graphics.render=()=>{};__bf.graphics.renderer.render=()=>{};} __bf.begin(); return { id: __bf.playerUnit.id, tick: __bf.worldClock.tick, position: __bf.playerUnit.position.toArray() }; },process.env.BFE_TEST_CPU==='1')));
   console.log('connected', JSON.stringify(initial));
   {

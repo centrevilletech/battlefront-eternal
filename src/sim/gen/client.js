@@ -3,13 +3,142 @@ import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { LastGunMirror, exportLastGun, putLastGun, sameLastGun, syncLastGun } from "./units.js";
 
+export const ClientOp_NAMES = ["configureActor","configureWeapon","predict","reset","configureMuzzles"];
+export const ClientOp_INDEX = new Map(ClientOp_NAMES.map((name, i) => [name, i]));
+
+export const ClientMode_NAMES = ["actor","mounted"];
+export const ClientMode_INDEX = new Map(ClientMode_NAMES.map((name, i) => [name, i]));
+
+export const ClientActorKind_NAMES = ["soldier","droideka"];
+export const ClientActorKind_INDEX = new Map(ClientActorKind_NAMES.map((name, i) => [name, i]));
+
+export const ClientValueKind_NAMES = ["undefined","null","false","true","number","string","array","object"];
+export const ClientValueKind_INDEX = new Map(ClientValueKind_NAMES.map((name, i) => [name, i]));
+
 export const ClientHeld_NAMES = ["forward","backward","right","left","turnRight","turnLeft","primary","secondary"];
 export const ClientHeld_INDEX = new Map(ClientHeld_NAMES.map((name, i) => [name, i]));
 
 export const ClientAction_NAMES = ["jump","crouch","prone","use","firePrimary","fireSecondary","reload","nextPrimary","previousPrimary","nextSecondary","zoom"];
 export const ClientAction_INDEX = new Map(ClientAction_NAMES.map((name, i) => [name, i]));
 
+export const CLIENT_WEAPONS_WORDS = 1;
+export const CLIENT_WEAPONS_OFFSETS = Object.freeze({ count: 0 });
+
+export class ClientWeaponsMirror {
+  constructor() {
+    this.count = 0;
+  }
+}
+
+export function syncClientWeapons(b, f, at, h, m) {
+  m.count = f[at + 0];
+  return m;
+}
+
+export function putClientWeapons(b, o, f, at, heap) {
+  f[at + 0] = o.count;
+}
+
+export function sameClientWeapons(a, b) {
+  if (!Object.is(a.count, b.count)) return ".count";
+  return null;
+}
+
+export function exportClientWeapons(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.count = o.count;
+  return v;
+}
+
+export const CLIENT_ARSENAL_TAIL_WORDS = 4;
+export const CLIENT_ARSENAL_TAIL_OFFSETS = Object.freeze({ primary: 0, secondary: 1, zoomStep: 2, barrelsCount: 3 });
+
+export class ClientArsenalTailMirror {
+  constructor() {
+    this.primary = NaN;
+    this.secondary = NaN;
+    this.zoomStep = NaN;
+    this.barrelsCount = 0;
+  }
+}
+
+export function syncClientArsenalTail(b, f, at, h, m) {
+  m.primary = f[at + 0];
+  m.secondary = f[at + 1];
+  m.zoomStep = f[at + 2];
+  m.barrelsCount = f[at + 3];
+  return m;
+}
+
+export function putClientArsenalTail(b, o, f, at, heap) {
+  f[at + 0] = o.primary;
+  f[at + 1] = o.secondary;
+  f[at + 2] = o.zoomStep;
+  f[at + 3] = o.barrelsCount;
+}
+
+export function sameClientArsenalTail(a, b) {
+  if (!Object.is(a.primary, b.primary)) return ".primary";
+  if (!Object.is(a.secondary, b.secondary)) return ".secondary";
+  if (!Object.is(a.zoomStep, b.zoomStep)) return ".zoomStep";
+  if (!Object.is(a.barrelsCount, b.barrelsCount)) return ".barrelsCount";
+  return null;
+}
+
+export function exportClientArsenalTail(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.primary = o.primary;
+  v.secondary = o.secondary;
+  v.zoomStep = o.zoomStep;
+  v.barrelsCount = o.barrelsCount;
+  return v;
+}
+
+export const CLIENT_BARREL_RESULT_WORDS = 2;
+export const CLIENT_BARREL_RESULT_OFFSETS = Object.freeze({ barrel: 0, written: 1 });
+
+export class ClientBarrelResultMirror {
+  constructor() {
+    this.barrel = NaN;
+    this.written = false;
+  }
+}
+
+export function syncClientBarrelResult(b, f, at, h, m) {
+  m.barrel = f[at + 0];
+  m.written = f[at + 1] !== 0;
+  return m;
+}
+
+export function putClientBarrelResult(b, o, f, at, heap) {
+  f[at + 0] = o.barrel;
+  f[at + 1] = o.written ? 1 : 0;
+}
+
+export function sameClientBarrelResult(a, b) {
+  if (!Object.is(a.barrel, b.barrel)) return ".barrel";
+  if (!Object.is(a.written, b.written)) return ".written";
+  return null;
+}
+
+export function exportClientBarrelResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.barrel = o.barrel;
+  v.written = o.written;
+  return v;
+}
+
 export const CLIENT_MOUNT_WORDS = 2;
+export const CLIENT_MOUNT_OFFSETS = Object.freeze({ advance: 0, tow: 1 });
 
 export class ClientMountMirror {
   constructor() {
@@ -46,6 +175,7 @@ export function exportClientMount(o, cx) {
 }
 
 export const CLIENT_MUZZLES_WORDS = 2;
+export const CLIENT_MUZZLES_OFFSETS = Object.freeze({ barrels: 0 });
 
 export class ClientMuzzlesMirror {
   constructor() {
@@ -77,6 +207,7 @@ export function exportClientMuzzles(o, cx) {
 }
 
 export const CLIENT_FRAME_WORDS = 35;
+export const CLIENT_FRAME_OFFSETS = Object.freeze({ epoch: 0, identity: 1, generation: 2, source: 3, authorityTick: 4, mode: 5, mountsAt: 6, mountsCount: 7, world: 8, ignored: 9, movement: 10, dead: 11, underwater: 12, shield: 13, actorAt: 14, actorWords: 15, correctionAt: 16, correctionBytes: 17, weaponsAt: 18, weaponsWords: 19, flagsAt: 20, flagsCount: 21, commandsAt: 22, commandsCount: 23, crowdAt: 24, crowdCount: 25, held: 26, presentedThrough: 27, cosmeticSlots: 28, mouseScale: 29, invert: 30, kick: 31, checkTick: 34 });
 
 export class ClientFrameMirror {
   constructor() {
@@ -85,7 +216,7 @@ export class ClientFrameMirror {
     this.generation = NaN;
     this.source = NaN;
     this.authorityTick = NaN;
-    this.mode = 0;
+    this.mode = "actor";
     this.mountsAt = 0;
     this.mountsCount = 0;
     this.world = 0;
@@ -122,7 +253,7 @@ export function syncClientFrame(b, f, at, h, m) {
   m.generation = f[at + 2];
   m.source = f[at + 3];
   m.authorityTick = f[at + 4];
-  m.mode = f[at + 5];
+  m.mode = ClientMode_NAMES[f[at + 5]];
   m.mountsAt = f[at + 6];
   m.mountsCount = f[at + 7];
   m.world = f[at + 8];
@@ -159,7 +290,7 @@ export function putClientFrame(b, o, f, at, heap) {
   f[at + 2] = o.generation;
   f[at + 3] = o.source;
   f[at + 4] = o.authorityTick;
-  f[at + 5] = o.mode;
+  f[at + 5] = ClientMode_INDEX.get(o.mode);
   f[at + 6] = o.mountsAt;
   f[at + 7] = o.mountsCount;
   f[at + 8] = o.world;
@@ -268,6 +399,7 @@ export function exportClientFrame(o, cx) {
 }
 
 export const CLIENT_COMMAND_WORDS = 16;
+export const CLIENT_COMMAND_OFFSETS = Object.freeze({ tick: 0, generation: 1, sequence: 2, sent: 3, held: 4, actions: 5, lookAt: 6, lookCount: 7, mouseScale: 8, invert: 10, primaryCount: 12, primaryId: 13, secondaryCount: 14, secondaryId: 15 });
 
 export class ClientCommandMirror {
   constructor() {
@@ -364,6 +496,7 @@ export function exportClientCommand(o, cx) {
 }
 
 export const CLIENT_LOOK_WORDS = 2;
+export const CLIENT_LOOK_OFFSETS = Object.freeze({ x: 0, y: 1 });
 
 export class ClientLookMirror {
   constructor() {
@@ -400,6 +533,7 @@ export function exportClientLook(o, cx) {
 }
 
 export const CLIENT_CROWD_WORDS = 6;
+export const CLIENT_CROWD_OFFSETS = Object.freeze({ position: 0, radius: 3, height: 4, center: 5 });
 
 export class ClientCrowdMirror {
   constructor() {
@@ -446,6 +580,7 @@ export function exportClientCrowd(o, cx) {
 }
 
 export const CLIENT_RESULT_WORDS = 23;
+export const CLIENT_RESULT_OFFSETS = Object.freeze({ tick: 0, continued: 1, sequence: 2, held: 3, ticks: 4, actorAt: 5, actorWords: 6, correctionAt: 7, correctionBytes: 8, weaponsAt: 9, weaponsWords: 10, shotsAt: 11, shotsCount: 12, beforeAt: 13, beforeShot: 14, lookYaw: 15, checkFound: 16, checkPosition: 17, kick: 20 });
 
 export class ClientResultMirror {
   constructor() {
@@ -567,6 +702,7 @@ export function exportClientResult(o, cx) {
 }
 
 export const CLIENT_SHOT_WORDS = 18;
+export const CLIENT_SHOT_OFFSETS = Object.freeze({ tick: 0, sequence: 1, press: 2, held: 3, button: 4, weapon: 5, level: 6, kind: 7, yaw: 8, pitch: 9, charge: 10, target: 11, targetGeneration: 12, swing: 13, actorAt: 14, visualGun: 15 });
 
 export class ClientShotMirror {
   constructor() {

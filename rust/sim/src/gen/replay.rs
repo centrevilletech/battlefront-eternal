@@ -2789,6 +2789,65 @@ impl BfCharacters {
     }
 }
 
+impl ClientWeapons {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientWeapons {
+            count: { let p = format!("{path}.count"); (int(v.get("count"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientArsenalTail {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientArsenalTail {
+            primary: { let p = format!("{path}.primary"); num(v.get("primary"), &p)? },
+            secondary: { let p = format!("{path}.secondary"); num(v.get("secondary"), &p)? },
+            zoom_step: { let p = format!("{path}.zoomStep"); num(v.get("zoomStep"), &p)? },
+            barrels_count: { let p = format!("{path}.barrelsCount"); (int(v.get("barrelsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Num(self.primary); fields.push(("primary", x)); }
+        { let x = Value::Num(self.secondary); fields.push(("secondary", x)); }
+        { let x = Value::Num(self.zoom_step); fields.push(("zoomStep", x)); }
+        { let x = Value::Num(self.barrels_count as f64); fields.push(("barrelsCount", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientBarrelResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientBarrelResult {
+            barrel: { let p = format!("{path}.barrel"); num(v.get("barrel"), &p)? },
+            written: { let p = format!("{path}.written"); boolean(v.get("written"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.barrel); fields.push(("barrel", x)); }
+        { let x = Value::Bool(self.written); fields.push(("written", x)); }
+        a.object("", fields)
+    }
+}
+
 impl ClientMount {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -2835,7 +2894,7 @@ impl ClientFrame {
             generation: { let p = format!("{path}.generation"); num(v.get("generation"), &p)? },
             source: { let p = format!("{path}.source"); num(v.get("source"), &p)? },
             authority_tick: { let p = format!("{path}.authorityTick"); num(v.get("authorityTick"), &p)? },
-            mode: { let p = format!("{path}.mode"); (int(v.get("mode"), &p, 0.0, u32::MAX as f64)? as u32) },
+            mode: { let p = format!("{path}.mode"); ClientMode::from_u8(name_of(v.get("mode"), &ClientMode::NAMES, &p)?).unwrap() },
             mounts_at: { let p = format!("{path}.mountsAt"); (int(v.get("mountsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
             mounts_count: { let p = format!("{path}.mountsCount"); (int(v.get("mountsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             world: { let p = format!("{path}.world"); (int(v.get("world"), &p, 0.0, u32::MAX as f64)? as u32) },
@@ -2874,7 +2933,7 @@ impl ClientFrame {
         { let x = Value::Num(self.generation); fields.push(("generation", x)); }
         { let x = Value::Num(self.source); fields.push(("source", x)); }
         { let x = Value::Num(self.authority_tick); fields.push(("authorityTick", x)); }
-        { let x = Value::Num(self.mode as f64); fields.push(("mode", x)); }
+        { let x = Value::Str(ClientMode::NAMES[self.mode as usize].to_string()); fields.push(("mode", x)); }
         { let x = Value::Num(self.mounts_at as f64); fields.push(("mountsAt", x)); }
         { let x = Value::Num(self.mounts_count as f64); fields.push(("mountsCount", x)); }
         { let x = Value::Num(self.world as f64); fields.push(("world", x)); }

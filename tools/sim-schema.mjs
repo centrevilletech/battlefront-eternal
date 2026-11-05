@@ -250,9 +250,16 @@ export function buildModel(files) {
       claim(name, where);
       // `$class`: the JavaScript class its objects are (a union of records
       // tells them apart by it). `$layout` exports its flat row size for
-      // phase boundaries; every other key is a field.
-      const { $class = null, $layout = false, ...plain } = fields;
-      model.records.set(name, { name, file, layout: $layout, classes: [$class ?? []].flat(), fields: Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`)) });
+      // phase boundaries; `$publish` lists mutable fields to assign directly
+      // from a generated mirror. Every other key is a field.
+      const { $class = null, $layout = false, $publish = [], ...plain } = fields;
+      if (!Array.isArray($publish) || new Set($publish).size !== $publish.length || $publish.some(name => !(name in plain))) fail(where, '$publish names distinct fields of this record');
+      const parsed = Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`));
+      // Publication may copy a vector or assign a scalar. A nested row, table
+      // or reference requires ownership rules; silently aliasing it is unsafe.
+      const publishTypes = new Set(['f64', 'f32', 'i32', 'u32', 'u8', 'bool', 'enum', 'vec3']);
+      for (const field of parsed) if ($publish.includes(field.name) && !publishTypes.has(field.type.base)) fail(where, '$publish supports scalar and vec3 fields');
+      model.records.set(name, { name, file, layout: $layout, publish: $publish, classes: [$class ?? []].flat(), fields: parsed });
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {
       const where = `${file} kind ${name}`;
@@ -1273,10 +1280,17 @@ function jsRecord(model, rec) {
   let at = 0;
   const placed = rec.fields.map((f) => { const p = { field: f, at }; at += words(model, f.type); return p; });
   return [
-    ...(rec.layout ? [`export const ${upper(rec.name)}_WORDS = ${at};`, ''] : []),
+    ...(rec.layout ? [`export const ${upper(rec.name)}_WORDS = ${at};`, `export const ${upper(rec.name)}_OFFSETS = Object.freeze({ ${placed.map(p => `${p.field.name}: ${p.at}`).join(', ')} });`, ''] : []),
     ...jsMirror(model, `${rec.name}Mirror`, rec.fields, false),
     ...jsSyncFn(model, `sync${rec.name}`, placed),
     ...jsPutFn(model, `put${rec.name}`, placed),
+    // Publication is a schema-owned whitelist: preserve live object identity
+    // and avoid a string-key loop on every predicted body and weapon.
+    ...(rec.publish.length ? [`export function publish${rec.name}(o, m) {`,
+      ...rec.publish.map(name => {
+        const f = rec.fields.find(field => field.name === name);
+        return f.type.base === 'vec3' ? `  ${jsGet(f)}.copy(m${jsKey(name)});` : `  ${jsGet(f)} = m${jsKey(name)};`;
+      }), '}', ''] : []),
     ...jsSameFn(model, rec.name, rec.fields),
     ...jsExportFn(model, rec.name, rec.fields),
   ];

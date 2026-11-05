@@ -133,7 +133,7 @@ fn mounted_input(tick: f64) -> Vec<f64> {
     ClientCommand { tick, generation: 1.0, sequence: tick, sent: true,
         held: bfe_sim::client::PRIMARY, actions: 1 << ClientAction::FirePrimary as u8, ..ClientCommand::default() }
         .put(&mut words[frame.commands_at as usize..], &mut Vec::new());
-    frame.mode = 1; frame.mounts_at = words.len() as u32; frame.mounts_count = 1;
+    frame.mode = bfe_sim::gen::ClientMode::Mounted; frame.mounts_at = words.len() as u32; frame.mounts_count = 1;
     words.resize(words.len() + ClientMount::WORDS, 0.0);
     ClientMount { advance: true, tow: false }.put(&mut words[frame.mounts_at as usize..], &mut Vec::new());
     frame.put(&mut words, &mut Vec::new()); words

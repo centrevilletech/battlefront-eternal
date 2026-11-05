@@ -1,3 +1,4 @@
+import { instrumentClientPrediction } from './fixtures/client-prediction-diagnostics.js';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
@@ -46,7 +47,7 @@ for (const [scenario, digest] of Object.entries(referenceDigests)) test(`${scena
   const frames=JSON.parse(text),kind=scenario.startsWith('soldier')?'soldier':'droideka';
   const instance=await loadSim(),course=actorCourse(await loadRayKernel(instance)),a=fixture(kind,course,scenario);
   if(scenario==='droideka-grenade')a.combat.arsenal.weapons[0].def.ordnance.base='grenade';
-  const session=createClientPrediction(instance,course.world),wa=new PredictionArsenal(),baseA=capture(a);
+  const session=instrumentClientPrediction(createClientPrediction(instance,course.world)),wa=new PredictionArsenal(),baseA=capture(a);
   let authority=0,pending=[],sequence=0,epoch=1;
   const edges=[];
   try {
@@ -89,7 +90,7 @@ for (const [scenario, digest] of Object.entries(referenceDigests)) test(`${scena
 
 test('session crowd facts move only the own body and callback failure restores the final pose', async () => {
   const instance=await loadSim(),rays=await loadRayKernel(instance),course=actorCourse(rays),unit=fixture('soldier',course);
-  const session=createClientPrediction(instance,course.world),weapons=new PredictionArsenal();
+  const session=instrumentClientPrediction(createClientPrediction(instance,course.world)),weapons=new PredictionArsenal();
   unit.soldier.position.x=1;unit.soldier.settled.copy(unit.soldier.position);
   const other={position:unit.soldier.position.clone().set(0,0,0),hitPosture:'stand'};
   try {
@@ -115,7 +116,7 @@ test('session crowd facts move only the own body and callback failure restores t
 
 test('backend resets retain the cosmetic horizon without replaying an already shown shot', async () => {
   const instance = await loadSim(), rays = await loadRayKernel(instance), course = actorCourse(rays), unit = fixture('soldier', course);
-  const session = createClientPrediction(instance, course.world), weapons = new PredictionArsenal();
+  const session = instrumentClientPrediction(createClientPrediction(instance, course.world)), weapons = new PredictionArsenal();
   const base = capture(unit), command = { tick: 1, generation: unit.generation, sequence: 1, down: ['Mouse0'], actions: ['firePrimary'], look: [] };
   try {
     weapons.begin(unit, { tick: 0 });
@@ -130,5 +131,29 @@ test('backend resets retain the cosmetic horizon without replaying an already sh
     const totals = Object.entries(session.transfers).reduce((out, [key, value]) => { out[key.endsWith('In') ? 'input' : 'output'] += value; return out; }, { input: 0, output: 0 });
     assert.equal(totals.input, session.counters.wordsIn);
     assert.equal(totals.output, session.counters.wordsOut);
+  } finally { weapons.dispose(); session.dispose(); course.dispose(); }
+});
+
+test('normal session has no metrics and retains frame rows across held-key replay', async () => {
+  const instance = await loadSim(), rays = await loadRayKernel(instance), course = actorCourse(rays), unit = fixture('soldier', course);
+  const session = createClientPrediction(instance, course.world), weapons = new PredictionArsenal();
+  const frame = session.frame, kick = frame.kick, result = session.result;
+  try {
+    assert.equal(Object.hasOwn(session, 'counters'), false);
+    assert.equal(Object.hasOwn(session, 'transfers'), false);
+    weapons.begin(unit, { tick: 0 });
+    session.predict(unit, [{ tick: 1, generation: unit.generation, sequence: 1, down: ['ArrowUp'], actions: [], look: [] }],
+      { epoch: 1, tick: 0, held: ['KeyW', 'KeyS', 'AltLeft'] });
+    const { ClientHeld_INDEX } = await import('../src/sim/gen/client.js');
+    const bit = name => 1 << ClientHeld_INDEX.get(name);
+    assert.equal(frame.held, bit('forward') | bit('backward') | bit('secondary'));
+    session.predict(unit, [], { epoch: 1, tick: 0, held: ['AltRight'] });
+    assert.equal(frame.held, bit('secondary'));
+    assert.equal(session.frame, frame);
+    assert.equal(session.frame.kick, kick);
+    assert.equal(session.result, result);
+    instrumentClientPrediction(session);
+    session.predict(unit, [], { epoch: 1, tick: 0 });
+    assert.equal(session.counters.calls, 1, 'only explicit test wiring records calls');
   } finally { weapons.dispose(); session.dispose(); course.dispose(); }
 });

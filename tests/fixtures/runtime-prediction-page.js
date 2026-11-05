@@ -1,4 +1,5 @@
 // Runs in the real page for browser and desktop correctness checks.
+// The runner explicitly installs client-prediction-diagnostics before entry.
 export async function exercisePredictionPage() {
   const b = __bf, c = b.client, sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const owner = b.predictionSession, start = { ...owner.counters };
