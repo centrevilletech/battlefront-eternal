@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { describe, zeroMaterial } from '../src/materials.js';
+import { describe, worldMaterial } from '../src/materials.js';
 import { Foliage } from '../src/foliage.js';
 
 for (const texture of ['yav_prop_treebillboard_03', 'yav_prop_bush1', 'nab2_prop_bark_branch']) {
   const record = { texture, flags: 6 };
   const look = describe(record);
-  const material = zeroMaterial(look.kind, look);
+  const material = worldMaterial(look.kind, look);
   assert.equal(material.transparent, false, 'foliage must write depth before transparent holograms');
   assert.equal(material.depthWrite, true);
   assert.equal(material.alphaToCoverage, true);

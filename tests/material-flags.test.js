@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { blendingOf, describe, zeroMaterial } from '../src/materials.js';
+import { blendingOf, describe, worldMaterial } from '../src/materials.js';
 import { partMaterial } from '../src/models.js';
 
 // MTRL 0x1 lit, 0x2 hard-edged, 0x4 blended, 0x40 baked, 0x80 additive. The
@@ -27,7 +27,7 @@ test('thatch and other hard-edged map buckets are opaque cutouts that write dept
     assert.equal(look.blending, null, record.texture);
     assert.equal(look.alphaTest, true, record.texture);
     assert.equal(look.doubleSided, true, `${record.texture}: every transparency flag draws both faces`);
-    const material = zeroMaterial(look.kind, look);
+    const material = worldMaterial(look.kind, look);
     assert.equal(material.transparent, false, record.texture);
     assert.equal(material.depthWrite, true, record.texture);
     assert.equal(material.side, THREE.DoubleSide, record.texture);
@@ -47,12 +47,12 @@ test('blended and additive materials still skip depth writes', () => {
   ]) {
     const look = describe(record);
     assert.equal(look.blending, blending, record.texture);
-    const material = zeroMaterial(look.kind, look);
+    const material = worldMaterial(look.kind, look);
     assert.equal(material.transparent, true, record.texture);
     assert.equal(material.depthWrite, false, record.texture);
     assert.equal(material.side, THREE.DoubleSide, record.texture);
   }
-  const opaque = zeroMaterial(describe({ texture: 'kas2_metals', flags: 1 }).kind, describe({ texture: 'kas2_metals', flags: 1 }));
+  const opaque = worldMaterial(describe({ texture: 'kas2_metals', flags: 1 }).kind, describe({ texture: 'kas2_metals', flags: 1 }));
   assert.equal(opaque.transparent, false);
   assert.equal(opaque.side, THREE.FrontSide);
 });

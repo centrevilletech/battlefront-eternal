@@ -560,14 +560,6 @@ function materialFor(kind, options, create) {
     ...THREE.UniformsUtils.clone(THREE.UniformsLib.lights),
     map: { value: options.map || null },
     bumpMap: { value: options.bumpMap || null },
-    layer1Map: { value: options.layer1Map || options.map || null },
-    detailMap: { value: options.detailMap || neutralTexture() },
-    layerScales: { value: new THREE.Vector2(...(options.layerScales || [8, 8])) },
-    // Where the far scene's low-res texture starts (the terrain's corner).
-    farOrigin: { value: new THREE.Vector2(...(options.farOrigin || [0, 0])) },
-    layerScale0: { value: new THREE.Vector4(8, 8, 8, 8) },
-    layerScale1: { value: new THREE.Vector4(8, 8, 8, 8) },
-    bakedLit: { value: new THREE.Vector3(...(options.bakedLit || [145 / 255, 120 / 255, 90 / 255])) },
     scroll: { value: new THREE.Vector2(...(options.scroll || [0, 0])) },
     specular: { value: new THREE.Vector4(THREE.MathUtils.clamp(exponent, 10, 100), r, g, b) },
     sunScale: { value: 1 },
@@ -577,6 +569,16 @@ function materialFor(kind, options, create) {
     localLightColors: localLighting.colors,
     localLightCount: localLighting.count,
   };
+  if (kind === "terrain") Object.assign(uniforms, {
+    layer1Map: { value: options.layer1Map || options.map || null },
+    detailMap: { value: options.detailMap || neutralTexture() },
+    layerScales: { value: new THREE.Vector2(...(options.layerScales || [8, 8])) },
+    // Where the far scene's low-res texture starts (the terrain's corner).
+    farOrigin: { value: new THREE.Vector2(...(options.farOrigin || [0, 0])) },
+    layerScale0: { value: new THREE.Vector4(8, 8, 8, 8) },
+    layerScale1: { value: new THREE.Vector4(8, 8, 8, 8) },
+    bakedLit: { value: new THREE.Vector3(...(options.bakedLit || [145 / 255, 120 / 255, 90 / 255])) },
+  });
   // The shared uniforms are shared objects: one change reaches every material.
   Object.assign(uniforms, lighting);
   const blended = Boolean(options.blending);
