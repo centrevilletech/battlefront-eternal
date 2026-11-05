@@ -111,31 +111,6 @@ async function attachSimStore(instance, ordnance, items) {
   return bridge;
 }
 
-// The ground hulls' phase on the battle's instance of the module, through
-// the store (src/sim/runtime.js SimBridge: the hulls written in before the
-// phase and synced after it, the imports it asks the battle).
-// map: the death regions' data and the kill height; pack: the vehicle pack
-// the hulls' rigs are made from (VehiclesSim).
-async function attachHullPhase(instance, vehicles, map, pack, unitClass) {
-  const [{ bridgeFor }, { attachVehiclesSim }] = await Promise.all([import("./sim/runtime.js"), import("./vehicles-sim.js")]);
-  // The instance's one bridge, joined if the rounds made it (bridgeFor).
-  const bridge = bridgeFor(instance, { classes: { Unit, Vehicle } });
-  bridge.reserve(4 << 20);
-  return attachVehiclesSim(vehicles, bridge, map, pack, unitClass);
-}
-// The hulls' input batch on the battle's instance of the module (the
-// leases, hulls and riders written in before it and synced after it), on
-// the instance's one bridge (src/seats-sim.js).
-async function attachSeatPhase(instance, vehicles) {
-  const [{ bridgeFor }, { attachSeatsSim }, { Soldier }, { Droideka }, { SeatLease, SeatUnit }, { Turret }, { attachNetworkSeatsSim }] = await Promise.all([
-    import("./sim/runtime.js"), import("./seats-sim.js"), import("./soldier.js"), import("./droideka.js"), import("./seats.js"), import("./props.js"), import("./runtime/network-seats-sim.js")]);
-  const bridge = bridgeFor(instance, { classes: { Unit, Vehicle, Soldier, Droideka, SeatLease, SeatUnit, Turret } });
-  bridge.reserve(4 << 20);
-  const seats = attachSeatsSim(vehicles, bridge);
-  attachNetworkSeatsSim(vehicles, bridge);
-  return seats;
-}
-
 // A world's units' phase on the battle's instance of the module, through the
 // store's one bridge (src/units-sim.js).
 async function attachUnitsPhase(instance, game) {
@@ -476,15 +451,6 @@ async function start() {
   // and keeps the JavaScript, so its worlds cannot change. Poses made
   // before this take the kernel up as they clear.
   const wantAnim = !headless && params.get("anim") !== "js";
-  // A world's ground hulls on the module (src/vehicles-sim.js), where it asks
-  // for them: ?hulls=rust, or under Node BFE_HULLS=rust. Off by default until
-  // the hull phase moves whole (flight, seats and fire with it).
-  const wantF2 = headless && (params.get("f2") ?? globalThis.process?.env?.BFE_F2) === "rust";
-  const wantHulls = !wantF2 && headless && (params.get("hulls") ?? globalThis.process?.env?.BFE_HULLS) === "rust";
-  // The hulls' seats' input batch on the module (src/seats-sim.js), where a
-  // world asks for it: ?seats=rust, or under Node BFE_SEATS=rust. Off by
-  // default until the seats move whole with the hulls (F2).
-  const wantSeats = !wantF2 && headless && (params.get("seats") ?? globalThis.process?.env?.BFE_SEATS) === "rust";
   // A world's combats on the module (src/combat-sim.js), where it asks for
   // them: ?combat=rust, or under Node BFE_COMBAT=rust. Off by default until
   // units and combat move over together.
@@ -1352,16 +1318,13 @@ async function start() {
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
     vehicles.seatRandom = seatRandom;
-    if (wantF2 && simInstance) {
+    if (headless) {
       const [{ bridgeFor }, { attachF2 }] = await Promise.all([import('./sim/runtime.js'), import('./f2-sim.js')]);
       await attachF2(vehicles, bridgeFor(simInstance, { classes: { Unit, Vehicle } }),
         { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
         { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) },
-        Unit, params.get('f2Debug') === '1');
+        Unit);
     }
-    if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles, { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
-      { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) }, Unit);
-    if (wantSeats && simInstance) await attachSeatPhase(simInstance, vehicles);
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;
@@ -1395,7 +1358,7 @@ async function start() {
   gunner.random = gameplayRandom;
   turretSeats = new TurretSeats({ live, ordnance, collision, units });
   turretSeats.seatRandom = seatRandom;
-  if (vehicles?.f2) vehicles.f2.seats.attachTurrets(turretSeats);
+  if (headless) vehicles.f2.seats.attachTurrets(turretSeats);
   // The destructible posts (src/objectives.js): each its post's building,
   // and a target in the units registry while it stands.
   posts.attachBuildings(live);
@@ -3976,7 +3939,6 @@ async function start() {
   game.trapsSim = wantBattle && simInstance && live?.traps.length ? (await import("./traps-sim.js")).attachTrapsSim(simInstance, live.traps) : null;
   game.battlefieldSim = wantBattle && simInstance ? (await import("./battlefield-sim.js")).attachBattlefieldSim(simInstance, battlefield, leavingWarning) : null;
   game.propsSim = wantBattle && simInstance && live ? (await import("./props-sim.js")).attachPropsSim(simInstance, live) : null;
-  game.turretSeatsSim = game.propsSim && game.turretSeats && !vehicles?.f2 ? await (await import("./turret-seats-sim.js")).attachTurretSeatsSim(game.propsSim.bridge, game.turretSeats) : null;
   game.battlePhaseSim = game.battleSim ? (await import("./battle-phase-sim.js")).attachBattlePhaseSim({
     battleSim: game.battleSim, postsSim: game.postsSim, spawningSim: game.spawningSim,
     units, vehicles: () => vehicles?.vehicles ?? [], playerUnit, playerMounted: () => driver?.active || gunner.active,

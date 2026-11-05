@@ -81,15 +81,9 @@ if (!['rust', 'js'].includes(aiSim)) throw Error(`--ai-sim ${aiSim}: rust or js`
 const battleRules = opt('battle', 'js');
 if (!['rust', 'js'].includes(battleRules)) throw Error(`--battle ${battleRules}: rust or js`);
 if (!['rust', 'js'].includes(combat)) throw Error(`--combat ${combat}: rust or js`);
-// --hulls rust: the ground hulls' phase on the module (?hulls=rust, src/vehicles-sim.js).
-const hulls = opt('hulls', 'js');
-const f2 = opt('f2', process.env.BFE_F2 ?? 'js');
-if (!['js', 'rust'].includes(f2)) throw Error(`--f2 ${f2}: rust or js`);
 // --units rust: the units' phase on the module (?units=rust, src/units-sim.js).
 const units = opt('units', 'js');
 if (!['rust', 'js'].includes(units)) throw Error(`--units ${units}: rust or js`);
-// --seats rust: the hulls' seats' input batch on the module (?seats=rust, src/seats-sim.js).
-const seats = opt('seats', 'js');
 const nativeRandom = opt('random', 'seeded') === 'native';
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
@@ -112,8 +106,8 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}&battle=${battleRules}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}&f2=${f2}${argv.includes('--f2-debug') ? '&f2Debug=1' : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, hulls, f2, combat, seats, units, battle: battleRules, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}&battle=${battleRules}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${combat === 'rust' ? '&combat=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, combat, units, battle: battleRules, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 
@@ -130,7 +124,7 @@ async function battle(index) {
   if (battleRules === 'rust' && (!game.postsSim || !game.battlefieldSim || game.ai?.spawning && !game.spawningSim || game.live && !game.propsSim || game.live?.traps.length && !game.trapsSim)) throw Error('a requested native battle phase was not attached');
   // Collision, movement, rounds and items are required on the battle instance.
   if (!game.collision.rays || !game.collision.movement || !game.ordnance.sim || !game.items.sim) throw Error('required simulation kernels did not attach');
-  if ((f2 === 'rust') !== Boolean(game.vehicles?.f2)) throw Error('F2 owner did not match the requested switch');
+  if (!game.vehicles?.f2) throw Error('required vehicle phase did not attach');
   if ((units === 'rust') !== Boolean(game.unitsSim)) throw Error('unit owner did not match the requested switch');
   let sent = [];
   const server = await createLocalServer(game, { name: 'Player', send: (channel, payload) => sent.push([channel, payload]) });

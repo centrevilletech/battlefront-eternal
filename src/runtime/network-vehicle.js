@@ -1,6 +1,5 @@
 import { seatControl, seatInput, seatLook } from '../boarding.js';
 const NO_ASSIST = { assist: false };
-import { networkSeatsFor } from './network-seats-sim.js';
 
 // Shared by authoritative network humans and local replay. Only input reaches
 // the server: the resulting hull pose remains entirely simulation-owned. The
@@ -18,8 +17,6 @@ export const networkVehicle = {
       vehicle.system.f2.seats.network(vehicle, index, controls, command);
       return seatInput(vehicle, index, controls, command, NO_ASSIST);
     }
-    const native = networkSeatsFor(vehicle);
-    if (native) return native.input(vehicle, index, controls, command);
     const fs = command.flightSettings || {};
     const look = { scale: Math.min(2, command.mouseScale ?? 1), invert: Boolean(command.invertMouse),
       flightScale: Math.max(.05, Math.min(10, fs.sensitivity ?? 1)), flightInvert: Boolean(fs.invert) };
