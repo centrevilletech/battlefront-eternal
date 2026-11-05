@@ -5,7 +5,7 @@
 use crate::{commands::*, master::gain_product, pcm::Source, voices::Sample, FRAMES};
 pub const SLOTS: usize = FRONT_SLOTS;
 // GainNode endpoints are float32, while time and interpolation stay f64.
-// A replacement fade starts at the old curve's value on the same frame.
+// A replacement fade starts at the host's last completed gain sample.
 #[derive(Clone, Copy)]
 struct Linear {
     from: f32,
@@ -37,7 +37,7 @@ impl Linear {
     // before replacing it. Scheduled pulse fades use the initial level.
     fn ramp(&mut self, value: f32, start: f64, end: f64) {
         *self = Self {
-            from: self.value(start),
+            from: self.value(start - 1.0),
             to: value,
             start,
             end,

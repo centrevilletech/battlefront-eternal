@@ -36,6 +36,26 @@
       "render": "frontend",
       "quality": "frontend",
       "sha256": "01c5dbe4c20a578899288ac0c36643a445764d6912f3d20f0d8ec3df0aad0af8"
+    },
+    {
+      "name": "frontend-interrupted-44100",
+      "rate": 44100,
+      "loading": true,
+      "interrupted": true,
+      "output": "stereo",
+      "quality": "frontend",
+      "render": "frontend",
+      "sha256": "6bde5b831e9fc30764c9fd73f5483c45a7582f5ab6e1ba5bee5789b223cdcb05"
+    },
+    {
+      "name": "frontend-interrupted-48000",
+      "rate": 48000,
+      "loading": true,
+      "interrupted": true,
+      "output": "stereo",
+      "quality": "frontend",
+      "render": "frontend",
+      "sha256": "2685f29a8579492c38db5b64dbcd4aa1ae8bab793e407437da0e309ae61d1b6b"
     }
   ]
 }

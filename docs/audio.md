@@ -523,7 +523,8 @@ beds exercise routing, room changes and volume automation. Strict cases
 cover two-voice stereo and full voice lifetimes, including one-shot end,
 fade stop and starting a loop partway through after entering earshot.
 Menu/loading goldens at 44.1 and 48 kHz cover stereo music, mono effects,
-bus dips, pitched pulses joined late and their scheduled end fades.
+bus dips, pitched pulses joined late, scheduled end fades and screen exits
+that replace a pulse fade mid-curve.
 
 Strict cases compare SHA-256 of the float32 bytes. Other cases require every
 sample's difference from the frozen native render to stay below −96 dBFS.

@@ -25,5 +25,6 @@ when checking it. Every approximate comparison is below −96 dBFS per sample.
 
 `frontend.json` records the frozen shell/loading gain topology over generated
 mono/stereo tones at 44.1/48 kHz, including resampled one-shots, late loop
-offsets, music dips and pulse end fades. The inputs live in
+offsets, music dips and pulse end fades, including a screen exit that
+interrupts the final 10 ms pulse fade. The inputs live in
 `audio-frontend-fixture.js`; the live node reference was removed.

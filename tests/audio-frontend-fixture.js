@@ -29,13 +29,24 @@ export async function renderFrontendFixture(scene) {
   const s = frontendSpec(scene), ctx = new OfflineAudioContext(2, s.rate * s.seconds, s.rate);
   const player = new FrontendAudio(ctx); await player.ready;
   player.volumes(s.master, s.music, s.fx);
+  const voices = [];
   for (const [i, v] of s.voices.entries()) {
     const handle = player.play(frontendBuffer(ctx, v, i), v);
+    voices.push(handle);
     if (v.fadeEnd) handle.fade(v.fadeAt, v.fadeEnd);
   }
   if (s.dip) player.dip(s.dip.to, s.dip.until - s.dip.when, s.dip.when);
   await player.sync();
-  const result = await ctx.startRendering();
+  // Leaving the screen can replace a pulse's last 10 ms fade mid-curve.
+  // The host's cached AudioParam value is the preceding rendered sample.
+  const stopped = scene.interrupted ? ctx.suspend(Math.round(0.315 * s.rate / 128) * 128 / s.rate) : null;
+  const rendering = ctx.startRendering();
+  if (stopped) {
+    await stopped;
+    for (const voice of voices) voice.fade(ctx.currentTime, ctx.currentTime + 0.08);
+    await player.sync(); await ctx.resume();
+  }
+  const result = await rendering;
   const encoded = []; let peak = 0;
   for (let c = 0; c < 2; c++) {
     const data = result.getChannelData(c), bytes = new Uint8Array(data.buffer);
