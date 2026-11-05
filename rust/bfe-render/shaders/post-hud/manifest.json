@@ -1,0 +1,184 @@
+{
+  "version": 1,
+  "programs": [
+    {
+      "key": "post-hud/bloom-extract",
+      "vertex": "bloom-extract.vert",
+      "fragment": "bloom-extract.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32,
+        "texel": 2
+      }
+    },
+    {
+      "key": "post-hud/bloom-blur",
+      "vertex": "bloom-blur.vert",
+      "fragment": "bloom-blur.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32,
+        "direction": 2
+      }
+    },
+    {
+      "key": "post-hud/copy",
+      "vertex": "copy.vert",
+      "fragment": "copy.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32
+      }
+    },
+    {
+      "key": "post-hud/composite",
+      "vertex": "composite.vert",
+      "fragment": "composite.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32,
+        "blurred": 32,
+        "glow": 32,
+        "blend": 1,
+        "bloomStrength": 1,
+        "speedBlur": 1,
+        "speedTurn": 1
+      }
+    },
+    {
+      "key": "post-hud/motion",
+      "vertex": "motion.vert",
+      "fragment": "motion.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "depthMap": 32,
+        "velocityMap": 32,
+        "inverseJittered": 16,
+        "currentViewProjection": 16,
+        "previousViewProjection": 16
+      }
+    },
+    {
+      "key": "post-hud/resolve",
+      "vertex": "resolve.vert",
+      "fragment": "resolve.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "colorMap": 32,
+        "motionMap": 32,
+        "historyMap": 32,
+        "inputSize": 2,
+        "outputSize": 2,
+        "jitter": 2,
+        "reset": 1,
+        "maxWeight": 1,
+        "kernel": 1
+      }
+    },
+    {
+      "key": "post-hud/sharpen",
+      "vertex": "sharpen.vert",
+      "fragment": "sharpen.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32,
+        "sharpness": 1
+      }
+    },
+    {
+      "key": "post-hud/bilinear",
+      "vertex": "bilinear.vert",
+      "fragment": "bilinear.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32
+      }
+    },
+    {
+      "key": "post-hud/spatial",
+      "vertex": "spatial.vert",
+      "fragment": "spatial.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32,
+        "inputSize": 2,
+        "outputSize": 2
+      }
+    },
+    {
+      "key": "post-hud/fxaa",
+      "vertex": "fxaa.vert",
+      "fragment": "fxaa.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "tDiffuse": 32,
+        "resolution": 2
+      }
+    },
+    {
+      "key": "post-hud/fxaa-fast",
+      "vertex": "fxaa-fast.vert",
+      "fragment": "fxaa-fast.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "tDiffuse": 32,
+        "resolution": 2
+      }
+    },
+    {
+      "key": "post-hud/hud",
+      "vertex": "hud.vert",
+      "fragment": "hud.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "maskUv": 2,
+        "tint": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "map": 32,
+        "mask": 32,
+        "masked": 5
+      }
+    }
+  ]
+}
