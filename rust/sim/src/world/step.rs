@@ -15,9 +15,6 @@ pub fn step(state: &mut WorldStepState, tick: f64, host: &mut impl Host) {
         let taken = host.call(state, Call::TakeSquad, f64::from(index), false).flag;
         if taken && !state.dead && state.player_command { host.call(state, Call::Squad, f64::from(index), false); }
     }
-    if !state.remote && !state.walker && host.call(state, Call::TakeUse, 0.0, false).flag {
-        host.call(state, Call::ToggleTurret, 0.0, false);
-    }
     if !state.server { host.call(state, Call::Player, 0.0, false); }
     let count = state.player_ticks + 1.0;
     host.call(state, Call::PlayerCount, count, false);
@@ -32,16 +29,14 @@ pub fn step(state: &mut WorldStepState, tick: f64, host: &mut impl Host) {
         if !(state.server && state.removed) { host.call(state, Call::Camera, 0.0, eyes); }
     }
     host.call(state, Call::CameraMatrix, 0.0, false);
-    host.call(state, Call::RestorePose, 0.0, false);
     if state.ai { host.call(state, Call::Ai, 0.0, false); }
     let units = if state.units { Call::NativeUnits } else { Call::HostUnits };
     host.call(state, units, 0.0, false);
+    // Vehicles includes native hulls, riders and turret crews. Local Driver
+    // and Gunner are page views; no second seat or rig phase runs here.
     if state.vehicles {
         host.call(state, Call::Vehicles, 0.0, false);
-        if state.driver { host.call(state, Call::Driver, 0.0, false); }
     }
-    if state.turret_seats { host.call(state, Call::TurretSeats, 0.0, false); }
-    if state.gunner { host.call(state, Call::Gunner, 0.0, false); }
     let remote = state.remote;
     host.call(state, Call::Remotes, 0.0, remote);
     if state.network_remotes { host.call(state, Call::NetworkRemotes, 0.0, false); }

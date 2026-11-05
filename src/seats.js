@@ -699,6 +699,31 @@ export class TurretSeats {
 
   // EntitySeats supplies the bot's replicated lease and angles. Only the
   // rendered drum and gun are posed here; the local Gunner previews its own.
+  // EntityGameState installs a page lease before its next rendered frame.
+  // Attach that replica's body to the drawn drum; the native world uses its
+  // own retained rig and never calls this presentation placement method.
+  placeReplica(lease) {
+    const turret = lease.turret;
+    const unit = lease.unit;
+    const s = unit.soldier;
+    if (turret.seatPoint) turret.seatPoint(this.seatPoint);
+    else (turret.seat || turret.rig.root).getWorldPosition(this.seatPoint);
+    s.position.copy(this.seatPoint);
+    s.previous?.copy(this.seatPoint);
+    s.settled?.copy(this.seatPoint);
+    s.velocity.set(0, 0, 0);
+    s.aimYaw = turret.seatYaw ? turret.seatYaw() : turret.facing + turret.yaw;
+    s.aimPitch = turret.pitch;
+    unit.presentation?.reset?.();
+    if (unit.actor?.root) {
+      unit.actor.root.position.copy(this.seatPoint);
+      unit.actor.root.visible = !turret.hidesGunner;
+    }
+    const pose = turret.riderSample?.(unit.animator?.clips, this.riderPose);
+    unit.animator?.gunner?.(pose?.clip ?? null, pose?.pitch, pose?.turn, pose?.time, turret.seatTurn?.(this.seatTurn) ?? null);
+    if (unit.tickCount !== undefined) unit.tickCount += 1;
+  }
+
   present() {
     for (const turret of this.turrets) if (turret.lease && !turret.lease.human) poseTurret(turret, turret.yaw);
   }

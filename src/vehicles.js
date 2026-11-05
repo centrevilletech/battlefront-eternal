@@ -1768,6 +1768,17 @@ export class Vehicles {
   // of sight: his body never shows (the hull's blast threw the AT-TE's crew
   // flailing 6 m above it). Only the drawing: the body still dies, falls
   // and is thrown as the world has it. He shows again in his next life.
+  // EntityGameState installs a seat packet on the page before its next frame.
+  // Place that replica's body from its drawn rig; the world phase uses native
+  // rider writeback and never calls this presentation reader.
+  placeReplicaRider(lease) {
+    const unit = lease.unit;
+    if (!unit?.soldier || !unit.actor) return;
+    poseRider(lease.vehicle, lease.index, unit.soldier, unit.actor, unit.animator, unit.animator?.clips, unit.presentation, this.riderPoint);
+    // The hull has moved under him: his hit shapes follow (Unit.updateSpheres).
+    unit.tickCount += 1;
+  }
+
   presentRiders(dt) {
     for (const [unit, generation] of this.vanished) {
       if (unit.generation !== generation || unit.removed) this.vanished.delete(unit);
@@ -2032,6 +2043,16 @@ export class VehicleDriver {
   // for everyone else's: each own correction shows the body again
   // (EntityGameState.correct), which left it standing on top of the hull
   // (the droid starfighter on Bespin: Platforms).
+  // The page's own replicated lease arrives independently of its body packet.
+  // Attach the view body immediately; native world crews are never driven here.
+  syncReplica() {
+    const v = this.vehicle;
+    if (!v) return;
+    poseRider(v, v.seatIndex, this.soldier, this.actor, this.animator, this.clips, this.presentation, this.point);
+    // His hit shapes follow the hull (Unit.updateSpheres).
+    if (this.unit) this.unit.tickCount += 1;
+  }
+
   presentRider(dt) {
     const v = this.vehicle;
     if (!v) return;

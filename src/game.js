@@ -2100,7 +2100,7 @@ async function start() {
           }
           commandHistory.put(command);
           if (!worldControls.accept(command)) throw new Error('stale world command');
-          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles?.f2?.retune(name, key, value); }
+          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles.f2.retune(name, key, value); }
           const fs = command.flightSettings || {};
           if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
           const yawBeforeLook = soldier.aimYaw;
@@ -2117,7 +2117,6 @@ async function start() {
         case 'takeSquad': return { flag: tickControls.take(stepSquads[value][0]) };
         case 'squad': ai.playerCommand(stepSquads[value][1]); hud.squadCommand(stepSquads[value][2]); break;
         case 'takeUse': return { flag: tickControls.take('use') };
-        case 'toggleTurret': break;
         case 'player': stepPlayer(dt); break;
         case 'playerCount': playerUnit.tickCount = value; break;
         case 'eye': combat.eye(soldier.position, simulationEye); simulationZoom = 1; break;
@@ -2129,7 +2128,6 @@ async function start() {
         case 'camera': simulationView.update(dt, soldier.position, soldier.aimYaw, soldier.aimPitch,
           soldier.air ? 'stand' : soldier.posture, combat.zoom, flag, flag ? simulationEye : null); break;
         case 'cameraMatrix': simulationCamera.updateMatrixWorld(); break;
-        case 'restorePose': vehicles?.restoreTickPose?.(); break;
         case 'ai': ai.update(dt); break;
         case 'nativeUnits': unitsSim.phase(dt); break;
         case 'hostUnits':
@@ -2148,12 +2146,8 @@ async function start() {
           break;
         case 'vehicles': {
           vehicles.spawnOccupant = combat.dead ? null : soldier.position;
-          const seated = driver.vehicle;
-          vehicles.update(dt, seated, seated ? seatInput(seated, seated.seatIndex, tickControls, command) : undefined); break;
+          vehicles.update(dt); break;
         }
-        case 'driver': break;
-        case 'turretSeats': break;
-        case 'gunner': break;
         case 'remotes': remotes.update(dt, flag ? droidInput : null, tickControls); break;
         case 'networkRemotes': networkRemotes.finish(tick, dt); break;
         case 'muzzles': samplePlayerMuzzles(dt); break;
@@ -2215,7 +2209,7 @@ async function start() {
     }
     commandHistory.put(command);
     if (!worldControls.accept(command)) throw new Error("stale world command");
-    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; vehicles?.f2?.retune(name, key, value); }
+    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; vehicles.f2.retune(name, key, value); }
     const fs = command.flightSettings || {};
     if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
     const yawBeforeLook = soldier.aimYaw;
@@ -2266,7 +2260,6 @@ async function start() {
         soldier.air ? "stand" : soldier.posture, combat.zoom, eyes, eyes ? simulationEye : null);
     }
     simulationCamera.updateMatrixWorld();
-    vehicles?.restoreTickPose?.();
     ai?.update(dt);
     // The units' loop below runs on the module where the world asked
     // (src/units-sim.js), to the same effect.
@@ -2296,8 +2289,7 @@ async function start() {
       vehicles.spawnOccupant = combat.dead ? null : soldier.position;
       // His keys for the seat he holds now (src/boarding.js seatInput), as a
       // network human's are read for his.
-      const seated = driver.vehicle;
-      vehicles.update(dt, seated, seated ? seatInput(seated, seated.seatIndex, tickControls, command) : undefined);
+      vehicles.update(dt);
 
     }
 

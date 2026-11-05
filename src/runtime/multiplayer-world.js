@@ -77,7 +77,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     const unit=p.unit;if(!unit)return;
     Object.assign(unit.intent,blankSeatIntent(),{flight:{}});
     unit.networkShot=null;unit.networkShots=[];unit.networkViewTick=null;unit.networkInputLeadTicks=null;unit.networkPlayoutMaxTicks=null;
-    if(unit.seat?.vehicle && unit.seat.index===0) { if(game.vehicles?.f2)game.vehicles.f2.seats.resetSticks(unit); else unit.seat.vehicle.stickX=unit.seat.vehicle.stickY=0; }
+    if(unit.seat?.vehicle && unit.seat.index===0) { game.vehicles.f2.seats.resetSticks(unit); }
   }
   function spawn(p, className = p.className, postName = null) {
     if (game.worldSim?.networkSpawn) return game.worldSim.networkSpawn({ game, player: p, className, postName, remoteWorld, networkWeapons, relation });

@@ -244,10 +244,15 @@ impl SeatWorld for JsSeats {
 struct Ground;
 
 impl UnitsWorld for Ground {
+    #[cfg(target_arch = "wasm32")]
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit> {
         crate::vehicles::module::collision_world().expect("the seat collision world")
             .cast(crate::collision::state(), origin, direction, far, None).expect("named collision bodies")
             .map(|h| CastHit { point: h.point, normal: h.normal, distance: h.distance, terrain: h.terrain })
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn cast(&mut self, _: &Vector3, _: &Vector3, _: f64) -> Option<CastHit> {
+        unreachable!("the module ground boundary belongs to its collision instance")
     }
     fn gather(&mut self, _id: u32, _center: &Vector3, _radius: f64, _cache: usize, _out: &mut Vec<GatherPolygon>) {
         unreachable!("a spawn gathers nothing")

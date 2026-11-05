@@ -280,7 +280,7 @@ export function givePowerup(def, soldier) {
   const out = { health: false, ammo: false };
   const health = def[healthKey] || 0;
   if (health && soldier.health < soldier.maxHealth && !(soldier.addHealth < 0)) {
-    if (soldier.system?.f2) soldier.setHealth(Math.min(soldier.health + health, soldier.maxHealth));
+    if (soldier.seats) soldier.setHealth(Math.min(soldier.health + health, soldier.maxHealth));
     else soldier.health = Math.min(soldier.health + health, soldier.maxHealth);
     out.health = true;
   }

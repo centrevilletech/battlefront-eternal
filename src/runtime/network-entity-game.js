@@ -505,8 +505,8 @@ export class EntityGameState {
       if (slot.lease && slot.lease.unit !== unit) { const other = slot.lease.unit; if (other) this.clearSeat(other); else { slot.lease.released = true; slot.lease = null; } }
       reader.setLease(null, vehicle, [id, own ? 1 : 0, seat.seatIndex === 0 ? 'pilot' : 'gunner', generation], value => { slot.lease = value; }, seat.seatIndex);
       unit.targetable = false; if (unit.combat) unit.combat.mounted = true;
-      if (own) { vehicle.seatIndex = seat.seatIndex; reader.setDriver(g.vehicles.vehicles.indexOf(vehicle)); g.driver?.sync?.(); }
-      else g.vehicles.syncRider?.(slot.lease);
+      if (own) { vehicle.seatIndex = seat.seatIndex; reader.setDriver(g.vehicles.vehicles.indexOf(vehicle)); g.driver?.syncReplica?.(); }
+      else g.vehicles.placeReplicaRider(slot.lease);
       return;
     }
     const turret = (g.turretSeats?.turrets || []).find(t => t.aiTarget?.id === seat.vehicleId && t.aiTarget.generation === seat.vehicleGeneration);
@@ -522,7 +522,7 @@ export class EntityGameState {
       g.client.seats.setGunner?.(g.live.buildings.indexOf(turret));
     } else {
       reader.setLease(turret, null, [id, 0, 'gunner', generation], value => { turret.lease = value; });
-      if (turret.lease) { turret.lease.generation = generation; g.turretSeats.pose?.(turret.lease, 0); }
+      if (turret.lease) { turret.lease.generation = generation; g.turretSeats.placeReplica(turret.lease); }
     }
     this.presentation.unbind(unit.id);
   }

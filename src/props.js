@@ -384,11 +384,11 @@ export class PowerupStation extends Building {
     const health = target.healthType === "vehicle" ? this.vehicleHealth : this.giveHealth;
     const ammo = target.healthType === "vehicle" ? this.vehicleAmmo : this.giveAmmo;
     if (health > 0 && target.health < target.maxHealth) {
-      if (target.system?.f2) target.setHealth(Math.min(target.health + health, target.maxHealth));
+      if (target.seats) target.setHealth(Math.min(target.health + health, target.maxHealth));
       else target.health = Math.min(target.health + health, target.maxHealth);
       served |= 1;
     }
-    if (ammo > 0 && target.system?.f2) {
+    if (ammo > 0 && target.seats) {
       if (target.system.f2.firing.supply(target, ammo)) served |= 2;
     } else if (ammo > 0) {
       for (const weapon of target.weapons) {

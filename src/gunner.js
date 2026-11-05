@@ -1,6 +1,7 @@
 
 
 
+import { stepTurretPreview } from './runtime/turret-prediction.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
 import { cameraTension, easeAxes } from "./flight/camera.js";
@@ -370,13 +371,12 @@ const rateOf = (counts, dt) => THREE.MathUtils.clamp(counts / (LOOK_SCALE * dt),
 // filter and pitch limits). Pure: the turret itself is not changed.
 // Returns state.
 export function previewSteer(turret, state, pending = [], looks = null, scale = 1, invert = false, dt = TICK) {
-  if (typeof turret.steer !== "function") return state;
   const scratch = { yaw: state.yaw, pitch: state.pitch, yawVel: state.yawVel, pitchVel: state.pitchVel,
     turnRate: turret.turnRate, filter: turret.filter, pitchLimits: turret.pitchLimits, yawLimits: turret.yawLimits ?? null, wrapYaw: Boolean(turret.wrapYaw) };
   const step = (look, s, inv) => {
     let x = 0, y = 0;
     for (const [dx, dy] of look) { x += dx * s; y += (inv ? dy : -dy) * s; }
-    turret.steer.call(scratch, dt, -rateOf(x, dt), rateOf(y, dt), 1);
+    stepTurretPreview(scratch, dt, -rateOf(x, dt), rateOf(y, dt), 1);
   };
   for (const command of pending) step(command.look || [], command.mouseScale ?? scale, command.invertMouse ?? invert);
   if (looks) step(looks, scale, invert);
