@@ -22,11 +22,12 @@ export async function checkRenderer(backend, manifests) {
   // including calls through WASM. Counters prevent a three-only false pass.
   const proto = WebGL2RenderingContext.prototype;
   const getExtension = proto.getExtension;
-  let multiDraws = 0;
+  let multiDraws = 0, multiAvailable = false;
   const fallback = new URLSearchParams(location.search).has('noMulti');
   proto.getExtension = function (name) {
     if (name === 'WEBGL_multi_draw' && fallback) return null;
     const ext = getExtension.call(this, name);
+    if (name === 'WEBGL_multi_draw' && ext) multiAvailable = true;
     if (name === 'WEBGL_multi_draw' && ext && !ext.__smokeWrapped) {
       const draw = ext.multiDrawElementsWEBGL.bind(ext);
       ext.multiDrawElementsWEBGL = (...args) => {
@@ -366,10 +367,10 @@ export async function checkRenderer(backend, manifests) {
     assert('Battle never invokes three draw', g.renderer.battleThreeCalls === 0);
     assert('Every shader rewrite kind links', [0,1,2,3,4,9].every(k => programKinds.has(k)), [...programKinds]);
     assert('All Rust passes draw', passDraws.every(n => n > 0), { names: ['world','instances','far','terrain','transparent','effects','foliage','view','post','hud','water','shadow','motion','canopies','screen'], counts: passDraws });
-    assert('Multi-draw path exercised', fallback ? multiDraws === 0 : multiDraws > 0, { fallback, multiDraws });
+    assert('Available Rust draw path exercised', fallback || !multiAvailable ? multiDraws === 0 : multiDraws > 0, { fallback, multiAvailable, multiDraws });
     assert('Every declared Rust post and HUD program draws',Object.keys(programLayouts).filter(key=>key.startsWith('post-hud/')).every(key=>ownedIds.has(key)&&ownedDraws.has(ownedIds.get(key))), {registered:[...ownedIds.keys()],drawn:[...ownedDraws]});
     assert('Every compiled program links', links.length > 0 && links.every(Boolean), { count: links.length });
-    return { ok: results.every(r => r.ok), backend, fallback, multiDraws, renderer, results, shaderFamilies, compiledShaders, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };
+    return { ok: results.every(r => r.ok), backend, fallback, multiAvailable, multiDraws, renderer, results, shaderFamilies, compiledShaders, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };
   } catch (error) {
     const stopped=g.rust ? g.rust.byName.near.stopped : null;
     throw new Error(`${error.stack}\nCause: ${error.cause?.stack || "none"}\nStopped: ${JSON.stringify(stopped && {name:stopped.name,material:stopped.material?.name,uniforms:Object.keys(stopped.material?.uniforms||{}),background:stopped===g.background,layer:stopped.layers.mask})}`);
