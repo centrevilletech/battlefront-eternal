@@ -41,38 +41,8 @@ export class Bloom {
     // The blur's directions, across then down, one texel of the target each.
     this.across = new THREE.Vector2();
     this.down = new THREE.Vector2();
-    this.extract = fullScreenPass(/* glsl */ `
-      uniform sampler2D map;
-      uniform vec2 texel;
-      varying vec2 vUv;
-      vec3 bright(vec2 uv) {
-        vec3 c = texture2D(map, uv).rgb;
-        float peak = max(c.r, max(c.g, c.b));
-        float knee = clamp(peak - 0.65, 0.0, 0.24);
-        float contribution = max(peak - 0.77, knee * knee / 0.48);
-        return c * contribution / max(peak, 0.0001);
-      }
-      void main() {
-        vec3 c = bright(vUv + texel * vec2(-1.0, -1.0));
-        c += bright(vUv + texel * vec2(1.0, -1.0));
-        c += bright(vUv + texel * vec2(-1.0, 1.0));
-        c += bright(vUv + texel * vec2(1.0, 1.0));
-        gl_FragColor = vec4(c * 0.25, 1.0);
-      }
-    `, { map: { value: source }, texel: { value: new THREE.Vector2() } });
-    this.blur = fullScreenPass(/* glsl */ `
-      uniform sampler2D map;
-      uniform vec2 direction;
-      varying vec2 vUv;
-      void main() {
-        vec3 c = texture2D(map, vUv).rgb * 0.227027;
-        c += texture2D(map, vUv + direction * 1.384615).rgb * 0.316216;
-        c += texture2D(map, vUv - direction * 1.384615).rgb * 0.316216;
-        c += texture2D(map, vUv + direction * 3.230769).rgb * 0.070270;
-        c += texture2D(map, vUv - direction * 3.230769).rgb * 0.070270;
-        gl_FragColor = vec4(c, 1.0);
-      }
-    `, { map: { value: null }, direction: { value: new THREE.Vector2() } });
+    this.extract = ownedFullScreenPass("post-hud/bloom-extract", { map: { value: source }, texel: { value: new THREE.Vector2() } });
+    this.blur = ownedFullScreenPass("post-hud/bloom-blur", { map: { value: null }, direction: { value: new THREE.Vector2() } });
   }
 
   resize(width, height) {
@@ -94,4 +64,17 @@ export class Bloom {
       { pass: this.blur, target: this.target, camera, values: { map: this.scratch.texture, direction: this.down } },
     ];
   }
+}
+
+// The frame planner still uses a mesh and uniform values. Its program exists
+// only in Rust; no ShaderMaterial or browser GLSL is made for an owned pass.
+export function ownedFullScreenPass(key, uniforms) {
+  const material = new THREE.Material();
+  material.uniforms = uniforms;
+  material.depthTest = material.depthWrite = false;
+  material.blending = THREE.NoBlending;
+  material.userData.bfeProgram = key;
+  const pass = new THREE.Mesh(triangle, material);
+  pass.frustumCulled = false;
+  return pass;
 }
