@@ -18,6 +18,8 @@ function prerequisite(d) {
 // captureDroidekaState's optional shield and last-gun fields give the maximum
 // length. Replay writes into this retained storage and carries a byte count.
 export const DROIDEKA_STATE_MAX_BYTES = baseBytes + 8 + 16;
+// The optional shield and last-gun tails give four exact checkpoint views.
+export const DROIDEKA_STATE_LENGTHS = Object.freeze([baseBytes, baseBytes + 8, baseBytes + 16, DROIDEKA_STATE_MAX_BYTES]);
 function checkpointFlags(d) {
   prerequisite(d);
   if (!Number.isInteger(d.mode) || d.mode < 0 || d.mode > 13 || !Number.isSafeInteger(d.gun) || d.gun < 0) throw Error('invalid droideka mode or barrel');

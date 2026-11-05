@@ -15,6 +15,9 @@ export function captureCompactSoldierInto(s, into, native = null) { return typeo
 // The replay boundary keeps one maximum-size writer. Return its byte count,
 // rather than allocating a subarray merely to describe the current checkpoint.
 export const COMPACT_SOLDIER_MAX_BYTES = 149;
+// A page retaining a checkpoint can prebuild its views instead of allocating
+// a new subarray whenever settled or dive state changes the compact length.
+export const COMPACT_SOLDIER_LENGTHS = Object.freeze([124, 125, 148, 149]);
 function number(into, n) {
   if (!Number.isFinite(n)) throw Error('nonfinite Soldier correction');
   into.view.setFloat64(into.at, n, true); into.at += 8;
