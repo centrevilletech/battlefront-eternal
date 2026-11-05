@@ -834,9 +834,8 @@ class EffectsPass {
     return o.id;
   }
 
-  // The Classic lightning of the near scene, while its material is one the
-  // renderer has (registered once three drew it); null otherwise. While it
-  // wears a material three has not drawn yet, three draws it.
+  // Register Classic lightning before its first draw; Enhanced lightning
+  // belongs to its separate effect batch.
   lightning() {
     const lightning = classicLightning.get(this.core.graphics.scene);
     if (!lightning || lightning.isEnhanced()) return null;

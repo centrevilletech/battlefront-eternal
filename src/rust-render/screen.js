@@ -162,13 +162,9 @@ export function underwaterPass(core) {
 // the near scene's transparent list (its render order the list's highest),
 // right after its hook copies the scene drawn so far (water.captureSurface).
 // The renderer draws it at that very point: the transparent pass runs the
-// pass's atEnd after the list's last draw (its own last segment, or three's
-// last item), where the copy is made as three makes it, then the composite
-// drawn (the underwater phase) with three's program for its material and
-// three's own geometry for it (its uv interpolated as three's are). Three
-// leaves it out of a render whose transparent phase draws it (place(), as
-// three starts the render); until three has drawn it once, and in any other
-// render, three draws it.
+// pass's atEnd after the list's last draw. The copy precedes the Rust
+// underwater phase, which uses the compiled material program and geometry.
+// The material compiles before registration, including its first frame.
 class FogPass {
   constructor(core) {
     this.core = core;

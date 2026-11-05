@@ -783,8 +783,7 @@ export class RustRender {
     state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, p.__webglMultisampledFramebuffer);
   }
 
-  // graphics.js: the frame's post passes (Graphics.postSteps), drawn by the
-  // post pass when it can draw every one; true when it did.
+  // graphics.js: draw every post step; incomplete ownership is fatal.
   post(renderer, steps) {
     if (this.contextLost) return true;
     const target = renderer.getRenderTarget();
@@ -798,8 +797,7 @@ export class RustRender {
     return true;
   }
 
-  // graphics.js renderCascades: a shadow cascade's pass (shadow.js), drawn by
-  // the shadow pass when it can draw all of it; true when it was.
+  // graphics.js renderCascades: Rust draws every caster in this cascade.
   coverShadow(renderer, light, scene, camera, from) {
     if (this.contextLost) return true;
     const target = renderer.getRenderTarget();

@@ -254,9 +254,8 @@ class InstancePass {
     let record = this.bodies.get(body);
     if (record === undefined || record && record.version !== materialVersion(record.used)) record = this.registerBody(body);
     if (record && body.material !== record.materials) {
-      // Dissolving (units.js dissolve): its heated record, registered once
-      // three has drawn the heated materials; any other materials of its
-      // own: three draws them.
+      // Dissolving (units.js dissolve): register the heated material before
+      // emitting the changed body's Rust record.
       let heated = body.userData.heated ? this.heated.get(body) : this.registerBody(body);
       if (heated !== null && (heated === undefined || !sameMaterials(heated.materials, body.material))) {
         heated = this.registerBody(body, true);

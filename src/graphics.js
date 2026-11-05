@@ -979,8 +979,7 @@ export class Graphics {
     // Full-screen triangles overwrite every pixel with blending disabled.
     // Clearing each post target first only burns fill/bandwidth.
     renderer.autoClear = false;
-    // 3-4. The post passes (postSteps): the Rust renderer's post pass draws
-    // them where it can draw every one, else three.
+    // 3-4. Rust draws the complete post chain returned by postSteps.
     const steps = this.postSteps(temporal, upscale);
     this.rust.post(renderer, steps);
     for (const step of steps) step.after?.();
