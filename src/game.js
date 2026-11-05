@@ -396,7 +396,7 @@ async function start() {
   onProgress?.("data");
   // The battle's sound (src/audio); the game runs the same without it.
   const audio = headless ? new HeadlessAudio() : new GameAudio({ settings });
-  audio.load(world).catch((error) => console.warn(`audio: ${error.message}`));
+  audio.load(world).catch((error) => audio.reportError(error));
 
   // Textures by name, looked up in the archive folder that holds them. They
   // stay as stored (no sRGB decode): the game lit and blended in gamma space.

@@ -1,17 +1,10 @@
-// The Rust audio DSP (rust/audio, which the game runs) against the
-// JavaScript worklets (what ?audio=js runs), sample for sample: each
-// processor is fed the same blocks through its own process() here in Node
-// (the worklet files loaded with their globals stubbed, the WebAssembly
-// from src/audio-dsp-wasm.js with this process's Math as its host), and
-// every output Float32 must be bit-identical, for the parameter sets
-// battles use (the panning laws and layouts, the rooms, the dynamics
-// profiles) and directed signals (impulses, noise, full-scale, silence,
-// denormal-tiny, a NaN).
-//
-//   node tests/audio-dsp-parity.mjs [name...]
+// The Rust processors against recorded synthetic goldens. The reference
+// hashes and readings were captured before deleting the JavaScript DSP;
+// this test runs only the module and needs no browser or game files.
+// node tests/audio-dsp-parity.mjs [name...]
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import vm from "node:vm";
+import crypto from "node:crypto";
 import { AUDIO_DSP_WASM } from "../src/audio-dsp-wasm.js";
 import { LAYOUTS, ALSOFT } from "../src/audio/layouts.js";
 
@@ -20,26 +13,9 @@ const BLOCK = 128;
 const only = process.argv.slice(2);
 const wanted = (name) => !only.length || only.some((o) => name.includes(o));
 
-// A worklet file's processor class (its first: spatial-mixer.js also
-// registers the light mix's voice engine, which has no JavaScript to
-// compare), with the worklet globals stubbed.
-function loadProcessor(file, rate = RATE) {
-  const code = fs.readFileSync(new URL(`../src/audio/worklets/${file}`, import.meta.url), "utf8");
-  let Processor = null;
-  const sandbox = {
-    sampleRate: rate,
-    console,
-    AudioWorkletProcessor: class {
-      constructor() {
-        this.port = { onmessage: null, messages: [], postMessage(m) { this.messages.push(m); } };
-      }
-    },
-    registerProcessor: (name, cls) => { Processor ??= cls; },
-  };
-  vm.runInNewContext(code, sandbox, { filename: file });
-  assert(Processor, `${file} registered a processor`);
-  return Processor;
-}
+// Captured from the frozen implementation over these synthetic inputs.
+const golden = JSON.parse(fs.readFileSync(new URL("./fixtures/audio/dsp.json", import.meta.url), "utf8"));
+const expectedNumber = (value) => typeof value === "string" ? Number(value) : value;
 
 const math = {
   js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin,
@@ -92,43 +68,36 @@ const sameF32 = (a, b) => { bits.setFloat32(0, a); const u = bits.getUint32(0); 
 const sameF64 = (a, b) => { bits.setFloat64(0, a); const u = bits.getBigUint64(0); bits.setFloat64(0, b); return u === bits.getBigUint64(0); };
 
 let checked = 0;
-function compare(label, jsOut, rsOut) {
-  let diffs = 0, first = "";
-  const walk = (a, b, path) => {
-    if (Array.isArray(a)) { a.forEach((v, i) => walk(v, b[i], `${path}[${i}]`)); return; }
-    for (let i = 0; i < a.length; i++) {
-      checked++;
-      if (!sameF32(a[i], b[i])) { if (!first) first = `${path}[${i}] js=${a[i]} rust=${b[i]}`; diffs++; }
-    }
+function compare(label, outputs) {
+  const hash = crypto.createHash("sha256");
+  let samples = 0;
+  const add = (value) => {
+    if (Array.isArray(value)) { for (const child of value) add(child); return; }
+    const data = Float32Array.from(value);
+    hash.update(Buffer.from(data.buffer)); samples += data.length;
   };
-  walk(jsOut, rsOut, "");
-  assert.equal(diffs, 0, `${label}: ${diffs} samples differ, first ${first}`);
+  add(outputs);
+  assert.deepEqual({ sha256: hash.digest("hex"), samples }, golden.outputs[label], label);
+  checked += samples;
   console.log(`ok ${label}`);
 }
 
-// Runs a single-input processor (reverb, stabilizer, limiter, clarity)
-// through both, `drive` being called per block index before the block on
-// both sides (port messages etc).
-function runPair({ label, js, rust: { input, output, process: proc }, inputs, inChannels, outChannels, drive }) {
-  const jsAll = [], rsAll = [];
+// The processor's C ABI is the same boundary used by the thin worklet.
+function runPair({ label, rust: { input, output, process: proc }, inputs, inChannels, outChannels, drive }) {
+  const all = [];
   inputs.forEach((blockIn, b) => {
-    drive?.(b, "js");
-    drive?.(b, "rust");
-    const o = Array.from({ length: outChannels }, () => new Float32Array(BLOCK));
-    js.process([blockIn.map((c) => Float32Array.from(c))], [o], {});
-    jsAll.push(o.map((c) => Float32Array.from(c)));
+    drive?.(b);
     const inp = f32(input(), inChannels * BLOCK);
     blockIn.forEach((c, i) => inp.set(c, i * BLOCK));
     proc(inChannels, outChannels);
     const outp = f32(output(), outChannels * BLOCK);
-    rsAll.push(Array.from({ length: outChannels }, (_, c) => Float32Array.from(outp.subarray(c * BLOCK, (c + 1) * BLOCK))));
+    all.push(Array.from({ length: outChannels }, (_, c) => Float32Array.from(outp.subarray(c * BLOCK, (c + 1) * BLOCK))));
   });
-  compare(label, jsAll, rsAll);
+  compare(label, all);
 }
 
 // --- The spatial mixer, per law and layout -------------------------------
 if (wanted("mixer")) {
-  const Mixer = loadProcessor("spatial-mixer.js");
   const LAWS = { panpot: 0, vbap: 1, alsoft: 2, ambi3: 3 };
   const setLayout = (h, law, speakers, decoder, dirty) => {
     const cfg = f64(x.mixer_cfg(h, Math.max(speakers.length * 3, 1)), Math.max(speakers.length * 3, 1));
@@ -154,7 +123,6 @@ if (wanted("mixer")) {
     const channels = law === "ambi3" ? 16 : layout.channels;
     const speakers = layout ? layout.speakers : [];
     const slots = 10, active = 7, blocks = 40;
-    const js = new Mixer({ numberOfInputs: slots, processorOptions: { channels, law, speakers, lfe: layout?.lfe ?? -1, decoder } });
     const h = x.mixer_new(slots, channels);
     setLayout(h, law, speakers, decoder, 0);
     const params = (b) => {
@@ -167,21 +135,16 @@ if (wanted("mixer")) {
     };
     const sendParams = (b) => {
       const p = params(b);
-      js.port.onmessage({ data: { type: "params", data: p } });
       f32(x.mixer_params_ptr(h), p.length).set(p);
       x.mixer_params(h, p.length, 0);
     };
     sendParams(0);
-    for (let v = 0; v < active; v++) { js.port.onmessage({ data: { type: "start", slot: v } }); x.mixer_start(h, v); }
+    for (let slot = 0; slot < active; slot++) x.mixer_start(h, slot);
     const inputs = signal("noise", active, blocks);
-    const jsAll = [], rsAll = [];
+    const rsAll = [];
     for (let b = 0; b < blocks; b++) {
       if (b === 13 || b === 27) sendParams(b);
       // Inputs: slot of voices, the rest unconnected; block 20 on, slot 1 silent.
-      const jsIn = Array.from({ length: slots }, (_, s) => (s < active ? [b >= 20 && s === 1 ? new Float32Array(BLOCK) : Float32Array.from(inputs[b][s])] : undefined));
-      const jsOut = [Array.from({ length: channels }, () => new Float32Array(BLOCK)), [new Float32Array(BLOCK)]];
-      js.process(jsIn, jsOut, {});
-      jsAll.push([...jsOut[0], jsOut[1][0]].map((c) => Float32Array.from(c)));
       const inp = f32(x.mixer_in(h), slots * BLOCK);
       const present = u8(x.mixer_present(h), slots);
       for (let s = 0; s < slots; s++) { present[s] = s < active ? 1 : 0; if (s < active) inp.set(b >= 20 && s === 1 ? new Float32Array(BLOCK) : inputs[b][s], s * BLOCK); }
@@ -189,32 +152,26 @@ if (wanted("mixer")) {
       const outp = f32(x.mixer_out(h), (channels + 1) * BLOCK);
       rsAll.push(Array.from({ length: channels + 1 }, (_, c) => Float32Array.from(outp.subarray(c * BLOCK, (c + 1) * BLOCK))));
     }
-    compare(`mixer ${label}`, jsAll, rsAll);
+    compare(`mixer ${label}`, rsAll);
     // A layout change mid-stream keeps matching.
-    js.port.onmessage({ data: { type: "layout", law: "panpot", speakers: LAYOUTS.stereo.speakers, lfe: -1, decoder: null } });
     setLayout(h, "panpot", LAYOUTS.stereo.speakers, null, 1);
     // (channels differ after the change only in the rows the gains use;
     // run a few blocks at the constructed channel count)
     const more = signal("sine", active, 4, 3);
-    const j2 = [], r2 = [];
+    const r2 = [];
     for (let b = 0; b < 4; b++) {
-      const jsIn = Array.from({ length: slots }, (_, s) => (s < active ? [Float32Array.from(more[b][s])] : undefined));
-      const jsOut = [Array.from({ length: channels }, () => new Float32Array(BLOCK)), [new Float32Array(BLOCK)]];
-      js.process(jsIn, jsOut, {});
-      j2.push([...jsOut[0], jsOut[1][0]].map((c) => Float32Array.from(c)));
       const inp = f32(x.mixer_in(h), slots * BLOCK);
       for (let s = 0; s < active; s++) inp.set(more[b][s], s * BLOCK);
       x.mixer_process(h, channels, 1);
       const outp = f32(x.mixer_out(h), (channels + 1) * BLOCK);
       r2.push(Array.from({ length: channels + 1 }, (_, c) => Float32Array.from(outp.subarray(c * BLOCK, (c + 1) * BLOCK))));
     }
-    compare(`mixer ${label} after layout change`, j2, r2);
+    compare(`mixer ${label} after layout change`, r2);
   }
 }
 
 // --- The reverb -----------------------------------------------------------
 if (wanted("reverb")) {
-  const Reverb = loadProcessor("reverb.js");
   const KEYS = ["room", "roomHF", "decay", "hfRatio", "reflections", "reflDelay", "reverb", "reverbDelay", "diffusion", "density", "hfReference"];
   const send = (h, obj, initial) => {
     const io = f64(x.reverb_io(h), 12);
@@ -228,27 +185,25 @@ if (wanted("reverb")) {
     ["a wet hall, 6ch", { room: 0.35, roomHF: 0.4, decay: 3.5, hfRatio: 0.3, reflections: 0.6, reflDelay: 0.05, reverb: 1.2, reverbDelay: 0.1, diffusion: 0.7, density: 0.6, hfReference: 3000 }, 6, "impulse", 600],
     ["a dry small room", { room: 0.05, roomHF: 1, decay: 0.3, hfRatio: 1.5, reflections: 0.1, reflDelay: 0, reverb: 0.5, reverbDelay: 0, diffusion: 0.2, density: 0.2, hfReference: 8000 }, 2, "sine", 200],
   ]) {
-    const js = new Reverb({ processorOptions: { channels, params } });
     const h = x.reverb_new(RATE, channels);
     send(h, params, true);
     runPair({
-      label: `reverb ${label}`, js,
+      label: `reverb ${label}`,
       rust: { input: () => x.reverb_in(h), output: () => x.reverb_out(h), process: (i, o) => x.reverb_process(h, i, o) },
       inputs: signal(kind, 1, blocks).map((b) => b), inChannels: 1, outChannels: channels,
-      drive: (b, side) => {
+      drive: (b) => {
         if (b === 50) {
           const next = { decay: 1.8, room: 0.2, density: 0.9 };
-          if (side === "js") js.port.onmessage({ data: next }); else send(h, next, false);
+          send(h, next, false);
         }
       },
     });
   }
   // Silence in for longer than every delay: the quiet shortcut on both.
-  const js = new Reverb({ processorOptions: { channels: 2, params: { room: 0.2, decay: 0.5 } } });
   const h = x.reverb_new(RATE, 2);
   send(h, { room: 0.2, decay: 0.5 }, true);
   runPair({
-    label: "reverb silence out the tail", js,
+    label: "reverb silence out the tail",
     rust: { input: () => x.reverb_in(h), output: () => x.reverb_out(h), process: (i, o) => x.reverb_process(h, i, o) },
     inputs: signal("impulse", 1, 400), inChannels: 1, outChannels: 2,
   });
@@ -256,7 +211,6 @@ if (wanted("reverb")) {
 
 // --- The stabilizer -------------------------------------------------------
 if (wanted("stabilizer")) {
-  const Stab = loadProcessor("stabilizer.js");
   // 5.1 and 7.1 (the front pair's filters run side by side), fewer
   // inputs than channels, no centre, a layout whose centre is its left
   // (one channel after the other, as the worklet), and signals down to
@@ -265,10 +219,9 @@ if (wanted("stabilizer")) {
     ["6ch", 6, 2, "noise"], ["8ch", 8, 2, "noise"], ["6ch, 4 inputs", 6, 2, "noise", 4], ["4ch, no centre", 4, 5, "noise"],
     ["6ch, centre on left", 6, 0, "noise"], ["6ch tiny", 6, 2, "tiny"], ["6ch impulse", 6, 2, "impulse"],
   ]) {
-    const js = new Stab({ processorOptions: { channels, left: 0, right: 1, centre } });
     const h = x.stabilizer_new(RATE, channels, 0, 1, centre);
     runPair({
-      label: `stabilizer ${label}`, js,
+      label: `stabilizer ${label}`,
       rust: { input: () => x.stabilizer_in(h), output: () => x.stabilizer_out(h), process: (i, o) => x.stabilizer_process(h, i, o) },
       inputs: signal(kind, inChannels, 120), inChannels, outChannels: channels,
     });
@@ -277,7 +230,6 @@ if (wanted("stabilizer")) {
 
 // --- The limiter ----------------------------------------------------------
 if (wanted("limiter")) {
-  const Lim = loadProcessor("limiter.js");
   const DYN = {
     home: { threshold: 0, ratio: 1, knee: 0, attack: 0.003, release: 0.25, makeup: -10.2 },
     normal: { threshold: -18, ratio: 2, knee: 8, attack: 0.025, release: 0.2, makeup: -2.3 },
@@ -298,32 +250,27 @@ if (wanted("limiter")) {
     ["normal quiet then loud", DYN.normal, 2, "tiny", 80],
   ]) {
     const dynamics = { ...dyn, skip: channels > 2 ? 3 : -1 };
-    const js = new Lim({ processorOptions: { ceiling: -1, release: 0.08, dynamics } });
     const h = x.limiter_new(RATE, -1, 0.08, 0.0015);
     setDyn(h, dynamics);
-    const jsReports = [], rsReports = [];
+    const rsReports = [];
     runPair({
-      label: `limiter ${label}`, js,
+      label: `limiter ${label}`,
       rust: {
         input: () => x.limiter_in(h), output: () => x.limiter_out(h),
         process: (i, o) => { if (x.limiter_process(h, i, o)) rsReports.push(f64(x.limiter_io(h), 1)[0]); },
       },
       inputs: signal(kind, channels, blocks), inChannels: channels, outChannels: channels,
-      drive: (b, side) => {
-        if (side === "js") jsReports.push(...js.port.messages.splice(0).map((m) => m.reduction));
-      },
     });
-    jsReports.push(...js.port.messages.splice(0).map((m) => m.reduction));
-    assert.equal(rsReports.length, jsReports.length, `limiter ${label}: report count`);
-    rsReports.forEach((v, i) => assert(sameF64(v, jsReports[i]), `limiter ${label}: reduction ${i} js=${jsReports[i]} rust=${v}`));
+    const reports = golden.reports[label].map(expectedNumber);
+    assert.equal(rsReports.length, reports.length, `limiter ${label}: report count`);
+    rsReports.forEach((v, i) => assert(sameF64(v, reports[i]), `limiter ${label}: reduction ${i} reference=${reports[i]} rust=${v}`));
     console.log(`ok limiter ${label} reports`);
   }
   // A NaN through the limiter (denormals and NaN handled as JS does).
-  const js = new Lim({ processorOptions: { ceiling: -1, release: 0.08, dynamics: DYN.normal } });
   const h = x.limiter_new(RATE, -1, 0.08, 0.0015);
   setDyn(h, { ...DYN.normal, skip: -1 });
   runPair({
-    label: "limiter NaN", js,
+    label: "limiter NaN",
     rust: { input: () => x.limiter_in(h), output: () => x.limiter_out(h), process: (i, o) => x.limiter_process(h, i, o) },
     inputs: signal("nan", 2, 30), inChannels: 2, outChannels: 2,
   });
@@ -331,7 +278,6 @@ if (wanted("limiter")) {
 
 // --- The clarity stage ----------------------------------------------------
 if (wanted("clarity")) {
-  const Clarity = loadProcessor("clarity.js");
   // Channels run their filters two at a time, an odd one alone: odd and
   // even counts, the LFE skipped, fewer inputs than channels, and signals
   // that take the filters' state down to subnormals and zeros.
@@ -340,10 +286,9 @@ if (wanted("clarity")) {
     ["3ch noise", 3, "noise", -1], ["12ch noise", 12, "noise"], ["6ch, 3 inputs", 6, "noise", 3, 3],
     ["2ch tiny", 2, "tiny"], ["2ch impulse", 2, "impulse", -1, 2, 400], ["2ch nan", 2, "nan"],
   ]) {
-    const js = new Clarity({ processorOptions: { channels, skip } });
     const h = x.clarity_new(RATE, channels, skip);
     runPair({
-      label: `clarity ${label}`, js,
+      label: `clarity ${label}`,
       rust: { input: () => x.clarity_in(h), output: () => x.clarity_out(h), process: (i, o) => x.clarity_process(h, i, o) },
       inputs: signal(kind, inChannels, blocks), inChannels, outChannels: channels,
     });
@@ -352,18 +297,15 @@ if (wanted("clarity")) {
 
 // --- The meter -------------------------------------------------------------
 if (wanted("meter")) {
-  const Meter = loadProcessor("meter.js");
   for (const [label, channels, weights] of [
     ["2ch", 2, null],
     ["6ch weighted", 6, [1, 1, 1, 0, 1.41, 1.41]],
   ]) {
-    const js = new Meter({ processorOptions: weights ? { weights } : {} });
     const h = x.meter_new(RATE);
     if (weights) { f64(x.meter_cfg(h, weights.length), weights.length).set(weights); x.meter_weights(h, weights.length); }
     const inputs = signal("noise", channels, 800); // a little over 2 s
     const rs = [];
     for (const blockIn of inputs) {
-      js.process([blockIn.map((c) => Float32Array.from(c))], [], {});
       const inp = f32(x.meter_in(h), channels * BLOCK);
       blockIn.forEach((c, i) => inp.set(c, i * BLOCK));
       if (x.meter_process(h, channels)) rs.push(...readMeterCfg(h));
@@ -382,24 +324,22 @@ if (wanted("meter")) {
       }
       return out;
     }
-    const jsm = js.port.messages;
-    assert.equal(rs.length, jsm.length, `meter ${label}: reading count js=${jsm.length} rust=${rs.length}`);
-    jsm.forEach((m, i) => {
+    const readings = golden.meters[label];
+    assert.equal(rs.length, readings.length, `meter ${label}: reading count reference=${readings.length} rust=${rs.length}`);
+    readings.forEach((m, i) => {
       for (const k of ["momentary", "shortTerm", "integrated", "peak", "truePeak"]) {
-        assert(sameF64(rs[i][k], m[k]), `meter ${label} reading ${i} ${k}: js=${m[k]} rust=${rs[i][k]}`);
+        assert(sameF64(rs[i][k], expectedNumber(m[k])), `meter ${label} reading ${i} ${k}: reference=${m[k]} rust=${rs[i][k]}`);
       }
-      m.channels.forEach((v, c) => assert(sameF64(rs[i].channels[c], v), `meter ${label} reading ${i} ch${c}`));
+      m.channels.forEach((v, c) => assert(sameF64(rs[i].channels[c], expectedNumber(v)), `meter ${label} reading ${i} ch${c}`));
       checked += 5 + m.channels.length;
     });
-    console.log(`ok meter ${label} (${jsm.length} readings)`);
+    console.log(`ok meter ${label} (${readings.length} readings)`);
   }
 }
 
 // --- Other rates ------------------------------------------------------------
 if (wanted("rates")) {
   // 44.1 kHz: the limiter and clarity coefficients at another rate.
-  const Lim = loadProcessor("limiter.js", 44100);
-  const jsLim = new Lim({ processorOptions: { ceiling: -1, release: 0.08, dynamics: { threshold: -18, ratio: 2, knee: 8, attack: 0.025, release: 0.2, makeup: -2.3, skip: -1 } } });
   const hLim = x.limiter_new(44100, -1, 0.08, 0.0015);
   {
     const io = f64(x.limiter_io(hLim), 8);
@@ -407,13 +347,11 @@ if (wanted("rates")) {
     x.limiter_dynamics(hLim);
   }
   runPair({
-    label: "limiter at 44.1 kHz", js: jsLim,
+    label: "limiter at 44.1 kHz",
     rust: { input: () => x.limiter_in(hLim), output: () => x.limiter_out(hLim), process: (i, o) => x.limiter_process(hLim, i, o) },
     inputs: signal("hot", 2, 200), inChannels: 2, outChannels: 2,
   });
   // 4 kHz: reverb lines shorter than a block take the sample-at-a-time path.
-  const Reverb = loadProcessor("reverb.js", 4000);
-  const jsRev = new Reverb({ processorOptions: { channels: 2, params: { room: 0.3, decay: 0.8 } } });
   const hRev = x.reverb_new(4000, 2);
   {
     const io = f64(x.reverb_io(hRev), 12);
@@ -421,10 +359,10 @@ if (wanted("rates")) {
     x.reverb_params(hRev, 1);
   }
   runPair({
-    label: "reverb at 4 kHz (short lines)", js: jsRev,
+    label: "reverb at 4 kHz (short lines)",
     rust: { input: () => x.reverb_in(hRev), output: () => x.reverb_out(hRev), process: (i, o) => x.reverb_process(hRev, i, o) },
     inputs: signal("noise", 1, 120), inChannels: 1, outChannels: 2,
   });
 }
 
-console.log(`\n${checked} samples and readings compared, all bit-identical`);
+console.log(`\n${checked} samples and readings compared, match the recorded reference`);

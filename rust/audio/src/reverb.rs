@@ -1,4 +1,4 @@
-//! The room reverb (src/audio/worklets/reverb.js): a feedback delay
+//! The room reverb (reverb DSP): a feedback delay
 //! network of 8 lines mixed by a Householder matrix, each line damped by
 //! a one-pole lowpass, fed through input diffusers after early
 //! reflections and a pre-delay, each output channel reading its own

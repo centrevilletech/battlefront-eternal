@@ -1,4 +1,4 @@
-//! The spatial mixer (src/audio/worklets/spatial-mixer.js): every 3D voice
+//! The spatial mixer (mixer DSP): every 3D voice
 //! is one mono input slot; each is panned to the output channels by the
 //! layout's law and summed, gains ramping across each block, plus a mono
 //! LFE send. The panning laws are the worklet's own: "panpot", "vbap",

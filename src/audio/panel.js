@@ -98,9 +98,9 @@ export class AudioPanel {
   // How the renderer places sound, in a line.
   law(r) {
     if (r.binaural) return "headphones: 3rd-order ambisonics through a KU 100 dummy head (SADIE II)";
-    if (r.hrtf && !r.enhanced) return "headphones: every source and stream channel through an HRTF (the browser's, for OpenAL Soft's)";
-    if (r.hrtf) return "headphones: the browser's HRTF per voice (tools/make_binaural.py builds the dummy-head decoder)";
-    if (r.light) return `panning: OpenAL Soft 1.20.1's stereo law, the light mix (no reverb${r.engine ? "" : ", no worklet"})`;
+    if (r.hrtf && !r.enhanced) return "headphones: every source and stream channel through an HRTF (Rust IRCAM)";
+    if (r.hrtf) return "headphones: Rust IRCAM HRTF per voice (tools/make_binaural.py builds the dummy-head decoder)";
+    if (r.light) return `panning: OpenAL Soft 1.20.1's stereo law, the light mix (no reverb)`;
     if (r.alsoft) return `panning: OpenAL Soft 1.20.1's decoders${r.layout.center >= 0 ? " and front stabilizer" : ""}`;
     if (r.channels <= 2) return "panning: equal-power stereo";
     return `panning: pairwise (VBAP)${r.mode === "7.1.4" ? " with the height ring" : ""}`;
@@ -138,33 +138,6 @@ export class AudioPanel {
     this.voicesView.textContent = lines.join("\n") || "(none)";
   }
 
-  noise(ctx, seconds) {
-    if (this.pink && this.pink.sampleRate === ctx.sampleRate) return this.pink;
-    // Pink noise (Paul Kellet's filter), with 20 ms fades.
-    const n = Math.round(seconds * ctx.sampleRate);
-    const buffer = ctx.createBuffer(1, n, ctx.sampleRate);
-    const d = buffer.getChannelData(0);
-    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-    for (let i = 0; i < n; i++) {
-      const w = Math.random() * 2 - 1;
-      b0 = 0.99886 * b0 + w * 0.0555179;
-      b1 = 0.99332 * b1 + w * 0.0750759;
-      b2 = 0.969 * b2 + w * 0.153852;
-      b3 = 0.8665 * b3 + w * 0.3104856;
-      b4 = 0.55 * b4 + w * 0.5329522;
-      b5 = -0.7616 * b5 - w * 0.016898;
-      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
-      b6 = w * 0.115926;
-    }
-    const fade = Math.round(0.02 * ctx.sampleRate);
-    for (let i = 0; i < fade; i++) {
-      d[i] *= i / fade;
-      d[n - 1 - i] *= i / fade;
-    }
-    this.pink = buffer;
-    return buffer;
-  }
-
   async test(channels) {
     const e = this.audio.engine;
     const ctx = e.ctx;
@@ -172,32 +145,19 @@ export class AudioPanel {
     if (!ctx || ctx.state !== "running") return;
     const layout = r.layout;
     const N = layout.channels;
-    const merger = ctx.createChannelMerger(N);
-    merger.connect(ctx.destination);
+    const lanes = [];
+    const pink = await r.testBuffer(false, BURST);
+    const tone = await r.testBuffer(true, BURST);
     const restore = r.masterVolume ?? 1;
     r.setVolume(0);
     let t = ctx.currentTime + 0.1;
     for (const c of channels) {
-      const src = ctx.createBufferSource();
-      const g = ctx.createGain();
-      if (c === layout.lfe) {
-        // A 50 Hz tone for the subwoofer.
-        const osc = ctx.createOscillator();
-        osc.frequency.value = 50;
-        g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(0.25, t + 0.05);
-        g.gain.setValueAtTime(0.25, t + BURST - 0.05);
-        g.gain.linearRampToValueAtTime(0, t + BURST);
-        osc.connect(g);
-        osc.start(t);
-        osc.stop(t + BURST);
-      } else {
-        src.buffer = this.noise(ctx, BURST);
-        g.gain.value = 0.35;
-        src.connect(g);
-        src.start(t);
-      }
-      g.connect(merger, 0, c);
+      // A Rust stream test bus targets exactly this device channel after
+      // the muted game mix, including the LFE's generated 50 Hz tone.
+      const lane = r.stream(1, 3 + c);
+      lane.gain.value = c === layout.lfe ? 1 : 0.35;
+      lane.start(c === layout.lfe ? tone : pink, t);
+      lanes.push(lane);
       const at = t;
       setTimeout(() => {
         if (this.testing) this.testing.textContent = `playing: ${layout.names[c]} (channel ${c + 1} of ${N})`;
@@ -206,7 +166,7 @@ export class AudioPanel {
       t += BURST + 0.25;
     }
     setTimeout(() => {
-      merger.disconnect();
+      for (const lane of lanes) lane.dispose();
       r.setVolume(restore);
       if (this.testing) this.testing.textContent = "done: did each name match the speaker it came from?";
       for (const b of this.root.querySelectorAll("[data-channel]")) b.style.outline = "";
@@ -215,21 +175,16 @@ export class AudioPanel {
 
   // A burst of noise carried once round the listener, through the game's
   // own panning (so it shows the renderer, not just the wiring).
-  around() {
+  async around() {
     const e = this.audio.engine;
     const ctx = e.ctx;
     const r = e.renderer;
     if (!ctx || ctx.state !== "running" || !r.voice) return;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise(ctx, BURST);
-    src.loop = true;
-    const g = ctx.createGain();
-    g.gain.value = 0.3;
-    src.connect(g);
-    const fake = { mode3D: 1 };
-    const out = r.voice(fake, true);
-    out.attach(g);
-    src.start();
+    const buffer = await r.testBuffer(false, BURST);
+    const out = r.voice({ mode3D: 1 });
+    out.engineStart(buffer, 0, true, 1);
+    out.engineGain(0.3);
+    out.level = 0.3;
     const start = performance.now();
     const seconds = 6;
     const tick = () => {
@@ -241,8 +196,7 @@ export class AudioPanel {
       if (this.testing) this.testing.textContent = `around: ${Math.round(((a * 180) / Math.PI) % 360)} degrees left of ahead`;
       if (t < seconds) requestAnimationFrame(tick);
       else {
-        src.stop();
-        g.disconnect();
+        out.engineRelease(0.01, 0.05);
         out.dispose();
         if (this.testing) this.testing.textContent = "done";
       }

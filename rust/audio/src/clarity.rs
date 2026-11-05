@@ -1,4 +1,4 @@
-//! The enhanced mode's clarity stage (src/audio/worklets/clarity.js):
+//! The enhanced mode's clarity stage (clarity DSP):
 //! attacks lifted by a linked pair of envelopes, and a top octave made
 //! per channel by rectifying the 2.5 to 7 kHz band and high-passing what
 //! comes out, mixed back under the gain. The LFE (skip) passes through.

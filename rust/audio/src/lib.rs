@@ -1,39 +1,25 @@
-//! The sound stage's worklet DSP (src/audio/worklets) in Rust: the spatial
-//! mixer, the room reverb, the front stabilizer, the master dynamics and
-//! true-peak limiter, the loudness meter and the enhanced mode's clarity
-//! stage, which the game runs: each AudioWorkletProcessor hands its blocks
-//! to this module (src/audio/wasm-dsp.js and the worklets' hand-off
-//! points); `?audio=js` keeps the worklets' JavaScript instead, as an A/B.
+//! Rust owns the complete audio render phase: source playback, streams,
+//! placement, convolution, room sends, mono and master processing. The page
+//! supplies decoded PCM and context-timed commands. One worklet copies the
+//! finished 128-frame quantum; the optional meter host copies readings.
 //!
-//! Every answer must be the JavaScript's own to the last bit, so the game
-//! sounds exactly as it does without this module. Each processor here
-//! repeats the worklet it stands for operation by operation, in the same
-//! order: f64 where JavaScript holds a number or a Float64Array, f32
-//! storage where it holds a Float32Array (a store rounds, a read widens,
-//! exactly as JavaScript's do), and the same accumulation order in every
-//! sum. Rust never contracts f64 operations into a fused multiply-add by
-//! itself, and WebAssembly has none unless asked for. What is left is
-//! sin, cos, tan, asin, atan2, exp, pow and log10, whose last bit is the
-//! math library's: this module imports them from its host, so in the
-//! browser they are V8's own, the ones the JavaScript calls (log10 and
-//! powers of 10 also a block's worth at a call, for the compressor). A native
-//! host gives its own (here, the standard library's), whose last bit may
-//! differ; nothing else about a native build changes. Math.min and
-//! Math.max are `js_min` and `js_max` below, which keep JavaScript's
-//! rules for NaN and signed zeros; `js_round` is Math.round.
-//!
-//! The processors themselves (mixer, reverb, stabilizer, limiter, meter,
-//! clarity) know nothing of the web: each takes blocks of f32 samples and
-//! fills blocks, which is all a native host needs. The WebAssembly calls
-//! at the bottom are a thin skin over them: one handle per processor,
-//! flat sample buffers and a few f64 slots exchanged through the module's
-//! memory, as rust/rays does. Blocks are the worklet's 128 frames (the
-//! render quantum); the core takes any frame count, the skin stages 128.
+//! Recorded synthetic renders define the arithmetic contract: f64 state,
+//! f32 stores at the former node boundaries, chronological automation and
+//! deterministic transcendentals from v8math. Component entrypoints keep
+//! independent golden coverage and serve native hosts without Web Audio.
 
 use std::ptr::addr_of_mut;
 
-pub mod biquad;
+pub mod commands;
+mod adpcm;
+mod signal;
+mod biquad;
 pub mod clarity;
+pub mod convolution;
+pub mod hrtf;
+pub mod pcm;
+pub mod stereo;
+pub mod output;
 pub mod limiter;
 pub mod master;
 pub mod meter;
@@ -110,107 +96,13 @@ pub fn js_round(x: f64) -> f64 {
     if r == 0.0 && x.is_sign_negative() { -0.0 } else { r }
 }
 
-/// The host's transcendentals. In WebAssembly they are imports the host
-/// fills from its own Math (V8's in the browser and in Node, so the web
-/// build's last bits are the JavaScript worklets' own); a native build
-/// uses the standard library's.
+/// Deterministic transcendentals, shared with the native Rust host. Audio
+/// keeps the fdlibm power law used by the recorded processor fixtures.
 pub mod host {
-    // The host's own Math functions, imported under js_ names: plain
-    // sin, cos and so on would link against the math library bundled
-    // with the standard library instead of staying imports.
-    #[cfg(target_arch = "wasm32")]
-    mod ffi {
-        extern "C" {
-            pub fn js_sin(x: f64) -> f64;
-            pub fn js_cos(x: f64) -> f64;
-            pub fn js_tan(x: f64) -> f64;
-            pub fn js_asin(x: f64) -> f64;
-            pub fn js_atan2(y: f64, x: f64) -> f64;
-            pub fn js_exp(x: f64) -> f64;
-            pub fn js_pow(x: f64, y: f64) -> f64;
-            pub fn js_log10(x: f64) -> f64;
-            pub fn js_log10s(at: *mut f64, n: u32);
-            pub fn js_pow10s(at: *mut f64, n: u32);
-        }
-    }
-
-    #[inline(always)]
-    pub fn sin(x: f64) -> f64 {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_sin(x) }
-        #[cfg(not(target_arch = "wasm32"))]
-        x.sin()
-    }
-    #[inline(always)]
-    pub fn cos(x: f64) -> f64 {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_cos(x) }
-        #[cfg(not(target_arch = "wasm32"))]
-        x.cos()
-    }
-    #[inline(always)]
-    pub fn tan(x: f64) -> f64 {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_tan(x) }
-        #[cfg(not(target_arch = "wasm32"))]
-        x.tan()
-    }
-    #[inline(always)]
-    pub fn asin(x: f64) -> f64 {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_asin(x) }
-        #[cfg(not(target_arch = "wasm32"))]
-        x.asin()
-    }
-    #[inline(always)]
-    pub fn atan2(y: f64, x: f64) -> f64 {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_atan2(y, x) }
-        #[cfg(not(target_arch = "wasm32"))]
-        y.atan2(x)
-    }
-    #[inline(always)]
-    pub fn exp(x: f64) -> f64 {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_exp(x) }
-        #[cfg(not(target_arch = "wasm32"))]
-        x.exp()
-    }
-    /// JavaScript's `x ** y`.
-    #[inline(always)]
-    pub fn pow(x: f64, y: f64) -> f64 {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_pow(x, y) }
-        #[cfg(not(target_arch = "wasm32"))]
-        x.powf(y)
-    }
-    #[inline(always)]
-    pub fn log10(x: f64) -> f64 {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_log10(x) }
-        #[cfg(not(target_arch = "wasm32"))]
-        x.log10()
-    }
-    /// Each value's log10 in place, in one call out of the module.
-    #[inline(always)]
-    pub fn log10_each(v: &mut [f64]) {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_log10s(v.as_mut_ptr(), v.len() as u32) }
-        #[cfg(not(target_arch = "wasm32"))]
-        for x in v {
-            *x = x.log10();
-        }
-    }
-    /// 10 to each value in place, in one call out of the module.
-    #[inline(always)]
-    pub fn pow10_each(v: &mut [f64]) {
-        #[cfg(target_arch = "wasm32")]
-        unsafe { ffi::js_pow10s(v.as_mut_ptr(), v.len() as u32) }
-        #[cfg(not(target_arch = "wasm32"))]
-        for x in v {
-            *x = 10f64.powf(*x);
-        }
-    }
+    pub use v8math::{sin, cos, tan, asin, atan2, exp, log10};
+    pub use v8math::pow_legacy as pow;
+    pub fn log10_each(values: &mut [f64]) { for value in values { *value = log10(*value); } }
+    pub fn pow10_each(values: &mut [f64]) { for value in values { *value = pow(10.0, *value); } }
 }
 
 // The WebAssembly skin: handles, staged buffers, and one process call per
@@ -248,12 +140,17 @@ struct MasterStaged {
 
 #[derive(Default)]
 struct State {
+    outputs: Vec<output::Output>,
+    adpcm: adpcm::Decoder,
+    signal: Vec<f32>,
+    asset_pcm: Vec<f32>,
+    asset_i16: Vec<i16>,
     mixers: Vec<Staged<mixer::Mixer>>,
-    // A mixer's voice engine, by the mixer's handle (?voices=rust).
+    // A mixer's voice engine, by the mixer's handle.
     engines: Vec<Option<voices::Engine>>,
     // The light mix's voice engines and their output (left, then right).
     lights: Vec<(voices::Engine, Vec<f32>)>,
-    // A mixer's master chain (?master=rust, the enhanced mode), by the
+    // A mixer's master chain, by the
     // mixer's handle.
     masters: Vec<Option<MasterStaged>>,
     reverbs: Vec<Staged<reverb::Reverb>>,
@@ -586,7 +483,7 @@ pub extern "C" fn master_process(h: u32, has_lfe: u32) -> u32 {
     }
 }
 
-/// The light mix's voice engine (?voices=rust): `slots` voices at the
+/// The light mix's voice engine: `slots` voices at the
 /// context's `rate`, each through two speaker gains into a stereo output;
 /// x86=1 fills automation as Chromium's x86 build does.
 #[no_mangle]
@@ -746,7 +643,9 @@ pub extern "C" fn limiter_process(h: u32, in_channels: u32, out_channels: u32) -
 #[no_mangle]
 pub extern "C" fn meter_new(rate: f64) -> u32 {
     let s = state();
-    s.meters.push(Staged::new(meter::Meter::new(rate, None), 16 * FRAMES, 0, 0));
+    let mut staged = Staged::new(meter::Meter::new(rate, None), 16 * FRAMES, 0, 0);
+    staged.cfg.reserve(22);
+    s.meters.push(staged);
     (s.meters.len() - 1) as u32
 }
 
@@ -770,12 +669,17 @@ pub extern "C" fn meter_process(h: u32, in_channels: u32) -> u32 {
     let input = Block { data: &st.input[..in_channels as usize * FRAMES], channels: in_channels as usize, frames: FRAMES };
     let readings = st.proc.process(&input);
     st.cfg.clear();
-    for r in &readings {
-        st.cfg.extend([r.momentary, r.short_term, r.integrated, r.peak, r.true_peak, r.channels.len() as f64]);
-        st.cfg.extend(r.channels.iter().copied());
+    if let Some(r) = &readings {
+        st.cfg.extend([r.momentary, r.short_term, r.integrated, r.peak, r.true_peak, r.count as f64]);
+        st.cfg.extend(r.channels[..r.count].iter().copied());
     }
-    readings.len() as u32
+    readings.is_some() as u32
 }
+
+#[no_mangle]
+pub extern "C" fn meter_reserve(h: u32) { state().meters[h as usize].proc.reserve(); }
+#[no_mangle]
+pub extern "C" fn meter_remaining(h: u32) -> u32 { state().meters[h as usize].proc.remaining() as u32 }
 
 /// The cfg laid out by the last meter_process, and its length in io 0.
 #[no_mangle]
@@ -908,3 +812,92 @@ pub extern "C" fn mixer_voices(h: u32) {
 pub extern "C" fn master_original(h: u32, centre: u32, level: f32) {
     master(h).chain.set_original(centre as usize, level);
 }
+
+/// The complete render phase. The host keeps no voice, bed or master DSP.
+#[no_mangle]
+pub extern "C" fn output_new(rate:f64,channels:u32,enhanced:u32,headphones:u32,binaural:u32,mono:u32,x86:u32)->u32 {
+    let s=state();s.outputs.push(output::Output::new(rate,channels as usize,enhanced!=0,headphones!=0,binaural!=0,mono!=0,x86!=0));(s.outputs.len()-1) as u32
+}
+fn output(h:u32)->&'static mut output::Output{&mut state().outputs[h as usize]}
+#[no_mangle]
+pub extern "C" fn output_io(h:u32)->*mut f64{output(h).io.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn output_cfg(h:u32,len:u32)->*mut f64{let o=output(h);o.cfg.resize(len as usize,0.0);o.cfg.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn output_out(h:u32)->*mut f32{output(h).output.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn output_sample(h:u32,id:u32,frames:u32,channels:u32,rate:f64)->*mut f32{output(h).voices.sample_channels(id as usize,frames as usize,channels as usize,rate).as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn output_commands_ptr(h:u32,len:u32)->*mut f64{let o=output(h);o.commands.resize(len as usize,0.0);o.commands.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn output_commands(h:u32,len:u32){output(h).apply(len as usize)}
+#[no_mangle]
+pub extern "C" fn output_params(h:u32,len:u32){let o=output(h);let n=len as usize;let mut data=std::mem::take(&mut o.cfg);for i in 0..n {data[i]=data[i] as f32 as f64;}let mut at=0;while at+6<=n{let p=[data[at] as f32,data[at+1] as f32,data[at+2] as f32,data[at+3] as f32,data[at+4] as f32,data[at+5] as f32];o.mixer.take(&p,false);at+=6;}o.cfg=data;}
+/// cfg: speaker triples (azimuth, elevation, exists), then decoder row
+/// counts and rows, as the original mixer's layout interface uses.
+#[no_mangle]
+pub extern "C" fn output_layout(h:u32,law:u32,speakers:u32,decoder:u32,front:f64,center:i32,lfe:i32,original:f32){
+    let o=output(h);let n=speakers as usize;let cfg=&o.cfg;
+    let list:Vec<mixer::Speaker>=(0..n).map(|i|if cfg[i*3+2]!=0.0{Some((cfg[i*3],cfg[i*3+1]))}else{None}).collect();
+    let decode=if decoder!=0{let count=cfg[n*3] as usize;let mut at=n*3+1+count;let mut rows=Vec::with_capacity(count);for i in 0..count{let len=cfg[n*3+1+i] as i32;if len<0{rows.push(None);}else{rows.push(Some(cfg[at..at+len as usize].to_vec()));at+=len as usize;}}Some(mixer::Decoder{front,rows})}else{None};
+    o.layout(law,decode,&list,center,lfe,original);
+}
+#[no_mangle]
+pub extern "C" fn output_eq(h:u32,kind:u32,frequency:f32,gain:f32,q:f32){if let Some(m)=&mut output(h).master{m.add_eq(master::kind(kind),frequency,gain,q);}}
+#[no_mangle]
+pub extern "C" fn output_clarity(h:u32,skip:i32,level:f32){if let Some(m)=&mut output(h).master{m.set_clarity(skip as i64,level);}}
+#[no_mangle]
+pub extern "C" fn output_room(h:u32,initial:u32){let o=output(h);let mut values=[0.0;reverb::PARAM_COUNT];values.copy_from_slice(&o.io[..reverb::PARAM_COUNT]);if let Some(m)=&mut o.master{m.room(&values,o.io[reverb::PARAM_COUNT] as u32,initial!=0);}}
+#[no_mangle]
+pub extern "C" fn output_dynamics(h:u32){let o=output(h);let mut values=[0.0;limiter::DYNAMICS_COUNT];values.copy_from_slice(&o.io[..limiter::DYNAMICS_COUNT]);if let Some(m)=&mut o.master{m.dynamics(&values,o.io[limiter::DYNAMICS_COUNT] as u32);}}
+#[no_mangle]
+pub extern "C" fn output_volume(h:u32,value:f32,tau:f64,at:f64,set:u32){output(h).volume(value,tau,at,set!=0);}
+#[no_mangle]
+pub extern "C" fn output_light_level(h:u32,db:f64){output(h).light_level(db);}
+#[no_mangle]
+pub extern "C" fn output_decoder(h:u32,frames:u32)->*mut f32{let o=output(h);o.decoder_staging.resize(frames as usize*32,0.0);o.decoder_staging.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn output_decoder_ready(h:u32,frames:u32){let o=output(h);let values=std::mem::take(&mut o.decoder_staging);o.decoder(&values,frames as usize);o.decoder_staging=values;}
+#[no_mangle]
+pub extern "C" fn output_process(h:u32,frame:f64)->u32{let o=output(h);o.frame=frame as u64;match o.process(){Some(v)=>{o.io[0]=v;1},None=>0}}
+
+/// Rebuild output-only DSP while retaining decoded PCM, source positions
+/// and automation. The host's one output node remains attached to the device.
+#[no_mangle]
+pub extern "C" fn output_rebuild(h:u32,channels:u32,enhanced:u32,headphones:u32,binaural:u32,mono:u32) {
+    let old=output(h);
+    let mut next=output::Output::new(old.rate,channels as usize,enhanced!=0,headphones!=0,binaural!=0,mono!=0,old.x86);
+    std::mem::swap(&mut old.voices,&mut next.voices);
+    std::mem::swap(&mut old.streams,&mut next.streams);
+    std::mem::swap(&mut old.placements,&mut next.placements);
+    next.voices.filtered=enhanced!=0;next.frame=old.frame;
+    next.reattach();
+    *old=next;
+}
+
+/// Asset decoding happens off the audio thread, using separate module
+/// instances in the loader worker. The only host codec is FLAC/Opus I/O.
+#[no_mangle]
+pub extern "C" fn adpcm_input(length: u32) -> *mut u8 { let d=&mut state().adpcm; d.bytes.resize(length as usize,0); d.bytes.as_mut_ptr() }
+#[no_mangle]
+pub extern "C" fn adpcm_decode(channels: u32, count: u32, interleave: u32) -> u32 { state().adpcm.decode(channels as usize,count as usize,interleave as usize) as u32 }
+#[no_mangle]
+pub extern "C" fn adpcm_output(channel: u32) -> *mut f32 { state().adpcm.output[channel as usize].as_mut_ptr() }
+
+#[no_mangle]
+pub extern "C" fn signal_pcm(rate:f64, frames:u32, tone:u32) -> *mut f32 { let s=state();s.signal=signal::make(rate,frames as usize,tone!=0);s.signal.as_mut_ptr() }
+
+#[no_mangle]
+pub extern "C" fn output_free_sample(h:u32,id:u32) { if let Some(sample)=output(h).voices.samples.get_mut(id as usize){*sample=None;} }
+
+/// Whole decoded assets are prepared between page tasks, never in process.
+#[no_mangle]
+pub extern "C" fn asset_i16(frames:u32)->*mut i16 {let s=state();s.asset_i16.resize(frames as usize,0);s.asset_pcm.resize(frames as usize,0.0);s.asset_i16.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn asset_normalize()->*mut f32 {let s=state();for i in 0..s.asset_i16.len(){s.asset_pcm[i]=(s.asset_i16[i] as f64/32768.0) as f32;}s.asset_pcm.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn asset_pcm(frames:u32)->*mut f32 {let s=state();s.asset_pcm.resize(frames as usize,0.0);s.asset_pcm.as_mut_ptr()}
+#[no_mangle]
+pub extern "C" fn asset_gain(db:f64)->f64 {host::pow(10.0,db/20.0)}
+#[no_mangle]
+pub extern "C" fn asset_scale(gain:f64){for value in &mut state().asset_pcm{*value=(*value as f64*gain) as f32;}}

@@ -32,6 +32,7 @@ pub struct Master {
     rate: f64,
     channels: usize,
     x86: bool,
+    mono: bool,
     // The send's high-pass (none in the original mode).
     hp: Option<Biquad>,
     reverb: Reverb,
@@ -70,6 +71,7 @@ pub fn kind(n: u32) -> Kind {
 // Native GainNodes flush subnormal products, while a unity gain copies
 // its input verbatim (including subnormals produced by a worklet).
 fn gain_product(sample: f32, gain: f32) -> f32 {
+    let sample = if sample.abs() < f32::MIN_POSITIVE { 0.0f32.copysign(sample) } else { sample };
     let value = sample * gain;
     if value.abs() < f32::MIN_POSITIVE { 0.0f32.copysign(value) } else { value }
 }
@@ -85,6 +87,7 @@ impl Master {
             rate,
             channels,
             x86,
+            mono: false,
             hp: None,
             reverb: Reverb::new(rate, channels, &[0.0; PARAM_COUNT], 0),
             rooms: u32::MAX,
@@ -113,6 +116,8 @@ impl Master {
     pub fn set_original(&mut self, centre: usize, level: f32) {
         self.original = Some((Stabilizer::new(self.rate, self.channels, 0, 1, centre), level));
     }
+
+    pub fn set_mono(&mut self, mono: bool) { self.mono = mono; }
 
     pub fn set_highpass(&mut self, frequency: f32, q: f32) {
         self.hp = Some(Biquad::new(Kind::Highpass, frequency, q, 0.0, self.rate));
@@ -248,6 +253,7 @@ impl Master {
                 self.mix[i] = if level == 1.0 { self.stage[i] } else if level == 0.0 { 0.0 } else { gain_product(self.stage[i], level) };
             }
         }
+        if self.mono { crate::stereo::mono(&mut self.mix[..len], n); }
         // The limiter.
         let report = {
             let input = Block { data: &self.mix[..len], channels: n, frames: FRAMES };
@@ -420,4 +426,38 @@ mod allocation_tests {
             assert_eq!(count, 0, "{channels} channels, classic={classic}");
         }
     }
+    #[test]
+    fn complete_output_and_meter_allocate_nothing_while_rendering() {
+        use crate::output::Output;
+        use crate::voices::{START, GAIN_SET};
+        use crate::meter::Meter;
+        for (enhanced,channels,headphones,binaural) in [
+            (false,2,false,false),(true,2,false,false),
+            (false,6,false,false),(true,6,false,false),
+            (false,8,false,false),(true,8,false,false),
+            (false,12,false,false),(true,12,false,false),
+            (false,2,true,false),(true,2,true,false),(true,2,true,true),
+        ] {
+            let mut o=Output::new(48000.0,channels,enhanced,headphones,binaural,true,true);
+            let speakers=vec![Some((0.0,0.0));channels];
+            o.layout(if binaural{3}else{0},None,&speakers,-1,-1,1.0);
+            if binaural {let mut filters=vec![0.0;32*256];for c in 0..32{filters[c*256+c]=0.1;}o.decoder(&filters,256);}
+            o.voices.sample_storage(0,1024,48000.0).fill(0.1);
+            o.voices.command_storage(12).copy_from_slice(&[START as f64,0.0,0.0,0.0,1.0,1.0,6000.0,0.0,GAIN_SET as f64,0.0,0.5,0.0]);
+            o.voices.apply_commands(12);o.voice(0,true);
+            o.voices.sample_channels(1,1024,4,44100.0).fill(0.1);
+            o.stream(0,4,0,false);
+            let sample=o.voices.samples[1].as_ref().unwrap();o.streams[0].sources[0].start(1,sample,0.0,0.0,1.07,true,48000.0);
+            let mut meter=Meter::new(48000.0,None);
+            ALLOCS.with(|n| n.set(Some(0)));
+            for block in 0..400 {
+                o.frame=block*FRAMES as u64;o.process();
+                meter.process(&crate::Block{data:&o.output,channels,frames:FRAMES});
+            }
+            let count=ALLOCS.with(|n|n.replace(None).unwrap());
+            assert_eq!(count,0,"enhanced={enhanced}, channels={channels}, headphones={headphones}, binaural={binaural}");
+            assert!(o.output.iter().all(|v|v.is_finite()));
+        }
+    }
+
 }

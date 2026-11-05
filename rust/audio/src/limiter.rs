@@ -1,4 +1,4 @@
-//! The master dynamics (src/audio/worklets/limiter.js): a compressor with
+//! The master dynamics (limiter DSP): a compressor with
 //! a soft knee and makeup, then a true-peak limiter (4x oversampled peak
 //! detection, 1.5 ms lookahead, the window's minimum want from a rising
 //! queue, its moving average, an exponential release), all channels
