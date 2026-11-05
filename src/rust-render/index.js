@@ -600,7 +600,7 @@ export class RustRender {
       known.add(object);
       const material = object.material;
       if (!material || Array.isArray(material) || !material.visible) return;
-      if (!renderer.properties.get(material).currentProgram) fresh.push([object, material]);
+      if (material.userData.bfeFamily !== "world" && !renderer.properties.get(material).currentProgram) fresh.push([object, material]);
       if (material.transparent) list.transparent.push({ object, material, geometry: object.geometry, group: null });
     });
     if (fresh.length) compileFor(renderer, fresh, camera, scene);
@@ -608,7 +608,7 @@ export class RustRender {
     const transparent = this.byName.transparent;
     for (const item of list.transparent) {
       if (transparent.taken.has(item.object) || !transparent.candidate(item)) continue;
-      const entry = item.material.isShaderMaterial && "WORLD_SPACE" in (item.material.defines || {}) ? transparent.registerBucket(item) : transparent.registerObject(item, true);
+      const entry = (item.material.userData.bfeFamily === "world" || item.material.isShaderMaterial && "WORLD_SPACE" in (item.material.defines || {})) ? transparent.registerBucket(item) : transparent.registerObject(item, true);
       if (entry) transparent.taken.set(item.object, entry);
     }
   }

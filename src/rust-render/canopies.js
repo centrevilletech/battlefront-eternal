@@ -58,7 +58,7 @@ class CanopiesPass {
     const core = this.core, mesh = canopies.mesh, material = mesh.material, geometry = mesh.geometry;
     this.entry = null;
     if (material.transparent || !material.alphaToCoverage || material.side !== THREE.DoubleSide) throw Error("Invalid canopy material state");
-    const program = ownedGeometryProgram(core, "world/canopies");
+    const program = ownedGeometryProgram(core, core.graphics.csm ? "world/canopies" : "world/canopies-no-shadows");
     const instanced = program.attributes.filter(([name]) => INSTANCED.includes(name));
     const attributes = instanced.map(([name, location]) => ({ name, location, attribute: geometry.attributes[name] }));
     if (attributes.length !== INSTANCED.length || attributes.some((a) => !(a.attribute?.array instanceof Float32Array) || !a.attribute.isInstancedBufferAttribute)) return;

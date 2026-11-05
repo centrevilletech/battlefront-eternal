@@ -74,25 +74,16 @@ export function fabricGeometry(source) {
   return geometry;
 }
 
-function patch(material, normal) {
+function patchDepth(material) {
   const previous = material.onBeforeCompile;
-  const beforeRender = material.onBeforeRender;
-  material.onBeforeRender = function(...args) {
-    beforeRender.apply(this, args);
-    // Three can retain the current program between draws/frames. Update the
-    // clock even if this is the only visible material in a reflection/view.
-    if (this.isShaderMaterial) this.uniformsNeedUpdate = true;
-  };
   material.onBeforeCompile = function(shader, renderer) {
     previous.call(this, shader, renderer);
     shader.uniforms.fabricTime = lighting.time;
     shader.vertexShader = DECLARATIONS + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>\ntransformed += ${DIRECTION} * fabricOffset(position);`);
-    if (normal) shader.vertexShader = shader.vertexShader.replace("#include <beginnormal_vertex>", `#include <beginnormal_vertex>
-      vec3 fabricGrad = fabricGradient(position);
-      objectNormal = normalize(objectNormal - fabricGrad * dot(objectNormal, ${DIRECTION}) / (1.0 + dot(fabricGrad, ${DIRECTION})));`);
+
   };
-  material.customProgramCacheKey = () => `fabric-v1-${normal}`;
+  material.customProgramCacheKey = () => "fabric-v1-false";
   material.needsUpdate = true;
 }
 
@@ -100,9 +91,8 @@ export function addFabricWind(mesh) {
   const original = mesh.geometry;
   mesh.geometry = fabricGeometry(original);
   original.dispose();
-  if (mesh.material.userData.bfeFamily !== "world") patch(mesh.material, true);
   mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: mesh.material.map, alphaTest: mesh.material.alphaTest, side: mesh.material.side });
-  patch(mesh.customDepthMaterial, false);
+  patchDepth(mesh.customDepthMaterial);
   mesh.userData.fabricWind = true;
   return mesh;
 }

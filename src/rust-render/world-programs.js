@@ -74,5 +74,5 @@ export function prewarmWorldPrograms(core) {
   for (const kind of g.scene.userData.foliage?.kinds.values() || []) {
     ownedGeometryProgram(core,'world/foliage-'+(kind.grass?'grass':'leaves')+(g.csm?'-shadows':''));
   }
-  if (g.treeCanopies) ownedGeometryProgram(core,'world/canopies');
+  if (g.treeCanopies) ownedGeometryProgram(core,g.csm?'world/canopies':'world/canopies-no-shadows');
 }

@@ -1,15 +1,7 @@
 import { ownedGeometryProgram } from "./programs.js";
-// The foliage pass (foliage.rs): the near scene's placed foliage (foliage.js,
-// foliage-gpu.js), each class's cards drawn instanced over the patches in
-// view, in the near phase, with three's program for the class.
-//
-// The renderer chooses the patches too. The page's Foliage asks its drawer
-// (this pass, once one is attached: Foliage.drawer) to select whenever it
-// updates; a class is registered there the first time three has a program
-// for it (three's draw or warmup made one), and from then on three neither
-// updates nor draws it (its material is hidden). The selection is then the
-// renderer's, made as FoliageGpuBatch.update makes it, from the camera the
-// page's update was given; the near phase draws it.
+// The foliage pass (foliage.rs) selects placed grass and leaf cards and draws
+// them with declared Rust-owned variants. The host supplies immutable geometry,
+// placement rows and the camera inputs used by Foliage.update.
 // A card vertex's attributes, then a patch row's (foliage.rs VERTEX, ROW).
 const VERTEX = [["position", 3], ["color", 4], ["uv", 2], ["foliageCorner", 2], ["foliageShape", 4], ["foliageRate", 1]];
 const ROW = ["foliagePatch", "foliageTint", "foliageAxisX", "foliageAxisY", "foliageAxisZ", "foliageDistance"];
@@ -40,8 +32,7 @@ class FoliagePass {
     this.selectClasses(foliage, ctx.camera);
   }
 
-  // Foliage.update's selection, for every class the renderer draws; a class
-  // three has a program for is registered first.
+  // Foliage.update's selection registers each class before selecting patches.
   select(foliage, camera) {
     try { this.selectClasses(foliage, camera); } catch (error) { this.core.fail(error); }
   }

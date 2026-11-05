@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RasterHudAssets } from '../src/raster-hud.js';
 import { addFabricWind } from '../src/fabric.js';
-import { zeroMaterial, lighting } from '../src/materials.js';
+import { zeroMaterial, worldMaterial, lighting } from '../src/materials.js';
 import { Graphics } from '../src/graphics.js';
 import { Settings } from '../src/settings.js';
 import { PlayerCombat } from '../src/combat.js';
@@ -21,23 +21,22 @@ export async function checkVisualAssets() {
     const fallback = new THREE.Texture(original); await assets.upgrade(fallback, '/common/unknown.png');
     assert('Unconverted imports keep native art', fallback.image === original);
     const white = new THREE.DataTexture(new Uint8Array([255,255,255,255]), 1, 1); white.needsUpdate = true;
-    const mesh = addFabricWind(new THREE.Mesh(new THREE.PlaneGeometry(2, 4), zeroMaterial('unlit', { map: white, doubleSided: true })));
+    const mesh = addFabricWind(new THREE.Mesh(new THREE.PlaneGeometry(2, 4), worldMaterial('unlit', { map: white, doubleSided: true })));
     const p = mesh.geometry.attributes.position, anchors = mesh.geometry.attributes.fabricAnchor;
     assert('Subdivided cloth preserves a fixed top edge for every vertex', p.count > 4 && Array.from({ length: p.count }, (_, i) => anchors.getX(i) === 2 && anchors.getY(i) === 4).every(Boolean));
     const scene = new THREE.Scene(); scene.add(mesh);
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 20); camera.position.set(0, 0, 6);
     const target = new THREE.WebGLRenderTarget(256, 256);
-    const capture = (time, depth = false) => {
+    const capture = (time) => {
       lighting.time.value = time; const material = mesh.material;
-      if (depth) mesh.material = mesh.customDepthMaterial;
-      if (depth) renderer.resetState(); // Depth normally runs between other scene passes.
+      mesh.material = mesh.customDepthMaterial;
+      renderer.resetState();
       renderer.setRenderTarget(target); renderer.render(scene, camera);
       const pixels = new Uint8Array(256 * 256 * 4); renderer.readRenderTargetPixels(target, 0, 0, 256, 256, pixels);
       mesh.material = material; return pixels;
     };
-    const a = capture(0), b = capture(1.1);
-    assert('GPU wind moves the cloth silhouette', a.some((v, i) => v !== b[i]));
-    const da = capture(0, true), db = capture(1.1, true);
+    assert('Cloth colour resources contain no browser GLSL',mesh.material.vertexShader === undefined);
+    const da = capture(0), db = capture(1.1);
     assert('Shadow depth follows cloth deformation', da.some((v, i) => v !== db[i]));
     assert('Raster and cloth shaders are free of WebGL errors', renderer.getContext().getError() === 0);
     renderer.dispose(); target.dispose(); return result;
