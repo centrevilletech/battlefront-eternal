@@ -42,6 +42,9 @@ extraResources:
   - from: .
     to: legal
     filter: ["LICENSE", "THIRD-PARTY-NOTICES.md"]
+  - from: rust/audio-decode/licenses
+    to: legal/audio-codecs
+    filter: ["*.txt"]
   - from: electron/ui/fonts
     to: legal
     filter: ["OFL.txt"]

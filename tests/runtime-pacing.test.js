@@ -111,12 +111,13 @@ test('the render profiler fences each frame and reads them without waiting', asy
   const gl = {
     SYNC_GPU_COMMANDS_COMPLETE: 1, SYNC_STATUS: 2, SIGNALED: 3, UNSIGNALED: 4,
     getExtension: () => null,
+    isContextLost: () => false,
     fenceSync: () => ({ id: ++next }),
     getSyncParameter: (sync, name) => (name === 2 && signaled.has(sync.id) ? 3 : 4),
     deleteSync: (sync) => deleted.push(sync.id),
     flush: () => flushes++,
   };
-  const p = new RenderProfiler({ getContext: () => gl });
+  const p = new RenderProfiler({ getContext: () => gl, domElement: new EventTarget() });
   p.begin(); p.end();
   assert.equal(p.behind, false, 'nothing sent yet');
   p.frameEnd();
@@ -136,7 +137,7 @@ test('the render profiler fences each frame and reads them without waiting', asy
   assert.equal(p.fences.length, 3);
   assert.deepEqual(p.report().fences, { behind: false, latencyMs: p.latency });
   // WebGL 1 (no fences): no evidence either way.
-  const old = new RenderProfiler({ getContext: () => ({ getExtension: () => null }) });
+  const old = new RenderProfiler({ getContext: () => ({ getExtension: () => null, isContextLost: () => false }), domElement: new EventTarget() });
   old.begin(); old.end(); old.frameEnd(); old.poll();
   assert.equal(old.behind, null); assert.equal(old.report().fences, null);
 });

@@ -1,83 +1,24 @@
-import { updateWeaponLock, hasMissileLock } from "./weapon-targeting.js";
-import { bindMountedRound } from "./muzzles.js";
-import { legacyRandom } from "./ai/random.js";
+
+
+
+import { stepTurretPreview } from './runtime/turret-prediction.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
 import { cameraTension, easeAxes } from "./flight/camera.js";
-import { emitSound } from "./audio/events.js";
-import { SeatLease, GUNNER, seatWeaponPolicy, poseTurret, unseatBody, dropBody, turretAimPoint } from "./seats.js";
 
-// The player manning a turret, following the 2004 game.
-//
-// E (use) gets into the turret the original game would pick (props.js) and out
-// again. Manning it, the soldier stands at the drum's PilotPosition facing the
-// gun, in the turret's pose for its gunner (Turret.riderSample), out of sight
-// where the turret hides its gunner; the mouse turns the aim within the
-// class's limits, the gun follows the point under the crosshair, and the fire
-// button fires the turret's weapon from the gun's fire point. The views are
-// the turret seat's own (TurretCamera below; Turret's aim frame, props.js).
-//
-// Getting out, the soldier is set down beside the turret: behind it, to
-// either side, at the corners, or in front, whichever is first clear of it,
-// on the floor below, facing the way the turret faces. Killed at the gun, his
-// body falls from where he stood instead.
-//
-// While he mans it the turret holds his seat lease (src/seats.js) and his
-// unit's seat is that lease, as for a bot at a turret (TurretSeats): a shown
-// gunner meets rounds, swings and blasts as a bot there does.
-//
-// Aiming, as the original game's player aim target: from his eye in first
-// person, otherwise from where the chase camera rests brought forward to the
-// eye's plane, along the aim, to the first wall, hull or soldier within
-// 512 m (seats.js turretAimPoint). The page's own battle and a server's
-// TurretSeats aim a person's turret from the same point, so the gun turns to
-// what lies under his crosshair on either. A round leaves the fire point
-// straight at that point once the gun has turned as far toward it as it
-// can, at it or at its limits (Turret.fireDirection).
-//
-// Showing it: the world (a page stepping its own battle, or a worker whose
-// ticks the page applies, src/runtime/replica.js) owns the aim's yaw and
-// pitch and the gun's own angles. The page draws from those: preview() runs
-// the aim ahead over the looks the world has not taken yet, as the soldier's
-// look is previewed (game.js clientFrame), and updateCamera() poses the drum
-// and gun it shows and sets the camera. A page showing a worker's battle
-// never calls enter(): its turret arrives as gunner.turret (SeatReader), so
-// the view is made for whichever turret is set. P (perspective) looks from
-// the eye (EyePointOffset) down the aim; an eye inside the turret's box (the
-// Hoth, dish and Geonosian turrets) has the drum and gun kept out of the
-// view, as his own body is in first person.
+import { poseTurret, unseatBody, turretAimPoint } from "./seats.js";
+
+// Page view of the player at a turret. EntitySeats installs the world's lease;
+// preview() shows unacknowledged look, updateCamera() poses the drawn drum and
+// gun, and poseBody() attaches the visible rider. None steps a weapon or crew.
+// First-person eyes inside the hull hide its rig just as a cockpit does.
 
 const LOOK_SCALE = 2048; // counts x sensitivity per unit of turn rate, as for soldiers
 const LOOK_CLAMP = 16;
-const EXIT_EXTRA = 0.684; // m beyond the turret's bounding radius
-const EXIT_RADIUS = 2.253; // m, the turret's bounding radius
-// The spread with no generator given (random null): Math.random.
-const legacyGunnerSpread = legacyRandom("gunner-spread");
-const SPREAD = Math.PI / 180;
-const TURRET_CORE = 1.4; // m around the turret's centre that its own walls fill
 // The gunner's pose (Turret.riderSample): scratch, kept off the Gunner, whose
 // own fields a world worker sends its page.
 const gunnerPose = { clip: null, pitch: 0, turn: 0, time: null };
 const gunnerTurn = new THREE.Quaternion();
-
-// The turret as a beam's source where no lease holds it: its frame, its
-// life and its gun's view, as the turret itself gave them as a beam's
-// source. An object with only those (an emitter, as a lease's is), which
-// the rounds on the simulation's module name by a handle as they do a
-// lease's emitter; one a turret.
-const turretEmitters = new WeakMap();
-function turretEmitter(turret) {
-  let emitter = turretEmitters.get(turret);
-  if (!emitter) {
-    emitter = {
-      get matrix() { return turret.matrix; },
-      get alive() { return turret.alive; },
-      viewDirection(out) { return turret.viewDirection(out); },
-    };
-    turretEmitters.set(turret, emitter);
-  }
-  return emitter;
-}
 
 export class Gunner {
   constructor({ camera, collision, ordnance, combat, animator, hiddenLayer = 1 }) {
@@ -135,156 +76,30 @@ export class Gunner {
     this.bodyPosed = false;
   }
 
+  // SeatReader.clearSeat and page respawn only release presentation. The
+  // native crew owner has already decided the exit and the body's placement.
+  exit(soldier) {
+    const turret = this.turret;
+    if (!turret) return;
+    const lease = turret.lease;
+    if (lease?.human) {
+      lease.released = true;
+      if (lease.unit?.seat === lease) { lease.unit.seat = null; unseatBody(lease.unit); }
+      turret.lease = null;
+    }
+    turret.gunner = null; turret.humanGunner = null;
+    this.turret = null;
+    if (this.combat) this.combat.mounted = false;
+    this.animator?.gunner?.(null);
+    const root = this.animator?.actor?.root;
+    if (turret.hidesGunner && root && !this.combat?.blowApart) root.visible = true;
+    this.hideRig(null);
+  }
+
   // Mouse counts while manning go to the drum.
   look(dx, dy, sensitivity, invert) {
     this.lookX += dx * sensitivity;
     this.lookY += (invert ? dy : -dy) * sensitivity;
-  }
-
-  enter(turret, soldier) {
-    this.turret = turret;
-    turret.gunner = soldier;
-    turret.humanGunner = this;
-    const owner = this.combat?.owner;
-    const unit = owner && typeof owner === "object" ? owner : null;
-    turret.lease = new SeatLease({ unit, human: true, team: unit?.team ?? this.combat?.team ?? 0, turret, index: 0, role: GUNNER });
-    seatWeaponPolicy(turret.weapon, true);
-    if (this.combat) this.combat.mounted = true;
-    if (unit) {
-      unit.seat = turret.lease;
-      unit.targetable = false;
-    }
-    turret.yaw = 0;
-    turret.pitch = 0;
-    turret.yawVel = 0;
-    turret.pitchVel = 0;
-    this.viewTurret = null; // fresh views: the camera starts at the turret
-    this.viewsFor(turret);
-    this.lookX = 0;
-    this.lookY = 0;
-    soldier.velocity.set(0, 0, 0);
-  }
-
-  // Out of the turret. killed: he died at the gun (src/boarding.js
-  // leaveKilled): no spot is sought; his body falls from where he stood,
-  // its death under way, as a vehicle rider's (VehicleDriver.release). A
-  // dead gunner let go later (a page showing a server's battle, after his
-  // death arrived) is left where he is too.
-  exit(soldier, { killed = false } = {}) {
-    const turret = this.turret;
-    if (!turret) return;
-    const lease = turret.lease;
-    const unit = lease?.human ? lease.unit : null;
-    const died = killed || Boolean(this.combat?.dead);
-    const fall = killed && unit?.soldier ? turret.riderDrop?.(0, unit, this.seat) ?? null : null;
-    turret.gunner = null;
-    if (turret.humanGunner === this) turret.humanGunner = null;
-    if (lease?.human) {
-      lease.released = true;
-      if (lease.unit?.seat === lease) {
-        lease.unit.seat = null;
-        lease.unit.targetable = true;
-      }
-      turret.lease = null;
-    }
-    this.turret = null;
-    if (this.combat) this.combat.mounted = false;
-    this.animator.gunner(null);
-    // Out of sight at the gun (Turret.hidesGunner), he shows again; a droid
-    // blown apart stays gone.
-    const root = this.animator.actor?.root;
-    if (turret.hidesGunner && root && !this.combat?.blowApart) root.visible = true;
-    if (died) {
-      if (unit) unseatBody(unit);
-      if (fall) dropBody(unit, fall);
-      return;
-    }
-    // The first clear spot around the turret, in its facing's frame.
-    const d = EXIT_RADIUS + EXIT_EXTRA;
-    const q = 0.707 * d;
-    const yaw = turret.facing + turret.yaw;
-    const sin = Math.sin(yaw);
-    const cos = Math.cos(yaw);
-    const centre = this.from.set(0, 1.65, 0.32).applyMatrix4(turret.matrix);
-    const spots = [[0, -d], [-d, 0], [d, 0], [-q, -q], [q, -q], [q, q], [-q, q], [0, d], [0, 0]];
-    let chosen = null;
-    for (const [x, z] of spots) {
-      const point = new THREE.Vector3(turret.position.x + cos * x + sin * z, turret.position.y + 1, turret.position.z - sin * x + cos * z);
-      // The line in from the spot, stopping short of the turret's own walls
-      // (the original game leaves the turret out of this test).
-      const toward = centre.clone().sub(point);
-      const length = toward.length() - TURRET_CORE;
-      if (length <= 0) continue;
-      if (!this.collision.cast(point, toward.normalize(), length, this.hit)) {
-        chosen = point;
-        break;
-      }
-    }
-    chosen ||= turret.position.clone().add(new THREE.Vector3(0, 1, 0));
-    soldier.spawn(chosen.x, chosen.y + 0.5, chosen.z, yaw);
-  }
-
-  // One frame of manning: steer, aim, fire, and set the soldier and camera.
-  update(dt, soldier, controls, zoom = 1) {
-    const turret = this.turret;
-    if (!turret) return [];
-    // Mouse rates as the soldier reads them: counts x sensitivity / (2048 dt),
-    // clamped to 16.
-    const rate = (counts) => THREE.MathUtils.clamp(counts / (LOOK_SCALE * Math.max(dt, 1e-4)), -LOOK_CLAMP, LOOK_CLAMP);
-    turret.steer(dt, -rate(this.lookX), rate(this.lookY), zoom);
-    this.lookX = 0;
-    this.lookY = 0;
-
-    // The point under the crosshair: along the aim from where his view
-    // aims from (his eye in first person, else the chase camera's rest at
-    // the eye's plane), past the turret itself and him.
-    turret.viewDirection(this.dir);
-    turretAimPoint(turret, this.firstPerson, this.dir, this.collision, this.ordnance?.units, turret.lease?.unit ?? null, this.target, this.hit);
-    turret.pose(dt, this.target);
-
-    // The soldier stands at the seat, turned as the seat node is (along the
-    // gun, Turret.seatTurn), in the turret's pose for its gunner, out of
-    // sight where it hides him. His hit shapes follow the drum
-    // (Unit.updateSpheres) in the same pose and frame.
-    if (turret.seatPoint) turret.seatPoint(this.seat);
-    else (turret.seat || turret.rig.root).getWorldPosition(this.seat);
-    soldier.position.copy(this.seat);
-    soldier.previous.copy(this.seat);
-    soldier.settled.copy(this.seat);
-    soldier.velocity.set(0, 0, 0);
-    soldier.aimYaw = turret.seatYaw ? turret.seatYaw() : turret.facing + turret.yaw;
-    soldier.aimPitch = turret.pitch;
-    const pose = turret.riderSample?.(this.animator.clips, gunnerPose);
-    this.animator.gunner(pose?.clip ?? null, pose?.pitch, pose?.turn, pose?.time, turret.seatTurn?.(gunnerTurn) ?? null);
-    if (this.animator.actor?.root) this.animator.actor.root.visible = !turret.hidesGunner;
-    if (turret.lease?.unit?.tickCount !== undefined) turret.lease.unit.tickCount += 1;
-
-    // The turret's weapon.
-    const shots = [];
-    const weapon = turret.weapon;
-    if (weapon) {
-      if (!weapon.random && this.random) weapon.random = this.random;
-      const pressed = controls.take("firePrimary");
-      const trigger = { held: controls.held("firePrimary") || pressed, pressed };
-      // The lock cone runs from the muzzle through the point under the crosshair.
-      turret.muzzle(this.muzzle);
-      if (hasMissileLock(weapon.def)) updateWeaponLock(weapon, dt, { units: this.ordnance.units, collision: this.collision,
-        origin: this.muzzle, dir: this.gunDir.subVectors(this.target, this.muzzle).normalize(), viewer: turret.aiTarget, ignoreBody: turret.bodies.built });
-      for (const shot of weapon.update(dt, true, trigger, false, { stick: 0, posture: "stand", zoomed: zoom > 1 })) {
-        turret.muzzle(this.muzzle, this.gunDir, true);
-        turret.fireDirection?.(this.muzzle, this.target, this.gunDir, this.gunDir);
-        this.gunDir.applyAxisAngle(THREE.Object3D.DEFAULT_UP, ((this.random || legacyGunnerSpread)() - (this.random || legacyGunnerSpread)()) * 0.1 * SPREAD);
-        // A beam follows his lease's emitter: enter() gives the turret his
-        // lease and only exit() lets it go, so in a battle it is there while
-        // he fires. Without one (a fixture that sets the turret by hand) it
-        // follows the turret.
-        const round = this.ordnance.fire(weapon.def.ordnance, this.muzzle, this.gunDir, this.combat?.owner ?? "player", null, turret.bodies.built, turret.lease?.emitter ?? turretEmitter(turret), shot);
-        bindMountedRound(round, turret, -1, -1, (turret.barrel - 1) % (turret.firePoints?.length || 1));
-        emitSound("turretFire", turret, shot);
-        shots.push(shot);
-      }
-    }
-    return shots;
   }
 
   // The views for a turret (TurretCamera, its own camera section), afresh
@@ -556,13 +371,12 @@ const rateOf = (counts, dt) => THREE.MathUtils.clamp(counts / (LOOK_SCALE * dt),
 // filter and pitch limits). Pure: the turret itself is not changed.
 // Returns state.
 export function previewSteer(turret, state, pending = [], looks = null, scale = 1, invert = false, dt = TICK) {
-  if (typeof turret.steer !== "function") return state;
   const scratch = { yaw: state.yaw, pitch: state.pitch, yawVel: state.yawVel, pitchVel: state.pitchVel,
     turnRate: turret.turnRate, filter: turret.filter, pitchLimits: turret.pitchLimits, yawLimits: turret.yawLimits ?? null, wrapYaw: Boolean(turret.wrapYaw) };
   const step = (look, s, inv) => {
     let x = 0, y = 0;
     for (const [dx, dy] of look) { x += dx * s; y += (inv ? dy : -dy) * s; }
-    turret.steer.call(scratch, dt, -rateOf(x, dt), rateOf(y, dt), 1);
+    stepTurretPreview(scratch, dt, -rateOf(x, dt), rateOf(y, dt), 1);
   };
   for (const command of pending) step(command.look || [], command.mouseScale ?? scale, command.invertMouse ?? invert);
   if (looks) step(looks, scale, invert);

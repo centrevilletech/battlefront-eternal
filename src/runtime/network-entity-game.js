@@ -167,7 +167,7 @@ export class EntityGameState {
     this.pendingEligibility = null;
   }
   prepareOwn(record) {
-    const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record, g.predictionSim?.corrections), className = this.registry.classes.get(data.classId);
+    const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record), className = this.registry.classes.get(data.classId);
     if (!className || unit.className !== className && !g.bodies.get(className)) throw Error('Missing own class prerequisite');
     if (record.id !== unit.id) {
       const oldId = unit.id, oldGeneration = unit.generation;
@@ -505,8 +505,8 @@ export class EntityGameState {
       if (slot.lease && slot.lease.unit !== unit) { const other = slot.lease.unit; if (other) this.clearSeat(other); else { slot.lease.released = true; slot.lease = null; } }
       reader.setLease(null, vehicle, [id, own ? 1 : 0, seat.seatIndex === 0 ? 'pilot' : 'gunner', generation], value => { slot.lease = value; }, seat.seatIndex);
       unit.targetable = false; if (unit.combat) unit.combat.mounted = true;
-      if (own) { vehicle.seatIndex = seat.seatIndex; reader.setDriver(g.vehicles.vehicles.indexOf(vehicle)); g.driver?.sync?.(); }
-      else g.vehicles.syncRider?.(slot.lease);
+      if (own) { vehicle.seatIndex = seat.seatIndex; reader.setDriver(g.vehicles.vehicles.indexOf(vehicle)); g.driver?.syncReplica?.(); }
+      else g.vehicles.placeReplicaRider(slot.lease);
       return;
     }
     const turret = (g.turretSeats?.turrets || []).find(t => t.aiTarget?.id === seat.vehicleId && t.aiTarget.generation === seat.vehicleGeneration);
@@ -522,7 +522,7 @@ export class EntityGameState {
       g.client.seats.setGunner?.(g.live.buildings.indexOf(turret));
     } else {
       reader.setLease(turret, null, [id, 0, 'gunner', generation], value => { turret.lease = value; });
-      if (turret.lease) { turret.lease.generation = generation; g.turretSeats.pose?.(turret.lease, 0); }
+      if (turret.lease) { turret.lease.generation = generation; g.turretSeats.placeReplica(turret.lease); }
     }
     this.presentation.unbind(unit.id);
   }
@@ -538,7 +538,7 @@ export class EntityGameState {
     if (this.correct(record, packet)) this.pendingCorrection = null;
   }
   correct(record, packet) {
-    const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record, g.predictionSim?.corrections), wasDead = unit.combat.dead;
+    const g = this.game, unit = g.playerUnit, data = decodeOwnPlayer(record), wasDead = unit.combat.dead;
     if (record.id !== unit.id) throw Error('Entity correction does not own this player');
     if (data.epoch !== packet.ack.epoch || data.contentEpoch !== this.registry.contentEpoch ||
         this.registry.classes.get(data.classId) !== unit.className) throw Error('Invalid own correction content prerequisite');
@@ -550,7 +550,7 @@ export class EntityGameState {
       if (!vehicle || vehicle.aiTarget.generation !== data.vehicleGeneration || !vehicle.alive ||
           unit.seat?.vehicle !== vehicle || unit.seat.index !== 0) return false;
     } else if (data.mounted) {
-      const mounted=decodeMountedControl(data.mounted,g.predictionSim?.corrections);
+      const mounted=decodeMountedControl(data.mounted);
       const object=mounted.mode===2 ? g.vehicles?.vehicles.find(value=>value.aiTarget.id===mounted.id)
         : g.turretSeats?.turrets.find(value=>value.aiTarget?.id===mounted.id);
       if(object?.aiTarget.generation>mounted.generation)return true;
@@ -562,7 +562,7 @@ export class EntityGameState {
     unit.presentation.beforeStep();
     const context = applyOwnPlayer({ unit, vehicle, vehicleId: data.vehicleId, vehicleGeneration: data.vehicleGeneration,
       epoch: packet.ack.epoch, registry: this.registry, record, previous: this.previous,
-      remoteLifecycle: data.remote ? this.receiver.get('remote',data.remote.id) : null, native: g.predictionSim?.corrections });
+      remoteLifecycle: data.remote ? this.receiver.get('remote',data.remote.id) : null });
     if (context.team !== g.playerTeam) g.applyAuthoritativeHumanTeam(context.team);
     unit.dead = unit.soldier.dead = unit.combat.dead; unit.alive = !unit.dead && !unit.removed;
     unit.actor.root.visible = !unit.removed; unit.tickCount++; unit.combat.updateHeld?.(); unit.presentation.afterStep();
@@ -579,12 +579,12 @@ export class EntityGameState {
     // Vehicle.present reads the frame's dt from the pose to turn the aimers.
     for (const vehicle of g.vehicles?.vehicles || []) if (vehicle.networkPose) vehicle.networkPose.dt = dt;
     // Manned turrets: the drum and gun at the replicated angles, the body in the
-    // seat (TurretSeats.pose). The own gunner's are the Gunner's to pose.
+    // seat (TurretSeats.placeReplica). The own gunner's are the Gunner's to pose.
     for (const turret of g.turretSeats?.turrets || []) {
       const lease = turret.lease; if (!lease || lease.human || !turret.alive) continue;
       turret.settleTurn?.(tick);
       poseTurret(turret, turret.yaw);
-      if (lease.unit?.soldier) g.turretSeats.pose(lease, 0);
+      if (lease.unit?.soldier) g.turretSeats.placeReplica(lease);
     }
   }
 }

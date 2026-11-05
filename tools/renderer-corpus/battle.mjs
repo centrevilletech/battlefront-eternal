@@ -3,6 +3,9 @@ import fs from 'node:fs';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The browser connection owns one attached page session. Route every reply
+// by request id and session so worker/other-target messages cannot resolve
+// a page request accidentally. Keep errors for the capture report.
 export async function connect(port = Number(process.env.CDP_PORT || 9334)) {
   const info = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
   const ws = new WebSocket(info.webSocketDebuggerUrl);
@@ -13,6 +16,9 @@ export async function connect(port = Number(process.env.CDP_PORT || 9334)) {
   const { targetInfos } = await send('Target.getTargets');
   const t = targetInfos.find((x) => x.type === 'page');
   const { sessionId } = await send('Target.attachToTarget', { targetId: t.targetId, flatten: true });
+// A nonblank readback can be stale after a script exception. Collect errors
+// from the actual page session rather than accepting pixels alone.
+// Only known Electron/extension diagnostics are excluded from this evidence.
   const consoleErrors = [];
   listeners.add((m) => {
     if (m.sessionId !== sessionId) return;
@@ -28,6 +34,9 @@ export async function connect(port = Number(process.env.CDP_PORT || 9334)) {
 }
 
 export function settingsFor(extra = {}) { return extra; }
+// Each launched session receives a complete settings object on disk before
+// navigation. A stored preset name alone does not populate its individual
+// render controls, so it cannot define a reproducible capture.
 export function writeSettings(settings) {
   if (process.env.BFE_SETTINGS_FILE) fs.writeFileSync(process.env.BFE_SETTINGS_FILE, JSON.stringify({ complete: true, values: settings }));
 }
@@ -35,6 +44,9 @@ export function writeSettings(settings) {
 // Object UUID allocation changes when dead render helpers are deleted. Keep
 // that stream and audio scheduling separate from procedural visual randomness, in both
 // the page and its workers. Capture builds retain names (minify: false).
+// UUID allocation and audio scheduling vary with resource lifetime and timing.
+// Use independent streams so those differences cannot move procedural scenery.
+// Retained function names identify UUID calls; capture rejects minified builds.
 export const SEED_SRC = `let seed = 0x9e3779b9, uuidSeed = 0x12345678, audioSeed = 0x6a09e667;
   globalThis.__gateRandom = {uuidCalls:0,audioCalls:0,valueCalls:0};
   Math.random = () => {
@@ -56,12 +68,18 @@ export const CONTEXT_SRC = `window.__gateGl = { lost: 0, restored: 0, events: []
 
 // The page expression for the context's state now: lost events since the load, the context's
 // own flag, and the bridge's (RustRender.lost on builds that have it).
+// Read both event history and the current GL/renderer flags. A restored
+// context may be alive while its Rust resource reconstruction has failed.
+// The same expression also reads older frozen references for comparison.
 export const GL_STATE = `(() => { const b = __bf, g = b.graphics, gl = b.renderer.getContext(), G = window.__gateGl || null;
   return { lostEvents: G ? G.lost : null, restoredEvents: G ? G.restored : null, events: G ? G.events.slice(0, 8) : null,
     contextLost: gl.isContextLost(), rustLost: g.rust ? (g.rust.contextLost ?? g.rust.lost ?? false) : null }; })()`;
 
 // Xvfb is EMU_SCREEN, but the Electron window opens smaller. Pixel parity needs the
 // window to fill that screen. Fullscreen is the window state that matches it.
+// Window chrome and device scale otherwise change readback dimensions.
+// Size the application surface before applying a fixed camera/capture point.
+// A CDP window-size failure is handled by the metrics override below.
 export async function fitWindow(c) {
   const screen = process.env.EMU_SCREEN || '';
   if (!/^\d+x\d+/.test(screen)) return;
@@ -75,6 +93,9 @@ export async function fitWindow(c) {
 
 // Stop the worker at the same authority tick before cosmetic warmup. Its
 // initial start acknowledgement can otherwise race one tick between sessions.
+// Authority must stop at an acknowledged tick before cosmetic warm draws.
+// Otherwise startup can race one worker tick between two fresh sessions.
+// The frame seeds alone cannot repair that different initial world state.
 export const LOCKSTEP_START_SRC = `async b => {
   const host=b.client.host, target=60;
   const start=await host.call('lockstep');
@@ -85,6 +106,9 @@ export const LOCKSTEP_START_SRC = `async b => {
   return target;
 }`;
 
+// Load one new page session with the selected map/query and explicit settings.
+// Register deterministic/context hooks before game code can allocate objects.
+// Wait for real spawn/readiness; a loading screen is not a battle capture.
 export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2', warm = Number(process.env.WARM || 12), extraSrc = '', query } = {}) {
   writeSettings(settings);
   await fitWindow(c);

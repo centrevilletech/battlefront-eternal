@@ -78,7 +78,7 @@ test('framebuffer lookup follows single-sample and both MSAA paths without GL qu
 test('GPU profiling polls sparsely, never reads unavailable results, and discards disjoint samples',()=>{
   let statusReads=0,available=false,disjoint=false,deleted=0;
   const gl={QUERY_RESULT_AVAILABLE:1,QUERY_RESULT:2,getExtension:()=>({GPU_DISJOINT_EXT:3,TIME_ELAPSED_EXT:4}),getParameter:()=>{statusReads++;return disjoint;},createQuery:()=>({}),beginQuery(){},endQuery(){},deleteQuery(){deleted++;},getQueryParameter(q,key){if(key===1)return available;assert.ok(available);return 2e6;}};
-  const profiler=new RenderProfiler({getContext:()=>gl});
+  const profiler=new RenderProfiler({getContext:()=>gl,domElement:new EventTarget()});
   for(let i=0;i<32;i++){profiler.begin();profiler.end();}
   assert.equal(statusReads,4);assert.equal(profiler.pending.length,4);assert.equal(profiler.gpu.length,0);
   available=true;profiler.begin();profiler.end();assert.equal(profiler.gpu.length,4);assert.equal(deleted,4);

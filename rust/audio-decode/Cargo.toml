@@ -1,0 +1,14 @@
+[package]
+name = "audio-decode"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+claxon = "=0.4.3"
+opus-pure = "=0.2.2"
+v8math = { path = "../v8math" }

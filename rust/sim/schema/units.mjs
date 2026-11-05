@@ -65,7 +65,10 @@ export default {
     // A soldier's body (src/soldier.js): its class's numbers and its
     // movement's state. Scratch vectors and the collision world are not
     // state (each tick sets them before it reads them).
-    Soldier: {
+    Soldier: { $layout: true,
+      // client-prediction.js publishes only replay-owned fields; keep class,
+      // collision scratch and drawn objects on their existing JavaScript owner.
+      $publish: ['position', 'previous', 'settled', 'velocity', 'normal', 'avoidance', 'fuel', 'collisionDamage', 'aimYaw', 'aimPitch', 'dive', 'stateTime', 'lock', 'lookX', 'lookY', 'tickLength', 'groundAdjustment', 'posture', 'air', 'diveFrom', 'grounded'],
       $class: 'Soldier',
       maxSpeed: 'f64', maxStrafe: 'f64', maxJump: 'f64', maxTurn: 'f64', maxPitch: 'f64', accel: 'f64', pitchLimits: 'f64x2',
       jet: 'rec:Jet', fuel: 'f64', collisionRule: 'rec:CollisionRule', collisionDamage: 'f64',
@@ -135,7 +138,10 @@ export default {
 
     // A droideka's body (src/droideka.js): its class's numbers, its modes,
     // walk and ball, its shield and guns.
-    Droideka: {
+    Droideka: { $layout: true,
+      // client-prediction.js publishes only replay-owned fields; keep class,
+      // collision scratch and drawn objects on their existing JavaScript owner.
+      $publish: ['position', 'previous', 'settled', 'velocity', 'avoidance', 'collisionDamage', 'aimYaw', 'aimPitch', 'stateTime', 'lookX', 'lookY', 'mode', 'time', 'legs', 'spin', 'roll', 'lean', 'blastClock', 'grounded', 'reverse', 'gun'],
       $class: 'Droideka',
       def: 'def:unitClass', maxTurn: 'f64', pitchLimits: 'f64x2', speed: 'f64', turnThreshold: 'f64', ballRadius: 'f64',
       maxSpin: 'f64', maxBallSlope: 'f64', eyeHeight: 'f64', rootIndex: 'f64', maxFlyHeight: 'f64',

@@ -113,10 +113,3 @@ export function validateArsenalWeapon(weapon,bytes,native=null){
   return {...validateWeaponState(weapon,state),melee};
 }
 export function applyArsenalWeapon(entry){applyValidatedWeaponState(entry);if(entry.melee)entry.weapon.melee.restoreState(entry.melee);}
-export function captureArsenalState(arsenal){
-  return {selected:arsenal.selected.slice(),weapons:arsenal.weapons.map(weapon=>({weapon,state:decodeWeaponState(captureWeaponState(weapon)),melee:weapon.melee?.captureState()}))};
-}
-export function restoreArsenalState(arsenal,state){
-  arsenal.selected=state.selected.slice();
-  for(const entry of state.weapons)applyArsenalWeapon(entry);
-}

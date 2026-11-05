@@ -20,7 +20,8 @@ variant list is hardcoded. Reports include each variant's compile/link result,
 shader/link call counts, cache status and elapsed milliseconds, plus compile
 milliseconds per family. Rejected variants are reported by key. CI retains the
 JSON-lines report as `renderer-smoke-<backend>`; local runs can save it with
-`BFE_SMOKE_OUTPUT`.
+`BFE_SMOKE_OUTPUT`. These are registration/driver-wait timings; a new context
+can still reuse the driver's disk shader cache.
 
 Each backend runs with WEBGL_multi_draw, then with that extension hidden to
 exercise repeated Rust draws. The driver process has a twelve-minute limit
@@ -42,6 +43,9 @@ within the CI job's fifteen-minute limit. A successful run requires:
   painted layers, and a deliberately prebound comparison texture on the
   unpainted layer's unit. Rust must replace it with its empty color texture
   to avoid WebGL rejecting the whole draw.
+- A four-sample phase draws alpha-tested cutouts with alpha to coverage enabled.
+  Terrain receivers must change pixels when shadow strength changes, both before
+  and during that multisampled phase.
 
 The report prints the renderer, Electron/Chromium versions, program count,
 pass counters, multi-draw count and individual assertions. Pixel failures

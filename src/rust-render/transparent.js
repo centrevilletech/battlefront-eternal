@@ -187,8 +187,19 @@ class TransparentPass {
   // of three's render (near.js), its walk's items stand for three's list,
   // all of them this pass's, and the transparent phase follows at once, as
   // deferred as the near phase.
+  // Replacing renderObject's callbacks requires explicit ordering boundaries.
+  // Opaque lines and the far image finish before any transparent reader copies
+  // depth/colour. Each copy or line then splits the sorted Rust stream, so a
+  // reader sees the scene at exactly its authored place in that stream.
   afterPhase(name, ctx) {
     if (name === "near" || name === "mirror") {
+      this.core.byName.lines.drawOpaque(ctx);
+      // The far image is the last opaque draw, depth tested against geometry,
+      // before transparent sources capture their opaque depth/colour copies.
+      if(ctx.walked){
+        this.core.byName.near.writeImage(ctx.camera);
+        this.core.phase("image",ctx.renderer,ctx.scene,ctx.camera,ctx.defer,null,{steps:1});
+      }
       this.atEnd = null;
       this.frameNo++;
       this.takenCount = 0;
@@ -200,6 +211,7 @@ class TransparentPass {
       for (let k=0;k<(this.commands?.length || 0);k++) {
         const command = this.commands[k];
         if (command.depth) command.depth.capture(ctx.camera, true);
+        else if (command.line) this.core.byName.lines.drawOne(command.line,ctx);
         else command.jets.capture(ctx.renderer);
         const tail = this.core.rust.transparent_segment(k + 1), stats = this.core.phaseStats[name];
         for (let i=0;i<tail.length;i++) stats[i] += tail[i];
@@ -222,6 +234,9 @@ class TransparentPass {
 
   // Whether this pass draws an item three would list in the near scene's
   // next render (take()'s test, before that frame's near phase).
+  // Ownership must be known before the near walk accepts the frame. A material
+  // revision can invalidate its old program; compile/register the new one before
+  // using its previous record. Failure must remain visible to the required drawer.
   takes(item) {
     const ownedMaterial=item.material;
     if(ownedMaterial.userData.bfeFamily === "world") {
@@ -342,6 +357,9 @@ class TransparentPass {
       && material.defines && "WORLD_SPACE" in material.defines && !("TERRAIN" in material.defines) && (material.isShaderMaterial || material.userData.bfeFamily === "world"));
   }
 
+  // Match refreshUniformsCommon for built-in basic meshes and sprites.
+  // Colour/opacity, sprite centre/rotation and map transforms are material or
+  // object values; they must not be inherited from whichever draw came before.
   writeObject(r, o, entry, item) {
     const object = item.object, material = entry.material;
     r[o + OBJ.INDEX] = entry.id; r[o + OBJ.BUCKET] = 0;
@@ -356,6 +374,10 @@ class TransparentPass {
     if (map) { if (map.matrixAutoUpdate) map.updateMatrix(); r.set(map.matrix.elements, o + OBJ.MAP); }
   }
 
+  // Copy commands use the same group/render/depth/id keys as blended draws.
+  // Depth capture and fountain colour capture are resource operations, not
+  // dummy meshes. Their explicit keys preserve ordering without native callbacks.
+  // The Rust segment cursor resumes immediately after each command.
   draw(ctx) {
     const core = this.core;
     for (const item of this.candidates) {
@@ -385,6 +407,7 @@ class TransparentPass {
       command.key[0] = 0; command.key[1] = 8.975; command.key[2] = point.z; command.key[3] = -1;
       commands.push(command);
     }
+    for (const command of core.byName.lines.transparent) commands.push(command);
     commands.sort(copyOrder);
     for (let k=0;k<commands.length;k++) core.transparentKeys.set(commands[k].key, k*4);
     ctx.commands = commands.length;
@@ -442,6 +465,9 @@ class TransparentPass {
     return { bucket: true, id, material, program: passes.current, version: material.version, frame: this.frameNo - (material.userData.bfeFamily === "world" ? 1 : 0) };
   }
 
+  // Built-in object sources remain a compiler dependency. Import their linked
+  // bindings before hiding them from any native render list; a draw is never
+  // used as a prerequisite for discovering the correct material program.
   registerObject(item, compiled = false) {
     const core = this.core, renderer = core.renderer, rust = core.rust;
     const { object, material, geometry } = item;

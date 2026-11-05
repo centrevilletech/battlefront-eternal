@@ -31,7 +31,7 @@ function fixture(world, flags = 0, changed = () => {}) {
   const call = (name, ...args) => { trace.push([name, args, view()]); changed(name, env, api); };
   const cmd = { id: 17, look: [[3, -4], [-2, 1]], fire: [{ pressed: true, id: 3 }, { pressed: false, id: 4 }],
     firstPerson: true, aspect: 1.5, human: [{ kind: 'spawn' }], flightSettings: { sensitivity: 0.75, invert: true },
-    flightTuning: { fighter: { acceleration: 4, unknown: 10 } } };
+    flightTuning: flags & 2048 ? null : { fighter: { acceleration: 4, unknown: 10 } } };
   const commands = new Set([cmd]);
   env.commandHistory = { epoch: 1, put(command) { assert.ok(commands.has(command)); call('history', command.id); } };
   env.controls = { command(tick, epoch, generation) { call('command', tick, epoch, generation); return cmd; } };
@@ -59,7 +59,7 @@ function fixture(world, flags = 0, changed = () => {}) {
     aimView: { update: (v, dt, first) => call('driverCamera', v === hull, dt, first) }, update: dt => call('driver', dt) };
   env.gunner = { active: Boolean(flags & 128), updateCamera: (...args) => call('gunnerCamera', ...args), update: dt => call('gunner', dt) };
   env.vehicles = flags & 2048 ? null : { vehicles: [hull, { alive: false }],
-    sim: { retune: (...args) => call('retune', ...args) }, restoreTickPose: () => call('restorePose'),
+    f2: { retune: (...args) => call('retune', ...args) }, restoreTickPose: () => call('restorePose'),
     update(dt, v, keys) { call('vehicles', dt, v === hull, keys ?? null); } };
   env.seatInput = (v, index, controls, command) => { assert.ok(commands.has(command)); call('seatInput', index, command.id); return { forward: 1 }; };
   env.hud = { squadCommand: label => call('squadHud', label) };
@@ -155,7 +155,7 @@ test('native world steps preserve per-call commands through nested ticks and mem
       }
     });
     assert.equal(run(f), null);
-    assert.deepEqual(f.trace.filter(([name]) => name === 'seatInput').map(([, args]) => args[1]), [19, 17]);
+    assert.deepEqual(f.trace.filter(([name]) => name === 'seatInput'), [], 'native vehicle input is imported with its leases');
     return { trace: f.trace, state: f.view() };
   };
   assert.deepEqual(exercise(true), exercise(false));

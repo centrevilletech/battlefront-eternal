@@ -103,7 +103,6 @@ class FarPass {
     this.core = core;
     this.name = "far";
     this.phase = "far";
-    // For comparisons: false leaves the far scene to three.
     this.items = new Map(); // object -> its items (one a material and program)
     this.all = []; // every item
     this.tables = new Map(); // Rust program -> its uniform table, or null
@@ -121,8 +120,8 @@ class FarPass {
     this.color = new THREE.Color();
     this.frustum = new THREE.Frustum();
     this.matrix = new THREE.Matrix4();
-    // This frame: whether the renderer drew all of the far scene, else
-    // "incomplete" and how many meshes three draws that the pass can't.
+    // Ownership diagnostics: an unclaimed visible far mesh makes the
+    // required phase incomplete.
     this.complete = false;
     this.mode = "incomplete";
     this.unclaimed = 0;
@@ -136,14 +135,15 @@ class FarPass {
     this.core.addView("farVertices", Float32Array, () => this.core.rust.far_vertices_ptr(), () => this.core.rust.far_vertices_len());
   }
 
-  // The far phase's part: what it hasn't registered yet, then this frame's
-  // input. Complete when every mesh three would draw is an item (one three
-  // culls is drawn by neither); else the renderer draws nothing. An error
-  // leaves the far scene to three for good.
+  // Register new resources and write the frame inputs. Every visible item
+  // needs a Rust draw; incomplete coverage fails the battle.
   draw(ctx) {
     this.frame(ctx);
   }
 
+  // The same resource table serves main far views, reflected views and probes.
+  // Only frame/camera inputs change; registration must not depend on which view
+  // happened to draw an object first. Every selected item remains Rust-owned.
   frame(ctx) {
     const { renderer, scene, camera } = ctx, core = this.core;
     this.near = false;
@@ -184,6 +184,9 @@ class FarPass {
   // item; hidden from three by its layers from the next frame on (three
   // listed it in this render already: it draws it this once), its own layers
   // kept and tested against the camera's as three would.
+  // The near ocean shares the far machinery but has the near camera range.
+  // Register it before drawing rather than forcing a native first-use pass.
+  // Its transparent ordering still belongs to the authored scene material.
   adoptNear(scene, camera) {
     const sea = this.core.graphics.scene.userData.water?.oceanSurface?.near;
     if (!sea || this.hidden.has(sea)) return;
@@ -230,6 +233,9 @@ class FarPass {
 
   // The far scene as three's projectObject walks it: each mesh it would draw
   // (shown, on the camera's layers), with its group order; the terrain whole.
+  // Mirror/probe traversal preserves visibility and parent render order.
+  // A resource missed here cannot be silently left to the browser renderer;
+  // validation reports the unsupported object before the frame is submitted.
   walk(object, camera, groupOrder) {
     if (object.visible === false) return;
     if (object.layers.test(camera.layers)) {
@@ -268,6 +274,10 @@ class FarPass {
   // An item for a mesh of the far scene (or the far terrain's group); null
   // when the renderer can't draw it as three would, undefined when it can't
   // yet (a texture three hasn't made yet).
+  // Import the material program once, including its actual active uniforms.
+  // Some far shaders consume the shared frame block; others need object/camera
+  // values supplied separately. Keep that distinction instead of zeroing an
+  // unrecognised uniform merely because the object is far from the camera.
   registerItem(object, material, threeProgram, groupOrder, camera) {
     const core = this.core, rust = core.rust, gl = core.gl;
     // The terrain's group: its patches (terrain-patches.js) and level.
@@ -453,6 +463,9 @@ class FarPass {
   // An unindexed geometry's copy for the renderer: each attribute the
   // program reads (one buffer each, its slot there), and an index 0, 1,
   // 2... over every vertex. { g, buffers: [{ attribute, slot }] }, or null.
+  // Non-indexed sky geometry still needs a retained VAO and explicit vertices.
+  // The renderer must preserve its triangles rather than hand it back to Three.
+  // Registration is cold; the resulting geometry id is reused by every view.
   unindexedGeometry(geometry, program) {
     const rust = this.core.rust, position = geometry.attributes.position, count = position.count;
     const buffers = [];
@@ -480,6 +493,9 @@ class FarPass {
   // of them in three's order binds nothing between draws. Made once, for
   // every bucket with a program when the far pass first draws (warmup made
   // them); a bucket that comes later keeps a geometry of its own.
+  // Terrain levels and placed meshes may share one backing geometry. Cache
+  // that allocation while retaining each item's independent range and bounds.
+  // Otherwise a camera's last culling result could become another view's base.
   share(scene) {
     this.sharing = new Map();
     const renderer = this.core.renderer, groups = new Map();
@@ -529,6 +545,9 @@ class FarPass {
   }
 
   // A layout's geometry, made the first time a bucket of it registers.
+  // Attribute layouts belong to the linked program, not just the BufferGeometry.
+  // The same source mesh can be compiled with different active attributes.
+  // A cached VAO is reusable only for the same explicit layout key.
   layoutGeometry(key, geometry, program) {
     const layout = this.layouts.get(key), rust = this.core.rust;
     if (layout.g !== null) return layout.g;
@@ -590,6 +609,9 @@ class FarPass {
   // What this frame's items read that can register anything (and so grow
   // the module's memory): the hooks that set their values (the far water's
   // range), the textures they read now, the terrain's level.
+  // Prepare programs/textures before writing views into WASM memory: creating
+  // a retained resource may grow the heap and detach an earlier typed view.
+  // No draw is needed to initialise these compiler and texture dependencies.
   prepare(renderer, scene, camera) {
     const core = this.core;
     for (let i = 0; i < this.count; i++) {
@@ -615,6 +637,10 @@ class FarPass {
 
   // This frame's input: whether the renderer draws, the clear colour, then
   // each item's slots.
+  // Write current values into the registered sources, preserving sampler ids.
+  // The native texture owner can replace a handle after upload/filter changes;
+  // Rust must observe that replacement without allocating a different item.
+  // Frame writes never choose a different rendering implementation.
   write(renderer, draw) {
     const core = this.core;
     core.views();

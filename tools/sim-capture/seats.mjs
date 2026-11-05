@@ -63,7 +63,7 @@ function unitValue(cap, u) {
 // object once a state, in the shape it first met it in, so a lease this
 // state has already written whole (the `seats` list) would come out whole
 // in the hull too. A unit's handle is its registry id (plugin.mjs handleOf).
-function hullExport(cap, v) {
+export function hullExport(cap, v) {
   const hull = cap.export('vehicle', v);
   hull.seatLeases = v.seats.map(({ lease }) => {
     const u = lease?.unit, i = lease?.input;
@@ -116,7 +116,7 @@ function controlValue(cap, lease) {
 
 // The seats' state as a frame starts or ends: `named` leases, units and
 // hulls the frame's arguments name (one being let go, one boarding).
-function seatState(game, cap, { leases: namedLeases = [], units: namedUnits = [], hulls: namedHulls = [] } = {}) {
+export function seatState(game, cap, { leases: namedLeases = [], units: namedUnits = [], hulls: namedHulls = [] } = {}) {
   lastNamed = { leases: namedLeases, hulls: namedHulls };
   const leases = leasesOf(game, namedLeases);
   const units = [], hulls = [];
@@ -226,7 +226,7 @@ function turretValue(cap, game, t) {
 // The crews' state as a frame starts or ends: their leases (and any the
 // frame names that holds none), the turrets they man (and any named), the
 // units in those seats (and any named) and the seats the AI drives.
-function crewState(game, cap, { leases: namedLeases = [], units: namedUnits = [], turrets: namedTurrets = [] } = {}) {
+export function crewState(game, cap, { leases: namedLeases = [], units: namedUnits = [], turrets: namedTurrets = [] } = {}) {
   lastNamed = { leases: namedLeases, units: namedUnits, turrets: namedTurrets };
   const ts = game.turretSeats;
   const leases = [...ts.leases];

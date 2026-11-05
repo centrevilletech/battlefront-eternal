@@ -1,3 +1,9 @@
+// The colour-policy diagnostic came from a shadow-only basic-material crowd
+// part. This fixture exposes its diffuse uniform deliberately: treating it as
+// a colour rig would fail binding, although its caster role remains valid.
+// Excluding that role must not exclude ordinary vehicle/body shader rigs.
+// Scene membership, visibility and castShadow all stay intact for the caster.
+// The test therefore catches deletion of the object as well as misclassification.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -24,6 +30,8 @@ test('the colour rig phase leaves crowd depth casters to the shadow pass', () =>
   assert.equal(crowd.castShadow, true);
   assert.equal(crowd.material.visible, true, 'shadow ownership is retained');
 
+  // The exclusion is by shadow role, not a blanket ban on SkinnedMesh.
+  // An ordinary shader-material vehicle must remain in colour-rig discovery.
   const vehicle = new THREE.SkinnedMesh(new THREE.BufferGeometry(), new THREE.ShaderMaterial());
   scene.add(vehicle);
   core.byName.instances.findRigs();

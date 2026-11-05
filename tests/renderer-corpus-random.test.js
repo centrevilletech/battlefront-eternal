@@ -1,3 +1,8 @@
+// Object UUID and audio scheduling consume randomness without changing the
+// intended scene. Isolating those streams keeps visible choices reproducible.
+// The fixture varies such calls between sessions and checks that visual output
+// still follows its own seeded stream, while genuinely different seeds differ.
+// The production page keeps its normal randomness; only capture code uses this.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';

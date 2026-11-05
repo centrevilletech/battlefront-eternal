@@ -47,6 +47,9 @@ class ViewPass {
     this.blending = 0;
   }
 
+  // First-person geometry has its own camera and depth ordering. Preserve that
+  // view block instead of treating the held gun as another world-space actor.
+  // All visits must be claimed by Rust before the completed view is composited.
   draw(ctx) {
 
     this.complete = true;
@@ -130,6 +133,9 @@ class ViewPass {
   // A mesh drawn with three's program as it is (no shader hooks), in one
   // geometry range: a basic material that blends (the muzzle flash), or an
   // unlit zero material (opaque).
+  // Blended view parts still need their authored pass/side order and material
+  // values. A plain program is not permission for a native overlay draw.
+  // Registration errors stop this view rather than leaving a hole in the gun.
   registerBlended(mesh) {
     const core = this.core, material = mesh.material, geometry = mesh.geometry;
     let record = null;
@@ -188,6 +194,9 @@ class ViewPass {
 
   // The frame's draws for view.rs: the opaque ones in three's opaque order,
   // then what blends in its transparent order.
+  // Publish current weapon transforms and sort keys after their programs and
+  // samplers exist. A first-use texture upload may grow WASM memory, so the
+  // shared views must be current before writing any records.
   writeBlends(camera) {
     const core = this.core;
     if (!this.input) {
@@ -268,6 +277,8 @@ class ViewPass {
   // Shown to three while one of three's own renders needs them (index.js
   // reveal): the temporal upscaler's motion pass draws the view scene again,
   // with an override material, for the mask that keeps it fixed on screen.
+  // Visibility here only coordinates compiler/resource inspection. It does not
+  // select another drawer; the guarded battle renderer remains required.
   reveal(on) {
     for (const record of this.records) record.material.visible = on;
   }

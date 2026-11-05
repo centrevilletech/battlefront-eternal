@@ -554,10 +554,10 @@ test("the near scene: Rust draws every registered item", () => {
   list.opaque.push({ object: graphics.background });
   assert.equal(core.coverNear(renderer, scene, camera), true);
   assert.equal(before, 1, "three's start of a render");
-  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "frame", "transparent_frame"]);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "frame", "screen_frame", "transparent_frame"]);
   const begin = calls.find((c) => c[0] === "near_begin");
   assert.deepEqual([...begin[1]], [0, 0, 0, 1], "three's clear colour");
-  assert.equal(begin[2], 1, "the far scene's image, one step");
+  assert.equal(begin[2], 0, "clear before opaque geometry; the far image follows it");
   assert.equal(core.postInput[1], -2, "into the target bound now");
   // The hologram's record, keyed as projectObject keys it.
   const z = new THREE.Vector4().copy(holo.geometry.boundingSphere.center).applyMatrix4(holo.matrixWorld)
@@ -662,7 +662,7 @@ test("a water mirror's render of the near scene: drawn in place of three's when 
   scene.add(hidden);
   scene.updateMatrixWorld(true);
   assert.equal(core.coverMirror(renderer, scene, mirror), true);
-  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "mirror_frame", "mirror_transparent_frame"]);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "mirror_frame", "screen_frame", "mirror_transparent_frame"]);
   assert.deepEqual(calls.find((c) => c[0] === "mirror_transparent_frame").slice(1), [0, 0], "the image drawn by the begin phase, not again");
   assert.equal(core.postInput[1], -2, "the image into the target bound now");
   assert.equal(core.stale, true, "three's state reset when three is next used");

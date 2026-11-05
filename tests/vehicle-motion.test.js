@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 // Vehicle speeds follow each class's ODF as the 2004 game reads it
 // (docs/vehicles.md "Movement"). The synthetic cases always run; the last
 // test pins every locally imported vehicle's top speed to its own data
@@ -16,7 +17,7 @@ import { throttleFor } from '../src/flight/config.js';
 import { vehiclePacks } from '../tools/vehicle-packs.mjs';
 import { pilotInput } from '../src/flight/ai.js';
 
-const run = (f, seconds, input = {}) => { for (let i = 0; i < seconds * 60; i++) f.system.update(1 / 60, f.v, input); };
+const run = (f, seconds, input = {}) => { for (let i = 0; i < seconds * 60; i++) stepPrediction(f.system, 1 / 60, f.v, input); };
 const airborne = (settings) => { const f = fixture(settings); f.system.flightEnvironment.bounds = null; f.v.position.y = 300; run(f, 1 / 60, { takeoff: true }); run(f, 3); return f; };
 // The body sections' flight keys, some hashed as the import keeps them.
 const SNOWSPEEDER = { MinSpeed: '20.0', MidSpeed: '40.0', MaxSpeed: '72.0', Acceleraton: '30.0', PitchRate: '0.8', PitchFilter: '2.75', TurnRate: '1.25', TurnFilter: '5.75',
@@ -143,11 +144,11 @@ test('every imported vehicle tops out at its own imported speed', { skip: !impor
       const v = system.vehicles.find((x) => x.name === name), def = v.def;
       const axis = new THREE.Vector3(), orientation = new THREE.Quaternion();
       const speed = () => v.flying ? v.airspeed : v.walking ? Math.hypot(v.velocity.x, v.velocity.z) : Math.abs(v.velocity.dot(axis.set(0, 0, 1).applyQuaternion(hullQuaternion(v, orientation))));
-      const drive = (seconds, input) => { let top = -Infinity, low = Infinity; for (let i = 0; i < seconds * 60; i++) { system.update(1 / 60, v, input); const s = speed(); top = Math.max(top, s); low = Math.min(low, s); } return { top, low, now: speed() }; };
+      const drive = (seconds, input) => { let top = -Infinity, low = Infinity; for (let i = 0; i < seconds * 60; i++) { stepPrediction(system, 1 / 60, v, input); const s = speed(); top = Math.max(top, s); low = Math.min(low, s); } return { top, low, now: speed() }; };
       v.driver = {};
       if (v.flying) {
         v.position.y += 200; v.syncBody();
-        system.update(1 / 60, v, { takeoff: true });
+        stepPrediction(system, 1 / 60, v, { takeoff: true });
         // Its lift (the cloud car's TakeoffTime is 2.5 s), then on to cruise.
         drive(8, {});
         assert.equal(v.flightState, 'Flying', `${name}: airborne`);

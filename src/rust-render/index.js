@@ -22,6 +22,8 @@ import { motionPass } from "./motion.js";
 import { shadowPass } from "./shadow.js";
 import { cloudsPass, underwaterPass, fogPass } from "./screen.js";
 import { mirrorPass } from "./mirror.js";
+import { linesPass } from "./lines.js";
+import { GL_TYPES } from "./geometry-types.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -53,7 +55,7 @@ const LAMP_UNIFORMS = new Set(["localLightPositions", "localLightColors", "local
 // matrix (16), plane matrix (12: three columns of four) and slice (4).
 const SHADOW = { VALUES: 0, MATRICES: 32, PLANES: 96, SLICES: 144, FLOATS: 160, CASCADES: 4 };
 const LIGHT_COUNT = 70, LIGHTS = 72, MAX_LIGHTS = 16;
-const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401, Int16Array: 0x1402, Int8Array: 0x1400, Uint32Array: 0x1405 };
+
 // The phases of a frame, in the order three draws them: the view whose frame
 // block a phase's passes read (written before they draw; null: none) and
 // the renderer's call that draws them (renderer.rs).
@@ -69,8 +71,7 @@ const PHASES = {
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
   // The transparent phase's passes from that mirror camera.
   mirrorTransparent: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_transparent_frame(ctx.commands ?? 0, ctx.image ?? 0) },
-  // The near scene's start when it is drawn in place of three's render
-  // (near.js): its target cleared, the far scene's image drawn into it.
+  // Clear the near target before its opaque geometry.
   begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
   // The far phase's passes from a water's mirror camera (water.js reflect),
   // into the mirror's target, before the frame's own far scene.
@@ -87,6 +88,7 @@ const PHASES = {
   // Full-screen passes three renders on their own (screen.js): the storm's
   // cloud panorama into its target (storm-sky.js), and the Low water's tint
   // over the finished frame with the eye under the surface (water.js).
+  lines: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
   image: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
   skyClouds: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
   underwater: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
@@ -151,9 +153,11 @@ export class RustRender {
     if (this.recording) this.rust = recorder(this.rust, this.recording);
     this.buffer = null;
     this.viewSpecs = [];
-    this.programs = new Map(); // three's program -> Rust's (or null: unsupported)
+    this.programs = new Map(); // three's program -> Rust's program
     this.geometries = new Map(); // "geometry uuid:program" -> Rust geometry
     this.textureSources = [];
+    this.sampleTextures = new WeakMap();
+    this.textureRevision = graphics.textureRevision ?? 0;
     this.pendingTextures = [];
     this.pendingTextureMap = new WeakMap();
     this.textureTargets = new Map();
@@ -214,7 +218,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass, linesPass]) this.addPass(make(this));
   }
 
   // The scene and texture owners keep their CPU resources. Rust replays its
@@ -232,6 +236,7 @@ export class RustRender {
     }
     for (const target of targets) renderer.initRenderTarget(target);
     this.textures.clear();
+    this.sampleTextures = new WeakMap();
     for (let id = 0; id < this.textureSources.length; id++) {
       const texture = this.textureSources[id];
       if (!texture.isRenderTargetTexture && !texture.isDepthTexture) renderer.initTexture(texture);
@@ -239,6 +244,7 @@ export class RustRender {
       if (!handle) throw new Error(`Missing restored texture ${texture.name || id}`);
       handles[id] = handle;
       this.textures.set(handle, id);
+      if (!texture.isRenderTargetTexture && !texture.isDepthTexture) this.sampleTextures.set(texture,{id,handle});
     }
     this.rust.rebuild(this.gl, handles);
     this.buffer = null;
@@ -309,7 +315,7 @@ export class RustRender {
     const pending=this.pendingTextureMap.get(texture);
     if(pending)return pending.id;
     const props=this.renderer.properties.get(texture);
-    if (!props.__webglTexture) this.renderer.initTexture(texture);
+    if (!props.__webglTexture || !texture.isRenderTargetTexture && texture.version > 0 && props.__version !== texture.version && texture.image) this.renderer.initTexture(texture);
     const handle = props.__webglTexture;
     if (!handle) {
       // A lazily requested image draws the same transparent texel as Three's
@@ -325,14 +331,33 @@ export class RustRender {
       this.pendingTextureMap.set(texture,entry);
       return id;
     }
-    let id = this.textures.get(handle);
+    const sample = !texture.isRenderTargetTexture && !texture.isDepthTexture;
+    const known = sample && this.sampleTextures.get(texture);
+    if(known){
+      if(known.handle!==handle)this.replaceTexture(known.id,texture,known.handle,handle);
+      return known.id;
+    }
+    // Clones can initially share a native handle and later acquire different
+    // sampler settings. Keep their logical ids independent from the outset.
+    let id = sample ? undefined : this.textures.get(handle);
     if (id === undefined) {
       id = this.rust.add_texture(handle);
       this.textureSources[id] = texture;
       this.textures.set(handle, id);
       if (this.recording) this.recording.textures[id] = { handle, width: texture.image?.width ?? texture.mipmaps?.[0]?.width ?? texture.width ?? 0, height: texture.image?.height ?? texture.mipmaps?.[0]?.height ?? texture.height ?? 0 };
     }
+    if(sample)this.sampleTextures.set(texture,{id,handle});
     return id;
+  }
+
+  replaceTexture(id,texture,previous,handle){
+    this.rust.replace_sample_texture(id,handle);
+    if(this.textures.get(previous)===id)this.textures.delete(previous);
+    this.textures.set(handle,id);
+    this.textureSources[id]=texture;
+    this.sampleTextures.set(texture,{id,handle});
+    if(this.recording)this.recording.textures[id]={handle,width:texture.image?.width??0,height:texture.image?.height??0};
+    this.stale=true;
   }
 
   refreshTextures() {
@@ -343,13 +368,10 @@ export class RustRender {
       const props=this.renderer.properties.get(texture),handle=props.__webglTexture;
       if(!handle || props.__version!==texture.version)continue;
       const previous=this.renderer.properties.get(entry.pixel).__webglTexture;
-      this.rust.replace_sample_texture(entry.id,handle);
-      this.textures.delete(previous);
-      this.textures.set(handle,entry.id);
-      this.textureSources[entry.id]=texture;
+      this.replaceTexture(entry.id,texture,previous,handle);
+      this.sampleTextures.delete(entry.pixel);
       this.pendingTextureMap.delete(texture);
       this.pendingTextures.splice(i--,1);
-      if(this.recording)this.recording.textures[entry.id]={handle,width:texture.image.width??0,height:texture.image.height??0};
       entry.pixel.dispose();
       this.stale=true;
     }
@@ -628,6 +650,11 @@ export class RustRender {
   // values: more of the phase's values (ctx), for its passes and its call.
   phase(name, renderer, scene, camera, defer = false, walked = null, values = null) {
     if (this.contextLost) return;
+    const revision=this.graphics.textureRevision??0;
+    if(revision!==this.textureRevision){
+      this.textureRevision=revision;
+      for(const texture of this.textureSources)if(this.sampleTextures.has(texture))this.texture(texture);
+    }
     if(this.pendingTextures.length)this.refreshTextures();
 
     const phase = PHASES[name], target = renderer.getRenderTarget();
@@ -696,14 +723,8 @@ export class RustRender {
     this.settleThree?.();
   }
 
-  // A scene's phase drawn in place of three's render of it (graphics.js
-  // renders the scene with three only when this returns false): what three's
-  // render does first (the scene's world matrices, where it keeps them up to
-  // date itself, and its onBeforeRender, which packs its point lights), then
-  // the phase. True when every pass of the phase drew all of the scene that
-  // three would have (each sets `complete` as it draws); then what three's
-  // render does as it ends is done too: the target resolved (when it is
-  // multisampled), the scene's onAfterRender.
+  // Keep the scene's matrix/light hooks and MSAA resolve around a required
+  // Rust phase. Incomplete ownership stops drawing with the missing pass.
   cover(name, renderer, scene, camera) {
     if (this.contextLost) return true;
 
@@ -722,13 +743,12 @@ export class RustRender {
       if (!complete) throw new Error(`Incomplete Rust phase ${name}: ${passes.filter((p) => !p.complete).map((p) => p.name).join(", ")}`);
       return true;
     } catch (error) {
-      this.fail(error, renderer, target);
-      return false;
+      this.fail(error, renderer);
     }
   }
 
   // Keep the failure visible and stop this battle. No other drawer takes over.
-  fail(error, renderer = this.renderer, target = renderer.getRenderTarget()) {
+  fail(error, renderer = this.renderer) {
     const failure = rendererFailure(renderer, error);
     this.failure = failure;
     this.errors.push(failure.message);
@@ -760,12 +780,10 @@ export class RustRender {
     state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, p.__webglMultisampledFramebuffer);
   }
 
-  // graphics.js: the frame's post passes (Graphics.postSteps), drawn by the
-  // post pass when it can draw every one; true when it did.
+  // graphics.js: draw every post step; incomplete ownership is fatal.
   post(renderer, steps) {
     if (this.contextLost) return true;
-    const target = renderer.getRenderTarget();
-    try { if (!this.byName.post.cover(renderer, steps)) this.fail(new Error("Incomplete Rust post chain")); return true; } catch (error) { this.fail(error, renderer, target); return false; }
+    try { if (!this.byName.post.cover(renderer, steps)) this.fail(new Error("Incomplete Rust post chain")); return true; } catch (error) { this.fail(error, renderer); }
   }
 
   // Draw every near-scene item through Rust; incomplete ownership is fatal.
@@ -775,12 +793,10 @@ export class RustRender {
     return true;
   }
 
-  // graphics.js renderCascades: a shadow cascade's pass (shadow.js), drawn by
-  // the shadow pass when it can draw all of it; true when it was.
+  // graphics.js renderCascades: Rust draws every caster in this cascade.
   coverShadow(renderer, light, scene, camera, from) {
     if (this.contextLost) return true;
-    const target = renderer.getRenderTarget();
-    try { if (!this.byName.shadow.cover(renderer, light, scene, camera, from)) this.fail(new Error(`Incomplete Rust shadow: ${this.byName.shadow.why}`)); return true; } catch (error) { this.fail(error, renderer, target); return false; }
+    try { if (!this.byName.shadow.cover(renderer, light, scene, camera, from)) this.fail(new Error(`Incomplete Rust shadow: ${this.byName.shadow.why}`)); return true; } catch (error) { this.fail(error, renderer); }
   }
 
   // Draw the complete reflected scene through Rust.
@@ -794,8 +810,7 @@ export class RustRender {
   // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.
   coverHud(renderer, hud) {
     if (this.contextLost) return true;
-    const target = renderer.getRenderTarget();
-    try { if (!this.byName.hud.cover(renderer, hud)) this.fail(new Error(`Incomplete Rust HUD: ${this.byName.hud.why || "batch"}`)); return true; } catch (error) { this.fail(error, renderer, target); return false; }
+    try { if (!this.byName.hud.cover(renderer, hud)) this.fail(new Error(`Incomplete Rust HUD: ${this.byName.hud.why || "batch"}`)); return true; } catch (error) { this.fail(error, renderer); }
   }
 
   // The near phase's stats and the time its renderer call took, as the

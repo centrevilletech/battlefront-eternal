@@ -1,3 +1,8 @@
+// Motion proxies are selected and ordered separately from colour geometry.
+// Their registered programs and instance/uniform rows must be current before
+// Rust writes the velocity target, including the locked first-person mask.
+// These fixtures check boundary records and callbacks without a GL driver;
+// the generated backend test checks nonzero, repeatable motion pixels.
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -74,6 +79,14 @@ function programs(properties, proxies, locked) {
   if (locked) properties.get(locked).currentProgram = program([["modelViewMatrix", GL.FLOAT_MAT4], ["projectionMatrix", GL.FLOAT_MAT4]], ["position"]);
 }
 
+// Colour ownership is not enough for motion: proxies have different programs,
+// previous transforms and first-person masking rules. Match their scene order
+// before packing Rust rows, including callbacks that update proxy uniforms.
+// This fixture exposes linked attributes explicitly to reject missing bindings.
+// A locked mask must not inherit an animated object's previous matrix.
+// The returned target belongs to the resource owner after the phase finishes.
+// No native draw is available to repair an incomplete velocity submission.
+// The driver fixture independently proves nonzero repeatable motion output.
 test("the motion pass: the proxies three would draw, in its order, then the view's locked mask, drawn by the renderer", () => {
   const { core, calls, renderer, properties } = bridge();
   assert.equal(motionVectors.drawer, core.byName.motion, "the pass draws for motion-vectors.js");
@@ -100,6 +113,14 @@ function shipMotion(material, count, at) {
   return mesh;
 }
 
+// Instanced sky ships provide extra motion inputs outside the ordinary body
+// proxy list. Their hook must run before values are copied into the Rust view.
+// Instance count, layout and uniform data must describe the same ordered draw.
+// The synthetic source makes those writes visible without needing ship assets.
+// A zero-row phase would otherwise look harmless while dropping sky motion.
+// The test retains the same program/geometry ids across repeated submissions.
+// This is a motion resource contract, not a comparison with a native renderer.
+// Its target state remains explicit rather than inherited from a colour pass.
 test("the sky's ships' own motion: drawn by the renderer first, in three's order, their instances and uniforms written, their hook run", () => {
   const { core, calls, renderer, properties } = bridge();
   const { camera } = cameras();

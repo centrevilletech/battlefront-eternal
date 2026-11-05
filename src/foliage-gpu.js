@@ -5,10 +5,8 @@ const LEAF_TURNS = [0,-1,2,-3,4,0,1,-2,3,-4];
 const ATLAS = [[0,.5,.5,1],[.5,.5,1,1],[0,0,.5,.5],[.5,0,1,.5]];
 const CORNERS = [[-.5,-.5],[.5,-.5],[-.5,.5],[.5,.5]];
 
-// One static set of authored cards per class, instanced at visible patches.
-// Only patch selection/tint is uploaded when visibility changes. Orientation,
-// wind and distance fade use uniforms, so looking around doesn't rebuild and
-// upload every leaf vertex on the input thread.
+// Static authored card data and material values for FoliagePass.registerClass.
+// Rust owns program sources, placement selection, instance rows and drawing.
 export class FoliageGpuBatch {
   constructor(map, cards, def, grass) {
     const geometry = this.geometry = new THREE.InstancedBufferGeometry();

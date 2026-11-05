@@ -1,10 +1,11 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { fixture } from './flight-fixture.js';
 import { FixedClock } from '../src/runtime/fixed-clock.js';
 import { VehicleCamera } from '../src/vehicles.js';
-const run=(f,n,input={})=>{for(let i=0;i<n;i++)f.system.update(1/60,f.v,input);};
+const run=(f,n,input={})=>{for(let i=0;i<n;i++)stepPrediction(f.system, 1/60,f.v,input);};
 const airborne=()=>{const f=fixture();f.system.flightEnvironment.bounds=null;run(f,1,{takeoff:true});run(f,240);return f;};
 // The X-wing's lift (TakeoffHeight 2.5, TakeoffSpeed 3, TakeoffTime 1): up
 // at an eighth of TakeoffSpeed on the pad, all of it 2.5 m up; over to flight
@@ -26,4 +27,4 @@ test('local pitch crosses vertical and preserves unit quaternion, camera finite'
 test('roll lock, banked pitch, ground versus space leveling',()=>{const f=airborne();f.v.position.y=600;f.system.flightEnvironment.space=true;f.v.quaternion.setFromAxisAngle(new THREE.Vector3(0,0,1),Math.PI/2);const q=f.v.quaternion.clone();run(f,120,{rollLock:true});assert.ok(q.angleTo(f.v.quaternion)<1e-7);run(f,45,{stickY:1,rollLock:true});const forward=new THREE.Vector3(0,0,1).applyQuaternion(f.v.quaternion);assert.ok(Math.abs(forward.x)>.4);f.v.quaternion.copy(q);f.v.tiltRate=0;f.system.flightEnvironment.space=false;f.system.flightEnvironment.ceiling=2000;run(f,180);assert.ok(Math.abs(new THREE.Vector3(1,0,0).applyQuaternion(f.v.quaternion).y)<.02,'the wings level at LevelFilter');assert.ok(Math.abs(f.v.bank)<.02,'no lean without a turn');});
 test('barrel, double tap loop, Immelmann spend power and finish',()=>{for(const kind of ['barrel','loop','immelmann']){const f=airborne();f.system.flightEnvironment.space=true;f.v.position.y=600;if(kind==='immelmann')run(f,1,{immelmann:true});else{run(f,1,{trick:true});run(f,1);run(f,1,kind==='loop'?{trick:true}:{right:1});if(kind==='barrel')run(f,4,{right:1});}assert.ok(f.v.power<80);run(f,120,{rollLock:true});assert.equal(f.v.trick,'');if(kind==='immelmann'){const d=new THREE.Vector3(0,0,1).applyQuaternion(f.v.quaternion);assert.ok(d.z<-.99);assert.ok(Math.abs(d.y)<.03);}}});
 test('landing at full speed settles flat ground, no slowing down first',()=>{const f=airborne();assert.ok(f.v.airspeed>10);run(f,1,{takeoff:true});assert.equal(f.v.flightState,'Landing');for(let i=0;i<1200&&f.v.flightState==='Landing';i++)run(f,1);assert.equal(f.v.flightState,'Landed');assert.equal(f.v.health,f.v.maxHealth);});
-test('60Hz clock identical at 30, 60, 144Hz rendering',()=>{const states=[];for(const hz of [30,60,144]){const f=fixture(),clock=new FixedClock();for(let i=0;i<hz*3;i++)clock.advance(1/hz,(dt,tick)=>f.system.update(dt,f.v,{takeoff:tick===1,stickX:tick>100?.3:0}));states.push([...f.v.position.toArray(),...f.v.quaternion.toArray(),f.v.airspeed]);}for(const s of states)assert.deepEqual(s,states[0]);});
+test('60Hz clock identical at 30, 60, 144Hz rendering',()=>{const states=[];for(const hz of [30,60,144]){const f=fixture(),clock=new FixedClock();for(let i=0;i<hz*3;i++)clock.advance(1/hz,(dt,tick)=>stepPrediction(f.system, dt,f.v,{takeoff:tick===1,stickX:tick>100?.3:0}));states.push([...f.v.position.toArray(),...f.v.quaternion.toArray(),f.v.airspeed]);}for(const s of states)assert.deepEqual(s,states[0]);});

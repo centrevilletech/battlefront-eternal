@@ -183,6 +183,7 @@ export class Graphics {
     const depthSamples = [...gl.getInternalformatParameter(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, gl.SAMPLES)];
     this.supportedSamples = colorSamples.filter((n) => depthSamples.includes(n)).sort((a, b) => a - b);
     this.textures = new Set();
+    this.textureRevision = 0;
     this.casters = new Set();
     this.distantCasters = new Set();
     this.casterAt = new THREE.Vector3();
@@ -299,7 +300,7 @@ export class Graphics {
       });
       if (key === "viewDistance") this.applyDistance();
       if (key === "bumpMapping") this.applyBump();
-      if (key === "anisotropy") for (const texture of this.textures) this.filter(texture);
+      if (key === "anisotropy") {for (const texture of this.textures) this.filter(texture);this.textureRevision++;}
     });
     window.addEventListener("resize", () => this.resize());
   }
@@ -466,11 +467,9 @@ export class Graphics {
     return { programs: count() - before, rest, ms: performance.now() - started };
   }
 
-  // Compile() prepares three's programs, but Rust adopts their geometry
-  // and links its own programs when the scene is first drawn. Draw twice
-  // under the loading screen: three establishes the materials on the first
-  // pass, and Rust can take them on the second. Do this before joining a
-  // battle, whose incoming entity records must never wait behind the work.
+  // Compile and adopt scene resources through Rust under the loading screen.
+  // Two preparation frames establish dynamic inputs before joining a battle,
+  // whose incoming entity records must never wait behind that work.
   async prepareRenderer(settle, draw) {
     await this.rustReady;
     prewarmWorldPrograms(this.rust);
@@ -878,6 +877,8 @@ export class Graphics {
 
   render(time = 0) {
     if (this.rust.contextLost) return;
+// A prior fatal renderer error remains visible. Re-entering frame rendering
+// must not hide it by clearing the canvas or selecting a different drawer.
     if (this.rust.failure) throw this.rust.failure;
     const { renderer, camera } = this;
     renderer.info.reset();
@@ -982,8 +983,7 @@ export class Graphics {
     // Full-screen triangles overwrite every pixel with blending disabled.
     // Clearing each post target first only burns fill/bandwidth.
     renderer.autoClear = false;
-    // 3-4. The post passes (postSteps): the Rust renderer's post pass draws
-    // them where it can draw every one, else three.
+    // 3-4. Rust draws the complete post chain returned by postSteps.
     const steps = this.postSteps(temporal, upscale);
     this.rust.post(renderer, steps);
     for (const step of steps) step.after?.();

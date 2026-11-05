@@ -513,7 +513,6 @@ pub struct Session {
     pub input: Vec<f64>,
     pub output: Vec<f64>,
     pub cursor: Option<Cursor>,
-    error: Option<&'static str>,
 }
 
 impl Session {
@@ -582,50 +581,4 @@ impl Session {
         };
         Ok(())
     }
-}
-
-#[no_mangle]
-pub extern "C" fn prediction_replay_create() -> *mut Session {
-    Box::into_raw(Box::new(Session::default()))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_replay_drop(p: *mut Session) {
-    if !p.is_null() {
-        drop(Box::from_raw(p));
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_replay_room(p: *mut Session, n: usize) -> *mut f64 {
-    let s = &mut *p;
-    s.input.resize(n, 0.0);
-    s.input.as_mut_ptr()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_replay_run(p: *mut Session, op: u32) -> u32 {
-    let s = &mut *p;
-    s.error = s.run(op).err();
-    u32::from(s.error.is_none())
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_replay_output(p: *const Session) -> *const f64 {
-    (&*p).output.as_ptr()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_replay_output_len(p: *const Session) -> usize {
-    (&*p).output.len()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_replay_error(p: *const Session) -> *const u8 {
-    (&*p).error.unwrap_or("").as_ptr()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn prediction_replay_error_len(p: *const Session) -> usize {
-    (&*p).error.unwrap_or("").len()
 }

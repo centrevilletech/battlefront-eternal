@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Object3D } from 'three';
+import { Turret } from '../src/props.js';
+import { TurretSeats } from '../src/seats.js';
+import { EntitySeats } from '../src/runtime/entity-seats.js';
 import { Soldier } from '../src/soldier.js';
 import { SoldierAnimator } from '../src/animator.js';
 import { SoldierPresentation } from '../src/soldier-presentation.js';
@@ -267,4 +270,32 @@ test("another player's charge arrives with his soldier record and shows on his w
  assert.equal(weapon.charging,true);assert.ok(Math.abs(weapon.held-2*32/63)<1e-9);
  packet(f,authority,101,2,[{...remoteRecord(101,20),charge:0}]);
  assert.equal(weapon.charging,false);assert.equal(weapon.held,0);
+});
+
+// This is a page receiving its first AI turret occupant, not a native world
+// boarding command. Missing replica scratch used to close the whole session.
+test('a received turret lease places its rider without stopping snapshot application', () => {
+  const f = fixture(), authority = body(1), root = new Object3D();
+  root.position.set(3, 4, 5); root.rotation.y = .4; root.updateMatrixWorld(true);
+  const clip = {}, turret = Object.create(Turret.prototype), poses = [];
+  Object.assign(turret, { state: 'built', rig: { root }, seat: root, aiTarget: { id: 71, generation: 1 },
+    lease: null, pitch: .2, yawVel: .1, turnRate: 1, rider: { clip: 'fixture', ninePose: true } });
+  f.remote.animator.clips = new Map([['fixture', clip]]);
+  f.remote.animator.gunner = (...args) => poses.push(args);
+  turret.present = () => {}; turret.aimFrom = () => {};
+  f.game.live = { turrets: [turret], buildings: [turret] };
+  f.game.turretSeats = new TurretSeats({ live: f.game.live });
+  f.game.client.seats = new EntitySeats(f.game);
+  f.adapter.baseline();
+  packet(f, authority, 100, 1, [{ kind: 'turret', id: 71, generation: 1, tick: 100,
+    building: 0, state: 'built', team: 2, health: 100, yaw: 0, pitch: .2, gunYaw: 0, gunPitch: 0 }, remoteRecord(100, 0), { kind: 'seat', id: 2, generation: 1, tick: 100,
+    vehicleId: 71, vehicleGeneration: 1, seatIndex: 0, leaseVersion: 1 }]);
+  assert.equal(f.remote.seat.turret, turret);
+  assert.deepEqual(f.remote.soldier.position.toArray(), [3, 4, 5]);
+  assert.equal(poses.length, 1); assert.equal(poses[0][0], clip);
+  assert.ok(poses[0][4].isQuaternion);
+  f.adapter.present(100);
+  assert.equal(poses.length, 2, 'the rendered frame also places the replica');
+  packet(f, authority, 101, 2);
+  assert.deepEqual([...new Set(f.applied)], [100, 101]);
 });

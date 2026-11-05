@@ -11,9 +11,8 @@
 // and last frame (the ones prepare() keeps) and its bones now and last
 // frame. Then each part of the first-person view three's override render
 // would list (a part the view pass hides from three included) with the
-// locked mask's program and the view's camera. The renderer draws them when
-// it has a program for every one (three has drawn a proxy of each kind,
-// and the mask, once); otherwise three draws the frame's motion as before.
+// locked mask's program and the view's camera. Programs compile before
+// registration; Rust draws the complete motion frame.
 // The sky's ships draw their own motion (MotionVectors.addExtra: an
 // instanced mesh a model part, sky-flyers.js), first, in three's order
 // (render order, material, depth, id), each with three's program for its

@@ -1,3 +1,7 @@
+// A fresh-session control is evidence only when it is exact. These tiny RGBA
+// buffers distinguish alpha-only and one-level changes from identical pixels.
+// They also verify that noisy controls cannot widen the candidate tolerance.
+// No game assets or screenshot similarity heuristics participate in this test.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -6,6 +10,8 @@ import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { compareCase, comparePixels } from '../tools/renderer-corpus/compare.mjs';
 
+// The runner must reject metadata drift before treating images as comparable.
+// Separate-session noise is a failed control even if the candidate matches it.
 test('cross-build parity rejects session noise, candidate changes and tick drift', () => {
   const root = mkdtempSync(join(tmpdir(), 'renderer-compare-'));
   const report = tick => ({complete:true,pass:true,points:[{w:1,h:1,tick,file:'pixels.gz'}]});
@@ -23,4 +29,6 @@ test('cross-build parity rejects session noise, candidate changes and tick drift
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
+// Alpha is part of the target contract, including multisampled edge coverage.
+// An RGB-only check would falsely accept this deliberately changed pixel.
 test('frozen pixel comparison includes alpha',()=>{assert.equal(comparePixels(Uint8Array.of(1,2,3,255),Uint8Array.of(1,2,3,254)).differing,1);});

@@ -468,11 +468,8 @@ class EffectsPass {
     }
   }
 
-  // The glow models added to the scene since three's last list of it (a
-  // command post's logo for the side that took it, a muzzle flash's model),
-  // registered with three's program built without a draw (compileFor), so
-  // that three never draws them for their first frame; one whose texture is
-  // still loading is looked at again until three draws it.
+  // New command-post logos and muzzle-flash models compile before their
+  // first Rust frame. Unready resources remain in the registration retry set.
   glowsAdded(renderer, scene, camera, added) {
     const groups = new Set(this.glowRetry);
     this.glowRetry.clear();
@@ -834,9 +831,8 @@ class EffectsPass {
     return o.id;
   }
 
-  // The Classic lightning of the near scene, while its material is one the
-  // renderer has (registered once three drew it); null otherwise. While it
-  // wears a material three has not drawn yet, three draws it.
+  // Register Classic lightning before its first draw; Enhanced lightning
+  // belongs to its separate effect batch.
   lightning() {
     const lightning = classicLightning.get(this.core.graphics.scene);
     if (!lightning || lightning.isEnhanced()) return null;
@@ -853,8 +849,8 @@ class EffectsPass {
     return record ? { lightning, record } : null;
   }
 
-  // A mesh drawn as three draws it (each of its sides in turn); undefined
-  // while three has not drawn it as it is yet, null when the renderer can't.
+  // Register each side of the mesh. Undefined means its program is not
+  // compiled yet; null reports a configuration this pass cannot own.
   registerMesh(mesh, material, attributes) {
     const core = this.core, renderer = core.renderer;
     const props = renderer.properties.get(material);

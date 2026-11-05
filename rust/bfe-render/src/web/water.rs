@@ -13,6 +13,8 @@ impl BfeRenderer {
     pub fn water_rings_uv_len(&self) -> u32 { self.r.water.rings_uv.len() as u32 }
     pub fn water_rings_alpha_ptr(&mut self) -> u32 { self.r.water.rings_alpha.as_mut_ptr() as u32 }
     pub fn water_rings_alpha_len(&self) -> u32 { self.r.water.rings_alpha.len() as u32 }
+    // WaterPass registers the material once; its frame input still selects which
+    // surface/ring instances draw. Recovery restores the material, not a frame.
     pub fn water_surface(&mut self, geometry: u32, blend: &[u32], depth_func: u32, flags: u32, side: u32) -> u32 {
         self.remember_water_surface(geometry, blend, depth_func, flags, side); // recovery
  self.r.water.add_surface(&self.r.core, geometry, blend, depth_func, flags, side)
@@ -26,6 +28,7 @@ impl BfeRenderer {
     // values the page writes (f32).
     pub fn water_instances_ptr(&mut self) -> u32 { self.r.water.instances.as_mut_ptr() as u32 }
     pub fn water_instances_len(&self) -> u32 { self.r.water.instances.len() as u32 }
+    // Instance capacity must exist before moving the preserved instance mirror.
     pub fn water_set(&mut self, max: u32, sizes: &[u32]) -> Option<u32> {
         self.remember_water_set(max, sizes); // recovery
  self.r.water.add_set(&self.r.core, max, sizes) }

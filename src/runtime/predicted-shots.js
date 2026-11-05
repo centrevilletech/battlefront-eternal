@@ -20,12 +20,15 @@ const EPSILON = 1e-6;
 // page shows him, so a blast cannon's five bolts fan out and stop where its
 // pellets land. Only a bolt flies straight enough to draw
 // ahead of the authority: a rocket, shell or bullet shows its flash, sound
-// and arms at once and its round when the authority's arrives. Without an
-// Ordnance (tests) a thin line stands in.
+// and arms at once and its round when the authority's arrives.
 export class PredictedShots {
-  constructor(scene, collision, now = () => performance.now()/1000, ordnance = null) {
-    this.scene=scene;this.collision=collision;this.now=now;this.ordnance=ordnance;
+  constructor(collision, now = () => performance.now()/1000, ordnance) {
+    if(!ordnance)throw Error("Predicted shots require the battle ordnance renderer");
+    this.collision=collision;this.now=now;this.ordnance=ordnance;
     this.shots=new Map();this.cooldowns=new WeakMap();this.heldSerial=0;this.claims=new Map();this.from=new THREE.Vector3();
+  }
+  slots(epoch, unit) {
+    return this.life === `${epoch}:${unit.id}:${unit.generation}` ? Math.max(0, 32 - this.shots.size) : 32;
   }
   fire(edge, unit, command, predictedShot = null) {
     if(!edge.pressed || !unit?.alive || unit.combat?.dead)return false;
@@ -77,16 +80,17 @@ export class PredictedShots {
       }
     } else if(!lease){
       const soldier=unit.soldier;
-      if(soldier?.nextVisualGun){
+      if(soldier?.visualGunAt){
         // A droideka's built-in guns have no held fire point, and the page
         // combat's gun origin is never stepped (it sits at the world
         // origin): leave from the next visible barrel (the first-person
         // barrels in that view), converging on the reticle point as the
         // authority's emitGunRound does from its physical rig.
         origin=new THREE.Vector3();
-        const at=soldier.nextVisualGun(origin);
+        const selected=predictedShot?.visualGun;
+        const at=selected ? soldier.visualGunAt(origin,selected) : null;
         if(at){
-          if(combat.firstPerson)combat.view?.muzzlePoint?.(soldier.lastGun,origin);
+          if(combat.firstPerson)combat.view?.muzzlePoint?.(selected,origin);
           const eye=soldier.eye?soldier.eye(soldier.position,new THREE.Vector3()):origin.clone();
           const seen={point:new THREE.Vector3(),normal:new THREE.Vector3()};
           const contact=this.collision?.cast(eye,direction,512,seen);
@@ -128,16 +132,9 @@ export class PredictedShots {
     // Ordnance.present ignores one.
     const offset=muzzle&&muzzle.distanceToSquared(origin)<=400?muzzle.sub(origin):null;
     const shot={bolt:straight?{def:ordnance,position:origin.clone(),direction,speed,life,flown:0,drawn:0,offset,merge:Math.max(Math.min(MERGE,speed*life),1e-3)}:null,
-      mesh:null,origin,direction,speed,born:now,until:now+Math.max(1,life+(ordnance.FadeOutTime||0)),life,flying:straight,metadata,held:Boolean(edge.held),confirmedTick:null,
+      origin,direction,speed,born:now,until:now+Math.max(1,life+(ordnance.FadeOutTime||0)),life,flying:straight,metadata,held:Boolean(edge.held),confirmedTick:null,
       owner:unit,ignoreBody:lease?.vehicle?.body || lease?.turret?.bodies?.built || null,
       group:predictedShot&&Number.isSafeInteger(edge.tick)?`${edge.epoch??1}:${edge.tick}:${edge.button}:${metadata.fireId}`:null};
-    if(straight&&!this.ordnance){
-      const length=Math.max(.05,Math.min(2,ordnance.Length||1));
-      const geometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),direction.clone().multiplyScalar(-length)]);
-      const color=ordnance.LightColor||def.FlashColor||[255,110,70];
-      const material=new THREE.LineBasicMaterial({color:new THREE.Color(...color.slice(0,3).map(v=>v/255)),transparent:true,opacity:.85});
-      shot.mesh=new THREE.Line(geometry,material);shot.mesh.position.copy(origin);this.scene.add(shot.mesh);
-    }
     let storage=shot.held?`${metadata.playerId}:${metadata.generation}:held:${++this.heldSerial}`:key(metadata);
     // A shared Weapon volley returns every pellet. Keep all their cosmetics;
     // the first represents the volley when authority confirms its identity.
@@ -154,8 +151,7 @@ export class PredictedShots {
     if(firstInGroup)this.onPredicted?.(edge,command,metadata);
     return true;
   }
-  removeMesh(shot) {if(!shot.mesh)return;this.scene.remove(shot.mesh);shot.mesh.geometry.dispose();shot.mesh.material.dispose();shot.mesh=null;}
-  remove(id,shot) {this.removeMesh(shot);this.shots.delete(id);}
+  remove(id) {this.shots.delete(id);}
   // The authoritative round for a cosmetic one has arrived. With `tick` (the
   // tick the weapon fired) the cosmetic flies on as drawn and that
   // round stays undrawn (CombatPresentation); without, the cosmetic is hidden
@@ -169,7 +165,7 @@ export class PredictedShots {
     if(!shot)return false;
     const first=shot.confirmedTick===null;
     const confirm=value=>{
-      if(tick===undefined){value.confirmedTick=-Infinity;value.flying=false;this.removeMesh(value);}
+      if(tick===undefined){value.confirmedTick=-Infinity;value.flying=false;}
       else if(value.confirmedTick===null||tick<value.confirmedTick)value.confirmedTick=tick;
     };
     confirm(shot);
@@ -217,14 +213,14 @@ export class PredictedShots {
       // stopped (Ordnance.drawBolt reads `ended` and `fade`).
       const fade=shot.bolt?boltFade(shot.bolt.def,age-shot.life):0;
       shot.flying=fade>0;
-      if(!shot.flying){this.removeMesh(shot);continue;}
+      if(!shot.flying)continue;
       const bolt=shot.bolt,from=bolt.flown;
       bolt.flown=Math.min(age,shot.life)*shot.speed;
       // A bolt stops at the first soldier it crosses as this page shows him
       // (Ordnance.castUnits, the authority's own test), not flying on through
       // the man it struck. Cosmetic only: the authority's round decides the
       // hit, and its terminal record plays the impact.
-      const struck=bolt.flown>from&&this.ordnance?.castUnits?.(this.from.copy(shot.origin).addScaledVector(shot.direction,from),shot.direction,bolt.flown-from,shot.owner,null,shot.ignoreBody);
+      const struck=bolt.flown>from&&this.ordnance.castUnits?.(this.from.copy(shot.origin).addScaledVector(shot.direction,from),shot.direction,bolt.flown-from,shot.owner,null,shot.ignoreBody);
       if(struck){
         bolt.flown=from+struck.distance;shot.life=Math.min(shot.life,bolt.flown/shot.speed);
         // Once, as this page shows it (game.js: a sniper round's hit marker).
@@ -233,13 +229,11 @@ export class PredictedShots {
       bolt.drawn=Math.min(bolt.flown,Math.max(bolt.def.LaserLength||1,bolt.def.GlowLength||0,bolt.def.BlurLength||0));
       bolt.ended=age>=shot.life;bolt.fade=fade;
       bolt.position.copy(shot.origin).addScaledVector(shot.direction,bolt.flown);
-      shot.mesh?.position.copy(bolt.position);
     }
   }
   // Inside Ordnance.present's batch: the flying cosmetics as real bolts.
   draw() {
-    if(!this.ordnance)return;
     for(const shot of this.shots.values())if(shot.flying)this.ordnance.drawBolt(shot.bolt,1,null);
   }
-  clear(){for(const shot of this.shots.values())this.removeMesh(shot);this.shots.clear();this.cooldowns=new WeakMap();this.claims.clear();this.life=null;this.ownerId=this.ownerGeneration=null;}
+  clear(){this.shots.clear();this.cooldowns=new WeakMap();this.claims.clear();this.life=null;this.ownerId=this.ownerGeneration=null;}
 }

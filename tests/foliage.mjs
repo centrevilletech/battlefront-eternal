@@ -1,3 +1,12 @@
+// This content-gated check covers authored card construction and import data.
+// It no longer constructs a CPU-selected visible population for comparison.
+// Seeded geometry/tint and placement transforms are inputs to the required
+// Rust renderer, so their data contracts remain meaningful without that twin.
+// Prepared map assets are loaded only when the test environment supplies them.
+// Missing content is a declared skip, never a successful rendering assertion.
+// The public driver fixture supplies independent asset-free GPU coverage.
+// Do not turn this import check into a selectable battle rendering path.
+// Keep card order stable because it also defines the seeded texture choices.
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { describe, worldMaterial } from '../src/materials.js';

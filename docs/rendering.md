@@ -11,6 +11,8 @@ render calls; only the explicitly listed menu, spawn-screen and scoreboard
 preview scenes retain their interface renderer. Module or shader-link failure
 stops the battle with the GPU name and error. Context loss suspends drawing;
 restoration rebuilds Rust's GPU resources and resumes the same battle.
+Tow cables and flight/navigation helpers also draw through Rust, preserving
+line strips, segments, loops, vertex colours and dynamic buffer updates.
 
 ## Findings and fixes
 

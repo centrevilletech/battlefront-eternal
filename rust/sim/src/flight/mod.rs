@@ -81,7 +81,7 @@ pub struct Environment {
     /// `Boolean(env.space)`.
     pub space: bool,
     /// `env.landingZones` (None: undefined).
-    pub landing_zones: Option<Vec<Zone>>,
+    pub landing_zones: Option<std::rc::Rc<[Zone]>>,
     /// `system.flightAssists`: steering assists and the assist target
     /// (src/game.js: off on Hard).
     pub assists: bool,

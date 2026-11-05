@@ -6,10 +6,9 @@
 // by a handle as every other reference. docs/sim-store.md says how a
 // schema is written; tools/sim-schema.mjs makes the code from it.
 //
-// Still to declare, as their packages port them: a turret's aim and its
-// rig (the props package's kind; the seat frames' captures write them by
-// hand until then), and the seat as the AI drives it (SeatUnit, the AI's
-// object, which the store only names).
+// Turret aim, rig and weapon state use the props kind and retained native
+// bindings. SeatUnit still names the foreign AI control facade; its intent
+// crosses once before latching rather than becoming seat authority.
 export default {
   enums: {
     // What a seat is to whoever holds it (seats.js:31-33, seatRole).
@@ -17,7 +16,7 @@ export default {
     // Why someone left a seat (Vehicles.vacate's `reason`).
     SeatReason: ['exit', 'stale', 'killed', 'destroyed', 'displaced'],
     // What the seat phase on the module leaves JavaScript to do once it is
-    // over, in the order it happened (src/seats-sim.js): a body's combat
+    // over, in the order it happened: a body's combat
     // and drawing as a seat took or let it go, and the battle's hooks.
     SeatEffectKind: ['seated', 'unseated', 'placed', 'dropped', 'boarded', 'unboarded', 'moved'],
   },
@@ -56,10 +55,9 @@ export default {
       placement: 'bool',
     },
 
-    // ---- The seat phase on the module, behind its switch (?seats=rust,
-    // src/seats-sim.js; rust/sim/src/seats/module.rs). The leases, the
-    // hulls and the riders' units go into the store before it and come
-    // back after it; these carry what the seats read beyond them.
+    // Seat solver records retain foreign facts and ordered combat/AI hooks.
+    // The required F2 scheduler owns leases, latching and rider bodies; these
+    // records also let native fixtures exercise the independent solvers.
 
     // A hull as its seats read it beyond the store's fields
     // (seats::hulls::HullSide): its place in the battle's list, who last

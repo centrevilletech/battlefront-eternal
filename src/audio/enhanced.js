@@ -1,3 +1,4 @@
+import { loadAudioPcm } from "./codec.js";
 // The enhanced mode's upscaled sound, as tools/enhance_audio.py writes it
 // (public/audio/enhanced/<sublevel>, gitignored): 48 kHz FLAC per sample,
 // Opus per stream segment, music also upmixed to 5.1 and 7.1, and a
@@ -41,13 +42,12 @@ export class EnhancedAssets {
       while (next < entries.length) {
         const [id, entry] = entries[next++];
         try {
-          const data = await fetch(`${this.base}/${entry.file}`).then((r) => r.arrayBuffer());
-          const buffer = await this.ctx.decodeAudioData(data);
-          scale(buffer, entry.playback_db);
+          const buffer = await loadAudioPcm(`${this.base}/${entry.file}`, { rate: this.ctx.sampleRate, gain: entry.playback_db });
           this.buffers.set(id, buffer);
           this.stats.loaded++;
-        } catch {
+        } catch (error) {
           this.stats.failed++;
+          throw error;
         }
       }
     };
@@ -69,14 +69,4 @@ export class EnhancedAssets {
     else file = Object.values(files)[0];
     return file ? { url: `${this.base}/${file}`, playback: entry.playback_db || 0 } : null;
   }
-}
-
-export function scale(buffer, db) {
-  if (!db) return buffer;
-  const g = 10 ** (db / 20);
-  for (let c = 0; c < buffer.numberOfChannels; c++) {
-    const d = buffer.getChannelData(c);
-    for (let i = 0; i < d.length; i++) d[i] *= g;
-  }
-  return buffer;
 }

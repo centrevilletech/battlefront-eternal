@@ -21,6 +21,9 @@ impl BfeRenderer {
         self.remember_far_item(program, table, geometry, flags, depth_func, blend, order, sphere, slot); // recovery
  self.r.far.add_item(&self.r.core, program, table, geometry, flags, depth_func, blend, order, sphere, slot)
     }
+    // Uniform sources may name live input offsets rather than owning constants.
+    // Replay restores that descriptor; the far frame reads it only after CPU mirrors
+    // have been moved back into the rebuilt renderer.
     pub fn far_source(&mut self, item: u32, uniform: u32, kind: u32, values: &[f32], at: u32) {
         self.remember_far_source(item, uniform, kind, values, at); // recovery
  self.r.far.source(item, uniform, kind, values, at) }
@@ -57,11 +60,15 @@ impl BfeRenderer {
     pub fn far_range_input(&mut self, item: u32, at: u32) {
         self.remember_far_range_input(item, at); // recovery
  self.r.far.range_input(item, at) }
+    // Retain the dirty-buffer description, not a draw of the old frame. Replaying
+    // the resource table cannot sample the not-yet-restored shared vertex input.
     pub fn far_refresh(&mut self, item: u32, buffer: u32, at: u32, floats: u32, flag: u32) {
         self.remember_far_refresh(item, buffer, at, floats, flag); // recovery
  self.r.far.refresh(item, buffer, at, floats, flag) }
 
     // A face (0-5) of a sky probe's capture (renderer.rs far_probe_frame).
+    // Probe submission is transient and must never enter the recovery journal.
+    // Each cubemap face uses the already restored resource ids and current camera.
     pub fn far_probe_frame(&mut self, face: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.far_probe_frame(face as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }

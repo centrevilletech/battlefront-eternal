@@ -62,6 +62,10 @@ With the local extracted `public/maps/nab2` and `bes2` assets:
 node tools/benchmark-world.mjs
 ```
 
+This offline tool measures the collision and movement workloads. The historical
+JavaScript foliage sweep above has been removed with that selector; foliage
+selection now runs in the required Rust renderer and is measured in drawn frames.
+
 The script loads the real collision geometry and live-prop states, performs
 warmups, and reports medians and p95. `PERF_ROUNDS`, `PERF_CYCLES`, and
 `PERF_FRAMES` control sample counts. Optional `PERF_REFERENCE_COLLISION` and
@@ -970,6 +974,14 @@ journal and WebAssembly. `node --test tests/rust-render*.test.js
 fixtures without game content. The renderer smoke fixture checks driver links,
 GL errors, real Rust draw counters, generated HUD colours, repeated frame
 stability and forced context restoration, without an alternate drawer.
+It discovers every `rust/bfe-render/shaders/*/manifest.json` at launch and
+compiles and links every variant through Rust on the selected ANGLE backend.
+The report records variant keys, driver failures, and compile time per family.
+Generated fixtures then verify phase draws, post/FXAA settings, visible stable
+frames, texture rebinding and context restoration. This needs no game files.
+Windows CI uses WARP for Direct3D translation coverage; it does not qualify
+physical GPU drivers. The smoke child has a twelve-minute watchdog within the
+job's fifteen-minute timeout, and CI retains its progress/results artifact.
 
 Cross-build pixel checks use `tools/renderer-corpus.mjs --against` with a frozen
 reference dist. Each case runs a reference session, another reference session

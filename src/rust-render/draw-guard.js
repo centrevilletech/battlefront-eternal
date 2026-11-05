@@ -13,7 +13,12 @@ export function requireRustDraws(renderer) {
   };
 }
 
+// Only these call sites own separate UI scenes. Settling the target first
+// also settles cached GL state left by a deferred Rust battle/HUD phase.
 export function renderInterface(renderer, scene, camera, screen) {
   if (!screens.has(screen)) throw new Error(`Unknown interface screen: ${screen}`);
+  // Enter the resource owner through its state-settling wrapper before a
+  // permitted interface draw, including one immediately after the Rust HUD.
+  renderer.setRenderTarget(renderer.getRenderTarget());
   return (draws.get(renderer) || renderer.render.bind(renderer))(scene, camera);
 }

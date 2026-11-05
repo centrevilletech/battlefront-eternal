@@ -215,8 +215,10 @@ impl<W: SeatWorld + ?Sized> CycleAccess for NativeCycle<'_, W> {
     }
     fn copy_aim(&mut self, hull: usize, from: f64, to: f64) -> Result<(), Self::Error> {
         let v = self.st.vehicle.get_mut(self.hulls.hulls[hull].vehicle).unwrap();
-        let a = v.seats[from as usize].clone(); let b = &mut v.seats[to as usize];
-        b.aim_yaw = a.aim_yaw; b.pitch = a.pitch; b.look_yaw = a.look_yaw; b.look_pitch = a.look_pitch; Ok(())
+        let a = &v.seats[from as usize];
+        let (yaw, pitch, look_yaw, look_pitch) = (a.aim_yaw, a.pitch, a.look_yaw, a.look_pitch);
+        let b = &mut v.seats[to as usize];
+        b.aim_yaw = yaw; b.pitch = pitch; b.look_yaw = look_yaw; b.look_pitch = look_pitch; Ok(())
     }
     fn move_lease(&mut self, lease: Self::Lease, to: f64) -> Result<(), Self::Error> { self.hulls.move_seat(self.st, self.world, lease, to as usize); Ok(()) }
     fn aim(&mut self, hull: usize, to: f64) -> Result<(), Self::Error> {

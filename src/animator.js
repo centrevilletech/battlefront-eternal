@@ -147,6 +147,8 @@ export class SoldierAnimator {
     this.upperFrom = this.upperLast.map(q => q.clone());
     this.bindLengths = BIND_LENGTH.map((name) => actor.byName[name]).filter(Boolean).map((bone) => [bone, bone.position.clone()]);
     this.rootBind = actor.byName.DummyRoot.position.clone();
+    this.seatSample = { clip: null, pitch: 0, turn: 0, time: null, seat: null };
+    this.seatTurn = new THREE.Quaternion();
     this.transitions = Object.fromEntries(Object.entries(TRANSITIONS).map(([k, name]) => [k, clips.get(name)]));
     this.jumpClip = clips.get("human_rifle_jump");
     this.fallClip = clips.get("human_rifle_fall");
@@ -215,8 +217,12 @@ export class SoldierAnimator {
   // of its facing; null keeps him upright at his facing.
   gunner(clip, pitch = 0, turn = 0, time = null, seat = null) {
     if (!clip) { this.gunning = null; return; }
-    const seatTurn = seat ? (this.gunning?.seat || new THREE.Quaternion()).copy(seat) : null;
-    this.gunning = { clip, pitch: THREE.MathUtils.clamp(pitch, -1, 1), turn: THREE.MathUtils.clamp(turn, -1, 1), time, seat: seatTurn };
+    // poseRider refreshes the same sample every world tick. Keep its storage
+    // with the actor, including the turret's optional full seat turn.
+    const sample = this.seatSample;
+    sample.clip = clip; sample.pitch = THREE.MathUtils.clamp(pitch, -1, 1); sample.turn = THREE.MathUtils.clamp(turn, -1, 1);
+    sample.time = time; sample.seat = seat ? this.seatTurn.copy(seat) : null;
+    this.gunning = sample;
   }
 
   // Killed: a death clip, held on its last frame until the soldier respawns.

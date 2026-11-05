@@ -9,7 +9,11 @@ import { PlayerCombat } from '../src/combat.js';
 import { prepareMelee } from '../src/heroes.js';
 import { readWeaponInput, seedPresses } from '../src/combat-weapon-input.js';
 import { networkShotFor } from '../src/runtime/network-shot-aim.js';
-import { WeaponPrediction } from '../src/runtime/weapon-prediction.js';
+import { PredictionArsenal } from '../src/runtime/prediction-arsenal.js';
+import { createClientPrediction } from '../src/runtime/client-prediction.js';
+import { loadSim } from '../src/sim/module.js';
+import { loadRayKernel } from '../src/ray-kernel.js';
+import { actorCourse, createPredictionActor } from './fixtures/client-actors.js';
 import { CommandControls } from '../src/runtime/commands.js';
 
 const DEG = Math.PI / 180;
@@ -84,7 +88,7 @@ test('the same press draws the same salvo on the authority and in prediction', (
   assert.deepEqual([r(), r(), r()].map((x) => x.toFixed(12)), ['0.627073940588', '0.002735721180', '0.527447039960']);
 });
 
-test('the authority seeds a press from its trigger edge and the page from its own press id', () => {
+test('the authority seeds a press from its trigger edge and the Rust page session from its own press id', async () => {
   const owner = { id: 6, generation: 2, networkShots: [{ id: 41, button: 0, pressed: true, aimYaw: 0, aimPitch: 0 }] };
   const controls = new CommandControls();
   controls.down = new Set(['Mouse0']);
@@ -102,16 +106,19 @@ test('the authority seeds a press from its trigger edge and the page from its ow
   // The authority's salvo, fired through Arsenal.update as PlayerCombat does.
   const authority = new Arsenal([blastCannon()], { player: true });
   const fired = authority.update(1 / 60, input, aim);
-  // The page's: WeaponPrediction replays the same press on its private copy.
-  const soldier = { posture: 'stand', aimYaw: 0, aimPitch: 0 };
-  const combat = Object.create(PlayerCombat.prototype);
-  Object.assign(combat, { arsenal: prepareMelee(new Arsenal([blastCannon()], { player: true })), soldier, zoomStep: 0, dead: false });
-  const unit = { id: 6, generation: 2, alive: true, soldier, combat };
-  const prediction = new WeaponPrediction();
-  prediction.begin(unit, { tick: 0 });
-  const cosmetic = [];
-  prediction.step({ actions: ['firePrimary'], down: ['Mouse0'] }, 1, (shot) => cosmetic.push(shot), [41, null]);
-  prediction.restore();
+  const instance = await loadSim(), course = actorCourse(await loadRayKernel(instance));
+  const body = createPredictionActor({kind:'soldier'}, course);
+  const combat = body.combat;
+  combat.arsenal = prepareMelee(new Arsenal([blastCannon()], { player: true })); combat.zoomStep=0;
+  const unit = { id: 6, generation: 2, alive: true, soldier: body.soldier, combat };
+  const prediction = new PredictionArsenal(), session = createClientPrediction(instance, course.world), cosmetic = [];
+  try {
+    prediction.begin(unit, { tick: 0 });
+    session.predict(unit, [{tick:1,sequence:1,generation:2,actions:['firePrimary'],down:['Mouse0'],look:[]}], {
+      epoch:1,tick:0,fireEdges:[{kind:'fire',sequence:1,button:'firePrimary',pressed:true,id:41}],
+    });
+    session.present(unit,null,notice=>cosmetic.push({yaw:notice.yaw,pitch:notice.pitch}));
+  } finally {prediction.dispose();session.dispose();course.dispose();}
   assert.equal(fired.length, 5);
   assert.deepEqual(angles(cosmetic), angles(fired), 'each predicted pellet flies the authority pellet\'s path');
 });

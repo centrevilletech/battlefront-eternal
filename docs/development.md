@@ -223,9 +223,17 @@ The original game, its code, and its assets remain the property of their rights 
 Three parts of the engine are written in Rust and compiled to WebAssembly, in the Cargo workspace under `rust/`:
 
 - `rust/sim`, the simulation's module (`bfe_sim`, [docs/sim-store.md](sim-store.md)), committed as base64 in `src/sim-wasm.js`, which the world worker, the page and the dedicated server load as a JavaScript import (`src/sim/module.js`), one instance a battle. It holds the collision's ray kernel (required; [docs/performance.md](performance.md), "The collision's rays in WebAssembly"), the soldiers' movement (required; "The soldiers' movement in WebAssembly" there), the page's pose sampler (on by default; `?anim=js` keeps the JavaScript: the clip blending of `src/anim.js`'s `Pose`; a headless world keeps the JavaScript, so its ticks cannot change), and the entity store and bridge the port of the world's simulation builds on.
-- `rust/audio`, the audio worklets' DSP, which the game runs (`?audio=js` keeps the worklets' JavaScript, an A/B switch; `tests/audio-dsp-parity.mjs` checks the two against each other sample for sample), the voice engine that plays the enhanced mode's and the light mix's voices (`?voices=native` keeps the browser's own nodes a voice, an A/B switch; `tests/audio-checks.js` and `tests/audio-engine-gate.mjs` hold the two to docs/audio.md's gate), and the enhanced mode's master chain with them (`?master=native` keeps the browser's nodes), committed as base64 in `src/audio-dsp-wasm.js`: the page compiles it and hands it to the worklets, whose scope cannot fetch. Its processors know nothing of the web, and it imports its transcendentals from the host, so on the web they are the JavaScript Math functions the worklets call.
+- `rust/audio`, the required audio output engine and loudness meter, committed as base64 in `src/audio-dsp-wasm.js`. The page sends decoded PCM and timed commands; a thin worklet calls one Rust render quantum and copies the finished samples. Playback, mixing, filtering, resampling, convolution and both master chains run in Rust, with no alternate browser or JavaScript DSP path. Synthetic recorded-render and component goldens run in CI and Chromium offline; live contexts are required for CPU measurements. `rust/audio-decode`, committed in `src/audio-codec-wasm.js`, decodes FLAC, Ogg Opus and PCM/float WAV in a loading worker. It owns explicit asset-rate conversion and feeds bounded PCM rings for long tracks; there is no host decoder.
 - `rust/bfe-render`, the required battle renderer, committed as wasm-bindgen's output in `src/rust-pkg/`: an ES module and the `.wasm` it fetches, which Vite bundles as an asset. The desktop app serves it from its archive as `application/wasm`; the dedicated server's copy of the engine leaves it out.
   Initialization and program-link failures report the GPU name and stop battle loading. Context restoration rebuilds GPU resources from Rust's retained descriptions; it never selects another drawer.
+
+The generated renderer driver check needs no installed game content. Run
+`node tools/renderer-smoke.mjs gl` on Linux or
+`node tools/renderer-smoke.mjs warp` on Windows. It discovers shader manifests
+at runtime, reports each variant's compile/link result and compile time per
+family, then checks Rust draws and context restoration with generated scenes.
+`BFE_SMOKE_OUTPUT` optionally saves the JSON-lines report. The CI renderer-smoke
+job runs these backends and uploads that report even when the driver fails.
 
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.
 
@@ -246,7 +254,7 @@ Because the WebAssembly is committed, building, testing and packaging the game n
 
 ```bash
 cargo install wasm-bindgen-cli --version 0.2.130 --locked
-npm run rust:build    # all; node tools/build-rust.mjs sim (or audio, or renderer) builds one
+npm run rust:build    # all; node tools/build-rust.mjs sim (or audio, codec, or renderer) builds one
 npm run rust:check    # rebuild all and compare with the committed files
 ```
 
@@ -254,4 +262,4 @@ npm run rust:check    # rebuild all and compare with the committed files
 
 Commit the rebuilt files with the Rust change that made them; `npm run rust:check` before committing a change under `rust/` fails if one is out of date. After a merge, rebuild them rather than merging their lines (`.gitattributes` makes Git keep one side of a generated file that conflicts). A new toolchain or wasm-bindgen version changes the bytes as well, so commit the rebuilt files with it.
 
-CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the unit tests of `sim` (with its `replay` feature, which reads and writes the replay harness's values), `sim-replay`, `bfe-render`, `content`, `v8math` and `audio`. When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer.
+CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the unit tests of `sim` (with its `replay` feature, which reads and writes the replay harness's values), `sim-replay`, `bfe-render`, `content`, `v8math`, `audio` and `audio-decode`. When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer.

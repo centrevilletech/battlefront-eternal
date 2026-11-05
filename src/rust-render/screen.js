@@ -64,7 +64,7 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
     if (!value?.isTexture) continue;
     const p = renderer.properties.get(value);
     if (!value.isRenderTargetTexture && value.version > 0 && p.__version !== value.version && value.image) renderer.initTexture(value);
-    if (p.__webglTexture) core.texture(value);
+    core.texture(value);
   }
   views(core);
   const out = core.postInput, o = k * STRIDE;
@@ -88,15 +88,9 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
   return true;
 }
 
-// A full-screen pass three renders on its own (renderer.render of the mesh,
-// or of a scene holding it), drawn by the renderer in a phase of its own
-// (graphics' callers ask the core to cover it): the storm's cloud panorama
-// into its target (storm-sky.js, phase skyClouds), the Low water's tint over
-// the finished frame with the eye under the surface (water.js, phase
-// underwater). Complete when three would draw one mesh, whose material a
-// step can draw (its program made, three having drawn it once), into the
-// target bound now (a target of three's, or the canvas), without a clear of
-// three's.
+// One-mesh screen passes outside the post chain: storm clouds and the Low
+// underwater tint. Compile the material before registration, then draw through
+// Rust into the currently selected target without clearing it.
 class ScreenPass {
   constructor(core, name, phase) {
     this.core = core;
@@ -162,13 +156,9 @@ export function underwaterPass(core) {
 // the near scene's transparent list (its render order the list's highest),
 // right after its hook copies the scene drawn so far (water.captureSurface).
 // The renderer draws it at that very point: the transparent pass runs the
-// pass's atEnd after the list's last draw (its own last segment, or three's
-// last item), where the copy is made as three makes it, then the composite
-// drawn (the underwater phase) with three's program for its material and
-// three's own geometry for it (its uv interpolated as three's are). Three
-// leaves it out of a render whose transparent phase draws it (place(), as
-// three starts the render); until three has drawn it once, and in any other
-// render, three draws it.
+// pass's atEnd after the list's last draw. The copy precedes the Rust
+// underwater phase, which uses the compiled material program and geometry.
+// The material compiles before registration, including its first frame.
 class FogPass {
   constructor(core) {
     this.core = core;
@@ -199,8 +189,9 @@ class FogPass {
   beforeSort() {
     const core = this.core, fog = this.composite();
     if (!fog) return;
+    if (!core.renderer.properties.get(fog.material).currentProgram) compileFor(core.renderer,[[fog,fog.material]],core.graphics.camera,core.graphics.scene);
     const current = core.renderer.properties.get(fog.material).currentProgram;
-    if (!current || this.made.has(current)) return;
+    if (this.made.has(current)) return;
     const program = screenProgram(core, fog.material);
     if (!program) throw new Error("Missing Rust underwater fog program");
     const geometry = core.geometry(fog.geometry, { id: program.id, attributes: [["position", 0], ["uv", 1]] });
@@ -243,21 +234,17 @@ class FogPass {
   // composite.
   drawComposite(renderer, scene, camera) {
     const core = this.core, fog = this.composite(), water = core.graphics.scene.userData.water;
-    if (!fog || !water) { this.missed++; return; }
+    if (!fog || !water) core.fail(new Error("Missing underwater composite resources"));
     water.captureSurface(renderer, camera);
     const program = screenProgram(core, fog.material), geometry = this.made.get(renderer.properties.get(fog.material).currentProgram);
-    if (!program || !geometry || !writeScreenStep(core, 0, program, fog.material, fog, camera, { geometry })) { this.missed++; return; }
+    if (!program || !geometry || !writeScreenStep(core, 0, program, fog.material, fog, camera, { geometry })) core.fail(new Error("Incomplete underwater composite"));
     core.phase("underwater", renderer, scene, camera, false, null, { steps: 1 });
     this.drawn++;
   }
 
 
 
-  show() {
-    this.pending = null;
-    const fog = this.composite();
-    if (fog) fog.material.visible = true;
-  }
+
 }
 
 export function fogPass(core) {

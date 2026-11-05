@@ -1,4 +1,5 @@
 import test from 'node:test';
+import golden from './fixtures/turret-view-golden.json' with { type: 'json' };
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
@@ -6,7 +7,7 @@ import { Gunner, previewSteer } from '../src/gunner.js';
 import { poseTurret, TurretSeats } from '../src/seats.js';
 import { Turret } from '../src/props.js';
 
-// A turret as the page sees one: a real Turret (its own steer, pose and
+// A turret as the page sees one: a real Turret (its replicated angles and
 // aim frame) on a drum and a gun node with a mesh each, no world behind it,
 // at (10, -2, 5) facing 0.3 rad. eye: its EyePointOffset; box: the built
 // model's box (the eye inside it hides the drum and gun in first person).
@@ -38,17 +39,8 @@ function pageGunner(t) {
 }
 
 test('previewSteer runs the drum ahead exactly as the world steers it, without touching the turret', () => {
-  const world = turret(), page = turret();
+  const world = golden.state, page = turret();
   const pending = [command([[6, 0], [2, 1]]), command([[0, -4]]), command([]), command([[8, 0]], { mouseScale: 0.25, invertMouse: true })];
-  // The world: gunner.update's steering, a tick per command.
-  const soldier = Object.fromEntries(['position', 'previous', 'settled', 'velocity'].map((k) => [k, new THREE.Vector3()]));
-  soldier.aimYaw = 0; soldier.aimPitch = 0;
-  const worldGunner = new Gunner({ camera: new THREE.PerspectiveCamera(), collision: { cast: () => null }, ordnance: null, combat: null, animator: { gunner() {} }, clips: new Map() });
-  worldGunner.turret = world;
-  for (const c of pending) {
-    for (const [dx, dy] of c.look) worldGunner.look(dx, dy, c.mouseScale, c.invertMouse);
-    worldGunner.update(1 / 60, soldier, { take: () => false, held: () => false });
-  }
   const before = { ...page };
   const state = previewSteer(page, { yaw: page.yaw, pitch: page.pitch, yawVel: page.yawVel, pitchVel: page.pitchVel }, pending, null, 0.5, false);
   assert.ok(Math.abs(world.yaw) > 1e-3, 'the drum turned');
@@ -90,15 +82,12 @@ test('the page camera follows a turret it was never entered on, and poses its dr
   assert.ok(gunner.view, 'a view is made for the turret');
   assert.ok(camera.position.distanceTo(t.position) < 5, `the chase camera sits by the turret (${camera.position.distanceTo(t.position).toFixed(2)} m)`);
   // The drum and gun as Turret.pose would leave them for the same angles.
-  const reference = turret({ yaw: -0.5, pitch: 0.15 });
-  reference.pose(0, null);
-  assert.ok(t.drum.quaternion.angleTo(reference.drum.quaternion) < 1e-6, 'drum posed');
-  assert.ok(t.gun.quaternion.angleTo(reference.gun.quaternion) < 1e-6, 'gun posed at its own angles');
+  assert.ok(t.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.camera.drum)) < 1e-6, 'drum posed');
+  assert.ok(t.gun.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.camera.gun)) < 1e-6, 'gun at its recorded angles');
   // With a preview, the drum shows the previewed yaw.
   gunner.previewYaw = 0.3;
   gunner.updateCamera(1 / 60, 1, false);
-  const previewed = turret({ yaw: -0.2 }); previewed.pose(0, null);
-  assert.ok(t.drum.quaternion.angleTo(previewed.drum.quaternion) < 1e-6, 'drum at the previewed yaw');
+  assert.ok(t.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.preview.drum)) < 1e-6, 'drum at the previewed yaw');
   // Another turret: a fresh view.
   const view = gunner.view;
   gunner.turret = turret();
@@ -143,13 +132,11 @@ test('first person looks from the eye down the aim, the drum and gun hidden from
   assert.ok(g2.camera.position.distanceTo(pivot) < 1e-6, 'eye at the drum pivot');
 });
 
-test('poseTurret matches Turret.pose for the drum and the gun angles', () => {
-  const a = turret({ yaw: 1.1 }), b = turret({ yaw: 1.1 });
-  a.gunYaw = b.gunYaw = 0.08; a.gunPitch = b.gunPitch = 0.3;
-  a.pose(0, null);
-  poseTurret(b, 1.1);
-  assert.ok(a.drum.quaternion.angleTo(b.drum.quaternion) < 1e-6);
-  assert.ok(a.gun.quaternion.angleTo(b.gun.quaternion) < 1e-6);
+test('poseTurret keeps the recorded drum and gun angles', () => {
+  const t = turret({ yaw: 1.1 }); t.gunYaw = .08; t.gunPitch = .3;
+  poseTurret(t, 1.1);
+  assert.ok(t.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.pose.drum)) < 1e-6);
+  assert.ok(t.gun.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.pose.gun)) < 1e-6);
 });
 
 test('TurretSeats.present poses the bots\' turrets from their replicated angles, not the player\'s', () => {
@@ -157,8 +144,7 @@ test('TurretSeats.present poses the bots\' turrets from their replicated angles,
   bot.lease = { human: false }; human.lease = { human: true };
   const seats = new TurretSeats({ live: { turrets: [bot, human, empty] } });
   seats.present();
-  const reference = turret({ yaw: 0.7 }); reference.pose(0, null);
-  assert.ok(bot.drum.quaternion.angleTo(reference.drum.quaternion) < 1e-6, 'bot turret posed');
+  assert.ok(bot.drum.quaternion.angleTo(new THREE.Quaternion().fromArray(golden.poses.bot.drum)) < 1e-6, 'bot turret posed');
   assert.ok(human.drum.quaternion.angleTo(new THREE.Quaternion()) < 1e-6, 'the player\'s is left to the gunner');
   assert.ok(empty.drum.quaternion.angleTo(new THREE.Quaternion()) < 1e-6, 'an unmanned one is not touched');
 });

@@ -43,6 +43,16 @@ pub trait UnitsWorld {
     /// ball 1).
     fn gather(&mut self, id: u32, center: &Vector3, radius: f64, cache: usize, out: &mut Vec<GatherPolygon>);
 
+    /// Visit gather's triangles in polygon order. Native prediction can read
+    /// its retained collision result directly, without allocating a second
+    /// polygon list for each droideka collision pass.
+    fn visit_gathered(&mut self, id: u32, center: &Vector3, radius: f64, cache: usize, polygons: &mut Vec<GatherPolygon>, visit: &mut dyn FnMut(bool, &[Vector3; 3])) {
+        self.gather(id, center, radius, cache, polygons);
+        for polygon in polygons {
+            for triangle in &polygon.triangles { visit(polygon.moving, triangle); }
+        }
+    }
+
     // ---- Hit shapes on a seat or in a creature's hold.
 
     /// unit.seat.exposed (SeatLease, src/seats.js): whether rounds meet him

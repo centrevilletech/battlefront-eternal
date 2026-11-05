@@ -114,6 +114,20 @@ test('every type of field written as a row reads back the same', () => {
   assert.deepEqual([back[0].body.count, back[1].body.stride, back[1].body.side], [4, 1.5, [1, -1]]);
 });
 
+test('numeric mirror blits retain storage and notify quaternion changes once', () => {
+  const cx = context(), { things } = shelf(cx), words = block(cx, KIND_THING, things);
+  const k = KIND_TABLE[KIND_THING], mirror = new k.Mirror();
+  let changes = 0;
+  const vector = mirror.where, rotation = mirror.facing;
+  rotation._onChange(() => { changes++; });
+  k.syncFull(cx, words, 5, words[2], mirror);
+  assert.equal(mirror.where, vector); assert.equal(mirror.facing, rotation);
+  assert.equal(changes, 1); assert.deepEqual(vector.toArray(), things[0].where.toArray());
+  assert.deepEqual(rotation.toArray(), things[0].facing.toArray());
+  k.syncFull(cx, words, 5, words[2], mirror);
+  assert.equal(changes, 2);
+});
+
 test('number keys and object keys keep JavaScript\'s order through the rows', () => {
   const cx = context();
   const { shelf: s, things, people } = shelf(cx);
@@ -279,4 +293,16 @@ test('two types of one name, or a type named after a comparison, are refused', (
   assert.throws(() => buildModel(schema({ unions: { Key: ['null', 'ref:body'] }, kinds: { body: {}, shelf: { singleton: true, fields: { m: 'map:ref:Key:f64' } } } })), /each of its variants is a kind/);
   assert.throws(() => buildModel(schema({ kinds: { shelf: { singleton: true, fields: { m: 'map:ref:nobody:f64' } } } })), /no kind or union nobody/);
   assert.throws(() => buildModel(schema({ unions: { U: ['null', 'Float64Array(2)'] } })), /cannot be a union's variant/);
+});
+
+
+test('direct publication names only mutable scalar or vector fields', () => {
+  const model = fields => buildModel([{ file: 'publication', schema: { records: { Pose: fields } } }]);
+  const pose = model({ $layout: true, $publish: ['position', 'tick'], position: 'vec3', tick: 'f64', fixed: 'f64' }).records.get('Pose');
+  assert.deepEqual(pose.publish, ['position', 'tick']);
+  assert.equal(pose.fields.length, 3, 'publication metadata adds no words to the record');
+  assert.throws(() => model({ $publish: ['missing'], tick: 'f64' }), /distinct fields/);
+  assert.throws(() => model({ $publish: ['tick', 'tick'], tick: 'f64' }), /distinct fields/);
+  assert.throws(() => model({ $publish: ['history'], history: 'list:f64' }), /scalar and vec3/);
+  assert.throws(() => model({ $publish: ['position'], position: 'vec3|null' }), /vectors cannot be optional/);
 });

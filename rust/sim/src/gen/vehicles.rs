@@ -239,273 +239,6 @@ impl VehHit {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehPush {
-    pub hull: f64,
-    pub probes: Vec<Vec3>,
-    pub radius: f64,
-    pub q: Quat,
-    pub own: Option<Quat>,
-    pub previous: Vec3,
-    pub position: Vec3,
-    pub velocity: Vec3,
-    pub terrain: bool,
-}
-
-impl VehPush {
-    pub const WORDS: usize = 23;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
-        row[0] = self.hull;
-        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.probes.len() as f64; heap.resize(at + self.probes.len() * 3, 0.0); for (i, e) in self.probes.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
-        row[3] = self.radius;
-        row[4..4 + 4].copy_from_slice(&self.q);
-        match &self.own { Some(v) => { row[8] = 0.0; row[8 + 1..8 + 1 + 4].copy_from_slice(&(*v)); } None => { row[8] = 1.0; row[8 + 1..8 + 5].fill(0.0); } }
-        row[13..13 + 3].copy_from_slice(&self.previous);
-        row[16..16 + 3].copy_from_slice(&self.position);
-        row[19..19 + 3].copy_from_slice(&self.velocity);
-        row[22] = if self.terrain { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
-        Self {
-            hull: row[0],
-            probes: { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push([row[0], row[0 + 1], row[0 + 2]]); } out },
-            radius: row[3],
-            q: [row[4], row[4 + 1], row[4 + 2], row[4 + 3]],
-            own: if row[8] == 0.0 { Some([row[8 + 1], row[8 + 1 + 1], row[8 + 1 + 2], row[8 + 1 + 3]]) } else { None },
-            previous: [row[13], row[13 + 1], row[13 + 2]],
-            position: [row[16], row[16 + 1], row[16 + 2]],
-            velocity: [row[19], row[19 + 1], row[19 + 2]],
-            terrain: row[22] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehPushed {
-    pub undo: bool,
-    pub position: Vec3,
-    pub velocity: Vec3,
-}
-
-impl VehPushed {
-    pub const WORDS: usize = 7;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
-        row[0] = if self.undo { 1.0 } else { 0.0 };
-        row[1..1 + 3].copy_from_slice(&self.position);
-        row[4..4 + 3].copy_from_slice(&self.velocity);
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
-        Self {
-            undo: row[0] != 0.0,
-            position: [row[1], row[1 + 1], row[1 + 2]],
-            velocity: [row[4], row[4 + 1], row[4 + 2]],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehColumn {
-    pub x: f64,
-    pub z: f64,
-    pub top: f64,
-}
-
-impl VehColumn {
-    pub const WORDS: usize = 3;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
-        row[0] = self.x;
-        row[1] = self.z;
-        row[2] = self.top;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
-        Self {
-            x: row[0],
-            z: row[1],
-            top: row[2],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehGround {
-    pub found: bool,
-    pub height: f64,
-    pub normal: Vec3,
-}
-
-impl VehGround {
-    pub const WORDS: usize = 5;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
-        row[0] = if self.found { 1.0 } else { 0.0 };
-        row[1] = self.height;
-        row[2..2 + 3].copy_from_slice(&self.normal);
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
-        Self {
-            found: row[0] != 0.0,
-            height: row[1],
-            normal: [row[2], row[2 + 1], row[2 + 2]],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehSpring {
-    pub hull: f64,
-    pub index: f64,
-    pub center: Vec3,
-    pub radius: f64,
-}
-
-impl VehSpring {
-    pub const WORDS: usize = 6;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
-        row[0] = self.hull;
-        row[1] = self.index;
-        row[2..2 + 3].copy_from_slice(&self.center);
-        row[5] = self.radius;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
-        Self {
-            hull: row[0],
-            index: row[1],
-            center: [row[2], row[2 + 1], row[2 + 2]],
-            radius: row[5],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehTriangle {
-    pub a: Vec3,
-    pub b: Vec3,
-    pub c: Vec3,
-}
-
-impl VehTriangle {
-    pub const WORDS: usize = 9;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
-        row[0..0 + 3].copy_from_slice(&self.a);
-        row[3..3 + 3].copy_from_slice(&self.b);
-        row[6..6 + 3].copy_from_slice(&self.c);
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
-        Self {
-            a: [row[0], row[0 + 1], row[0 + 2]],
-            b: [row[3], row[3 + 1], row[3 + 2]],
-            c: [row[6], row[6 + 1], row[6 + 2]],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehPolygon {
-    pub id: f64,
-    pub moving: bool,
-    pub triangles: Vec<VehTriangle>,
-}
-
-impl VehPolygon {
-    pub const WORDS: usize = 4;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        row[0] = self.id;
-        row[1] = if self.moving { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.triangles.len() as f64; heap.resize(at + self.triangles.len() * 9, 0.0); for (i, e) in self.triangles.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
-        Self {
-            id: row[0],
-            moving: row[1] != 0.0,
-            triangles: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(VehTriangle::take(&row[0..], heap)); } out },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehPolygons {
-    pub polygons: Vec<VehPolygon>,
-}
-
-impl VehPolygons {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.polygons.len() as f64; heap.resize(at + self.polygons.len() * 4, 0.0); for (i, e) in self.polygons.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            polygons: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(VehPolygon::take(&row[0..], heap)); } out },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehBody {
-    pub body: f64,
-    pub matrix: Mat4,
-    pub enabled: bool,
-}
-
-impl VehBody {
-    pub const WORDS: usize = 18;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
-        row[0] = self.body;
-        row[1..1 + 16].copy_from_slice(&self.matrix);
-        row[17] = if self.enabled { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
-        Self {
-            body: row[0],
-            matrix: { let mut m = [0.0; 16]; m.copy_from_slice(&row[1..1 + 16]); m },
-            enabled: row[17] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
 pub struct VehPoint {
     pub position: Vec3,
 }
@@ -522,28 +255,6 @@ impl VehPoint {
         let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
         Self {
             position: [row[0], row[0 + 1], row[0 + 2]],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct VehFlag {
-    pub value: bool,
-}
-
-impl VehFlag {
-    pub const WORDS: usize = 1;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
-        row[0] = if self.value { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
-        Self {
-            value: row[0] != 0.0,
         }
     }
 
@@ -583,6 +294,31 @@ impl VehNothing {
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
         Self {
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F2Variant {
+    pub pad: f64,
+    pub name: StrId,
+}
+
+impl F2Variant {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.pad;
+        row[1] = self.name.0 as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            pad: row[0],
+            name: StrId(word_u32(row[1])),
         }
     }
 
@@ -720,6 +456,8 @@ pub struct VehPoints {
 
 impl VehPoints {
     pub const WORDS: usize = 2;
+    pub const POINTS: usize = 0;
+    pub fn points_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[0] as usize; let length = row[1] as usize; heap[start..start + length * 3].chunks_exact(3) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();

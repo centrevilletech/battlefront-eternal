@@ -23,6 +23,10 @@ class FoliagePass {
 
   // The near phase: the map's foliage, once it has one, takes this pass as
   // its drawer (the classes it registered are drawn in the renderer's call).
+  // The page publishes placement data to the required Rust selector/drawer.
+  // Only changed class/resource state is registered; view selection belongs to
+  // the Rust frame and uses the same data for ordinary and reflected cameras.
+  // An unsupported class is a registration failure, not a CPU draw request.
   draw(ctx) {
     const foliage = this.core.graphics.scene.userData.foliage;
     if (!foliage) return;
@@ -56,6 +60,9 @@ class FoliagePass {
     this.selected = core.rust.foliage_frame();
   }
 
+  // Keep seeded base cards separate from placement rows. The latter are
+  // selected per view; reconstructing the former every frame changes both
+  // allocation cost and the authored random sequence.
   registerClass(kind) {
     const core = this.core, batch = kind.batch, material = batch?.material;
     const geometry = batch?.geometry;

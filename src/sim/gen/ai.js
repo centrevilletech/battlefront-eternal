@@ -234,7 +234,7 @@ export function syncSourceGoal(b, f, at, h, m) {
   { const tag = f[at + 1]; if (tag === 0) { m.refA = syncAiUnitRef(b, f, at + 2, h, m.refA ?? new AiUnitRefMirror()); } else m.refA = tag === 1 ? null : undefined; }
   { const tag = f[at + 6]; if (tag === 0) { m.refB = syncAiUnitRef(b, f, at + 7, h, m.refB ?? new AiUnitRefMirror()); } else m.refB = tag === 1 ? null : undefined; }
   m.post = syncPostRef(b, f, at + 11, h, m.post);
-  { const tag = f[at + 14]; if (tag === 0) { (m.point ??= new THREE.Vector3()).set(f[at + 15], f[at + 16], f[at + 17]); } else m.point = tag === 1 ? null : undefined; }
+  { const tag = f[at + 14]; if (tag === 0) { { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 15]; $v.y = f[at + 16]; $v.z = f[at + 17]; } } else m.point = tag === 1 ? null : undefined; }
   m.mode = f[at + 18];
   return m;
 }
@@ -330,9 +330,9 @@ export class MoveRequestMirror {
 
 export function syncMoveRequest(b, f, at, h, m) {
   m.valid = f[at + 0] !== 0;
-  (m.steeringTarget ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
-  (m.waypoint ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
-  (m.segmentDirection ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
+  { const $v = (m.steeringTarget ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
+  { const $v = (m.waypoint ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
+  { const $v = (m.segmentDirection ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
   m.mode = f[at + 10];
   m.lower = f[at + 11];
   m.upper = f[at + 12];
@@ -384,7 +384,7 @@ export class JetReqMirror {
 
 export function syncJetReq(b, f, at, h, m) {
   m.pending = f[at + 0] !== 0;
-  (m.vector ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.vector ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   return m;
 }
 
@@ -418,7 +418,7 @@ export class DangerInMirror {
 
 export function syncDangerIn(b, f, at, h, m) {
   m.pending = f[at + 0] !== 0;
-  (m.point ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   return m;
 }
 
@@ -455,7 +455,7 @@ export class ShotInMirror {
 export function syncShotIn(b, f, at, h, m) {
   m.pending = f[at + 0] !== 0;
   m.known = f[at + 1] !== 0;
-  (m.point ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
   m.source = syncAlertSource(b, f, at + 5, h, m.source);
   return m;
 }
@@ -619,7 +619,7 @@ export class EnhancedMemoryMirror {
 
 export function syncEnhancedMemory(b, f, at, h, m) {
   m.lookUntil = f[at + 0];
-  (m.lookPoint ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.lookPoint ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   { const map = (m.heard ??= new Map()), start = h + f[at + 4], n = f[at + 5]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = f[at + 1]; } map.set(b.strings.at(f[e]), v); } }
   return m;
 }
@@ -856,7 +856,7 @@ export function syncController(b, f, at, h, m) {
   m.published = f[at + 34] !== 0;
   m.request = syncMoveRequest(b, f, at + 35, h, m.request ?? new MoveRequestMirror());
   m.aimState = f[at + 48];
-  (m.aimPoint ??= new THREE.Vector3()).set(f[at + 49], f[at + 50], f[at + 51]);
+  { const $v = (m.aimPoint ??= new THREE.Vector3()); $v.x = f[at + 49]; $v.y = f[at + 50]; $v.z = f[at + 51]; }
   { const tag = f[at + 52]; if (tag === 0) { m.aimTarget = syncAiUnitRef(b, f, at + 53, h, m.aimTarget ?? new AiUnitRefMirror()); } else m.aimTarget = tag === 1 ? null : undefined; }
   { const tag = f[at + 57]; if (tag === 0) { m.target = syncAiUnitRef(b, f, at + 58, h, m.target ?? new AiUnitRefMirror()); } else m.target = tag === 1 ? null : undefined; }
   m.fireA = f[at + 62] !== 0;
@@ -880,7 +880,7 @@ export function syncController(b, f, at, h, m) {
   m.reboardAt = f[at + 122];
   m.roll = f[at + 123];
   m.homeFacing = f[at + 124] !== 0;
-  (m.homeDirection ??= new THREE.Vector3()).set(f[at + 125], f[at + 126], f[at + 127]);
+  { const $v = (m.homeDirection ??= new THREE.Vector3()); $v.x = f[at + 125]; $v.y = f[at + 126]; $v.z = f[at + 127]; }
   m.processed = f[at + 128] !== 0;
   m.lodSkipped = f[at + 129] !== 0;
   m.inputSkip = f[at + 130] !== 0;
@@ -905,7 +905,7 @@ export function syncFullController(b, f, at, h, m) {
   m.published = f[at + 34] !== 0;
   m.request = syncMoveRequest(b, f, at + 35, h, m.request ?? new MoveRequestMirror());
   m.aimState = f[at + 48];
-  (m.aimPoint ??= new THREE.Vector3()).set(f[at + 49], f[at + 50], f[at + 51]);
+  { const $v = (m.aimPoint ??= new THREE.Vector3()); $v.x = f[at + 49]; $v.y = f[at + 50]; $v.z = f[at + 51]; }
   { const tag = f[at + 52]; if (tag === 0) { m.aimTarget = syncAiUnitRef(b, f, at + 53, h, m.aimTarget ?? new AiUnitRefMirror()); } else m.aimTarget = tag === 1 ? null : undefined; }
   { const tag = f[at + 57]; if (tag === 0) { m.target = syncAiUnitRef(b, f, at + 58, h, m.target ?? new AiUnitRefMirror()); } else m.target = tag === 1 ? null : undefined; }
   m.fireA = f[at + 62] !== 0;
@@ -929,7 +929,7 @@ export function syncFullController(b, f, at, h, m) {
   m.reboardAt = f[at + 122];
   m.roll = f[at + 123];
   m.homeFacing = f[at + 124] !== 0;
-  (m.homeDirection ??= new THREE.Vector3()).set(f[at + 125], f[at + 126], f[at + 127]);
+  { const $v = (m.homeDirection ??= new THREE.Vector3()); $v.x = f[at + 125]; $v.y = f[at + 126]; $v.z = f[at + 127]; }
   m.processed = f[at + 128] !== 0;
   m.lodSkipped = f[at + 129] !== 0;
   m.inputSkip = f[at + 130] !== 0;

@@ -1,0 +1,68 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { F2MemberLayout } from '../src/sim/gen/f2.js';
+
+const content = process.env.BFE_CONTENT_DIR ?? 'public';
+test('F2 keeps pooled identity through death and respawn and rejects retired handles', {
+  skip: !existsSync(`${content}/maps/hot1/map.json`) && 'no game files', timeout: 180000,
+}, async () => {
+  const { headlessGame } = await import('../tools/headless-world.mjs');
+  const game = await headlessGame('?map=hot1&side=all&era=gcw&seed=1');
+  const vs = game.vehicles, f2 = vs.f2;
+  assert.ok(f2);
+  f2.debug = true; for (const v of vs.vehicles) f2.record(v);
+  assert.equal(vs.sim, undefined, 'old per-call hull bridge is absent');
+  const v = vs.vehicles.find(v => v.walking), target = v.aiTarget, position = v.position;
+  const generation = target.generation, slot = v.simSlot, gen = v.simGen;
+  v.damage(7);
+  assert.equal(v.health, v.maxHealth - 7);
+  v.setHealth(v.maxHealth);
+  assert.equal(v.health, v.maxHealth);
+  v.damage(Infinity);
+  assert.equal(v.alive, false);
+  assert.equal(v.slot.remaining, v.slot.desc.respawnTime);
+  for (let tick = 1; tick < 3000 && !v.alive; tick++) vs.update(1 / 60);
+  assert.ok(v.alive, 'the native spawn clock respawns the hull');
+  assert.equal(v.aiTarget, target);
+  assert.equal(v.position, position);
+  assert.equal(target.generation, generation + 1);
+  assert.equal(v.health, v.maxHealth);
+  assert.equal(f2.x.f2_command(slot, gen, generation, 0, 10, 0, 0, 0), 0, 'stale gameplay life rejected');
+  const flyer = vs.vehicles.find(v => v.flying), flyerPad = flyer.slot;
+  f2.retire(flyer);
+  vs.update(1 / 60);
+  const fresh = flyerPad.vehicle;
+  assert.notEqual(fresh, flyer);
+  assert.ok(fresh.alive);
+  assert.equal(fresh.flightClass, flyer.flightClass);
+  assert.equal(fresh.minSpeed, flyer.minSpeed);
+  assert.equal(fresh.power, 100);
+  assert.ok(fresh.flightStart?.isVector3, 'a newly constructed flyer has its complete checkpoint');
+  v.health--;
+  assert.throws(() => f2.check(), /F2 mirror write: health/);
+  v.health++;
+  f2.retire(v);
+  assert.equal(f2.x.f2_command(slot, gen, target.generation, 1, 10, 0, 0, 0), 0);
+  vs.update(1 / 60);
+  const replacement = v.slot.vehicle;
+  assert.ok(replacement.alive);
+  assert.notEqual(replacement, v);
+  assert.equal(replacement.simSlot, slot);
+  assert.notEqual(replacement.simGen, gen);
+  assert.equal(f2.pool.at(slot, gen), v, 'retired reads preserve the old identity');
+  assert.equal(f2.pool.at(replacement.simSlot, replacement.simGen), replacement);
+  // Registry entries can outlive a retired hull. They must remain dead facts,
+  // rather than asking targeting to resolve the replacement in the same slot.
+  f2.foreignIn();
+  // The phase retains registry rows and sends only changes. The committed
+  // cache is the input already imported by the preceding native step; there
+  // need not be another copy of this dead fact in the next delta batch.
+  const index = game.units.all().indexOf(target);
+  assert.ok(index >= 0, 'the retired target is still in registry order');
+  const words = f2.memberCache, at = index * F2MemberLayout.words;
+  assert.equal(words[at + F2MemberLayout.id], target.id);
+  const oldTarget = [words[at + F2MemberLayout.kind], words[at + F2MemberLayout.alive]];
+  assert.deepEqual(oldTarget, [2, 0], 'retired registry identity stays a dead foreign fact');
+  assert.equal(f2.x.f2_command(slot, gen, target.generation, 1, 10, 0, 0, 0), 0, 'slot reuse cannot retarget the old identity');
+});

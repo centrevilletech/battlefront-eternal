@@ -111,6 +111,9 @@ function stamp(skeleton, info) {
 // for: what a first draw would have given them. entries: [mesh, materials]
 // (those of its materials it draws with: a body's array also holds its
 // guns', never drawn on it), the mesh holding them alone while compiled.
+// WebGLRenderer.compile supplies programs without issuing a first draw.
+// Temporarily expose the requested shells, restore their authored materials,
+// and let Rust registration import the linked sources and explicit bindings.
 export function compileFor(renderer, entries, camera, scene) {
   const each = (fn) => { for (const [mesh] of entries) fn(mesh); };
   const held = entries.map(([mesh, materials]) => { const own = mesh.material; mesh.material = materials; return own; });
@@ -185,6 +188,9 @@ class InstancePass {
   // now (as a struck body's glow will want them), and the stand-in kept from
   // three, its count of frames run here as three's draws would run it (it
   // takes itself away at the end of it).
+  // New effects can first be visible in a mirror. Discover and compile their
+  // stand-ins there too, but advance warm-up lifetime only on the main frame.
+  // Otherwise a reflection can consume the stand-in before its first main view.
   standIn(renderer, scene, camera, added, advance = true) {
     for (const root of added || []) root.traverse((o) => { if (o.isSkinnedMesh && o.name === "arc-shock-warm") this.warm = o; });
     const warm = this.warm;
@@ -247,8 +253,8 @@ class InstancePass {
     return !object.frustumCulled || this.frustum.intersectsObject(object);
   }
 
-  // A soldier's body and the guns in his hand as records; registers them
-  // (and hides them from three) the first time each is seen drawn by three.
+  // Register a soldier's body and held guns before writing their first
+  // Rust records; refresh records when their materials change.
   soldier(root, camera, at) {
     const parts = root.userData.parts;
     if (!parts || !root.visible) return at;
@@ -256,9 +262,8 @@ class InstancePass {
     let record = this.bodies.get(body);
     if (record === undefined || record && record.version !== materialVersion(record.used)) record = this.registerBody(body);
     if (record && body.material !== record.materials) {
-      // Dissolving (units.js dissolve): its heated record, registered once
-      // three has drawn the heated materials; any other materials of its
-      // own: three draws them.
+      // Dissolving (units.js dissolve): register the heated material before
+      // emitting the changed body's Rust record.
       let heated = body.userData.heated ? this.heated.get(body) : this.registerBody(body);
       if (heated !== null && (heated === undefined || !sameMaterials(heated.materials, body.material))) {
         heated = this.registerBody(body, true);
@@ -317,6 +322,10 @@ class InstancePass {
   // The scene's other skinned meshes (vehicle-rig.js: hulls, walkers,
   // animated props), looked for again now and then; soldiers' bodies are
   // found through their roots.
+  // Shadow-only crowd/body parts are not colour rigs. Asking the colour policy
+  // to bind their diffuse uniform produced the per-session diagnostic even when
+  // no visible object was missing. Their caster registration stays independent.
+  // Keep filtering by role before compiling colour programs for these parts.
   findRigs() {
     const found = [];
     // Shadow-only meshes belong to the shadow pass, not colour rigs. The
@@ -479,11 +488,8 @@ class InstancePass {
   }
 
 
-  // What this pass took from three shown to three (on) for a render of
-  // three's own that must still see it (its shadow pass, its motion pass:
-  // index.js reveal), then taken again (off): the bodies', rigs' and guns'
-  // materials, the flying parts' layers. Nothing while the renderer is off
-  // (three has it all already).
+  // Reveal resource objects for the Rust shadow/motion ownership walks,
+  // then hide them from the colour walk again.
   reveal(on) {
 
     for (const record of this.bodyRecords) for (const m of record.used) if (m) m.visible = on;

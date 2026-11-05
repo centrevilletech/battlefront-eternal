@@ -8,7 +8,7 @@ test('native multiplayer input lanes execute short clicks and delayed choices an
     process.env.BFE_CONTENT_DIR ||= content;
     const { headlessGame } = await import('../tools/headless-world.mjs');
     const { createMultiplayerWorld } = await import('../src/runtime/multiplayer-world.js');
-    const game = await headlessGame('?map=nab2&side=rep&ai=classic&seed=1&sim=rust&battle=rust&aiSim=rust&units=rust&combat=rust&hulls=rust&seats=rust');
+    const game = await headlessGame('?map=nab2&side=rep&ai=classic&seed=1&sim=rust&battle=rust&aiSim=rust&units=rust&combat=rust');
     const world = createMultiplayerWorld(game);
     assert.ok(game.worldSim.ownsClock(game.worldClock));
     const options = { team: 1, separateActions: true, reliableFire: true };

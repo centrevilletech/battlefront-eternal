@@ -348,7 +348,7 @@ export class FirstPersonView {
     // A switch lowers the arms with the old weapon, then raises the new one.
     // A weapon is its class: the page plays the rounds its weapon prediction
     // fires from that prediction's own copy of the arsenal
-    // (src/runtime/weapon-prediction.js), the weapon shown and not a switch.
+    // (src/runtime/prediction-arsenal.js), the weapon shown and not a switch.
     if (shown && this.holding !== shown && this.holding?.name === shown.name) this.holding = shown;
     let slot;
     if (shown !== this.holding) {

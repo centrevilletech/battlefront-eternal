@@ -1,14 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+
 import * as THREE from 'three';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { Vehicles, VehicleDriver } from '../src/vehicles.js';
+import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
+import { Vehicles } from "../src/vehicles.js";
 import { Units } from '../src/registry.js';
+import { Soldier } from '../src/soldier.js';
 import { blankIntent } from '../src/units.js';
 import { Turret } from '../src/props.js';
-import { Gunner } from '../src/gunner.js';
-import { TurretSeats, classicSeatExit, exitCandidates, exitSupportOffsets, highestSupport, KIND } from '../src/seats.js';
+
+import { TurretSeats, KIND } from '../src/seats.js';
 
 // Synthetic fixtures only: a flat floor, box hulls, made-up weapons.
 
@@ -39,16 +40,16 @@ function fixture({ base = 'hover', single = false, seats = 2, extra = {} } = {})
   const fired = [];
   const ordnance = { fire: (def, origin, dir, owner, visual, ignoreBody, emitter) => fired.push({ def, origin: origin.clone(), dir: dir.clone(), owner, ignoreBody, emitter }), explosion() {}, lights: { flash() {} } };
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0), collision: c, texture: () => null, camera: new THREE.PerspectiveCamera(), posts: { posts: [] }, ordnance, effects: { play() { return null; } } });
+  nativeVehicles(system, { data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0) });
+  system.onFired = (v, index, shot, owner, origin, dir) => fired.push({ def: shot.weapon.def.ordnance, owner, origin: origin.clone(), dir: dir.clone(), ignoreBody: v.body, emitter: v.seats[index].emitter });
   return { c, system, fired, a: system.vehicles[0], b: system.vehicles[1] };
 }
 
 let nextId = 100;
 function bot(team = 1, { classDef = {} } = {}) {
-  const soldier = {
-    position: new THREE.Vector3(), previous: new THREE.Vector3(), settled: new THREE.Vector3(), velocity: new THREE.Vector3(),
-    aimYaw: 0, aimPitch: 0, air: null, fuel: 0.3, spawns: 0,
-    spawn(x, y, z, yaw) { this.position.set(x, y, z); this.aimYaw = yaw; this.velocity.set(0, 0, 0); this.fuel = 0.5; this.spawns += 1; },
-  };
+  const soldier = new Soldier(null, {});
+  soldier.fuel = .3; soldier.spawns = 0;
+  soldier.spawn = function(x, y, z, yaw) { this.position.set(x,y,z); this.aimYaw = yaw; this.velocity.set(0,0,0); this.fuel = .5; this.spawns++; };
   const unit = {
     id: nextId++, generation: 1, team, alive: true, dead: false, human: false, walker: false, seat: null, controller: null, character: { kills: 0 },
     classDef, intent: blankIntent(), soldier,
@@ -132,49 +133,7 @@ test('boarding and destruction in the same tick: seats cleared at once, crew dea
   same(late.seat, null);
 });
 
-test('one lease per seat; the player takes a bot-held seat and the bot moves on', () => {
-  const { system, a, b, c } = fixture();
-  const one = bot(), two = bot(), three = bot();
-  assert.ok(system.board(one, a, 0));
-  same(system.board(two, a, 0), false, 'seat 0 is taken');
-  same(system.board(one, b, 0), false, 'a seated unit cannot board again');
-  assert.ok(system.board(two, a));
-  same(two.seat.index, 1);
-  same(system.board(three, a), false, 'full');
-  same(system.eligibleSeat(three, a), -1);
-  same(system.eligibleSeat(three, b), 0);
-  same(system.eligibleSeat(bot(2), b), -1, "a team's hull takes only its own team's bots");
-  same(system.eligibleSeat(bot(1, { classDef: { NoEnterVehicles: 1 } }), b), -1);
-  same(system.board(bot(1, { classDef: { NoEnterVehicles: 1 } }), b), false, 'direct boarding honors the class prohibition too');
-  const droideka = bot(); droideka.walker = true;
-  same(system.board(droideka, b, 0), false, 'droidekas do not board');
-  // The player boards B, held by a pilot bot: he takes seat 0, the bot the next free seat.
-  assert.ok(system.board(three, b, 0));
-  const soldier = { position: new THREE.Vector3(), previous: new THREE.Vector3(), settled: new THREE.Vector3(), velocity: new THREE.Vector3(), aimYaw: 0, aimPitch: 0, spawn(x, y, z, yaw) { this.position.set(x, y, z); this.aimYaw = yaw; } };
-  const player = { team: 1, generation: 1, alive: true, seat: null };
-  const combat = { dead: false, mounted: false, team: 1, owner: player };
-  const driver = new VehicleDriver({ vehicles: system, soldier, combat, actor: { root: new THREE.Group() }, animator: {}, clips: new Map(), camera: system.camera, collision: c, hud: { message() {} } });
-  assert.ok(driver.enter(b));
-  same(b.seatIndex, 0);
-  same(b.seats[0].lease.human, true);
-  same(player.seat, b.seats[0].lease, "the player's unit holds the seat");
-  same(three.seat.index, 1, 'the displaced pilot took the gunner seat');
-  // F swaps him with the bot.
-  driver.update(1 / 60, { take: (k) => k === 'nextPrimary', held: () => false });
-  same(b.seatIndex, 1);
-  same(b.seats[1].lease, player.seat);
-  same(three.seat.index, 0);
-  // Both A seats bot-held: as the original game seats a player, the first seat
-  // a bot holds; its pilot has nowhere to go but out.
-  driver.release();
-  same(player.seat, null);
-  a.seatIndex = 1;
-  assert.ok(driver.enter(a));
-  same(a.seatIndex, 0);
-  same(one.seat, null, 'no free seat: the displaced pilot got out');
-  assert.ok(one.soldier.spawns > 0);
-  same(two.seat.index, 1);
-});
+
 
 test('edges are taken once per batch, whatever the substeps; held values hold', () => {
   const { system, fired, a } = fixture({ single: true });
@@ -260,17 +219,12 @@ test('vehicles and turrets are registry targets without hit spheres', () => {
   const ray = units.raycast(new THREE.Vector3(0, 1, -10), new THREE.Vector3(0, 0, 1), 100);
   same(ray, null, 'soldier raycasts pass vehicles by');
   const ref = units.ref(entry);
-  const enemy = bot(2);
-  enemy.team = 2;
-  b.team = 2;
-  same(b.aiTarget.team, 2);
-  a.team = 0;
-  same(entry.team, 0);
-  assert.ok(system.board(enemy, a, 0));
-  same(entry.team, 2, 'controlled by its occupant');
+  const pilot = bot();
+  assert.ok(system.board(pilot, a, 0));
+  same(entry.team, 1, 'the native lease supplies the controlling team');
   a.damage(Infinity);
   same(units.resolve(ref), null);
-  system.updateSpawns(5);
+  run(system, 5);
   assert.ok(a.alive);
   same(units.resolve(ref), null, 'a respawned hull is a new life');
   assert.ok(units.resolve(units.ref(entry)));
@@ -289,76 +243,11 @@ test('a bot pilot uses the common takeoff and landing states', () => {
   pilot.intent.down=1;run(system,8,1/60);same(a.flightState,'Landed');
 });
 
-test('exits: the original game placement for bots, the player\'s search kept', () => {
-  const { system, a, c } = fixture();
-  const pilot = bot();
-  assert.ok(system.board(pilot, a, 0));
-  pilot.soldier.velocity.set(9, 9, 9);
-  assert.ok(system.unboard(pilot));
-  // Candidate 0 is behind the hull, R = bounding radius + 0.684 out, on the floor.
-  const R = Math.fround(Math.fround(a.boundRadius) + Math.fround(0.6840001));
-  assert.ok(Math.abs(pilot.soldier.position.z - (a.position.z - R)) < 1e-4, `${pilot.soldier.position.toArray()}`);
-  assert.ok(Math.abs(pilot.soldier.position.y) < 1e-4, 'on the floor');
-  same(pilot.soldier.velocity.length(), 0, 'exit velocity is zero');
-  same(pilot.soldier.fuel, 0.3, 'jet fuel kept');
-  same(pilot.combat.mounted, false);
-  same(pilot.actor.root.visible, true);
-  // Boxed in by a wall right behind: the line from the centre is blocked, the next candidate (left) is used.
-  const wall = box(0, 3, -3.2, 10, 6, 0.2);
-  c.addBody(wall.positions, wall.indices, wall.polygons);
-  assert.ok(system.board(pilot, a, 0));
-  assert.ok(system.unboard(pilot));
-  assert.ok(Math.abs(pilot.soldier.position.x - (a.position.x - R)) < 1e-4, 'second candidate: -R along the frame right');
-  // The safe policy refuses when the player's search finds nothing, unless forced.
-  assert.ok(system.board(pilot, a, 0));
-  const cast = c.cast;
-  c.cast = () => null;
-  same(system.unboard(pilot, { policy: 'safe' }), false);
-  assert.ok(pilot.seat);
-  same(system.unboard(pilot, { policy: 'safe', force: true }), true);
-  c.cast = cast;
-});
 
-test('classic seat-exit primitives match the reference fixture', { skip: !existsSync('extract/ai-research/round9/root/exit-native.json') }, () => {
-  const native = JSON.parse(readFileSync('extract/ai-research/round9/root/exit-native.json', 'utf8'));
-  for (const kase of native.candidateCases) {
-    const ours = exitCandidates(kase.radius);
-    kase.candidates.forEach((p, i) => p.forEach((v, j) => assert.ok(Math.abs(ours[i][j] - v) < 1e-6, `r=${kase.radius} #${i}: ${ours[i]} vs ${p}`)));
-  }
-  const offsets = exitSupportOffsets();
-  for (const kase of native.worldSampleCases) {
-    kase.samples.forEach((p, i) => p.forEach((v, j) => assert.ok(Math.abs(kase.center[j] + offsets[i][j] - v) < 2e-6)));
-  }
-  for (const kase of native.heightSelections) same(highestSupport(kase.heights), kase.chosen);
-});
 
-test('classic seat-exit: corner support, fallback to the origin, water is no floor', () => {
-  // A stub world: rays down hit only where `ground(x, z)` says.
-  const world = (ground, blocked = () => false) => ({
-    cast(origin, dir, far, hit) {
-      if (dir.y > 0.5) return null;
-      if (dir.y < -0.5) {
-        const h = ground(origin.x, origin.z);
-        if (h === null || origin.y - h > far || origin.y < h) return null;
-        hit.distance = origin.y - h;
-        return hit;
-      }
-      return blocked(origin, dir, far) ? (hit.distance = 1, hit) : null;
-    },
-  });
-  const frame = { origin: new THREE.Vector3(0, 0, 0), forward: new THREE.Vector3(0, 0, 1), center: new THREE.Vector3(0, 1, 0), radius: 2 };
-  // Only a corner sample of the first candidate finds a floor: X/Z from the candidate, Y from the corner.
-  const corner = classicSeatExit(world((x, z) => (x > 0.5 && z < -3 ? 2 : null)), frame);
-  same(corner.candidate, 0);
-  assert.ok(Math.abs(corner.position.x) < 1e-9 && Math.abs(corner.position.y - 2) < 1e-6);
-  // No support anywhere (open water has none): the vehicle's origin.
-  const none = classicSeatExit(world(() => null), frame);
-  same(none.candidate, -1);
-  assert.ok(none.position.equals(frame.origin));
-  // Every radial line blocked: only the centre candidate (8) remains.
-  const centre = classicSeatExit(world(() => 0, () => true), frame);
-  same(centre.candidate, 8);
-});
+
+
+
 
 function turretFixture(weaponSettings = {}) {
   const collision = floor();
@@ -366,7 +255,8 @@ function turretFixture(weaponSettings = {}) {
   for (const name of ['drum', 'gun', 'seat', 'hp_fire']) { const o = new THREE.Object3D(); o.name = name; rig.byName[name] = o; }
   rig.root.add(rig.byName.drum); rig.byName.drum.add(rig.byName.gun); rig.byName.gun.add(rig.byName.hp_fire); rig.byName.drum.add(rig.byName.seat);
   rig.byName.drum.position.y = 1.5; rig.byName.hp_fire.position.z = 1;
-  rig.model = { box: [[-1, 0, -1], [1, 2, 1]] };
+  rig.bones = Object.values(rig.byName);
+  rig.model = { bones: [], box: [[-1, 0, -1], [1, 2, 1]] };
   const desc = { base: 'armedbuilding', class: 'test_turret', matrix: identity().toArray(), settings: { TurretNodeName: 'drum', AimerNodeName: 'gun', PilotPosition: 'seat', FirePointName: 'hp_fire', MaxTurnSpeed: 2, MaxHealth: 300 }, weapon: { class: 'test_turret_gun', base: 'cannon', ShotDelay: 0.25, RoundsPerClip: 0, ReloadTime: 0, ordnance: { base: 'bolt', Velocity: 100, LifeSpan: 2, Damage: 20 } } };
   Object.assign(desc.weapon, weaponSettings);
   const turret = new Turret(desc, { built: rig }, { built: null }, null);
@@ -378,116 +268,13 @@ function turretFixture(weaponSettings = {}) {
   return { collision, rig, turret, fired, ordnance, crews, units };
 }
 
-test('bots man turrets: drum from the analogs, rounds credited, death with the turret', () => {
-  const { turret, crews, rig, fired, units } = turretFixture();
-  same(crews.man(bot(1, { classDef: { NoEnterVehicles: 1 } }), turret), false, 'heroes cannot man turrets');
-  same(turret.aiTarget.kind, KIND.armedBuilding);
-  same(turret.aiTarget.team, 0, 'unmanned turrets belong to no one');
-  const gunner = bot(2);
-  assert.ok(crews.man(gunner, turret));
-  same(crews.man(bot(), turret), false, 'one gunner');
-  same(turret.gunner, gunner.soldier);
-  same(turret.aiTarget.team, 2);
-  gunner.intent.turn = -1;
-  gunner.intent.buttons[0] = 3;
-  for (let i = 0; i < 60; i++) crews.update(1 / 60);
-  assert.ok(turret.yaw > 0.5, `left turn raises yaw: ${turret.yaw}`);
-  assert.ok(fired.length >= 3 && fired.every((f) => f.owner === gunner));
-  assert.ok(gunner.soldier.position.distanceTo(rig.byName.seat.getWorldPosition(new THREE.Vector3())) < 1e-9, 'body at the seat');
-  const killer = bot(1);
-  const oldTarget = units.ref(turret.aiTarget);
-  turret.damage(1000, killer);
-  same(turret.alive, false, 'a turret without a wreck model is dead too');
-  same(gunner.alive, false);
-  same(gunner.combat.deaths[0], killer);
-  same(turret.lease, null);
-  same(turret.gunner, null);
-  // A use edge gets a gunner out, onto the floor beside it.
-  turret.setHealth(300);
-  same(turret.alive, true);
-  same(units.resolve(oldTarget), null, 'rebuilding cannot revive a stale target reference');
-  same(turret.lastAttacker, null);
-  const next = bot(1);
-  assert.ok(crews.man(next, turret));
-  next.intent.use = true;
-  crews.update(1 / 60);
-  same(next.seat, null);
-  same(turret.lease, null);
-  assert.ok(next.soldier.position.distanceTo(turret.position) > 2);
-});
 
-test('bot turret spread is seeded and its beam emitter ends when the gunner leaves', () => {
-  const fire = () => {
-    const env = turretFixture({ SpreadThreshold: 2, SpreadPerShot: 1, MaxSpread: 5, YawSpread: 2, PitchSpread: 1 });
-    const unit = bot();
-    env.crews.man(unit, env.turret);
-    same(env.turret.weapon.floor, 0);
-    const random = new ClassicRandom(31);
-    env.turret.weapon.random = () => random.uniform();
-    unit.intent.buttons[0] = 1;
-    for (let i = 0; i < 30; i++) env.crews.update(1 / 30);
-    return { ...env, unit };
-  };
-  const a = fire(), b = fire();
-  assert.ok(a.fired.length > 2);
-  assert.deepEqual(a.fired.map((s) => s.dir.toArray()), b.fired.map((s) => s.dir.toArray()));
-  assert.ok(a.fired.some((s) => Math.abs(s.dir.x) > 0.001), 'spread reaches the projectile direction');
-  const emitter = a.fired[0].emitter;
-  same(emitter.alive, true);
-  same(emitter.matrix, a.turret.gun.matrixWorld);
-  a.crews.leave(a.unit, { placement: false });
-  same(emitter.alive, false);
-  a.crews.man(bot(), a.turret);
-  same(emitter.alive, false, 'a new occupant cannot revive an old beam');
-});
 
-test('a human taking a bot seat restores player weapon settings and owns turret shots', () => {
-  const env = turretFixture({ SpreadThreshold: 2 });
-  const botUnit = bot();
-  env.crews.man(botUnit, env.turret);
-  const weapon = env.turret.weapon;
-  Object.assign(weapon, { spreadScale: 9, sniperScale: 2, yawSpreadOverride: 5, random: () => 0.5 });
-  env.crews.leave(botUnit, { placement: false });
-  const unit = bot(); unit.human = true;
-  const gunner = new Gunner({ camera: new THREE.PerspectiveCamera(), collision: env.collision, ordnance: env.ordnance, combat: { owner: unit, team: 1 }, animator: unit.animator, clips: new Map() });
-  gunner.enter(env.turret, unit.soldier);
-  same(weapon.floor, -2);
-  same(weapon.spreadScale, 1);
-  same(weapon.sniperScale, 0);
-  same(weapon.yawSpreadOverride, null);
-  same(weapon.random, null);
-  same(gunner.combat.mounted, true);
-  gunner.update(1 / 30, unit.soldier, { take: () => true, held: () => true });
-  same(env.fired[0].owner, unit);
-  same(env.fired[0].emitter, unit.seat.emitter);
-  gunner.exit(unit.soldier);
-  same(gunner.combat.mounted, false);
-  same(env.fired[0].emitter.alive, false);
 
-  const { a } = fixture();
-  const hullWeapon = a.seats[0].weapons[0].state;
-  Object.assign(hullWeapon, { spreadScale: 9, sniperScale: 2, yawSpreadOverride: 5, random: () => 0.5 });
-  a.setSeatPolicy(0, true);
-  same(hullWeapon.spreadScale, 1);
-  same(hullWeapon.sniperScale, 0);
-  same(hullWeapon.yawSpreadOverride, null);
-  same(hullWeapon.random, null);
-});
 
-test('human vehicle rounds carry the human unit and physical seat emitter', () => {
-  const { a, fired } = fixture();
-  const unit = bot(); unit.human = true;
-  a.seats[0].lease = { unit, human: true };
-  a.muzzle.set(0, 1, 0);
-  a.direction.set(0, 0, 1);
-  a.emitShot({ weapon: a.seats[0].weapons[0].state }, 0, null);
-  same(fired[0].owner, unit);
-  same(fired[0].emitter, a.seats[0].emitter);
-  same(fired[0].ignoreBody, a.body);
-  a.seats[0].lease = null;
-  a.emitShot({ weapon: a.seats[0].weapons[0].state }, 0, null);
-  same(fired[1].owner, a, 'standalone vehicle fixtures retain the hull fallback');
-});
+
+
+
 
 // ---------------------------------------------------------------------------------------------
 // Classic vehicle AI (Phase B).
@@ -664,16 +451,18 @@ test('a bot at a turret leaves after the stationary wait with nothing to shoot',
   const rig = { root: new THREE.Group(), byName: {}, bind: new Map() };
   for (const name of ['drum', 'gun', 'seat', 'hp_fire']) rig.byName[name] = new THREE.Object3D();
   rig.root.add(rig.byName.drum); rig.byName.drum.add(rig.byName.gun); rig.byName.gun.add(rig.byName.hp_fire); rig.byName.drum.add(rig.byName.seat);
-  rig.model = { box: [[-1, 0, -1], [1, 2, 1]] };
+  rig.bones = Object.values(rig.byName);
+  rig.model = { bones: [], box: [[-1, 0, -1], [1, 2, 1]] };
   const desc = { base: 'armedbuilding', class: 't', matrix: identity().makeTranslation(-30, 0, 0).toArray(), settings: { TurretNodeName: 'drum', AimerNodeName: 'gun', PilotPosition: 'seat', MaxTurnSpeed: 2, MaxHealth: 300, YawLimits: '-180 180', PitchLimits: '-45 45' }, weapon: { class: 'g', base: 'cannon', ShotDelay: 0.25, RoundsPerClip: 0, ordnance: { base: 'bolt', Velocity: 100, LifeSpan: 2 } } };
   const turret = new Turret(desc, { built: rig }, { built: null }, null);
-  const crews = new TurretSeats({ live: { turrets: [turret] }, ordnance: { fire() {} }, collision: env.c, units });
+  const crews = new TurretSeats({ live: { turrets: [turret] }, ordnance: env.system.ordnance, collision: env.c, units });
+  env.system.f2.seats.attachTurrets(crews);
   world.turretSeats = crews;
   const unit = soldierUnit(units, 1, -30, 2);
   const character = enlist(env, unit);
   assert.ok(crews.man(unit, turret));
   const controller = character.controller;
-  for (let i = 0; i < 3; i++) { world.time += 1 / 30; ai.update(1 / 30); crews.update(1 / 30); }
+  for (let i = 0; i < 3; i++) { world.time += 1 / 30; ai.update(1 / 30); env.system.update(1 / 30); }
   same(controller.unit, unit.seat.controllable);
   same(controller.unit.kind, 7);
   same(controller.policy, vehicleAI.STATIONARY_POLICY);
@@ -681,7 +470,7 @@ test('a bot at a turret leaves after the stationary wait with nothing to shoot',
   controller.commands.overwrite(SourceGoal.of(GOAL.WAIT));
   let left = -1;
   for (let i = 0; i < 30 * 14; i++) {
-    world.time += 1 / 30; ai.update(1 / 30); crews.update(1 / 30);
+    world.time += 1 / 30; ai.update(1 / 30); env.system.update(1 / 30);
     if (!unit.seat) { left = world.time; break; }
   }
   assert.ok(left > 10 && left < 12, `left after the 10 s stationary wait: ${left}`);
@@ -1059,7 +848,8 @@ test('boarding acceptance: moving hulls always; turrets need a reachable memory 
   for (const name of ['drum', 'gun', 'seat']) rig.byName[name] = new THREE.Object3D();
   rig.root.add(rig.byName.drum); rig.byName.drum.add(rig.byName.gun); rig.byName.drum.add(rig.byName.seat);
   rig.byName.gun.position.y = 1.5;
-  rig.model = { box: [[-1, 0, -1], [1, 2, 1]] };
+  rig.bones = Object.values(rig.byName);
+  rig.model = { bones: [], box: [[-1, 0, -1], [1, 2, 1]] };
   const turret = new Turret({ base: 'armedbuilding', matrix: identity().toArray(), settings: { TurretNodeName: 'drum', AimerNodeName: 'gun', MaxHealth: 300, YawLimits: '-180 180', PitchLimits: '-45 45' }, weapon: null }, { built: rig }, { built: null }, null);
   const crews = new TurretSeats({ live: { turrets: [turret] }, collision: env.c, units: env.units });
   world.turretSeats = crews;

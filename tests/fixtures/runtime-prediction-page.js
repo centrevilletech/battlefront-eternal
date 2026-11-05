@@ -1,16 +1,8 @@
 // Runs in the real page for browser and desktop correctness checks.
-export async function exercisePredictionPage(native) {
+// The runner explicitly installs client-prediction-diagnostics before entry.
+export async function exercisePredictionPage() {
   const b = __bf, c = b.client, sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const owner = b.predictionSim, handles = [];
-  let nativeActorSteps = 0;
-  if (owner) {
-    const bind = owner.actors.bind;
-    owner.actors.bind = (...args) => {
-      const session = bind(...args), step = session.step;
-      session.step = (...values) => { const result = step(...values); if (result) nativeActorSteps++; return result; };
-      handles.push(session); return session;
-    };
-  }
+  const owner = b.predictionSession, start = { ...owner.counters };
   b.graphics.render = () => {};
   b.controls.locked = true;
   let named = 0, shown = false, predicted = false, missiles = 0, badRotation = false;
@@ -41,18 +33,21 @@ export async function exercisePredictionPage(native) {
   b.resume();
   await c.host.call('start');
   await sleep(500);
-  const weaponSession = c.weapons?.nativeSession, correctionCalls = owner?.corrections.calls ?? 0;
-  const reconcileCalls = owner?.reconcile.calls ?? 0;
-  const replayCalls = owner?.replay.calls ?? 0;
-  const nativeWeapon = !!weaponSession?.handle, shared = owner ? owner.bridge.x === b.collision.rays.x : false;
-  // Close from inside replay, where its temporary arsenal/body are installed.
-  const authority = c.weapons.saved?.arsenal ?? b.combat.arsenal, step = c.weapons.step;
+  const shared = owner.bridge.x === b.collision.rays.x;
+  // Close from a presentation callback while the page's replay is active.
+  const authority = c.weapons.saved?.arsenal ?? b.combat.arsenal, present = owner.present;
   let closedDuringReplay = false;
-  c.weapons.step = function (...args) { const result = step.apply(this, args); closedDuringReplay = true; c.host.dispose(); return result; };
+  owner.present = function(unit, presentation, onShot) {
+    const before = presentation.beforeStep;
+    presentation.beforeStep = function() { before.call(this); closedDuringReplay = true; c.host.dispose(); };
+    try { return present.call(this, unit, presentation, onShot); }
+    finally { presentation.beforeStep = before; }
+  };
   b.controls.hold('KeyW');
   for (let i = 0; i < 120 && !c.host.closed; i++) await sleep(25);
   c.host.dispose(); await sleep(100);
-  const disposed = !c.ready && !c.running && !c.predicted && !c.predictionBodyPending && b.combat.arsenal === authority && (!owner || owner.disposed && !owner.corrections.handle && !owner.reconcile.handle && !owner.replay.activeSessions && !weaponSession?.handle && handles.every(session => !session.handle));
+  const disposed = !c.ready && !c.running && !c.predicted && !c.predictionBodyPending && b.combat.arsenal === authority && owner.disposed && !owner.handle;
   return { named, shown, predicted, missiles, badRotation, restored, tick: b.worldClock.tick,
-    native, nativeActorSteps, nativeWeapon, correctionCalls, reconcileCalls, replayCalls, shared, disposed, closedDuringReplay, hasOwner: !!owner };
+    nativeTicks: owner.counters.ticks - start.ticks, calls: owner.counters.calls - start.calls,
+    shared, disposed, closedDuringReplay, hasOwner: Boolean(owner) };
 }

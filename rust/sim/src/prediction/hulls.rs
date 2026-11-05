@@ -211,6 +211,7 @@ impl Session {
                 let left = walk_clip(&mut r)?;
                 let right = walk_clip(&mut r)?;
                 hull.pose = Some(HullPose {
+                    work: Default::default(),
                     rig: HullRig::new(&HullDesc::default()),
                     visual: Vector3::default(),
                     age: 0.0,
@@ -563,7 +564,7 @@ impl<Q: Query> FlightWorld for World<'_, Q> {
                         floor_y: a[6],
                     });
                 }
-                Some(zones)
+                Some(zones.into())
             } else {
                 None
             };
@@ -689,95 +690,4 @@ impl<Q: Query> FlightWorld for World<'_, Q> {
     fn system_death_region(&mut self, position: &Vector3) -> bool {
         flag(&self.ask(18, &[position.x, position.y, position.z]), 0)
     }
-}
-
-/// The outer owner remains at a stable address while the entire session
-/// is taken out for a command. Reentrant calls can create another owner;
-/// an attempt to reuse this busy owner cannot alias its working hull.
-#[derive(Default)]
-pub struct Handle {
-    session: Option<Session>,
-    input: Vec<f64>,
-    output: Vec<f64>,
-    error: Option<&'static str>,
-}
-
-#[no_mangle]
-pub extern "C" fn prediction_hulls_create() -> *mut Handle {
-    Box::into_raw(Box::new(Handle {
-        session: Some(Session::default()),
-        ..Handle::default()
-    }))
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_hulls_drop(ptr: *mut Handle) {
-    if !ptr.is_null() && (&*ptr).session.is_some() {
-        drop(Box::from_raw(ptr));
-    }
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_hulls_room(ptr: *mut Handle, words: usize) -> *mut f64 {
-    if ptr.is_null() {
-        return std::ptr::null_mut();
-    }
-    let h = &mut *ptr;
-    if h.session.is_none() {
-        return std::ptr::null_mut();
-    }
-    h.input.resize(words, 0.0);
-    h.input.as_mut_ptr()
-}
-#[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn prediction_hulls_run(ptr: *mut Handle, op: u32, serial: f64) -> u32 {
-    if ptr.is_null() {
-        return 0;
-    }
-    let mut session = {
-        let h = &mut *ptr;
-        let Some(mut session) = h.session.take() else {
-            return 0;
-        };
-        session.input = std::mem::take(&mut h.input);
-        session
-    };
-    let mut query = |op, args: &[f64]| {
-        crate::gen::import_prediction_hull_query(&crate::gen::PredictionHullQuery {
-            session: serial,
-            op,
-            args: args.to_vec(),
-        })
-        .values
-    };
-    let error = session.run(op, &mut query).err();
-    let h = &mut *ptr;
-    h.output = std::mem::take(&mut session.output);
-    h.input = std::mem::take(&mut session.input);
-    h.error = error;
-    h.session = Some(session);
-    error.is_none() as u32
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_hulls_output(ptr: *const Handle) -> *const f64 {
-    if ptr.is_null() {
-        std::ptr::null()
-    } else {
-        (&*ptr).output.as_ptr()
-    }
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_hulls_output_len(ptr: *const Handle) -> usize {
-    if ptr.is_null() {
-        0
-    } else {
-        (&*ptr).output.len()
-    }
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_hulls_error(ptr: *const Handle) -> *const u8 {
-    (&*ptr).error.unwrap_or("").as_ptr()
-}
-#[no_mangle]
-pub unsafe extern "C" fn prediction_hulls_error_len(ptr: *const Handle) -> usize {
-    (&*ptr).error.unwrap_or("").len()
 }

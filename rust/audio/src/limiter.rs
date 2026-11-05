@@ -1,4 +1,4 @@
-//! The master dynamics (src/audio/worklets/limiter.js): a compressor with
+//! The master dynamics (limiter DSP): a compressor with
 //! a soft knee and makeup, then a true-peak limiter (4x oversampled peak
 //! detection, 1.5 ms lookahead, the window's minimum want from a rising
 //! queue, its moving average, an exponential release), all channels
@@ -174,7 +174,7 @@ impl Limiter {
         -slope * (level - t)
     }
 
-    fn setup(&mut self, channels: usize) {
+    pub(crate) fn setup(&mut self, channels: usize) {
         self.channels = channels;
         // Each channel's last TAPS samples, written twice (at p and
         // p + TAPS) so the interpolator reads them in one run.
@@ -184,7 +184,7 @@ impl Limiter {
         self.block = 0;
     }
 
-    fn scratch(&mut self, n: usize) {
+    pub(crate) fn scratch(&mut self, n: usize) {
         if self.block >= n {
             return;
         }

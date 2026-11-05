@@ -41,7 +41,7 @@ export function syncSeatInput(b, f, at, h, m) {
   m.brake = f[at + 4] !== 0;
   m.up = f[at + 5];
   m.down = f[at + 6];
-  (m.aim ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
+  { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
   m.aiming = f[at + 10] !== 0;
   { const items = (m.held ??= []), start = h + f[at + 11], n = f[at + 12]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
   { const items = (m.pressed ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
@@ -262,7 +262,7 @@ export function syncSeatAiIntent(b, f, at, h, m) {
   m.previousPrimary = f[at + 13] !== 0;
   m.nextSecondary = f[at + 14] !== 0;
   m.zoom = f[at + 15] !== 0;
-  { const tag = f[at + 16]; if (tag === 0) { (m.aim ??= new THREE.Vector3()).set(f[at + 17], f[at + 18], f[at + 19]); } else m.aim = tag === 1 ? null : undefined; }
+  { const tag = f[at + 16]; if (tag === 0) { { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 17]; $v.y = f[at + 18]; $v.z = f[at + 19]; } } else m.aim = tag === 1 ? null : undefined; }
   m.brake = f[at + 20] !== 0;
   m.up = f[at + 21];
   m.down = f[at + 22];
@@ -455,7 +455,7 @@ export function syncSeatEffect(b, f, at, h, m) {
   m.hull = f[at + 2];
   m.seat = f[at + 3];
   m.yaw = f[at + 4];
-  (m.at ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.at ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   { const tag = f[at + 8]; if (tag === 0) { m.post = b.refs[KIND_POST].at(f[at + 9], f[at + 10]); } else m.post = tag === 1 ? null : undefined; }
   m.reason = SeatReason_NAMES[f[at + 11]];
   return m;
@@ -549,8 +549,8 @@ export class SeatRayMirror {
 }
 
 export function syncSeatRay(b, f, at, h, m) {
-  (m.origin ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   m.far = f[at + 6];
   { const tag = f[at + 7]; if (tag === 0) { m.ignore = b.refs[KIND_BODY].at(f[at + 8], f[at + 9]); } else m.ignore = tag === 1 ? null : undefined; }
   return m;
@@ -597,8 +597,8 @@ export class SeatHitMirror {
 export function syncSeatHit(b, f, at, h, m) {
   m.found = f[at + 0] !== 0;
   m.distance = f[at + 1];
-  (m.point ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   m.terrain = f[at + 8] !== 0;
   { const tag = f[at + 9]; if (tag === 0) { m.body = b.refs[KIND_BODY].at(f[at + 10], f[at + 11]); } else m.body = tag === 1 ? null : undefined; }
   return m;
@@ -646,7 +646,7 @@ export class SeatSphereMirror {
 }
 
 export function syncSeatSphere(b, f, at, h, m) {
-  (m.center ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
   m.radius = f[at + 3];
   { const tag = f[at + 4]; if (tag === 0) { m.ignore = b.refs[KIND_BODY].at(f[at + 5], f[at + 6]); } else m.ignore = tag === 1 ? null : undefined; }
   return m;

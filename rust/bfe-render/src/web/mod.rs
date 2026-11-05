@@ -67,6 +67,8 @@ impl BfeRenderer {
     // (texture ids in cascade order; none: shadows off).
     pub fn shadow_input_ptr(&mut self) -> u32 { self.r.core.shadow_input.as_mut_ptr() as u32 }
     pub fn shadow_input_len(&self) -> u32 { self.r.core.shadow_input.len() as u32 }
+    // The caller rebuilds borrowed textures first, preserving their logical ids.
+    // Only those ids are retained here; an old WebGlTexture cannot survive a loss.
     pub fn set_shadow_maps(&mut self, ids: &[u32]) {
         self.remember_set_shadow_maps(ids); // recovery
  self.r.core.set_shadow_maps(ids) }
@@ -118,11 +120,16 @@ impl BfeRenderer {
         self.remember_set_lamps(data); // recovery
  self.r.core.set_lamps(data) }
 
+    // The key is the source authority for owned shader families. Replaying it
+    // uses the same program cache; it never asks a source-free Three material to
+    // compile or selects a browser draw when linking fails.
     pub fn add_owned_program(&mut self, key: &str) -> Result<u32, JsValue> {
         self.remember_add_owned_program(key); // recovery
  self.r.core.add_owned_program(key).map_err(|e| JsValue::from_str(&e))
     }
 
+    // Allocate before recording any dependent buffer/pointer command. JS keeps
+    // this numeric id across a context loss, so replay cannot compact the table.
     pub fn add_geometry(&mut self) -> u32 {
         self.remember_add_geometry(); // recovery
  self.r.core.add_geometry() }
@@ -140,6 +147,14 @@ impl BfeRenderer {
     pub fn geometry_group(&mut self, g: u32, start: i32, count: i32) {
         self.remember_geometry_group(g, start, count); // recovery
  self.r.core.geometry_group(g, start, count) }
+
+    // LinesPass preserves Line/LineSegments/LineLoop topology without converting
+    // vertices to triangles. First/indexed/width are retained geometry state;
+    // vertex count stays a frame value because the cable's used length changes.
+    pub fn geometry_primitive(&mut self, g: u32, mode: u32, first: i32, indexed: bool, width: f32) {
+        self.remember_geometry_primitive(g, mode, first, indexed, width); // recovery
+ self.r.core.geometry_primitive(g, mode, first, indexed, width);
+    }
 
     // The phases (renderer.rs). Each returns its stats: [world draws,
     // instanced draws, instances, program switches, GL calls], then each

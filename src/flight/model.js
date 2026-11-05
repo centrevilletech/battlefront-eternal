@@ -93,9 +93,6 @@ export function landingSite(v) {
 function transition(v, state) { v.flightState = state; v.stateTime = 0; v.flightStart.copy(v.position); v.flightStartQ.copy(v.quaternion); }
 // A lift nobody flies any more, still over its pad (a roof holding it, its
 // crew gone): the craft goes back down onto it (the port's).
-export function abandonLift(v) {
-  if (v.flightState === 'TakingOff' && v.gear >= 1) transition(v, 'Landing');
-}
 function startTrick(v, kind, direction = 1) {
   const c = v.flightConfig;
   if (v.trick || v.power < c.trickCost || v.trickCooldown > 0 || v.flightState !== 'Flying') return;

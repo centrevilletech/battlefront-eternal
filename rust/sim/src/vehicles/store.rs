@@ -70,8 +70,8 @@ impl Hull {
         self.size = v3(&v.size);
         self.bound_radius = v.bound_radius;
         self.probe_radius = v.probe_radius;
-        self.probes = v.probes.iter().map(v3).collect();
-        self.support_probes = v.support_probes.iter().map(v3).collect();
+        self.probes.clear(); self.probes.extend(v.probes.iter().map(v3));
+        self.support_probes.clear(); self.support_probes.extend(v.support_probes.iter().map(v3));
         self.max_health = v.max_health;
         self.water_rule = v.water_rule.as_ref().map(|r| WaterRule { interval: r.interval, amount: r.amount });
         self.water_depth = v.water_depth;
@@ -100,10 +100,10 @@ impl Hull {
         self.matrix = matrix;
         self.item_center = v3(&v.item_center);
         self.support_normal = v3(&v.support_normal);
-        self.leg_side = v.leg_side.clone();
+        self.leg_side.clone_from(&v.leg_side);
         self.seat_index = v.seat_index as usize;
         self.driver = v.driver.is_some();
-        self.wheels = v.wheels.iter().map(|w| Wheel { x: w.x, radius: w.radius, phase: w.phase, previous: w.previous, tick_from: w.tick_from }).collect();
+        self.wheels.clear(); self.wheels.extend(v.wheels.iter().map(|w| Wheel { x: w.x, radius: w.radius, phase: w.phase, previous: w.previous, tick_from: w.tick_from }));
         self.seats.resize(v.seats.len(), Seat { turn_rate: f64::NAN, pitch_rate: f64::NAN, ..Seat::default() });
         for (i, (seat, s)) in self.seats.iter_mut().zip(&v.seats).enumerate() {
             let view = &v.seat_views[i];
@@ -137,7 +137,9 @@ impl Hull {
         self.last_attacker = v.last_attacker;
         self.tow_target = v.tow_target;
         self.tow_local = v3(&v.tow_local);
-        self.tow_leg = String::from_utf16_lossy(strings.units(v.tow_leg));
+        if !self.tow_leg.encode_utf16().eq(strings.units(v.tow_leg).iter().copied()) {
+            self.tow_leg.clear(); self.tow_leg.extend(char::decode_utf16(strings.units(v.tow_leg).iter().copied()).map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)));
+        }
         self.tow_angle = v.tow_angle;
         self.tow_winding = v.tow_winding;
         // Its team (a spawn's), kept with its flight's fields.
@@ -173,7 +175,7 @@ impl Hull {
         v.matrix = self.matrix.elements;
         v.item_center = a3(&self.item_center);
         v.support_normal = a3(&self.support_normal);
-        v.leg_side = self.leg_side.clone();
+        v.leg_side.clone_from(&self.leg_side);
         if !self.driver {
             v.driver = None;
         }

@@ -2,6 +2,9 @@ import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// Compare all RGBA channels, including alpha and one-level MSAA edge changes.
+// A pixel counts once even when several channels differ; maxDelta still keeps
+// the largest channel difference. No image similarity threshold hides changes.
 export function comparePixels(reference, candidate) {
   if(reference.length!==candidate.length)throw Error('Pixel buffer sizes differ');
   let differing=0,maxDelta=0;
@@ -16,6 +19,9 @@ export function compareCase(directory,id,expected){
   const reports=Object.fromEntries(roles.map(role=>[role,JSON.parse(readFileSync(join(directory,role,`${id}.json`)))]));
   const points=[];
   for(const role of roles)if(!reports[role].complete||!reports[role].pass||reports[role].points.length!==expected)throw Error(`${role}: incomplete capture: ${reports[role].error||''}`);
+  // Metadata must agree before reading pixels: a visually similar image from
+  // the wrong simulation tick is not a valid reference/control/candidate point.
+  // The control gets the same exact comparison policy as the candidate.
   for(let k=0;k<expected;k++){
     const meta=roles.map(role=>reports[role].points[k]);
     if(meta.some(m=>m.w!==meta[0].w||m.h!==meta[0].h||m.tick!==meta[0].tick))throw Error(`Point ${k}: dimensions or ticks differ`);

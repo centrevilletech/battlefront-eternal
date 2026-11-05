@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CollisionWorld } from '../tools/collision-fixture.mjs';
+import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles } from '../src/vehicles.js';
 import {captureEntityVehicle} from '../src/runtime/network-entity-capture.js';
 import {EntityGameState} from '../src/runtime/network-entity-game.js';
@@ -21,7 +21,7 @@ const FRAMES = 31;
 const SPAN = FRAMES / 30 / 2;
 const X = new THREE.Vector3(1, 0, 0);
 
-function walker({ respawnTime = 30, fx = {} } = {}) {
+function walker({ respawnTime = 30, fx = {}, yaw = 0 } = {}) {
   const ground = box(0, -1, 0, 400, 2, 400);
   const collision = new CollisionWorld(ground.positions, ground.indices, ground.polygons);
   const bones = [{ name: 'dummyroot', parent: -1, local: new THREE.Matrix4().toArray() },
@@ -45,6 +45,8 @@ function walker({ respawnTime = 30, fx = {} } = {}) {
     collision, texture: () => null, camera: new THREE.PerspectiveCamera(), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] },
     ordnance: { explosion: (def, at, owner) => blasts.push({ class: def.class, at: at.clone(), owner }) }, effects: { play() { return null; } } });
   const v = system.vehicles[0];
+  v.yaw = yaw; v.syncBody();
+  nativeVehicles(system, { data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0), animationBuffer: new Float32Array(floats).buffer });
   return { system, v, blasts };
 }
 // The world's ticks (Vehicles.update takes at most 0.1 s at a time).
@@ -52,8 +54,7 @@ const run = (system, seconds) => { for (let n = Math.round(seconds * 600); n > 0
 const tilt = (v) => 2 * Math.atan2(Math.hypot(v.byName.bone_body.quaternion.x, v.byName.bone_body.quaternion.z), v.byName.bone_body.quaternion.w);
 
 test('a destroyed walker dies over its death animation, then its FinalExplosion goes off at its offset and it is gone', () => {
-  const { system, v, blasts } = walker();
-  v.yaw = Math.PI / 2;
+  const { system, v, blasts } = walker({ yaw: Math.PI / 2 });
   v.damage(5000, 'player');
   assert.equal(v.alive, false);
   assert.equal(v.body.enabled, false, 'nothing to walk into while it falls');

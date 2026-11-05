@@ -1,6 +1,6 @@
 import { CommandControls } from './commands.js';
 import { replayTicks } from './reconcile.js';
-import { networkVehicleInput } from './network-vehicle.js';
+import { predictionVehicleInput } from './vehicle-prediction-input.js';
 import { captureGroundCorrection } from './network-entity-ground.js';
 import { VehiclesWorld } from '../vehicles-world.js';
 
@@ -34,6 +34,8 @@ export function predictionVehicle(source) {
   clone.itemTarget = { ...source.itemTarget, center: source.itemTarget.center.clone() };
   clone.predictionSource = source.predictionSource || source;
   clone.system = Object.create(clone.predictionSource.system);
+  // Page input replay changes only this private hull.
+  clone.system.f2 = null;
   clone.system.collision = predictionCollision(clone.predictionSource.system.collision);
   // Its queries go to that view of the collision too, never moving the real collider.
   clone.system.world = new VehiclesWorld(clone.system);
@@ -82,7 +84,7 @@ export function predictedExactly(prediction, source, tick) {
 // for any tick the page predicted since the last one.
 const HISTORY = 60;
 
-export function predictVehicle(source, pending, from, generation, held = [], { native = null, replay = null } = {}) {
+export function predictVehicle(source, pending, from, generation, held = []) {
   if (!source?.alive) return null;
   const vehicle = predictionVehicle(source), controls = new CommandControls();
   vehicle.predictionTick = from;
@@ -95,14 +97,11 @@ export function predictVehicle(source, pending, from, generation, held = [], { n
   }
   if (vehicle.predictionSource !== source) refreshCrew(vehicle, vehicle.predictionSource);
   const enabled = source.body.enabled;
-  let session = null;
   try {
-    if (native) vehicle.nativeSession = session = native.create(vehicle);
     replayTicks(pending, from, generation, held, (_tick, command) => {
       controls.accept({ ...command, epoch: 1, sequence: command.tick });
-      const input = networkVehicleInput(vehicle, 0, controls, command);
-      if (session) session.step(input);
-      else {
+      const input = predictionVehicleInput(vehicle, 0, controls, command);
+      {
         vehicle.captureTick();
         // The world advances wheeled/repulsor collision at 120 Hz; flyers at 60 Hz.
         if (vehicle.flying) vehicle.tick(1 / 60, input);
@@ -116,9 +115,9 @@ export function predictVehicle(source, pending, from, generation, held = [], { n
       vehicle.predictionPath.set(command.tick, vehicle.position.clone());
       vehicle.predictionStates.set(command.tick, hullState(vehicle));
       vehicle.predictionTick = command.tick;
-    }, undefined, { native: replay });
+    });
   } finally {
-    try { source.body.enabled = enabled; } finally { session?.dispose(); }
+    source.body.enabled = enabled;
   }
   return vehicle;
 }
