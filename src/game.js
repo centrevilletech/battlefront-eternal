@@ -1,12 +1,13 @@
 import { InputLatencyTrace } from './runtime/input-latency-trace.js';
 import { PredictionArsenal } from './runtime/prediction-arsenal.js';
+import { PredictionFrame } from './runtime/prediction-frame.js';
 import {entityPostNames} from './runtime/entity-spawn-posts.js';
-import { captureCompactSoldier, restoreCompactSoldier } from './runtime/network-entity-soldier-compact.js';
+import { restoreCompactSoldier } from './runtime/network-entity-soldier-compact.js';
 import { EntitySeats } from './runtime/entity-seats.js';
 import { MountedWeaponPrediction } from './runtime/mounted-weapon-prediction.js';
 import {predictRemote,RemotePredictionContext} from './runtime/network-remote-prediction.js';
 import {captureRemoteReplay,restoreRemoteReplay} from './runtime/network-remote-replay.js';
-import { captureDroidekaState, restoreDroidekaState } from './runtime/network-droideka-state.js';
+import { restoreDroidekaState } from './runtime/network-droideka-state.js';
 import { retireAuthoritativeInputs } from './runtime/input-retirement.js';
 import { PredictionWindow, retainPredictionCommands, resetPredictionIdentity } from './runtime/prediction-window.js';
 import { discreteActions, predictionCommands, expireMovement } from './runtime/network-inputs.js';
@@ -2760,6 +2761,7 @@ async function start() {
     release(() => client?.vehicleWindow.reset());
     release(() => client?.remoteReplay.reset());
     if (client) {
+      client.predictionFrame.clear();
       client.pending.length = 0; client.pendingActions.length = 0;
       client.vehiclePrediction = null; client.continuationState.clear();
     }
@@ -2787,11 +2789,25 @@ async function start() {
       }
     }
   }
+  // The session invokes this only for real predicted-shot notices. Keep one
+  // callback per battle; event payloads still have their own effect lifetime.
+  function presentPredictedShot(notice, weapon) {
+    const shot = { weapon, yaw: notice.yaw, pitch: notice.pitch, charge: notice.charge,
+      targetId: notice.target, targetGeneration: notice.targetGeneration, visualGun: notice.visualGun };
+    if (notice.kind) shot[notice.kind === 1 ? 'repair' : notice.kind === 2 ? 'meleeStart' : notice.kind === 3 ? 'meleeHit' : 'meleeEnd'] = true;
+    if (notice.kind === 2) shot.swing = notice.swing;
+    const command = { sequence: notice.sequence || undefined, epoch: commandHistory.epoch, tick: notice.tick };
+    game.predictedShots?.fire({ id: notice.press, held: notice.held, button: notice.button, pressed: true,
+      tick: notice.tick, epoch: commandHistory.epoch, generation: playerUnit.generation,
+      ...combat.convergedAim(soldier.aimYaw, soldier.aimPitch) }, playerUnit, command, shot);
+  }
   function replayPrediction() {
     const replayActions = client.host.entityInput.replayActions(true, true);
     const actions = commands => commands.map(command => ({...command, actions: replayActions.actions.get(command.sequence) || []}));
     const pending = predictionCommands(actions(client.pending), actions([...client.pendingActions, ...replayActions.shieldCommands]), 0, client.held);
-    if (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held) predictionSession.reset();
+    if (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held) {
+      predictionSession.reset(); client.predictionFrame.clear();
+    }
     if (remotes.piloted && !combat.dead && !playerUnit.removed) {
       const droid=remotes.piloted,state=captureRemoteReplay(remotes,droid);
       const prediction=predictRemote(remotes,droid,pending,worldClock.tick,playerUnit.generation,
@@ -2839,34 +2855,23 @@ async function start() {
       client.predictedTick = 0;
       return false;
     }
-    if (walker) client.savedDroideka = captureDroidekaState(soldier);
-    else client.saved = captureCompactSoldier(soldier);
+    const frame = client.predictionFrame, options = frame.options;
+    if (walker) client.savedDroideka = frame.captureBody(soldier, true);
+    else client.saved = frame.captureBody(soldier, false);
     client.predictionBodyPending = true;
+    options.epoch = commandHistory.epoch; options.tick = worldClock.tick;
     client.weapons ||= new PredictionArsenal();
-    client.weapons.begin(playerUnit, { epoch: commandHistory.epoch, tick: worldClock.tick });
-    const fireEdges = [];
-    for (const item of client.host.entityInput.outcomes.values()) fireEdges.push({ ...item.edge, sequence: item.sequence });
-    const crowd = [];
-    for (const unit of units.all()) if (unit !== playerUnit && !unit.seat && !unit.held && unit.soldier && !unit.removed && (unit.alive || unit.dead)) crowd.push(unit);
-    const result = predictionSession.predict(playerUnit, pending, {
-      epoch: commandHistory.epoch, tick: worldClock.tick,
-      held: client.heldGeneration === playerUnit.generation ? client.held : [],
-      view: client.replayView, mouseScale: settings.mouseScale, fireEdges, crowd, checkTick: client.predictedTick,
-      presentedThrough: client.weapons.presentedThrough,
-      cosmeticSlots: game.predictedShots?.slots(commandHistory.epoch, playerUnit) ?? 0,
-    });
+    client.weapons.begin(playerUnit, options);
+    frame.captureEdges(client.host.entityInput.outcomes);
+    frame.captureCrowd(units.all(), playerUnit);
+    options.held = client.heldGeneration === playerUnit.generation ? client.held : frame.empty;
+    options.view = client.replayView; options.mouseScale = settings.mouseScale;
+    options.checkTick = client.predictedTick; options.presentedThrough = client.weapons.presentedThrough;
+    options.cosmeticSlots = game.predictedShots?.slots(commandHistory.epoch, playerUnit) ?? 0;
+    const result = predictionSession.predict(playerUnit, pending, options);
     if (result.checkFound) client.smoother.note(client.predictedPosition.x, client.predictedPosition.y, client.predictedPosition.z,
       result.checkPosition.x, result.checkPosition.y, result.checkPosition.z);
-    predictionSession.present(playerUnit, presentation, (notice, weapon) => {
-      const shot = { weapon, yaw: notice.yaw, pitch: notice.pitch, charge: notice.charge,
-        targetId: notice.target, targetGeneration: notice.targetGeneration, visualGun: notice.visualGun };
-      if (notice.kind) shot[notice.kind === 1 ? 'repair' : notice.kind === 2 ? 'meleeStart' : notice.kind === 3 ? 'meleeHit' : 'meleeEnd'] = true;
-      if (notice.kind === 2) shot.swing = notice.swing;
-      const command = { sequence: notice.sequence || undefined, epoch: commandHistory.epoch, tick: notice.tick };
-      game.predictedShots?.fire({ id: notice.press, held: notice.held, button: notice.button, pressed: true,
-        tick: notice.tick, epoch: commandHistory.epoch, generation: playerUnit.generation,
-        ...combat.convergedAim(soldier.aimYaw, soldier.aimPitch) }, playerUnit, command, shot);
-    });
+    predictionSession.present(playerUnit, presentation, presentPredictedShot);
     client.weapons.presentedThrough = Math.max(client.weapons.presentedThrough, result.tick);
     client.predictedTick = result.tick;
     client.predictedPosition.copy(soldier.position);
@@ -2881,6 +2886,7 @@ async function start() {
     const { LocalTransport } = params.has('network') ? {} : await import('./runtime/local-transport.js');
     client = {
       replayPrediction,
+      predictionFrame: new PredictionFrame(),
       seats: new EntitySeats(game),
       running: false, ready: false, batch: [],
       pendingActions: [], ackActions: 0,
