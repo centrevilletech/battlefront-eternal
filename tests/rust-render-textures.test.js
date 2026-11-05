@@ -21,3 +21,42 @@ test('a lazy image keeps its Rust texture id when its transparent sample is repl
  assert.deepEqual(calls.find(c=>c[0]==='replace_sample_texture'),['replace_sample_texture',id,props.__webglTexture]);
  assert.equal(core.textures.has(oldHandle),false);
 });
+
+test('registering a new HUD sampler cannot detach the frame inputs being written', async()=>{
+ const {Batch}=await import('../src/interface/batch.js');
+ const {BfeRenderer,memory,calls}=standinModule(),{renderer,graphics}=standinThree(calls);
+ const backing=new WebAssembly.Memory({initial:128});memory.buffer=backing.buffer;
+ const core=new RustRender(graphics,{memory},BfeRenderer),batch=new Batch(),texture=new THREE.Texture();
+ batch.begin();batch.quad(new THREE.Matrix4(),0,0,10,10,texture,[0,0,1,1],[1,1,1,1]);batch.end();
+ const add=core.rust.add_texture.bind(core.rust);let grew=false;
+ core.rust.add_texture=(...args)=>{const id=add(...args);if(!grew){backing.grow(1);memory.buffer=backing.buffer;grew=true;}return id;};
+ core.coverHud(renderer,{batch,scene:new THREE.Scene(),camera:new THREE.PerspectiveCamera()});
+ core.views();
+ assert.ok(grew);
+ assert.equal(core.hudInput[0],1,'one group reaches Rust after resource registration grows memory');
+ assert.equal(core.hudInput[46],6,'its six indices survive the refreshed shared view');
+});
+
+test('a post sampler is registered before its shared step record is written',async()=>{
+ const {ownedFullScreenPass}=await import('../src/render-passes.js');
+ const {BfeRenderer,memory,calls}=standinModule(),{renderer,graphics}=standinThree(calls);
+ const backing=new WebAssembly.Memory({initial:128});memory.buffer=backing.buffer;
+ const core=new RustRender(graphics,{memory},BfeRenderer),add=core.rust.add_texture.bind(core.rust);
+ core.rust.add_texture=(...args)=>{const id=add(...args);backing.grow(1);memory.buffer=backing.buffer;return id;};
+ const pass=ownedFullScreenPass('post-hud/copy',{map:{value:new THREE.Texture()}});
+ core.post(renderer,[{pass,target:null,camera:new THREE.OrthographicCamera(-1,1,1,-1,0,1)}]);
+ core.views();assert.equal(core.postInput[2],800);assert.equal(core.postInput[4],1);
+});
+
+test('a screen pass prepares a pending image before taking shared views',async()=>{
+ const {writeScreenStep}=await import('../src/rust-render/screen.js');
+ const {BfeRenderer,memory,calls}=standinModule(),{renderer,graphics}=standinThree(calls);
+ const backing=new WebAssembly.Memory({initial:128});memory.buffer=backing.buffer;
+ const texture=new THREE.Texture();delete renderer.properties.get(texture).__webglTexture;
+ renderer.initTexture=t=>{if(t!==texture)renderer.properties.get(t).__webglTexture={};};
+ const core=new RustRender(graphics,{memory},BfeRenderer),add=core.rust.add_texture.bind(core.rust);
+ core.rust.add_texture=(...args)=>{const id=add(...args);backing.grow(1);memory.buffer=backing.buffer;return id;};
+ const material=new THREE.ShaderMaterial({uniforms:{map:{value:texture}}});
+ assert.equal(writeScreenStep(core,0,{id:0,uniforms:[{name:'map',type:32}]},material,new THREE.Mesh(),new THREE.Camera()),true);
+ core.views();assert.equal(core.postInput[4],1);assert.equal(core.postInput[6],32);
+});

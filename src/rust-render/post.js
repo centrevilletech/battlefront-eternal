@@ -171,8 +171,19 @@ class PostPass {
     const core = this.core;
     if (!steps.length || steps.length > MAX_STEPS) return false;
     for (const step of steps) {
-      if (!step.pass || !ownedProgram(core, step.pass.material.userData.bfeProgram, ATTRIBUTES)) return false;
+      if (!step.pass) return false;
+      const program=ownedProgram(core,step.pass.material.userData.bfeProgram,ATTRIBUTES);
       if (step.target && this.target(step.target) < 0) return false;
+      // Sampler registration may grow memory; complete it before draw() takes
+      // shared views. Values supplied by a later step are registered there too.
+      for(const uniform of program.uniforms){
+        const value=step.values && Object.hasOwn(step.values,uniform.name)?step.values[uniform.name]:step.pass.material.uniforms?.[uniform.name]?.value;
+        if(value?.isTexture){
+          const props=renderer.properties.get(value);
+          if(!value.isRenderTargetTexture && value.version>0 && props.__version!==value.version && value.image)renderer.initTexture(value);
+          core.texture(value);
+        }
+      }
     }
     this.pending = steps;
     this.complete = false;

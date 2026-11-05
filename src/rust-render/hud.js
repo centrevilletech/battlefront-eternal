@@ -44,6 +44,12 @@ class HudPass {
       core.addView("hudInput", Float64Array, () => core.rust.hud_input_ptr(), () => core.rust.hud_input_len());
       this.init = true;
     }
+    // Resource registration can grow WASM memory. Finish it before draw()
+    // takes the shared input/vertex views that it writes for this batch.
+    for(const group of batch.geometry.groups){
+      const material=batch.mesh.material[group.materialIndex];
+      if(material?.visible){this.texture(material.uniforms.map.value);this.texture(material.uniforms.mask.value);}
+    }
     this.pending = hud;
     this.complete = false;
     core.phase("hud", renderer, hud.scene, hud.camera, true);

@@ -64,7 +64,7 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
     if (!value?.isTexture) continue;
     const p = renderer.properties.get(value);
     if (!value.isRenderTargetTexture && value.version > 0 && p.__version !== value.version && value.image) renderer.initTexture(value);
-    if (p.__webglTexture) core.texture(value);
+    core.texture(value);
   }
   views(core);
   const out = core.postInput, o = k * STRIDE;
