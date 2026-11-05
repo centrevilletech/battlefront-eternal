@@ -403,5 +403,39 @@ export const programLayouts = {
     "kind": "Plain",
     "source": "body",
     "lamps": false
+  },
+  "world/canopies": {
+    "attributes": [
+      [
+        "position",
+        0
+      ],
+      [
+        "uv",
+        2
+      ],
+      [
+        "leafCenter",
+        3
+      ],
+      [
+        "leafSize",
+        4
+      ],
+      [
+        "leafShade",
+        5
+      ]
+    ],
+    "uniforms": [
+      {
+        "name": "map",
+        "type": 32
+      }
+    ],
+    "hash": "7177335646199b08892b5fee7146377c0d722f6dd19affb2495585f157ff1f00",
+    "kind": "World",
+    "source": "expanded",
+    "lamps": false
   }
 };

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "programs": [
+    {
+      "key": "world/canopies",
+      "kind": "World",
+      "source": "expanded",
+      "vertex": "canopies.vert",
+      "fragment": "canopies.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "leafCenter": 3,
+        "leafSize": 4,
+        "leafShade": 5
+      },
+      "uniforms": {
+        "map": 32
+      }
+    }
+  ]
+}
