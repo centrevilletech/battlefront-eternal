@@ -199,8 +199,9 @@ class FogPass {
   beforeSort() {
     const core = this.core, fog = this.composite();
     if (!fog) return;
+    if (!core.renderer.properties.get(fog.material).currentProgram) compileFor(core.renderer,[[fog,fog.material]],core.graphics.camera,core.graphics.scene);
     const current = core.renderer.properties.get(fog.material).currentProgram;
-    if (!current || this.made.has(current)) return;
+    if (this.made.has(current)) return;
     const program = screenProgram(core, fog.material);
     if (!program) throw new Error("Missing Rust underwater fog program");
     const geometry = core.geometry(fog.geometry, { id: program.id, attributes: [["position", 0], ["uv", 1]] });
@@ -243,21 +244,17 @@ class FogPass {
   // composite.
   drawComposite(renderer, scene, camera) {
     const core = this.core, fog = this.composite(), water = core.graphics.scene.userData.water;
-    if (!fog || !water) { this.missed++; return; }
+    if (!fog || !water) core.fail(new Error("Missing underwater composite resources"));
     water.captureSurface(renderer, camera);
     const program = screenProgram(core, fog.material), geometry = this.made.get(renderer.properties.get(fog.material).currentProgram);
-    if (!program || !geometry || !writeScreenStep(core, 0, program, fog.material, fog, camera, { geometry })) { this.missed++; return; }
+    if (!program || !geometry || !writeScreenStep(core, 0, program, fog.material, fog, camera, { geometry })) core.fail(new Error("Incomplete underwater composite"));
     core.phase("underwater", renderer, scene, camera, false, null, { steps: 1 });
     this.drawn++;
   }
 
 
 
-  show() {
-    this.pending = null;
-    const fog = this.composite();
-    if (fog) fog.material.visible = true;
-  }
+
 }
 
 export function fogPass(core) {

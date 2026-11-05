@@ -21,9 +21,7 @@ class HudPass {
     this.phase = "hud";
     this.pending = null;
     this.complete = false;
-    // Whether the renderer drew the last frame's batch, and whether its copy
-    // needs every vertex (the first frame, or after three drew one).
-    this.drew = false;
+    // Upload every vertex initially, after restoration, or when batches change.
     this.full = true;
     this.init = false;
     this.viewport = new THREE.Vector4();
@@ -31,15 +29,7 @@ class HudPass {
 
   // BattleHud.render, its batch built: true when the renderer drew it.
   cover(renderer, hud) {
-    const drew = this.drawBatch(renderer, hud);
-    if (!drew) {
-      this.full = true;
-      // Three draws this frame from its own copy, stale while the renderer
-      // drew: all of it goes up.
-      if (this.drew) for (const [name] of ARRAYS) { const a = hud.batch.geometry.attributes[name]; a.clearUpdateRanges(); a.needsUpdate = true; }
-    }
-    this.drew = drew;
-    return drew;
+    return this.drawBatch(renderer, hud);
   }
 
   drawBatch(renderer, hud) {

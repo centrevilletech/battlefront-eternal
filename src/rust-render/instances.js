@@ -477,11 +477,8 @@ class InstancePass {
   }
 
 
-  // What this pass took from three shown to three (on) for a render of
-  // three's own that must still see it (its shadow pass, its motion pass:
-  // index.js reveal), then taken again (off): the bodies', rigs' and guns'
-  // materials, the flying parts' layers. Nothing while the renderer is off
-  // (three has it all already).
+  // Reveal resource objects for the Rust shadow/motion ownership walks,
+  // then hide them from the colour walk again.
   reveal(on) {
 
     for (const record of this.bodyRecords) for (const m of record.used) if (m) m.visible = on;

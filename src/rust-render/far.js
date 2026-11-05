@@ -81,7 +81,6 @@ class FarPass {
     this.core = core;
     this.name = "far";
     this.phase = "far";
-    // For comparisons: false leaves the far scene to three.
     this.items = new Map(); // object -> its items (one a material and program)
     this.all = []; // every item
     this.tables = new Map(); // Rust program -> its uniform table, or null
@@ -114,10 +113,8 @@ class FarPass {
     this.core.addView("farVertices", Float32Array, () => this.core.rust.far_vertices_ptr(), () => this.core.rust.far_vertices_len());
   }
 
-  // The far phase's part: what it hasn't registered yet, then this frame's
-  // input. Complete when every mesh three would draw is an item (one three
-  // culls is drawn by neither); else the renderer draws nothing. An error
-  // leaves the far scene to three for good.
+  // Register new resources and write the frame inputs. Every visible item
+  // needs a Rust draw; incomplete coverage fails the battle.
   draw(ctx) {
     this.frame(ctx);
   }
