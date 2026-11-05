@@ -32,7 +32,6 @@ pub mod firing;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "module/f2/firing.rs"]
 mod firing_phase;
-#[cfg(target_arch = "wasm32")]
 pub mod hover;
 pub mod hull;
 #[path = "module/f2/seats.rs"]
