@@ -794,13 +794,13 @@ mod tests {
     }
 }
 
-/// Classic has no per-voice lowpass; headphones may retain native panners.
+/// Classic has no per-voice lowpass; select it for isolated voice fixtures.
 #[no_mangle]
 pub extern "C" fn mixer_filtered(h: u32, filtered: u32) {
     if let Some(e) = &mut state().engines[h as usize] { e.filtered = filtered != 0; }
 }
 
-/// Render the voice slots without spatial mixing, for native HRTF panners.
+/// Render isolated voice slots before the Rust placement and HRTF phase.
 #[no_mangle]
 pub extern "C" fn mixer_voices(h: u32) {
     let s = state();

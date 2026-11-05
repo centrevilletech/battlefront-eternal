@@ -4,7 +4,6 @@ function instantiateDsp(module) {
   if (!(module instanceof WebAssembly.Module)) throw new Error("audio: the Rust DSP module is missing");
   try { return new WebAssembly.Instance(module).exports; }
   catch (error) { throw new Error(`audio: the Rust DSP could not start: ${error.message}`); }
-  return x;
 }
 function views(x, pointer, count) {
   return Array.from({ length: count }, (_, i) => new Float32Array(x.memory.buffer, pointer + i * 512, 128));
