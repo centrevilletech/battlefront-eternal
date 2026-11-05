@@ -265,10 +265,22 @@ export async function checkRenderer(backend, manifests) {
     motionVectors.release(proxy); motionTarget.dispose();
     // Water's far copies and transparent surface have their own programs,
     // checked after the other fixture's independent comparisons.
-    const water = new Water({ data: { height:-2,cell:12,offset:[6,6],grid:1,cells:[[0,0]],look:{PatchDivisions:[2]} }, texture: () => null, graphics: g });
+    const water = new Water({ data: { height:-2,cell:12,offset:[6,6],grid:2,cells:[[0,0]],look:{PatchDivisions:[2]} }, texture: () => null, graphics: g });
     g.scene.userData.water = water;
     water.update(0,g.camera);
     compare('water surface');
+    const cameraAt=g.camera.position.clone(),cameraRotation=g.camera.quaternion.clone();
+    const basin=water.cellBounds[0].getCenter(new THREE.Vector3());
+    settings.set('waterQuality','high');
+    g.camera.position.set(basin.x,water.level-1,basin.z);
+    g.camera.lookAt(basin.x+1,water.level-1,basin.z);g.camera.updateMatrixWorld(true);
+    water.update(0,g.camera);water.reflect(g.camera);
+    const fogDraws=g.rust.byName.fog.drawn;
+    compare('High underwater composite');
+    assert('High underwater fog issues a Rust composite',g.rust.byName.fog.drawn>fogDraws);
+    settings.set('waterQuality','low');
+    g.camera.position.copy(cameraAt);g.camera.quaternion.copy(cameraRotation);g.camera.updateMatrixWorld(true);water.update(0,g.camera);water.reflect(g.camera);
+
     const pendingId=g.rust.texture(pendingImage);
     pendingImage.needsUpdate=true;
     const uploaded=capture();
@@ -350,7 +362,7 @@ export async function checkRenderer(backend, manifests) {
     assert('Every compiled program links', links.length > 0 && links.every(Boolean), { count: links.length });
     return { ok: results.every(r => r.ok), backend, fallback, multiDraws, renderer, results, shaderFamilies, compiledShaders, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };
   } catch (error) {
-    const stopped=g.rust.byName.near.stopped;
+    const stopped=g.rust ? g.rust.byName.near.stopped : null;
     throw new Error(`${error.stack}\nCause: ${error.cause?.stack || "none"}\nStopped: ${JSON.stringify(stopped && {name:stopped.name,material:stopped.material?.name,uniforms:Object.keys(stopped.material?.uniforms||{}),background:stopped===g.background,layer:stopped.layers.mask})}`);
   } finally {
     proto.getExtension = getExtension;

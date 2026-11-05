@@ -20,7 +20,8 @@ variant list is hardcoded. Reports include each variant's compile/link result,
 shader/link call counts, cache status and elapsed milliseconds, plus compile
 milliseconds per family. Rejected variants are reported by key. CI retains the
 JSON-lines report as `renderer-smoke-<backend>`; local runs can save it with
-`BFE_SMOKE_OUTPUT`.
+`BFE_SMOKE_OUTPUT`. These are registration/driver-wait timings; a new context
+can still reuse the driver's disk shader cache.
 
 Each backend runs with WEBGL_multi_draw, then with that extension hidden to
 exercise repeated Rust draws. The driver process has a twelve-minute limit
