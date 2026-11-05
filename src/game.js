@@ -3586,6 +3586,9 @@ async function start() {
     set presented(fn) { hooks.presented = fn; },
     get tickLookYaw() { return tickLookYaw; },
     get client() { return client; },
+    // Live desktop checks distinguish a held or paused page from a stopped
+    // worker. Read on demand; no diagnostic work runs in the frame or tick.
+    get clockState() { return { driving, paused, frozen, held }; },
     // The death camera, for scripted checks of the death flow: the world's,
     // and the one this page draws.
     get deathView() { return deathView; },
