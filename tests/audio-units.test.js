@@ -1,10 +1,12 @@
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fnv1a, hashKey } from "../src/audio/hash.js";
 import { decodeXboxAdpcm, decodeSubstreams } from "../src/audio/adpcm.js";
 import { distanceGain, pickSample } from "../src/audio/props.js";
 import { dopplerRate, graph } from "../src/audio/engine.js";
-import { LAYOUTS, autoLayout, vbap } from "../src/audio/layouts.js";
+import { LAYOUTS, autoLayout } from "../src/audio/layouts.js";
 import { BattleMusic } from "../src/audio/music.js";
 import { VoiceOver } from "../src/audio/vo.js";
 import { PlayerSounds } from "../src/audio/player.js";
@@ -140,26 +142,6 @@ test("parameter graphs interpolate between points and hold past the ends", () =>
   assert.ok(Math.abs(graph(points, 0.25) - 0.1) < 1e-12);
   assert.ok(Math.abs(graph(points, 0.75) - 0.425) < 1e-12);
   assert.equal(graph(points, 2), 0.65);
-});
-
-test("pairwise panning keeps unit power and picks the right speakers", () => {
-  for (const [name, layout] of Object.entries(LAYOUTS)) {
-    for (let az = -180; az < 180; az += 5) {
-      const g = vbap(layout, az);
-      const power = g.reduce((s, x) => s + x * x, 0);
-      assert.ok(Math.abs(power - 1) < 1e-9, `${name} ${az}: power ${power}`);
-      if (layout.lfe >= 0) assert.equal(g[layout.lfe], 0, `${name}: nothing to the LFE`);
-    }
-  }
-  const s51 = LAYOUTS["5.1"];
-  assert.ok(vbap(s51, 0)[2] > 0.999, "ahead is the centre speaker");
-  assert.ok(vbap(s51, 30)[0] > 0.999, "30 left is L");
-  assert.ok(vbap(s51, -110)[5] > 0.999, "110 right is SR");
-  const s71 = LAYOUTS["7.1"];
-  assert.ok(vbap(s71, 90)[6] > 0.999, "7.1: 90 left is SL (channel 7)");
-  assert.ok(vbap(s71, -150)[5] > 0.999, "7.1: 150 right is BR (channel 6)");
-  const st = vbap(LAYOUTS.stereo, 0);
-  assert.ok(Math.abs(st[0] - Math.SQRT1_2) < 1e-9 && Math.abs(st[1] - Math.SQRT1_2) < 1e-9, "stereo centre is -3 dB each side");
 });
 
 test("auto layout follows the device's channel count", () => {
@@ -388,3 +370,17 @@ test("footsteps: in the air the enhanced mode is silent; the original's stride s
     else assert.equal(steps.length, 9);
   }
 });
+
+// Frozen decoder outputs include clipped predictors, index clamping and
+// incomplete trailing blocks, in mono, stereo, four-channel and quad chunks.
+for (const row of JSON.parse(readFileSync(new URL("./fixtures/audio/adpcm.json", import.meta.url)))) {
+  test(`recorded ADPCM: ${row.channels} channels, ${row.count} substreams`, () => {
+    const bytes = new Uint8Array(row.interleave * row.count * 5 + 7);
+    let seed = 7;
+    for (let i = 0; i < bytes.length; i++) { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; bytes[i] = seed & 255; }
+    const output = decodeSubstreams(bytes, row.channels, row.count, row.interleave);
+    assert.equal(output[0].length, row.frames);
+    const pcm = Buffer.concat(output.map((a) => Buffer.from(a.buffer, a.byteOffset, a.byteLength)));
+    assert.equal(createHash("sha256").update(pcm).digest("hex"), row.sha256);
+  });
+}

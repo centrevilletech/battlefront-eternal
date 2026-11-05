@@ -8,6 +8,6 @@ self.onmessage = (event) => {
     const out = decodeSubstreams(new Uint8Array(bytes), channels, substreams, interleave);
     self.postMessage({ id, channels: out }, out.map((c) => c.buffer));
   } catch (error) {
-    self.postMessage({ id, error: String(error) });
+    self.postMessage({ id, error: String(error), fatal: !!error.audioModule });
   }
 };
