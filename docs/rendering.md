@@ -4,10 +4,13 @@ The original gamma-space lighting, texture palette, baked lighting, near/far
 scene dissolve, map blur, and HUD ordering are preserved. Bloom, FXAA, and soft
 particle intersections are optional additions.
 
-The Rust battle renderer is enabled by default and shares Three.js's WebGL2
-context. Three.js draws unsupported items and takes over after a renderer
-failure. Launch with `?rustOff` to skip the Rust renderer and its WebAssembly
-entirely. WebGL2 is still required.
+Rust is the required battle drawer on the shared WebGL2 context. Three.js
+still provides shader compilation, textures, targets and scene objects, but
+cannot submit battle draws. The runtime draw guard rejects accidental three.js
+render calls; only the explicitly listed menu, spawn-screen and scoreboard
+preview scenes retain their interface renderer. Module or shader-link failure
+stops the battle with the GPU name and error. Context loss suspends drawing;
+restoration rebuilds Rust's GPU resources and resumes the same battle.
 
 ## Findings and fixes
 
@@ -379,8 +382,8 @@ individual sprays do not add shadow draws. The native foliage textures remain
 the source-detail limit, and headless validation is not a hardware FPS claim.
 
 Checks: `node tests/foliage.mjs`, `node --test tests/tree-canopies.mjs`,
-`python3 tests/test_foliage_export.py`, and the frozen-build renderer corpus
-(`tools/renderer-corpus.mjs`). GPU pixel checks verify a glow behind
+`python3 tests/test_foliage_export.py`, and `node tests/foliage-browser.mjs`
+(with `PLAYWRIGHT_MODULE` when needed). GPU pixel checks verify a glow behind
 leaves is occluded, a glow in front remains visible, and transparent leaf holes
 remain open. Canopy checks cover footprint containment, the draw budget,
 Original/Enhanced switching, retained unmatched cards, and reculling after
@@ -469,8 +472,8 @@ Classic ocean surface) was fogged to the fog's black.
   east view, up to about 20 of green and blue on Kashyyyk: Docks' shallow sea
   (the near pass refracts the bed through thin water and adds its screen-space
   reflections; the far copy takes the deep colour and the planar mirror).
-  None at Low; on Kashyyyk: Islands, none to speak of at Ultra. The fountains'
-  mirrors (`fountain-water.js`) still tilt the sky away the same way. The game
+  None at Low; on Kashyyyk: Islands, none to speak of at Ultra. Fountain basins
+  use screen-space and analytic reflection; their unused planar mirror is removed. The game
   also fogs the water's reflection in `SkyInfo`'s 0x91e9c28b colour on maps
   whose far scene stops short of the near scene; the port doesn't.
 - **Enhanced ocean:** the storm ocean (`ocean-storm.js`, `storm-sky.js`)
@@ -513,7 +516,7 @@ work while walking or spinning the camera without changing vertex output.
 
 Checks: `node --test tests/animation-continuity.test.js tests/view-motion.test.js
 tests/camera.test.js tests/soldier-presentation.test.js
-tests/movement-continuity.test.js tests/foliage-import.test.js`.
+tests/movement-continuity.test.js tests/rust-render-frame.test.js`.
 With Vite and local assets, `tests/animation-browser.mjs` and
 `tests/movement-browser.mjs` exercise the integrated game. The latter checks
 60 Hz physics with 60/120/144 Hz presentation and both views on Theed/Bespin
@@ -780,7 +783,7 @@ in a worker instead (runtime-architecture.md).
 Checks: `node --test tests/*.test.js` (510), `tests/rendering.mjs` (138),
 `tests/environment-render.mjs`,
 `ocean-storm-browser`, `rain-enhanced-browser`, `weather-browser`,
-`visual-assets`, `bolt-render`, `effects-gpu-browser`, `renderer-corpus`,
+`visual-assets`, `bolt-render`, `effects-gpu-browser`, `foliage-browser`,
 `runtime-cadence-browser`, `runtime-profiler-browser`, `theed-camera-browser`,
 `droideka-shield-render`, `jetpack-volume-render`, `vehicles-browser`,
 `vehicle-motion-render`, `tauntaun-browser`. Updated expectations: static culling
@@ -1214,3 +1217,9 @@ sixteen RGBA fetches and unpacks per cascade, now four comparison fetches on
 open ground and the exact sixteen only on steep walls; the caster side saves
 the map's 300,000 to 450,000 triangles a frame and their depth-only fill, at
 the cost of one depth copy a cascade a frame.
+
+## Renderer initialization errors
+
+Battle preparation requires the Rust renderer module. If fetching or
+initializing it fails, loading stops with the GPU renderer name and the
+original error. This is reported through the game loading error screen.

@@ -24,6 +24,7 @@
 // lies on the near scene's surface), so drawing them before the proxies is
 // three's order.
 import * as THREE from "three";
+import { compileFor } from "./instances.js";
 import { motionUniforms, motionVectors } from "../motion-vectors.js";
 import { plainProgram, writeUniform } from "./post.js";
 
@@ -98,7 +99,6 @@ class MotionPass {
     this.scratch = new Float64Array(EX.FIRST + MAX_EXTRA_UNIFORMS * UNIFORM);
     this.drawn = 0;
     this.left = 0;
-    // Why the last frame was left to three (for the measurement tools).
     this.why = null;
   }
 
@@ -107,30 +107,8 @@ class MotionPass {
     motionVectors.drawer = this;
   }
 
-  // Off (this pass alone): three draws the motion.
-  setActive(on) {
-    this.on = on;
-  }
 
-  restore() {
-    if (motionVectors.drawer === this) motionVectors.drawer = null;
-  }
 
-  // motion-vectors.js: while three draws the view scene's locked mask
-  // itself (a frame left to three), the parts the view pass hides from
-  // three shown to it (on), then hidden again (off). Its program for the
-  // mask is then made on that frame, so the pass can draw the next.
-  showView(on) {
-    const shown = this.shown ??= [];
-    if (on) {
-      for (const record of this.core.byName.view?.records ?? []) {
-        if (record.material.visible === false) { record.material.visible = true; shown.push(record.material); }
-      }
-    } else {
-      for (const material of shown) material.visible = false;
-      shown.length = 0;
-    }
-  }
 
   // motion-vectors.js (render, after prepare): the frame's motion drawn here
   // when every proxy three would draw and every part of the view's mask is
@@ -139,7 +117,12 @@ class MotionPass {
   // view scene to mark fixed (or null) and its camera, the scene's depth.
   cover(renderer, motion, { target, camera, viewScene, view, depth }) {
     const core = this.core;
-    if (!core.enabled || !core.active || core.lost || this.on === false || !core.supported()) return this.decline("off", false);
+    if (core.contextLost) return this.decline("off", false);
+    const fresh = this.fresh ??= [];
+    fresh.length = 0;
+    for (const proxy of motion.proxies) if (!renderer.properties.get(proxy.material).currentProgram) fresh.push([proxy, proxy.material]);
+    for (const extra of motion.extras) if (!renderer.properties.get(extra.material).currentProgram) fresh.push([extra, extra.material]);
+    if (fresh.length) { compileFor(renderer, fresh, camera, motion.scene); core.stale = true; }
     const records = this.records;
     records.length = 0;
     this.skeletons.clear();
@@ -182,8 +165,9 @@ class MotionPass {
     // The view's parts three's override render would list, a part the view
     // pass hides from three among them.
     if (viewScene && !this.lockedParts(viewScene, view, motion.locked, records)) return this.decline(`mask: ${this.maskWhy}`);
+    renderer.initRenderTarget(target);
     const targetTexture = core.renderer.properties.get(target.texture).__webglTexture ? core.texture(target.texture) : -1;
-    const depthTexture = depth && core.renderer.properties.get(depth).__webglTexture ? core.texture(depth) : -1;
+    const depthTexture = depth ? core.texture(depth) : -1;
     if (targetTexture < 0 || depthTexture < 0) return this.decline(targetTexture < 0 ? "target" : "depth");
     // The sky's ships' own motion, first.
     if (!this.extrasOf(motion, camera)) return this.decline(`extra: ${this.extraWhy}`);
@@ -200,9 +184,6 @@ class MotionPass {
     return this.complete;
   }
 
-  // A frame left to three, and why. What the pass registered on the way
-  // (registered: it may have) made GL calls of its own: three's state is
-  // reset before three draws.
   decline(why, registered = true) {
     this.left++;
     this.why = why;
@@ -286,6 +267,11 @@ class MotionPass {
   // program not made by three yet).
   lockedParts(viewScene, view, locked, records) {
     const core = this.core;
+    if (!core.renderer.properties.get(locked).currentProgram) {
+      const fresh = [];
+      viewScene.traverse(object => { if (object.isMesh) fresh.push([object, locked]); });
+      if (fresh.length) { compileFor(core.renderer, fresh, view, viewScene); core.stale = true; }
+    }
     const threeProgram = core.renderer.properties.get(locked).currentProgram;
     this.maskWhy = !threeProgram ? "no program yet" : "program";
     if (!threeProgram || skinned(core.gl, threeProgram)) return false;

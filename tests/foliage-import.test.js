@@ -5,7 +5,7 @@ import { Foliage } from '../src/foliage.js';
 
 function build(gpu, def, instances) {
   return new Foliage(new THREE.Scene(), {classes:{plant:def},instances:instances.map(i=>({class:'plant',...i}))},
-    {gpu,texture:()=>null,nearEnd:()=>100});
+    {gpu,drawer:{select(){}},texture:()=>null,nearEnd:()=>100});
 }
 const matrix = (x=0,y=0,z=-10) => new THREE.Matrix4().makeTranslation(x,y,z).toArray();
 

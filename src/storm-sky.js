@@ -244,7 +244,7 @@ export class StormSky {
    try{
      renderer.shadowMap.autoUpdate=false;renderer.autoClear=false;
      // The Rust renderer draws it where it can (src/rust-render: the skyClouds phase).
-     renderer.setRenderTarget(this.target);if(!this.graphics.rust?.cover('skyClouds',renderer,this.cloudPass,this.passCamera))renderer.render(this.cloudPass,this.passCamera);
+     renderer.setRenderTarget(this.target);this.graphics.rust.cover('skyClouds',renderer,this.cloudPass,this.passCamera);
      this.uniforms.cloudReady.value=1;
    } finally {renderer.setRenderTarget(target);renderer.autoClear=autoClear;renderer.shadowMap.autoUpdate=shadowAuto;}
  }

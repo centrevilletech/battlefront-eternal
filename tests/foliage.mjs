@@ -23,7 +23,7 @@ const data = {
   instances: [{ class: 'tree', matrix: new THREE.Matrix4().makeTranslation(0, 0, -20).toArray() }],
 };
 const scene = new THREE.Scene();
-const foliage = new Foliage(scene, data, { texture: () => texture, nearEnd: () => 220 });
+const foliage = new Foliage(scene, data, { drawer:{select(){}}, texture: () => texture, nearEnd: () => 220 });
 const kind = foliage.kinds.get('tree');
 assert.equal(kind.cards.length, 50);
 for (const leaf of kind.cards) {

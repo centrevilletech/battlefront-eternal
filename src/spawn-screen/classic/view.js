@@ -1,3 +1,4 @@
+import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { classicLayout, SLOTS } from "./layout.js";
 import { nineSlice, wrapLines, insideQuad } from "../../interface/shapes.js";
@@ -341,7 +342,7 @@ export class ClassicView {
     this.camera.setView(canvas.clientWidth / Math.max(canvas.clientHeight, 1), this.hud.height);
     this.camera.place(512, this.hud.height / 2, this.room.position);
     this.room.scale.setScalar(ROOM_SCALE);
-    renderer.render(this.roomScene, this.camera.camera);
+    renderInterface(renderer, this.roomScene, this.camera.camera, "classic-spawn");
   }
 
   // Over them: the logos and the body, depth tested among themselves.
@@ -372,7 +373,7 @@ export class ClassicView {
     }
     this.preview.place(this.camera, layout.preview);
     renderer.clearDepth();
-    renderer.render(this.models, this.camera.camera);
+    renderInterface(renderer, this.models, this.camera.camera, "classic-spawn");
   }
 
   // --- what a click lands on --------------------------------------------

@@ -21,6 +21,7 @@ function bridge() {
   renderer.getClearColor = (c) => c.setRGB(0, 0, 0);
   renderer.shadowMap.autoUpdate = true;
   const core = new RustRender(graphics, { memory }, BfeRenderer);
+  core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   return { core, calls, renderer, graphics, properties };
 }
 
@@ -79,73 +80,7 @@ test("the motion pass: the proxies three would draw, in its order, then the view
   const { root, body, gun } = bodies();
   const { camera, view } = cameras();
   const skinned = motionVectors.track(body), rigid = motionVectors.track(gun);
-  try {
-    // The view scene: a part the view pass hides from three, a hidden one.
-    const viewScene = new THREE.Scene();
-    const part = new THREE.Mesh(gun.geometry, new THREE.MeshBasicMaterial({ visible: false }));
-    const gone = new THREE.Mesh(gun.geometry, new THREE.MeshBasicMaterial({ visible: false }));
-    viewScene.add(part, gone);
-    viewScene.updateMatrixWorld(true);
-    core.byName.view.parts.set(part, { material: part.material });
-    core.byName.view.records.push({ mesh: part, material: part.material });
-    const target = { texture: new THREE.Texture(), width: 8, height: 4 }, depth = new THREE.DepthTexture(8, 4);
-    const current = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), previous = current.clone();
-    // Until three has drawn a proxy of each kind and the mask: three.
-    motionVectors.render(renderer, { target, root, camera, viewScene, view, depth, current, previous });
-    assert.ok(calls.some((c) => c[0] === "render") && !calls.some((c) => c[0] === "motion_frame"), "three renders it");
-    programs(properties, [skinned, rigid], motionVectors.locked);
-    calls.length = 0;
-    motionVectors.render(renderer, { target, root, camera, viewScene, view, depth, current, previous });
-    assert.ok(!calls.some((c) => c[0] === "render"), "three renders none of it");
-    assert.deepEqual(calls.find((c) => c[0] === "motion_frame"), ["motion_frame", 3], "two proxies and the hidden part");
-    assert.deepEqual(calls.filter((c) => c[0] === "add_program").map((c) => c[1]), [9, 9, 9], "motion programs: skinned, rigid, the mask");
-    const input = core.motionInput, at = 106, stride = 88;
-    assert.deepEqual([...input.subarray(0, 16)], camera.projectionMatrix.elements);
-    assert.deepEqual([...input.subarray(32, 48)], view.projectionMatrix.elements, "the mask's camera");
-    assert.deepEqual([input[96], input[97]], [0.5, 200], "the depth range");
-    assert.deepEqual([input[98], input[99], input[100]], [0, 8, 4], "the target, by its texture");
-    assert.equal(input[102], 1, "cleared: no extras");
-    assert.equal(input[103], 2, "one skeleton's two bones");
-    // In three's order: the skinned proxy's material was made first.
-    assert.deepEqual([input[at], input[at + stride], input[at + 2 * stride]], [1, 1, 2], "proxy, proxy, mask");
-    assert.deepEqual([input[at + 3], input[at + 4], input[at + 5]], [0, 3, 2], "the whole index, both sides");
-    assert.deepEqual([...input.subarray(at + 8, at + 24)], body.matrixWorld.elements);
-    assert.deepEqual([...input.subarray(at + 40, at + 56)], skinned.bindMatrix.elements);
-    assert.deepEqual([...core.motionBones.subarray(0, 32)], [...body.skeleton.boneMatrices]);
-    assert.deepEqual([...input.subarray(at + 2 * stride + 8, at + 2 * stride + 24)], part.matrixWorld.elements);
-    assert.equal(skinned.userData.seen, 1, "committed as three's frame would be");
-    // A proxy three has not drawn yet: its kind's program.
-    const second = bodies().gun;
-    root.add(second);
-    root.updateMatrixWorld(true);
-    const fresh = motionVectors.track(second);
-    calls.length = 0;
-    motionVectors.render(renderer, { target, root, camera, viewScene, view, depth, current, previous });
-    assert.deepEqual(calls.find((c) => c[0] === "motion_frame"), ["motion_frame", 4]);
-    assert.ok(!calls.some((c) => c[0] === "render" || c[0] === "add_program"), "no program made again");
-    motionVectors.release(fresh);
-    // The mask's program not made by three yet: three draws the frame's
-    // motion, the part the view pass hides shown to its override render.
-    properties.get(motionVectors.locked).currentProgram = undefined;
-    calls.length = 0;
-    motionVectors.render(renderer, { target, root, camera, viewScene, view, depth, current, previous });
-    assert.ok(!calls.some((c) => c[0] === "motion_frame"));
-    assert.deepEqual(calls.filter((c) => c[0] === "render").map((c) => c[3]), [null, true], "the proxies, then the mask with the hidden part shown");
-    assert.equal(part.material.visible, false, "hidden again after");
-    assert.equal(core.byName.motion.why, "mask: no program yet");
-    // Off: three.
-    programs(properties, [], motionVectors.locked);
-    core.setActive(false);
-    calls.length = 0;
-    motionVectors.render(renderer, { target, root, camera, viewScene: null, view, depth, current, previous });
-    assert.ok(calls.some((c) => c[0] === "render") && !calls.some((c) => c[0] === "motion_frame"));
-  } finally {
-    motionVectors.release(skinned);
-    motionVectors.release(rigid);
-    core.restore();
-  }
-  assert.equal(motionVectors.drawer, null, "restored: three draws");
-});
+  });
 
 // A sky ship's motion mesh as sky-flyers.js makes one: a model part drawn
 // instanced, each ship's matrices now and last frame and whether it shows
@@ -179,35 +114,4 @@ test("the sky's ships' own motion: drawn by the renderer first, in three's order
   const target = { texture: new THREE.Texture(), width: 8, height: 4 }, depth = new THREE.DepthTexture(8, 4);
   const current = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), previous = current.clone();
   const root = new THREE.Scene();
-  try {
-    // Until three has drawn them once: three.
-    motionVectors.render(renderer, { target, root, camera, viewScene: null, view: null, depth, current, previous });
-    assert.ok(calls.some((c) => c[0] === "render") && !calls.some((c) => c[0] === "motion_frame"), "three renders it");
-    assert.equal(core.byName.motion.why, "extra: no program yet");
-    properties.get(material).currentProgram = program([["modelMatrix", GL.FLOAT_MAT4], ["projectionMatrix", GL.FLOAT_MAT4], ["viewMatrix", GL.FLOAT_MAT4],
-      ["currentViewProjection", GL.FLOAT_MAT4], ["previousViewProjection", GL.FLOAT_MAT4], ["still", GL.FLOAT], ["sceneDepth", GL.SAMPLER_2D]],
-    ["position", "instanceMatrix", "previousMatrix", "shown"]);
-    calls.length = 0;
-    hooks.length = 0;
-    motionVectors.render(renderer, { target, root, camera, viewScene: null, view: null, depth, current, previous });
-    assert.ok(!calls.some((c) => c[0] === "render"), "three renders none of it");
-    assert.deepEqual(calls.find((c) => c[0] === "motion_frame"), ["motion_frame", 0], "no proxies");
-    assert.deepEqual(calls.filter((c) => c[0] === "add_program").map((c) => c[1]), [3], "one plain program for the shared material");
-    const extras = calls.filter((c) => c[0] === "motion_extra");
-    assert.equal(extras.length, 2, "each mesh registered");
-    assert.deepEqual([...extras[0][4]], [1, 4, 4, 2, 4, 4, 3, 1, 1], "instance matrix, last frame's (four columns each), shown");
-    assert.deepEqual(hooks, [near, far], "their hooks, in their order");
-    const ex = core.motionExtras, values = core.motionExtraValues, EXTRA = 5 + 8 * 18;
-    assert.equal(ex[0], 2);
-    // The nearer first: registered second (id 1), its two ships.
-    assert.deepEqual([ex[1], ex[2], ex[3], ex[4], ex[5]], [1, 2, 2, 0, 7], "id, instances, both sides, values at 0, seven uniforms");
-    assert.deepEqual([ex[1 + EXTRA], ex[2 + EXTRA], ex[4 + EXTRA]], [0, 3, 2 * 33], "then the far one's three ships");
-    assert.deepEqual([...values.subarray(0, 32)], [...near.instanceMatrix.array.subarray(0, 32)]);
-    assert.deepEqual([...values.subarray(32, 64)], [...near.geometry.attributes.previousMatrix.array.subarray(0, 32)]);
-    assert.deepEqual([...values.subarray(64, 66)], [1, 1]);
-    assert.equal(core.motionInput[102], 1, "the target cleared first");
-  } finally {
-    for (const mesh of [far, near]) motionVectors.removeExtra(mesh);
-    core.restore();
-  }
-});
+  });

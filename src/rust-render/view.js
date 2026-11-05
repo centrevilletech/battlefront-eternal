@@ -1,17 +1,7 @@
-// The view pass (view.rs): the first-person view scene (graphics.viewScene,
-// drawn after a depth clear with graphics.viewCamera): the arms' rig and the
-// weapon in their hand (firstperson.js), each part a rigid mesh written as a
-// record the renderer draws instanced, read with the view camera's frame
-// block (VIEW_FIRST_PERSON). The scene is walked as three's render walks it
-// (visible objects, the camera's layers); a part is registered the first
-// time three has a program for its material, then hidden from three.
-//
-// The phase is drawn in place of three's render of the scene (core.cover):
-// when every object three would draw is a part drawn here (complete), three
-// does not render the scene; otherwise (a muzzle flash, which blends, or
-// anything else not registered) three renders it after, drawing only what
-// is left.
+// Rust owns every first-person draw, including blended sights and muzzle flashes.
+// Three compiles the material programs; view.rs submits the ordered draws.
 import * as THREE from "three";
+import { compileFor, unbuilt } from "./instances.js";
 import { plainProgram, writeUniform } from "./post.js";
 import { blendOf, programForSide, sidesOf, stateOf } from "./transparent.js";
 
@@ -44,7 +34,7 @@ class ViewPass {
     this.core = core;
     this.name = "view";
     this.phase = "view";
-    this.parts = new WeakMap(); // mesh -> its record, or null (three draws it)
+    this.parts = new WeakMap(); // mesh -> its record, or null (unregistered)
     this.records = [];
     // Whether the last phase drew everything three would have of the scene.
     this.complete = false;
@@ -58,8 +48,7 @@ class ViewPass {
   }
 
   draw(ctx) {
-    // Off (this pass alone): three draws the scene.
-    if (this.on === false) return;
+
     this.complete = true;
     this.blends.length = 0;
     this.opaques.length = 0;
@@ -87,7 +76,11 @@ class ViewPass {
 
   part(mesh, ctx, groupOrder) {
     let record = this.parts.get(mesh);
-    if (record === undefined) record = this.registerPart(mesh);
+    if (record === undefined || record && (mesh.material !== record.material || record.version !== mesh.material.version)) {
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      if (unbuilt(this.core.renderer, materials)) compileFor(this.core.renderer, [[mesh, mesh.material]], ctx.camera, ctx.scene);
+      record = this.registerPart(mesh);
+    }
     if (record && mesh.material === record.material) {
       if (record.rigid) {
         record.k = -1;
@@ -95,8 +88,8 @@ class ViewPass {
       }
       else if (record.blended) this.blend(record, groupOrder);
       else this.write(record, ctx);
-    } else if (record) { mesh.material.visible = true; this.complete = false; }
-    else if ([].concat(mesh.material).some((m) => m?.visible)) this.complete = false;
+    } else if (record) this.core.fail(new Error("Cannot register changed view material"));
+    else if ([].concat(mesh.material).some((m) => m?.visible)) { this.complete = false; this.stopped = mesh; }
   }
 
   // A rigid part with a zero material that does not blend (instances.js
@@ -124,8 +117,8 @@ class ViewPass {
       if (geometry !== null && geometry !== undefined && texture >= 0) {
         if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-        record = { mesh, material, program: program.id, geometry, texture, lamps: program.lamps };
-        material.visible = !core.active;
+        record = { version: material.version, mesh, material, program: program.id, geometry, texture, lamps: program.lamps };
+        material.visible = false;
         this.records.push(record);
       }
     }
@@ -151,8 +144,8 @@ class ViewPass {
       const g = core.geometry(geometry, { id: program.id, attributes: program.attributes });
       if (g !== null && g !== undefined) {
         if (!geometry.boundingSphere) geometry.computeBoundingSphere();
-        record = { blended: true, mesh, material, program, geometry: g, blend, state, sides };
-        material.visible = !core.active;
+        record = { version: material.version, blended: true, mesh, material, program, geometry: g, blend, state, sides };
+        material.visible = false;
         this.records.push(record);
       }
     }
@@ -176,9 +169,9 @@ class ViewPass {
     if (geometry === null || geometry === undefined || texture < 0) return null;
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-    const blend = core.rust.inst_add_blend(new Uint32Array(how), state.flags & 3, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
-    const record = { mesh, material, program: programs[programs.length - 1].id, geometry, texture, lamps: programs.some((p) => p.lamps), rigid: true, blend: how, blendId: blend, k: -1 };
-    material.visible = !core.active;
+    const blend = core.rust.inst_add_blend(new Uint32Array(how), state.flags & ~4, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
+    const record = { version: material.version, mesh, material, program: programs[programs.length - 1].id, geometry, texture, lamps: programs.some((p) => p.lamps), rigid: true, blend: how, blendId: blend, k: -1 };
+    material.visible = false;
     this.records.push(record);
     return record;
   }
@@ -271,10 +264,6 @@ class ViewPass {
     at.records++;
   }
 
-  setActive(on) {
-    for (const record of this.records) record.material.visible = !on;
-    this.on = on;
-  }
 
   // Shown to three while one of three's own renders needs them (index.js
   // reveal): the temporal upscaler's motion pass draws the view scene again,
@@ -283,9 +272,6 @@ class ViewPass {
     for (const record of this.records) record.material.visible = on;
   }
 
-  restore() {
-    this.setActive(false);
-  }
 }
 
 export function viewPass(core) {

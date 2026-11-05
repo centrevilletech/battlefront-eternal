@@ -111,6 +111,12 @@ try {
     },{cpu:process.env.BFE_TEST_CPU==='1',electronMode,settings:fixtureSettings});
     page.on('framenavigated',frame=>{if(frame===page.mainFrame())console.log(`client${i} navigation`,frame.url());});
     page.on('pageerror', error => { errors.push(error.message); console.error(`client${i}:`, error.message); });
+    let rendererDiagnostic=false;
+    page.on('console', message => {
+      if(rendererDiagnostic || !message.text().includes('Battle renderer failed'))return;
+      rendererDiagnostic=true;
+      page.evaluate(()=>{const g=__bf.graphics,o=g.rust.byName.near.stopped;return {errors:g.rust.errors,threeCalls:g.renderer.battleThreeCalls,stopped:o&&{name:o.name,type:o.type,material:o.material?.name,materialType:o.material?.type,uniforms:Object.keys(o.material?.uniforms||{}),defines:o.material?.defines,renderOrder:o.renderOrder,parent:o.parent?.name,groups:o.geometry?.groups,drawRange:o.geometry?.drawRange,indexCount:o.geometry?.index?.count,vertexCount:o.geometry?.attributes.position?.count,instances:o.isInstancedMesh?o.count:o.geometry?.instanceCount,layer:o.layers.mask,transparent:o.material?.transparent,parts:!!o.parent?.userData.parts}};}).then(value=>console.log('renderer-failure',i,JSON.stringify(value))).catch(()=>{});
+    });
     // Prepared content folders can lack presentation-only files (enhanced
     // audio, texture variants); their 404s are not gameplay errors.
     page.on('console', message => { if(message.text().startsWith('blackout-failure-cadence'))console.log(message.text()); if (message.type() === 'error' && !(builtApp && /^Failed to load resource: the server responded with a status of 404/.test(message.text()))) { errors.push(message.text()); console.error(`client${i}:`, message.text()); } });
@@ -159,7 +165,21 @@ try {
     await Promise.all(pages.map(page=>page.evaluate(()=>{__bf.graphics.render=()=>{};__bf.graphics.renderer.render=()=>{};})));
     console.log('CPU client functionality mode: scene loaded; GPU warmup/draw disabled, controls/prediction/presentation/server unchanged.');
   }
-  if(process.env.BFE_TEST_FULL_MATCH==='1'){
+  if(process.env.BFE_TEST_RENDERER_ONLY==='1'){
+    assert.notEqual(process.env.BFE_TEST_CPU,'1','renderer gate requires real draws');
+    const {drawnFrame}=await import('./multiplayer-mounted-gate.mjs');
+    for(let i=0;i<pages.length;i++){
+      const page=pages[i];await page.bringToFront();
+      await page.evaluate(()=>{__bf.controls.locked=true;if(__bf.menu.isOpen)__bf.menu.close(true);});
+      await drawnFrame(page,`client-${i}-before-input`);
+      const before=await page.evaluate(()=>({frame:__bf.graphics.frameCount,tick:__bf.worldClock.tick}));
+      await page.keyboard.down('w');await page.mouse.down();
+      try {await drawnFrame(page,`client-${i}-input`);}finally{await page.mouse.up();await page.keyboard.up('w');}
+      const after=await page.evaluate(()=>({frame:__bf.graphics.frameCount,tick:__bf.worldClock.tick}));
+      assert.ok(after.frame>before.frame&&after.tick>before.tick,'multiplayer authority and Rust frames advance together');
+    }
+    assert.deepEqual(errors,[]);
+  } else if(process.env.BFE_TEST_FULL_MATCH==='1'){
     const { theedMatchGate } = await import('./multiplayer-theed-match.mjs');
     await theedMatchGate(pages, info, errors);
     assert.deepEqual(errors, []);

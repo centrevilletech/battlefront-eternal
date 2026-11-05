@@ -8,10 +8,13 @@ import { Batch } from '../src/interface/batch.js';
 import { Water } from '../src/water.js';
 import { Settings } from '../src/settings.js';
 import { zeroMaterial, lighting } from '../src/materials.js';
+import { plainProgram } from '../src/rust-render/post.js';
+import { writeScreenStep } from '../src/rust-render/screen.js';
+import { programLayouts } from '../src/render-programs.js';
 
 // All pixels, meshes and textures here are generated. No game loader runs.
-export async function checkRenderer(backend) {
-  const results = [], draws = {}, links = [], programKinds = new Set();
+export async function checkRenderer(backend, manifests) {
+  const results = [], draws = {}, links = [], shaderFamilies = [], compiledShaders = [], programKinds = new Set(), ownedIds = new Map(), ownedDraws = new Set();
   const assert = (name, ok, detail) => {
     results.push({ name, ok: Boolean(ok), detail });
   };
@@ -36,18 +39,23 @@ export async function checkRenderer(backend) {
     return ext;
   };
   const originals = new Map();
-  for (const name of ['linkProgram', 'drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
+  let compilingKey=null;
+  for (const name of ['compileShader', 'linkProgram', 'drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
     const original = proto[name]; originals.set(name, original);
     proto[name] = function (...args) {
       const result = original.apply(this, args);
-      if (name === 'linkProgram') {
+      if(name==='compileShader'){
+        const ok=this.getShaderParameter(args[0],this.COMPILE_STATUS);
+        compiledShaders.push({key:compilingKey,ok});
+        if(!ok)throw Error(`${compilingKey || 'fixture'}: shader compile: ${this.getShaderInfoLog(args[0])}`);
+      } else if (name === 'linkProgram') {
         const ok = this.getProgramParameter(args[0], this.LINK_STATUS);
         links.push(ok);
-        if (!ok) throw new Error(`Program link: ${this.getProgramInfoLog(args[0])}`);
+        if (!ok) throw new Error(`${compilingKey || "fixture"}: program link: ${this.getProgramInfoLog(args[0])}`);
       } else {
-        draws[name] = (draws[name] ?? 0) + 1;
+        if(name.startsWith('draw')) draws[name] = (draws[name] ?? 0) + 1;
         const error = this.getError();
-        if (error) throw new Error(`${name}: WebGL 0x${error.toString(16)}`);
+        if (error && error !== this.CONTEXT_LOST_WEBGL) throw new Error(`${name}: WebGL 0x${error.toString(16)}`);
       }
       return result;
     };
@@ -56,15 +64,38 @@ export async function checkRenderer(backend) {
   const g = new Graphics(document.body, settings);
   try {
     await g.rustReady;
-    assert('Rust WASM initialized', g.rust?.enabled, g.rust?.errors);
+    assert('Rust WASM initialized', Boolean(g.rust), g.rust.errors);
     const gl = g.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
     const renderer = debug && gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
     assert('Requested ANGLE backend selected', backend === 'warp' ? /Direct3D11/i.test(renderer) && /Microsoft|WARP|Basic Render/i.test(renderer) : backend === 'gl' ? /ANGLE.*OpenGL/i.test(renderer) : /SwiftShader/i.test(renderer), renderer);
+    // Every family is discovered by the launcher from its manifest at runtime.
+    // Register before fixture draws, so the Rust cache is cold for every key.
+    for(const {family,programs} of manifests){
+      const started=performance.now(),variants=[];
+      for(const {key} of programs){
+        const start=performance.now(),linkStart=links.length,shaderStart=compiledShaders.length;compilingKey=key;
+        try {
+          const id=g.rust.rust.add_owned_program(key);
+          const error=gl.getError();if(error)throw Error(`WebGL 0x${error.toString(16)}`);
+          variants.push({key,id,ms:performance.now()-start,accepted:true,shaders:compiledShaders.length-shaderStart,links:links.length-linkStart,cached:links.length===linkStart});
+        } catch(error){variants.push({key,ms:performance.now()-start,accepted:false,error:String(error.message||error)});}
+        finally {compilingKey=null;}
+      }
+      const row={family,compileMs:variants.filter(v=>!v.cached).reduce((sum,v)=>sum+v.ms,0),ms:performance.now()-started,variants};shaderFamilies.push(row);
+      for(const variant of variants)assert(`${variant.key}: compiles and links`,variant.accepted,variant);
+      console.log(`renderer smoke: shader family ${family}: ${variants.length} variants in ${row.ms.toFixed(3)} ms`);
+    }
+    assert('All manifest families were checked',shaderFamilies.length>0);
+    if(shaderFamilies.some(f=>f.variants.some(v=>!v.accepted)))return {ok:false,backend,renderer,results,shaderFamilies,compiledShaders};
+
     const texture = (rgba) => {
       const t = new THREE.DataTexture(new Uint8Array(rgba), 1, 1);
       t.needsUpdate = true; return t;
     };
     const white = texture([200, 150, 90, 255]), normal = texture([128, 128, 255, 100]);
+    // A material can appear before a lazy image has uploaded. Its Rust id
+    // must survive the transition from the transparent sample to real pixels.
+    const pendingImage = new THREE.DataTexture(new Uint8Array([80,130,200,255]),1,1);
     g.setMap({ post: { blur: { enabled: true, blend: .25, downsize: .25 } }, lighting: { sunDirection: [.4, -1, .2], ambient: [70, 70, 70], sunColor: [180, 180, 180] }, distance: { nearScene: [40, 40, 80, 80] } });
     g.camera.position.set(0, 0, 8); g.camera.lookAt(0, 0, 0);
     const geometry = new THREE.PlaneGeometry(1.2, 1.2); geometry.setAttribute('tangent', new THREE.Float32BufferAttribute([1,0,0,1,0,0,1,0,0,1,0,0],3)); geometry.setAttribute('binormal', new THREE.Float32BufferAttribute([0,1,0,0,1,0,0,1,0,0,1,0],3));
@@ -75,6 +106,9 @@ export async function checkRenderer(backend) {
       const mesh = new THREE.Mesh(geometry.clone().translate(i * 1.5 - 1.5, 0, 0), material);
       mesh.matrixAutoUpdate = false; g.scene.add(mesh);
     }
+    const pendingMaterial=zeroMaterial('unlit',{map:pendingImage});pendingMaterial.defines.WORLD_SPACE='';
+    const pendingMesh=new THREE.Mesh(new THREE.PlaneGeometry(.7,.7).translate(-2,2,1),pendingMaterial);
+    pendingMesh.matrixAutoUpdate=false;g.scene.add(pendingMesh);
     const skinGeometry = new THREE.PlaneGeometry(.7, .7);
     skinGeometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(16),4));
     skinGeometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute([1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],4));
@@ -108,8 +142,8 @@ export async function checkRenderer(backend) {
     g.scene.add(ground);
     const particles = new ParticleRenderer(g.scene).batch(white, 'additive');
     particles.begin(); particles.push(-1, 1, .5, 1, .4, .2, 1, .3); particles.end();
-    const batch = new Batch(), hudScene = new THREE.Scene(), hudCamera = new THREE.OrthographicCamera(0,320,240,0,-10,10);
-    batch.begin(); batch.quad(new THREE.Matrix4(), 12, 12, 48, 40, white, [0,0,1,1], [1,1,1,1]); batch.end(); hudScene.add(batch.mesh);
+    const batch = new Batch(), hudScene = new THREE.Scene(), hudCamera = new THREE.OrthographicCamera(0,320,0,240,-10,10);
+    batch.begin(); batch.quad(new THREE.Matrix4(), 12, 12, 48, 40, white, [0,0,1,1], [1,1,1,1]); batch.quad(new THREE.Matrix4(),88,12,120,40,pendingImage,[0,0,1,1],[1,1,1,1]); batch.end(); hudScene.add(batch.mesh);
     const hud = { batch, scene: hudScene, camera: hudCamera };
     g.treeCanopies = new TreeCanopies(g, { texture: 'leaves', instances: [{ matrix: new THREE.Matrix4().makeTranslation(-6,2,-10).elements, bounds: [[-3,-3,-1],[3,3,1]] }] }, () => white);
     const foliageBatch = new FoliageGpuBatch(g.scene, white, [{ x:0,y:0,z:0,width:.4,height:.8,grey:1,part:0,phase:0,rate:1 }], { Alpha: 1 }, true, 1);
@@ -121,11 +155,15 @@ export async function checkRenderer(backend) {
     const phaseDraws = {}, passDraws = Array(15).fill(0);
     // Seed the formerly unpainted unit with a comparison texture. A missing
     // rebind must reject the whole terrain draw, not merely shade it wrong.
-    const poison = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, poison);
+    const makePoison = () => {
+    const texture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT16, 1, 1, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+      return texture;
+    };
+    let poison = makePoison();
     g.renderer.resetState();
     const rust = g.rust.rust;
     g.rust.rust = new Proxy(rust, { get(target, name) {
@@ -133,61 +171,76 @@ export async function checkRenderer(backend) {
       if (typeof fn !== 'function') return fn;
       return (...args) => {
         if (name === 'add_program' || name === 'add_program_lamps') programKinds.add(args[0]);
+        if(name==='post_frame')for(let i=0;i<args[0];i++)ownedDraws.add(g.rust.postInput[i*(5+12*18)]);
+        if(name==='hud_frame')ownedDraws.add(g.rust.hudInput[1]);
         if (name === 'frame') { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, poison); }
         const value = fn.apply(target, args);
+        if(name==='add_owned_program')ownedIds.set(args[0],value);
         if (/frame$|_segment$|near_begin$/.test(name) && value?.length) {
           phaseDraws[name] = (phaseDraws[name] ?? 0) + value[3];
           for (let i = 0; i < passDraws.length; i++) passDraws[i] += value[5+i] ?? 0;
-          const error = gl.getError(); if (error) throw new Error(`${name}: WebGL 0x${error.toString(16)}`);
+          const error = gl.getError(); if (error && error !== this.CONTEXT_LOST_WEBGL) throw new Error(`${name}: WebGL 0x${error.toString(16)}`);
         }
         return value;
       };
     } });
-    let waterDelegated = false;
-    const capture = (on) => {
-      g.rust.setActive(on);
-      if (on && waterDelegated) g.rust.byName.water.setActive(false);
+    g.warmup();
+    const capture = () => {
       g.camera.updateMatrixWorld(true);
-      const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(g.camera.projectionMatrix,g.camera.matrixWorldInverse));
-      if (on && foliage.drawer) foliage.drawer.select(foliage,g.camera);
-      else foliageBatch.update(instances,0,g.camera,new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1),frustum,100);
-
+      if (foliage.drawer) foliage.drawer.select(foliage,g.camera);
       g.render(0);
       g.renderer.setRenderTarget(null); g.renderer.autoClear = false;
-      if (!g.rust.coverHud(g.renderer, hud)) g.renderer.render(hudScene, hudCamera);
+      g.rust.coverHud(g.renderer, hud);
       g.renderer.autoClear = true;
-      if (!g.rust.enabled || g.rust.errors.length) throw new Error(`Rust fallback: ${JSON.stringify(g.rust.errors)}`);
+      if (g.rust.errors.length || g.renderer.battleThreeCalls) throw new Error(`Rust fallback: ${JSON.stringify(g.rust.errors)}`);
       const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
       gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
       const error = gl.getError(); if (error) throw new Error(`Frame: WebGL 0x${error.toString(16)}`);
       return pixels;
     };
     const compare = (name) => {
-      // Warm both owners before comparing, then alternate on one context.
-      for (let i = 0; i < 4; i++) capture(true);
-      for (let i = 0; i < 3; i++) capture(false);
-      const a = capture(false), a2 = capture(false);
-      for (let i = 0; i < 3; i++) capture(true);
-      const b = capture(true), b2 = capture(true);
-      assert(`${name}: stable three frame`, a.every((v,i) => v === a2[i]));
-      assert(`${name}: stable Rust frame`, b.every((v,i) => v === b2[i]));
-      let max = 0, changed = 0, visible = 0;
-      for (let i = 0; i < a.length; i += 4) {
-        let delta = 0;
-        for (let k = 0; k < 3; k++) delta = Math.max(delta, Math.abs(a[i+k] - b[i+k]));
-        max = Math.max(max, delta); if (delta > 2) changed++;
-        if (a[i] > 40 || a[i+1] > 40 || a[i+2] > 90) visible++;
-      }
+      console.log(`renderer smoke: ${name}`);
+      for (let i = 0; i < 4; i++) capture();
+      const a = capture(), b = capture();
+      assert(`${name}: stable Rust frame`, a.every((v,i) => v === b[i]));
+      let visible = 0;
+      for (let i = 0; i < a.length; i += 4) if (a[i] > 40 || a[i+1] > 40 || a[i+2] > 90) visible++;
       assert(`${name}: visible fixture`, visible > 100, { visible });
-      assert(`${name}: three/Rust pixels`, changed === 0, { max, changed, pixels: a.length / 4 });
+      // The HUD uses an unlit one-pixel texture, without post processing.
+      const x = Math.floor(gl.drawingBufferWidth * 30 / 320);
+      const y = Math.floor(gl.drawingBufferHeight * (240 - 25) / 240);
+      const at = 4 * (y * gl.drawingBufferWidth + x);
+      assert(`${name}: generated HUD colour`, [200,150,90].every((v,k) => Math.abs(a[at+k]-v) <= 1), [...a.slice(at,at+4)]);
+      return a;
     };
-    compare('opaque, far, terrain, transparent, view and composite');
+    const baseline=compare('opaque, far, terrain, transparent, view and composite');
     lighting.bump.value = 0; compare('bump switched off'); lighting.bump.value = 1;
-    settings.set('bloom', true); settings.set('softFocus', true); g.setVehicleMotion(.8,.2); compare('bloom, soft focus and speed blur');
-    settings.set('bloom', false); settings.set('softFocus', false); g.setVehicleMotion(0,0); compare('post effects switched off');
+    settings.set('bloom', true); settings.set('softFocus', true); g.setVehicleMotion(.8,.2); const effects=compare('bloom, soft focus and speed blur');
+    assert('Post settings change visible pixels',effects.some((v,i)=>i%4!==3&&v!==baseline[i]));
+    settings.set('bloom', false); settings.set('softFocus', false); g.setVehicleMotion(0,0); const plain=compare('post effects switched off');
+    assert('Disabling post effects reproduces the plain frame',plain.every((v,i)=>v===baseline[i]));
     settings.set('antialiasing','fxaa'); compare('FXAA');
     settings.set('antialiasing','fxaa-fast'); compare('fast FXAA');
     settings.set('antialiasing','off');
+    settings.set('renderScale', .75);
+    settings.set('upscaler','spatial'); compare('spatial upscale');
+    // FXAA forces the explicit bilinear pass rather than the direct composite.
+    settings.set('antialiasing','fxaa');
+    settings.set('upscaler','bilinear'); compare('bilinear upscale with FXAA');
+    settings.set('antialiasing','off');
+    settings.set('upscaler','temporal');
+    assert('Temporal targets supported',g.upscaling==='temporal');
+    const temporalSequence=()=>{
+      g.upscaler.invalidate();g.upscaler.frame=0;g.upscaler.read=0;
+      let pixels;for(let i=0;i<8;i++)pixels=capture();return pixels;
+    };
+    const temporalA=temporalSequence(),temporalB=temporalSequence();
+    assert('Temporal post sequence repeats exactly',temporalA.every((v,i)=>v===temporalB[i]));
+    settings.set('upscaler','off');settings.set('renderScale',1);
+    settings.set('shadows','off');compare('shadows switched off');
+    settings.set('shadows','low');compare('shadows restored');
+    settings.set('lampLighting',true);compare('lamps enabled');
+    settings.set('lampLighting',false);compare('lamps disabled');
     assert('World draws taken by Rust', g.rust.byName.world.count >= 3, g.rust.byName.world.count);
     assert('Unpainted terrain taken by Rust', groundMaterial.visible === false);
     for (const name of ['frame', 'far_frame', 'transparent_frame', 'view_frame', 'post_frame']) assert(`${name} issues Rust programs`, phaseDraws[name] > 0, phaseDraws);
@@ -198,15 +251,14 @@ export async function checkRenderer(backend) {
     const depth = new THREE.DataTexture(depthValues,64,64,THREE.RedFormat,THREE.FloatType); depth.needsUpdate = true;
     const current = new THREE.Matrix4().multiplyMatrices(g.camera.projectionMatrix,g.camera.matrixWorldInverse);
     const previous = current.clone(); previous.elements[12] += .02;
-    const motion = (on) => {
-      g.rust.setActive(on);
+    const motion = () => {
       motionVectors.render(g.renderer,{target:motionTarget,root:g.scene,camera:g.camera,viewScene:g.viewScene,view:g.viewCamera,depth,current,previous});
       const pixels = new Uint16Array(64*64*4); g.renderer.readRenderTargetPixels(motionTarget,0,0,64,64,pixels); return pixels;
     };
-    motion(false); motion(true);
-    const motionThree = motion(false), motionRust = motion(true);
-    assert('Motion proxy writes nonzero velocity', motionThree.some((v,i) => i % 4 === 0 && v !== 0));
-    assert('Motion target matches three', motionThree.every((v,i) => v === motionRust[i]));
+    motion(); motion();
+    const motionFirst = motion(), motionRust = motion();
+    assert('Motion proxy writes nonzero velocity', motionFirst.some((v,i) => i % 4 === 0 && v !== 0));
+    assert('Motion target is stable', motionFirst.every((v,i) => v === motionRust[i]));
     motionVectors.release(proxy); motionTarget.dispose();
     // Water's far copies and transparent surface have their own programs,
     // checked after the other fixture's independent comparisons.
@@ -214,14 +266,89 @@ export async function checkRenderer(backend) {
     g.scene.userData.water = water;
     water.update(0,g.camera);
     compare('water surface');
-    waterDelegated = true;
-    compare('water delegated to three');
-    g.rust.byName.water.setActive(true);
+    const pendingId=g.rust.texture(pendingImage);
+    pendingImage.needsUpdate=true;
+    const uploaded=capture();
+    assert('Lazy image keeps its Rust texture id',g.rust.texture(pendingImage)===pendingId);
+    const sample=(x,y)=>Array.from(uploaded.slice(4*(y*gl.drawingBufferWidth+x),4*(y*gl.drawingBufferWidth+x)+3));
+    const hudPixel=sample(Math.floor(gl.drawingBufferWidth*104/320),Math.floor(gl.drawingBufferHeight*(240-25)/240));
+    assert('HUD sees the uploaded lazy image',[80,130,200].every((v,k)=>Math.abs(hudPixel[k]-v)<=1),hudPixel);
+    const projected=new THREE.Vector3(-2,2,1).project(g.camera);
+    const worldPixel=sample(Math.floor((projected.x+1)*.5*gl.drawingBufferWidth),Math.floor((projected.y+1)*.5*gl.drawingBufferHeight));
+    assert('World binding sees the uploaded lazy image',[80,130,200].every((v,k)=>Math.abs(worldPixel[k]-v)<=1),worldPixel);
+    const tintScene = new THREE.Scene(), tintCamera = new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+    tintScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2), new THREE.ShaderMaterial({
+      uniforms:{color:{value:new THREE.Vector4(.1,.2,.3,.5)}},
+      vertexShader:'void main(){gl_Position=vec4(position,1.0);}',
+      fragmentShader:'uniform vec4 color; void main(){gl_FragColor=color;}',
+      transparent:true,depthTest:false,depthWrite:false,
+    })));
+    tintScene.children[0].frustumCulled=false;
+    g.renderer.compile(tintScene,tintCamera);
+    g.renderer.autoClear=false;
+    g.rust.cover('underwater',g.renderer,tintScene,tintCamera);
+    g.renderer.autoClear=true;
+    // Overlapping partial writes of different lengths must survive restoration.
+    const retainedGeometry=new THREE.PlaneGeometry(2,2);
+    const retainedMaterial=new THREE.ShaderMaterial({
+      vertexShader:'void main(){gl_Position=vec4(position,1.0);}',
+      fragmentShader:'void main(){gl_FragColor=vec4(1.0,.25,.125,1.0);}',
+      depthTest:false,depthWrite:false,
+    });
+    const retainedMesh=new THREE.Mesh(retainedGeometry,retainedMaterial),retainedScene=new THREE.Scene();retainedScene.add(retainedMesh);
+    g.renderer.compile(retainedScene,tintCamera);
+    const retainedProgram=plainProgram(g.rust,retainedMaterial,'position:0');
+    const retainedId=g.rust.geometry(retainedGeometry,{id:retainedProgram.id,attributes:[['position',0]]});
+    const bytes=a=>new Uint8Array(a.buffer,a.byteOffset,a.byteLength);
+    g.rust.rust.geometry_buffer_sub_data(retainedId,0,0,bytes(Float32Array.of(-.7,1,0,.5,1,0)));
+    g.rust.rust.geometry_buffer_sub_data(retainedId,0,0,bytes(Float32Array.of(-.5,1,0)));
+    g.rust.rust.geometry_index_sub_data(retainedId,0,bytes(Uint16Array.of(0,2,1,1,2,3)));
+    g.rust.rust.geometry_index_sub_data(retainedId,0,bytes(Uint16Array.of(0,1,2)));
+    const retainedTarget=new THREE.WebGLRenderTarget(32,32,{depthBuffer:false});
+    const retainedPixels=()=>{
+      g.renderer.setRenderTarget(retainedTarget);g.renderer.clear();
+      const target=g.rust.byName.post.target(retainedTarget);
+      writeScreenStep(g.rust,0,retainedProgram,retainedMaterial,retainedMesh,tintCamera,{target,size:[32,32],geometry:{id:retainedId,count:6}});
+      g.rust.rust.screen_frame(1);g.rust.stale=true;
+      const pixels=new Uint8Array(32*32*4);g.renderer.readRenderTargetPixels(retainedTarget,0,0,32,32,pixels);return pixels;
+    };
+    const retainedBefore=retainedPixels();
+    assert('Partial-update fixture draws visible pixels',retainedBefore.some((v,i)=>i%4===0&&v===255));
+    const beforeLoss = capture();
+    const loss = gl.getExtension('WEBGL_lose_context');
+    if (!loss) throw new Error('Context-loss extension unavailable');
+    const canvas = g.renderer.domElement;
+    console.log("renderer smoke: context loss");
+    const lost = new Promise(resolve => canvas.addEventListener('webglcontextlost', resolve, { once: true }));
+    loss.loseContext();
+    await lost;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const restored = new Promise((resolve,reject) => {
+      const timer=setTimeout(()=>reject(new Error(`Context restore timeout: ${g.rust.failure?.stack || "no renderer error"}`)),30000);
+      canvas.addEventListener("webglcontextrestored",()=>{clearTimeout(timer);resolve();},{once:true});
+    });
+    loss.restoreContext();
+    await restored;
+    {const error=gl.getError();if(error)throw Error(`After restore: GL ${error}`);}
+    poison = makePoison();
+    {const error=gl.getError();if(error)throw Error(`After poison: GL ${error}`);}
+    g.renderer.resetState();
+    for (let i=0;i<4;i++) capture();
+    const afterLoss = capture();
+    assert('Restored Rust frame matches its generated fixture', beforeLoss.every((v,i) => v === afterLoss[i]));
+    const retainedAfter=retainedPixels();
+    assert('Overlapping vertex and index updates survive restoration',retainedBefore.every((v,i)=>v===retainedAfter[i]));
+    retainedTarget.dispose();
+    assert('Battle never invokes three draw', g.renderer.battleThreeCalls === 0);
     assert('Every shader rewrite kind links', [0,1,2,3,4,9].every(k => programKinds.has(k)), [...programKinds]);
     assert('All Rust passes draw', passDraws.every(n => n > 0), { names: ['world','instances','far','terrain','transparent','effects','foliage','view','post','hud','water','shadow','motion','canopies','screen'], counts: passDraws });
     assert('Multi-draw path exercised', fallback ? multiDraws === 0 : multiDraws > 0, { fallback, multiDraws });
+    assert('Every declared Rust post and HUD program draws',Object.keys(programLayouts).filter(key=>key.startsWith('post-hud/')).every(key=>ownedIds.has(key)&&ownedDraws.has(ownedIds.get(key))), {registered:[...ownedIds.keys()],drawn:[...ownedDraws]});
     assert('Every compiled program links', links.length > 0 && links.every(Boolean), { count: links.length });
-    return { ok: results.every(r => r.ok), backend, fallback, multiDraws, renderer, results, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };
+    return { ok: results.every(r => r.ok), backend, fallback, multiDraws, renderer, results, shaderFamilies, compiledShaders, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };
+  } catch (error) {
+    const stopped=g.rust.byName.near.stopped;
+    throw new Error(`${error.stack}\nCause: ${error.cause?.stack || "none"}\nStopped: ${JSON.stringify(stopped && {name:stopped.name,material:stopped.material?.name,uniforms:Object.keys(stopped.material?.uniforms||{}),background:stopped===g.background,layer:stopped.layers.mask})}`);
   } finally {
     proto.getExtension = getExtension;
     for (const [name, original] of originals) proto[name] = original;

@@ -32,7 +32,21 @@ export function writeSettings(settings) {
   if (process.env.BFE_SETTINGS_FILE) fs.writeFileSync(process.env.BFE_SETTINGS_FILE, JSON.stringify({ complete: true, values: settings }));
 }
 
-const SEED_SRC = `let seed = 0x9e3779b9; Math.random = () => { seed = (seed + 0x6d2b79f5) | 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };`;
+// Object UUID allocation changes when dead render helpers are deleted. Keep
+// that stream and audio scheduling separate from procedural visual randomness, in both
+// the page and its workers. Capture builds retain names (minify: false).
+export const SEED_SRC = `let seed = 0x9e3779b9, uuidSeed = 0x12345678, audioSeed = 0x6a09e667;
+  globalThis.__gateRandom = {uuidCalls:0,audioCalls:0,valueCalls:0};
+  Math.random = () => {
+    const stack = new Error().stack;
+    const uuid = stack.includes('at generateUUID ');
+    const audio = /(?:AudioEngine|AudioPanel|Voice|LayeredHandle|ParameterizedHandle)[0-9]*[ .]|at (?:pickSample|rollGain|rollPitch|gate)[0-9]*[ (]/.test(stack);
+    if(uuid)__gateRandom.uuidCalls++;else if(audio)__gateRandom.audioCalls++;else __gateRandom.valueCalls++;
+    let t = uuid ? (uuidSeed = (uuidSeed + 0x6d2b79f5) | 0) : audio ? (audioSeed = (audioSeed + 0x6d2b79f5) | 0) : (seed = (seed + 0x6d2b79f5) | 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };`;
+
 
 // Context loss, seen from the first line of the page: a capture listener on window gets the
 // canvas's (non-bubbling) events. Counts and times (ms since navigation).
@@ -44,7 +58,7 @@ export const CONTEXT_SRC = `window.__gateGl = { lost: 0, restored: 0, events: []
 // own flag, and the bridge's (RustRender.lost on builds that have it).
 export const GL_STATE = `(() => { const b = __bf, g = b.graphics, gl = b.renderer.getContext(), G = window.__gateGl || null;
   return { lostEvents: G ? G.lost : null, restoredEvents: G ? G.restored : null, events: G ? G.events.slice(0, 8) : null,
-    contextLost: gl.isContextLost(), rustLost: g.rust ? (g.rust.lost ?? null) : null, rustEnabled: g.rust ? g.rust.enabled : null }; })()`;
+    contextLost: gl.isContextLost(), rustLost: g.rust ? (g.rust.contextLost ?? g.rust.lost ?? false) : null }; })()`;
 
 // Xvfb is EMU_SCREEN, but the Electron window opens smaller. Pixel parity needs the
 // window to fill that screen. Fullscreen is the window state that matches it.
@@ -58,6 +72,18 @@ export async function fitWindow(c) {
     await c.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'fullscreen' } });
   } catch (e) { /* Electron's CDP has no Browser.getWindowForTarget; the metrics override below sizes the page */ }
 }
+
+// Stop the worker at the same authority tick before cosmetic warmup. Its
+// initial start acknowledgement can otherwise race one tick between sessions.
+export const LOCKSTEP_START_SRC = `async b => {
+  const host=b.client.host, target=60;
+  const start=await host.call('lockstep');
+  if(start.tick>target)throw Error('Worker ran past the capture start tick');
+  host.drainEntities();
+  while(b.worldClock.tick<target){await host.call('advance',{ticks:1});host.drainEntities();}
+  await b.lockstep(0,false);
+  return target;
+}`;
 
 export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2', warm = Number(process.env.WARM || 12), extraSrc = '', query } = {}) {
   writeSettings(settings);
@@ -102,11 +128,12 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
     catch (e) { console.log('metrics override failed', e.message); }
   }
   if (!process.env.WINDOWED) { await fitWindow(c); await c.psend('Runtime.evaluate', { expression: 'document.fullscreenElement || document.documentElement.requestFullscreen().catch(e => String(e))', userGesture: true, awaitPromise: true }); }
-  const load = await c.ev(`(async () => { const b = __bf; b.pause(); await Promise.race([b.ready, new Promise(r => setTimeout(r, 180000))]); const prepareStart=performance.now(); await b.loaded?.(); const prepareMs=performance.now()-prepareStart; const initialTick=await b.lockstep(0,false); b.begin?.(); b.pause(); b.controls.locked = true; b.controls.enabled = true;
-    for (let i = initialTick; i < ${warm} * 60; i++) await b.lockstep(1 / 60, false);
+  const load = await c.ev(`(async () => { const b = __bf; await Promise.race([b.ready, new Promise(r => setTimeout(r, 180000))]); const prepareStart=performance.now(); await b.loaded?.(); const prepareMs=performance.now()-prepareStart; b.begin?.(); b.pause(); b.controls.locked = true; b.controls.enabled = true;
+    const startTick=await (${LOCKSTEP_START_SRC})(b);
+    for (let i = 0; i < ${warm} * 60; i++) await b.lockstep(1 / 60, false);
     for (let i = 0; i < ${drawn}; i++) await b.lockstep(1 / 60, true);
     const u = b.playerUnit;
-    return { prepareMs, initialTick, size: [innerWidth, innerHeight], spawned: !!(u && u.alive), unit: u ? (u.className || u.name || null) : null }; })()`);
+    return { prepareMs, startTick, size: [innerWidth, innerHeight], spawned: !!(u && u.alive), unit: u ? (u.className || u.name || null) : null }; })()`);
   return { ...load, seconds: (Date.now() - t0) / 1000, workers: workers.length };
 }
 

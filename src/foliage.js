@@ -185,7 +185,7 @@ function buildLeaves(def) {
 export class Foliage {
   // data: map.json's foliage; texture(name) a texture; nearEnd() the near
   // scene's far end (leaves are drawn that far).
-  constructor(scene, data, { texture, nearEnd }) {
+  constructor(scene, data, { texture, nearEnd, drawer }) {
     this.nearEnd = nearEnd;
     this.kinds = new Map();
     this.time = 0;
@@ -235,7 +235,7 @@ export class Foliage {
       });
     }
     // The Rust near phase installs the drawer during loading preparation.
-    this.drawer = null;
+    this.drawer = drawer;
     scene.userData.foliage = this;
   }
 
@@ -244,7 +244,7 @@ export class Foliage {
     camera.updateMatrixWorld();
     // The near phase installs the Rust drawer during loading preparation.
     // Until then there are no foliage draws or browser selection uploads.
-    if (this.drawer) this.drawer.select(this, camera);
+    this.drawer.select(this, camera);
   }
 
 }

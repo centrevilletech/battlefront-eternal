@@ -7,15 +7,30 @@ use wasm_bindgen::prelude::*;
 impl BfeRenderer {
     // bounds: sphere centre and radius, then box min and max (world space).
     pub fn add_world(&mut self, geometry: u32, program: u32, order: u32, flags: u32, bounds: &[f64]) -> u32 {
-        self.r.world.add_world(geometry, program, order, flags, bounds)
+        self.remember_add_world(geometry, program, order, flags, bounds); // recovery
+ self.r.world.add_world(geometry, program, order, flags, bounds)
     }
-    pub fn world_texture(&mut self, w: u32, unit: u32, texture: u32) { self.r.world.world_texture(&self.r.core, w, unit, texture) }
-    pub fn world_uniform(&mut self, w: u32, name: &str, values: &[f32], int: bool) -> bool { self.r.world.world_uniform(&self.r.core, w, name, values, int) }
-    pub fn world_cells(&mut self, w: u32, positions: &[f32], index: &[u32], cell_size: f64) { self.r.world.world_cells(w, positions, index, cell_size) }
-    pub fn sort(&mut self, by_program: bool) { self.r.world.sort(by_program) }
+    pub fn world_texture(&mut self, w: u32, unit: u32, texture: u32) {
+        self.remember_world_texture(w, unit, texture); // recovery
+ self.r.world.world_texture(&self.r.core, w, unit, texture) }
+    pub fn world_uniform(&mut self, w: u32, name: &str, values: &[f32], int: bool) -> bool {
+        self.remember_world_uniform(w, name, values, int); // recovery
+ self.r.world.world_uniform(&self.r.core, w, name, values, int) }
+    pub fn world_cells(&mut self, w: u32, positions: &[f32], index: &[u32], cell_size: f64) {
+        self.remember_world_cells(w, positions, index, cell_size); // recovery
+ self.r.world.world_cells(w, positions, index, cell_size) }
+    pub fn sort(&mut self, by_program: bool) {
+        self.remember_sort(by_program); // recovery
+ self.r.world.sort(by_program) }
     // Cells given whole: [first index, end] and a box [min, max] each.
-    pub fn world_runs(&mut self, w: u32, ranges: &[u32], boxes: &[f64]) { self.r.world.world_runs(w, ranges, boxes) }
-    pub fn world_shown(&mut self, w: u32, shown: bool) { self.r.world.world_shown(w, shown) }
+    pub fn world_runs(&mut self, w: u32, ranges: &[u32], boxes: &[f64]) {
+        self.remember_world_runs(w, ranges, boxes); // recovery
+ self.r.world.world_runs(w, ranges, boxes) }
+    pub fn world_shown(&mut self, w: u32, shown: bool) {
+        self.remember_world_shown(w, shown); // recovery
+ self.r.world.world_shown(w, shown) }
     // A DYNAMIC bucket's lamps this frame: 4 lamp table indices (-1: none), count.
-    pub fn world_lamps(&mut self, w: u32, values: &[f32]) { self.r.world.world_lamps(&self.r.core, w, values) }
+    pub fn world_lamps(&mut self, w: u32, values: &[f32]) {
+        self.remember_world_lamps(w, values); // recovery
+ self.r.world.world_lamps(&self.r.core, w, values) }
 }

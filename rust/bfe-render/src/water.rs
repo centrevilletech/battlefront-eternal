@@ -102,6 +102,17 @@ pub struct WaterPass<C: HasContext> {
 }
 
 impl<C: HasContext> WaterPass<C> {
+    // A restored context has fresh buffers but the CPU mirrors are current.
+    pub fn reupload<M: MultiDraw>(&self, core: &mut Core<C, M>) {
+        for (k, data) in [&self.rings_position, &self.rings_uv, &self.rings_alpha].iter().enumerate() {
+            if let Some(buffer) = self.ring_buffers.get(k) { unsafe {
+                core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buffer));
+                core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(data));
+            }}
+        }
+        unsafe { core.gl.bind_buffer(glow::ARRAY_BUFFER, None); }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> WaterPass<C> {
         WaterPass {
             surfaces: vec![], input: vec![0.0; INPUT_LEN], rings_position: vec![], rings_uv: vec![], rings_alpha: vec![], ring_buffers: vec![],

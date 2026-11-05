@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { lighting } from './materials.js';
-import { particleDepth } from './particle-depth.js';
 import { drawFramebuffer } from './render-targets.js';
 import { JET_APEX, TIER } from './fountain-jets.js';
 
@@ -164,20 +163,18 @@ void main(){
 // FountainWater (a renderer that draws them itself finds them here).
 export const fountainWaters = new WeakMap();
 
-// One shared, capped mirror for nearly coplanar basins, refreshed at 20 Hz.
+// Basin water uses the opaque scene copy and analytic sky/plume reflection.
 // No shadow updates, per-basin scene renders, or synchronous GL queries.
 export class FountainWater {
   // tier: Theed's two-tier basins (TIER, fountain-jets.js), whose inner tier
   // Enhanced fills to its lip; the stock basin mesh is one flat disc.
   constructor(graphics,basins,wakes,foamMap=null,tier=null) {
-    this.graphics=graphics;this.basins=basins;this.time=0;this.lastReflection=-100;this.enabled=false;
-    this.target=new THREE.WebGLRenderTarget(256,256);this.farTarget=new THREE.WebGLRenderTarget(256,256);
+    this.graphics=graphics;this.basins=basins;this.time=0;this.enabled=false;
     this.surface=new THREE.WebGLRenderTarget(1,1,{depthTexture:new THREE.DepthTexture(1,1,THREE.UnsignedIntType)});
-    this.mirror=new THREE.PerspectiveCamera();this.matrix=new THREE.Matrix4();this.frustum=new THREE.Frustum();
-    this.forward=new THREE.Vector3();this.up=new THREE.Vector3();this.at=new THREE.Vector3();this.skyAt=new THREE.Vector3();
-    this.plane=new THREE.Plane();this.clip=new THREE.Vector4();this.q=new THREE.Vector4();
-    this.clearColor=new THREE.Color();this.resolution=new THREE.Vector2();this.hidden=[];
-    this.reflectionUniforms={reflection:{value:this.target.texture},reflectionMatrix:{value:new THREE.Matrix4()},hasReflection:{value:0}};
+    // The unported shader still declares this sampler; bind a valid empty
+    // texel while its reflection comes from the screen copy and analytic sky.
+    this.emptyReflection=new THREE.DataTexture(new Uint8Array(4),1,1);this.emptyReflection.needsUpdate=true;
+    this.reflectionUniforms={reflection:{value:this.emptyReflection},reflectionMatrix:{value:new THREE.Matrix4()},hasReflection:{value:0}};
     // A bright overcast stand-in for the sky the basins and jets reflect; the
     // full-scene mirror re-render (20 times a second) is no longer drawn.
     this.sky=new THREE.Vector3(.7,.72,.75);
@@ -189,7 +186,6 @@ export class FountainWater {
     this.original=[];
     graphics.scene.traverse(mesh=>{if(mesh.isMesh&&basins.some(b=>b.texture===mesh.name))
       this.original.push({mesh,material:mesh.material,order:mesh.renderOrder,before:mesh.onBeforeRender});});
-    this.spheres=basins.map(b=>new THREE.Sphere(new THREE.Vector3(...b.center),b.radius));
     // The tiers' pools, filled to their lips: 12-sided discs, one draw for all.
     if(tier){
       const position=[],index=[];
@@ -205,7 +201,7 @@ export class FountainWater {
     }
   }
   setEnabled(enabled){
-    if(enabled===this.enabled)return;this.enabled=enabled;this.reflectionUniforms.hasReflection.value=0;this.lastReflection=-100;
+    if(enabled===this.enabled)return;this.enabled=enabled;this.reflectionUniforms.hasReflection.value=0;
     for(const o of this.original){o.mesh.material=enabled?this.material:o.material;o.mesh.renderOrder=enabled?-17:o.order;
       o.mesh.onBeforeRender=enabled?(renderer,scene,camera)=>this.capture(renderer,camera):o.before;
       if(enabled)fountainWaters.set(o.mesh,this);else fountainWaters.delete(o.mesh);}
@@ -223,58 +219,11 @@ export class FountainWater {
     renderer.setRenderTarget(source);this.material.uniforms.waterResolution.value.set(source.width,source.height);
     this.material.uniforms.cameraRange.value.set(camera.near,camera.far);
   }
-  reflect(camera,hide=[]) {
-    this.captured=false;
-    // Sky reflection only: a full-scene mirror render every 50 ms cost a
-    // second scene submission and stuttered the frame near fountains.
-    this.reflectionUniforms.hasReflection.value=0;
-    if(!this.enabled||!this.mirrorEnabled)return;
-    camera.updateMatrixWorld();this.matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);this.frustum.setFromProjectionMatrix(this.matrix);
-    let nearest=null,distance=90*90;
-    for(const sphere of this.spheres){const d=sphere.center.distanceToSquared(camera.position);
-      if(d<distance&&this.frustum.intersectsSphere(sphere)){distance=d;nearest=sphere;}}
-    if(!nearest||camera.position.y<nearest.center.y+.04){this.reflectionUniforms.hasReflection.value=0;return;}
-    if(this.time-this.lastReflection<.05&&this.reflectionUniforms.hasReflection.value)return;
-    const level=nearest.center.y,g=this.graphics,r=g.renderer,m=this.mirror;
-    m.fov=camera.fov;m.aspect=camera.aspect;m.near=camera.near;m.far=g.farCamera.far||camera.far;m.updateProjectionMatrix();
-    m.position.copy(camera.position);m.position.y=2*level-camera.position.y;
-    camera.getWorldDirection(this.forward);this.forward.y*=-1;
-    this.up.set(0,1,0).applyQuaternion(camera.quaternion);this.up.y*=-1;m.up.copy(this.up);
-    m.lookAt(this.at.copy(m.position).add(this.forward));m.updateMatrixWorld();
-    this.plane.set(this.at.set(0,1,0),-level).applyMatrix4(m.matrixWorldInverse);
-    this.clip.set(this.plane.normal.x,this.plane.normal.y,this.plane.normal.z,this.plane.constant);
-    const p=m.projectionMatrix,e=p.elements;
-    this.q.set((Math.sign(this.clip.x)+e[8])/e[0],(Math.sign(this.clip.y)+e[9])/e[5],-1,(1+e[10])/e[14]);
-    const denominator=this.clip.dot(this.q);if(Math.abs(denominator)<1e-6)return;
-    this.clip.multiplyScalar(2/denominator);e[2]=this.clip.x;e[6]=this.clip.y;e[10]=this.clip.z+1;e[14]=this.clip.w;
-    this.reflectionUniforms.reflectionMatrix.value.set(.5,0,0,.5,0,.5,0,.5,0,0,.5,.5,0,0,0,1).multiply(p).multiply(m.matrixWorldInverse);
-    const previous=r.getRenderTarget(),autoClear=r.autoClear,shadows=r.shadowMap.autoUpdate,soft=particleDepth.enabled.value;
-    const background=g.background.material.uniforms.map.value,farMap=lighting.farMap.value,alpha=r.getClearAlpha();
-    r.getClearColor(this.clearColor);this.resolution.copy(lighting.resolution.value);if(g.sky)this.skyAt.copy(g.sky.position);
-    this.hidden.length=0;
-    for(const mesh of [...this.original.map(o=>o.mesh),this.tier,...hide])if(mesh&&mesh.visible){this.hidden.push(mesh);mesh.visible=false;}
-    const reflectionTexture=this.reflectionUniforms.reflection.value;
-    // The plume can appear in its own basin reflection. It must not sample
-    // the texture currently being rendered; use its water/albedo color here.
-    this.reflectionUniforms.reflection.value=null;
-    this.reflectionUniforms.hasReflection.value=0;
-    try{
-      if(g.sky)g.sky.position.copy(m.position);r.autoClear=true;r.shadowMap.autoUpdate=false;particleDepth.enabled.value=0;
-      r.setClearColor(0,0);r.setRenderTarget(this.farTarget);r.render(g.farScene,m);
-      lighting.farMap.value=this.farTarget.texture;g.background.material.uniforms.map.value=this.farTarget.texture;
-      // The near scene's matrices before this mirror draws it (Graphics.updateScene).
-      lighting.resolution.value.set(256,256);g.updateScene?.();r.setRenderTarget(this.target);r.render(g.scene,m);
-      this.reflectionUniforms.hasReflection.value=1;this.lastReflection=this.time;
-    }finally{
-      this.reflectionUniforms.reflection.value=reflectionTexture;
-      for(const mesh of this.hidden)mesh.visible=true;
-      lighting.farMap.value=farMap;lighting.resolution.value.copy(this.resolution);particleDepth.enabled.value=soft;
-      g.background.material.uniforms.map.value=background;r.shadowMap.autoUpdate=shadows;r.autoClear=autoClear;
-      r.setClearColor(this.clearColor,alpha);r.setRenderTarget(previous);if(g.sky)g.sky.position.copy(this.skyAt);
-    }
-  }
+  // Start another frame's opaque copy. Basin reflection uses that copy;
+  // the retired planar-mirror branch had no caller enabling it.
+  reflect() {this.captured=false;this.reflectionUniforms.hasReflection.value=0;}
   // The meshes drawn with the water's material now (the basins' while it is
   // on, the tiers' pools).
   meshes(){return [...(this.enabled?this.original.map((o)=>o.mesh):[]),...(this.tier?[this.tier]:[])];}
-  dispose(){this.setEnabled(false);this.tier?.removeFromParent();this.tier?.geometry.dispose();this.material.dispose();this.target.dispose();this.farTarget.dispose();this.surface.dispose();}
+  dispose(){this.setEnabled(false);this.tier?.removeFromParent();this.tier?.geometry.dispose();this.material.dispose();this.emptyReflection.dispose();this.surface.dispose();}
 }

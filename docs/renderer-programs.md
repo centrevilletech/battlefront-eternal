@@ -63,65 +63,42 @@ own contracts. Version resource/schema changes independently of source keys.
 Caches belong to one GPU context and must be discarded with it. Context lifecycle
 and renderer-wide error policy belong to the renderer lifecycle packet.
 
-# Reusable frozen-build corpus
+# Reusable pixel corpus
 
-Run `node tools/renderer-corpus.mjs --runner EXECUTABLE --against REFERENCE_DIST
---dist CANDIDATE_DIST --out OUTPUT --jobs N`. The runner receives
-`CANDIDATE_DIST CASE_ID OUTPUT REFERENCE_DIST`. For each case it launches fresh
-applications in order: reference, candidate, repeat reference. In each application
-run `node tools/renderer-corpus/capture.mjs` with `BFE_CORPUS_ROLE` set respectively
-to `reference`, `candidate`, `control`. Then run
-`node tools/renderer-corpus/compare.mjs OUTPUT CASE_ID` and return its exit status.
-No query or environment option selects a shader implementation.
+Run `node tools/renderer-corpus.mjs --runner EXECUTABLE --dist DIST --against
+REFERENCE_DIST --out OUTPUT --jobs N`. The runner receives
+`DIST CASE_ID CASE_OUTPUT REFERENCE_DIST`. It must run three separate application
+sessions in that case directory's `reference`, `control` and `candidate`
+subdirectories, invoking `node tools/renderer-corpus/capture.mjs` for each. The
+first two sessions use the frozen reference; the last uses the candidate. Each
+session uses the same immutable case query and settings and must retain draws.
+Build both distributions with `--minify false`. The harness isolates object UUID
+randomness from procedural foliage/effect randomness, so deleting helper objects
+does not change the sampled world. Audio scheduling uses a separate stream too. It fails if that isolation cannot be verified.
+The worker is stopped and advanced to authority tick 60 before cosmetic warmup;
+its initial start acknowledgement can otherwise race by one tick. Captured ticks
+must still match exactly between sessions.
 
-Set `CDP_PORT`, `BFE_CORPUS_CASE`, `OUT`, `BFE_SETTINGS_FILE` for desktop settings,
-and `BFE_GPU_LOG` for the application log. `BFE_CORPUS_RAW` optionally places
-transient buffers on local scratch storage instead of the report directory. `BFE_APP_URL` defaults to the desktop
-app URL. Use Node with built-in fetch and WebSocket. Launch at 1600x900 with draws
-enabled and `WARM=12`, `RENDER_WARM=3`. Freeze both distributions before the run.
-`--cases id,id` is an iteration smoke, not the complete gate. The summary records
-manifest SHA-256, build paths, missing program variants and completeness.
+Set `CDP_PORT`, `BFE_CORPUS_CASE`, `OUT` and `BFE_SETTINGS_FILE` for each session.
+Set `BFE_CANDIDATE=1` only for the candidate, and `BFE_FORCE_RESTORE=1` to exercise
+the context-loss case on it. `BFE_APP_URL` defaults to the desktop application.
+The runner must propagate capture failures. Use Node with built-in fetch and
+WebSocket. No content is distributed with the corpus.
 
-The version 2 manifest has every one of the 17 maps in Classic/Balanced/High,
-requested 2x MSAA, four walking/turning/firing capture points and four history
-frames after two settling frames. Additional cases cover Ultra water on ocean
-and mirror maps, bilinear/spatial scaling and fast FXAA. Actual driver sample
-counts are reported. Deliberate context-loss behavior is covered by the renderer
-lifecycle gate, independently of this shader-source comparison.
+The manifest freezes all 17 maps at Classic/Balanced/High, valid first-person
+player queries, requested 2x MSAA, four walking/turning points and four history
+frames. Supplemental cases cover Ultra water and mirrors, upscaling and context
+restoration. `--cases id,id` is a smoke, not the full matrix. Captures include
+actual ticks, compressed RGBA, context events, material-state census, Rust draw
+counts and the battle draw guard's count. Candidate renderer errors are fatal.
 
-Each run uses seeded page/worker randomness and simulation lockstep. Each point
-records far/scene inputs, temporal velocity/motion/history where enabled, planar
-reflection stages, post output and the final weapon/HUD frame. Half-float stages
-are compared as half-float bits. All comparisons include RGBA. Mismatched ticks,
-layouts, missing mirrors, blank frames, absent Rust draws, context loss, GPU
-process deaths and GL errors invalidate the case. Transient stage buffers are
-deleted after comparison; compact metrics and run metadata remain.
+The page and workers use seeded randomness. Capture-time lamp selection uses a
+fixed advancing clock. Reference/control must be pixel-exact across separate
+sessions; noisy controls fail and must be investigated. Candidate comparisons
+also require exact RGBA pixels, dimensions and ticks. There is no per-count or
+noise-envelope allowance. Raw captures stay outside the repository and should
+be removed after recording results.
 
-The exact shader gate replays recorded reference inputs through each build's
-default Rust API. It records each post step's f64 inputs, sampler texels and
-output, plus HUD vertex mirrors, camera/group inputs and pre-HUD canvas. The
-reference first replays its own capture and must reproduce it exactly; then the
-candidate must reproduce the same outputs exactly. Texture levels and sampler
-parameters are preserved. Depth is sampled losslessly into float texels; the
-reference self-replay checks this representation. Every channel and half-float
-bit must match. This isolates shader behavior from differences between separate
-live battles. Transient payloads are deleted after comparison.
-
-The whole-frame baseline verdict remains separate. Independent launches can
-differ even with matching simulation ticks, so frame exactness must not be
-inferred from shader exactness. The repeat reference provides a
-per-channel, per-pixel amplitude envelope; a difference outside it fails the
-whole-frame baseline. A noisy
-control never grants a blanket pixel budget. Inspect geo1 smoke/flames, bes2
-steam, kam1 rain/lightning and rhn1 dry ice in particular. The corpus visits
-representative states, not every possible effect or camera position.
-
-`BFE_CORPUS_POINTS=1` is a development capture and cannot pass completeness.
-
-The version 1 pre-deletion gate paired the compiled-three and owned programs on
-identical inputs for each step, the whole post chain and HUD. That frozen evidence
-remains an external reference; the runtime twin and switch are deleted. Synthetic
-phase-record goldens and registration tests preserve coverage in CI.
 
 # Compilation and caches
 

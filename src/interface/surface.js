@@ -1,3 +1,4 @@
+import { renderInterface } from "../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { RasterHudAssets } from "../raster-hud.js";
 import { Batch } from "./batch.js";
@@ -98,7 +99,7 @@ export class InterfaceSurface {
     renderer.setRenderTarget(null);
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
-    renderer.render(this.scene, this.camera);
+    renderInterface(renderer, this.scene, this.camera, "interface");
     renderer.autoClear = autoClear;
   }
 }

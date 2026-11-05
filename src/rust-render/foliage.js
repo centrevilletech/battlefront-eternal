@@ -23,7 +23,7 @@ class FoliagePass {
     this.name = "foliage";
     this.phase = "near";
     this.foliage = null;
-    // Foliage kind -> the renderer's class (null: three keeps it).
+    // Foliage kind -> its required Rust class id.
     this.classes = new Map();
     this.selected = 0;
     this.input = false;
@@ -33,15 +33,11 @@ class FoliagePass {
   // its drawer (the classes it registered are drawn in the renderer's call).
   draw(ctx) {
     const foliage = this.core.graphics.scene.userData.foliage;
-    if (!foliage || foliage.drawer === this || this.on === false) return;
+    if (!foliage) return;
+    if (foliage.drawer === this && this.foliage === foliage && this.classes.size === foliage.kinds.size) return;
     if (foliage !== this.foliage) { this.foliage = foliage; this.classes = new Map(); }
     foliage.drawer = this;
     this.selectClasses(foliage, ctx.camera);
-  }
-
-  // Whether the renderer draws a kind (Foliage.update leaves it alone).
-  covers(kind) {
-    return this.classes.get(kind) != null;
   }
 
   // Foliage.update's selection, for every class the renderer draws; a class
@@ -51,6 +47,9 @@ class FoliagePass {
   }
 
   selectClasses(foliage, camera) {
+    if (this.core.contextLost) return;
+    if (foliage !== this.foliage) { this.foliage = foliage; this.classes.clear(); }
+    this.camera = camera;
     for (const kind of foliage.kinds.values()) if (!this.classes.has(kind)) this.registerClass(kind);
     if (!this.classes.size) return;
     const core = this.core;
@@ -69,11 +68,11 @@ class FoliagePass {
   registerClass(kind) {
     const core = this.core, batch = kind.batch, material = batch?.material;
     const geometry = batch?.geometry;
-    if (!geometry?.isInstancedBufferGeometry || !geometry.index) { this.classes.set(kind, null); return; }
+    if (!geometry?.isInstancedBufferGeometry || !geometry.index) throw Error("Invalid foliage geometry");
     const key = "world/foliage-" + (kind.grass ? "grass" : "leaves") + (core.graphics.csm ? "-shadows" : "");
     const program = ownedGeometryProgram(core, key);
     const texture = core.texture(material.map);
-    if (!program || texture < 0) { this.classes.set(kind, null); return; }
+    if (!program || texture < 0) core.fail(new Error("Invalid foliage program or texture"));
     const at = new Map(program.attributes);
     const locations = Int32Array.from([...VERTEX.map(([name]) => at.get(name) ?? -1), ...ROW.map((name) => at.get(name) ?? -1)]);
     // The cards' vertices, interleaved.
@@ -108,16 +107,7 @@ class FoliagePass {
     this.classes.set(kind, id);
   }
 
-  setActive(on) {
 
-    if (this.foliage) this.foliage.drawer = on ? this : null;
-    this.core.rust.foliage_on?.(on);
-    this.on = on;
-  }
-
-  restore() {
-    this.setActive(false);
-  }
 }
 
 export function foliagePass(core) {

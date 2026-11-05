@@ -160,11 +160,9 @@ const KINDS = {
   jets: { attributes: "instanced", base: "rest", static: true, hiddenBy: "material", depth: true,
     values: ["jetTime", "side", "perFountain", "sources", "levels", "lows", "visible", "wind", "hasFoam", "hasDepth", "hasScene", "sceneResolution", "fragScale"],
     samplers: ["atlas", "foamMap", "sceneColor"], copies: "always" },
-  // The steam's volumes (environment-volume.js): boxes ray-marched through a
-  // 3D noise texture, drawn into the volumes' own half-size target (cleared
-  // first) for their composite to lay over the frame, not into the scene
-  // (drawVolumes); neither depth tested nor written, back faces. Without the
-  // pass, the composite's onBeforeRender has three draw them there.
+  jetsSpray: { attributes: "instanced", base: "rest", static: true, hiddenBy: "material", depth: true, into: true,
+    values: ["jetTime", "side", "perFountain", "sources", "levels", "lows", "visible", "wind", "hasFoam", "hasDepth", "hasScene", "sceneResolution", "fragScale"],
+    samplers: ["atlas", "foamMap", "sceneColor"] },
   volume: { attributes: "instanced", base: "rest", values: ["volumeTime", "volumeResolution", "hasDepth", "wakes", "motion", "reflectionMatrix", "hasReflection"],
     samplers: ["noiseField", "reflection"], into: true },
 };
@@ -398,11 +396,11 @@ class EffectsPass {
     this.name = "effects";
     this.phase = "transparent";
     this.records = []; // registered batches
-    this.byBatch = new Map(); // batch -> its record, or null (three draws it)
+    this.byBatch = new Map(); // batch -> its record, or null (unregistered)
     this.owners = new Map(); // GpuEffects -> { id }
     this.meshes = new Map(); // the lightning's material -> its record, or null
     this.shaderMeshes = new Map(); // the death camera's trace -> its record, or null
-    this.glows = new Map(); // a glow model's part -> its record, or null (three draws it)
+    this.glows = new Map(); // a glow model's part -> its record, or null (unregistered)
     this.glowList = []; // the records, in registration order
     // This frame's batches and glow models drawn (kept, not made each frame).
     this.drawn = [];
@@ -417,7 +415,6 @@ class EffectsPass {
     this.batchCount = -1;
     this.waiting = new Map(); // batch -> its registration, until three has drawn it
     this.frame = 0;
-    this.active = true;
     // What the measurement tools read: last frame's draws and instances.
     this.draws = 0;
     this.instances = 0;
@@ -428,9 +425,7 @@ class EffectsPass {
     // Glow models added whose registration waits for their texture (glowsAdded).
     this.glowRetry = new Set();
     this.unrequest = core.graphics?.scene ? particleDepth.requester(core.graphics.scene, (camera) => {
-      // Inside three's render: an error here is kept, not thrown (the draws
-      // not asked for then take the copy as the phase starts).
-      try { this.requestDepth(camera); } catch (error) { core.errors.push(`effects depth request failed: ${String(error?.stack || error).slice(0, 400)}`); }
+      this.requestDepth(camera);
     }) : null;
     core.addView("fxInput", Float64Array, () => core.rust.fx_input_ptr(), () => core.rust.fx_input_len());
     core.addView("fxData", Float32Array, () => core.rust.fx_data_ptr(), () => core.rust.fx_data_len());
@@ -446,9 +441,10 @@ class EffectsPass {
   // once three has drawn it.)
   beforeSort(renderer, scene, camera, target, added) {
     const graphics = this.core.graphics;
-    if (!this.active || this.presortFailed || scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
+    if (scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
     try {
       this.glowsAdded(renderer, scene, camera, added);
+      this.lightning();
       this.batches();
       const fresh = [];
       for (const batch of this.waiting.keys()) {
@@ -463,13 +459,12 @@ class EffectsPass {
       // the frame after their composite was registered (three builds their
       // program here, outside its render).
       for (const record of this.glowList) {
-        if (record.volume !== undefined || !environmentVolumes.has(record.mesh)) continue;
-        const volume = this.registerVolume(environmentVolumes.get(record.mesh), camera);
-        if (volume !== undefined) record.volume = volume;
+        if (record.volume !== undefined) continue;
+        if (environmentVolumes.has(record.mesh)) record.volume = this.registerVolume(environmentVolumes.get(record.mesh), camera);
+        else if (record.mesh.userData.spray && fountainJets.has(record.mesh)) record.volume = this.registerSpray(record.mesh, camera);
       }
     } catch (error) {
-      this.core.errors.push(`effects before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
-      this.presortFailed = true;
+      this.core.fail(error);
     }
   }
 
@@ -510,6 +505,33 @@ class EffectsPass {
     const batch = { mesh, material: mesh.material, geometry: g, get count() { return g.instanceCount; }, capacity: g.getAttribute("origin").count, arrays, external: false };
     const record = this.registerBatch(batch, "volume", null);
     if (record) record.source = volume;
+    return record;
+  }
+
+  // Each fountain spray half is rendered by the same Rust offscreen
+  // batch path as steam, then composited in the transparent order.
+  registerSpray(composite, camera) {
+    const owner = fountainJets.get(composite), mesh = composite.userData.spray;
+    const renderer = this.core.renderer;
+    if (unbuilt(renderer, mesh.material)) compileFor(renderer, [[mesh, mesh.material]], camera, composite.userData.scene);
+    const record = this.registerBatch(instancedOf(mesh), "jetsSpray", null);
+    if (!record) return record;
+    record.source = {
+      target: composite.userData.target,
+      prepare(renderer, scene, camera) {
+        const source = renderer.getRenderTarget();
+        const enabled = source === owner.graphics.sceneTarget && particleDepth.capture(renderer, scene, camera, true);
+        composite.material.uniforms.enabled.value = enabled ? 1 : 0;
+        if (!enabled) return false;
+        const width = Math.max(1, Math.ceil(source.width / 2)), height = Math.max(1, Math.ceil(source.height / 2));
+        this.target.setSize(width, height);
+        owner.sprayResolution.value.set(width, height);
+        owner.fragScale.value.set(source.width / width, source.height / height);
+        owner.prepare(renderer, camera);
+        mesh.material.uniforms.hasDepth.value = 1;
+        return true;
+      },
+    };
     return record;
   }
 
@@ -642,7 +664,7 @@ class EffectsPass {
     const core = this.core, renderer = core.renderer, material = group.userData.material;
     const parts = group.children.filter((o) => o.isMesh && o.material === material);
     const props = renderer.properties.get(material);
-    if (!props.currentProgram || (props.__version !== material.version && !(compiled && props.__version === undefined))) return; // three draws it first
+    if (!props.currentProgram) return; // requires a compiled program
     const fail = (why) => { core.errors.push(`effects glow: ${why}`); for (const mesh of parts) this.glows.set(mesh, null); };
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
@@ -664,7 +686,7 @@ class EffectsPass {
       if (model === undefined) {
         if (!geometry.boundingSphere) geometry.computeBoundingSphere();
         const s = geometry.boundingSphere;
-        model = core.rust.fx_add_model(texture, new Uint32Array(blend), state.flags & 3, state.func, values.map(([name, size]) => `${name}:${size}`).join(","), new Float64Array([s.center.x, s.center.y, s.center.z, s.radius]));
+        model = core.rust.fx_add_model(texture, new Uint32Array(blend), state.flags & ~4, state.func, values.map(([name, size]) => `${name}:${size}`).join(","), new Float64Array([s.center.x, s.center.y, s.center.z, s.radius]));
         sides.forEach((side, i) => core.rust.fx_model_pass(model, programs[i].id, side, geometries[i]));
         this.models.set(key, model);
       }
@@ -674,8 +696,6 @@ class EffectsPass {
     material.visible = false;
   }
 
-  // The near scene's particle renderers' batches, looked over again when
-  // one was added: new ones registered (or left to three).
   batches() {
     const scene = this.core.graphics.scene;
     const renderers = particleRenderers.get(scene) || [], haze = squareBatches.get(scene) || [];
@@ -824,10 +844,12 @@ class EffectsPass {
     if (!material) return null;
     let record = this.meshes.get(material);
     if (record === undefined) {
+      const core=this.core;
+      if (unbuilt(core.renderer,material)) compileFor(core.renderer,[[lightning.mesh,material]],core.graphics.camera,core.graphics.scene);
       record = this.registerMesh(lightning.mesh, material, LIGHTNING);
       if (record !== undefined) this.meshes.set(material, record);
     }
-    lightning.external = Boolean(record);
+    if (!record) this.core.fail(new Error("Unregistered Classic lightning"));
     return record ? { lightning, record } : null;
   }
 
@@ -836,7 +858,7 @@ class EffectsPass {
   registerMesh(mesh, material, attributes) {
     const core = this.core, renderer = core.renderer;
     const props = renderer.properties.get(material);
-    if (!props.currentProgram || props.__version !== material.version) return undefined;
+    if (!props.currentProgram) return undefined;
     const fail = (why) => { core.errors.push(`effects mesh: ${why}`); return null; };
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
@@ -851,7 +873,7 @@ class EffectsPass {
     const texture = map ? core.texture(map) : -1;
     if (map && texture < 0) return undefined;
     const values = BASIC.filter(([name]) => programs.some((p) => p.names.has(name)));
-    const id = core.rust.fx_add_mesh(texture, new Uint32Array(blend), state.flags & 3, state.func, new Uint32Array(attributes.map(([, size]) => size)), values.map(([name, size]) => `${name}:${size}`).join(","));
+    const id = core.rust.fx_add_mesh(texture, new Uint32Array(blend), state.flags & ~4, state.func, new Uint32Array(attributes.map(([, size]) => size)), values.map(([name, size]) => `${name}:${size}`).join(","));
     sides.forEach((side, i) => core.rust.fx_mesh_pass(id, programs[i].id, side, new Uint32Array(locations[i])));
     return { id, mesh, material, map, handle: this.handle(map), values, attributes, from: this.frame };
   }
@@ -867,7 +889,7 @@ class EffectsPass {
   registerShaderMesh(mesh, source = null) {
     const core = this.core, renderer = core.renderer, material = mesh.material, geometry = mesh.geometry;
     const props = renderer.properties.get(material);
-    if (!props.currentProgram || props.__version !== material.version) return undefined;
+    if (!props.currentProgram) return undefined;
     const fail = (why) => { core.errors.push(`effects ${mesh.name}: ${why}`); return null; };
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
@@ -892,7 +914,7 @@ class EffectsPass {
       if (!form || form[1] !== 0) return fail(`value ${name}`);
       values.push([name, form[0]]);
     }
-    const id = core.rust.fx_add_mesh(-1, new Uint32Array(blend), state.flags & 3, state.func, new Uint32Array(attributes.map(([, size]) => size)), values.map(([name, size]) => `${name}:${size}`).join(","));
+    const id = core.rust.fx_add_mesh(-1, new Uint32Array(blend), state.flags & ~4, state.func, new Uint32Array(attributes.map(([, size]) => size)), values.map(([name, size]) => `${name}:${size}`).join(","));
     sides.forEach((side, i) => core.rust.fx_mesh_pass(id, programs[i].id, side, new Uint32Array(locations[i])));
     const record = { id, mesh, material, attributes, values, source, from: this.frame };
     this.hideMesh(record, true);
@@ -930,7 +952,7 @@ class EffectsPass {
   registerShader(mesh, hide = true) {
     const core = this.core, renderer = core.renderer, material = mesh.material, geometry = mesh.geometry;
     const props = renderer.properties.get(material);
-    if (!props.currentProgram || props.__version !== material.version) return; // three draws it first
+    if (!props.currentProgram) return; // requires a compiled program
     const fail = (why) => { core.errors.push(`effects ${mesh.name}: ${why}`); this.glows.set(mesh, null); };
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
@@ -973,7 +995,7 @@ class EffectsPass {
     }
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();
     const s = geometry.boundingSphere, sphere = mesh.frustumCulled ? [s.center.x, s.center.y, s.center.z, s.radius] : [0, 0, 0, -1];
-    const model = core.rust.fx_add_model(texture, new Uint32Array(blend), state.flags & 3, state.func, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","), new Float64Array(sphere));
+    const model = core.rust.fx_add_model(texture, new Uint32Array(blend), state.flags & ~4, state.func, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","), new Float64Array(sphere));
     sides.forEach((side, i) => core.rust.fx_model_pass(model, programs[i].id, side, geometries[i]));
     for (const x of extra) core.rust.fx_model_sampler(model, x.name, x.unit, x.id);
     const record = { mesh, model, material, map, handle: this.handle(map), sampler: textures[0] ?? null, extra, depth: samplers.includes("sceneDepth") && !ownDepth, values, shader: true, from: this.frame,
@@ -1011,7 +1033,7 @@ class EffectsPass {
     const core = this.core, requested = this.requested;
     for (const record of requested) record.requested = false;
     requested.length = 0;
-    if (!this.active || !core.enabled || !core.active) return;
+
     for (const record of this.records) {
       const b = record.batch, mode = copiesOf(record);
       if (!mode || b.count <= 0 || (record.hiddenBy !== "material" && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
@@ -1036,30 +1058,13 @@ class EffectsPass {
     out[at + 2] = center.x; out[at + 3] = center.y; out[at + 4] = center.z; out[at + 5] = object.id;
   }
 
-  // The transparent phase, before the renderer's call: the frame's draws.
-  // An error here gives the effects back to three for good (this frame's
-  // are not drawn) rather than breaking three's render around it.
   draw(ctx) {
-    try {
-      this.drawFrame(ctx);
-    } catch (error) {
-      this.core.errors.push(`effects failed: ${String(error?.stack || error).slice(0, 400)}`);
-      console.warn("Rust effects pass failed, three draws the effects:", error);
-      this.failed = true;
-      try { this.core.views(); this.core.fxInput[IN_DRAWS] = 0; } catch {}
-      try { this.setActive(false); } catch (e) { this.core.errors.push(`effects restore: ${String(e).slice(0, 200)}`); }
-    }
+    this.drawFrame(ctx);
   }
 
   drawFrame(ctx) {
     const core = this.core;
     this.frame++;
-    if (!this.active) {
-      // Off (three draws them): none of last frame's draws again.
-      core.views();
-      core.fxInput[IN_DRAWS] = 0;
-      return;
-    }
     this.batches();
     this.listed(ctx);
     const bolt = this.lightning();
@@ -1089,12 +1094,12 @@ class EffectsPass {
     let reads = soft, late = null;
     // What three would have drawn this frame, registered before it (three
     // drew what was registered this frame itself), and the floats it needs.
-    const camera = ctx.camera, frame = this.frame, drawn = this.drawn, glowing = this.glowing;
+    const camera = ctx.camera, drawn = this.drawn, glowing = this.glowing;
     drawn.length = glowing.length = 0;
     let need = 0, jets = false;
     for (const record of this.records) {
       const b = record.batch;
-      if (record.from === frame || b.count <= 0 || (record.hiddenBy !== "material" && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
+      if (b.count <= 0 || (record.hiddenBy !== "material" && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
       drawn.push(record);
       if (record.depth) reads = true;
       if (!record.requested) late = lateOf(record, late);
@@ -1114,13 +1119,13 @@ class EffectsPass {
         }
       }
     }
-    const lit = bolt && bolt.record.from !== frame && bolt.lightning.index > 0 && bolt.record.material.visible !== false && this.shown(bolt.lightning.mesh, camera) ? bolt : null;
+    const lit = bolt && bolt.lightning.index > 0 && bolt.record.material.visible !== false && this.shown(bolt.lightning.mesh, camera) ? bolt : null;
     if (lit) need += lit.lightning.vertex * 9 + lit.lightning.index + 13;
     // The shader meshes shown (the death camera's trace: never culled).
     const traced = this.traced;
     traced.length = 0;
     for (const record of this.shaderMeshes.values()) {
-      if (!record || record.from === frame) continue;
+      if (!record) continue;
       const source = record.source, g = record.mesh.geometry;
       if (!(source ? source.index > 0 : record.mesh.visible) || !this.shown(record.mesh, camera)) continue;
       record.vertices = source ? source.vertex : g.getAttribute("position").count;
@@ -1132,7 +1137,7 @@ class EffectsPass {
     // renderer does). A shield's onBeforeRender runs first, as three's would
     // (it sets whether the camera is inside it); its texture follows three's.
     for (const record of this.glowList) {
-      if (record.from === frame || !record.mesh.visible || !this.shown(record.mesh, camera)) continue;
+      if (!record.mesh.visible || !this.shown(record.mesh, camera)) continue;
       // A shader model's material three still draws (the fountains' water
       // while not every mesh of it is registered), or one it no longer wears.
       if (record.shader && (record.material.visible || record.mesh.material !== record.material)) continue;
@@ -1172,14 +1177,14 @@ class EffectsPass {
     const input = core.fxInput, data = core.fxData, bits = core.fxBits, matrices = core.fxMatrices;
     let at = 0, owners = 0, draws = 0, instances = 0;
     for (const [gpu, o] of this.owners) {
-      if (owners === MAX_OWNERS) break;
+      if (owners === MAX_OWNERS) core.fail(new Error("Too many effect owners"));
       const rows = gpu.uniforms.emitterRows.value, written = Math.min(gpu.count, rows);
       const e = OWNER_AT + owners++ * OWNER_STRIDE;
       input[e] = o.id; input[e + 1] = rows; input[e + 2] = written; input[e + 3] = at;
       at = copy(data, at, gpu.data, 0, written * EMITTER_FLOATS);
     }
     for (const record of drawn) {
-      if (draws === MAX_DRAWS) break;
+      if (draws === MAX_DRAWS) core.fail(new Error("Too many effect draws"));
       const b = record.batch, count = b.count, attributes = record.attributes;
       // The batch's arrays (made anew as it grows).
       if (record.capacity !== b.capacity && !record.interleaved) record.arrays = attributes.map(([name]) => b.arrays[name]);
@@ -1212,7 +1217,8 @@ class EffectsPass {
       record.capacity = b.capacity;
       instances += count;
     }
-    if (lit && draws < MAX_DRAWS) {
+    if (lit) {
+      if (draws === MAX_DRAWS) core.fail(new Error("Too many effect draws"));
       const { lightning, record } = lit, geometry = lightning.geometry, material = record.material;
       const vertices = lightning.vertex, indices = lightning.index, start = at;
       for (const [name, size] of record.attributes) at = copy(data, at, geometry.attributes[name].array, 0, vertices * size);
@@ -1223,7 +1229,7 @@ class EffectsPass {
       this.keyOf(lightning.mesh, input, e + DRAW_KEY);
     }
     for (const record of traced) {
-      if (draws === MAX_DRAWS) break;
+      if (draws === MAX_DRAWS) core.fail(new Error("Too many effect draws"));
       const { mesh, material, vertices, indices } = record, geometry = mesh.geometry, start = at;
       for (const [name, size] of record.attributes) at = copy(data, at, geometry.getAttribute(name).array, 0, vertices * size);
       at = copyBits(bits, at, geometry.index.array, 0, indices);
@@ -1234,7 +1240,7 @@ class EffectsPass {
     }
     let models = 0;
     for (const record of glowing) {
-      if (draws === MAX_DRAWS) break;
+      if (draws === MAX_DRAWS) core.fail(new Error("Too many effect draws"));
       const { mesh, material } = record, m = models++ * 16;
       matrices.set(mesh.matrixWorld.elements, m);
       const start = at;
@@ -1268,52 +1274,7 @@ class EffectsPass {
     return at;
   }
 
-  // Off: three draws everything again, everything uploaded anew; on: it
-  // comes back here, written in full the first frame.
-  setActive(on) {
-    on = on && !this.failed;
-    this.active = on;
-    for (const record of this.records) {
-      const b = record.batch;
-      this.hide(record, on);
-      record.synced = false;
-      if (on) continue;
-      // Each attribute, or the interleaved buffer they share (the sniper's
-      // trace), marked for three to upload whole.
-      let shared = null;
-      for (const [name] of record.attributes) {
-        const a = b.geometry.getAttribute(name);
-        if (a.isInterleavedBufferAttribute) {
-          if (shared === a.data) continue;
-          shared = a.data;
-          shared.clearUpdateRanges();
-          shared.addUpdateRange(0, b.count * shared.stride);
-          shared.needsUpdate = true;
-          continue;
-        }
-        a.clearUpdateRanges();
-        a.addUpdateRange(0, b.count * a.itemSize);
-        a.needsUpdate = true;
-      }
-    }
-    const lightning = classicLightning.get(this.core.graphics.scene);
-    if (lightning && !on && lightning.external) {
-      lightning.external = false;
-      lightning.mesh.visible = lightning.index > 0 && !lightning.isEnhanced();
-      for (const name of ["position", "uv", "color"]) lightning.geometry.attributes[name].needsUpdate = true;
-      lightning.geometry.index.needsUpdate = true;
-    } else if (lightning && on && this.meshes.get(lightning.mesh.material)) {
-      lightning.external = true;
-      lightning.mesh.visible = false;
-    }
-    for (const record of this.glowList) record.material.visible = !on;
-    for (const record of this.shaderMeshes.values()) if (record) this.hideMesh(record, on);
-    if (!on) this.draws = this.instances = 0;
-  }
 
-  restore() {
-    this.setActive(false);
-  }
 }
 
 export function effectsPass(core) {

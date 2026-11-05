@@ -421,6 +421,17 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         (self.textures.len() - 1) as u32
     }
 
+    // Pending image uploads replace a transparent sample with its real handle.
+    // Target attachments are allocated before registration and never use this.
+    pub fn replace_sample_texture(&mut self, id: usize, texture: C::Texture) -> Result<C::Texture, String> {
+        let old = *self.textures.get(id).ok_or("Unknown sample texture")?;
+        self.textures[id] = texture;
+        if self.far_map == Some(old) { self.far_map = Some(texture); }
+        for map in &mut self.shadow_maps { if *map == old { *map = texture; } }
+        self.state.reset();
+        Ok(old)
+    }
+
     pub fn set_far_map(&mut self, t: u32) {
         self.far_map = Some(self.textures[t as usize]);
     }

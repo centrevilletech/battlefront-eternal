@@ -116,7 +116,6 @@ export class MotionVectors {
       fragmentShader: "void main() { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); }",
       depthTest: false, depthWrite: false, side: THREE.DoubleSide,
     });
-    this.clearColor = new THREE.Color();
     // The Rust renderer's motion pass when it draws for this one (render).
     this.drawer = null;
   }
@@ -279,8 +278,7 @@ export class MotionVectors {
   // and `view` carry this frame's jitter, so proxies cover exactly the
   // pixels the scene drew; `current`/`previous` are the unjittered
   // view-projections the motion is measured in. The Rust renderer's motion
-  // pass (rust-render/motion.js, `drawer`) draws it when it can draw all of
-  // it; otherwise three does (draw).
+  // pass (rust-render/motion.js, `drawer`) must cover every tracked item.
   render(renderer, { target, root, camera, viewScene, view, depth, current, previous }) {
     shared.currentViewProjection.value.copy(current);
     shared.previousViewProjection.value.copy(previous);
@@ -290,45 +288,12 @@ export class MotionVectors {
     for (const extra of this.extras) if (extra.visible) drawn++;
     // The view scene to mark fixed, when it shows anything.
     const locked = viewScene && view && viewScene.children.some((child) => child.visible && !child.isLight) ? viewScene : null;
-    if (!this.drawer?.cover(renderer, this, { target, camera, viewScene: locked, view, depth })) this.draw(renderer, { target, camera, viewScene: locked, view, drawn });
+    if (!this.drawer.cover(renderer, this, { target, camera, viewScene: locked, view, depth })) this.drawer.core.fail(new Error(`Incomplete Rust motion: ${this.drawer.why}`));
     this.commit();
     return drawn;
   }
 
-  // three's render of the frame's motion (render): the target cleared, the
-  // proxies and the extras, then the view scene in the locked material,
-  // every part of it: those the Rust renderer's view pass hides from three
-  // shown to it meanwhile (the drawer's showView), or its override render
-  // would leave them out of the mask.
-  draw(renderer, { target, camera, viewScene, view, drawn }) {
-    const restore = this.into(renderer, target);
-    if (drawn) renderer.render(this.scene, camera);
-    if (viewScene) {
-      this.drawer?.showView(true);
-      viewScene.overrideMaterial = this.locked;
-      renderer.render(viewScene, view);
-      viewScene.overrideMaterial = null;
-      this.drawer?.showView(false);
-    }
-    restore();
-  }
 
-  // three drawing into `target`, cleared to zero (static), with no clears of
-  // its own and no shadow maps; returns what puts its settings back.
-  into(renderer, target) {
-    const autoClear = renderer.autoClear, shadows = renderer.shadowMap.autoUpdate, alpha = renderer.getClearAlpha();
-    renderer.getClearColor(this.clearColor);
-    renderer.shadowMap.autoUpdate = false;
-    renderer.setRenderTarget(target);
-    renderer.setClearColor(0x000000, 0);
-    renderer.clear(true, false, false);
-    renderer.autoClear = false;
-    return () => {
-      renderer.setClearColor(this.clearColor, alpha);
-      renderer.autoClear = autoClear;
-      renderer.shadowMap.autoUpdate = shadows;
-    };
-  }
 }
 
 export const motionVectors = new MotionVectors();

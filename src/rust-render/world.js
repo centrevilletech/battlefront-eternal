@@ -29,15 +29,10 @@ class WorldPass {
     this.lamped = []; // the entries whose program reads lamps from the lamp table
     this.lampValues = new Float32Array(5);
     this.stateTextures = []; // { texture, version }: the tree canopies' state
-    // three's own opaque order (by material) unless ?rustSort: sorting by
-    // program saves a few switches but moves which of two surfaces at the
-    // same depth wins at a few multisampled edges.
-    this.byProgram = new URLSearchParams(location.search).has("rustSort");
+
   }
 
   draw() {
-    // A material changed since it was registered goes back to three, to be
-    // registered again once three has drawn it.
     for (const entry of this.meshes) {
       if (entry.stale || entry.mesh.material.version === entry.version) continue;
       entry.stale = true;
@@ -115,18 +110,9 @@ class WorldPass {
       this.count++;
       return false;
     });
-    rust.sort(this.byProgram);
+    rust.sort(false);
   }
 
-  // Off (this pass alone, or the whole renderer): three draws the buckets
-  // again and the renderer none of them; on: they come back.
-  setActive(on) {
-    for (const entry of this.meshes) {
-      if (entry.stale || !entry.mesh.material) continue;
-      entry.mesh.material.visible = !on;
-      this.core.rust.world_shown(entry.id, on);
-    }
-  }
 
   // Shown to three while one of three's own renders needs them (index.js
   // reveal): three's shadow pass draws the casters among the buckets taken

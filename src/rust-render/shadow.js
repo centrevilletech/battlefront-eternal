@@ -1,26 +1,8 @@
-// The shadow pass (shadow.rs): the sun's shadow cascades drawn by the renderer
-// in place of three's shadow pass. graphics.js renderCascades offers it each
-// cascade's pass (cover): the static cache the frame its window lands (its
-// casters on the static layer), and every frame (the last cascade every other
-// one) the live map: the cache's depth copied in, then the moving casters.
-// Three draws a pass only when the renderer can't draw all of it.
-//
-// The scene is walked as three's shadow pass walks it (WebGLShadowMap
-// renderObject): what is shown, on the camera's layers (the static casters'
-// camera or the moving casters'), casting, in the cascade's frustum; each of a
-// mesh's materials (its groups') that is shown (three's shadow pass runs
-// inside reveal(), so what the other passes took from three is shown), drawn
-// with the mesh's depth material (customDepthMaterial: graphics.js
-// depthMaterial's, fabric's) as three compiled it, on the side its material
-// casts (shadowSide, else the side opposite its own), over the range three
-// would draw (onBeforeShadow gives the merged static meshes and the alpha-cut
-// proxies their cells' range for the cascade). A skinned caster's bones are
-// worked out once a frame as three's shadow pass does (objects.update) and its
-// bone texture sent as three would. A caster the renderer can't draw (no depth
-// material of its own, one three hasn't compiled, not a mesh) leaves the pass
-// to three. Everything is registered inside the phase (its end resets three's
-// state), so a pass left to three finds three's state as three left it.
+// Rust draws every cascade: cached static depth, followed by moving casters.
+// The scene walk respects camera layers, frusta, groups and custom depth
+// materials. Three compiles those materials and allocates the depth targets.
 import * as THREE from "three";
+import { compileFor } from "./instances.js";
 import { lighting } from "../materials.js";
 import { plainProgram, writeUniform } from "./post.js";
 
@@ -102,9 +84,11 @@ class ShadowPass {
   // would draw is one the renderer can draw; true when it was.
   cover(renderer, light, scene, camera, from) {
     const core = this.core;
-    if (!core.enabled || !core.active || this.on === false || !core.supported()) return false;
+
     const shadow = light.shadow;
     if (!shadow?.map?.depthTexture || shadow.mapSize.x !== shadow.mapSize.y || (from && !from.depthTexture)) return false;
+    renderer.initRenderTarget(shadow.map);
+    if (from) renderer.initRenderTarget(from);
     this.request = { renderer, light, scene, camera, from };
     this.done = false;
     try {
@@ -116,10 +100,6 @@ class ShadowPass {
     return this.done;
   }
 
-  // Off (this pass alone): three draws the cascades.
-  setActive(on) {
-    this.on = on;
-  }
 
   // The phase: the walk, registration, and the pass's input.
   draw() {
@@ -226,6 +206,12 @@ class ShadowPass {
     depth.map = material.map;
     if (object.isInstancedMesh || object.isBatchedMesh || object.morphTargetInfluences?.length || depth.wireframe) { this.why = `${object.name || object.type}: kind`; return; }
     object.onBeforeShadow(renderer, object, camera, shadowCamera, geometry, depth, group);
+    const sides = this.compiledSides ??= new WeakMap();
+    if (!renderer.properties.get(depth).currentProgram || (sides.has(depth) && sides.get(depth) !== depth.side)) {
+      compileFor(renderer, [[object, depth]], shadowCamera, this.core.graphics.scene);
+      this.core.stale = true;
+    }
+    sides.set(depth, depth.side);
     const program = plainProgram(this.core, depth, null);
     if (!program) { this.why = `${depth.name || depth.type}: ${program === undefined ? "not compiled yet" : "program"}`; return; }
     // renderBufferDirect's range: the draw range within the group, the index.
@@ -252,12 +238,6 @@ class ShadowPass {
     if (props.__version !== skeleton.boneTexture.version) renderer.initTexture(skeleton.boneTexture);
   }
 
-  // Rust's copy of a geometry for a program (core.geometry), sent again where
-  // the page rewrote it since (the crowd's shadow mesh: its soldiers' vertices
-  // as they join, its drawn index as they come and go), as three would send
-  // it (send); its index valid at least as far as a draw reads it (need). A
-  // geometry given another attribute or index since is left to three (null),
-  // which makes buffers for it.
   geometry(geometry, program, need = Infinity) {
     const core = this.core, key = `${geometry.uuid}:${program.id}`;
     let entry = this.geometries.get(key);

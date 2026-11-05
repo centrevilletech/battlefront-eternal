@@ -74,7 +74,6 @@ export class ParticleDepth {
     this.group = null;
     this.copier = null;
     this.armed = false;
-    this.warmed = false;
     this.placing = false;
     this.requests = 0;
     this.earliest = new Float64Array(7);
@@ -160,28 +159,10 @@ export class ParticleDepth {
   // three sorts it by); its world matrix set here alone. Shown for its first
   // render (its program built then), then only while it has a copy to take.
   makeCopier(scene) {
-    const geometry = new THREE.InstancedBufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-    geometry.instanceCount = 0;
-    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0);
-    const material = new THREE.ShaderMaterial({
-      vertexShader: "void main() { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); }",
-      fragmentShader: "void main() { gl_FragColor = vec4(0.0); }",
-      transparent: true, depthTest: false, depthWrite: false, colorWrite: false,
-    });
-    const copier = new THREE.Mesh(geometry, material);
-    copier.name = "particle-depth-copier";
-    copier.frustumCulled = false;
-    copier.matrixAutoUpdate = false;
-    copier.matrixWorldAutoUpdate = false;
-    copier.visible = false;
-    copier.onBeforeRender = (renderer, s, camera) => { if (this.armed) this.capture(camera, true); };
-    const group = new THREE.Group();
-    group.name = "particle-depth-copier";
-    group.add(copier);
-    scene.add(group);
-    this.group = group;
-    this.copier = copier;
+    // An ordered depth-copy command, with the same placement arithmetic
+    // as the old zero-instance mesh. It has no geometry or draw program.
+    this.copier = { matrixWorld: new THREE.Matrix4(), matrix: new THREE.Matrix4(), renderOrder: 0, visible: false };
+    this.group = { renderOrder: 0 };
     const previous = scene.onBeforeRender;
     scene.onBeforeRender = (...args) => { previous?.apply(scene, args); this.place(...args); };
   }
@@ -198,11 +179,10 @@ export class ParticleDepth {
     this.placing = true;
     for (const fn of this.requesters) {
       // Inside three's render: a requester's error is not three's.
-      try { fn(camera); } catch (error) { console.warn("particle depth: a request failed", error); }
+      fn(camera);
     }
     this.placing = false;
-    copier.visible = !this.warmed;
-    this.warmed = true;
+    copier.visible = false;
     if (!this.requests) return;
     const e = this.earliest, z = e[2], cx = e[4], cy = e[5], cz = e[6];
     // z as three's projectObject takes it (the centre through the world

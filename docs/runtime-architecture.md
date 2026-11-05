@@ -104,7 +104,7 @@ oracle.
 
 Regression checks: `tests/theed-camera-browser.mjs` (input through the complete
 player camera path at 30, 60, 144 and 240 Hz, walking and turning, both
-perspectives), `tools/renderer-corpus.mjs`, `tests/camera.test.js` and
+perspectives), `tests/rust-render-frame.test.js`, `tests/camera.test.js` and
 `tests/runtime-pacing.test.js`.
 
 ## Decision
