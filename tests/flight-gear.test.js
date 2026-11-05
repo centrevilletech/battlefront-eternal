@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { loadClips } from '../src/anim.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { poseFlightGear, shownGear, followFlightState, gearFoot } from '../src/flight/gear.js';
 import { heightAbove } from '../src/flight/model.js';

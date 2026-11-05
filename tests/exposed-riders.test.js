@@ -1,3 +1,4 @@
+import { rustOrdnance } from './helpers/rust-simulation.js';
 // Riders in the open (docs/formats.md "Riders"): rounds meet a soldier shown
 // on an exposed seat where his body is drawn, he dies there as on foot, and
 // his seat is let go with the hull left for anyone. Synthetic fixtures (a
@@ -9,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles, Vehicle, VehicleDriver } from '../src/vehicles.js';
 import { Units, makeUnitHit, segmentCapsule, strikeable } from '../src/registry.js';
 import { Ordnance } from '../src/ordnance.js';
@@ -105,7 +106,7 @@ function mount({ seats = [{}], healthType = null, enclose = false } = {}) {
 
 // Rounds through the shared Ordnance, struck units and hulls recorded.
 function rounds(world) {
-  const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: world.collision, effects: { play() {} }, lights: { add() {}, flash() {} }, texture: () => null });
+  const ordnance = rustOrdnance({ scene: new THREE.Scene(), collision: world.collision, effects: { play() {} }, lights: { add() {}, flash() {} }, texture: () => null });
   const struck = { units: [], hulls: [] };
   ordnance.units = world.units;
   ordnance.onHitUnit = (unit, def, point, owner, part) => { struck.units.push({ unit, part, point: point.clone() }); unit.combat.damage((def.Damage || 0) * (part === 'head' ? 3 : 1), 0, point, owner); };

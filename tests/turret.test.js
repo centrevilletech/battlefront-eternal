@@ -1,10 +1,11 @@
+import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { CollisionWorld, makeHit } from '../src/collision.js';
+import { makeHit } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Gunner } from '../src/gunner.js';
-import { Ordnance } from '../src/ordnance.js';
 import { loadSim } from '../src/sim/module.js';
 import { SimBridge } from '../src/sim/runtime.js';
 import { attachOrdnanceSim, ordnanceTests } from '../src/ordnance-sim.js';
@@ -32,7 +33,7 @@ test('turret ray ignores only its own live body', () => {
 test('turret aim passes its own body and its visible bolt survives firing', () => {
   const { collision, own } = world();
   const texture = new THREE.DataTexture(new Uint8Array([255, 20, 5, 255]), 1, 1);
-  const ordnance = new Ordnance({ scene: new THREE.Scene(), collision, effects: {play() {}}, lights: {add() {}}, texture: () => texture });
+  const ordnance = rustOrdnance({ scene: new THREE.Scene(), collision, effects: {play() {}}, lights: {add() {}}, texture: () => texture });
   const camera = new THREE.PerspectiveCamera();camera.position.set(0, 1, -3);
   const def = {base: 'bolt', Velocity: 80, LifeSpan: 1.5, LaserTexture: 'redlaser_D', LaserWidth: .15, LaserLength: 2};
   const turret = { bodies: {built: own}, facing: 0, yaw: 0, pitch: 0, yawVel: 0, turnRate: 1,
@@ -61,7 +62,7 @@ test('turret aim passes its own body and its visible bolt survives firing', () =
 // and follow it as the JavaScript rounds do.
 test('a lease-less gunner\'s beam follows his turret, on the module as in JavaScript', async () => {
   const { collision, own } = world();
-  const rounds = () => new Ordnance({ scene: new THREE.Scene(), collision, effects: {play() {}}, lights: {add() {}}, texture: () => null });
+  const rounds = () => rustOrdnance({ scene: new THREE.Scene(), collision, effects: {play() {}}, lights: {add() {}}, texture: () => null });
   const js = rounds(), rust = rounds();
   attachOrdnanceSim(rust, new SimBridge(await loadSim(), { tests: ordnanceTests }));
   const def = {class: 'beam', base: 'beam', LifeSpan: .4, Damage: 10};

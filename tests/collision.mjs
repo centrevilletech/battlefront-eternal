@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { CollisionWorld, makeHit } from '../src/collision.js';
+import { makeHit } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Soldier } from '../src/soldier.js';
 
 function boxes(items) {

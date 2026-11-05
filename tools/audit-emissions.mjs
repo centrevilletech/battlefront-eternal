@@ -9,7 +9,7 @@ import { weaponMuzzle, descendantMuzzles } from '../src/muzzles.js';
 import { buildActor } from '../src/actor.js';
 import { JetpackNozzles } from '../src/jetpack-nozzles.js';
 import { Vehicles } from '../src/vehicles.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from './collision-fixture.mjs';
 const json = p => JSON.parse(fs.readFileSync(p));
 const binary = p => { const b = fs.readFileSync(p); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 const report = { scope: 'All imported unit definitions, nested recon droids, vehicle classes and placed armed turrets. Checks model-space muzzles, runtime hardpoint resolution and skinned jet outlets; this is not a full visual playthrough.', units: [], vehicles: [], turrets: [], failures: [] };

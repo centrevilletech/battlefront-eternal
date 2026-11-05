@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles, VehicleCamera, VehicleDriver } from '../src/vehicles.js';
 import { blankIntent } from '../src/units.js';
 import { packWith, vehiclePacks } from '../tools/vehicle-packs.mjs';

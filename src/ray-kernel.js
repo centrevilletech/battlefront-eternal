@@ -1,10 +1,5 @@
-// The collision world's queries in WebAssembly (rust/sim/src/collision, in
-// the simulation's module, src/sim/module.js), for CollisionWorld's cast,
-// castMoving, ground, gather, overlapsSphere and terrainNear: in the offline
-// world worker unless its battle's query says rays=js, and on a page or a
-// dedicated server when asked (?rays=wasm, BFE_RAYS=wasm). The module
-// answers every query as the JavaScript in src/collision.js does, to the
-// last bit (rust/sim/src/collision says how).
+// Collision queries in the required simulation module (rust/sim/src/collision).
+// Every page, world worker and dedicated server uses this kernel.
 //
 // The module holds copies of what the queries read: each tree's packed nodes
 // from three-mesh-bvh, its triangles' corners, index and indirect buffers

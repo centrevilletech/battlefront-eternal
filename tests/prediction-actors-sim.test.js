@@ -32,14 +32,14 @@ test('private actors match exact correction bytes, recoil, shield ordering, root
   for (const key of ['jump', 'fall', 'thrown', 'jet', 'prone', 'crouch', 'dive', 'lock', 'shield', 'stepBlocked']) assert.ok(coverage[key] > 20, `${key} exercised`);
 });
 
-test('native actor correction preserves seeded collision scratch until the JS solver overwrites it', async () => {
+test('native actor correction preserves seeded collision scratch', async () => {
   const instance = await loadSim(), rays = await loadRayKernel(instance), scenario = actorPredictionCases().find(c => c.seededScratch);
   let a, b;
   try {
     a = runActorPredictionCase(scenario, { rays, makeNative: world => createActorPredictionSim(instance, world) }); b = runActorPredictionCase(scenario);
     assert.deepEqual(a.observations, b.observations);
     assert.deepEqual(a.observations[0].ingressScratch, [3, [.125, -.25, 0], true]);
-    assert.equal(a.observations[0].state.contactCount, 0);
+    assert.equal(a.observations[0].state.contactCount, 3);
     assert.ok(a.coverage.stepBlocked > 100);
     for (let tick = 23; tick < scenario.ticks; tick += 23) assert.equal(a.observations[tick].ingressScratch[0], tick + 3);
   } finally { a?.dispose(); b?.dispose(); }
@@ -97,7 +97,7 @@ test('fresh wrappers reuse a body owner while disposal, corrections and class ch
   } finally { native.dispose(); course.dispose(); }
 });
 
-test('custom recoil, foreign worlds and unknown actor states retain the existing JavaScript path', async () => {
+test('custom recoil and foreign worlds retain their adapter; unknown movement states fail', async () => {
   const instance = await loadSim(), rays = await loadRayKernel(instance), course = actorCourse(rays), foreign = actorCourse();
   const native = createActorPredictionSim(instance, course.world), scenario = { kind: 'soldier', pattern: 'walk' };
   try {
@@ -108,7 +108,7 @@ test('custom recoil, foreign worlds and unknown actor states retain the existing
     const other = createPredictionActor(scenario, foreign), q = new InfantryPrediction(other.soldier, other.combat, undefined, { native });
     q.step(actorInput(scenario, 0), 1 / 60); assert.equal(q.nativeSession.steps, 0); q.dispose();
     const unusual = createPredictionActor(scenario, course); unusual.soldier.air = 'swimming';
-    const r = new InfantryPrediction(unusual.soldier, unusual.combat, undefined, { native }); r.step(actorInput(scenario, 0), 1 / 60); assert.equal(r.nativeSession.steps, 0); r.dispose();
+    const r = new InfantryPrediction(unusual.soldier, unusual.combat, undefined, { native }); assert.throws(()=>r.step(actorInput(scenario, 0), 1 / 60),/Invalid soldier movement state/); assert.equal(r.nativeSession.steps, 0); r.dispose();
   } finally { native.dispose(); course.dispose(); foreign.dispose(); }
 });
 

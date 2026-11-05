@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
 import * as THREE from 'three';
 import { fixture } from './flight-fixture.js';
 import { flightHandling } from '../src/vehicle-motion.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles, VehicleCamera } from '../src/vehicles.js';
 import { setting } from '../src/seats.js';
 import { vehiclePacks } from '../tools/vehicle-packs.mjs';
