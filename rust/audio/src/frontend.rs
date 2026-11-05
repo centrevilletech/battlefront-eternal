@@ -197,9 +197,21 @@ impl Frontend {
                     &mut self.fx
                 };
                 if mono {
-                    for i in 0..FRAMES {
-                        let level = v.gain.value((frame + i as u64) as f64);
-                        bus[i] += gain(self.scratch[i], level);
+                    // Most loading quanta precede a scheduled fade. Use
+                    // the same constant-gain shortcut as the voice engine.
+                    let constant = v.gain.from == v.gain.to
+                        || ((frame + FRAMES as u64 - 1) as f64) < v.gain.start
+                        || frame as f64 >= v.gain.end;
+                    if constant {
+                        let level = v.gain.value(frame as f64);
+                        for i in 0..FRAMES {
+                            bus[i] += gain(self.scratch[i], level);
+                        }
+                    } else {
+                        for i in 0..FRAMES {
+                            let level = v.gain.value((frame + i as u64) as f64);
+                            bus[i] += gain(self.scratch[i], level);
+                        }
                     }
                 } else {
                     for i in 0..FRAMES {

@@ -44,7 +44,16 @@ impl Default for Source {
     }
 }
 impl Source {
-    pub fn start(&mut self, sample: usize, data: &Sample, when: f64, offset: f64, pitch: f64, looping: bool, rate: f64) {
+    pub fn start(
+        &mut self,
+        sample: usize,
+        data: &Sample,
+        when: f64,
+        offset: f64,
+        pitch: f64,
+        looping: bool,
+        rate: f64,
+    ) {
         let pitch = pitch as f32 as f64; // playbackRate is a float AudioParam.
         let frames = data.frames;
         let offset = offset.clamp(0.0, frames as f64 / data.rate);
@@ -77,8 +86,13 @@ impl Source {
             return;
         }
         let frames = data.frames;
-        if !self.looping && self.pos >= frames as f64 { self.on = false; return; }
-        if self.looping && self.pos >= self.end { self.pos = 0.0; }
+        if !self.looping && self.pos >= frames as f64 {
+            self.on = false;
+            return;
+        }
+        if self.looping && self.pos >= self.end {
+            self.pos = 0.0;
+        }
         if !self.begun {
             self.begun = true;
             if self.offset < 0.0 {
@@ -115,18 +129,12 @@ impl Source {
             }
             return;
         }
-        for i in 0..FRAMES {
-            let time = block + i as f64;
-            if time < self.start {
-                continue;
-            }
-            if time >= self.stop {
-                self.on = false;
-                break;
-            }
-            if !self.on {
-                break;
-            }
+        // Starts/stops are already integer context frames. Resolve the
+        // quantum's active span once; pitched mono pulses need not repeat
+        // three scheduling tests and a clock conversion for every sample.
+        let begin = (self.start - block).clamp(0.0, FRAMES as f64) as usize;
+        let limit = (self.stop - block).clamp(0.0, FRAMES as f64) as usize;
+        for i in begin..limit {
             let index = self.pos as usize;
             let fraction = self.pos - index as f64;
             let next = if self.looping && (index + 1) as f64 >= self.end {
@@ -142,7 +150,8 @@ impl Source {
                     let b = data.data[at + index] as f64;
                     b + (b - a) * fraction
                 } else {
-                    (1.0 - fraction) * data.data[at + index] as f64 + fraction * data.data[at + next] as f64
+                    (1.0 - fraction) * data.data[at + index] as f64
+                        + fraction * data.data[at + next] as f64
                 };
                 let value = value as f32;
                 if add {
@@ -157,8 +166,12 @@ impl Source {
                     self.pos = (self.pos - self.end) % self.end;
                 } else {
                     self.on = false;
+                    break;
                 }
             }
+        }
+        if self.stop < block + FRAMES as f64 {
+            self.on = false;
         }
     }
 }
@@ -198,8 +211,16 @@ impl Stream {
             positions: [Timeline::new(0.0), Timeline::new(0.0), Timeline::new(-1.0)],
             filter: Vec::new(),
             side: vec![0.0; FRAMES],
-            upmix_filter: crate::biquad::Biquad::new(crate::biquad::Kind::Lowpass, 7000.0, 1.0, 0.0, rate),
-            delays: std::array::from_fn(|i| vec![0.0; (rate * [0.012, 0.017, 0.008, 0.011][i]).ceil() as usize + FRAMES + 1]),
+            upmix_filter: crate::biquad::Biquad::new(
+                crate::biquad::Kind::Lowpass,
+                7000.0,
+                1.0,
+                0.0,
+                rate,
+            ),
+            delays: std::array::from_fn(|i| {
+                vec![0.0; (rate * [0.012, 0.017, 0.008, 0.011][i]).ceil() as usize + FRAMES + 1]
+            }),
             delay_at: [0; 4],
             gains: [0.0; FRAMES],
         }
