@@ -425,9 +425,7 @@ class EffectsPass {
     // Glow models added whose registration waits for their texture (glowsAdded).
     this.glowRetry = new Set();
     this.unrequest = core.graphics?.scene ? particleDepth.requester(core.graphics.scene, (camera) => {
-      // Inside three's render: an error here is kept, not thrown (the draws
-      // not asked for then take the copy as the phase starts).
-      try { this.requestDepth(camera); } catch (error) { core.errors.push(`effects depth request failed: ${String(error?.stack || error).slice(0, 400)}`); }
+      this.requestDepth(camera);
     }) : null;
     core.addView("fxInput", Float64Array, () => core.rust.fx_input_ptr(), () => core.rust.fx_input_len());
     core.addView("fxData", Float32Array, () => core.rust.fx_data_ptr(), () => core.rust.fx_data_len());
@@ -446,6 +444,7 @@ class EffectsPass {
     if (scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
     try {
       this.glowsAdded(renderer, scene, camera, added);
+      this.lightning();
       this.batches();
       const fresh = [];
       for (const batch of this.waiting.keys()) {
@@ -845,10 +844,12 @@ class EffectsPass {
     if (!material) return null;
     let record = this.meshes.get(material);
     if (record === undefined) {
+      const core=this.core;
+      if (unbuilt(core.renderer,material)) compileFor(core.renderer,[[lightning.mesh,material]],core.graphics.camera,core.graphics.scene);
       record = this.registerMesh(lightning.mesh, material, LIGHTNING);
       if (record !== undefined) this.meshes.set(material, record);
     }
-    lightning.external = Boolean(record);
+    if (!record) this.core.fail(new Error("Unregistered Classic lightning"));
     return record ? { lightning, record } : null;
   }
 
@@ -1176,14 +1177,14 @@ class EffectsPass {
     const input = core.fxInput, data = core.fxData, bits = core.fxBits, matrices = core.fxMatrices;
     let at = 0, owners = 0, draws = 0, instances = 0;
     for (const [gpu, o] of this.owners) {
-      if (owners === MAX_OWNERS) break;
+      if (owners === MAX_OWNERS) core.fail(new Error("Too many effect owners"));
       const rows = gpu.uniforms.emitterRows.value, written = Math.min(gpu.count, rows);
       const e = OWNER_AT + owners++ * OWNER_STRIDE;
       input[e] = o.id; input[e + 1] = rows; input[e + 2] = written; input[e + 3] = at;
       at = copy(data, at, gpu.data, 0, written * EMITTER_FLOATS);
     }
     for (const record of drawn) {
-      if (draws === MAX_DRAWS) break;
+      if (draws === MAX_DRAWS) core.fail(new Error("Too many effect draws"));
       const b = record.batch, count = b.count, attributes = record.attributes;
       // The batch's arrays (made anew as it grows).
       if (record.capacity !== b.capacity && !record.interleaved) record.arrays = attributes.map(([name]) => b.arrays[name]);
@@ -1216,7 +1217,8 @@ class EffectsPass {
       record.capacity = b.capacity;
       instances += count;
     }
-    if (lit && draws < MAX_DRAWS) {
+    if (lit) {
+      if (draws === MAX_DRAWS) core.fail(new Error("Too many effect draws"));
       const { lightning, record } = lit, geometry = lightning.geometry, material = record.material;
       const vertices = lightning.vertex, indices = lightning.index, start = at;
       for (const [name, size] of record.attributes) at = copy(data, at, geometry.attributes[name].array, 0, vertices * size);
@@ -1227,7 +1229,7 @@ class EffectsPass {
       this.keyOf(lightning.mesh, input, e + DRAW_KEY);
     }
     for (const record of traced) {
-      if (draws === MAX_DRAWS) break;
+      if (draws === MAX_DRAWS) core.fail(new Error("Too many effect draws"));
       const { mesh, material, vertices, indices } = record, geometry = mesh.geometry, start = at;
       for (const [name, size] of record.attributes) at = copy(data, at, geometry.getAttribute(name).array, 0, vertices * size);
       at = copyBits(bits, at, geometry.index.array, 0, indices);
@@ -1238,7 +1240,7 @@ class EffectsPass {
     }
     let models = 0;
     for (const record of glowing) {
-      if (draws === MAX_DRAWS) break;
+      if (draws === MAX_DRAWS) core.fail(new Error("Too many effect draws"));
       const { mesh, material } = record, m = models++ * 16;
       matrices.set(mesh.matrixWorld.elements, m);
       const start = at;

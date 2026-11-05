@@ -71,6 +71,18 @@ export async function fitWindow(c) {
   } catch (e) { /* Electron's CDP has no Browser.getWindowForTarget; the metrics override below sizes the page */ }
 }
 
+// Stop the worker at the same authority tick before cosmetic warmup. Its
+// initial start acknowledgement can otherwise race one tick between sessions.
+export const LOCKSTEP_START_SRC = `async b => {
+  const host=b.client.host, target=60;
+  const start=await host.call('lockstep');
+  if(start.tick>target)throw Error('Worker ran past the capture start tick');
+  host.drainEntities();
+  while(b.worldClock.tick<target){await host.call('advance',{ticks:1});host.drainEntities();}
+  await b.lockstep(0,false);
+  return target;
+}`;
+
 export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2', warm = Number(process.env.WARM || 12), extraSrc = '', query } = {}) {
   writeSettings(settings);
   await fitWindow(c);
@@ -115,10 +127,11 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
   }
   if (!process.env.WINDOWED) { await fitWindow(c); await c.psend('Runtime.evaluate', { expression: 'document.fullscreenElement || document.documentElement.requestFullscreen().catch(e => String(e))', userGesture: true, awaitPromise: true }); }
   const load = await c.ev(`(async () => { const b = __bf; await Promise.race([b.ready, new Promise(r => setTimeout(r, 180000))]); const prepareStart=performance.now(); await b.loaded?.(); const prepareMs=performance.now()-prepareStart; b.begin?.(); b.pause(); b.controls.locked = true; b.controls.enabled = true;
+    const startTick=await (${LOCKSTEP_START_SRC})(b);
     for (let i = 0; i < ${warm} * 60; i++) await b.lockstep(1 / 60, false);
     for (let i = 0; i < ${drawn}; i++) await b.lockstep(1 / 60, true);
     const u = b.playerUnit;
-    return { prepareMs, size: [innerWidth, innerHeight], spawned: !!(u && u.alive), unit: u ? (u.className || u.name || null) : null }; })()`);
+    return { prepareMs, startTick, size: [innerWidth, innerHeight], spawned: !!(u && u.alive), unit: u ? (u.className || u.name || null) : null }; })()`);
   return { ...load, seconds: (Date.now() - t0) / 1000, workers: workers.length };
 }
 

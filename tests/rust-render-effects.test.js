@@ -228,7 +228,7 @@ test("an analytic batch: its owner's emitters, and its instances from the first 
 });
 
 test("the Classic lightning: both of three's sides, its buffers as far as used, its material's values and key", () => {
-  const { core, calls, scene, camera, frame, drawn, entry } = bridge();
+  const { core, calls, scene, camera, renderer, frame, drawn, entry } = bridge();
   const settings = { get: (name) => (name === "arcCasterEffects" ? "classic" : undefined) };
   const lightning = new Lightning(scene, () => new THREE.Texture(), { settings });
   assert.equal(classicLightning.get(scene), lightning);
@@ -238,17 +238,19 @@ test("the Classic lightning: both of three's sides, its buffers as far as used, 
   lightning.spawn(def, new THREE.Vector3(0, 0, -5), new THREE.Vector3(4, 0, -5), 1);
   lightning.update(1 / 60, camera);
   const material = lightning.mesh.material;
-  assert.ok(lightning.index > 0 && lightning.mesh.visible);
-  // three draws it first, back faces then front, each with its program.
+  assert.ok(lightning.index > 0);
+  assert.equal(lightning.mesh.visible,false,"the first live ribbon has no native draw");
+  // Compile both sides before the first near ownership walk.
   const back = program(BASIC, ["position", "uv", "color"], "#define FLIP_SIDED\nvertex"), front = program(BASIC, ["uv", "color", "position"]);
-  drawn(material, front, [back, front]);
+  renderer.compile=()=>drawn(material,front,[back,front]);
+  core.byName.effects.beforeSort(renderer,scene,camera,core.graphics.sceneTarget,[scene]);
   lightning.mesh.geometry.computeBoundingSphere();
   frame();
   const mesh = calls.find((c) => c[0] === "fx_add_mesh");
   assert.deepEqual(mesh.slice(2), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 1, 0x0203, [3, 2, 4], "diffuse:3,opacity:1,mapTransform:9"]);
   assert.deepEqual(calls.filter((c) => c[0] === "fx_mesh_pass").map((c) => c.slice(2)), [[0, 1, [0, 1, 2]], [1, 0, [2, 0, 1]]], "back then front, at each program's locations");
   assert.equal(core.fxInput[0], 1, "drawn by Rust in the registration frame");
-  assert.equal(lightning.external, true);
+  assert.equal(lightning.mesh.visible, false, "the ribbon shell never draws natively");
   // The next frame it is the renderer's.
   lightning.update(1 / 60, camera);
   assert.equal(lightning.mesh.visible, false);
@@ -1505,4 +1507,10 @@ test("the fountains' water: every mesh drawn with its material a shader model at
   frame();
   assert.equal(core.fxInput[0], 2, "both drawn by the renderer");
   assert.equal(blits.length, 1, "the frame so far copied once, by its onBeforeRender");
+});
+
+test('effect capacity overflow stops the frame instead of dropping owners', () => {
+  const {fx, frame}=bridge();
+  for(let i=0;i<9;i++)fx.owners.set({count:0,uniforms:{emitterRows:{value:0}},data:new Float32Array(0)},{id:i});
+  assert.throws(frame,/Too many effect owners/);
 });

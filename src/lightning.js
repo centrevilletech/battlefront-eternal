@@ -207,9 +207,7 @@ export class Lightning {
       }
     }
     this.prune();
-    // Drawn by another renderer (external: src/rust-render/effects.js reads
-    // its buffers), it is shown to three never and uploads it nothing.
-    this.mesh.visible = this.index > 0 && !this.external;
+    // Rust reads the live ribbon buffers directly. The scene shell never draws.
     if (!this.index) return;
     this.mesh.material = this.material(texture);
     // The top level only, once the data has arrived (a KTX2 twin's sets its
@@ -221,9 +219,7 @@ export class Lightning {
       map.needsUpdate = true;
     }
     this.geometry.setDrawRange(0, this.index);
-    if (this.external) return;
-    for (const name of ["position", "uv", "color"]) this.geometry.attributes[name].needsUpdate = true;
-    this.geometry.index.needsUpdate = true;
+
   }
 
   // One strand from `from` to `to`, and its branches.

@@ -60,6 +60,9 @@ session uses the same immutable case query and settings and must retain draws.
 Build both distributions with `--minify false`. The harness isolates object UUID
 randomness from procedural foliage/effect randomness, so deleting helper objects
 does not change the sampled world. It fails if that isolation cannot be verified.
+The worker is stopped and advanced to authority tick 60 before cosmetic warmup;
+its initial start acknowledgement can otherwise race by one tick. Captured ticks
+must still match exactly between sessions.
 
 Set `CDP_PORT`, `BFE_CORPUS_CASE`, `OUT` and `BFE_SETTINGS_FILE` for each session.
 Set `BFE_CANDIDATE=1` only for the candidate, and `BFE_FORCE_RESTORE=1` to exercise

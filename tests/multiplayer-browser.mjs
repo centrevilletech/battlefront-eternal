@@ -111,6 +111,12 @@ try {
     },{cpu:process.env.BFE_TEST_CPU==='1',electronMode,settings:fixtureSettings});
     page.on('framenavigated',frame=>{if(frame===page.mainFrame())console.log(`client${i} navigation`,frame.url());});
     page.on('pageerror', error => { errors.push(error.message); console.error(`client${i}:`, error.message); });
+    let rendererDiagnostic=false;
+    page.on('console', message => {
+      if(rendererDiagnostic || !message.text().includes('Battle renderer failed'))return;
+      rendererDiagnostic=true;
+      page.evaluate(()=>{const g=__bf.graphics,o=g.rust.byName.near.stopped;return {errors:g.rust.errors,threeCalls:g.renderer.battleThreeCalls,stopped:o&&{name:o.name,type:o.type,material:o.material?.name,materialType:o.material?.type,uniforms:Object.keys(o.material?.uniforms||{}),defines:o.material?.defines,renderOrder:o.renderOrder,parent:o.parent?.name,groups:o.geometry?.groups,drawRange:o.geometry?.drawRange,indexCount:o.geometry?.index?.count,vertexCount:o.geometry?.attributes.position?.count,instances:o.isInstancedMesh?o.count:o.geometry?.instanceCount,layer:o.layers.mask,transparent:o.material?.transparent,parts:!!o.parent?.userData.parts}};}).then(value=>console.log('renderer-failure',i,JSON.stringify(value))).catch(()=>{});
+    });
     // Prepared content folders can lack presentation-only files (enhanced
     // audio, texture variants); their 404s are not gameplay errors.
     page.on('console', message => { if(message.text().startsWith('blackout-failure-cadence'))console.log(message.text()); if (message.type() === 'error' && !(builtApp && /^Failed to load resource: the server responded with a status of 404/.test(message.text()))) { errors.push(message.text()); console.error(`client${i}:`, message.text()); } });

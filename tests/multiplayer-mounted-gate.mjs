@@ -11,10 +11,14 @@ async function drawnFrame(page,stage) {
       r.setRenderTarget(null);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,bytes);
       let lit=0,min=255,max=0;
       for(let i=0;i<bytes.length;i+=16){const n=Math.max(bytes[i],bytes[i+1],bytes[i+2]);if(n>8)lit++;min=Math.min(min,n);max=Math.max(max,n);}
-      resolve({w,h,lit,min,max,frame:g.frameCount,lost:gl.isContextLost()});return value;
+      resolve({w,h,lit,min,max,frame:g.frameCount,lost:gl.isContextLost(),error:gl.getError(),threeCalls:r.battleThreeCalls,rustErrors:g.rust.errors,rustDraws:Object.values(g.rust.phaseStats).reduce((sum,row)=>sum+row.slice(5).reduce((a,b)=>a+b,0),0)});return value;
     };
   }));
   assert.ok(!result.lost&&result.frame>2&&result.lit>100&&result.max-result.min>16,'a nonblank gameplay frame reaches the drawn framebuffer');
+  assert.equal(result.threeCalls,0,'battle frames never invoke the native scene drawer');
+  assert.deepEqual(result.rustErrors,[]);
+  assert.equal(result.error,0);
+  assert.ok(result.rustDraws>0,'the nonblank frame includes actual Rust draws');
   console.log('drawn-frame',stage,JSON.stringify(result));
 }
 
