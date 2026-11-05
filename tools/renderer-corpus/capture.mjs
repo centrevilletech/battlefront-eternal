@@ -54,6 +54,9 @@ try {
       if(!ext)throw Error('No context loss extension');
       const once=name=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error(name+' timeout')),30000);canvas.addEventListener(name,()=>{clearTimeout(timer);resolve();},{once:true});});
       const lost=once('webglcontextlost');ext.loseContext();await lost;
+      // Chromium completes loss dispatch before restoration becomes legal.
+      // Resume in a later task, as the generated driver fixture does.
+      await new Promise(resolve=>setTimeout(resolve,100));
       const restored=once('webglcontextrestored');ext.restoreContext();await restored;
       if(g.rust.contextLost||g.rust.failure)throw g.rust.failure||Error('Rust did not rebuild');
       return {lost:window.__gateGl.lost,restored:window.__gateGl.restored};
@@ -87,5 +90,8 @@ try {
   if(report.gpuDeaths)throw Error(`GPU process deaths: ${report.gpuDeaths}`);
   report.shaderPrograms=await c.ev('__bf.graphics.rust.shaderPrograms || []');
   report.complete=report.points.length===manifest.captures;report.pass=report.complete;
-}catch(error){report.error=String(error.stack||error);process.exitCode=1;}
-finally{c.close();fs.writeFileSync(`${out}/${id}.json`,JSON.stringify(report,null,2));console.log(JSON.stringify({id,pass:report.pass,error:report.error}));}
+}catch(error){
+  report.error=String(error.stack||error);process.exitCode=1;
+  try{report.context=await c.ev(`(()=>{const g=__bf.graphics;return {events:window.__gateGl,lost:g.renderer.getContext().isContextLost(),rustLost:g.rust.contextLost,failure:g.rust.failure?.message};})()`);}catch{}
+}finally{report.console=c.consoleErrors;
+  c.close();fs.writeFileSync(`${out}/${id}.json`,JSON.stringify(report,null,2));console.log(JSON.stringify({id,pass:report.pass,error:report.error}));}
