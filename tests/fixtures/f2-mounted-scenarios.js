@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Vector3 } from 'three';
-import { weaponDefinition } from './prediction-weapon-cases.js';
+import { weaponDefinition } from './f2-weapon.js';
 import { PowerupStation } from '../../src/props.js';
 
 const fields = ['timer', 'clip', 'reserve', 'heat', 'overheated', 'wait', 'reloadLeft', 'salvosLeft', 'salvoWait', 'kick', 'pattern', 'firing', 'lockTargetId', 'lockGeneration', 'lockElapsed', 'lockComplete'];

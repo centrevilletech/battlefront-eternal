@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mountedFleet } from './fixtures/f2-mounted.js';
-import { weaponDefinition } from './fixtures/prediction-weapon-cases.js';
+import { weaponDefinition } from './fixtures/f2-weapon.js';
 import { cycleNetworkSeat } from '../src/runtime/network-seat.js';
 import { IntentControls, blankIntent } from '../src/units.js';
 

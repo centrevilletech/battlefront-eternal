@@ -3,7 +3,7 @@ import bailoutGolden from './fixtures/f2-bailout-golden.json' with { type: 'json
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mountedFleet } from './fixtures/f2-mounted.js';
-import { weaponDefinition } from './fixtures/prediction-weapon-cases.js';
+import { weaponDefinition } from './fixtures/f2-weapon.js';
 import { mountedCases, mountedScenario } from './fixtures/f2-mounted-scenarios.js';
 
 // Recorded from the last switched engine over invented geometry and weapons.
