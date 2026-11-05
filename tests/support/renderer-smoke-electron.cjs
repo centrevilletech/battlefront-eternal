@@ -18,6 +18,8 @@ app.whenReady().then(async () => {
   const errors = [];
   window.webContents.on('console-message', (event) => {
     if (event.message.startsWith('renderer smoke:') || /WebGL:|INVALID_|CONTEXT_|THREE.WebGLRenderer:/.test(event.message)) console.log(event.message);
+    const catalog=/^renderer smoke: (variant-start|variant-result|family-result) (.*)$/.exec(event.message);
+    if(catalog)report({stage:catalog[1],backend,...JSON.parse(catalog[2])});
     if (event.level === 'error') errors.push(event.message);
   });
   window.webContents.on('render-process-gone', (_event, details) => { report({ crash: details }); app.exit(1); });

@@ -75,6 +75,7 @@ export async function checkRenderer(backend, manifests) {
     for(const {family,programs} of manifests){
       const started=performance.now(),variants=[];
       for(const {key} of programs){
+        console.log(`renderer smoke: variant-start ${JSON.stringify({key,fallback})}`);
         const start=performance.now(),linkStart=links.length,shaderStart=compiledShaders.length;compilingKey=key;
         try {
           const id=g.rust.rust.add_owned_program(key);
@@ -83,11 +84,13 @@ export async function checkRenderer(backend, manifests) {
           variants.push({key,id,ms:performance.now()-start,accepted:true,shaders:compiledShaders.length-shaderStart,links:links.length-linkStart,cached:links.length===linkStart});
         } catch(error){variants.push({key,ms:performance.now()-start,accepted:false,error:String(error.message||error)});}
         finally {compilingKey=null;}
+        console.log(`renderer smoke: variant-result ${JSON.stringify({...variants.at(-1),fallback})}`);
       }
-      const row={family,compileMs:variants.filter(v=>!v.cached).reduce((sum,v)=>sum+v.ms,0),ms:performance.now()-started,variants};shaderFamilies.push(row);
+      const row={family,fallback,compileMs:variants.filter(v=>!v.cached).reduce((sum,v)=>sum+v.ms,0),ms:performance.now()-started,variants};shaderFamilies.push(row);
       for(const variant of variants)assert(`${variant.key}: compiles and links`,variant.accepted,variant);
-      console.log(`renderer smoke: shader family ${family}: ${variants.length} variants in ${row.ms.toFixed(3)} ms`);
+      console.log(`renderer smoke: family-result ${JSON.stringify(row)}`);
     }
+    g.rust.stale=true;
     assert('All manifest families were checked',shaderFamilies.length>0);
     if(shaderFamilies.some(f=>f.variants.some(v=>!v.accepted)))return {ok:false,backend,renderer,results,shaderFamilies,compiledShaders};
 
