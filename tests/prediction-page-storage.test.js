@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Arsenal } from '../src/weapons.js';
 import { prepareMelee } from '../src/heroes.js';
-import { loadSim } from '../src/sim/runtime.js';
+import { loadSim } from '../src/sim/module.js';
 import { loadRayKernel } from '../src/ray-kernel.js';
 import { PredictionArsenal } from '../src/runtime/prediction-arsenal.js';
 import { PredictionFrame } from '../src/runtime/prediction-frame.js';
