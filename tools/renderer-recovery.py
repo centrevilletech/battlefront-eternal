@@ -15,7 +15,7 @@ web = root / 'rust/bfe-render/src/web'
 methods = []
 # Draw calls and shared-memory access are transient. Resource registrations and
 # state updates must survive a context loss, with their logical handles intact.
-skip = {'new', 'add_texture', 'near_begin', 'transparent_segment', 'foliage_selected', 'records_at', 'record_stride', 'motion_record_stride', 'motion_records_at', 'transparent_object_stride', 'far_items', 'rebuild', 'frame'}
+skip = {'new', 'add_texture', 'near_begin', 'transparent_segment', 'foliage_selected', 'records_at', 'record_stride', 'motion_record_stride', 'motion_records_at', 'transparent_object_stride', 'far_items', 'rebuild', 'frame', 'replace_sample_texture'}
 for path in sorted(web.glob('*.rs')):
     if path.stem == 'recovery': continue
     text = path.read_text()

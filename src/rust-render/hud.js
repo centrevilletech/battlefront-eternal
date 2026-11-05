@@ -122,7 +122,6 @@ class HudPass {
     if (!texture) return -1;
     const core = this.core, p = core.renderer.properties.get(texture);
     if (texture.version > 0 && p.__version !== texture.version && texture.image) core.renderer.initTexture(texture);
-    if (!p.__webglTexture) return -1;
     return core.texture(texture);
   }
 

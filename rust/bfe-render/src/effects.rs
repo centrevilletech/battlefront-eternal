@@ -291,6 +291,19 @@ fn interleave(out: &mut Vec<f32>, data: &[f32], at: usize, n: usize, sizes: &[us
 }
 
 impl<C: HasContext> EffectsPass<C> {
+    pub fn replace_texture(&mut self, old: C::Texture, new: C::Texture) {
+        for owner in &mut self.owners { if owner.tracks == old { owner.tracks = new; } }
+        for batch in &mut self.batches {
+            if batch.texture == Some(old) { batch.texture = Some(new); }
+            for (_, texture) in batch.samplers.iter_mut().chain(batch.samplers_3d.iter_mut()) { if *texture == Some(old) { *texture = Some(new); } }
+        }
+        for mesh in &mut self.meshes { if mesh.texture == Some(old) { mesh.texture = Some(new); } }
+        for model in &mut self.models {
+            if model.texture == Some(old) { model.texture = Some(new); }
+            for (_, texture) in &mut model.samplers { if *texture == Some(old) { *texture = Some(new); } }
+        }
+    }
+
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> EffectsPass<C> {
         let gl = &core.gl;
         let (quad, quad_index) = unsafe {

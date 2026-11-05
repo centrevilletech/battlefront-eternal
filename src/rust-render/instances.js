@@ -123,7 +123,11 @@ export function compileFor(renderer, entries, camera, scene) {
 
 // Whether three has no program for a material (or for one of a mesh's) yet.
 export function unbuilt(renderer, material) {
-  return [].concat(material).some((m) => m && !renderer.properties.get(m).currentProgram);
+  return [].concat(material).some((m) => { const p=m && renderer.properties.get(m); return p && (!p.currentProgram || p.__version !== undefined && p.__version !== m.version); });
+}
+
+export function materialVersion(materials) {
+  let version=0; for(const m of materials)version+=m.version; return version;
 }
 
 class InstancePass {
@@ -190,8 +194,7 @@ class InstancePass {
       if (unbuilt(renderer, material)) compileFor(renderer, [[warm, material]], camera, scene);
       const programs = sidesOf(material).map((side) => { const p = programForSide(renderer, material, side); return p && this.core.program(p, SKINNED, material, POLICIES[SKINNED]); });
       this.warmProgram = programs.length > 0 && programs.every(Boolean);
-      // Not the renderer's to make: three draws it, as before.
-      if (!this.warmProgram) { this.warm = null; return; }
+      if (!this.warmProgram) this.core.fail(new Error("Cannot prepare arc shock program"));
     }
     material.visible = false;
     warm.onBeforeRender(renderer, scene, camera, warm.geometry, material, null);
@@ -249,7 +252,7 @@ class InstancePass {
     if (!parts || !root.visible) return at;
     const { body, hand } = parts;
     let record = this.bodies.get(body);
-    if (record === undefined) record = this.registerBody(body);
+    if (record === undefined || record && record.version !== materialVersion(record.used)) record = this.registerBody(body);
     if (record && body.material !== record.materials) {
       // Dissolving (units.js dissolve): its heated record, registered once
       // three has drawn the heated materials; any other materials of its
@@ -260,7 +263,7 @@ class InstancePass {
         if (heated !== undefined) this.heated.set(body, heated);
       }
       if (heated) record = heated;
-      else { for (const m of [].concat(body.material)) m.visible = true; record = null; }
+      else this.core.fail(new Error("Cannot register changed body material"));
     }
     if (record && body.visible && camera.layers.test(body.layers) && this.inView(body)) at = this.writeBody(record, at);
     for (const group of hand?.children || []) {
@@ -268,10 +271,10 @@ class InstancePass {
       for (const mesh of group.children) {
         if (!mesh.isMesh || !mesh.visible || !camera.layers.test(mesh.layers)) continue;
         let rec = this.meshes.get(mesh);
-        if (rec === undefined || rec && mesh.material !== rec.material) rec = this.registerMesh(mesh);
+        if (rec === undefined || rec && (mesh.material !== rec.material || rec.version !== mesh.material.version)) rec = this.registerMesh(mesh);
         if (rec && mesh.material === rec.material) {
           if (this.inView(mesh)) at = this.writeMesh(rec, at);
-        } else if (rec) mesh.material.visible = true;
+        } else if (rec) this.core.fail(new Error("Cannot register changed rigid material"));
       }
     }
     return at;
@@ -299,7 +302,7 @@ class InstancePass {
         const groups = merged.length ? merged : [{ materialIndex: 0 }];
         const textures = groups.map((g) => mapOf(core, all[g.materialIndex]));
         if (textures.some((t) => t === undefined)) return undefined; // its textures first
-        record = { body, materials: body.material, used, program: program.id, geometry, textures, whole: !merged.length, look: used[0].uniforms, heated, lamps: Boolean(program.lamps) };
+        record = { version: materialVersion(used), body, materials: body.material, used, program: program.id, geometry, textures, whole: !merged.length, look: used[0].uniforms, heated, lamps: Boolean(program.lamps) };
         for (const m of used) m.visible = false;
         this.bodyRecords.push(record);
       }
@@ -325,9 +328,9 @@ class InstancePass {
     if (!this.rigList || this.frames % 120 === 0) this.findRigs();
     for (const mesh of this.rigList) {
       let rec = this.bodies.get(mesh);
-      if (rec === undefined || rec && mesh.material !== rec.materials) rec = this.registerRig(mesh);
+      if (rec === undefined || rec && (mesh.material !== rec.materials || rec.version !== materialVersion(rec.used))) rec = this.registerRig(mesh);
       if (!rec) continue;
-      if (mesh.material !== rec.materials) { mesh.material.visible = true; continue; }
+      if (mesh.material !== rec.materials) this.core.fail(new Error("Cannot register changed rig material"));
       if (!camera.layers.test(mesh.layers)) continue;
       // It and its parents shown, up to the scene (the walk ends there).
       let shown = true, o = mesh;
@@ -352,7 +355,7 @@ class InstancePass {
       const texture = mapOf(core, material);
       if (texture === undefined) return undefined; // its texture first
       if (geometry !== null && geometry !== undefined) {
-        record = { body: mesh, materials: material, used: [material], program: program.id, geometry, textures: [texture], whole: true, look: material.uniforms, lamps: Boolean(program.lamps) };
+        record = { version: material.version, body: mesh, materials: material, used: [material], program: program.id, geometry, textures: [texture], whole: true, look: material.uniforms, lamps: Boolean(program.lamps) };
         material.visible = false;
         this.bodyRecords.push(record);
       }
@@ -377,7 +380,7 @@ class InstancePass {
     const geometry = core.geometry(mesh.geometry, programs[0]);
     if (geometry === null || geometry === undefined) return null;
     const blendId = core.rust.inst_add_blend(new Uint32Array(blend), state.flags & ~4, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
-    const record = { body: mesh, materials: material, used: [material], program: programs[programs.length - 1].id, geometry, textures: [texture], whole: true, look: material.uniforms, blend: blendId,
+    const record = { version: material.version, body: mesh, materials: material, used: [material], program: programs[programs.length - 1].id, geometry, textures: [texture], whole: true, look: material.uniforms, blend: blendId,
       lamps: programs.some((p) => p.lamps) };
     material.visible = false;
     this.bodyRecords.push(record);
@@ -398,7 +401,7 @@ class InstancePass {
       if (geometry !== null && geometry !== undefined) {
         if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-        record = { mesh, material, program: program.id, geometry, texture, lamps: Boolean(program.lamps) };
+        record = { version: material.version, mesh, material, program: program.id, geometry, texture, lamps: Boolean(program.lamps) };
         material.visible = false;
         this.meshRecords.push(record);
       }
@@ -492,7 +495,7 @@ class InstancePass {
     const scene = this.core.graphics.scene, mask = camera.layers.mask;
     for (let i = 0; i < this.flyingRecords.length; i++) {
       const record = this.flyingRecords[i], mesh = record.mesh;
-      if (mesh.material !== record.material) {
+      if (mesh.material !== record.material || record.version !== mesh.material.version) {
         mesh.layers.mask = record.layers;
         this.flyingRecords.splice(i--, 1);
         const replacement=this.registerFlying(mesh);
@@ -579,7 +582,7 @@ class InstancePass {
     // A heated copy of a part's material (destruction-debris.js
     // heatMaterial: the destruction's burning pieces) takes its heat and
     // look from the object, as its onBeforeRender sets them.
-    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend, heated: "HEATED" in defines, lamps: programs.some((p) => p?.lamps) };
+    const record = { version: material.version, mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend, heated: "HEATED" in defines, lamps: programs.some((p) => p?.lamps) };
     mesh.layers.set(FLYING_LAYER);
     this.flyingRecords.push(record);
     return record;

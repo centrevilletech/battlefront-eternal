@@ -293,6 +293,9 @@ export class Graphics {
       if (key === "upscaleSharpness") this.upscaler.sharpness = Number(this.settings.get("upscaleSharpness")) || 0;
       if (key === "antialiasing") this.applyAntialiasing();
       if (key === "shadows") this.applyShadows();
+      if (key === "lampLighting") for(const scene of [this.scene,this.viewScene,this.farScene]) scene.traverse(object=>{
+        for(const material of [].concat(object.material||[]))material.needsUpdate=true;
+      });
       if (key === "viewDistance") this.applyDistance();
       if (key === "bumpMapping") this.applyBump();
       if (key === "anisotropy") for (const texture of this.textures) this.filter(texture);

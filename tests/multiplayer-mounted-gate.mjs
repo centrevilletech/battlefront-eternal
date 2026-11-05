@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 // Read inside the HUD callback, before the compositor can discard the frame.
-async function drawnFrame(page,stage) {
+export async function drawnFrame(page,stage) {
   if(process.env.BFE_TEST_CPU==='1')return;
   const result=await page.evaluate(()=>new Promise(resolve=>{
     const g=__bf.graphics,r=g.renderer,gl=r.getContext(),hud=__bf.hud,render=hud.render;

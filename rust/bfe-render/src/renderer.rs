@@ -80,6 +80,16 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water, shadow, motion, canopies }
     }
 
+    // Replace a pending image's sampler in every retained draw binding.
+    pub fn replace_sample_texture(&mut self, id: usize, texture: C::Texture) -> Result<C::Texture, String> {
+        let old = self.core.replace_sample_texture(id, texture)?;
+        self.world.replace_texture(old, texture);
+        self.effects.replace_texture(old, texture);
+        self.transparent.replace_texture(old, texture);
+        self.foliage.replace_texture(old, texture);
+        Ok(old)
+    }
+
     // The far scene's phase, drawn into the far target before the near scene.
     pub fn far_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();

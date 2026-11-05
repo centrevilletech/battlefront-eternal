@@ -1303,6 +1303,16 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} id
+     * @param {WebGLTexture} texture
+     */
+    replace_sample_texture(id, texture) {
+        const ret = wasm.bferenderer_replace_sample_texture(this.__wbg_ptr, id, texture);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {number} steps
      * @returns {Uint32Array}
      */

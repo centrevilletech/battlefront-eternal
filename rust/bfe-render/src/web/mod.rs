@@ -77,6 +77,14 @@ impl BfeRenderer {
         self.r.core.add_texture(key)
     }
 
+    // The journal keeps the logical id; restoration receives its current handle.
+    pub fn replace_sample_texture(&mut self, id: u32, texture: web_sys::WebGlTexture) -> Result<(), JsValue> {
+        let key = unsafe { self.r.core.gl.register_external_texture(texture) };
+        let old = self.r.replace_sample_texture(id as usize, key).map_err(|e| JsValue::from_str(&e))?;
+        self.r.core.gl.unregister_external_texture(old);
+        Ok(())
+    }
+
     pub fn set_far_map(&mut self, texture: u32) {
         self.remember_set_far_map(texture); // recovery
  self.r.core.set_far_map(texture) }

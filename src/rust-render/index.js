@@ -106,7 +106,7 @@ function recorder(rust, recording) {
     get(target, name) {
       const value = target[name];
       if (typeof value !== "function") return value;
-      if (/frame$|_segment$|_(ptr|len)$|^(records_at|record_stride|rebuild)$/.test(String(name))) return value.bind(target);
+      if (/frame$|_segment$|_(ptr|len)$|^(records_at|record_stride|rebuild|replace_sample_texture)$/.test(String(name))) return value.bind(target);
       return (...args) => {
         const result = value.apply(target, args);
         recording.calls.push([name, args.map((a) => (ArrayBuffer.isView(a) ? a.slice() : a?.constructor?.name === "WebGLTexture" ? null : a)), result]);
@@ -154,6 +154,8 @@ export class RustRender {
     this.programs = new Map(); // three's program -> Rust's (or null: unsupported)
     this.geometries = new Map(); // "geometry uuid:program" -> Rust geometry
     this.textureSources = [];
+    this.pendingTextures = [];
+    this.pendingTextureMap = new WeakMap();
     this.textureTargets = new Map();
     this.textures = new Map(); // WebGLTexture -> Rust texture
     this.farTexture = null;
@@ -304,9 +306,25 @@ export class RustRender {
 
   texture(texture) {
     if (!texture) return -1;
-    if (!this.renderer.properties.get(texture).__webglTexture) this.renderer.initTexture(texture);
-    const handle = this.renderer.properties.get(texture).__webglTexture;
-    if (!handle) return -1;
+    const pending=this.pendingTextureMap.get(texture);
+    if(pending)return pending.id;
+    const props=this.renderer.properties.get(texture);
+    if (!props.__webglTexture) this.renderer.initTexture(texture);
+    const handle = props.__webglTexture;
+    if (!handle) {
+      // A lazily requested image draws the same transparent texel as Three's
+      // empty sampler while it loads. Its logical id survives the real upload.
+      const loading=texture.version===0 || !texture.image || texture.image.complete===false;
+      if(!loading || texture.isRenderTargetTexture || texture.isDepthTexture || texture.isCubeTexture || texture.isData3DTexture || texture.isDataArrayTexture)return -1;
+      const pixel=new THREE.DataTexture(new Uint8Array(4),1,1);
+      pixel.needsUpdate=true;
+      const id=this.texture(pixel);
+      if(id<0)this.fail(new Error("Cannot initialize pending image texture"));
+      const entry={texture,pixel,id};
+      this.pendingTextures.push(entry);
+      this.pendingTextureMap.set(texture,entry);
+      return id;
+    }
     let id = this.textures.get(handle);
     if (id === undefined) {
       id = this.rust.add_texture(handle);
@@ -315,6 +333,26 @@ export class RustRender {
       if (this.recording) this.recording.textures[id] = { handle, width: texture.image?.width ?? texture.mipmaps?.[0]?.width ?? texture.width ?? 0, height: texture.image?.height ?? texture.mipmaps?.[0]?.height ?? texture.height ?? 0 };
     }
     return id;
+  }
+
+  refreshTextures() {
+    for(let i=0;i<this.pendingTextures.length;i++){
+      const entry=this.pendingTextures[i],texture=entry.texture;
+      if(!(texture.version>0) || !texture.image || texture.image.complete===false)continue;
+      this.renderer.initTexture(texture);
+      const props=this.renderer.properties.get(texture),handle=props.__webglTexture;
+      if(!handle || props.__version!==texture.version)continue;
+      const previous=this.renderer.properties.get(entry.pixel).__webglTexture;
+      this.rust.replace_sample_texture(entry.id,handle);
+      this.textures.delete(previous);
+      this.textures.set(handle,entry.id);
+      this.textureSources[entry.id]=texture;
+      this.pendingTextureMap.delete(texture);
+      this.pendingTextures.splice(i--,1);
+      if(this.recording)this.recording.textures[entry.id]={handle,width:texture.image.width??0,height:texture.image.height??0};
+      entry.pixel.dispose();
+      this.stale=true;
+    }
   }
 
   // Rust's program for three's (made once), or null when the renderer can't
@@ -589,7 +627,7 @@ export class RustRender {
   // values: more of the phase's values (ctx), for its passes and its call.
   phase(name, renderer, scene, camera, defer = false, walked = null, values = null) {
     if (this.contextLost) return;
-
+    if(this.pendingTextures.length)this.refreshTextures();
 
     const phase = PHASES[name], target = renderer.getRenderTarget();
     if (phase.view !== null) this.writeFrame(scene, camera, phase.view);

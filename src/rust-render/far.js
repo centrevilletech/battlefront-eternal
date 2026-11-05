@@ -2,7 +2,7 @@
 // Resources are compiled and registered before their first draw. Each camera
 // uses the same material programs and ordering as the scene describes.
 import * as THREE from "three";
-import { compileFor } from "./instances.js";
+import { compileFor, unbuilt } from "./instances.js";
 import { lighting } from "../materials.js";
 import { VIEW_FAR } from "./index.js";
 
@@ -224,7 +224,7 @@ class FarPass {
 
   // Its item for the material and program it has now, registered if it can be.
   find(object, material, groupOrder) {
-    if (material && !Array.isArray(material) && !this.core.renderer.properties.get(material).currentProgram) {
+    if (material && !Array.isArray(material) && unbuilt(this.core.renderer, material)) {
       const mesh = object.userData.patches ? object.children[0] : object;
       compileFor(this.core.renderer, [[mesh, material]], this.camera, this.scene);
     }

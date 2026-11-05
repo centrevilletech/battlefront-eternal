@@ -32,7 +32,7 @@ test('a rewritten program link error names the GPU and never caches a skipped pr
 test('an owned program link error uses the same required-renderer failure path', () => {
   const { core } = fixture('add_owned_program');
   const material = new THREE.ShaderMaterial();material.userData.bfeProgram = 'post-hud/copy';
-  assert.throws(() => ownedProgram(core, material, 'position:0,uv:1'), /Fixture GPU: fixture link rejected/);
+  assert.throws(() => ownedProgram(core, 'post-hud/copy', 'position:0,uv:1'), /Fixture GPU: post-hud\/copy:.*fixture link rejected/);
   assert.equal(core.ownedPrograms.has('post-hud/copy'), false);
 });
 

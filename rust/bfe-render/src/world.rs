@@ -45,6 +45,10 @@ pub struct WorldPass<C: HasContext> {
 }
 
 impl<C: HasContext> WorldPass<C> {
+    pub fn replace_texture(&mut self, old: C::Texture, new: C::Texture) {
+        for world in &mut self.world { for (_, texture) in &mut world.textures { if *texture == old { *texture = new; } } }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> WorldPass<C> {
         WorldPass { world: vec![], order: vec![], by_program: true }
     }

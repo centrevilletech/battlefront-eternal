@@ -33,14 +33,16 @@ export function writeSettings(settings) {
 }
 
 // Object UUID allocation changes when dead render helpers are deleted. Keep
-// that stream separate from procedural foliage/effect randomness, in both
+// that stream and audio scheduling separate from procedural visual randomness, in both
 // the page and its workers. Capture builds retain names (minify: false).
-export const SEED_SRC = `let seed = 0x9e3779b9, uuidSeed = 0x12345678;
-  globalThis.__gateRandom = {uuidCalls:0,valueCalls:0};
+export const SEED_SRC = `let seed = 0x9e3779b9, uuidSeed = 0x12345678, audioSeed = 0x6a09e667;
+  globalThis.__gateRandom = {uuidCalls:0,audioCalls:0,valueCalls:0};
   Math.random = () => {
-    const uuid = new Error().stack.includes('at generateUUID ');
-    if(uuid)__gateRandom.uuidCalls++;else __gateRandom.valueCalls++;
-    let t = uuid ? (uuidSeed = (uuidSeed + 0x6d2b79f5) | 0) : (seed = (seed + 0x6d2b79f5) | 0);
+    const stack = new Error().stack;
+    const uuid = stack.includes('at generateUUID ');
+    const audio = /(?:AudioEngine|AudioPanel|Voice|LayeredHandle|ParameterizedHandle)[0-9]*[ .]|at (?:pickSample|rollGain|rollPitch|gate)[0-9]*[ (]/.test(stack);
+    if(uuid)__gateRandom.uuidCalls++;else if(audio)__gateRandom.audioCalls++;else __gateRandom.valueCalls++;
+    let t = uuid ? (uuidSeed = (uuidSeed + 0x6d2b79f5) | 0) : audio ? (audioSeed = (audioSeed + 0x6d2b79f5) | 0) : (seed = (seed + 0x6d2b79f5) | 0);
     t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };`;

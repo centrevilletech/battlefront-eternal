@@ -165,7 +165,21 @@ try {
     await Promise.all(pages.map(page=>page.evaluate(()=>{__bf.graphics.render=()=>{};__bf.graphics.renderer.render=()=>{};})));
     console.log('CPU client functionality mode: scene loaded; GPU warmup/draw disabled, controls/prediction/presentation/server unchanged.');
   }
-  if(process.env.BFE_TEST_FULL_MATCH==='1'){
+  if(process.env.BFE_TEST_RENDERER_ONLY==='1'){
+    assert.notEqual(process.env.BFE_TEST_CPU,'1','renderer gate requires real draws');
+    const {drawnFrame}=await import('./multiplayer-mounted-gate.mjs');
+    for(let i=0;i<pages.length;i++){
+      const page=pages[i];await page.bringToFront();
+      await page.evaluate(()=>{__bf.controls.locked=true;if(__bf.menu.isOpen)__bf.menu.close(true);});
+      await drawnFrame(page,`client-${i}-before-input`);
+      const before=await page.evaluate(()=>({frame:__bf.graphics.frameCount,tick:__bf.worldClock.tick}));
+      await page.keyboard.down('w');await page.mouse.down();
+      try {await drawnFrame(page,`client-${i}-input`);}finally{await page.mouse.up();await page.keyboard.up('w');}
+      const after=await page.evaluate(()=>({frame:__bf.graphics.frameCount,tick:__bf.worldClock.tick}));
+      assert.ok(after.frame>before.frame&&after.tick>before.tick,'multiplayer authority and Rust frames advance together');
+    }
+    assert.deepEqual(errors,[]);
+  } else if(process.env.BFE_TEST_FULL_MATCH==='1'){
     const { theedMatchGate } = await import('./multiplayer-theed-match.mjs');
     await theedMatchGate(pages, info, errors);
     assert.deepEqual(errors, []);

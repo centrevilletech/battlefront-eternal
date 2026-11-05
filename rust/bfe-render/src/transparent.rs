@@ -304,6 +304,11 @@ pub struct TransparentPass<C: HasContext> {
 }
 
 impl<C: HasContext> TransparentPass<C> {
+    pub fn replace_texture(&mut self, old: C::Texture, new: C::Texture) {
+        for bucket in &mut self.buckets { for (_, texture) in &mut bucket.textures { if *texture == old { *texture = new; } } }
+        for object in &mut self.things { if object.texture == Some(old) { object.texture = Some(new); } }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> TransparentPass<C> {
         TransparentPass {
             list: List::default(), keys: vec![0.0; MAX_THREE * KEY_STRIDE], objects: vec![0.0; 1 + MAX_OBJECTS * OBJ_STRIDE],

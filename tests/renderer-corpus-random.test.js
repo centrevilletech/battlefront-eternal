@@ -11,3 +11,9 @@ test('procedural capture randomness is independent of object UUID allocations', 
  assert.equal(b.stats.uuidCalls,80);
  assert.equal(a.stats.valueCalls,3);
 });
+
+test('wall-clock audio callbacks cannot advance the visual capture stream', () => {
+ const capture=extra=>vm.runInNewContext(`${SEED_SRC}\nclass AudioEngine {playLayered(){return Math.random();}}\nconst audio=new AudioEngine();for(let i=0;i<${extra};i++)audio.playLayered();\nJSON.stringify({values:[Math.random(),Math.random()],stats:__gateRandom});`);
+ const a=JSON.parse(capture(1)),b=JSON.parse(capture(100));
+ assert.deepEqual(a.values,b.values);assert.equal(a.stats.audioCalls,1);assert.equal(b.stats.audioCalls,100);
+});

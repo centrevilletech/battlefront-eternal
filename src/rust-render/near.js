@@ -69,8 +69,6 @@ export class NearPass {
       this.items.length = 0;
       this.stopped = null;
       if (!this.walk(scene, camera, 0) || !this.writeImage(program, camera)) { this.left++; return left(); }
-      // three's render list of the scene: empty, as three listed nothing.
-      renderer.renderLists.get(scene, 0).init();
       renderer.info.render.frame++;
       if (renderer.info.autoReset) renderer.info.reset();
       core.phase("begin", renderer, scene, camera, true);

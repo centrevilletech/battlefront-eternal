@@ -140,7 +140,7 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
     const p = core.renderer.properties.get(value);
     // An image three would upload as it draws.
     if (!value.isRenderTargetTexture && value.version > 0 && p.__version !== value.version && value.image) core.renderer.initTexture(value);
-    out[o + 2] = p.__webglTexture ? core.texture(value) : -1;
+    out[o + 2] = core.texture(value);
     return true;
   }
   if (typeof value === "number") { out[o + 2] = value; return true; }

@@ -151,6 +151,10 @@ fn float(v: f32) -> Value {
 }
 
 impl<C: HasContext> FoliagePass<C> {
+    pub fn replace_texture(&mut self, old: C::Texture, new: C::Texture) {
+        for class in &mut self.classes { if class.texture == old { class.texture = new; } }
+    }
+
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> FoliagePass<C> {
         FoliagePass { classes: vec![], input: vec![0.0; INPUT_LEN], model_views: HashMap::new(), map_matrices: HashMap::new(), models: std::collections::HashSet::new() }
     }

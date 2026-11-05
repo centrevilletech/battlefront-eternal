@@ -1,7 +1,7 @@
 // Rust owns every first-person draw, including blended sights and muzzle flashes.
 // Three compiles the material programs; view.rs submits the ordered draws.
 import * as THREE from "three";
-import { compileFor } from "./instances.js";
+import { compileFor, unbuilt } from "./instances.js";
 import { plainProgram, writeUniform } from "./post.js";
 import { blendOf, programForSide, sidesOf, stateOf } from "./transparent.js";
 
@@ -76,9 +76,9 @@ class ViewPass {
 
   part(mesh, ctx, groupOrder) {
     let record = this.parts.get(mesh);
-    if (record === undefined || record && mesh.material !== record.material) {
+    if (record === undefined || record && (mesh.material !== record.material || record.version !== mesh.material.version)) {
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      if (materials.some(m => !this.core.renderer.properties.get(m).currentProgram)) compileFor(this.core.renderer, [[mesh, mesh.material]], ctx.camera, ctx.scene);
+      if (unbuilt(this.core.renderer, materials)) compileFor(this.core.renderer, [[mesh, mesh.material]], ctx.camera, ctx.scene);
       record = this.registerPart(mesh);
     }
     if (record && mesh.material === record.material) {
@@ -88,7 +88,7 @@ class ViewPass {
       }
       else if (record.blended) this.blend(record, groupOrder);
       else this.write(record, ctx);
-    } else if (record) { mesh.material.visible = true; this.complete = false; }
+    } else if (record) this.core.fail(new Error("Cannot register changed view material"));
     else if ([].concat(mesh.material).some((m) => m?.visible)) { this.complete = false; this.stopped = mesh; }
   }
 
@@ -117,7 +117,7 @@ class ViewPass {
       if (geometry !== null && geometry !== undefined && texture >= 0) {
         if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-        record = { mesh, material, program: program.id, geometry, texture, lamps: program.lamps };
+        record = { version: material.version, mesh, material, program: program.id, geometry, texture, lamps: program.lamps };
         material.visible = false;
         this.records.push(record);
       }
@@ -144,7 +144,7 @@ class ViewPass {
       const g = core.geometry(geometry, { id: program.id, attributes: program.attributes });
       if (g !== null && g !== undefined) {
         if (!geometry.boundingSphere) geometry.computeBoundingSphere();
-        record = { blended: true, mesh, material, program, geometry: g, blend, state, sides };
+        record = { version: material.version, blended: true, mesh, material, program, geometry: g, blend, state, sides };
         material.visible = false;
         this.records.push(record);
       }
@@ -170,7 +170,7 @@ class ViewPass {
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
     const blend = core.rust.inst_add_blend(new Uint32Array(how), state.flags & ~4, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
-    const record = { mesh, material, program: programs[programs.length - 1].id, geometry, texture, lamps: programs.some((p) => p.lamps), rigid: true, blend: how, blendId: blend, k: -1 };
+    const record = { version: material.version, mesh, material, program: programs[programs.length - 1].id, geometry, texture, lamps: programs.some((p) => p.lamps), rigid: true, blend: how, blendId: blend, k: -1 };
     material.visible = false;
     this.records.push(record);
     return record;

@@ -1,7 +1,7 @@
 # Renderer smoke check
 
 `node tools/renderer-smoke.mjs warp` runs the committed Rust renderer WASM
-and three.js in Electron on Windows, requesting ANGLE D3D11 WARP. It fails
+in Electron on Windows, requesting ANGLE D3D11 WARP. It fails
 if the unmasked renderer does not identify Microsoft software D3D11. No
 prepared game directory, downloads of game content, or game loader are used.
 The workflow-dispatch-only `renderer-smoke` job in CI uses GitHub-hosted
@@ -16,11 +16,13 @@ this isolated test process.
 Each backend runs with WEBGL_multi_draw, then with that extension hidden to
 exercise the repeated-draw fallback. A successful run requires:
 
-- Every compiled program links, every observed draw and frame is free of
+- Every declared post/HUD program links and draws; all other programs instantiated
+  by the fixture link. Every observed draw and frame is free of
   WebGL errors, and the required Rust renderer reports no errors.
 - All 15 Rust pass counters report actual draws: world, instances, far,
   terrain, transparent, effects, foliage, view, post, HUD, water, shadow,
-  motion, canopies and screen.
+  motion, canopies and screen. Both FXAA variants and bilinear, spatial and
+  temporal post passes execute. A repeated temporal sequence is pixel-exact.
 - The generated scene is visible, repeated Rust frames are stable, and the
   unlit HUD texture matches its known generated RGB colour. The motion target
   contains nonzero velocity and is stable across repeated Rust draws.
@@ -38,8 +40,7 @@ remain failures; the report can contain passing assertions alongside them.
 This checks the programs instantiated by these fixtures. It cannot enumerate
 every game material, shader define combination, effect, texture format or
 rendering configuration. The scene covers bump on/off, shadows, alpha
-blending, skinned and rigid instances, bloom and soft focus, but is not a
-qualification of all temporal-upscaling modes or game scenes. A renderer and its fixtures
+blending, skinned and rigid instances, bloom and soft focus, including settings changes, but does not qualify all game scenes. A renderer and its fixtures
 can share a shader bug: stable pixels alone cannot detect an
 unwanted texture fetch hoisted by a compiler. WARP exercises the Windows
 shader translation/compiler/runtime path, not physical GPU drivers, VRAM
