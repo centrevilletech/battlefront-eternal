@@ -7,7 +7,7 @@ import { SoldierPresentation } from '../src/soldier-presentation.js';
 import { PlayerCombat } from '../src/combat.js';
 import { Arsenal } from '../src/weapons.js';
 import { Unit } from '../src/units.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { EntityGameState } from '../src/runtime/network-entity-game.js';
 import { captureOwnPlayer } from '../src/runtime/network-entity-player.js';
 import {captureSpawnSummary} from '../src/runtime/network-entity-summary.js';

@@ -6,7 +6,7 @@ import { FixedClock } from '../src/runtime/fixed-clock.js';
 import { InputMailbox } from '../src/runtime/transport.js';
 import {captureCompactSoldier,restoreCompactSoldier} from '../src/runtime/network-entity-soldier-compact.js';
 import { Soldier } from '../src/soldier.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 
 test('server identity handover cannot continue the provisional body at the same generation and tick', () => {
   const world = new CollisionWorld(new Float32Array([-100,0,-100,100,0,-100,100,0,100,-100,0,100]), new Uint32Array([0,2,1,0,3,2]), new Uint32Array([0,1]));

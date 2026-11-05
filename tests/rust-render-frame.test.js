@@ -5,7 +5,7 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
-const { Bloom } = await import("../src/render-passes.js");
+const { Bloom, ownedFullScreenPass } = await import("../src/render-passes.js");
 const { Upscaler } = await import("../src/upscaler.js");
 
 import { GL, fakeProgram as program, standinModule, standinThree } from "./support/rust-standin.mjs";
@@ -175,32 +175,30 @@ test("the view scene: a part the renderer can't draw leaves three to render the 
   assert.equal(core.cover("view", renderer, viewScene, view), true);
   });
 
-test("the post steps: drawn by the renderer when every one is a pass it has a program for", () => {
+test("post uses declared Rust programs and initializes targets without a three draw", () => {
   const { core, calls, renderer, graphics, properties } = bridge();
-  const pass = (uniforms, values) => {
-    const material = new THREE.ShaderMaterial({ uniforms: values });
-    properties.get(material).currentProgram = program(uniforms);
-    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
-    return mesh;
-  };
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const postTarget = { width: 8, height: 4, texture: new THREE.Texture() };
-  const composite = pass([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["glow", GL.SAMPLER_2D], ["blend", GL.FLOAT]],
-    { map: { value: graphics.farTarget.texture }, glow: { value: null }, blend: { value: 0.3 } });
-  const fxaa = pass([["tDiffuse", GL.SAMPLER_2D], ["resolution", GL.FLOAT_VEC2]], { tDiffuse: { value: postTarget.texture }, resolution: { value: new THREE.Vector2(1 / 8, 1 / 4) } });
-  const steps = [{ pass: composite, target: postTarget, camera }, { pass: fxaa, target: null, camera }];
-  assert.equal(core.post(renderer, steps), true);
-  // add_program(kind, vs, fs, attributes, uniforms): plain programs, position and uv where post.rs's triangle has them.
-  assert.deepEqual(calls.filter((c) => c[0] === "add_program").map((c) => [c[1], c[4], c[5]]), [[3, "position:0,uv:1", "projectionMatrix,modelViewMatrix,map,glow,blend"], [3, "position:0,uv:1", "tDiffuse,resolution"]]);
-  assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 2]);
+  properties.get(postTarget.texture).__webglTexture = undefined;
+  renderer.initRenderTarget = (target) => { calls.push(["initRenderTarget", target]); properties.get(target.texture).__webglTexture = {}; };
+  const composite = ownedFullScreenPass("post-hud/composite", {
+    map: { value: graphics.farTarget.texture }, blurred: { value: null }, glow: { value: null },
+    blend: { value: .3 }, bloomStrength: { value: 0 }, speedBlur: { value: 0 }, speedTurn: { value: 0 },
+  });
+  const fxaa = ownedFullScreenPass("post-hud/fxaa", { tDiffuse: { value: postTarget.texture }, resolution: { value: new THREE.Vector2(1 / 8, 1 / 4) } });
+  assert.equal(core.post(renderer, [{ pass: composite, target: postTarget, camera }, { pass: fxaa, target: null, camera }]), true);
+  assert.deepEqual(calls.filter(c => c[0] === "add_owned_program").map(c => c[1]), ["post-hud/composite", "post-hud/fxaa"]);
+  assert.equal(calls.filter(c => c[0] === "add_program").length, 0);
+  assert.equal(calls.filter(c => c[0] === "initRenderTarget").length, 1);
   const input = core.postInput, step = 5 + 12 * 18;
-  assert.deepEqual([...input.subarray(0, 5)], [0, 0, 8, 4, 5], "program, target, its size, five uniforms");
-  assert.deepEqual([...input.subarray(5 + 3 * 18, 5 + 3 * 18 + 3)], [3, 32, -1], "a sampler of none: three's empty texture");
-  assert.deepEqual([...input.subarray(5 + 4 * 18, 5 + 4 * 18 + 3)].map((v) => +v.toFixed(3)), [4, 1, 0.3]);
-  assert.deepEqual([...input.subarray(step, step + 5)], [1, -1, 800, 600, 2], "the canvas: three's viewport in pixels");
-  assert.deepEqual([...input.subarray(step + 5 + 18, step + 5 + 18 + 4)], [1, 2, 0.125, 0.25]);
-  // A step only three can draw (one that draws itself): three draws them all.
-  assert.throws(() => core.post(renderer, [{ run: () => {} }, ...steps]), /Incomplete Rust/);
+
+  assert.deepEqual([...input.subarray(0, 5)], [0, 0, 8, 4, 7]);
+  assert.deepEqual([...input.subarray(5 + 2 * 18, 5 + 2 * 18 + 3)], [2, 32, -1]);
+  assert.deepEqual([...input.subarray(5 + 3 * 18, 5 + 3 * 18 + 3)], [3, 1, .3]);
+  assert.deepEqual([...input.subarray(step, step + 5)], [1, -1, 800, 600, 4]);
+  assert.deepEqual([...input.subarray(step + 5 + 3 * 18, step + 5 + 3 * 18 + 4)], [3, 2, .125, .25]);
+  assert.throws(() => core.post(renderer, [{ run: () => {} }]), /Incomplete Rust/);
+
 });
 
 test("the post steps' values: set on a step's material as it is written, bloom's blur drawn twice with other values", () => {

@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { droidekaWaterDepth, waterDamageRule, waterDamageStep } from '../src/vehicle-water.js';
 import { packWith } from '../tools/vehicle-packs.mjs';

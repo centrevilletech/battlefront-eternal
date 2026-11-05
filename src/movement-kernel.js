@@ -1,8 +1,7 @@
 // A soldier's movement (Soldier.tick, src/soldier.js) in WebAssembly: the
 // ray kernel's module (rust/sim/src/movement) runs the whole tick, the
 // collision pass included, against its own copies of the collision world,
-// with the same answers as the JavaScript to the last bit. ?movement=wasm
-// turns it on (it needs the ray kernel, which it loads); the world's ticks
+// with the same answers as the recorded reference. The world's ticks
 // (the world worker, a dedicated server) and the page's replay of its own
 // soldier then both run here, each with its own kernel.
 //
@@ -83,11 +82,10 @@ export class MovementKernel {
     return id;
   }
 
-  // Soldier.tick(input, dt) for soldier `s`; false leaves the tick to the
-  // JavaScript (a state the module does not know).
+  // Soldier.tick(input, dt) for soldier `s`; unsupported states are errors.
   tick(s, input, dt) {
     const posture = postureCode(s.posture), air = airCode(s.air), diveFrom = postureCode(s.diveFrom);
-    if (posture < 0 || air < 0 || diveFrom < 0) return false;
+    if (posture < 0 || air < 0 || diveFrom < 0) throw Error("Invalid soldier movement state");
     if (s.mover < 0) s.mover = this.add(s);
     this.prepare();
     const io = this.view();
@@ -108,7 +106,7 @@ export class MovementKernel {
     if (aimed && (aimed.x || aimed.y || aimed.z)) {
       io[JET_AIMED] = 1; io[JET_DIRECTION] = aimed.x; io[JET_DIRECTION + 1] = aimed.y; io[JET_DIRECTION + 2] = aimed.z;
     } else io[JET_AIMED] = 0;
-    if (this.x.mover_tick(s.mover) !== 0) return false;
+    if (this.x.mover_tick(s.mover) !== 0) throw Error("Soldier movement kernel rejected tick");
     const out = this.view();
     s.previous.copy(position);
     position.set(out[POSITION], out[POSITION + 1], out[POSITION + 2]);

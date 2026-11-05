@@ -1,52 +1,60 @@
 # Renderer program sources
 
 `rust/bfe-render/shaders/<family>/manifest.json` declares source-owned program
-variants. The `post-hud` family contains the stable full-screen and HUD shaders.
-Other draws still use the compiled-source bridge. Rust is required for all battle draws. Unavailable modules and rejected
-programs stop loading with the GPU name and original error.
+variants. The `post-hud` family owns twelve stable full-screen and battle HUD
+programs. The FXAA source license is retained in `shaders/post-hud/NOTICE`.
+Those passes register Rust source directly. They have no source switch,
+compiled-three-program bridge, or shader fallback. Registration errors throw a
+message naming the variant. Unported shader families still borrow three programs.
 
 Each variant has a unique `<family>/<name>` key, self-contained vertex and
 fragment bodies, explicit attribute locations, and named uniform slots with the
-renderer types (float/vector 1..4, integer/bool 5, mat3 9, mat4 16, sampler2D 32).
+renderer types (float/vector 1..4, integer/bool 5, mat3 9, mat4 16, sampler2D 32,
+sampler3D 33).
 Order in the uniform object defines slot order. Include every active input;
 inactive declared inputs may remain. The linker validates active uniforms and
 attribute locations against the declaration. Unknown keys, incompatible layouts
-and link failures are refused, never mapped to another variant.
+and link failures are errors.
 
-`programs::sources` emits GLSL ES 3.00 with explicit high precision and only the
+`programs::sources` emits GLSL ES 3.00 with explicit high precision and the
 compatibility vocabulary the bodies use. It injects no lighting, colour-space or
-tone-map chunks. Source and arithmetic belong to Rust. `node tools/render-shaders.mjs`
-emits `program_catalog.rs` and the browser's `render-shaders.js` fallback from the
-same manifests and files. `npm run rust:check` checks both outputs as well as the
-WASM. Do not edit generated files.
+tone-map chunks. Source and arithmetic belong to Rust. Run
+`node tools/render-shaders.mjs` to regenerate `program_catalog.rs` and the
+browser's `render-programs.js` layout/hash metadata. The latter contains no shader
+bodies. `npm run rust:check` checks generated outputs and WASM. Do not edit them.
 
 `BfeRenderer.add_owned_program(key)` compiles and validates the declared variant
 and returns a context-local program ID. Repeated registration returns the same
-ID. `ownedProgram(core, material, attributes)` registers materials tagged with
-`material.userData.bfeProgram`, returning the existing `{id, uniforms, attributes}`
-contract to passes. `ownedFullScreenPass(key, uniforms)` creates the transitional
-three material with the same source. Registration no longer requires three to
-have drawn the material first. `core.shaderPrograms` reports the key, source and
-layout SHA-256, registration duration and acceptance. The developer-only
-`?rustShaderBridge` or `core.ownedShaderSources = false` selects the compiled-source bridge for A/B
-checks; it is not a player setting.
+ID. `ownedProgram(core, key, attributes)` returns `{id, uniforms, attributes}`
+to passes. `ownedFullScreenPass(key, uniforms)` creates a three Material carrying
+uniform values and the key, without browser shader source. Registration requires
+no prior three draw. `core.shaderPrograms` records key, source/layout SHA-256 and
+registration duration. Post targets are explicitly initialized before adoption.
 
-Independent shader families add their own directory and manifest. Suggested
-namespaces are `world`, `actors` and `effects`; keep world/terrain/foliage,
-actor lighting/shadows, and effects/water/sky in their respective directories.
-Regenerate both catalogs after merging. No shared numeric program-kind or pass
-allocation is needed for source keys. Families needing instance/frame/shadow
-rewrites must extend the source descriptor and compiler explicitly before
-registration; the current descriptor deliberately supports only Plain programs.
-Do not silently feed an instanced shader through the Plain contract.
+The shared interface Batch also serves menu surfaces, the spawn holomap and HUD
+pointer/overlay draws outside the battle HUD phase. Those real consumers still
+need three's quad material. `interface/batch-shaders.js` is generated from the
+canonical HUD bodies for them; it cannot select or replace the battle HUD program.
+Remove it when those interface draws acquire their own Rust phase.
 
-Frame and resource contracts stay those of `core.rs`, `post.rs`, `hud.rs` and the
-existing pass bindings: numeric context-local program/geometry/texture handles,
-f64 phase inputs, the five view blocks, and the existing BfeFrame/BfeShadow
-layouts. This change does not change draw order, texture ownership, target
-resolve rules or temporal commits. Future frame/resource schema changes must be
-versioned independently of shader keys. Context restoration recreates GPU programs and buffers from the Rust resource
-journal while keeping logical handles stable. Three reuploads its textures.
+# Parallel shader families
+
+Add a separate `shaders/<family>/manifest.json` and source files. Suggested
+namespaces are `world` (world/terrain/foliage), `actors` (actor lighting/shadows),
+and `effects` (effects/water/sky). Use stable string keys, not numeric allocations.
+The generator discovers family directories, validates uniqueness and emits a
+sorted catalog. Regenerate after merging; do not merge generated output by hand.
+A manifest row declares `vertex`, `fragment`, `attributes` pairs and `uniforms`.
+Use the post-hud manifest as the concrete schema example.
+
+Registration currently accepts only Plain programs. Families needing instance,
+frame or shadow source rewrites must extend the descriptor/compiler explicitly;
+do not route instanced programs through Plain. Shader registration does not alter
+`core.rs`, `post.rs` or `hud.rs` phase records: context-local resource handles,
+f64 phase inputs, five view blocks and BfeFrame/BfeShadow layouts remain their
+own contracts. Version resource/schema changes independently of source keys.
+Caches belong to one GPU context and must be discarded with it. Context lifecycle
+and renderer-wide error policy belong to the renderer lifecycle packet.
 
 # Reusable pixel corpus
 
@@ -84,12 +92,43 @@ also require exact RGB pixels, dimensions and ticks. There is no per-count or
 noise-envelope allowance. Raw captures stay outside the repository and should
 be removed after recording results.
 
-`tools/renderer-corpus/load.mjs` uses the same loader and case settings for
-local load diagnostics. Set `BFE_SHADER_BRIDGE=1` for the old compiled-source
-path. It records GL compile/link/status/reflection and initial draw API calls,
-source submissions versus unique source texts, long tasks, preparation and ready
-times, and per-program registration durations. `BFE_SHADER_CACHE_PROBE=1` additionally
-registers all declared variants and repeats each registration after loading,
-recording context-local ID reuse separately from startup work. Use fresh applications in
-interleaved rounds; record whether driver caches were retained. It deliberately
-does not run through the farm performance gate.
+
+# Compilation and caches
+
+Owned source removes the dependency on three's first draw and exposes the finite
+variants before drawing. It permits loading-screen prewarming, paced work and
+content-addressed source/layout caches. Covered post draws now have no three
+shader material to compile. The main HUD registers Rust directly; unrelated UI
+quad consumers still compile their material. Unported families retain their
+preparation work, so source ownership alone does not remove the long loading task.
+
+The current cache avoids repeated linking in one context. In an earlier warm
+GPU-driver diagnostic, first registration of all twelve variants took 121.970 ms
+and repeating the keys took 0.165 ms, returning the same IDs. In fresh default-path
+applications, registering ten unused variants with two already cached took
+2.925–5.941 seconds; repeating all twelve took 0.075–0.145 ms. Driver-cache state
+and queued status waits matter. Neither probe measures persistent binary reuse.
+
+Local interleaved frozen-reference/candidate/candidate/reference load diagnostics
+used Classic settings, draws enabled, 1600x900, three preparation draws, twelve
+seconds of simulation warmup and retained driver caches. Reference preparation
+was 144.014/153.056 s; candidate was 128.816/151.910 s. Both linked 134 programs.
+Worst main-thread tasks were 86.817/104.908 s versus 81.682/96.096 s. These
+software-GPU rounds do not establish a startup improvement or reproduce the
+reported 24-second loading configuration. No laptop speedup is claimed.
+Compile/link API calls queued work in 2.4–4.2 ms; combined shader/program status
+waits took 77.684–97.170 s. Owning source permits earlier or paced compilation,
+but the remaining driver waits still need that scheduling work.
+
+A persistent cache needs source/schema hashes, variant flags, backend and GPU/driver
+identity. WebGL offers no portable program-binary persistence; browser/ANGLE disk
+caches are opportunistic. Native binaries require fingerprint validation and
+recompilation from the owned Rust source when invalid. Ownership cannot eliminate
+first-driver compilation or ANGLE translation.
+
+`tools/renderer-corpus/load.mjs` records compile/link/status/reflection calls,
+source submissions, long tasks, preparation/ready times and registration durations
+on the default path. `BFE_SHADER_CACHE_PROBE=1` repeats all registered keys to
+measure context-local ID reuse separately. Compare fresh applications against a
+frozen reference in interleaved local rounds, recording driver-cache state. Farm
+timings are correctness diagnostics, not slow-PC performance measurements.

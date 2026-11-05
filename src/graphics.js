@@ -2,7 +2,6 @@ import { requireRustDraws } from "./rust-render/draw-guard.js";
 import { requireLinkedPrograms } from "./rust-render/failure.js";
 import { loadRustRenderer } from "./rust-render/load.js";
 import * as THREE from "three";
-import { FXAAFastShader, FXAAShader } from "./fxaa.js";
 import { Bloom, applyValues, fullScreenPass, ownedFullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
 import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
@@ -275,7 +274,7 @@ export class Graphics {
     this.outputSize = new THREE.Vector2(1, 1);
     this.renderScale = 1;
     this.upscaling = "off";
-    this.fxaa = ownedFullScreenPass("post-hud/fxaa", THREE.UniformsUtils.clone(FXAAShader.uniforms));
+    this.fxaa = ownedFullScreenPass("post-hud/fxaa", { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1 / 1024, 1 / 512) } });
     this.fxaa.material.uniforms.tDiffuse.value = this.postTarget.texture;
     // Made when first used (fastFxaa): three's objects draw their IDs from
     // Math.random, and seeded layouts (flower beds) follow the draws.
@@ -1030,10 +1029,10 @@ export class Graphics {
 
   // One post step drawn by three, its values set first.
 
-  // FXAA (FAST)'s pass (fxaa.js), at the 3D frame's resolution.
+  // The owned fast FXAA pass, at the 3D frame's resolution.
   fastFxaa() {
     if (!this.fxaaFast) {
-      this.fxaaFast = ownedFullScreenPass("post-hud/fxaa-fast", THREE.UniformsUtils.clone(FXAAFastShader.uniforms));
+      this.fxaaFast = ownedFullScreenPass("post-hud/fxaa-fast", { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1 / 1024, 1 / 512) } });
       this.fxaaFast.material.uniforms.resolution.value.copy(this.fxaa.material.uniforms.resolution.value);
     }
     return this.fxaaFast;

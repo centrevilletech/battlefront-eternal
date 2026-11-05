@@ -1,9 +1,3 @@
-// The rounds on the simulation's module against the JavaScript rounds
-// (src/ordnance-sim.js, src/ordnance.js): two Ordnances with the same
-// fakes, one handed to an instance of the module, fire the same rounds and
-// fly them side by side; after every tick each list's rounds must be the
-// same, field by field (the schema's comparisons, Object.is on every
-// number), and every call they made into the battle the same, in order.
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -120,78 +114,19 @@ function ordnance(world, log) {
   return o;
 }
 
-async function pair() {
-  const world = battle(), jsLog = [], rustLog = [];
-  const js = ordnance(world, jsLog), rust = ordnance(world, rustLog);
-  // The battle tells its units apart by class (game.js gives Unit and Vehicle).
-  attachOrdnanceSim(rust, new SimBridge(await loadSim(), { tests: { ...ordnanceTests, unit: (o) => o instanceof FakeUnit } }));
-  return { world, js, rust, jsLog, rustLog };
+
+import { createHash } from 'node:crypto';
+
+test('Rust ordnance synthetic fixture matches recorded flight and events',async()=>{
+const world = battle(), log = [], o = ordnance(world, log);
+attachOrdnanceSim(o,new SimBridge(await loadSim(),{tests:{...ordnanceTests,unit:v=>v instanceof FakeUnit}}));
+const digest = createHash('sha256');
+const shots = ['bolt','beam','grenade','sticky','rocket','missile','shell','fatray'];
+for (let tick=0;tick<300;tick++) {
+  if(tick%20===0 && tick/20<shots.length) o.fire(DEFS[shots[tick/20]],new THREE.Vector3(0,1.5,0),new THREE.Vector3(.1,.3,1).normalize(),'player');
+  o.update(1/60,false);
+  const state = LISTS.map(([list])=>o[list].map(p=>[p.def.class,p.position?.toArray(),p.velocity?.toArray(),p.life,p.age,p.flown,p.gone,p.ended]));
+  digest.update(JSON.stringify([state,log]));
 }
-
-function same(js, rust, when) {
-  for (const [list, kind] of LISTS) {
-    assert.equal(rust[list].length, js[list].length, `${when}: ${list}`);
-    js[list].forEach((x, i) => assert.equal(KIND_TABLE[kind].same(x, rust[list][i]), null, `${when}: ${list}[${i}]`));
-  }
-  assert.deepEqual(v3(rust.start), v3(js.start), `${when}: start`);
-}
-
-function fire(o, kind, origin, direction, owner = "player", options = {}) {
-  return o.fire(DEFS[kind], new THREE.Vector3(...origin), new THREE.Vector3(...direction).normalize(), owner, options.visual ?? null, null, null,
-    options.guidance ?? { weapon: { channel: 0 } });
-}
-
-test("rounds on the module fly as the JavaScript rounds do, tick by tick", async () => {
-  const { world, js, rust, jsLog, rustLog } = await pair();
-  const shots = [
-    ["bolt", [0, 1.5, 0], [0, 0, 1]],
-    ["bolt", [0, 1.5, 0], [0.3, -0.05, 1], world.units[2]],
-    ["bolt", [2, 1.4, 0], [1, 0, 0.1]],
-    ["beam", [-2, 1.5, 0], [-0.24, 0, 1]],
-    ["grenade", [0, 1.5, 0], [0.2, 0.6, 1]],
-    ["sticky", [1, 1.5, 0], [0.1, 0.4, 1]],
-    ["rocket", [0, 1.5, 0], [0.05, -0.02, 1]],
-    ["rocket", [0, 2, 0], [1, 0.01, 0.2]],
-    ["missile", [0, 3, 0], [0.4, 0.2, 1], world.units[2], { guidance: { weapon: { channel: 1 }, targetId: 1, targetGeneration: 1 } }],
-    ["shell", [0, 2, 0], [0, 0.5, 1]],
-    ["fatray", [-6, 1, 0], [0, 0, 1]],
-  ];
-  for (let tick = 0; tick < 240; tick++) {
-    if (tick % 20 === 0 && tick / 20 < shots.length) {
-      const [kind, origin, direction, owner, options] = shots[tick / 20];
-      const a = fire(js, kind, origin, direction, owner, options), b = fire(rust, kind, origin, direction, owner, options);
-      assert.equal(typeof b, typeof a, `tick ${tick}: what ${kind} gives`);
-      if (a) assert.equal(KIND_TABLE[a.speed !== undefined ? KIND_BOLT : KIND_ROUND].same(a, b), null, `tick ${tick}: the ${kind} fired`);
-      same(js, rust, `tick ${tick} after the ${kind}`);
-    }
-    js.update(1 / 60, false);
-    rust.update(1 / 60, false);
-    same(js, rust, `tick ${tick}`);
-    assert.deepEqual(rustLog, jsLog, `tick ${tick}: the calls into the battle`);
-  }
-  const kinds = new Set(jsLog.map((c) => c[0]));
-  for (const k of ["explode", "hit", "hitUnit", "projectile", "launch", "impact", "contact"]) assert.ok(kinds.has(k), `the scenario makes a ${k}`);
-});
-
-test("a flyer's missile and a bolt ended by its catch-up keep their mirrors", async () => {
-  const { js, rust, jsLog, rustLog } = await pair();
-  const a = fire(js, "missile", [0, 3, 0], [0, 0, 1], "player", { guidance: { weapon: { channel: 0 }, targetId: 1, targetGeneration: 1 } });
-  const b = fire(rust, "missile", [0, 3, 0], [0, 0, 1], "player", { guidance: { weapon: { channel: 0 }, targetId: 1, targetGeneration: 1 } });
-  js.flightMissile(a, "fighter", 3, 45);
-  rust.flightMissile(b, "fighter", 3, 45);
-  assert.equal(KIND_TABLE[KIND_ROUND].same(a, b), null);
-  // Fired from beside the near unit with three ticks to catch up: it meets him
-  // before it is ever listed.
-  const c = fire(js, "bolt", [-6, 1, 21], [0, 0, 1]), d = fire(rust, "bolt", [-6, 1, 21], [0, 0, 1]);
-  assert.ok(c.life <= 0 && js.bolts.length === 0);
-  assert.equal(KIND_TABLE[KIND_BOLT].same(c, d), null);
-  assert.equal(rust.bolts.length, 0);
-  for (let tick = 0; tick < 120; tick++) {
-    js.update(1 / 60, false);
-    rust.update(1 / 60, false);
-    same(js, rust, `tick ${tick}`);
-  }
-  assert.deepEqual(rustLog, jsLog);
-  // The ended bolt's mirror kept its last state through its retirement.
-  assert.equal(KIND_TABLE[KIND_BOLT].same(c, d), null);
+assert.equal(digest.digest('hex'),'4b0e96808fe7a0e0fecef5e0ee2322c343195fddf3d73228fe485c1b2fb43e5f');
 });

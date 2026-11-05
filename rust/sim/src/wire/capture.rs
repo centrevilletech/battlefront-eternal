@@ -9,11 +9,13 @@ type Result<T> = std::result::Result<T, String>;
 fn string(strings: &Strings, id: StrId) -> String {
     String::from_utf16_lossy(strings.units(id))
 }
+// The wire holds 16 bits of health. Darth Vader has 1,000,000, so a record says
+// as much as it can hold; the world keeps the true figure.
 fn health(value: f64) -> Result<f64> {
-    if !value.is_finite() || value > 65535. {
-        return Err("entity health outside uint16 representation".into());
+    if !value.is_finite() {
+        return Err("entity health is not a number".into());
     }
-    Ok(js_round(js_max(0., value)))
+    Ok(js_round(js_min(65535., js_max(0., value))))
 }
 fn enumerate(names: &[&str], name: &str) -> Result<f64> {
     names

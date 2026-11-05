@@ -164,7 +164,7 @@ test('the alert stance a charge holds comes in as after a shot and stays while i
 
 test("own charge correction preserves exact shared weapon continuation", async () => {
   const { Soldier } = await import('../src/soldier.js');
-  const { CollisionWorld } = await import('../src/collision.js');
+  const { CollisionWorld } = await import('../tools/collision-fixture.mjs');
   const { captureOwnPlayer, applyOwnPlayer } = await import('../src/runtime/network-entity-player.js');
   const { captureWeaponState } = await import('../src/runtime/network-weapon-state.js');
   const registry = { contentEpoch: 42, classes: new Map([[1, 'wookiee']]), weapons: new Map([[1, 'all_weap_inf_bowcaster'], [2, 'rifle']]), inputCodes: ['Mouse0'], bindingProfiles: new Map([[0, {}]]) };

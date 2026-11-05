@@ -1,4 +1,3 @@
-import { shaderSources } from "./render-shaders.js";
 import * as THREE from "three";
 
 // One oversized triangle avoids a diagonal seam and redundant fragment quads.
@@ -67,10 +66,15 @@ export class Bloom {
   }
 }
 
-// Rust owns the source; three uses the same text when it draws a fallback.
+// The frame planner still uses a mesh and uniform values. Its program exists
+// only in Rust; no ShaderMaterial or browser GLSL is made for an owned pass.
 export function ownedFullScreenPass(key, uniforms) {
-  const source = shaderSources[key];
-  const pass = fullScreenPass(source.fragment, uniforms, source.vertex);
-  pass.material.userData.bfeProgram = key;
+  const material = new THREE.Material();
+  material.uniforms = uniforms;
+  material.depthTest = material.depthWrite = false;
+  material.blending = THREE.NoBlending;
+  material.userData.bfeProgram = key;
+  const pass = new THREE.Mesh(triangle, material);
+  pass.frustumCulled = false;
   return pass;
 }

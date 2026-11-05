@@ -159,7 +159,7 @@ export class RustRender {
     this.farTexture = null;
     this.phaseStats = {};
     this.phaseMs = {};
-    this.ownedShaderSources = !new URLSearchParams(location.search).has("rustShaderBridge");
+
     this.errors = [];
     // The cascades' maps last given to the renderer.
     this.shadowMaps = "";

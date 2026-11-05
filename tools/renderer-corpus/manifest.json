@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "captures": 4,
   "gap": 30,
   "historyFrames": 4,
@@ -599,15 +599,6 @@
         "antialiasing": "fxaa-fast",
         "upscaler": "bilinear"
       }
-    },
-    {
-      "id": "context-loss-nab2",
-      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
-      "tags": [
-        "context-loss"
-      ],
-      "contextLoss": true,
-      "preset": "high"
     }
   ],
   "presets": {
@@ -806,5 +797,6 @@
     "post-hud/fxaa-fast",
     "post-hud/hud"
   ],
-  "settleFrames": 2
+  "settleFrames": 2,
+  "contextLossOwner": "renderer lifecycle gate"
 }

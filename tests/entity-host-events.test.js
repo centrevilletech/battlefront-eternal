@@ -10,7 +10,7 @@ import {InputActions} from '../src/runtime/input-actions.js';
 import {FireCommands} from '../src/runtime/fire-commands.js';
 import {Vector3} from 'three';
 import {Soldier} from '../src/soldier.js';
-import {CollisionWorld} from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import {PlayerCombat} from '../src/combat.js';
 import {Arsenal} from '../src/weapons.js';
 

@@ -2,7 +2,8 @@
 // uploaded to its persistent buffers; switching batches requires a full upload.
 // Three retains texture and material ownership for the interface batch.
 import * as THREE from "three";
-import { plainProgram, writeUniform } from "./post.js";
+import { writeUniform } from "./post.js";
+import { ownedProgram } from "./programs.js";
 
 const ATTRIBUTES = "position:0,uv:1,maskUv:2,tint:3";
 // hud.rs's layout.
@@ -47,13 +48,7 @@ class HudPass {
     const batch = hud.batch;
     if (batch.count === 0) return true;
     if (this.batch !== batch) { this.full = true; this.batch = batch; }
-    // One program for every material of the batch (batch.js makes them all
-    // from the same shaders): the first one three has made.
-    if (this.ownedSources !== (core.ownedShaderSources !== false)) { this.program = null; this.ownedSources = core.ownedShaderSources !== false; }
-    if (!this.program) {
-      for (const material of batch.mesh.material) { const p = plainProgram(core, material, ATTRIBUTES); if (p !== undefined) { this.program = p; break; } }
-      if (!this.program) { this.why = "no program for a nonempty batch"; return false; }
-    }
+    this.program ||= ownedProgram(core, "post-hud/hud", ATTRIBUTES);
     if (!this.init) {
       core.rust.hud_init(batch.geometry.index.array);
       for (const [, view, , binding] of ARRAYS) core.addView(view, Float32Array, () => core.rust[`${binding}_ptr`](), () => core.rust[`${binding}_len`]());

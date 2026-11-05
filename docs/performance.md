@@ -1,5 +1,8 @@
 # World CPU performance
 
+
+Collision queries, soldier movement, world rounds and items require the Rust simulation module on the page, local world worker and dedicated server. Module failures stop startup or the query. The former `sim`, `rays` and `movement` query parameters and `BFE_SIM` / `BFE_RAYS` environment controls have been removed. Historical measurements below describe the builds measured at the time; compare current builds against recorded fingerprints with `world-hash-matrix.mjs --against`, rather than selecting an old implementation at runtime.
+
 The engine pass profiles actual Theed and Bespin scenes before choosing changes.
 The initial 1,080-frame walking runs, with drawing disabled, put Theed foliage
 at 1,844 ms and collision raycasts at 564 ms. Bespin spent 407 ms in raycasts.

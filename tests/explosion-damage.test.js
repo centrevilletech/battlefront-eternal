@@ -1,12 +1,13 @@
+import { KIND_ITEM } from '../src/sim/gen/index.js';
+import { rustItems } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Soldier } from '../src/soldier.js';
 import { PlayerCombat } from '../src/combat.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { LiveObjects } from '../src/props.js';
-import { Items } from '../src/items.js';
 import { RemoteDroids } from '../src/remote.js';
 import { blastDistance, blastDamage, blastBlocked, healthScale } from '../src/ordnance.js';
 
@@ -131,11 +132,12 @@ test('a building is measured from its model\'s bounding sphere and shielded by a
 });
 
 test('a mine is reached only once it has landed; a recon droid takes DroidScale and the push', () => {
-  const items = new Items({ scene: new THREE.Scene(), collision: { cast: () => null }, effects: {}, lights: { add() {} }, model: () => null, explode() {} });
+  const items = rustItems({ scene: new THREE.Scene(), collision: { cast: () => null }, effects: {}, lights: { add() {} }, model: () => null, explode() {} });
   const mine = items.spawn({ base: 'mine', MaxHealth: 200 }, new THREE.Vector3(1, 0.1, 0), new THREE.Vector3(), 0);
   items.blast(ROCKET, new THREE.Vector3(0, 0.1, 0));
   assert.equal(mine.health, 200, 'in flight');
   mine.landed = true;
+  items.sim.bridge.writeSome(KIND_ITEM, [mine], true);
   items.blast(ROCKET, new THREE.Vector3(0, 0.1, 0));
   assert.ok(mine.health < 200);
   const remotes = new RemoteDroids({ scene: new THREE.Scene(), camera: null, collision: world(), lights: null, model: () => null, explode() {}, fire() {} });

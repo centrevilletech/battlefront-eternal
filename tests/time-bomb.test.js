@@ -1,7 +1,7 @@
+import { rustItems } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Scene, Vector3, Object3D } from 'three';
-import { Items } from '../src/items.js';
 
 // The time bomb (the Wookiee smuggler's remote charge dispenser throws a
 // "mine" item with LifeSpan 5 and an ExplosionExpire): when its time runs
@@ -26,14 +26,14 @@ function fixture() {
     hit.distance = t; hit.point.copy(from).addScaledVector(dir, t); hit.normal.set(0, 1, 0);
     return hit;
   } };
-  const items = new Items({ scene: new Scene(), collision, effects: {}, lights: { add() {} }, model: () => () => new Object3D(),
+  const items = rustItems({ scene: new Scene(), collision, effects: {}, lights: { add() {} }, model: () => () => new Object3D(),
     explode: (explosion, position, owner) => blasts.push({ explosion, position: position.clone(), owner }) });
   return { items, blasts };
 }
 const run = (items, seconds) => { for (let i = 0; i < Math.round(seconds * 60); i++) items.update(DT, []); };
 
 test('a time bomb goes off with its ExplosionExpire when its LifeSpan runs out, its thrower credited', () => {
-  const { items, blasts } = fixture(), thrower = { team: 1, generation: 1 };
+  const { items, blasts } = fixture(), thrower = { id: 1, team: 1, generation: 1 };
   const bomb = items.dispense('dispenser', 3, BOMB, new Vector3(0, 1.5, 0), new Vector3(0, 0, 4), 0, thrower, 1);
   run(items, 4.9);
   assert.equal(blasts.length, 0, 'still ticking at 4.9 s');
@@ -70,7 +70,7 @@ test('items without an expiry explosion still just go away; a land mine has no t
 });
 
 test('a thrower over MaxItems loses his oldest bomb as a pop, not a blast', () => {
-  const { items, blasts } = fixture(), thrower = { team: 1, generation: 1 };
+  const { items, blasts } = fixture(), thrower = { id: 1, team: 1, generation: 1 };
   const first = items.dispense('dispenser', 1, BOMB, new Vector3(0, 0.2, 0), new Vector3(), 0, thrower, 1);
   items.dispense('dispenser', 1, BOMB, new Vector3(2, 0.2, 0), new Vector3(), 0, thrower, 1);
   assert.equal(first.gone, true);
