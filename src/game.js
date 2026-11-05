@@ -90,15 +90,13 @@ import { pageGpu } from "./gpu-info.js";
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
 // "textures" with how many of how many have arrived.
-// The battle's instance of the simulation's WebAssembly (src/sim/module.js),
-// which its kernels share, or null (JavaScript, which gives the same
-// answers) if it cannot load here.
+// The battle's shared simulation module. Page prediction requires it;
+// a load failure reaches the battle's error screen.
 async function loadSimInstance() {
   try {
     return await (await import("./sim/module.js")).loadSim();
   } catch (error) {
-    console.warn(`The simulation's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
-    return null;
+    throw new Error(`The Rust simulation module could not load: ${error?.message ?? error}`, { cause: error });
   }
 }
 
@@ -2852,7 +2850,7 @@ async function start() {
     if (playerUnit.seat && !combat.dead) {
       client.mountedWeapons ||= new MountedWeaponPrediction(predictionSession);
       client.mountedWeapons.predict(playerUnit, pending, worldClock.tick,
-        client.heldGeneration === playerUnit.generation ? client.held : [], client.replayView);
+        client.heldGeneration === playerUnit.generation ? client.held : []);
     }
     if (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held) {
       client.predictedTick = 0;

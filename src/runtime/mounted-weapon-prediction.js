@@ -12,7 +12,7 @@ export class MountedWeaponPrediction {
     this.tick = 0;
   }
   dispose() { this.restore(); }
-  predict(unit, pending, from, held, view) {
+  predict(unit, pending, from, held) {
     this.restore();
     const lease = unit?.seat;
     if (!lease || lease.released || !unit.alive || unit.combat?.dead) return from;
