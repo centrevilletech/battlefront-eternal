@@ -80,99 +80,158 @@ impl Fft {
     }
 }
 
-/// Uniform overlap-add partitions, one input channel into one output.
-/// The current block participates immediately, as ConvolverNode's direct
-/// first partition does. Numerical FFT rounding is covered by the render gate.
-pub struct Convolver {
+// Pack two real output spectra into one complex inverse transform. The
+// positive bins determine the conjugate negative bins of each ear. This
+// keeps the ears independent while avoiding a second inverse FFT.
+fn pack(left: Complex, right: Complex) -> (Complex, Complex) {
+    (
+        Complex {
+            re: left.re - right.im,
+            im: left.im + right.re,
+        },
+        Complex {
+            re: left.re + right.im,
+            im: -left.im + right.re,
+        },
+    )
+}
+
+/// One mono feed into two ears. Both filters share the input FFT/history;
+/// their output spectra share a complex inverse FFT. All scratch is owned.
+pub struct StereoConvolver {
     plan: Fft,
-    kernels: Vec<Vec<Complex>>,
+    kernels: Vec<[Vec<Complex>; 2]>,
     history: Vec<Vec<Complex>>,
+    sums: [Vec<Complex>; 2],
     scratch: Vec<Complex>,
-    overlap: [f32; FRAMES],
+    overlap: [Complex; FRAMES],
     at: usize,
 }
-impl Convolver {
-    pub fn new(impulse: &[f32]) -> Self {
-        let len = FRAMES * 2;
+impl StereoConvolver {
+    pub fn new(left: &[f32], right: &[f32]) -> Self {
+        let len = 2 * FRAMES;
         let plan = Fft::new(len);
-        let count = impulse.len().div_ceil(FRAMES).max(1);
+        let count = left.len().max(right.len()).div_ceil(FRAMES).max(1);
         let mut kernels = Vec::with_capacity(count);
         for part in 0..count {
-            let mut spectrum = vec![Complex::default(); len];
-            for (i, c) in spectrum[..FRAMES].iter_mut().enumerate() {
-                c.re = impulse.get(part * FRAMES + i).copied().unwrap_or(0.0);
-            }
-            plan.process(&mut spectrum, false);
-            kernels.push(spectrum);
+            kernels.push(std::array::from_fn(|ear| {
+                let impulse = if ear == 0 { left } else { right };
+                let mut data = vec![Complex::default(); len];
+                for i in 0..FRAMES {
+                    data[i].re = impulse.get(part * FRAMES + i).copied().unwrap_or(0.0);
+                }
+                plan.process(&mut data, false);
+                data
+            }));
         }
         Self {
             plan,
             kernels,
             history: vec![vec![Complex::default(); len]; count],
+            sums: std::array::from_fn(|_| vec![Complex::default(); FRAMES + 1]),
             scratch: vec![Complex::default(); len],
-            overlap: [0.0; FRAMES],
+            overlap: [Complex::default(); FRAMES],
             at: 0,
         }
     }
-    pub fn process(&mut self, input: &[f32], output: &mut [f32]) {
-        let len = FRAMES * 2;
+    pub fn process(&mut self, input: &[f32], output: &mut [[f32; FRAMES]; 2]) {
+        let len = 2 * FRAMES;
         let current = &mut self.history[self.at];
         for i in 0..FRAMES {
             current[i] = Complex { re: input[i], im: 0.0 };
         }
         current[FRAMES..].fill(Complex::default());
         self.plan.process(current, false);
-        self.scratch.fill(Complex::default());
-        for (part, kernel) in self.kernels.iter().enumerate() {
+        for sum in &mut self.sums {
+            sum.fill(Complex::default());
+        }
+        for (part, kernels) in self.kernels.iter().enumerate() {
             let history = &self.history[(self.at + self.history.len() - part) % self.history.len()];
-            for i in 0..len {
-                let p = history[i].product(kernel[i]);
-                self.scratch[i].re += p.re;
-                self.scratch[i].im += p.im;
+            for ear in 0..2 {
+                for i in 0..=FRAMES {
+                    let p = history[i].product(kernels[ear][i]);
+                    self.sums[ear][i].re += p.re;
+                    self.sums[ear][i].im += p.im;
+                }
+            }
+        }
+        for i in 0..=FRAMES {
+            let (positive, negative) = pack(self.sums[0][i], self.sums[1][i]);
+            self.scratch[i] = positive;
+            if i > 0 && i < FRAMES {
+                self.scratch[len - i] = negative;
             }
         }
         self.plan.process(&mut self.scratch, true);
         for i in 0..FRAMES {
-            output[i] = self.scratch[i].re + self.overlap[i];
-            self.overlap[i] = self.scratch[i + FRAMES].re;
+            output[0][i] = self.scratch[i].re + self.overlap[i].re;
+            output[1][i] = self.scratch[i].im + self.overlap[i].im;
+            self.overlap[i] = self.scratch[i + FRAMES];
         }
         self.at = (self.at + 1) % self.history.len();
     }
 }
 
-/// Chromium's HRTF FFTConvolver differs from ConvolverNode: a whole half
-/// FFT is buffered before processing, so that half FFT is also its latency.
-pub struct BufferedConvolver {
+/// HRTF FFTConvolver buffers a half FFT, adding that much latency. The
+/// ear delays differ, so pack the two real time signals into one complex
+/// forward transform and unpack its spectra before applying ear kernels.
+pub struct BufferedStereoConvolver {
     input: Vec<Complex>,
     output: Vec<Complex>,
-    overlap: Vec<f32>,
+    scratch: Vec<Complex>,
+    overlap: Vec<Complex>,
     at: usize,
 }
-impl BufferedConvolver {
+impl BufferedStereoConvolver {
     pub fn new(len: usize) -> Self {
         Self {
             input: vec![Complex::default(); len],
             output: vec![Complex::default(); len],
-            overlap: vec![0.0; len / 2],
+            scratch: vec![Complex::default(); len],
+            overlap: vec![Complex::default(); len / 2],
             at: 0,
         }
     }
-    pub fn process(&mut self, plan: &Fft, kernel: &[Complex], input: &[f32], output: &mut [f32]) {
+    pub fn process(&mut self, plan: &Fft, left: &[Complex], right: &[Complex], input: &[[f32; FRAMES]; 2], output: &mut [[f32; FRAMES]; 2]) {
         let half = self.overlap.len();
-        for i in 0..input.len() {
-            self.input[self.at].re = input[i];
-            output[i] = self.output[self.at].re;
+        let len = 2 * half;
+        for i in 0..FRAMES {
+            self.input[self.at] = Complex {
+                re: input[0][i],
+                im: input[1][i],
+            };
+            output[0][i] = self.output[self.at].re;
+            output[1][i] = self.output[self.at].im;
             self.at += 1;
             if self.at == half {
                 self.output.copy_from_slice(&self.input);
                 plan.process(&mut self.output, false);
-                for (c, k) in self.output.iter_mut().zip(kernel) {
-                    *c = c.product(*k);
+                for k in 0..=half {
+                    let a = self.output[k];
+                    let b = self.output[(len - k) % len];
+                    let l = Complex {
+                        re: (a.re + b.re) * 0.5,
+                        im: (a.im - b.im) * 0.5,
+                    }
+                    .product(left[k]);
+                    let r = Complex {
+                        re: (a.im + b.im) * 0.5,
+                        im: (b.re - a.re) * 0.5,
+                    }
+                    .product(right[k]);
+                    let (positive, negative) = pack(l, r);
+                    self.scratch[k] = positive;
+                    if k > 0 && k < half {
+                        self.scratch[len - k] = negative;
+                    }
                 }
-                plan.process(&mut self.output, true);
-                for j in 0..half {
-                    self.output[j].re += self.overlap[j];
-                    self.overlap[j] = self.output[j + half].re;
+                plan.process(&mut self.scratch, true);
+                for k in 0..half {
+                    self.output[k] = Complex {
+                        re: self.scratch[k].re + self.overlap[k].re,
+                        im: self.scratch[k].im + self.overlap[k].im,
+                    };
+                    self.overlap[k] = self.scratch[k + half];
                 }
                 self.at = 0;
             }
@@ -184,21 +243,34 @@ impl BufferedConvolver {
 mod tests {
     use super::*;
     #[test]
-    fn partition_boundaries_preserve_the_impulse_and_its_tail() {
-        let mut impulse = vec![0.0; 300];
-        impulse[0] = 0.5;
-        impulse[127] = -0.25;
-        impulse[299] = 0.125;
-        let mut c = Convolver::new(&impulse);
+    fn partition_boundaries_preserve_both_ear_impulses_and_tails() {
+        let mut left = vec![0.0; 258];
+        let mut right = left.clone();
+        left[0] = 1.0;
+        left[128] = 0.25;
+        left[256] = -0.5;
+        right[1] = 0.5;
+        right[129] = -0.125;
+        right[257] = 0.75;
+        let mut convolver = StereoConvolver::new(&left, &right);
         let mut input = [0.0; FRAMES];
         input[0] = 1.0;
-        let mut output = [0.0; FRAMES];
-        for block in 0..4 {
-            c.process(&input, &mut output);
-            for (i, sample) in output.iter().enumerate() {
-                assert!((*sample - impulse.get(block * FRAMES + i).copied().unwrap_or(0.0)).abs() < 1e-6);
-            }
+        let mut output = [[0.0; FRAMES]; 2];
+        for block in 0..5 {
+            convolver.process(&input, &mut output);
             input.fill(0.0);
+            for ear in 0..2 {
+                for i in 0..FRAMES {
+                    let expected = if ear == 0 {
+                        left.get(block * FRAMES + i)
+                    } else {
+                        right.get(block * FRAMES + i)
+                    }
+                    .copied()
+                    .unwrap_or(0.0);
+                    assert!((output[ear][i] - expected).abs() < 1e-6);
+                }
+            }
         }
     }
 }

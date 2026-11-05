@@ -17,20 +17,7 @@ const wanted = (name) => !only.length || only.some((o) => name.includes(o));
 const golden = JSON.parse(fs.readFileSync(new URL("./fixtures/audio/dsp.json", import.meta.url), "utf8"));
 const expectedNumber = (value) => typeof value === "string" ? Number(value) : value;
 
-const math = {
-  js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin,
-  js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10,
-  // The compressor's, a block's worth at a call (as limiter.js gives them).
-  js_log10s: (at, n) => {
-    const a = new Float64Array(x.memory.buffer, at, n);
-    for (let i = 0; i < n; i++) a[i] = Math.log10(a[i]);
-  },
-  js_pow10s: (at, n) => {
-    const a = new Float64Array(x.memory.buffer, at, n);
-    for (let i = 0; i < n; i++) a[i] = Math.pow(10, a[i]);
-  },
-};
-const dsp = await WebAssembly.instantiate(Buffer.from(AUDIO_DSP_WASM, "base64"), { env: math });
+const dsp = await WebAssembly.instantiate(Buffer.from(AUDIO_DSP_WASM, "base64"));
 const x = dsp.instance.exports;
 const f32 = (ptr, len) => new Float32Array(x.memory.buffer, ptr, len);
 const f64 = (ptr, len) => new Float64Array(x.memory.buffer, ptr, len);

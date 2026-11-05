@@ -88,3 +88,14 @@ test("speaker test reaches its named channel after the muted mono game mix", asy
     else assert.ok(out.getChannelData(c).every((v) => v === 0));
   }
 });
+
+test("a narrower queued segment preserves the first segment's surround lanes", async () => {
+  const r = new Renderer(context(6));
+  await r.configure({ ...config, quality: "enhanced", output: "5.1", dynamics: "home", clarity: false });
+  const first = r.ctx.createBuffer(6, 48000, 48000); first.getChannelData(3).fill(0.25);
+  const next = r.ctx.createBuffer(2, 48000, 48000); next.getChannelData(0).fill(0.1);
+  const lane = r.stream(2, "music"); lane.start(first, 0, 1, true); lane.start(next, 0.03, 1, true);
+  assert.equal(lane.channels, 6); r.flush(); await Promise.resolve(); await Promise.resolve();
+  const out = await r.ctx.startRendering();
+  assert.ok(out.getChannelData(3).subarray(512, 8192).every((v) => v > 0.05));
+});

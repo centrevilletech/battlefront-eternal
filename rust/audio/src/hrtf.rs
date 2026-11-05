@@ -3,7 +3,7 @@
 //! THIRD-PARTY-NOTICES.md). The database and every voice's convolution and
 //! delay buffers are built before rendering. No browser panner is involved.
 
-use crate::convolution::{BufferedConvolver, Complex, Fft};
+use crate::convolution::{BufferedStereoConvolver, Complex, Fft};
 use crate::{host, FRAMES};
 use std::f64::consts::PI;
 
@@ -269,7 +269,7 @@ pub struct Panner {
     selection: usize,
     blend: f32,
     increment: f32,
-    convolvers: [[BufferedConvolver; 2]; 2],
+    convolvers: [BufferedStereoConvolver; 2],
     delays: [Delay; 2],
     delayed: [[f32; FRAMES]; 2],
     scratch: [[[f32; FRAMES]; 2]; 2],
@@ -283,7 +283,7 @@ impl Panner {
             selection: 0,
             blend: 0.0,
             increment: 0.0,
-            convolvers: std::array::from_fn(|_| std::array::from_fn(|_| BufferedConvolver::new(size))),
+            convolvers: std::array::from_fn(|_| BufferedStereoConvolver::new(size)),
             delays: [Delay::new(rate), Delay::new(rate)],
             delayed: [[0.0; FRAMES]; 2],
             scratch: [[[0.0; FRAMES]; 2]; 2],
@@ -318,11 +318,18 @@ impl Panner {
             let d1 = (1.0 - fraction) * k1.delay as f64 + fraction * next1.delay as f64;
             let delay = (1.0 - self.blend as f64) * d0 + self.blend as f64 * d1;
             self.delays[ear].process(delay, input, &mut self.delayed[ear]);
-            if self.selection == 0 || self.increment != 0.0 {
-                self.convolvers[0][ear].process(&database.plan, &k0.spectrum, &self.delayed[ear], &mut self.scratch[0][ear]);
-            }
-            if self.selection == 1 || self.increment != 0.0 {
-                self.convolvers[1][ear].process(&database.plan, &k1.spectrum, &self.delayed[ear], &mut self.scratch[1][ear]);
+        }
+        for selection in 0..2 {
+            if self.selection == selection || self.increment != 0.0 {
+                let left = database.kernel(self.azimuth[selection], self.elevation[selection], 0);
+                let right = database.kernel(self.azimuth[selection], self.elevation[selection], 1);
+                self.convolvers[selection].process(
+                    &database.plan,
+                    &left.spectrum,
+                    &right.spectrum,
+                    &self.delayed,
+                    &mut self.scratch[selection],
+                );
             }
         }
         if self.increment == 0.0 {

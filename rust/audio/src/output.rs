@@ -4,7 +4,7 @@
 
 use crate::biquad::{Biquad, Kind};
 use crate::commands::*;
-use crate::convolution::Convolver;
+use crate::convolution::StereoConvolver;
 use crate::hrtf::{Database, Panner};
 use crate::master::Master;
 use crate::mixer::{Decoder, Mixer, Speaker};
@@ -76,7 +76,8 @@ impl Light {
             mono(input, 2);
         }
         self.volume.a_rate(block, &mut self.gains, rate, x86);
-        for c in 0..2 {
+        // A mono fold has identical lanes. Shape it once, then copy.
+        for c in 0..if fold { 1 } else { 2 } {
             for i in 0..FRAMES {
                 let value = input[c * FRAMES + i] * self.level;
                 let index = ((value + 1.0) * 2048.0).clamp(0.0, 4096.0);
@@ -86,6 +87,10 @@ impl Light {
                 let shaped = self.curve[a] + fraction * (self.curve[b] - self.curve[a]);
                 output[c * FRAMES + i] = if self.gains[i] == 1.0 { shaped } else { shaped * self.gains[i] };
             }
+        }
+        if fold {
+            let (left, right) = output.split_at_mut(FRAMES);
+            right[..FRAMES].copy_from_slice(left);
         }
     }
 }
@@ -122,7 +127,7 @@ pub struct Output {
     hrtf_database: Option<Database>,
     panners: Vec<Panner>,
     hrtf_sum: Vec<f32>,
-    decoder: Vec<Convolver>,
+    decoder: Vec<StereoConvolver>,
     pair: [[f32; FRAMES]; 2],
     scratch: [f32; FRAMES],
     gains: [f32; FRAMES],
@@ -216,8 +221,10 @@ impl Output {
     }
     pub fn decoder(&mut self, filters: &[f32], frames: usize) {
         self.decoder.clear();
-        for channel in 0..32 {
-            self.decoder.push(Convolver::new(&filters[channel * frames..(channel + 1) * frames]));
+        for channel in 0..16 {
+            let at = channel * 2 * frames;
+            self.decoder
+                .push(StereoConvolver::new(&filters[at..at + frames], &filters[at + frames..at + 2 * frames]));
         }
     }
     pub fn voice(&mut self, slot: usize, spatial: bool) {
@@ -633,10 +640,10 @@ impl Output {
         }
         if self.binaural {
             for c in 0..16 {
+                self.decoder[c].process(&self.mixed[c * FRAMES..(c + 1) * FRAMES], &mut self.pair);
                 for ear in 0..2 {
-                    self.decoder[c * 2 + ear].process(&self.mixed[c * FRAMES..(c + 1) * FRAMES], &mut self.scratch);
                     for i in 0..FRAMES {
-                        self.direct[ear * FRAMES + i] += self.scratch[i];
+                        self.direct[ear * FRAMES + i] += self.pair[ear][i];
                     }
                 }
             }
@@ -675,7 +682,7 @@ impl Output {
         if self.headphones && !self.binaural && ((!self.enhanced && matches!(count, 1 | 2 | 4)) || (self.enhanced && count == 4)) {
             return;
         }
-        if self.light_mode {
+        if self.light_mode && matches!(count, 1 | 2 | 4) {
             for c in 0..count {
                 for ear in 0..2 {
                     let gain = self.bed_gains[slot][c][ear];

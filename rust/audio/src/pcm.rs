@@ -77,6 +77,36 @@ impl Source {
                 self.pos += (self.offset * self.step).abs();
             }
         }
+        // Native buffer sources copy whole, unity-rate runs. Most beds
+        // are already at the context rate; avoid interpolation work there.
+        if self.step == 1.0
+            && self.pos.fract() == 0.0
+            && self.start <= block
+            && self.stop >= block + FRAMES as f64
+            && self.pos + FRAMES as f64 <= frames as f64
+        {
+            let at = self.pos as usize;
+            for c in 0..data.channels.min(CHANNELS) {
+                let src = &data.data[c * frames + at..c * frames + at + FRAMES];
+                let dst = &mut out[c * FRAMES..(c + 1) * FRAMES];
+                if add {
+                    for i in 0..FRAMES {
+                        dst[i] += src[i];
+                    }
+                } else {
+                    dst.copy_from_slice(src);
+                }
+            }
+            self.pos += FRAMES as f64;
+            if self.pos >= frames as f64 {
+                if self.looping {
+                    self.pos = 0.0;
+                } else {
+                    self.on = false;
+                }
+            }
+            return;
+        }
         for i in 0..FRAMES {
             let time = block + i as f64;
             if time < self.start {

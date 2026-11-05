@@ -271,7 +271,12 @@ class StreamOut {
   }
   start(buffer, when = this.r.ctx.currentTime, pitch = 1, loop = false, offset = 0) {
     const r = this.r;
-    if (this.channels !== buffer.numberOfChannels) { this.channels = buffer.numberOfChannels; r.commands.push(VOICE.STREAM_BIND, this.slot, this.channels, this.kind, this.spatial); }
+    // The first decoded segment fixes the lane width, as the stream's
+    // explicit native input did. Narrower later segments contribute zeros.
+    if (!this.boundFormat) {
+      this.boundFormat = true;
+      if (this.channels !== buffer.numberOfChannels) { this.channels = buffer.numberOfChannels; r.commands.push(VOICE.STREAM_BIND, this.slot, this.channels, this.kind, this.spatial); }
+    }
     let part = this.parts.findIndex((p) => !p || p.ends <= r.ctx.currentTime);
     if (part < 0) throw r.fail(new Error("audio: all Rust segment slots are already scheduled"));
     const playing = { part, ends: loop ? Infinity : when + (buffer.duration - offset) / pitch, stop: (at) => { playing.ends = Math.min(playing.ends, at); r.command(VOICE.STREAM_STOP, this.slot, part, at); } };
