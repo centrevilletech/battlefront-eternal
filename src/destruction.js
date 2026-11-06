@@ -66,8 +66,10 @@ const DEFAULT_BOX = [[-0.5, 0, -0.5], [0.5, 1.2, 0.5]];
 export class Destruction {
   // model(name): a function making that model (game.js flyingModel).
   // lightAt(position, out): the light a soldier there gets (game.js).
-  // seed: the effects' random stream.
-  constructor({ scene, collision, lights, settings, model, lightAt = null, seed = (Math.random() * 4294967296) >>> 0 }) {
+  // seed: the effects' random stream. Its default comes from the platform, not
+  // Math.random: the page's other effects draw their births from that one
+  // stream, and a draw made here would move every one of them.
+  constructor({ scene, collision, lights, settings, model, lightAt = null, seed = crypto.getRandomValues(new Uint32Array(1))[0] }) {
     this.scene = scene;
     this.settings = settings;
     this.collision = collision;

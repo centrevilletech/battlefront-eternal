@@ -145,3 +145,16 @@ test('switching to Classic clears the effects at once, with no frame to carry it
   d.clear();
   assert.deepEqual([d.pieces.count, d.fx.hot.count, d.fx.smoke.count, d.fx.arcs.live], [0, 0, 0, 0], 'gone without another update');
 });
+
+test('making the phase draws nothing from the page\'s shared random stream', () => {
+  // The page's other effects take their births from Math.random; a draw made
+  // while the phase is built would move every one of them for the whole battle.
+  // (three.js makes object ids from it too; those are a stream of their own.)
+  const real = Math.random;
+  let draws = 0;
+  Math.random = () => { if (!new Error().stack.includes('generateUUID')) draws++; return 0.5; };
+  try {
+    new Destruction({ scene: new THREE.Scene(), collision: FLOOR, lights: quiet, settings: enhanced, model });
+  } finally { Math.random = real; }
+  assert.equal(draws, 0);
+});
