@@ -102,7 +102,10 @@ function cargoBuild(crate, env, lib = crate) {
     if (!compiler.includes('version 20.1.2')) throw Error('Renderer builds require Clang 20.1.2 (docs/development.md)');
     env.CC_wasm32_unknown_unknown = 'clang-20';
     env.CXX_wasm32_unknown_unknown = 'clang++-20';
-    env.AR_wasm32_unknown_unknown = 'llvm-ar-20';
+    // The pinned archiver runs underneath tools/ar-sorted.mjs, which orders
+    // each archive's members independently of the unpacking file system.
+    env.AR_wasm32_unknown_unknown = join(ROOT, 'tools/ar-sorted.mjs');
+    env.BFE_ARCHIVER = 'llvm-ar-20';
     const paths = `-ffile-prefix-map=${ROOT}=/source -ffile-prefix-map=${process.env.CARGO_HOME || join(homedir(), '.cargo')}=/cargo`;
     env.CFLAGS_wasm32_unknown_unknown = paths;
     env.CXXFLAGS_wasm32_unknown_unknown = paths;
