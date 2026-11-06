@@ -4,6 +4,7 @@ pub mod effects;
 pub mod far;
 pub mod foliage;
 pub mod hud;
+pub mod interface_scene;
 pub mod instances;
 pub mod lights;
 pub mod math;

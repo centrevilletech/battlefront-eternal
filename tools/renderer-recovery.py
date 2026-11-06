@@ -90,6 +90,7 @@ far_range_input|Reconnect the far item's draw range to its shared input offset.
 far_refresh|Retain the dirty-buffer source descriptor; reading frame vertices is deferred until drawing.
 foliage_class|Allocate the foliage class from its base mesh, placements, bounds and material values.
 hud_init|Recreate the HUD's static index buffer before its live vertex mirrors are reuploaded.
+interface_buffer_init|Recreate the interface vertex mirror and its geometry binding before restoring live bytes.
 inst_add_blend|Allocate the instanced material's depth/blend state and ordered shader passes.
 set_shadow_maps|Restore logical cascade texture ids after the browser recreates the depth textures.
 set_far_map|Reconnect the near scene's far-image sampler to its stable logical texture slot.
@@ -273,13 +274,13 @@ out += ['        }}',
 # preserves its values and allocation without replaying a draw that reads it.
 # GPU-backed mirrors need an explicit upload after all resource ids exist.
 # Adding another mirror here requires its owner to define that upload ordering.
-fields = {'core':['input','bones','shadow_input'], 'effects':['input','data','matrices'], 'far':['input','vertices'], 'hud':['input','position','uv','mask_uv','tint'], 'canopies':['input','leaves'], 'post':['input','states'], 'motion':['input','bones','previous','extras_input','extra_values'], 'water':['input','rings_position','rings_uv','rings_alpha','instances'], 'foliage':['input'], 'view':['input'], 'shadow':['input'], 'transparent':['keys','objects']}
+fields = {'core':['input','bones','shadow_input'], 'effects':['input','data','matrices'], 'far':['input','vertices'], 'hud':['input','position','uv','mask_uv','tint'], 'interface':['input','streams'], 'canopies':['input','leaves'], 'post':['input','states'], 'motion':['input','bones','previous','extras_input','extra_values'], 'water':['input','rings_position','rings_uv','rings_alpha','instances'], 'foliage':['input'], 'view':['input'], 'shadow':['input'], 'transparent':['keys','objects']}
 for owner,names in fields.items():
     out.append(f'        // Preserve {owner} input storage; replay must not reset the live frame values.')
     for name in names: out.append(f'        self.r.{owner}.{name} = std::mem::take(&mut old.{owner}.{name});')
 out += ['        // These passes own dynamic GPU buffers backed by the moved mirrors.',
         '        // Populate them before the first restored frame can sample their VAOs.']
-out += [f'        self.r.{name}.reupload(&mut self.r.core);' for name in ('hud','canopies','water','far')]
+out += [f'        self.r.{name}.reupload(&mut self.r.core);' for name in ('hud','interface','canopies','water','far')]
 out += ['        // Keep the same history for another loss. Only successful completion',
         '        // enables recording again; the caller treats any earlier error as fatal.',
         '        self.recovery = saved;', '        self.rebuilding = false;', '        Ok(())', '    }', '}']

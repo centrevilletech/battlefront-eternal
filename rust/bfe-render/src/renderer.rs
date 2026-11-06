@@ -31,6 +31,7 @@ use crate::effects::EffectsPass;
 use crate::far::FarPass;
 use crate::foliage::FoliagePass;
 use crate::hud::HudPass;
+use crate::interface_scene::InterfacePass;
 use crate::instances::{InstancePass, BONES_LEN, INPUT_LEN};
 use crate::motion::MotionPass;
 use crate::post::PostPass;
@@ -52,6 +53,7 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub view: ViewPass<C>,
     pub post: PostPass<C>,
     pub hud: HudPass<C>,
+    pub interface: InterfacePass,
     pub water: WaterPass<C>,
     pub shadow: ShadowPass<C>,
     pub motion: MotionPass<C>,
@@ -74,7 +76,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let shadow = ShadowPass::new(&mut core);
         let motion = MotionPass::new(&mut core);
         let canopies = CanopiesPass::new(&mut core);
-        Renderer { core, world, instances, far, transparent, effects, foliage, view, post, hud, water, shadow, motion, canopies }
+        Renderer { core, world, instances, far, transparent, effects, foliage, view, post, hud, interface: InterfacePass::default(), water, shadow, motion, canopies }
     }
 
     // Replace a pending image's sampler in every retained draw binding.

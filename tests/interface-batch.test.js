@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { Batch, dirtyRanges } from '../src/interface/batch.js';
+import { Batch } from '../src/interface/batch.js';
 
 const texture = new THREE.Texture();
 const M = new THREE.Matrix4();
@@ -77,12 +77,16 @@ test('a tint change alone is a change, as is a corner uv', () => {
   assert.equal(batch.uploads, 0);
 });
 
-test('dirtyRanges merges runs within the gap', () => {
-  assert.deepEqual(dirtyRanges(new Uint8Array([0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1]), 11, 2), [1, 6, 10, 11]);
-  assert.deepEqual(dirtyRanges(new Uint8Array([1, 1, 1]), 3, 0), [0, 3]);
-  assert.deepEqual(dirtyRanges(new Uint8Array([1, 0, 1]), 3, 0), [0, 1, 2, 3]);
-  assert.deepEqual(dirtyRanges(new Uint8Array([0, 0]), 2, 8), []);
-  assert.deepEqual(dirtyRanges(new Uint8Array([0, 0, 1]), 2, 8), [], 'past count is ignored');
-  assert.deepEqual(dirtyRanges(new Uint8Array([1, 0, 1, 0, 0, 0, 1, 0, 1]), 9, 0, 2), [0, 3, 6, 9], 'the closest runs join first');
-  assert.deepEqual(dirtyRanges(new Uint8Array([1, 0, 1, 0, 0, 0, 1, 0, 1]), 9, 0, 1), [0, 9]);
+test('warm batches retain group, range and descriptor storage', () => {
+  const batch = new Batch(), quads = [[0,0],[20,0]];
+  frame(batch,quads);
+  const groups = batch.geometry.groups, group = groups[0], material = batch.mesh.material[0];
+  const span = batch.geometry.attributes.position.updateRanges[0];
+  quads[0][0] = 4;
+  frame(batch,quads);
+  assert.equal(batch.geometry.groups,groups);
+  assert.equal(groups[0],group);
+  assert.equal(batch.mesh.material[0],material);
+  assert.equal(material.isMaterial,undefined,'quad bindings do not construct Three materials');
+  assert.equal(batch.geometry.attributes.position.updateRanges[0],span);
 });

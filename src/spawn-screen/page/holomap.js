@@ -1,3 +1,4 @@
+import { interfaceBasic, surfaceMaterial as interfaceMaterial } from "../../rust-render/interface-material.js";
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { Batch } from "../../interface/batch.js";
@@ -22,98 +23,7 @@ const PIN = { rest: 0.07, own: 0.12, hover: 0.26, picked: 0.42, width: 0.04 }; /
 const PIN_RATE = 9; // per second, toward a pin's height
 const WAVE = 0.7; // s: a picked post's ripple
 
-const FACE_VERTEX = /* glsl */ `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-// The map's picture in the hologram's colour, the posts' and the ring's
-// kept; a split of red and blue at the sides, scan lines, a band of light
-// rolling up, a glow round the rim.
-const FACE_FRAGMENT = /* glsl */ `
-  uniform sampler2D map;
-  uniform vec3 tint;
-  uniform float time;
-  uniform float strength;
-  varying vec2 vUv;
-  void main() {
-    vec2 p = vUv * 2.0 - 1.0;
-    float r = length(p);
-    if (r > 1.0) discard;
-    float split = 0.0022 * (0.6 + r);
-    vec4 m = texture2D(map, vUv);
-    vec3 col = vec3(texture2D(map, vUv + vec2(split, 0.0)).r, m.g, texture2D(map, vUv - vec2(split, 0.0)).b);
-    float lum = dot(col, vec3(0.299, 0.587, 0.114));
-    // The map's own picture (blue) takes the hologram's colour; the posts,
-    // units and ring (green, red, yellow, grey) keep theirs.
-    float picture = smoothstep(0.015, 0.1, col.b - max(col.r, col.g));
-    vec3 holo = mix(col * 1.7, tint * lum * 2.7, picture);
-    float scan = 0.8 + 0.2 * sin(vUv.y * 520.0 - time * 7.0);
-    float band = exp(-pow((fract(vUv.y * 0.55 - time * 0.11) - 0.5) * 8.0, 2.0));
-    float flicker = 0.95 + 0.05 * sin(time * 41.0) * sin(time * 13.0);
-    float rim = smoothstep(0.84, 1.0, r);
-    vec3 c = holo * scan * (1.0 + 0.7 * band) + tint * (0.05 + 0.05 * band + 0.55 * rim * rim);
-    c *= (1.0 - smoothstep(0.97, 1.0, r)) * strength * flicker;
-    gl_FragColor = vec4(c, 1.0);
-  }
-`;
 
-const BEAM_VERTEX = /* glsl */ `
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vView;
-  void main() {
-    vUv = uv;
-    vec4 view = modelViewMatrix * vec4(position, 1.0);
-    vNormal = normalize(normalMatrix * normal);
-    vView = normalize(-view.xyz);
-    gl_Position = projectionMatrix * view;
-  }
-`;
-// Bright at the projector, gone toward the disc, brighter at its edges,
-// streaks running up it.
-const BEAM_FRAGMENT = /* glsl */ `
-  uniform vec3 color;
-  uniform float time;
-  uniform float strength;
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vView;
-  void main() {
-    float edge = 1.0 - abs(dot(normalize(vNormal), vView));
-    float fade = pow(1.0 - vUv.y, 1.3) * smoothstep(0.0, 0.08, vUv.y) + 0.12 * vUv.y;
-    float streaks = 0.7 + 0.3 * sin(vUv.x * 6.2832 * 9.0 + time * 1.7) * sin(vUv.x * 6.2832 * 4.0 - time * 1.1);
-    float lines = 0.8 + 0.2 * sin((vUv.y * 30.0 - time * 2.4) * 6.2832);
-    float a = fade * (0.05 + 0.32 * pow(edge, 2.0)) * streaks * lines * strength;
-    gl_FragColor = vec4(color * a, a);
-  }
-`;
-
-const METAL_VERTEX = /* glsl */ `
-  varying vec3 vView;
-  void main() {
-    vec4 view = modelViewMatrix * vec4(position, 1.0);
-    vView = view.xyz;
-    gl_Position = projectionMatrix * view;
-  }
-`;
-// Faceted (each face's own normal), lit from above and the front, its
-// edges in the hologram's light.
-const METAL_FRAGMENT = /* glsl */ `
-  uniform vec3 color;
-  uniform vec3 rim;
-  varying vec3 vView;
-  void main() {
-    vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));
-    vec3 toEye = normalize(-vView);
-    float key = max(dot(n, normalize(vec3(-0.4, 0.9, 0.5))), 0.0);
-    float edge = pow(1.0 - max(dot(n, toEye), 0.0), 2.0);
-    vec3 c = color * (0.45 + 0.9 * key) + rim * edge * 0.55;
-    gl_FragColor = vec4(c, 1.0);
-  }
-`;
 
 // A texture drawn once on a square canvas: f(ctx, size).
 export function drawn(size, f) {
@@ -196,7 +106,7 @@ export function dotTexture() {
   });
 }
 
-const additive = (map, color = 0xffffff) => new THREE.MeshBasicMaterial({ map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+const additive = (map, color = 0xffffff) => interfaceBasic({ map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
 
 export class HoloMap {
   // hud: the BattleHud (its spawn map's drawing, its posts and colours).
@@ -223,12 +133,10 @@ export class HoloMap {
     this.target.texture.generateMipmaps = false;
 
     const circle = new THREE.CircleGeometry(1, 96);
-    this.back = new THREE.Mesh(circle, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }));
+    this.back = new THREE.Mesh(circle, interfaceBasic({ color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }));
     this.back.renderOrder = 4;
-    this.faceMaterial = new THREE.ShaderMaterial({
+    this.faceMaterial = interfaceMaterial("face", {
       uniforms: { map: { value: this.target.texture }, tint: { value: new THREE.Color(1, 1, 1) }, time: { value: 0 }, strength: { value: 0 } },
-      vertexShader: FACE_VERTEX,
-      fragmentShader: FACE_FRAGMENT,
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -237,7 +145,7 @@ export class HoloMap {
     this.face = new THREE.Mesh(circle, this.faceMaterial);
     this.face.position.z = 0.002;
     this.face.renderOrder = 5;
-    this.rimMaterial = this.drawn ? additive(rimTexture()) : new THREE.MeshBasicMaterial();
+    this.rimMaterial = this.drawn ? additive(rimTexture()) : interfaceBasic();
     this.rim = new THREE.Mesh(new THREE.PlaneGeometry(2 / 0.86, 2 / 0.86), this.rimMaterial);
     this.rim.position.z = 0.004;
     this.rim.renderOrder = 6;
@@ -246,10 +154,8 @@ export class HoloMap {
     this.dotTexture = this.drawn ? dotTexture() : null;
 
     // The cone of light from the projector to the disc.
-    this.beamMaterial = new THREE.ShaderMaterial({
+    this.beamMaterial = interfaceMaterial("beam", {
       uniforms: { color: { value: new THREE.Color(1, 1, 1) }, time: { value: 0 }, strength: { value: 0 } },
-      vertexShader: BEAM_VERTEX,
-      fragmentShader: BEAM_FRAGMENT,
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -265,16 +171,14 @@ export class HoloMap {
     // emitter; faceted metal lit from above, its edges catching the
     // hologram's light; a ring and a lamp glowing, a pool on the floor.
     this.projector = new THREE.Group();
-    this.metal = new THREE.ShaderMaterial({
+    this.metal = interfaceMaterial("metal", {
       uniforms: { color: { value: new THREE.Color(0.2, 0.23, 0.27) }, rim: { value: new THREE.Color(1, 1, 1) } },
-      vertexShader: METAL_VERTEX,
-      fragmentShader: METAL_FRAGMENT,
     });
     this.cone = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.34, 6, 1), this.metal);
     this.cone.position.y = 0.07 + 0.17;
     this.base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.07, 6), this.metal);
     this.base.position.y = 0.035;
-    this.glowRingMaterial = this.drawn ? additive(this.dotTexture) : new THREE.MeshBasicMaterial();
+    this.glowRingMaterial = this.drawn ? additive(this.dotTexture) : interfaceBasic();
     this.pool = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6).rotateX(-Math.PI / 2), this.glowRingMaterial);
     this.pool.position.y = 0.003;
     this.pool.renderOrder = 2;
@@ -282,7 +186,7 @@ export class HoloMap {
     this.band = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.26, 6, 1).rotateX(-Math.PI / 2).rotateY(Math.PI / 6), this.bandMaterial);
     this.band.position.y = 0.072;
     this.band.renderOrder = 7;
-    this.lampMaterial = this.drawn ? additive(this.dotTexture) : new THREE.MeshBasicMaterial();
+    this.lampMaterial = this.drawn ? additive(this.dotTexture) : interfaceBasic();
     this.lamp = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.42), this.lampMaterial);
     this.lamp.renderOrder = 7;
     this.projector.add(this.pool, this.base, this.band, this.cone, this.lamp);

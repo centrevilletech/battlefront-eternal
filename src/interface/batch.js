@@ -1,4 +1,3 @@
-import { VERTEX, FRAGMENT } from "./batch-shaders.js";
 import * as THREE from "three";
 
 // Quads gathered in draw order, one draw per run of the same texture: every
@@ -26,7 +25,8 @@ export class Batch {
     this.mesh = new THREE.Mesh(geometry, []);
     this.mesh.frustumCulled = false;
     this.materials = new Map();
-    this.point = new THREE.Vector3();
+    this.groups = Array.from({ length: QUADS }, () => ({ start: 0, count: 0, materialIndex: 0 }));
+    this.ranges = Array.from({ length: 4 }, () => ({ start: 0, count: 0 }));
     this.count = 0;
     // Quads whose corners changed since the last upload. The arrays are
     // what the GPU holds, so a corner written with the value already there
@@ -44,15 +44,22 @@ export class Batch {
     if (!byMask.has(key)) {
       byMask.set(
         key,
-        new THREE.ShaderMaterial({
+        {
+          // HudPass and InterfacePass consume these values directly. This is
+          // a draw descriptor, with no Three material or browser shader.
+          id: this.materials.size * QUADS + byMask.size,
+          visible: true,
+          userData: { interfaceProgram: "quad" },
           uniforms: { map: { value: texture }, mask: { value: mask || texture }, masked: { value: Boolean(mask) } },
-          vertexShader: VERTEX,
-          fragmentShader: FRAGMENT,
           transparent: true,
           depthTest: false,
           depthWrite: false,
+          colorWrite: true,
+          depthFunc: THREE.LessEqualDepth,
+          blending: THREE.NormalBlending,
+          forceSinglePass: true,
           side: THREE.DoubleSide,
-        }),
+        },
       );
     }
     return byMask.get(key);
@@ -60,7 +67,7 @@ export class Batch {
 
   begin() {
     this.count = 0;
-    this.geometry.clearGroups();
+    this.geometry.groups.length = 0;
     this.mesh.material.length = 0;
     this.lastMaterial = null;
     this.lastGroup = null;
@@ -88,7 +95,9 @@ export class Batch {
       const materials = this.mesh.material;
       let index = materials.indexOf(material);
       if (index < 0) index = materials.push(material) - 1;
-      this.geometry.addGroup(i * 6, 6, index);
+      const group = this.groups[this.geometry.groups.length];
+      group.start = i * 6; group.count = 6; group.materialIndex = index;
+      this.geometry.groups.push(group);
       this.lastMaterial = material;
       this.lastGroup = this.geometry.groups[this.geometry.groups.length - 1];
     }
@@ -125,14 +134,20 @@ export class Batch {
   // nothing changed: a static HUD, menus, the spawn screen).
   end() {
     const geometry = this.geometry;
-    const ranges = dirtyRanges(this.dirty, this.count, GAP, MAX_RANGES);
-    this.uploads = ranges.length / 2;
-    for (const name of ["position", "uv", "maskUv", "tint"]) {
+    // One spanning run is the existing MAX_RANGES=1 policy, without allocating
+    // a temporary range list or attribute records on every menu frame.
+    let first = this.count, last = 0;
+    for (let i = 0; i < this.count; i++) if (this.dirty[i]) { first = Math.min(first, i); last = i + 1; }
+    this.uploads = last > first ? 1 : 0;
+    for (let k = 0; k < ATTRIBUTES.length; k++) {
+      const name = ATTRIBUTES[k];
       const attribute = geometry.getAttribute(name);
       attribute.clearUpdateRanges();
-      if (!ranges.length) continue;
+      if (!this.uploads) continue;
       const size = 4 * attribute.itemSize;
-      for (let i = 0; i < ranges.length; i += 2) attribute.addUpdateRange(ranges[i] * size, (ranges[i + 1] - ranges[i]) * size);
+      const range = this.ranges[k];
+      range.start = first * size; range.count = (last - first) * size;
+      attribute.updateRanges.push(range);
       attribute.needsUpdate = true;
     }
     this.dirty.fill(0, 0, this.count);
@@ -140,26 +155,4 @@ export class Batch {
   }
 }
 
-const GAP = 8;
-const MAX_RANGES = 1;
-
-// The runs of set flags in dirty[0..count), as [start, end) pairs, with
-// runs closer than gap merged, then the closest runs merged until at most
-// max remain.
-export function dirtyRanges(dirty, count, gap = GAP, max = Infinity) {
-  const ranges = [];
-  let start = -1, end = -1;
-  for (let i = 0; i < count; i++) {
-    if (!dirty[i]) continue;
-    if (start >= 0 && i - end <= gap) { end = i + 1; continue; }
-    if (start >= 0) ranges.push(start, end);
-    start = i; end = i + 1;
-  }
-  if (start >= 0) ranges.push(start, end);
-  while (ranges.length / 2 > max) {
-    let at = 0, smallest = Infinity;
-    for (let i = 2; i < ranges.length; i += 2) { const g = ranges[i] - ranges[i - 1]; if (g < smallest) { smallest = g; at = i; } }
-    ranges.splice(at - 1, 2); // the end of one run and the start of the next: joined
-  }
-  return ranges;
-}
+const ATTRIBUTES = ["position", "uv", "maskUv", "tint"];

@@ -12,6 +12,7 @@ import { plainProgram } from '../src/rust-render/post.js';
 import { writeScreenStep } from '../src/rust-render/screen.js';
 import { ownWorldMaterial } from '../src/rust-render/world-programs.js';
 import { programLayouts } from '../src/render-programs.js';
+import { interfaceFixture, shellInterfaceFixture } from './renderer-interface-checks.js';
 
 // All pixels, meshes and textures here are generated. No game loader runs.
 // This is a Rust-only driver test, not a parity comparison with Three.
@@ -462,6 +463,7 @@ export async function checkRenderer(backend, manifests) {
     // Keep every live resource and logical id across the forced loss. The browser
     // invalidates the old GL objects; only a reconstruction can reproduce this frame.
     // Comparing after several warm draws also lets invalidated histories settle.
+    const ui = interfaceFixture(g, assert);
     const beforeLoss = capture();
     const loss = gl.getExtension('WEBGL_lose_context');
     if (!loss) throw new Error('Context-loss extension unavailable');
@@ -492,6 +494,9 @@ export async function checkRenderer(backend, manifests) {
     assert('Restored Rust frame matches its generated fixture', beforeLoss.every((v,i) => v === afterLoss[i]));
     const retainedAfter=retainedPixels();
     assert('Overlapping vertex and index updates survive restoration',retainedBefore.every((v,i)=>v===retainedAfter[i]));
+    const uiRestored = ui.pixels();
+    assert('Restored interface quads, offscreen target and skinned model match',ui.before.every((v,i)=>v===uiRestored[i]));
+    ui.dispose();
     retainedTarget.dispose();
     assert('Battle never invokes three draw', g.renderer.battleThreeCalls === 0);
     assert('Every shader rewrite kind links', [0,1,2,3,4,9].every(k => programKinds.has(k)), [...programKinds]);
@@ -502,6 +507,7 @@ export async function checkRenderer(backend, manifests) {
     // registration without a driver link, or a swallowed compile failure, cannot
     // stand in for backend coverage even when another pass produced visible pixels.
     assert('Every compiled program links', links.length > 0 && links.every(Boolean), { count: links.length });
+    await shellInterfaceFixture(assert);
 // Return all family and phase evidence, including the backend/draw mode,
 // so CI cannot confuse a successful subset with full driver coverage.
     return { ok: results.every(r => r.ok), backend, fallback, multiAvailable, multiDraws, renderer, results, shaderFamilies, compiledShaders, draws, passDraws, phaseDraws, programKinds: [...programKinds], linkedPrograms: links.length };

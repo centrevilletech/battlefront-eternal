@@ -1,19 +1,23 @@
-// A loaded battle cannot reach the retained native render function directly.
-// Only a named interface scene can use it; a mistyped label must not silently
-// become an exemption. The counter records attempts even when the guard throws.
+// Battle and interface scenes cannot reach a native render function. Named
+// surfaces submit only through their required Rust owner; the guard counts
+// accidental browser draws even when the call throws.
 // These assertions cover the boundary independently of any particular battle.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { requireRustDraws, renderInterface } from '../src/rust-render/draw-guard.js';
+import { requireRustDraws, renderInterface, bindInterfaceRenderer } from '../src/rust-render/draw-guard.js';
 
-test('three draws fail during a battle while named interface scenes remain drawable', () => {
+test('three draws fail and named interface scenes require a Rust owner', () => {
   const calls = [], renderer = { getRenderTarget:()=>null,setRenderTarget(){},render: (...args) => calls.push(args) }, scene = {}, camera = {};
   requireRustDraws(renderer);
   requireRustDraws(renderer);
   assert.throws(() => renderer.render(scene, camera), /Rust pass is required/);
   assert.equal(renderer.battleThreeCalls, 1);
   assert.deepEqual(calls, []);
+  assert.throws(() => renderInterface(renderer, scene, camera, 'classic-spawn'), /not initialized/);
+  const rustCalls = [];
+  bindInterfaceRenderer(renderer, { render: (...args) => rustCalls.push(args) });
   renderInterface(renderer, scene, camera, 'classic-spawn');
-  assert.deepEqual(calls, [[scene, camera]]);
+  assert.deepEqual(rustCalls, [[scene, camera]]);
+  assert.deepEqual(calls, []);
   assert.throws(() => renderInterface(renderer, scene, camera, 'battle'), /Unknown interface screen/);
 });

@@ -13,6 +13,8 @@ import { CanvasFonts } from "./text.js";
 import { showGate } from "./gate.js";
 import { reportPresence } from "../presence.js";
 import { pageGpu } from "../gpu-info.js";
+import { createRustRender } from "../rust-render/index.js";
+import { requireRustDraws } from "../rust-render/draw-guard.js";
 
 // The front end: the page when the URL names no battle (src/launch.js;
 // docs/shell.md). Its menus are drawn by the page theme
@@ -170,6 +172,11 @@ export async function createShell({ query = location.search, parent = document.b
     parent.appendChild(renderer.domElement);
     resize();
     window.addEventListener("resize", resize);
+    // Classic menus use the same required Rust context/program journal as a
+    // battle. The empty scene supplies lifecycle inputs without loading a map.
+    const rust = await createRustRender({ renderer, scene: new THREE.Scene(), warmup() {} });
+    requireRustDraws(renderer);
+    shell.rust = rust;
     surface = new InterfaceSurface(renderer, { url: data.texture, fonts: data.fonts, strings: data.strings });
   }
   const stack = new ScreenStack({ theme: theme || new ClassicTheme(), sound: (kind) => media.audio.play(SOUNDS[kind] || kind) });

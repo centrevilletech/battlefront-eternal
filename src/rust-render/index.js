@@ -23,6 +23,8 @@ import { shadowPass } from "./shadow.js";
 import { cloudsPass, underwaterPass, fogPass } from "./screen.js";
 import { mirrorPass } from "./mirror.js";
 import { linesPass } from "./lines.js";
+import { InterfacePass } from "./interface.js";
+import { bindInterfaceRenderer } from "./draw-guard.js";
 import { GL_TYPES } from "./geometry-types.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
@@ -219,6 +221,8 @@ export class RustRender {
     this.phases.probe = this.phases.far;
     this.byName = {};
     for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass, linesPass]) this.addPass(make(this));
+    this.interface = new InterfacePass(this);
+    bindInterfaceRenderer(this.renderer, this.interface);
   }
 
   // The scene and texture owners keep their CPU resources. Rust replays its

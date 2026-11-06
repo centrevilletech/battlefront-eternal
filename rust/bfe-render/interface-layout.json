@@ -1,0 +1,11 @@
+{
+  "maxDraws": 1024,
+  "maxUniforms": 32,
+  "uniformSize": 18,
+  "fields": [
+    "program", "geometry", "first", "count", "primitive", "side",
+    "flags", "depthFunc", "equationRgb", "equationAlpha", "srcRgb", "dstRgb",
+    "srcAlpha", "dstAlpha", "flip", "groupOrder", "renderOrder", "material",
+    "depth", "object", "uniforms", "values"
+  ]
+}

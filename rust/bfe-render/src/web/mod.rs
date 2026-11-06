@@ -8,6 +8,7 @@ mod effects;
 mod far;
 mod foliage;
 mod hud;
+mod interface;
 mod instances;
 mod motion;
 mod post;

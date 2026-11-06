@@ -1,0 +1,341 @@
+{
+  "version": 1,
+  "programs": [
+    {
+      "key": "interface/room",
+      "vertex": "room.vert",
+      "fragment": "room.frag",
+      "attributes": {
+        "position": 0,
+        "normal": 1
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelMatrix": 16,
+        "viewMatrix": 16,
+        "map": 32,
+        "time": 1,
+        "scroll": 1,
+        "tint": 3,
+        "pulse": 3,
+        "strength": 1
+      }
+    },
+    {
+      "key": "interface/floor",
+      "vertex": "floor.vert",
+      "fragment": "floor.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelMatrix": 16,
+        "viewMatrix": 16,
+        "color": 3,
+        "time": 1,
+        "strength": 1
+      }
+    },
+    {
+      "key": "interface/vignette",
+      "vertex": "vignette.vert",
+      "fragment": "vignette.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "shade": 3,
+        "pool": 3,
+        "center": 2,
+        "aspect": 1,
+        "strength": 1,
+        "dip": 1
+      }
+    },
+    {
+      "key": "interface/column",
+      "vertex": "column.vert",
+      "fragment": "column.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "normal": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "normalMatrix": 9,
+        "color": 3,
+        "time": 1,
+        "strength": 1
+      }
+    },
+    {
+      "key": "interface/face",
+      "vertex": "face.vert",
+      "fragment": "face.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "map": 32,
+        "tint": 3,
+        "time": 1,
+        "strength": 1
+      }
+    },
+    {
+      "key": "interface/beam",
+      "vertex": "beam.vert",
+      "fragment": "beam.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "normal": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "normalMatrix": 9,
+        "color": 3,
+        "time": 1,
+        "strength": 1
+      }
+    },
+    {
+      "key": "interface/metal",
+      "vertex": "metal.vert",
+      "fragment": "metal.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "color": 3,
+        "rim": 3
+      }
+    },
+    {
+      "key": "interface/model",
+      "vertex": "model.vert",
+      "fragment": "model.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "normal": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "modelMatrix": 16,
+        "normalMatrix": 9,
+        "scroll": 2,
+        "time": 1,
+        "map": 32,
+        "hasMap": 5,
+        "color": 3,
+        "opacity": 1,
+        "lit": 1,
+        "toLight": 3,
+        "ambient": 1,
+        "cutoff": 1,
+        "solid": 1,
+        "keyTint": 3,
+        "rim": 3,
+        "rimPower": 1,
+        "recolor": 4,
+        "cut": 1,
+        "cutGlow": 3
+      }
+    },
+    {
+      "key": "interface/model-color",
+      "vertex": "model.vert",
+      "fragment": "model.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "normal": 2,
+        "color": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "modelMatrix": 16,
+        "normalMatrix": 9,
+        "scroll": 2,
+        "time": 1,
+        "map": 32,
+        "hasMap": 5,
+        "color": 3,
+        "opacity": 1,
+        "lit": 1,
+        "toLight": 3,
+        "ambient": 1,
+        "cutoff": 1,
+        "solid": 1,
+        "keyTint": 3,
+        "rim": 3,
+        "rimPower": 1,
+        "recolor": 4,
+        "cut": 1,
+        "cutGlow": 3
+      },
+      "vertexPrefix": "#define USE_COLOR\n"
+    },
+    {
+      "key": "interface/model-skin",
+      "vertex": "model.vert",
+      "fragment": "model.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "normal": 2,
+        "skinIndex": 4,
+        "skinWeight": 5
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "modelMatrix": 16,
+        "normalMatrix": 9,
+        "bindMatrix": 16,
+        "bindMatrixInverse": 16,
+        "boneTexture": 32,
+        "scroll": 2,
+        "time": 1,
+        "map": 32,
+        "hasMap": 5,
+        "color": 3,
+        "opacity": 1,
+        "lit": 1,
+        "toLight": 3,
+        "ambient": 1,
+        "cutoff": 1,
+        "solid": 1,
+        "keyTint": 3,
+        "rim": 3,
+        "rimPower": 1,
+        "recolor": 4,
+        "cut": 1,
+        "cutGlow": 3
+      },
+      "vertexPrefix": "#define USE_SKINNING\n"
+    },
+    {
+      "key": "interface/model-skin-color",
+      "vertex": "model.vert",
+      "fragment": "model.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "normal": 2,
+        "color": 3,
+        "skinIndex": 4,
+        "skinWeight": 5
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "modelMatrix": 16,
+        "normalMatrix": 9,
+        "bindMatrix": 16,
+        "bindMatrixInverse": 16,
+        "boneTexture": 32,
+        "scroll": 2,
+        "time": 1,
+        "map": 32,
+        "hasMap": 5,
+        "color": 3,
+        "opacity": 1,
+        "lit": 1,
+        "toLight": 3,
+        "ambient": 1,
+        "cutoff": 1,
+        "solid": 1,
+        "keyTint": 3,
+        "rim": 3,
+        "rimPower": 1,
+        "recolor": 4,
+        "cut": 1,
+        "cutGlow": 3
+      },
+      "vertexPrefix": "#define USE_SKINNING\n#define USE_COLOR\n"
+    },
+    {
+      "key": "interface/basic",
+      "vertex": "basic.vert",
+      "fragment": "basic.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "diffuse": 3,
+        "opacity": 1
+      }
+    },
+    {
+      "key": "interface/basic-map",
+      "vertex": "basic.vert",
+      "fragment": "basic.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32,
+        "mapTransform": 9
+      },
+      "vertexPrefix": "#define USE_MAP\n",
+      "fragmentPrefix": "#define USE_MAP\n"
+    },
+    {
+      "key": "interface/points",
+      "vertex": "points.vert",
+      "fragment": "points.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "diffuse": 3,
+        "opacity": 1,
+        "size": 1,
+        "scale": 1,
+        "map": 32,
+        "uvTransform": 9
+      }
+    },
+    {
+      "key": "interface/quad",
+      "vertex": "../post-hud/hud.vert",
+      "fragment": "../post-hud/hud.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "maskUv": 2,
+        "tint": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "map": 32,
+        "mask": 32,
+        "masked": 5
+      }
+    }
+  ]
+}

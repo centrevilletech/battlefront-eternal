@@ -1,3 +1,4 @@
+import { surfaceMaterial } from "../rust-render/interface-material.js";
 import * as THREE from "three";
 
 // The interface's 3D models (the spawn screen's room, the team logos, a
@@ -38,76 +39,13 @@ export const DROIDEKA_UNITS = 0.9 * BODY_UNITS;
 const AMBIENT = 144 / 255;
 const TO_LIGHT = new THREE.Vector3(-1, 1, 1).normalize();
 
-const VERTEX = /* glsl */ `
-  #include <common>
-  #include <skinning_pars_vertex>
-  uniform vec2 scroll;
-  uniform float time;
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vTint;
-  varying float vLift;
-  void main() {
-    #ifdef USE_COLOR
-      vTint = color;
-    #else
-      vTint = vec3(1.0);
-    #endif
-    #include <beginnormal_vertex>
-    #include <skinbase_vertex>
-    #include <skinnormal_vertex>
-    #include <defaultnormal_vertex>
-    #include <begin_vertex>
-    #include <skinning_vertex>
-    #include <project_vertex>
-    vNormal = normalize(transformedNormal);
-    vLift = (modelMatrix * vec4(transformed, 1.0)).y;
-    // Scrolling materials move at -speed * t, in repeats per second.
-    vUv = uv - scroll * time;
-  }
-`;
-const FRAGMENT = /* glsl */ `
-  uniform sampler2D map;
-  uniform bool hasMap;
-  uniform vec3 color;
-  uniform float opacity;
-  uniform float lit;
-  uniform vec3 toLight;
-  uniform float ambient;
-  uniform float cutoff;
-  uniform float solid;
-  uniform vec3 keyTint;
-  uniform vec3 rim;
-  uniform float rimPower;
-  uniform vec4 recolor;
-  uniform float cut;
-  uniform vec3 cutGlow;
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vTint;
-  varying float vLift;
-  void main() {
-    if (vLift > cut) discard;
-    vec4 texel = hasMap ? texture2D(map, vUv) : vec4(1.0);
-    vec3 n = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
-    vec3 light = vec3(min(ambient + max(dot(n, toLight), 0.0), 1.0)) * keyTint;
-    vec4 c = vec4(texel.rgb * color * vTint * mix(vec3(1.0), light, lit), texel.a * opacity);
-    c.rgb += rim * pow(1.0 - max(n.z, 0.0), rimPower) * lit;
-    if (recolor.a > 0.0) c.rgb = mix(c.rgb, recolor.rgb * dot(c.rgb, vec3(0.299, 0.587, 0.114)) * 2.0, recolor.a);
-    c.rgb += cutGlow * (1.0 - smoothstep(0.0, 0.08, cut - vLift));
-    if (c.a <= cutoff) discard;
-    // An opaque part's texture alpha holds something else (a gloss mask);
-    // what it writes is solid.
-    gl_FragColor = vec4(c.rgb, mix(c.a, 1.0, solid));
-  }
-`;
 
 // map: the texture; lit: the interface light or flat; scroll: [u, v] per
 // second; blend: draws alpha blended (else opaque); cutoff: texels at or
 // under this alpha aren't drawn (-1: all are, as an opaque part's alpha
 // may hold something else); tints: multiplied by the vertices' colours.
 export function interfaceMaterial({ map = null, color = [1, 1, 1], opacity = 1, lit = true, scroll = null, blend = true, cutoff = 0, depth = true, tints = false } = {}) {
-  return new THREE.ShaderMaterial({
+  return surfaceMaterial("model", {
     vertexColors: tints,
     uniforms: {
       map: { value: map },
@@ -128,8 +66,6 @@ export function interfaceMaterial({ map = null, color = [1, 1, 1], opacity = 1, 
       cut: { value: 1e9 },
       cutGlow: { value: new THREE.Color(0, 0, 0) },
     },
-    vertexShader: VERTEX,
-    fragmentShader: FRAGMENT,
     transparent: blend,
     depthTest: depth,
     depthWrite: depth,

@@ -4,6 +4,9 @@
 variants. The `post-hud` family owns twelve stable full-screen and battle HUD
 programs. The `world` family owns static near/far geometry, terrain, foliage
 and canopy programs, including their Enhanced variants. The FXAA source license is retained in `shaders/post-hud/NOTICE`.
+The `interface` family owns menu quads, model/skin/vertex-colour previews,
+spawn rooms, the projector, motes and holomap surfaces. Its skinning source
+license is retained in `shaders/interface/NOTICE`.
 Those passes register Rust source directly. They have no source switch,
 compiled-three-program bridge, or shader fallback. Registration errors throw a
 message naming the variant. Unported shader families still borrow three programs.
@@ -34,11 +37,20 @@ uniform values and the key, without browser shader source. Registration requires
 no prior three draw. `core.shaderPrograms` records key, source/layout SHA-256 and
 registration duration. Post targets are explicitly initialized before adoption.
 
-The shared interface Batch also serves menu surfaces, the spawn holomap and HUD
-pointer/overlay draws outside the battle HUD phase. Those real consumers still
-need three's quad material. `interface/batch-shaders.js` is generated from the
-canonical HUD bodies for them; it cannot select or replace the battle HUD program.
-Remove it when those interface draws acquire their own Rust phase.
+Interface Batch descriptors carry texture/mask values without Three materials
+or browser shader text. Menu and spawn scenes publish generated draw records to
+`interface_scene.rs`; Rust sorts their opaque/transparent groups and applies
+depth, blending, culling and indexed/point draws. `interface/quad` shares the
+canonical Rust HUD shader files with a separate context-local program key, so
+the two passes cannot invalidate each other's matrix cache. The record layout
+comes from `interface-layout.json` through `tools/render-interface-layout.mjs`.
+
+Dynamic interface vertices have persistent WASM byte mirrors. Changed attributes
+upload into retained GPU buffers without marshalling a new byte slice each
+frame. Context reconstruction replays catalog keys and geometry bindings, moves
+the current mirrors and uploads their bytes before drawing resumes. Three
+scene, camera, skeleton, geometry and texture descriptors remain presentation
+inputs. The browser's scene draw entry point is guarded for every surface.
 
 # Parallel shader families
 
@@ -107,8 +119,7 @@ be removed after recording results.
 Owned source removes the dependency on three's first draw and exposes the finite
 variants before drawing. It permits loading-screen prewarming, paced work and
 content-addressed source/layout caches. Covered post draws now have no three
-shader material to compile. The main HUD registers Rust directly; unrelated UI
-quad consumers still compile their material. Unported families retain their
+shader material to compile. HUD and interface quads register Rust directly. Unported families retain their
 preparation work, so source ownership alone does not remove the long loading task.
 
 The current cache avoids repeated linking in one context. In an earlier warm

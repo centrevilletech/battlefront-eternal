@@ -1,3 +1,4 @@
+import { interfaceBasic, interfacePoints, surfaceMaterial as interfaceMaterial } from "../../rust-render/interface-material.js";
 import { renderInterface } from "../../rust-render/draw-guard.js";
 import * as THREE from "three";
 import { CameraRig, PIVOT } from "./rig.js";
@@ -36,62 +37,6 @@ const MAP_DEPTH = 0.55; // m: the disc stands this much nearer than his plane
 const MAP_FILL = 0.8; // of its slot's width (the rim stands out past it)
 const MAP_LIFT = 0.12; // m: between the projector's lamp and the disc
 
-const VIGNETTE_VERTEX = /* glsl */ `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = vec4(position.xy, 0.0, 1.0);
-  }
-`;
-// Dark at the edges, a pool of light where the soldier stands, the battle
-// behind graded toward the look's colour; a dip to dark on a cut.
-const VIGNETTE_FRAGMENT = /* glsl */ `
-  uniform vec3 shade;
-  uniform vec3 pool;
-  uniform vec2 center;
-  uniform float aspect;
-  uniform float strength;
-  uniform float dip;
-  varying vec2 vUv;
-  void main() {
-    vec2 d = (vUv - center) * vec2(aspect, 1.0);
-    float r = length(d * vec2(0.8, 1.0));
-    float dark = smoothstep(0.15, 1.0, r);
-    float a = mix(0.42, 0.9, dark) * strength;
-    vec3 c = mix(pool, shade, dark);
-    gl_FragColor = vec4(c, min(a + dip, 1.0));
-  }
-`;
-
-const COLUMN_VERTEX = /* glsl */ `
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vView;
-  void main() {
-    vUv = uv;
-    vec4 view = modelViewMatrix * vec4(position, 1.0);
-    vNormal = normalize(normalMatrix * normal);
-    vView = normalize(-view.xyz);
-    gl_Position = projectionMatrix * view;
-  }
-`;
-// Bright at its foot, gone toward its top, brighter at its edges, scan
-// lines rising through it.
-const COLUMN_FRAGMENT = /* glsl */ `
-  uniform vec3 color;
-  uniform float time;
-  uniform float strength;
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vView;
-  void main() {
-    float edge = 1.0 - abs(dot(normalize(vNormal), vView));
-    float fade = pow(1.0 - vUv.y, 1.6);
-    float lines = 0.75 + 0.25 * sin((vUv.y * 46.0 - time * 3.0) * 6.2832);
-    float a = fade * (0.08 + 0.5 * pow(edge, 2.2)) * lines * strength;
-    gl_FragColor = vec4(color * a, a);
-  }
-`;
 
 // The projector's ring: rings, ticks and arcs in white (tinted by its
 // material).
@@ -135,7 +80,7 @@ function ringTexture() {
   });
 }
 
-const additive = (map, color = 0xffffff) => new THREE.MeshBasicMaterial({ map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+const additive = (map, color = 0xffffff) => interfaceBasic({ map, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
 const ease = (t) => 1 - Math.pow(1 - Math.min(Math.max(t, 0), 1), 3);
 
 export class SpawnStage {
@@ -161,7 +106,7 @@ export class SpawnStage {
     this.light = null; // the body's: { key, rim }
 
     // The vignette, a quad over the whole canvas.
-    this.vignette = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+    this.vignette = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), interfaceMaterial("vignette", {
       uniforms: {
         shade: { value: new THREE.Color(0, 0, 0) },
         pool: { value: new THREE.Color(0, 0, 0) },
@@ -170,8 +115,6 @@ export class SpawnStage {
         strength: { value: 1 },
         dip: { value: 0 },
       },
-      vertexShader: VIGNETTE_VERTEX,
-      fragmentShader: VIGNETTE_FRAGMENT,
       transparent: true,
       depthTest: false,
       depthWrite: false,
@@ -202,10 +145,8 @@ export class SpawnStage {
     this.glow = flat(GLOW_SIZE, this.glowMaterial, 0.004);
     this.ring = flat(RING_SIZE, this.ringMaterial, 0.008);
     this.inner = flat(RING_SIZE * 0.62, this.ringInner, 0.012);
-    this.columnMaterial = new THREE.ShaderMaterial({
+    this.columnMaterial = interfaceMaterial("column", {
       uniforms: { color: { value: new THREE.Color(1, 1, 1) }, time: { value: 0 }, strength: { value: 0 } },
-      vertexShader: COLUMN_VERTEX,
-      fragmentShader: COLUMN_FRAGMENT,
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -218,7 +159,7 @@ export class SpawnStage {
     this.motes = Array.from({ length: MOTES }, (_, i) => ({ a: Math.random() * Math.PI * 2, r: 0.15 + Math.random() * 0.4, y: (i / MOTES) * COLUMN.height, speed: 0.25 + Math.random() * 0.45 }));
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MOTES * 3), 3));
-    this.moteMaterial = new THREE.PointsMaterial({ map: this.glowMaterial.map, size: 0.06, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+    this.moteMaterial = interfacePoints({ map: this.glowMaterial.map, size: 0.06, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
     this.points = new THREE.Points(geometry, this.moteMaterial);
     this.points.frustumCulled = false;
     this.points.renderOrder = 3;

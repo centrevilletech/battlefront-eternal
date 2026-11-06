@@ -97,10 +97,7 @@ export class InterfaceSurface {
     batch.end();
     const renderer = this.renderer;
     renderer.setRenderTarget(null);
-    const autoClear = renderer.autoClear;
-    renderer.autoClear = false;
     renderInterface(renderer, this.scene, this.camera, "interface");
-    renderer.autoClear = autoClear;
   }
 }
 

@@ -32,7 +32,10 @@ pub fn spec(key: &str) -> Result<&'static Spec, String> {
 
 pub fn sources(s: &Spec) -> (String, String) {
     if s.expanded { return (format!("{}{}", s.vertex_prefix, s.vertex), format!("{}{}", s.fragment_prefix, s.fragment)); }
-    (format!("{PREFIX}{VERTEX}{}", s.vertex), format!("{PREFIX}{FRAGMENT}{}", s.fragment))
+    // Interface model and projector variants use the same finite prefixes as
+    // expanded world sources. Apply them to body sources before their text;
+    // dropping a skin/colour define silently links the wrong active inputs.
+    (format!("{PREFIX}{VERTEX}{}{}", s.vertex_prefix, s.vertex), format!("{PREFIX}{FRAGMENT}{}{}", s.fragment_prefix, s.fragment))
 }
 
 fn uniform_type(ty: u32) -> u32 {
@@ -100,6 +103,14 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn body_variants_apply_their_declared_feature_prefixes() {
+        let s = spec("interface/model-skin-color").unwrap();
+        let (vertex, _) = sources(s);
+        assert!(vertex.contains("#define USE_SKINNING\n#define USE_COLOR\n"));
+        let (vertex, _) = sources(spec("interface/basic-map").unwrap());
+        assert!(vertex.contains("#define USE_MAP\n"));
+    }
     #[test]
     fn expanded_world_sources_keep_their_vocabulary_and_use_frame_rewrite() {
         let s = Spec { key: "world/test", vertex_prefix: "", fragment_prefix: "", kind: Kind::World, expanded: true, lamps: false,

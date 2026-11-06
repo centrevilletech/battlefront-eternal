@@ -1074,6 +1074,64 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} geometry
+     * @param {number} buffer
+     * @param {Uint8Array | number[]} data
+     * @returns {number}
+     */
+    interface_buffer_init(geometry, buffer, data) {
+        const val2 = +geometry;
+        const val3 = +buffer;
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_interface_buffer_init(this.__wbg_ptr, val2, val3, ptr0, len0);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} stream
+     * @returns {number}
+     */
+    interface_buffer_len(stream) {
+        const ret = wasm.bferenderer_interface_buffer_len(this.__wbg_ptr, stream);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} stream
+     * @returns {number}
+     */
+    interface_buffer_ptr(stream) {
+        const ret = wasm.bferenderer_interface_buffer_ptr(this.__wbg_ptr, stream);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} draws
+     */
+    interface_frame(draws) {
+        wasm.bferenderer_interface_frame(this.__wbg_ptr, draws);
+    }
+    /**
+     * @returns {number}
+     */
+    interface_input_len() {
+        const ret = wasm.bferenderer_interface_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    interface_input_ptr() {
+        const ret = wasm.bferenderer_interface_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} stream
+     * @param {number} offset
+     * @param {number} length
+     */
+    interface_upload_frame(stream, offset, length) {
+        wasm.bferenderer_interface_upload_frame(this.__wbg_ptr, stream, offset, length);
+    }
+    /**
      * @param {number} records
      * @returns {Uint32Array}
      */
