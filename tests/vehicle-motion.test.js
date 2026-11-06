@@ -1,4 +1,4 @@
-import { stepPrediction } from './helpers/hull-prediction.js';
+import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
 // Vehicle speeds follow each class's ODF as the 2004 game reads it
 // (docs/vehicles.md "Movement"). The synthetic cases always run; the last
 // test pins every locally imported vehicle's top speed to its own data
@@ -139,6 +139,8 @@ test('every imported vehicle tops out at its own imported speed', { skip: !impor
     const system = new Vehicles({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), collision, data: { ...data, spawns, blockers: null },
       buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)),
       texture: () => null, effects: { play: () => null }, ordnance: { explosion() {} }, flightEnvironment: { bounds: null, ceiling: 1e4 } });
+    // The native fleet needs the imported model and clip buffers this world was built from.
+    registerHullFixture(system, { data: system.data, buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)) });
     system.cosmetic = false;
     for (const name of names) {
       const v = system.vehicles.find((x) => x.name === name), def = v.def;

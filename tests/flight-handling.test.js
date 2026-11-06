@@ -1,4 +1,4 @@
-import { stepPrediction } from './helpers/hull-prediction.js';
+import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
 // How a craft handles and how its pilot sees it, from its own ODF as the
 // 2004 game reads it (docs/vehicles.md "Movement" and "Camera"): the
 // turn and pitch rates and their filters, the flat turn and the drawn lean,
@@ -223,6 +223,8 @@ test('every imported flyer turns flat at its own TurnRate and is seen at its own
     const system = new Vehicles({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), collision, data: { ...data, spawns, blockers: null },
       buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)),
       texture: () => null, effects: { play: () => null }, ordnance: { explosion() {} }, flightEnvironment: { bounds: null, ceiling: 1e4 } });
+    // The native fleet needs the imported model and clip buffers this world was built from.
+    registerHullFixture(system, { data: system.data, buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)) });
     system.cosmetic = false;
     for (const name of names) {
       const v = system.vehicles.find((x) => x.name === name), def = v.def;
