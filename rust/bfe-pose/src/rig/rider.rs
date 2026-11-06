@@ -12,8 +12,8 @@
 //! JavaScript's in its order.
 
 use super::skeleton::Skeleton;
+use crate::{Clip, Pose};
 use three::{clamp, Matrix4, Quaternion, Vector3};
-use crate::pose::{Clip, Pose};
 
 // The head's middle in the head bone's frame (x runs up the neck): the
 // average of the head vertices of the troopers' bodies.
@@ -31,17 +31,52 @@ const ANKLE: f64 = 0.13;
 // The joints a rider's points hang from; the arms' last, which a skeleton
 // may lack (its rider is then struck without them).
 const NAMES: [&str; 11] = [
-    "DummyRoot", "bone_root", "bone_pelvis", "bone_neck", "bone_head",
-    "bone_l_thigh", "bone_l_calf", "bone_l_foot", "bone_r_thigh", "bone_r_calf", "bone_r_foot",
+    "DummyRoot",
+    "bone_root",
+    "bone_pelvis",
+    "bone_neck",
+    "bone_head",
+    "bone_l_thigh",
+    "bone_l_calf",
+    "bone_l_foot",
+    "bone_r_thigh",
+    "bone_r_calf",
+    "bone_r_foot",
 ];
-const ARMS: [&str; 6] = ["bone_l_upperarm", "bone_l_forearm", "bone_l_hand", "bone_r_upperarm", "bone_r_forearm", "bone_r_hand"];
+const ARMS: [&str; 6] = [
+    "bone_l_upperarm",
+    "bone_l_forearm",
+    "bone_l_hand",
+    "bone_r_upperarm",
+    "bone_r_forearm",
+    "bone_r_hand",
+];
 
 /// The joints the animator gives back their bind translation after every
 /// pose (src/animator.js BIND_LENGTH), in its order.
 pub const BIND_LENGTH: [&str; 22] = [
-    "bone_pelvis", "bone_a_spine", "bone_b_spine", "bone_ribcage", "bone_neck", "bone_head",
-    "bone_l_clavicle", "bone_l_upperarm", "bone_l_forearm", "bone_l_hand", "bone_l_thigh", "bone_l_calf", "bone_l_foot", "bone_l_toe",
-    "bone_r_clavicle", "bone_r_upperarm", "bone_r_forearm", "bone_r_hand", "bone_r_thigh", "bone_r_calf", "bone_r_foot", "bone_r_toe",
+    "bone_pelvis",
+    "bone_a_spine",
+    "bone_b_spine",
+    "bone_ribcage",
+    "bone_neck",
+    "bone_head",
+    "bone_l_clavicle",
+    "bone_l_upperarm",
+    "bone_l_forearm",
+    "bone_l_hand",
+    "bone_l_thigh",
+    "bone_l_calf",
+    "bone_l_foot",
+    "bone_l_toe",
+    "bone_r_clavicle",
+    "bone_r_upperarm",
+    "bone_r_forearm",
+    "bone_r_hand",
+    "bone_r_thigh",
+    "bone_r_calf",
+    "bone_r_foot",
+    "bone_r_toe",
 ];
 
 /// What riderPoints keeps per skeleton (src/rider-pose.js skeletonOf), and
@@ -96,7 +131,11 @@ impl RiderSkeleton {
             order.push(i as usize);
         }
         let arms = ARMS.iter().all(|name| by_name(name).is_some());
-        let names: Vec<&str> = if arms { NAMES.iter().chain(ARMS.iter()).copied().collect() } else { NAMES.to_vec() };
+        let names: Vec<&str> = if arms {
+            NAMES.iter().chain(ARMS.iter()).copied().collect()
+        } else {
+            NAMES.to_vec()
+        };
         for name in names {
             if let Some(i) = by_name(name) {
                 visit(i as i32, &parent, &mut seen, &mut order);
@@ -238,15 +277,33 @@ pub fn rider_points(
     } else {
         let pitch = clamp(or_zero(sample.pitch), -1.0, 1.0);
         let turn = clamp(or_zero(sample.turn), -1.0, 1.0);
-        pose_add(pose, clip, (4.0 + turn) / clip.fps, 1.0 - pitch.abs(), false);
-        pose_add(pose, clip, ((if pitch > 0.0 { 7.0 } else { 1.0 }) + turn) / clip.fps, pitch.abs(), false);
+        pose_add(
+            pose,
+            clip,
+            (4.0 + turn) / clip.fps,
+            1.0 - pitch.abs(),
+            false,
+        );
+        pose_add(
+            pose,
+            clip,
+            ((if pitch > 0.0 { 7.0 } else { 1.0 }) + turn) / clip.fps,
+            pitch.abs(),
+            false,
+        );
     }
     for &i in &skeleton.order {
         let w = pose.w[i] as f64;
         let q = &mut scratch.local_q[i];
         let p = &mut scratch.local_p[i];
         if w > 1e-6 {
-            q.set(pose.q[i * 4] as f64, pose.q[i * 4 + 1] as f64, pose.q[i * 4 + 2] as f64, pose.q[i * 4 + 3] as f64).normalize();
+            q.set(
+                pose.q[i * 4] as f64,
+                pose.q[i * 4 + 1] as f64,
+                pose.q[i * 4 + 2] as f64,
+                pose.q[i * 4 + 3] as f64,
+            )
+            .normalize();
         } else {
             q.copy(&bone_q[i]);
         }
@@ -258,7 +315,11 @@ pub fn rider_points(
                 p.copy(&bind);
             }
             _ if w > 1e-6 => {
-                p.set(pose.t[i * 3] as f64 / w, pose.t[i * 3 + 1] as f64 / w, pose.t[i * 3 + 2] as f64 / w);
+                p.set(
+                    pose.t[i * 3] as f64 / w,
+                    pose.t[i * 3 + 1] as f64 / w,
+                    pose.t[i * 3 + 2] as f64 / w,
+                );
             }
             _ => {
                 p.copy(&bone_p[i]);
@@ -282,7 +343,10 @@ pub fn rider_points(
     out.pelvis.copy(&wp[skeleton.pelvis]);
     out.neck.copy(&wp[skeleton.neck]);
     let head = skeleton.head;
-    out.head.copy(&HEAD_MIDDLE).apply_quaternion(&wq[head]).add(&wp[head]);
+    out.head
+        .copy(&HEAD_MIDDLE)
+        .apply_quaternion(&wq[head])
+        .add(&wp[head]);
     out.hips[0].copy(&wp[skeleton.hips[0]]);
     out.hips[1].copy(&wp[skeleton.hips[1]]);
     out.knees[0].copy(&wp[skeleton.knees[0]]);
@@ -295,13 +359,18 @@ pub fn rider_points(
             out.shoulders[side].copy(&wp[skeleton.shoulders[side]]);
             out.elbows[side].copy(&wp[skeleton.elbows[side]]);
             let hand = skeleton.hands[side];
-            out.hands[side].copy(&HAND_MIDDLE).apply_quaternion(&wq[hand]).add(&wp[hand]);
+            out.hands[side]
+                .copy(&HAND_MIDDLE)
+                .apply_quaternion(&wq[hand])
+                .add(&wp[hand]);
         }
     }
     if root {
         // The JavaScript reads world.p[byName.bone_root]: a skeleton without
         // one throws there. Every soldier's has it.
-        let r = skeleton.bone_root.expect("riderPoints: a held body's skeleton has no bone_root");
+        let r = skeleton
+            .bone_root
+            .expect("riderPoints: a held body's skeleton has no bone_root");
         out.root.copy(&wp[r]);
         out.root_turn.copy(&wq[r]);
     }
@@ -384,8 +453,13 @@ fn capsule(shape: &mut HitShape, part: ShapePart, from: &Vector3, to: &Vector3, 
 /// middle of the hand (capsules), carried into the world by `frame`.
 /// `scale`: the class's CollisionRootScale (None for undefined or null).
 /// Returns the count: 10, or 6 without arms.
-pub fn rider_hit_shapes(points: &RiderPoints, frame: &Matrix4, scale: Option<f64>, shapes: &mut [HitShape]) -> usize {
-    let s = crate::collision::js_max(scale.unwrap_or(1.0), 1.0);
+pub fn rider_hit_shapes(
+    points: &RiderPoints,
+    frame: &Matrix4,
+    scale: Option<f64>,
+    shapes: &mut [HitShape],
+) -> usize {
+    let s = crate::js_max(scale.unwrap_or(1.0), 1.0);
     let mut a = Vector3::default();
     let mut b = Vector3::default();
     let mut up = Vector3::default();
@@ -402,10 +476,22 @@ pub fn rider_hit_shapes(points: &RiderPoints, frame: &Matrix4, scale: Option<f64
     for side in 0..2 {
         a.copy(&points.hips[side]).apply_matrix4(frame);
         b.copy(&points.knees[side]).apply_matrix4(frame);
-        capsule(&mut shapes[2 + side * 2], ShapePart::Body, &a, &b, THIGH_RADIUS);
+        capsule(
+            &mut shapes[2 + side * 2],
+            ShapePart::Body,
+            &a,
+            &b,
+            THIGH_RADIUS,
+        );
         a.copy(&points.knees[side]).apply_matrix4(frame);
         b.copy(&points.ankles[side]).apply_matrix4(frame);
-        capsule(&mut shapes[3 + side * 2], ShapePart::Body, &a, &b, SHIN_RADIUS);
+        capsule(
+            &mut shapes[3 + side * 2],
+            ShapePart::Body,
+            &a,
+            &b,
+            SHIN_RADIUS,
+        );
     }
     if !points.arms {
         return 6;
@@ -413,10 +499,22 @@ pub fn rider_hit_shapes(points: &RiderPoints, frame: &Matrix4, scale: Option<f64
     for side in 0..2 {
         a.copy(&points.shoulders[side]).apply_matrix4(frame);
         b.copy(&points.elbows[side]).apply_matrix4(frame);
-        capsule(&mut shapes[6 + side * 2], ShapePart::Body, &a, &b, UPPER_ARM_RADIUS);
+        capsule(
+            &mut shapes[6 + side * 2],
+            ShapePart::Body,
+            &a,
+            &b,
+            UPPER_ARM_RADIUS,
+        );
         a.copy(&points.elbows[side]).apply_matrix4(frame);
         b.copy(&points.hands[side]).apply_matrix4(frame);
-        capsule(&mut shapes[7 + side * 2], ShapePart::Body, &a, &b, FOREARM_RADIUS);
+        capsule(
+            &mut shapes[7 + side * 2],
+            ShapePart::Body,
+            &a,
+            &b,
+            FOREARM_RADIUS,
+        );
     }
     10
 }
@@ -424,6 +522,10 @@ pub fn rider_hit_shapes(points: &RiderPoints, frame: &Matrix4, scale: Option<f64
 /// riderDropPoint(points, out): under his pelvis, his soles where the lower
 /// of his feet was, in the body's frame.
 pub fn rider_drop_point(points: &RiderPoints, out: &mut Vector3) -> Vector3 {
-    out.set(points.pelvis.x, crate::collision::js_min(points.ankles[0].y, points.ankles[1].y) - ANKLE, points.pelvis.z);
+    out.set(
+        points.pelvis.x,
+        crate::js_min(points.ankles[0].y, points.ankles[1].y) - ANKLE,
+        points.pelvis.z,
+    );
     *out
 }

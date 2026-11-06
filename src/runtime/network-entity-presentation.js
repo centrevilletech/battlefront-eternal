@@ -55,7 +55,7 @@ export class EntityPresentation {
       if (pose.generation !== binding.generation || pose.kind !== binding.kind) { this.unbind(id); continue; }
       this.smooth(binding, pose, tick);
       this.clampCoast(binding,pose);
-      target.networkPose = pose;
+      pose.epoch=this.epoch;target.networkPose = pose;
     }
   }
   smooth(binding, pose, tick) {

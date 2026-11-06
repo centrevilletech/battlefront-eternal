@@ -5,7 +5,7 @@ import { Turret } from '../src/props.js';
 import { TurretSeats } from '../src/seats.js';
 import { EntitySeats } from '../src/runtime/entity-seats.js';
 import { Soldier } from '../src/soldier.js';
-import { SoldierAnimator } from '../src/animator.js';
+import {presentUnit,unitHost} from './helpers/presentation.js';
 import { SoldierPresentation } from '../src/soldier-presentation.js';
 import { PlayerCombat } from '../src/combat.js';
 import { Arsenal } from '../src/weapons.js';
@@ -49,7 +49,7 @@ test('semantic own correction applies immediately while real remote bodies use t
   f.adapter.present(105);
   assert.equal(f.own.soldier.position.x,30,'own authority is never delayed to the remote render clock');
   assert.equal(f.own.presentation.networkPose,null);
-  assert.ok(Math.abs(f.remote.presentation.update(0,0).position.x-23)<0.05);
+  assert.ok(Math.abs(presentUnit(f.remote,0,0).position.x-23)<0.05);
   assert.ok(Math.abs(f.remote.soldier.position.x-26)<0.05,'remote collision state remains latest authority');
   assert.deepEqual(f.corrections.map(c=>c.tick),[100,110]);
   f.sender.resend();assert.deepEqual(f.corrections.map(c=>c.tick),[100,110],'duplicate datagrams cannot reapply corrections');
@@ -72,8 +72,8 @@ test('missing semantic prerequisites never produce application acknowledgements'
 test('remote death animation waits for its sampled pose and side effects occur once per life',async()=>{
  const {ENTITY_SOLDIER_STATES}=await import('../src/runtime/network-entity-capture.js');
  const f=fixture(),authority=body(1);let deaths=0,notifications=0;
- f.remote.animator.die=()=>deaths++;f.game.presentEvent=kind=>{if(kind==='died')notifications++;};
- const draw=tick=>{f.adapter.present(tick);f.remote.present(1/60,1);};
+ unitHost(f.remote);let previousAction='loco';f.game.presentEvent=kind=>{if(kind==='died')notifications++;};
+ const draw=tick=>{f.adapter.present(tick);presentUnit(f.remote,1/60,1);const action=f.remote.animator.action;if(action==='dead'&&previousAction!=='dead')deaths++;previousAction=action;};
  f.adapter.baseline();packet(f,authority,100,1,[remoteRecord(100,20)]);
  const dead={...remoteRecord(101,20),state:ENTITY_SOLDIER_STATES.indexOf('dead'),health:0};
  packet(f,authority,101,2,[dead]);
@@ -109,20 +109,15 @@ test('own death animation plays when the entities datagram lands before the corr
 test('delayed launch and landing use the actual animator thrown and dead-rest transitions',async()=>{
  const {ENTITY_SOLDIER_STATES}=await import('../src/runtime/network-entity-capture.js');
  const f=fixture(),authority=body(1);
- // Exercise the real action state machine without a GPU or extracted skeleton.
- const animator=Object.create(SoldierAnimator.prototype),clip={duration:1};
- Object.assign(animator,{clips:new Map([['human_rifle_die',clip]]),transitions:{},
-  thrownClips:{front:{flying:clip,land:clip,rest:clip},back:{flying:clip,land:clip,rest:clip}},
-  update(dt,state){this.actionTime+=dt;this.updateAction(dt,state,Boolean(state.air));}});
- animator.reset(0);f.remote.animator=animator;
- let deaths=0;animator.die=function(){deaths++;SoldierAnimator.prototype.die.call(this);};
- const draw=tick=>{f.adapter.present(tick);f.remote.present(1/60,1);};
+ // The same full native pose batch consumes each sampled death once.
+ unitHost(f.remote);const animator=f.remote.animator;let deaths=0;
+ const draw=tick=>{f.adapter.present(tick);const pending=f.remote.presentation.deathPending;presentUnit(f.remote,1/60,1);if(pending&&!f.remote.presentation.deathPending)deaths++;};
  f.adapter.baseline();packet(f,authority,100,1,[remoteRecord(100,20)]);
  const flying={...remoteRecord(101,20),state:ENTITY_SOLDIER_STATES.indexOf('thrownDead'),health:0,position:[20,2,0],velocity:[-9,8,0]};
  packet(f,authority,101,2,[flying]);
  assert.equal(f.remote.dead,true);assert.equal(f.remote.alive,false);assert.equal(f.remote.soldier.air,'thrown');
  draw(100);assert.equal(animator.action,'loco');assert.equal(deaths,0);
- draw(101);assert.equal(animator.action,'thrown');assert.equal(animator.died,true);assert.equal(deaths,1);
+ draw(101);assert.equal(animator.action,'thrown');assert.equal(f.remote.presentation.state.dead,true);assert.equal(deaths,1);
  const landed={...remoteRecord(160,12),state:ENTITY_SOLDIER_STATES.indexOf('dead'),health:0};
  packet(f,authority,160,3,[landed]);
  assert.equal(f.remote.soldier.air,null,'collision already knows the landing');

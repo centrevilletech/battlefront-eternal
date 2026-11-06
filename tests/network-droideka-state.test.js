@@ -1,3 +1,4 @@
+import {presentUnit,presentGone} from './helpers/presentation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -81,16 +82,16 @@ test('Droideka capture, real shared presentation, lifecycle and stale packets us
   const send=(tick,id)=>{const records=captureWorld.capture(tick);assert.equal(captureWorld.unsupported.length,0);return sender.send(tick,records);};
   authority.d.mode=12;authority.d.roll=7;authority.d.velocity.x=60;authority.d.position.x=10;send(10,1);
   authority.d.roll=9;authority.d.position.x=20;const latest=send(20,2);adapter.present(15);
-  const presented=client.unit.presentation.update(0,1);
+  const presented=presentUnit(client.unit,0,1);
   assert.ok(Math.abs(presented.position.x-15)<.05);assert.equal(presented.roll,8);assert.equal(presented.mode,12);
   assert.equal(client.d.roll,9,'interpolation leaves authoritative simulation state untouched');
-  client.unit.animator.update(1/60,presented);
+  presentUnit(client.unit,1/60,1);
   const record=captureWorld.capture(20)[0];assert.equal(record.kind,'droideka');assert.equal(encodeEntityRecord(record).length,70);
   authority.unit.removed=true;send(30,3);assert.equal(client.unit.removed,true);
   sender.deliver(latest);assert.equal(client.unit.removed,true,'stale pose cannot revive tombstoned generation');
   authority.unit.removed=false;authority.unit.generation=2;authority.d.mode=0;authority.d.roll=0;send(40,4);
   assert.equal(client.unit.removed,false);assert.equal(client.unit.generation,2);adapter.present(35);
-  assert.equal(client.unit.presentation.update(0,1).roll,0,'new life cannot interpolate old shell rotation');
+  assert.equal(presentUnit(client.unit,0,1).roll,0,'new life cannot interpolate old shell rotation');
 });
 test('Droideka wire rejects malformed pose before applying a packet',()=>{
   const f=remoteFixture(),record=new EntityWorldCapture(f.game,f.registry).capture(1)[0];
@@ -143,15 +144,15 @@ test('a droideka terminal record latches its dissolve through repeated records a
   source.d.dead = true; source.d.mode = 4; source.unit.alive = false;
   sender.send(10, capture.capture(10));
   assert.equal(client.unit.gone.generation, 1);
-  assert.ok(client.unit.presentGone(.25) > 0);
+  assert.ok(presentGone(client.unit,.25) > 0);
   sender.send(20, capture.capture(20));
   assert.equal(client.unit.gone.t, .25, 'repeated terminal cannot restart the fade');
-  assert.equal(client.unit.presentGone(.26), -1);
+  assert.equal(presentGone(client.unit,.26), -1);
   sender.send(30, capture.capture(30));
-  assert.equal(client.unit.presentGone(0), -1);
+  assert.equal(presentGone(client.unit,0), -1);
   assert.equal(client.unit.actor.root.visible, false);
   source.unit.generation = 2; source.unit.alive = true; source.d.dead = false; source.d.mode = 0;
   sender.send(40, capture.capture(40));
-  assert.equal(client.unit.presentGone(0), 0);
+  assert.equal(presentGone(client.unit,0), 0);
   assert.equal(client.unit.gone, null);
 });

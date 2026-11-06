@@ -37,11 +37,10 @@ export function loadClips(meta, buffer, boneNames = null) {
   return clips;
 }
 
-// The WebAssembly pose sampler (src/anim-kernel.js; the page's default,
-// ?anim=js turns it off), when a battle loads one. It blends clips to the
-// last bit as the JavaScript below does (rust/sim/src/pose says how);
-// poses take it up as they are made or cleared, and drop it the same way,
-// so a battle can switch it live.
+// Vehicle, prop and rider consumers share the sampler installed before a
+// battle constructs their rigs. Existing accumulators bind it when cleared.
+// Unit display blending runs directly in rust/bfe-pose and does not use this
+// host accumulator. The remaining consumers still need its clip/bone API.
 let animKernel = null;
 export function setAnimKernel(kernel) {
   animKernel = kernel || null;

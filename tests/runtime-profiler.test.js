@@ -44,3 +44,16 @@ test('recording uses a bounded ring and reset excludes old samples', () => {
   assert.equal(profile.report().retained, 0);
   assert.equal(profile.report().metrics.cpuMs.max, null);
 });
+
+test('detail spans retain inclusive nesting and report p90', () => {
+  let time = 0;
+  const p = new RuntimeProfiler({now: () => time});
+  p.begin(1 / 60); const unit = p.start(); time = 2;
+  const animation = p.start(); time = 5; p.finish('animation', animation);
+  time = 6; p.finish('unitPresentation', unit); p.end(true);
+  const r = p.report();
+  assert.equal(r.metrics.unitPresentation.p90, 6);
+  assert.equal(r.metrics.animation.p90, 3);
+  assert.equal(r.metrics.cpuMs.p90, 6);
+  assert.ok(r.detailBuckets.includes('effectsUpdate'));
+});

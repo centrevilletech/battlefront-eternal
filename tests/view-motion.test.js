@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Clip, loadClips } from '../src/anim.js';
 import { existsSync, readFileSync } from 'node:fs';
-import { FirstPersonView } from '../src/firstperson.js';
+import { FirstPersonView } from './helpers/presentation.js';
 import { FirstPersonMotion } from '../src/camera.js';
 
 function constantClip(name, x) {
@@ -12,13 +12,12 @@ function constantClip(name, x) {
 }
 function arms() {
   const identity=new THREE.Matrix4().toArray();
-  const clips=new Map(['_1st_handsdown','_1st_rifle_idle','_1st_rifle_run'].map((name,i)=>[name,constantClip(name,i===2?1:0)]));
+  const clips=new Map(['_1st_handsdown','_1st_rifle_idle','_1st_rifle_run','_1st_rifle_jump_land'].map((name,i)=>[name,constantClip(name,i===2?1:0)]));
   const view=new FirstPersonView({rig:{model:'arms',bones:[{name:'root',parent:-1,local:identity},{name:'hp_weapons',parent:0,local:identity}]},parts:new Map(),clips,texture:()=>null,weaponModels:new Map(),firePoints:{}});
   const soldier={velocity:new THREE.Vector3(4,0,0),air:null,dive:0,posture:'stand'};
   const camera=new THREE.PerspectiveCamera();camera.updateMatrixWorld();
   const shown={bank:'rifle',def:{}};
-  view.wasActive=true;view.holding=shown;view.start('idle','_1st_rifle_idle',true);
-  return {view,args:{active:true,camera,soldier,shown,zoomed:false}};
+  const args={active:true,camera,soldier,shown,zoomed:false};soldier.velocity.set(0,0,0);for(let i=0;i<90;i++)view.update(1/60,args);soldier.velocity.set(4,0,0);return {view,args};
 }
 
 test('first-person clip crossfade has the same pose at 30, 60 and 144 FPS',()=>{
@@ -80,7 +79,7 @@ test('a brief stair-contact fall does not trigger a landing camera plunge',()=>{
 test('brief stair-contact flicker does not lower the first-person weapon',()=>{
   const {view,args}=arms();args.soldier.velocity.set(0,-.5,0);args.soldier.air='fall';
   view.update(1/60,args);args.soldier.air=null;args.soldier.velocity.y=0;view.update(1/60,args);
-  assert.equal(view.forced,null);
+  assert.notEqual(view.slot,'jump_land');
 });
 
 const rigFile=new URL('../public/sides/rep/firstperson/rep_1st_trooper.json',import.meta.url);
@@ -92,7 +91,7 @@ test('retail first-person arms retain the same transition pose at different rend
   const poses=[];
   for(const fps of [30,60,144]) {
     const view=new FirstPersonView({rig,parts:new Map(),clips,texture:()=>null,weaponModels:new Map(),firePoints:{}});
-    const {args}=arms();view.wasActive=true;view.holding=args.shown;view.start('idle','_1st_rifle_idle',true);view.apply(view.clip,0,true,1);
+    const {args}=arms();const velocity=args.soldier.velocity.clone();args.soldier.velocity.set(0,0,0);for(let i=0;i<90;i++)view.update(1/60,args);args.soldier.velocity.copy(velocity);
     for(let i=0;i<fps/6;i++)view.update(1/fps,args);
     poses.push(view.bones.map(b=>({p:b.position.clone(),q:b.quaternion.clone()})));
   }
@@ -103,7 +102,7 @@ test('retail first-person arms retain the same transition pose at different rend
 });
 
 test('a roll/posture cue blends the arms rather than teleporting them down',()=>{
-  const {view,args}=arms();view.clips.set('_1st_rifle_jump_land',constantClip('_1st_rifle_jump_land',0));
+  const {view,args}=arms();
   view.update(.2,args);const before=view.bones[1].position.clone();
   view.cue(1);
   assert.ok(view.bones[1].position.distanceTo(before)<1e-8);

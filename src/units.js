@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { JetpackNozzles } from "./jetpack-nozzles.js";
 import { buildActor } from "./actor.js";
 import { loadClips } from "./anim.js";
-import { SoldierAnimator } from "./animator.js";
+import { SoldierAnimation } from "./animator.js";
 import { PlayerCombat } from "./combat.js";
 import { Droideka, ShieldBubble, goneUp } from "./droideka.js";
 import { heatMaterial } from "./destruction-debris.js";
@@ -28,23 +28,7 @@ import { RIDER_SHAPES } from "./rider-pose.js";
 
 // A body lies 4 s where it fell, then is gone (the soldier's dead state).
 const DEATH_LINGER = 4;
-// Animation detail by distance (presentation only; the simulation never
-// reads a bot's pose, except a droideka's gun bones, so droidekas always
-// animate). Bodies out of view pose every 8th frame, near ones every frame.
-// Posing every 2nd or 4th frame at mid range made visible soldiers' limbs
-// step while their bodies glided: everything in view out to POSE_FAR poses
-// every frame; farther (a few pixels tall) every 2nd; out of view, every 6th.
-const POSE_FAR = 120; // m
-// Unit.present: a body as drawn, for whether it is in view (any pose's reach).
-const poseSphere = new THREE.Sphere(new THREE.Vector3(), 1.5);
-const heldScale = new THREE.Vector3();
-const SHADOW_NEAR = 70; // m: soldiers (and their guns) cast shadows within this
 const JET_EFFECT_BONE = "bone_ribcage";
-// A body that has gone up (a droid blown apart, a droideka at the end of its
-// death clip) is drawn no more in that life, whatever a later record,
-// correction or summary says. A droid's pieces take its place at once; a
-// droideka's body dissolves over GONE_FADE under its final blast.
-const GONE_FADE = 0.5; // s
 
 // What rounds strike on a soldier, per posture, in its frame (x its left, y
 // up, z forward), as the 2004 game builds them: an upright cylinder for the
@@ -467,25 +451,6 @@ export class Unit {
     if (this.gone?.generation !== this.generation) this.gone = { generation: this.generation, t: 0 };
   }
 
-  // A gone-up body this frame: 0 if it hasn't gone up (drawn as usual), the
-  // share of a droideka's dissolve so far, or -1 once gone (undrawn).
-  presentGone(dt) {
-    const gone = this.gone;
-    if (!gone) return 0;
-    if (gone.generation !== this.generation) {
-      this.gone = null;
-      this.restoreLook();
-      return 0;
-    }
-    gone.t += Math.max(dt, 0);
-    if (!this.walker || gone.t >= GONE_FADE) {
-      this.undraw();
-      return -1;
-    }
-    this.actor.root.visible = true;
-    return Math.max(gone.t / GONE_FADE, 1e-3);
-  }
-
   // The body dissolving by `share` (0 to 1) with heatMaterial's noise, lit
   // as its own materials are this frame: charred and glowing as it burns
   // away in Enhanced (enhanced), plain in Classic.
@@ -569,68 +534,6 @@ export class Unit {
     }
   }
 
-  // Per rendered frame: the body where the smoothing puts it, posed. `view`
-  // ({ position, frustum, frame }) picks how often far and unseen bodies
-  // are posed.
-  present(dt, alpha, light, effects, view = null) {
-    // Off the field nothing of it is drawn, whatever its body was last told:
-    // a world or a packet that left it shown would stand it, unposed and
-    // untouchable, where it was last placed.
-    if (this.removed) {
-      this.undraw();
-      return;
-    }
-    const state = this.presentation.update(dt, alpha);
-    // A droideka gone up as drawn (a lost or late event, a new page) too.
-    if (this.walker && goneUp(state)) this.goUp();
-    const gone = this.presentGone(dt);
-    if (gone < 0) return;
-
-    // Held by a creature: drawn where the creature drawn this frame holds
-    // him (LiveObjects.presentAnimated), in his clip.
-    const held = this.held?.frame ? this.held : null;
-    if (held) {
-      this.presentation.position.setFromMatrixPosition(held.frame);
-      this.animator.gunner(this.animator.clips.get(held.grab.clip) ?? null, 0, 0, held.time);
-    }
-    // Recover the aiming stance from sampled shot counters when an expendable
-    // shot event is lost. No round, sound, flash, or weapon action is replayed.
-    // holdAlert preserves an already-started first-shot blend on normal delivery.
-    if (this.presentation.networkFired && !state.dead && !this.seat) this.animator.holdAlert?.();
-    if (this.presentation.deathPending && state.dead) {
-      this.presentation.deathPending = false;
-      this.animator.die();
-    }
-    this.actor.root.position.copy(this.presentation.position);
-    if (!this.presentation.networkPose) state.aimPitch = this.soldier.aimPitch;
-    this.poseClock += dt;
-    let every = 1;
-    if (view && !this.walker) {
-      const d2 = view.position.distanceToSquared(this.position);
-      // In view or not by where his body is drawn: the hit shapes (sphere)
-      // are rebuilt each tick, a cost only those that strike or aim need.
-      poseSphere.center.copy(this.presentation.position);
-      poseSphere.center.y += 0.9;
-      every = !view.frustum.intersectsSphere(poseSphere) ? 6 : d2 > POSE_FAR * POSE_FAR ? 2 : 1;
-    }
-    // Shadows only for soldiers near the camera: far away a soldier's shadow
-    // is a few blurred texels in the outer cascades, at a draw per cascade
-    // for the body and each held weapon.
-    const near = !gone && (!view || view.position.distanceToSquared(this.position) < SHADOW_NEAR * SHADOW_NEAR);
-    if (near !== this.shadowNear) this.castShadows(near);
-    if (every === 1 || (view.frame + this.id) % every === 0) {
-      this.animator.update(this.poseClock, state);
-      this.poseClock = 0;
-    }
-    if (held) held.frame.decompose(this.actor.root.position, this.actor.root.quaternion, heldScale);
-    if (this.seat) this.combat?.clearCharge?.();
-    else this.combat?.presentCharge?.(dt);
-    this.bubble?.update(dt, this.soldier, { position: this.presentation.position });
-    light?.(this.actor, this.presentation.position);
-    if (gone) this.dissolve(gone, this.enhancedDeath?.());
-    this.updateJetFlame(effects);
-  }
-
   castShadows(near) {
     this.shadowNear = near;
     if (this.actor.shadow) this.actor.shadow.visible = near;
@@ -682,7 +585,7 @@ export function textureOverrides(def, bodyDef) {
 // walking by its own clips) and its animator. Nothing is added to a scene.
 // data: the body's model ({ def, buf, indexBuf }); walkerData: a droideka's
 // clips ({ meta, buf }); clips: the shared clips for the body's bones.
-export function buildBody({ def, data, walkerData = null, texture, graphics, collision, clips, animMeta, maxFlyHeight = 200 }) {
+export function buildBody({ def, data, walkerData = null, texture, graphics, collision, clips, animMeta, maxFlyHeight = 200, headless = false }) {
   const walker = def.base === "walkerdroid";
   const actor = buildActor(data.def, data.buf, data.indexBuf, texture, graphics, textureOverrides(def, data.def));
   if (def.JetEffect) actor.jetpackNozzles = new JetpackNozzles(actor, data.def);
@@ -693,7 +596,7 @@ export function buildBody({ def, data, walkerData = null, texture, graphics, col
     animator = soldier.animator;
   } else {
     soldier = new Soldier(collision, def);
-    animator = new SoldierAnimator(actor, clips, animMeta.sets);
+    animator = new SoldierAnimation(actor, clips, animMeta.sets, headless);
   }
   // Anyone in the air is pushed back down near the mission's ceiling.
   soldier.maxFlyHeight = maxFlyHeight;
@@ -825,7 +728,7 @@ export class UnitFactory {
     const texture = (name) => side.texture(name) || c.anyTexture(name);
     const { actor, soldier, animator, walker } = buildBody({
       def, data: body, walkerData: this.walkerData(className), texture, graphics: c.graphics, collision: c.collision,
-      clips: this.clipsFor(body.def.bones), animMeta: c.animMeta, maxFlyHeight: c.maxFlyHeight ?? 200,
+      clips: this.clipsFor(body.def.bones), animMeta: c.animMeta, headless:c.headless, maxFlyHeight: c.maxFlyHeight ?? 200,
     });
     actor.root.visible = false;
     // The body's bind-pose box, for the path planner's clearance: a quarter

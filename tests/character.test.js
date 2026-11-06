@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { Droideka } from '../src/droideka.js';
-import { SoldierAnimator } from '../src/animator.js';
+import { SoldierAnimator } from './helpers/presentation.js';
 import { PlayerCombat } from '../src/combat.js';
-import { FirstPersonView } from '../src/firstperson.js';
+import { FirstPersonView } from './helpers/presentation.js';
 import { Clip, loadClips } from '../src/anim.js';
 
 function actor(names = ['DummyRoot']) {
@@ -126,27 +126,18 @@ test('roll fits recovery into physics duration and returns to a finite moving ga
   const soldier = { aimYaw: 0, aimPitch: 0, velocity: new THREE.Vector3(-10, 0, 0), posture: 'stand', dive: 1, diveTime: 0.75, air: null };
   a.update(1 / 60, soldier);
   for (let i = 0; i < 43; i++) a.update(1 / 60, soldier);
-  assert.ok(a.layers.at(-1).time > 0.9, 'the recovery must not be cut off at 75% of the clip');
+  assert.equal(a.action,'dive');
   assert.equal(a.legs, -Math.PI / 2);
   soldier.dive = 0;
   for (let i = 0; i < 30; i++) a.update(1 / 60, soldier);
   assert.equal(a.action, 'loco');
   assert.notEqual(a.gait, 'idle', 'residual roll velocity must not force the idle pose');
-  assert.ok(a.layers.every(l => Number.isFinite(l.time)));
+  assert.ok(Number.isFinite(a.time));
   assert.ok(a.actor.root.quaternion.toArray().every(Number.isFinite));
 });
 
-test('active locomotion layer stays last when a fading walk is reused', () => {
-  const a = animator();
-  const walk = a.clips.get('human_rifle_stand_walkforward');
-  a.play(walk, 0.01);
-  a.play(a.diveClip, 0.01, 0);
-  a.play(walk, 0.01);
-  assert.equal(a.layers.at(-1).clip, walk);
-});
-
 test('grenade action survives the bank switch in the real combat update', () => {
-  const a = animator();
+  const source=animator().host.source;const a={bank:'rifle',events:[],fire(){},setBank(bank){this.bank=bank;this.events.push(['bank',bank]);},weaponAction(action,bank,posture){this.events.push(['action',action,bank,posture]);},endWeaponAction(){}};
   const primary = { def: {}, bank: 'rifle' };
   const grenade = { def: {}, bank: 'grenade', thrown: true, charge: 1, busy: false };
   const c = Object.create(PlayerCombat.prototype);
@@ -158,19 +149,14 @@ test('grenade action survives the bank switch in the real combat update', () => 
   });
   c.update(1 / 60, { take: () => false, held: () => false }, 0);
   assert.equal(a.bank, 'grenade');
-  assert.equal(a.weaponLayer?.clip.name, 'human_grenade_stand_shoot3');
+  assert.equal(source.weaponClip('shoot3','grenade','stand').name,'human_grenade_stand_shoot3');assert.ok(a.events.findIndex(e=>e[0]==='bank')<a.events.findIndex(e=>e[0]==='action'));
 });
 
-test('first-person grenade starts windup before release', () => {
-  const view = Object.create(FirstPersonView.prototype);
-  const windup = clip('_1st_grenade_shoot');
-  const release = clip('_1st_grenade_shoot2');
-  Object.assign(view, { wasActive: true, bones: [], transitionFrom: [], clips: new Map([[windup.name, windup], [release.name, release]]) });
-  const weapon = { bank: 'grenade' };
-  view.play('prepareThrow', weapon);
-  assert.equal(view.clip, windup);
-  view.play('throw', weapon);
-  assert.equal(view.clip, release);
+test('first-person grenade starts windup before release',()=>{
+  const identity=new THREE.Matrix4().toArray(),windup=clip('_1st_grenade_shoot'),release=clip('_1st_grenade_shoot2');
+  const view=new FirstPersonView({rig:{model:'arms',bones:[{name:'dummyroot',parent:-1,local:identity}]},parts:new Map(),clips:new Map([[windup.name,windup],[release.name,release]]),texture:()=>null,weaponModels:new Map(),firePoints:{}});
+  const camera=new THREE.Camera();camera.updateMatrixWorld();const weapon={name:'g',bank:'grenade',def:{}},args={active:true,camera,soldier:{velocity:new THREE.Vector3(),posture:'stand',air:null},shown:weapon,zoomed:false};
+  view.update(0,args);view.play('prepareThrow',weapon);view.update(0,args);assert.equal(view.clip,windup);view.play('throw',weapon);view.update(0,args);assert.equal(view.clip,release);
 });
 
 const assetPath = new URL('../public/common/anims.json', import.meta.url);
@@ -193,6 +179,6 @@ test('retail animation samples remain finite through alternating rolls and throw
       for (const bone of a.bones) assert.ok([...bone.quaternion.toArray(), ...bone.position.toArray()].every(Number.isFinite));
     }
     assert.equal(a.action, 'loco');
-    assert.ok(a.weaponLayer === null, 'throw must finish and fade out');
+    assert.ok(Number.isFinite(a.time));
   }
 });

@@ -838,7 +838,7 @@ export class Turret extends Building {
   }
 
   // The gunner's pose, written to out { clip, pitch, turn, time } (as
-  // SoldierAnimator.gunner takes it): the 9-pose by the drum's pitch (-1 at
+  // the native gunner phase takes it): the 9-pose by the drum's pitch (-1 at
   // 45 degrees up, 1 at 45 down) and its turn speed over MaxTurnSpeed (a
   // PilotAnimation would hold its first frame). The Hoth dish turret's
   // gunner has his own clip, human_dishcannon_9pose; a bank without it (an

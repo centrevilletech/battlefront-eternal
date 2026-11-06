@@ -1,3 +1,4 @@
+import { PageUnits } from "./presentation/units.js";
 import { loadClips } from "./anim.js";
 import { PlayerCombat } from "./combat.js";
 import { ShieldBubble } from "./droideka.js";
@@ -148,7 +149,7 @@ export class PlayerBodies {
     const actorDef = data.body.def;
     const { actor, soldier, animator, walker, clips } = buildBody({
       def, data: data.body, walkerData: data.walker, texture: side.texture, graphics: c.graphics, collision: c.collision,
-      clips: loadClips(c.animMeta, c.animBuf, actorDef.bones.map((bone) => bone.name)), animMeta: c.animMeta,
+      clips: loadClips(c.animMeta, c.animBuf, actorDef.bones.map((bone) => bone.name)), animMeta: c.animMeta, headless:c.headless,
       maxFlyHeight: c.maxFlyHeight,
     });
     c.scene.add(actor.root);
@@ -226,7 +227,7 @@ export class PlayerBodies {
     const side = c.sides[sideName];
     const def = side.units[className];
     const graphics = { hiddenLayer: c.graphics.hiddenLayer ?? 1, caster() {} };
-    const { actor, soldier, animator, walker, clips } = buildBody({
+    let { actor, soldier, animator, walker, clips } = buildBody({
       def, data: data.body, walkerData: data.walker, texture: side.texture, graphics, collision: c.collision,
       clips: loadClips(c.animMeta, c.animBuf, data.body.def.bones.map((bone) => bone.name)), animMeta: c.animMeta,
     });
@@ -236,13 +237,27 @@ export class PlayerBodies {
     soldier.aimPitch = Math.atan2(ay, Math.hypot(ax, az));
     soldier.velocity.set(0, 0, 0);
     let update;
+    let native=null,row=null,previewUnit=null,frame=0;
+    // The interface owns timing and placement, while the same record kernel
+    // used by world units owns the preview's pose and every child matrix.
+    const pose=dt=>{
+      native.begin(dt,frame++,null);native.write(row,previewUnit,1,true);native.run();
+    };
+    const attach=()=>{
+      native=new PageUnits(c.unitsLoaded,true);
+      const presentation=new SoldierPresentation(soldier);
+      presentation.previousMode=soldier.mode;presentation.previousPose={roll:soldier.roll,lean:soldier.lean,legs:soldier.legs,time:soldier.time};
+      row=native.attach(actor,animator,presentation);animator=row.handle;
+      previewUnit={id:0,generation:0,actor,soldier,presentation,walker};
+    };
     if (walker) {
       let step = 0;
       let held = 0;
       soldier.enter(DROIDEKA_CYCLE[0][0]);
+      attach();
       animator.reset(soldier.aimYaw);
       update = (dt) => {
-        const [mode, hold] = DROIDEKA_CYCLE[step];
+        const cycle=DROIDEKA_CYCLE[step],mode=cycle[0],hold=cycle[1];
         soldier.time += dt;
         held += dt;
         if (mode === 12) soldier.roll += dt * 6;
@@ -254,8 +269,8 @@ export class PlayerBodies {
         } else if (soldier.time >= length && mode !== 12) {
           soldier.time -= length;
         }
-        animator.update(dt, soldier);
-        actor.root.updateMatrixWorld(true);
+        const p=previewUnit.presentation;p.position.copy(soldier.position);p.velocity.copy(soldier.velocity);p.state.mode=soldier.mode;p.state.roll=soldier.roll;p.state.lean=soldier.lean;p.state.legs=soldier.legs;p.state.time=soldier.time;
+        pose(dt);
       };
     } else {
       // The primary weapon in the hand, in its animation bank.
@@ -268,6 +283,7 @@ export class PlayerBodies {
           return material;
         }));
       }
+      attach();
       animator.setBank(primary?.bank || "rifle");
       animator.reset(soldier.aimYaw);
       const emote = clips.get("human_rifle_stand_idle_emote");
@@ -278,9 +294,8 @@ export class PlayerBodies {
           animator.start("fidget", emote);
           fidget = FIDGET[0] + Math.random() * (FIDGET[1] - FIDGET[0]);
         }
-        if (animator.action === "fidget" && animator.actionTime >= emote.duration) animator.action = "loco";
-        animator.update(dt, soldier);
-        actor.root.updateMatrixWorld(true);
+        if (animator.action === "fidget" && animator.actionTime >= emote.duration) {animator.endFidget();}
+        pose(dt);
       };
     }
     actor.root.visible = true;
@@ -290,7 +305,9 @@ export class PlayerBodies {
       materials: actor.materials,
       walker,
       update,
+      place(){native.finishPreview();},
       dispose() {
+        native.kernel.free();
         actor.root.removeFromParent();
         const motion = actor.body.userData.motion;
         if (motion) motionVectors.release(motion);

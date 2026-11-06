@@ -285,6 +285,8 @@ function riderBody(v, index, unit, points, frame, s) {
 function seatRider(v, index, actor, dt, lean, s) {
   const seat = v.seats[index]?.view.rider?.node;
   if (!seat || !actor.root.visible) return lean;
+  const native=actor.root.userData.presentationRow;
+  if(native){const lease=v.seats[index]?.lease;if(native.riderLease!==lease){native.riderReset=true;native.riderLease=lease;}native.riderFrame=native.handle.owner.frame;native.riderVehicle=v;native.riderNode=seat;native.riderLean=lean;return lean;}
   if (v.healthType !== 'animal') {
     seat.getWorldPosition(actor.root.position);
     seat.getWorldQuaternion(actor.root.quaternion);

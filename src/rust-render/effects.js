@@ -1,5 +1,5 @@
-// The effects pass (effects.rs): the battle's effects, their simulation
-// left here in the page, drawn as items of the near scene's transparent
+// The effects pass (effects.rs): the battle's effects, including the native
+// particle phase's published buffers, drawn as items of the near scene's transparent
 // list (transparent.js: the renderer sorts every source's items with what
 // three still draws, as three would sort them all). So far:
 //

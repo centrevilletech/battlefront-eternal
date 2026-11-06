@@ -1,3 +1,4 @@
+import { observePresentation } from "./presentation-profile.js";
 import { InputLatencyTrace } from './runtime/input-latency-trace.js';
 import { PredictionArsenal } from './runtime/prediction-arsenal.js';
 import { PredictionFrame } from './runtime/prediction-frame.js';
@@ -42,7 +43,9 @@ import { DeathTrace } from "./death-trace.js";
 import { setAnimKernel } from "./anim.js";
 import { CollisionWorld } from "./collision.js";
 import { CommandPosts } from "./commandposts.js";
-import { Effects } from "./effects.js";
+import {HeadlessEffects} from "./effects.js";
+import {PageEffects,loadPresentation} from "./presentation/effects.js";
+import {PageUnits} from "./presentation/units.js";
 import { Gunner } from "./gunner.js";
 import { LiveObjects } from "./props.js";
 import { killRegion, registerObjectives } from "./objectives.js";
@@ -451,13 +454,10 @@ async function start() {
   // module's copy of the collision world, so it brings the ray kernel.
   const wantUnits = headless && (params.get("units") ?? globalThis.process?.env?.BFE_UNITS) === "rust";
 
-  // The page's pose sampling in WebAssembly (src/anim-kernel.js) unless
-  // ?anim=js, to the last bit as its JavaScript, which stays the fallback
-  // when the module cannot load. The page's poses only: a headless world
-  // (the local worker, a dedicated server) reads rider poses for its ticks
-  // and keeps the JavaScript, so its worlds cannot change. Poses made
-  // before this take the kernel up as they clear.
-  const wantAnim = !headless && params.get("anim") !== "js";
+  // Remaining page rig sampling uses the required simulation module.
+  // Displayed bodies and first-person poses use the presentation owner;
+  // world rig inputs stay separate from their displayed state.
+  const wantAnim = !headless;
   // A world's combats on the module (src/combat-sim.js), where it asks for
   // them: ?combat=rust, or under Node BFE_COMBAT=rust. Off by default until
   // units and combat move over together.
@@ -700,11 +700,15 @@ async function start() {
   // The side's own effects (the droideka's) join the shared ones.
   const otherEffects = Object.assign({}, ...Object.values(otherSides).map((other) => other.fx?.effects || {}));
   // The turrets' effects (props.json) fill in what no other library has.
-  const effects = new Effects(scene, { ...(propsDef?.effects || {}), ...effectsDef.effects, ...otherEffects, ...(sideFx?.effects || {}), ...(vehicleDef?.effects || {}) },
-    { texture: anyTexture, model: glowModel, gpu: !headless });
-  if (headless) effects.play = () => null;
-  else { effects.preload(); await effects.warmup(renderer, camera); }
-  const environment = headless ? null : await EnvironmentEffects.load({ map: MAP, graphics, settings, loadTexture });
+  const presentationLibrary={...(propsDef?.effects||{}),...effectsDef.effects,...otherEffects,...(sideFx?.effects||{}),...(vehicleDef?.effects||{})};
+  const presentationLoaded=headless?null:await loadPresentation();
+  const effects=headless?new HeadlessEffects(presentationLibrary):new PageEffects(scene,presentationLibrary,
+    {texture:anyTexture,model:glowModel,record:params.get('presentRecord')==='1'},presentationLoaded);
+  if(!headless){effects.preload();await effects.warmup(renderer,camera);}
+  const unitsLoaded=presentationLoaded;
+  const pageUnits=headless?null:new PageUnits(unitsLoaded);
+  if(pageUnits)graphics.placeUnits=(root)=>pageUnits.placeShown(root);
+  const environment = headless ? null : await EnvironmentEffects.load({ map: MAP, graphics, settings, loadTexture, presentationLoaded });
   const lights = headless ? { add() {}, flash() {}, update() {} } : new LightPool(scene, 8);
   const weaponModels = modelPack(weaponsDef.models, weaponBuf, weaponIndexBuf);
   for (const other of Object.values(otherSides)) {
@@ -904,6 +908,7 @@ async function start() {
   // bindings below are the body he plays now; adopt() swaps them between
   // lives, and wireBody() connects them to the rest of the game.
   const bodies = new PlayerBodies({
+    unitsLoaded,
     sides, get factory() { return factory; }, json, bin, headless, graphics, scene, collision, animMeta, animBuf,
     maxFlyHeight: world.mission?.maxFlyHeight ?? 200, ordnance, lights, weaponModels, glowModel, anyTexture, hud, effects,
     settings, water, mapName: MAP, camera, simulationCamera, fpAnims, fpAnimBuf,
@@ -958,6 +963,7 @@ async function start() {
   // What a unit does, for the journal.
   const aimFrom = new THREE.Vector3();
   function instrument(unit) {
+    if(!headless){const row=pageUnits.attach(unit.actor,unit.animator,unit.presentation);unit.animator=row.handle;unit.combat.animator=row.handle;}
     unit.combat.random = gameplayRandom;
     unit.combat.onPresentation = event => simEvents.emit('presentation',{event:{...event,ownerId:unit.id,ownerGeneration:unit.generation}});
     if (!unit.human) unit.onMoved = (h) => ai?.aim?.(unit, h);
@@ -1894,6 +1900,15 @@ async function start() {
   // death and respawn go. For the first body here, and for each body adopt()
   // gives him after.
   function wireBody() {
+    // Prepare every held view model before frames begin. Native registration
+    // needs a stable hierarchy, and changing weapons must not allocate it on
+    // the animation path.
+    if(firstPersonView)for(const weapon of combat.arsenal.weapons)firstPersonView.weapon(weapon.def);
+    if(!headless){
+      const row=pageUnits.attach(actor,animator,presentation);animator=body.animator=playerUnit.animator=row.handle;combat.animator=animator;
+      if(driver)driver.animator=animator;gunner.animator=animator;
+      if(firstPersonView)pageUnits.attachView(firstPersonView,combat.arsenal);
+    }
     combat.owner = playerUnit;
     combat.team = playerTeam;
     combat.items = items;
@@ -3106,7 +3121,9 @@ async function start() {
     previewPitch = lookPreview.aimPitch - soldier.aimPitch;
     // A manned turret's look ahead of the worker, as the soldier's (gunner.js).
     if (gunner.active) gunner.preview(client.pending, controls.looks, settings.mouseScale, settings.get("invertMouse"), client.pending.length ? input.alpha : presentAlpha);
+    const timelineStart = runtimeProfile?.start();
     client.entity?.present(client.clock);
+    runtimeProfile?.finish("timelinePresentation", timelineStart);
     // A command vehicle lost is announced from the hulls this page shows:
     // the server's post summaries carry only the placed posts.
     for (const event of posts.mobileEvents()) if (event.kind === "lost") announceLost(event);
@@ -3173,9 +3190,9 @@ async function start() {
   // Rendering samples a fixed 60 Hz world. Catch-up work is bounded per task;
   // outstanding ticks remain visible as debt, rather than silently vanishing.
   let presentAlpha = 1;
-  const heldScale = new THREE.Vector3();
   // The spawn screen's camera shot ({ position, quaternion }), or null.
   let viewShot = null;
+  if (!headless) observePresentation(runtimeProfile);
   const unitView = { position: new THREE.Vector3(), frustum: new THREE.Frustum(), frame: 0, matrix: new THREE.Matrix4() };
   const flightDebug = !headless && new URLSearchParams(location.search).has('flightDebug') ? new FlightDebug(scene) : null;
   let clock = 0;
@@ -3217,6 +3234,7 @@ async function start() {
     // them hold, before any body is drawn (src/props.js). Held, his own
     // body is the creature's: in his clip, his root on its node.
     live?.presentAnimated(frozen ? 0 : dt, client?.clock ?? worldClock.tick);
+    const unitsStart = runtimeProfile?.start();
     const held = playerUnit.held?.frame ? playerUnit.held : null;
     if (held) visual.setFromMatrixPosition(held.frame);
     const renderedSoldier = presentation.state;
@@ -3227,39 +3245,42 @@ async function start() {
     // At a turret, his body stands at its seat in the gunner's pose, as
     // every other page draws him and the world strikes him (Gunner.poseBody).
     else if (gunner?.active) gunner.poseBody(renderedSoldier, actor.root);
-    animator.update(frozen ? 0 : dt, renderedSoldier);
-    if (held) held.frame.decompose(actor.root.position, actor.root.quaternion, heldScale);
     unitView.frame += 1;
     unitView.position.copy(camera.position);
     unitView.frustum.setFromProjectionMatrix(unitView.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    for (const unit of factory?.built || []) unit.present(frozen ? 0 : dt, presentAlpha, lightActor, effects, unitView);
+    const ownEyes = combat.usesEyeView && !combat.dead && !gunner.active && !driver?.active && !remotes.active;
+    // Camera motion only reads the predicted visual snapshot. Queue its
+    // arms cue before the one native animation call, then place the camera
+    // after the native body pose is available to the death camera.
+    if(!frozen)view.motion.update(dt,renderedSoldier,ownEyes);
+    pageUnits.begin(frozen?0:dt,unitView.frame,unitView);
+    if(!frozen)vehicles?.present?.(presentAlpha,dt);
+    if(!frozen&&client?.vehiclePrediction&&driver?.vehicle){
+      client.vehiclePrediction.present(client.inputClock.alpha);
+      const smoothing=client.vehicleSmoother;driver.vehicle.root.position.x+=smoothing.x;driver.vehicle.root.position.y+=smoothing.y;driver.vehicle.root.position.z+=smoothing.z;
+      driver.vehicle.root.updateMatrixWorld(true);driver.vehicle.visual.copy(driver.vehicle.root.position);
+    }
+    if(driver?.active)driver.presentRider(frozen?0:dt);vehicles?.presentRiders(frozen?0:dt);
+    const ownRow=pageUnits.byActor.get(actor);pageUnits.write(ownRow,playerUnit,playerAlpha,true);
+    for(const unit of factory?.built||[])pageUnits.write(pageUnits.byActor.get(unit.actor),unit,presentAlpha);
+    pageUnits.writeView(firstPersonView?.presentationRow??null,ownEyes,combat.zoom>1,combat.shown);
+    pageUnits.run();
+    for(const unit of factory?.built||[])pageUnits.finishRemote(unit,frozen?0:dt,lightActor,effects);
     // The soldiers the near scene's pass may leave out when out of view
     // (Graphics.cullOffView); his own body is always drawn.
     graphics.cullRoots.length = 0;
     for (const unit of factory?.built || []) if (!unit.removed && unit !== playerUnit) graphics.cullRoots.push(unit.actor.root);
     graphics.playerRoot = actor?.root ?? null;
     game.predictedShots?.update(client?.clock ?? null);
-    if (!frozen) vehicles?.present?.(presentAlpha, dt);
-    if (!frozen && client?.vehiclePrediction && driver?.vehicle) {
-      client.vehiclePrediction.present(client.inputClock.alpha);
-      const smoothing = client.vehicleSmoother;
-      driver.vehicle.root.position.x += smoothing.x;
-      driver.vehicle.root.position.y += smoothing.y;
-      driver.vehicle.root.position.z += smoothing.z;
-      driver.vehicle.root.updateMatrixWorld(true);
-      driver.vehicle.visual.copy(driver.vehicle.root.position);
-    }
     remotes.present(frozen ? 0 : dt, settings.get("destructionEffects") === "enhanced", firstPerson);
-    if (driver?.active) driver.presentRider(frozen ? 0 : dt);
-    vehicles?.presentRiders(frozen ? 0 : dt);
     vehicleEffects?.update(vehicles?.vehicles, frozen ? 0 : dt);
     vehicleEffects?.updateBuildings(live ? [...live.turrets, ...live.objectives] : null, frozen ? 0 : dt);
     updateJetFlame(frozen ? 0 : dt);
+    runtimeProfile?.finish("unitPresentation", unitsStart);
+    const cameraStart = runtimeProfile?.start();
     // In first person the eye is where the aim puts it, moving as he runs,
     // dives, lies down, gets up, and lands.
-    const ownEyes = combat.usesEyeView && !combat.dead && !gunner.active && !driver?.active && !remotes.active;
     if (ownEyes) combat.viewEye(visual, eyePoint, renderedSoldier);
-    if (!frozen) view.motion.update(dt, renderedSoldier, ownEyes);
     // Dead, the page's death camera (src/death-shot.js), the drawn camera's
     // only writer, from the body and the killer as drawn this frame; it
     // doesn't shake. Alive, it watches the view it will take over.
@@ -3273,7 +3294,9 @@ async function start() {
     // The arms hang from the view before any shake, so they shake with the
     // world.
     camera.updateMatrixWorld();
-    firstPersonView?.update(frozen ? 0 : dt, { active: ownEyes, camera, soldier: renderedSoldier, shown: combat.shown, zoomed: combat.zoom > 1 });
+    const firstPersonStart=runtimeProfile?.start();
+    pageUnits.finishView(camera,frozen?0:dt);
+    runtimeProfile?.finish("unitPresentation",firstPersonStart);
     if (driver?.active) combat.clearCharge();
     else combat.presentCharge(frozen ? 0 : dt);
     cameraShake?.apply(camera, frozen ? 0 : dt, deathView.active);
@@ -3284,6 +3307,7 @@ async function start() {
       camera.quaternion.copy(viewShot.quaternion);
     }
     camera.updateMatrixWorld();
+    runtimeProfile?.finish("camera", cameraStart);
     runtimeProfile?.phase("audio");
     // Paused, the audio's own clock still runs (the menu's sounds; the
     // game's fade out): audio.setPaused.
@@ -3309,12 +3333,17 @@ async function start() {
       atmosphere?.update(dt, camera);
       skyFlyers?.update(dt, camera);
       environment?.update(dt, camera, !combat.dead && !driver?.active && !gunner.active ? [soldier] : []);
+      effects.tick=worldClock.tick;effects.inputClock=client?.inputClock.tick??0;
+      effects.playoutTick=client?.clock??worldClock.tick;effects.epoch=commandHistory.epoch;
+      const effectsStart = runtimeProfile?.start();
       effects.update(dt);
+      runtimeProfile?.finish("effectsUpdate", effectsStart);
       clock += dt;
     }
     // Which bots' bodies and guns the crowd's shadow mesh draws this frame.
     graphics.crowdShadows?.update();
     runtimeProfile?.phase("hud");
+    const hudStart = runtimeProfile?.start();
     // The map follows the pose just drawn, including prediction correction
     // smoothing; sensor eligibility was already evaluated on gameplay state.
     if (hud.player) {
@@ -3336,17 +3365,23 @@ async function start() {
     // His droideka gone up or his droid blown apart, as anyone's (Unit.goUp):
     // what his corrections still say of the lingering body isn't drawn.
     if (walker && goneUp(renderedSoldier)) playerUnit.goUp();
-    const ownGone = playerUnit.presentGone(frozen ? 0 : dt);
+    const ownGone = pageUnits.finishGone(playerUnit);
     if (ownGone > 0) playerUnit.dissolve(ownGone, settings.get("destructionEffects") === "enhanced");
     if (actor.shadow) actor.shadow.visible = !ownGone;
     firstPersonView?.light(soldierLight);
+    runtimeProfile?.finish("hudBuild", hudStart);
     runtimeProfile?.phase("render");
     if (draw) {
+      // UI/resource registration can grow the shared module after the body
+      // phase. Rebind views before any reflection or scene reads them.
+      pageUnits.refresh();
       water?.reflect(camera);
       environment?.reflect(camera, water);
       graphics.render(clock);
       water?.drawUnderwater(graphics.renderer, camera);
+      const hudDrawStart = runtimeProfile?.start();
       hud.render();
+      runtimeProfile?.finish("hudDraw", hudDrawStart);
       graphics.profiler.frameEnd();
     }
     runtimeProfile?.end(draw);
@@ -3840,10 +3875,6 @@ async function start() {
   };
   // What the load still waits on, for checks: texture URLs with requests out.
   game.texturesPending = () => [...texturesOut.keys()];
-  // The pose sampler's switch (?anim=wasm's kernel), for measuring it
-  // against the JavaScript within one battle. Poses follow it as they
-  // clear, so nothing changes mid-blend.
-  game.animWasm = (on) => setAnimKernel(on && anim ? anim : null);
   // The loading screen's last two frames: the battle is drawn under them.
   game.unveil = () => { veiled = false; };
   // The loading screen is gone: the battle starts now, not while it showed.

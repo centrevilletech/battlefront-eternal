@@ -28,6 +28,8 @@ const updateObject = THREE.Object3D.prototype.updateMatrixWorld;
 const cullFrustum = new THREE.Frustum(), cullMatrix = new THREE.Matrix4();
 const cullSphere = new THREE.Sphere(new THREE.Vector3(), 5);
 function updateVisible(object, force) {
+  // Native unit roots install a no-op update too. This existing owner
+  // boundary stops their tree without inspecting every scene node's data.
   if (object.updateMatrixWorld !== updateObject && !object.isSkinnedMesh) { object.updateMatrixWorld(force); return; }
   if (object.matrixAutoUpdate) object.updateMatrix();
   if (object.matrixWorldNeedsUpdate || force) {
@@ -145,6 +147,10 @@ export class Graphics {
     // may leave out while out of view (cullOffView), and those left out.
     this.cullRoots = [];
     this.offView = [];
+    // The battle's native unit placement, given the scene about to be
+    // updated: the deferred soldiers this update will reach are placed in
+    // one call before the walk (game.js installs it).
+    this.placeUnits = null;
     this.farScene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.5, 200);
     this.farCamera = new THREE.PerspectiveCamera();
@@ -384,6 +390,7 @@ export class Graphics {
   updateScene() {
     if (this.sceneFrame === this.frameCount) return;
     this.sceneFrame = this.frameCount;
+    if (this.placeUnits) this.placeUnits(this.scene);
     updateVisible(this.scene, false);
   }
 

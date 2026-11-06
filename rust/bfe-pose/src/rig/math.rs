@@ -21,7 +21,7 @@
 //!
 //! `sqrt` is not here: IEEE square roots are exact in both, and the rigs
 //! call `f64::sqrt` as the JavaScript calls `Math.sqrt`. `Math.hypot` of two
-//! numbers is V8's own algorithm, `crate::movement::soldier::js_hypot2`.
+//! numbers is V8's own algorithm, `v8math::hypot`.
 
 /// Whether the values here are V8's to the last bit: rust/v8math's are.
 pub const EXACT: bool = true;
@@ -188,7 +188,9 @@ pub mod oracle {
     pub fn with<T>(oracle: Oracle, f: impl FnOnce() -> T) -> (T, Oracle) {
         ORACLE.with(|o| *o.borrow_mut() = Some(oracle));
         let result = f();
-        let oracle = ORACLE.with(|o| o.borrow_mut().take()).expect("the oracle was taken");
+        let oracle = ORACLE
+            .with(|o| o.borrow_mut().take())
+            .expect("the oracle was taken");
         (result, oracle)
     }
 

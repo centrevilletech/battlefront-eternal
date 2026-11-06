@@ -1,3 +1,4 @@
+import { Draw as D, Effect as E } from './presentation/layout.js';
 import * as THREE from 'three';
 import { lighting } from './materials.js';
 import { particleDepth } from './particle-depth.js';
@@ -130,17 +131,18 @@ export class AnalyticParticleBatch {
     this.capacity=capacity; this.dirty=0;
   }
   begin() { this.count=0; this.dirty=Infinity; }
-  pushParticle(p, slot, definition, epoch = 0) {
+  // Packed spawn output from the host-neutral presentation kernel.
+  pushRecord(data, at, slot, definition, epoch) {
     const i=this.count++;
     if(i===this.capacity)this.grow(this.capacity*2);
-    if(this.records[i]===p && this.slots[i]===slot && this.epochs[i]===epoch)return;
-    this.records[i]=p;this.slots[i]=slot;this.epochs[i]=epoch;this.dirty=Math.min(this.dirty,i);
-    const a=this.arrays;
-    p.position.toArray(a.spawnPosition,i*3);p.velocity.toArray(a.spawnVelocity,i*3);
-    a.spawnColor.set(p.color,i*4);
-    const k=i*4,shape=a.spawnShape,meta=a.spawnMeta;
-    shape[k]=p.size;shape[k+1]=p.rotation;shape[k+2]=p.spin;shape[k+3]=0;
-    meta[k]=p.birth-epoch;meta[k+1]=p.life;meta[k+2]=slot;meta[k+3]=definition;
+    const serial=data[at+D.PARTICLE];
+    if(this.records[i]===serial && this.slots[i]===slot && this.epochs[i]===epoch)return;
+    this.records[i]=serial;this.slots[i]=slot;this.epochs[i]=epoch;this.dirty=Math.min(this.dirty,i);
+    const a=this.arrays,k=i*4;
+    for(let j=0;j<3;j++){a.spawnPosition[i*3+j]=data[at+D.POSITION+j];a.spawnVelocity[i*3+j]=data[at+D.VELOCITY+j];}
+    for(let j=0;j<4;j++)a.spawnColor[k+j]=data[at+D.COLOR+j];
+    a.spawnShape[k]=data[at+D.SIZE];a.spawnShape[k+1]=data[at+D.ROTATION];a.spawnShape[k+2]=data[at+D.SPIN];a.spawnShape[k+3]=0;
+    a.spawnMeta[k]=data[at+D.BIRTH]-epoch;a.spawnMeta[k+1]=data[at+D.LIFE];a.spawnMeta[k+2]=slot;a.spawnMeta[k+3]=definition;
   }
   end() {
     // Release dead references; capacity is the historical peak as with CPU batches.
@@ -203,18 +205,18 @@ export class GpuEffects {
     this.uniforms.emitters.value=dataTexture(data,3,rows);this.uniforms.emitterRows.value=rows;
   }
   begin() { this.count=0; }
-  register(effect) {
+  registerRecord(data, at) {
     const slot=this.count++;
-    if(slot>=MAX_EFFECTS)return -1; // CPU fallback for pathological source counts.
+    if(slot>=MAX_EFFECTS)return -1;
     if(slot>=this.uniforms.emitterRows.value)this.resizeEmitters(this.uniforms.emitterRows.value*2);
-    const at=slot*12;
-    effect.position.toArray(this.data,at);this.data[at+3]=effect.tint;
-    // Keep subtraction precise in long sessions; rebase live births together
-    // with their emitter clock once per 256 seconds, never wall-clock time.
-    const epoch=Math.floor(effect.time/256)*256;this.epochs[slot]=epoch;
-    effect.quaternion.toArray(this.data,at+4);this.data[at+8]=effect.time-epoch;
-    this.data[at+9]=effect.scale??1; // every particle's drawn size (Effect.scale)
-    return slot;
+    const dst=slot*12;
+    for(let j=0;j<3;j++)this.data[dst+j]=data[at+E.POSITION+j];
+    this.data[dst+3]=data[at+E.TINT];
+    // Rebase live births with the emitter's clock every 256 seconds so a
+    // long session retains precise GPU ages without a wall-clock dependency.
+    const time=data[at+E.TIME],epoch=Math.floor(time/256)*256;this.epochs[slot]=epoch;
+    for(let j=0;j<4;j++)this.data[dst+4+j]=data[at+E.QUATERNION+j];
+    this.data[dst+8]=time-epoch;this.data[dst+9]=data[at+E.SCALE];return slot;
   }
   batch(def, texture) {
     const blend=def.geometry.blend==='additive'?'additive':'normal';

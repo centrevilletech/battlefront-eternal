@@ -8,8 +8,8 @@
 //! its names and its parents: the rider's points (`rider.rs`) and a
 //! droideka's hidden gun rig (`droideka.rs`) are made from it.
 
-use three::{Euler, Matrix4, Quaternion, Vector3};
 use three::TransformNode;
+use three::{Euler, Matrix4, Quaternion, Vector3};
 
 /// A bone of a model: its name, its parent's index (negative for none) and
 /// its local matrix (column-major, as the model's JSON gives it).
@@ -52,7 +52,10 @@ impl Skeleton {
         }
         Skeleton {
             names: bones.iter().map(|b| b.name.clone()).collect(),
-            parents: bones.iter().map(|b| if b.parent >= 0 { b.parent } else { -1 }).collect(),
+            parents: bones
+                .iter()
+                .map(|b| if b.parent >= 0 { b.parent } else { -1 })
+                .collect(),
             bind,
         }
     }
@@ -72,7 +75,12 @@ impl Skeleton {
     /// A skeleton from its bones as they stand at bind (names, parent
     /// indices, and each bone's position, quaternion and scale), for a body
     /// whose bind pose is known already decomposed.
-    pub fn from_bind(names: Vec<String>, parents: Vec<i32>, bind: &[(Vector3, Quaternion, Vector3)], euler_sync: bool) -> Skeleton {
+    pub fn from_bind(
+        names: Vec<String>,
+        parents: Vec<i32>,
+        bind: &[(Vector3, Quaternion, Vector3)],
+        euler_sync: bool,
+    ) -> Skeleton {
         let bind = bind
             .iter()
             .map(|&(p, q, s)| {
@@ -82,7 +90,11 @@ impl Skeleton {
                 node
             })
             .collect();
-        Skeleton { names, parents, bind }
+        Skeleton {
+            names,
+            parents,
+            bind,
+        }
     }
 
     pub fn len(&self) -> usize {

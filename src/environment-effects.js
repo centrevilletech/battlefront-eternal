@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Effects } from './effects.js';
+import {PageEffects} from './presentation/effects.js';
 import { lighting } from './materials.js';
 import { modelPack, modelGroup } from './models.js';
 import { EnvironmentVolume, EnvironmentWakes } from './environment-volume.js';
@@ -17,7 +17,7 @@ const UP=new THREE.Vector3(0,1,0),FORWARD=new THREE.Vector3(0,0,1);
 // the near scene's end.
 const ENHANCED=new Set(['waterfountain','prop_steamgrate','prop_steampipe']);
 export class EnvironmentEffects {
-  static async load({map,graphics,settings,loadTexture}) {
+  static async load({map,graphics,settings,loadTexture,presentationLoaded}) {
     // Maps whose objects carry no effects have no file (a dev server answers
     // a missing one with its page, which isn't JSON).
     const dir=`/maps/${map}/environment`,response=await fetch(`${dir}/effects.json`).catch(()=>null);
@@ -31,7 +31,7 @@ export class EnvironmentEffects {
     const model=name=>{const parts=packed.get(name);if(!parts)return null;return()=>{
       const material=new THREE.MeshBasicMaterial({map:texture(parts[0].texture),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
       const group=modelGroup(parts,()=>material);group.userData.material=material;return group;};};
-    const environment=new EnvironmentEffects({graphics,settings,data,texture,model});
+    const environment=new EnvironmentEffects({graphics,settings,data,texture,model,presentationLoaded});
     // Compile these shaders during map loading, before entering a fountain or
     // chamber can stall a gameplay frame. No world/model materials are rebuilt.
     const waterMesh=environment.water?.original[0]?.mesh;
@@ -47,10 +47,10 @@ export class EnvironmentEffects {
     }finally{warmWater?.removeFromParent();}
     return environment;
   }
-  constructor({graphics,settings,data,texture,model}) {
+  constructor({graphics,settings,data,texture,model,presentationLoaded}) {
     this.graphics=graphics;this.settings=settings;this.data=data;this.time=0;this.mode=null;
     this.group=new THREE.Group();this.group.name='map-environment-effects';graphics.scene.add(this.group);
-    this.classic=new Effects(this.group,data.effects,{texture,model});this.classic.preload();
+    this.classic=new PageEffects(this.group,data.effects,{texture,model},presentationLoaded);this.classic.preload();
     this.wakes=new EnvironmentWakes();
     const enhanced=data.instances.filter(i=>ENHANCED.has(i.effect)),steam=enhanced.some(i=>i.effect!=='waterfountain');
     this.water=data.basins.length?new FountainWater(graphics,data.basins,this.wakes,texture('waterfoam1'),TIER):null;
@@ -135,7 +135,7 @@ export class EnvironmentEffects {
     this.jets?.update(this.time,this.visibleFountains);
     this.steam?.update(this.time,this.visibleVolumes);
     this.stats.volumes=this.visibleVolumes.length;
-    this.stats.classicParticles=this.classic.effects.reduce((sum,e)=>sum+e.emitters.reduce((n,em)=>n+em.particles.length,0),0);
+    this.stats.classicParticles=this.classic.particleCount;
   }
   reflect(camera,terrainWater){this.water?.reflect(camera,[this.volume?.mesh,terrainWater?.group,terrainWater?.rings]);}
   dispose(){

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { weaponMuzzle, descendantMuzzles, vehicleMuzzleTips } from '../src/muzzles.js';
 import { Turret } from '../src/props.js';
-import { Effect } from '../src/effects.js';
+import {Effects} from './helpers/presentation.js';
+import {emitter} from './fixtures/effects.js';
 import { RemoteDroids } from '../src/remote.js';
 
 test('missing weapon markers recover a mouth and imported anchors stay authoritative', () => {
@@ -50,15 +51,15 @@ test('turret presentation reads retain the published barrel', () => {
 });
 
 test('classic exhaust shifts and rotates each emitter without changing shared definitions', () => {
-  const def = { maxParticles: [-1, -1], startDelay: [0, 0], size: [1, 1], color: { channels: [[255, 255], [255, 255], [255, 255], [255, 255]] }, spawner: { offset: [[-1, -1], [0, 0], [0, 0]] } };
-  const snapshot = JSON.stringify(def), effect = new Effect([def], new THREE.Vector3(3, 4, 5), new THREE.Quaternion(), new THREE.Vector3());
+  const def=emitter();def.spawner.offset=[[-1,-1],[0,0],[0,0]];
+  const snapshot = JSON.stringify(def), fx=new Effects(new THREE.Scene(),{jet:[def]},{texture:()=>null,gpu:false}),effect=fx.play('jet',new THREE.Vector3(3,4,5),null,new THREE.Vector3(),new THREE.Quaternion());
   const frame = { position: new THREE.Vector3(2, 4.1, 5), direction: new THREE.Vector3(0, -1, 0) };
   effect.attachNozzles([frame]);
   const em = effect.emitters[0];
   const at = new THREE.Vector3(-1, 0, 0).applyQuaternion(em.nozzleTurn).add(em.nozzleOffset).add(effect.position);
   assert.ok(at.distanceTo(frame.position) < 1e-8);
   assert.ok(new THREE.Vector3(-1, 0, 0).applyQuaternion(em.nozzleTurn).distanceTo(frame.direction) < 1e-8);
-  assert.equal(JSON.stringify(def), snapshot);
+  assert.equal(JSON.stringify(def), snapshot);fx.kernel.free();
 });
 
 test('remote droid rounds and flash start at its rotated hardpoint without a render mesh', () => {

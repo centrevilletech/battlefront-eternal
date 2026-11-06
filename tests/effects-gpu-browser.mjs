@@ -9,7 +9,7 @@ try {
   await page.goto((process.env.RUNTIME_AUDIT_URL||'http://127.0.0.1:18449')+'/__effects_gpu__');
   const result=await page.evaluate(async()=>{
     const T=await import('/node_modules/three/build/three.module.js');
-    const {Effects}=await import('/src/effects.js');
+    const {PageEffects,loadPresentation}=await import('/src/presentation/effects.js');const loaded=await loadPresentation();class Effects extends PageEffects{constructor(scene,library,options){super(scene,library,options,loaded);}}
     const {library,seeded}=await import('/tests/fixtures/effects.js');
     const pixels=new Uint8Array(16*16*4);
     for(let y=0;y<16;y++)for(let x=0;x<16;x++)pixels.set([x<8?220:70,y<8?200:80,110,(x%8===0||y%8===0)?0:255],(y*16+x)*4);
@@ -36,7 +36,7 @@ try {
       rows.push({label,different,maxError,meanError:sum/(192*192*3),visible,calls});
 
     }
-    function dispose(items){for(const {scene,fx}of items){fx.gpu?.dispose();scene.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});}}
+    function dispose(items){for(const {scene,fx}of items){fx.kernel.free();fx.gpu?.dispose();scene.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});}}
     const defs=library();
     const warm=pair(defs);
     await warm[1].fx.warmup(renderer,camera);

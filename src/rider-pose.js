@@ -9,7 +9,7 @@ import { Pose } from "./anim.js";
 // drawn from their seat's clip (src/vehicles.js poseRider), so their hit
 // shapes come from the same clip at the same point in it, carried down the
 // rider's own skeleton here without touching the bones that are drawn. The
-// animator does the same sampling for the picture (SoldierAnimator.gunner):
+// animator does the same sampling for the picture (the native gunner phase):
 // joint rotations from the clip, every bone's bind length but the root's
 // (DummyRoot stays at its bind place on a seat), bone_root where the clip
 // puts it. Nothing here depends on what was drawn, so a world worker and a
@@ -92,7 +92,7 @@ export function riderPoints(animator, sample, out) {
   if (skeleton.incomplete) return null;
   let pose = poses.get(bones);
   if (!pose) poses.set(bones, (pose = new Pose(bones.length, skeleton.root)));
-  // As SoldierAnimator.update samples a seat's clip.
+  // As the native pose phase samples a seat's clip.
   pose.clear();
   if (sample.time !== null && sample.time !== undefined) pose.add(clip, sample.time, 1);
   else {

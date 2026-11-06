@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SoldierPresentation, HeadlessSoldierPresentation } from '../src/soldier-presentation.js';
+import { Unit } from '../src/units.js';
+import { presentUnit } from './helpers/presentation.js';
 import {ENTITY_SOLDIER_STATES} from '../src/runtime/network-entity-codec.js';
 
 test('headless presentation follows authoritative movement and respawn without a pose cache', () => {
@@ -91,21 +93,30 @@ test('angle wrapping takes the short turn while preserving live movement states'
   assert.equal(state.posture, 'prone');
 });
 
+// Remote bodies consume records in the native batch. The ordinary fixture
+// above remains the own player's prediction/interpolation boundary.
+function remoteFixture() {
+ const {soldier,view}=fixture();
+ const unit=new Unit({def:{},actor:{root:new THREE.Group()},soldier,presentation:view,animator:{}});
+ unit.removed=false;unit.alive=true;
+ return {soldier,view,draw:(dt,alpha=1)=>presentUnit(unit,dt,alpha)};
+}
+
 test('remote animation flags follow sampled motion while authoritative collision state stays current',()=>{
- const {soldier:s,view:v}=fixture();
+ const {soldier:s,view:v,draw}=remoteFixture();
  Object.assign(s,{air:null,dead:true,dive:0,posture:'stand'});
  for(const [mode,posture,air,dive,dead] of [
   ['ground',1,null,0,false],['diveLeft',1,null,-1,false],
   ['jump',0,'jump',0,false],['thrownDead',0,'thrown',0,true],['dead',0,null,0,true]
  ]) {
   v.networkPose={kind:'soldier',position:[1,2,3],velocity:[4,5,6],yaw:.2,pitch:.1,posture,state:ENTITY_SOLDIER_STATES.indexOf(mode)};
-  const state=v.update(1/60);
+  const state=draw(1/60);
   assert.equal(state.air,air,mode);assert.equal(state.dead,dead,mode);assert.equal(state.dive,dive,mode);
   assert.equal(state.posture,posture===1?'crouch':'stand');
   assert.equal(s.air,null);assert.equal(s.dead,true);assert.equal(s.posture,'stand');
  }
  v.networkPose=null;Object.assign(s,{air:'jet',dead:false,posture:'prone',dive:1});
- const local=v.update(1/60);
+ const local=draw(1/60);
  assert.equal(local.air,'jet');assert.equal(local.dead,false);assert.equal(local.posture,'prone');assert.equal(local.dive,1);
  v.deathPending=true;v.reset();
  assert.equal(v.deathPending,false,'a new life cannot inherit delayed death');
@@ -127,14 +138,14 @@ test('droideka axle and lean interpolate at display rate without wrapping the sp
 });
 
 test('a body whose records stop is drawn where it is, not where the last stepped tick began', () => {
-  const { soldier, view } = fixture();
+  const { soldier, view, draw } = remoteFixture();
   // Riding 7 m up (the AT-TE's gunner), then off the seat and on records.
   soldier.position.set(0, 7, 0);
   view.beforeStep();
   soldier.position.set(2, 0, 1);
   view.networkPose = { kind: 'soldier', position: [2, 0, 1], velocity: [0, 0, 0], yaw: 0, pitch: 0, state: 0, posture: 0 };
-  assert.deepEqual(view.update(1 / 60, 0).position.toArray(), [2, 0, 1]);
+  assert.deepEqual(draw(1 / 60, 0).position.toArray(), [2, 0, 1]);
   // At rest the records stop; the page steps no tick for him.
   view.networkPose = null;
-  assert.deepEqual(view.update(1 / 60, 0).position.toArray(), [2, 0, 1], 'on the ground, not back on the seat');
+  assert.deepEqual(draw(1 / 60, 0).position.toArray(), [2, 0, 1], 'on the ground, not back on the seat');
 });

@@ -31,7 +31,7 @@ const CENSUS = {
     'src/arc-lightning.js': { page: 58 },
     'src/camera-shake.js': { page: 1 },
     'src/commandposts.js': { page: 2 }, // the post holograms' flicker (CommandPosts.present)
-    'src/effects.js': { page: 1 }, // a headless world's effects.play draws nothing
+    'src/presentation/effects.js': { page: 1 }, // a displayed effect's recorded birth seed
     'src/game.js': { page: 3 }, // the sky's flyers, a droid's death blasts (presentEvent)
     'src/launch.js': { page: 3 },
     'src/lightning.js': { page: 1 },

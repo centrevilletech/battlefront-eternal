@@ -2,7 +2,7 @@
 // model/bone/geometry queries and scene/effect calls are served in replay;
 // piece motion and lifetime are always computed by native Debris.
 import * as THREE from 'three';
-import { Effect } from '../../src/effects.js';
+import { EffectHandle } from '../../src/presentation/effects.js';
 import { DebrisIds, debrisChunk, debrisState } from '../../src/debris-sim.js';
 
 const books = new WeakMap();
@@ -41,8 +41,8 @@ function boundaries(game) {
     ['debris.remove', d.scene, 'remove', null, (_g, _c, args) => ({ mesh: meshState(args[0], b.ids) })],
     ['debris.cast', d.collision, 'cast'],
     ['debris.play', d.effects, 'play', () => ({ effect: b.ids.key('effect', b.effect) })],
-    ['debris.move', Effect.prototype, 'move', null, (_g, _c, _a, self) => ({ effect: b.ids.key('effect', self) })],
-    ['debris.stop', Effect.prototype, 'stop', null, (_g, _c, _a, self) => ({ effect: b.ids.key('effect', self) })],
+    ['debris.move', EffectHandle.prototype, 'move', null, (_g, _c, _a, self) => ({ effect: b.ids.key('effect', self) })],
+    ['debris.stop', EffectHandle.prototype, 'stop', null, (_g, _c, _a, self) => ({ effect: b.ids.key('effect', self) })],
   ];
 }
 const METHODS = ['blowApart', 'update', 'bounce', 'rest', 'clear'];

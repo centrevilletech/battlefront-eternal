@@ -1,3 +1,4 @@
+import {presentUnit} from './helpers/presentation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -19,30 +20,28 @@ function actor() {
   const soldier = { position: new THREE.Vector3(90, 2, 3), velocity: new THREE.Vector3(), aimYaw: 2, aimPitch: .8, groundAdjustment: 0, posture: 'stand' };
   return { soldier, presentation: new SoldierPresentation(soldier) };
 }
+const displayUnits=new WeakMap();function display(p,dt,alpha){let unit=displayUnits.get(p);if(!unit){unit=new Unit({def:{},soldier:p.soldier,presentation:p,actor:{root:new THREE.Group()},animator:{}});unit.removed=false;displayUnits.set(p,unit);}return presentUnit(unit,dt,alpha);}
 const infantry = (tick, x, extra = {}) => ({ kind: 'soldier', id: 1, generation: 1, tick, classId: 1, team: 1,
   position: [x, 0, 0], velocity: [6, 0, 0], yaw: 0, pitch: tick / 100, health: 100, posture: 0, state: 0, weapon: 1, fireCounter: 0, ...extra });
 
 test('sparse remote samples drive actual soldier presentation independently of global alpha', () => {
   const s = stream(), { soldier, presentation } = actor();
+  const unit=new Unit({def:{},soldier,presentation,actor:{root:new THREE.Group()},animator:{}});unit.removed=false;
   s.push([infantry(10, 1)], 10); s.push([infantry(16, 1.6)], 16);
   s.view.bindSoldier(1, 1, presentation);
   // Another actor's much newer packet cannot shift the first actor's samples.
   s.push([infantry(40, 20, { id: 2 })], 40);
   s.view.update(13);
   for (const alpha of [0, .5, 1]) {
-    const state = presentation.update(1 / 60, alpha);
+    const state = presentUnit(unit,1/60,alpha);
     assert.ok(Math.abs(state.position.x - 1.30078125) < .00001);
     assert.ok(Math.abs(state.aimPitch - .13) < .0001);
   }
   assert.deepEqual(soldier.position.toArray(), [90, 2, 3]);
   assert.equal(soldier.aimPitch, .8, 'remote drawing never mutates authoritative aim');
-  let posedPitch;
-  const unit = { soldier, presentation, actor: { root: new THREE.Object3D() }, poseClock: 0,
-    presentGone: Unit.prototype.presentGone, shadowNear: true, animator: { update(dt, state) { posedPitch = state.aimPitch; } }, updateJetFlame() {} };
-  Unit.prototype.present.call(unit, 1 / 60, 0, null, null);
-  assert.ok(Math.abs(posedPitch - .13) < .0001, 'Unit.present must not replace sampled pitch with latest authoritative pitch');
+  presentUnit(unit,1/60,0);assert.ok(Math.abs(presentation.state.aimPitch-.13)<.0001,'native presentation retains sampled pitch');
   assert.equal(unit.actor.root.position.x, presentation.position.x);
-  s.view.update(500); presentation.update(1 / 60, 0);
+  s.view.update(500);presentUnit(unit,1/60,0);
   assert.ok(Math.abs(presentation.position.x - 2.8015625) < .00001, 'tapered coast has a finite travel bound');
 });
 
@@ -51,7 +50,7 @@ test('own player bypasses remote samples and lifecycle changes clear old render 
   s.push([infantry(10, 1)], 10); s.view.bindSoldier(1, 1, a.presentation);
   s.view.update(10); assert.ok(a.presentation.networkPose);
   s.view.update(10, { playerId: 1 }); assert.equal(a.presentation.networkPose, null);
-  assert.equal(a.presentation.update(0, 1).position.x, 90, 'own presentation remains on the prediction path');
+  assert.equal(display(a.presentation,0, 1).position.x, 90, 'own presentation remains on the prediction path');
   s.push([{ kind: 'tombstone', id: 1, generation: 1, tick: 11 }], 11);
   s.view.update(11); assert.equal(a.presentation.networkPose, null);
   s.push([infantry(12, 4, { generation: 2 })], 12); s.view.update(12);
@@ -122,13 +121,13 @@ test('a late sample continues from the drawn position and converges instead of s
 test('late remote aim resumes from the drawn direction and converges without a one-frame turn',()=>{
  const s=stream(),{soldier,presentation}=actor();
  s.push([infantry(10,1,{yaw:0,pitch:0})],10);s.view.bindSoldier(1,1,presentation);s.view.update(30);
- const before=presentation.update(1/60).aimYaw;
+ const before=display(presentation,1/60).aimYaw;
  s.push([infantry(30,3,{yaw:Math.PI/2,pitch:.8})],30);s.view.update(30);
- assert.equal(presentation.update(1/60).aimYaw,before,'packet arrival at a held clock must not turn the body');
+ assert.equal(display(presentation,1/60).aimYaw,before,'packet arrival at a held clock must not turn the body');
  assert.equal(presentation.state.aimPitch,0);
  let previous=before;
  for(let tick=31;tick<=42;tick++){
-  s.view.update(tick);const state=presentation.update(1/60);
+  s.view.update(tick);const state=display(presentation,1/60);
   assert.ok(state.aimYaw>=previous&&state.aimYaw-previous<.4,'90-degree update blends in bounded frame steps');
   previous=state.aimYaw;
  }

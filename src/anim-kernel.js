@@ -1,10 +1,7 @@
-// The pose sampling of src/anim.js in WebAssembly (rust/sim/src/pose, in
-// the simulation's module, src/sim/module.js), the page's default (?anim=js
-// keeps the JavaScript in src/anim.js, which is also the fallback when the
-// module cannot load); the module blends every clip as it does, to the
-// last bit (rust/sim/src/pose says how), so the skeleton the page draws
-// does not move and the rider poses the simulation reads keep their
-// answers.
+// The shared pose sampler from rust/bfe-pose, exposed by the simulation
+// module for retained vehicle, prop and rider consumers. A battle installs
+// this binding before constructing those rigs; module load errors propagate.
+// Unit display animation owns its blends and state inside bfe-presentation.
 //
 // The module holds a copy of each clip it samples (its frames and which
 // bone each track drives), made the first time the clip is sampled, and

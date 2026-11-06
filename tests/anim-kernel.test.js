@@ -2,9 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { Clip, Pose, loadClips, setAnimKernel } from '../src/anim.js';
+import { Clip, Pose, setAnimKernel } from '../src/anim.js';
 import { loadAnimKernel } from '../src/anim-kernel.js';
-import { SoldierAnimator } from '../src/animator.js';
 
 // The anim kernel (src/anim-kernel.js, rust/sim/src/pose) must blend clips and
 // apply poses exactly as anim.js's JavaScript does: every accumulator and
@@ -98,51 +97,4 @@ test('a pose takes the kernel up and drops it as it clears', () => {
   setAnimKernel(null);
   pose.clear(); pose.add(clip, 0.2, 1, true);
   sameBits(plain, Float32Array.from(pose.q), 'dropped q');
-});
-
-// The whole animator over the extracted clips, where they are present:
-// two bodies of the same actor, the kernel under one, stepped through
-// gaits, turns, a dive, a weapon action and a gunner's seat, every bone
-// compared every frame.
-const metaURL = new URL('../public/common/anims.json', import.meta.url);
-const actorURL = new URL('../public/sides/cis/actors/cis_inf_bdroid.json', import.meta.url);
-const available = existsSync(metaURL) && existsSync(actorURL);
-function fixture(withKernel) {
-  const meta = JSON.parse(readFileSync(metaURL));
-  const model = JSON.parse(readFileSync(actorURL));
-  const bytes = readFileSync(new URL('../public/common/anims.bin', import.meta.url));
-  const clips = loadClips(meta, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), model.bones.map((b) => b.name));
-  const root = new THREE.Group(), byName = {};
-  const bones = model.bones.map((desc, index) => {
-    const bone = new THREE.Bone(); bone.name = desc.name; bone.userData.index = index;
-    new THREE.Matrix4().fromArray(desc.local).decompose(bone.position, bone.quaternion, bone.scale);
-    byName[bone.name] = bone; return bone;
-  });
-  model.bones.forEach((desc, i) => { if (desc.parent >= 0) bones[desc.parent].add(bones[i]); else root.add(bones[i]); });
-  setAnimKernel(withKernel ? kernel : null);
-  const animator = new SoldierAnimator({ root, bones, byName }, clips, meta.sets);
-  setAnimKernel(null);
-  animator.setBank('bdroid');
-  return { animator, bones, clips };
-}
-
-test('the soldier animator poses every bone the same with the kernel', { skip: !available }, () => {
-  const a = fixture(false), b = fixture(true);
-  const soldier = () => ({ aimYaw: 0, aimPitch: 0, velocity: new THREE.Vector3(0, 0, 4), posture: 'stand', dive: 0, diveTime: 0.85, air: null });
-  const [sa, sb] = [soldier(), soldier()];
-  for (let frame = 0; frame < 600; frame++) {
-    if (frame === 90) { for (const s of [sa, sb]) { s.velocity.set(1, 0, 6.5); s.aimYaw = 0.7; } a.animator.fire(); b.animator.fire(); }
-    if (frame === 180) { for (const s of [sa, sb]) s.posture = 'crouch'; a.animator.weaponAction('shoot'); b.animator.weaponAction('shoot'); }
-    if (frame === 270) { for (const s of [sa, sb]) { s.dive = 1; s.velocity.set(-7.65, 0, 0); } }
-    if (frame === 330) { for (const s of [sa, sb]) { s.dive = 0; s.posture = 'stand'; s.velocity.set(0, 0, 0); } }
-    if (frame === 420) { const clip = a.clips.get('human_turret_stand') || [...a.clips.values()][0]; a.animator.gunner(clip, 0.4, -0.3); b.animator.gunner(b.clips.get(clip.name), 0.4, -0.3); }
-    if (frame === 510) { a.animator.gunner(null); b.animator.gunner(null); for (const s of [sa, sb]) s.air = 'jump'; }
-    // The fixtures hold their own kernel choice per Pose; the switch is
-    // what a clear follows, so set it for each in turn.
-    setAnimKernel(null); a.animator.update(1 / 60, sa);
-    setAnimKernel(kernel); b.animator.update(1 / 60, sb);
-    setAnimKernel(null);
-    a.bones.forEach((bone, i) => sameBone(bone, b.bones[i], `frame ${frame} bone ${i}`));
-    assert.ok(Object.is(a.animator.actor.root.rotation.y, b.animator.actor.root.rotation.y), `frame ${frame} root yaw`);
-  }
 });

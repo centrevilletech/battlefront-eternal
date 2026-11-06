@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Weapon, Arsenal, chargeStep, applyChargeStep, CHARGE_STEPS } from '../src/weapons.js';
 import { PlayerCombat } from '../src/combat.js';
-import { SoldierAnimator } from '../src/animator.js';
+import {bodyHost} from './helpers/presentation.js';
+import {UnitOutput as O} from '../src/presentation/layout.js';
 import { encodeEntityRecord, encodeEntityPacket, decodeEntityPacket } from '../src/runtime/network-entity-codec.js';
 
 // A charged weapon (the Wookiee's bowcaster) on show: the simulation only
@@ -148,18 +149,16 @@ test("the simulation itself plays no charge clip and no glow (a worker's page sh
 });
 
 test('the alert stance a charge holds comes in as after a shot and stays while it is kept up', () => {
-  const animator = Object.create(SoldierAnimator.prototype);
-  animator.alert = -1;
-  animator.holdAlert();
-  assert.equal(animator.alert, 2.5, 'blends in from relaxed as a first shot does');
-  for (let i = 0; i < 300; i++) { animator.alert -= 1 / 60; animator.holdAlert(); }
-  assert.equal(animator.alert, 2, 'held at the alert timer while charging');
-  animator.alert = 2.3;
-  animator.holdAlert();
-  assert.equal(animator.alert, 2.3, 'a blend in under way is not cut short');
-  // Let go, the timer runs down as after any shot.
-  for (let i = 0; i < 180; i++) animator.alert -= 1 / 60;
-  assert.ok(animator.alert < 0);
+  const root=new THREE.Group(),bone=new THREE.Bone();bone.name='DummyRoot';bone.userData.index=0;root.add(bone);
+  const host=bodyHost({root,bones:[bone],byName:{DummyRoot:bone}}),animator=host.row.handle;
+  const draw=dt=>{host.begin(dt);host.owner.run();return host.owner.output[O.ANIMATOR+6];};
+  animator.holdAlert();assert.equal(draw(0),2.5);
+  for(let i=0;i<300;i++){draw(1/60);animator.holdAlert();}
+  assert.equal(draw(0),2,'a held charge sustains the timer at the phase boundary');
+  animator.reset(0);draw(0);animator.fire();assert.ok(Math.abs(draw(.2)-2.3)<1e-12);
+  animator.holdAlert();assert.ok(Math.abs(draw(0)-2.3)<1e-12,'a blend already under way is preserved');
+  let alert;for(let i=0;i<180;i++)alert=draw(1/60);assert.ok(alert<0);
+
 });
 
 test("own charge correction preserves exact shared weapon continuation", async () => {

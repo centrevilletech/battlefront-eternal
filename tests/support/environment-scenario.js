@@ -21,10 +21,11 @@ export const DATA = {
   ],
 };
 
-export function runEnvironment(EnvironmentEffects) {
+// presentationLoaded: the native presentation module the classic handles use.
+export function runEnvironment(EnvironmentEffects, presentationLoaded) {
   let mode = 'enhanced';
   const scene = new THREE.Scene();
-  const e = new EnvironmentEffects({ graphics: { scene }, settings: { get: () => mode }, data: DATA, texture: () => null, model: () => null });
+  const e = new EnvironmentEffects({ presentationLoaded, graphics: { scene }, settings: { get: () => mode }, data: DATA, texture: () => null, model: () => null });
   const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 400);
   // The module's memory must never move: the views the page took stay good.
   const memory = e.host?.x.memory.buffer;

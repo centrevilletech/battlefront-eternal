@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import {Header as H,Draw as D} from '../src/presentation/layout.js';
 import { VehicleEffects, thrustScale, damageBurns, bodyCarrier } from '../src/vehicle-effects.js';
 
 // The hull's effects come from its state alone (alive, health, flight
@@ -155,7 +156,7 @@ test('a walker stomps where a foot comes down; a hover sprays over water only', 
 });
 
 test('an effect scale multiplies drawn sizes on both paths; inherit adds a share of the emitter velocity', async () => {
-  const { Effects } = await import('../src/effects.js');
+  const { Effects } = await import('./helpers/presentation.js');
   const { emitter, seeded } = await import('./fixtures/effects.js');
   const texture = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
   const sizes = (scale, gpu) => seeded(() => {
@@ -176,7 +177,7 @@ test('an effect scale multiplies drawn sizes on both paths; inherit adds a share
     const e = fx.play('p', new THREE.Vector3(), null, new THREE.Vector3(10, 0, 0));
     e.inherit = inherit;
     fx.update(0.01);
-    return e.emitters[0].particles.map(p => p.velocity.x);
+    const values=[];for(let i=0;i<fx.header[H.DRAWS];i++)values.push(fx.drawOutput[i*D.STRIDE+D.VELOCITY]);fx.kernel.free();return values;
   });
   const base = velocity(0), extra = velocity(0.75);
   assert.deepEqual(extra.map(x => +x.toFixed(6)), base.map(x => +(x + 7.5).toFixed(6)));

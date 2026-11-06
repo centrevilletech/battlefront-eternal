@@ -39,6 +39,10 @@ export class ClassPreview {
   place(camera, feet) {
     camera.place(feet.x, feet.y, this.root.position);
     this.root.scale.setScalar(this.walker ? DROIDEKA_UNITS : BODY_UNITS);
+    // UI layout supplies the parent record after posing. Descendant world
+    // matrices are refreshed by Rust, including on paused spawn screens.
+    this.root.updateWorldMatrix(true,false);
+    this.body?.place?.();
   }
 
   clear() {

@@ -146,7 +146,7 @@ export class SnapshotPresentation {
       const pose = this.timeline.sample(id, tick, sample);
       if (!pose) { target.networkPose = null; continue; }
       if (pose.generation !== binding.generation || pose.kind !== binding.kind) { this.unbind(id); continue; }
-      target.networkPose = pose;
+      pose.epoch=this.epoch;target.networkPose = pose;
     }
   }
 }

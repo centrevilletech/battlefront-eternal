@@ -176,6 +176,19 @@ ${lines.map((line) => `  "${line}"`).join(',\n')}
 `);
     },
   },
+  presentation: {
+    crate: 'bfe-presentation', path: 'presentation-pkg', folder: true,
+    // Independent pose and matrix lanes can share baseline SIMD operations.
+    // This changes code generation, without relaxing floating-point order.
+    features: '+simd128',
+    stage(wasm) {
+      checkBindgen();
+      const out = join(STAGE, this.path);
+      rmSync(out, { recursive: true, force: true });
+      run('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', out, wasm], { stdio: 'inherit' });
+      new WebAssembly.Module(readFileSync(join(out, 'bfe_presentation_bg.wasm')));
+    },
+  },
   renderer: {
     crate: 'bfe-render',
     path: 'rust-pkg',
@@ -211,6 +224,10 @@ export async function main(args) {
       await simSchema(check ? ['--check'] : []);
       if (process.exitCode) problems.push("the store's generated code is stale: node tools/sim-schema.mjs");
     }
+    if (name === 'presentation') {
+      const schema = spawnSync(process.execPath, [join(ROOT, 'tools/presentation-schema.mjs'), ...(check ? ['--check'] : [])], { stdio: 'inherit' });
+      if (schema.status) throw Error('presentation schema is stale');
+    }
     if (name === 'renderer') {
       const generated = spawnSync(process.platform === 'win32' ? 'python' : 'python3', [join(ROOT, 'tools/renderer-recovery.py'), ...(check ? ['--check'] : [])], { stdio: 'inherit' });
       if (generated.status !== 0) throw Error('Renderer recovery journal generation failed');
@@ -221,7 +238,11 @@ export async function main(args) {
       if (generated.status) throw Error('The destruction and weather layout is stale: node tools/environment-schema.mjs');
     }
     if (name === 'codec') codecSchema(check);
-    artifact.stage(cargoBuild(artifact.crate, env, artifact.lib), rustc);
+    const artifactEnv = artifact.features ? {
+      ...env,
+      CARGO_ENCODED_RUSTFLAGS: `${env.CARGO_ENCODED_RUSTFLAGS}\x1f-C\x1ftarget-feature=${artifact.features}`,
+    } : env;
+    artifact.stage(cargoBuild(artifact.crate, artifactEnv, artifact.lib), rustc);
     const built = contents(STAGE, artifact);
     if (check) {
       const committed = contents(SRC, artifact);

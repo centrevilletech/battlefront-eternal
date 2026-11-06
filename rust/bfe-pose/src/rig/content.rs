@@ -7,8 +7,7 @@
 use super::droideka::{roll_axle, Barrel, Gun, SkinnedBody};
 use super::hull::{AimerDesc, BarrelDesc, HullDesc, SeatDesc, WeaponDesc};
 use super::skeleton::{BoneDesc, Skeleton};
-use three::{Matrix4, Vector3};
-use crate::pose::Clip;
+use crate::Clip;
 use bfe_content::actor::Actor;
 use bfe_content::clips::{Clip as ContentClip, Clips};
 use bfe_content::content::VehicleTemplate;
@@ -16,6 +15,7 @@ use bfe_content::derived::DroidekaGun;
 use bfe_content::js::number_to_string;
 use bfe_content::odf::num;
 use bfe_content::value::Value;
+use three::{Matrix4, Vector3};
 
 /// A parent index as the JavaScript tests it (`parent >= 0`): -1 otherwise.
 fn parent_index(parent: f64) -> i32 {
@@ -28,7 +28,15 @@ fn parent_index(parent: f64) -> i32 {
 
 /// A body's bones (the actor's records), for `Skeleton::actor`.
 pub fn actor_bones(actor: &Actor) -> Vec<BoneDesc> {
-    actor.bones.iter().map(|b| BoneDesc { name: b.name.clone(), parent: parent_index(b.parent), local: b.local }).collect()
+    actor
+        .bones
+        .iter()
+        .map(|b| BoneDesc {
+            name: b.name.clone(),
+            parent: parent_index(b.parent),
+            local: b.local,
+        })
+        .collect()
 }
 
 /// A body's skeleton as buildActor makes it.
@@ -44,7 +52,11 @@ pub fn clip(clip: &ContentClip) -> Clip {
         frames: if frames >= 0.0 { frames as usize } else { 0 },
         fps: clip.fps,
         root_motion: clip.root_motion,
-        tracks: clip.tracks.iter().map(|&t| if t >= 0.0 { t as i32 } else { -1 }).collect(),
+        tracks: clip
+            .tracks
+            .iter()
+            .map(|&t| if t >= 0.0 { t as i32 } else { -1 })
+            .collect(),
         data: clip.data().to_vec(),
     }
 }
@@ -57,7 +69,10 @@ pub fn droideka_guns(guns: &[DroidekaGun]) -> Vec<Gun> {
         .map(|g| Gun {
             bone: g.bone,
             barrels: match &g.tips {
-                Some(tips) => tips.iter().map(|t| Barrel::Marker(Vector3::new(t.x, t.y, t.z))).collect(),
+                Some(tips) => tips
+                    .iter()
+                    .map(|t| Barrel::Marker(Vector3::new(t.x, t.y, t.z)))
+                    .collect(),
                 None => vec![Barrel::GunBone],
             },
         })
@@ -68,11 +83,19 @@ pub fn droideka_guns(guns: &[DroidekaGun]) -> Vec<Gun> {
 /// from its class (`def.BallRadius ?? 0.65`), the roll clip from its bank.
 pub fn droideka_roll_axle(actor: &Actor, clips: &Clips, class: &Value) -> (Vector3, Vector3) {
     let skeleton = actor_skeleton(actor);
-    let inverses: Vec<Matrix4> = actor.bones.iter().map(|b| Matrix4 { elements: b.inverse.elements }).collect();
+    let inverses: Vec<Matrix4> = actor
+        .bones
+        .iter()
+        .map(|b| Matrix4 {
+            elements: b.inverse.elements,
+        })
+        .collect();
     let body = SkinnedBody {
         positions: &actor.positions,
         skin_index: &actor.skin_index,
-        bind_matrix: Matrix4 { elements: actor.bind_matrix.elements },
+        bind_matrix: Matrix4 {
+            elements: actor.bind_matrix.elements,
+        },
         bone_inverses: &inverses,
     };
     let ball_radius = match class.get("BallRadius") {
@@ -109,7 +132,12 @@ fn pivot(value: Option<&Value>) -> Vector3 {
     };
     // String(v).trim().split(/\s+/).map(Number): the runs of space split
     // it, and an empty string's one empty piece is no number of three.
-    let parts: Vec<f64> = text.trim_matches(bfe_content::js::is_js_space).split(bfe_content::js::is_js_space).filter(|p| !p.is_empty()).map(bfe_content::js::string_to_number).collect();
+    let parts: Vec<f64> = text
+        .trim_matches(bfe_content::js::is_js_space)
+        .split(bfe_content::js::is_js_space)
+        .filter(|p| !p.is_empty())
+        .map(bfe_content::js::string_to_number)
+        .collect();
     if parts.len() >= 3 && parts[..3].iter().all(|x| x.is_finite()) {
         Vector3::new(parts[0], parts[1], parts[2])
     } else {
@@ -121,26 +149,58 @@ fn pivot(value: Option<&Value>) -> Vector3 {
 /// vehicle file (`data.classes[name]`) and its model's template.
 pub fn hull_desc(class: &Value, template: &VehicleTemplate) -> HullDesc {
     let settings = class.get("settings");
-    let health_type = settings.and_then(|s| s.get("HealthType")).filter(|v| v.truthy()).and_then(Value::as_str).unwrap_or("vehicle").to_lowercase();
-    let base = class.get("base").filter(|v| v.truthy()).and_then(Value::as_str).unwrap_or("hover");
+    let health_type = settings
+        .and_then(|s| s.get("HealthType"))
+        .filter(|v| v.truthy())
+        .and_then(Value::as_str)
+        .unwrap_or("vehicle")
+        .to_lowercase();
+    let base = class
+        .get("base")
+        .filter(|v| v.truthy())
+        .and_then(Value::as_str)
+        .unwrap_or("hover");
     let rig_bones = bfe_content::derived::rig_bones(&template.rig);
     let (animated, has_clips) = clips_animated(template.clips.as_ref());
     HullDesc {
-        model: class.get("model").and_then(Value::as_str).unwrap_or("").to_string(),
+        model: class
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         flying: base == "flyer",
         creature: health_type == "animal",
-        bones: rig_bones.iter().map(|b| BoneDesc { name: b.name.clone(), parent: parent_index(b.parent), local: b.local.elements }).collect(),
-        muzzle_tips: template.muzzle_tips.iter().map(|(n, t)| (n.clone(), Vector3::new(t[0], t[1], t[2]))).collect(),
+        bones: rig_bones
+            .iter()
+            .map(|b| BoneDesc {
+                name: b.name.clone(),
+                parent: parent_index(b.parent),
+                local: b.local.elements,
+            })
+            .collect(),
+        muzzle_tips: template
+            .muzzle_tips
+            .iter()
+            .map(|(n, t)| (n.clone(), Vector3::new(t[0], t[1], t[2])))
+            .collect(),
         animated,
         has_clips,
-        seats: class.get("seats").and_then(Value::as_array).unwrap_or(&[]).iter().map(seat_desc).collect(),
+        seats: class
+            .get("seats")
+            .and_then(Value::as_array)
+            .unwrap_or(&[])
+            .iter()
+            .map(seat_desc)
+            .collect(),
     }
 }
 
 /// The bones the clips drive (every track at or above 0), and whether there
 /// are clips at all (`clips?.size`).
 fn clips_animated(clips: Option<&Clips>) -> (Vec<usize>, bool) {
-    let Some(clips) = clips else { return (Vec::new(), false) };
+    let Some(clips) = clips else {
+        return (Vec::new(), false);
+    };
     let mut animated: Vec<usize> = Vec::new();
     for c in &clips.list {
         for &t in &c.tracks {
@@ -166,7 +226,13 @@ fn seat_desc(seat: &Value) -> SeatDesc {
         rider_node_hash: name(key("11ce2025")),
         shootable: num(key("2b60e217"), 1.0),
         pivot: pivot(key("f2aa4a90")),
-        weapons: seat.get("weapons").and_then(Value::as_array).unwrap_or(&[]).iter().map(weapon_desc).collect(),
+        weapons: seat
+            .get("weapons")
+            .and_then(Value::as_array)
+            .unwrap_or(&[])
+            .iter()
+            .map(weapon_desc)
+            .collect(),
     }
 }
 
@@ -174,8 +240,18 @@ fn weapon_desc(w: &Value) -> WeaponDesc {
     let def = w.get("def");
     WeaponDesc {
         fire_point_name: name(def.and_then(|d| d.get("FirePointName"))),
-        class: def.and_then(|d| d.get("class")).and_then(Value::as_str).unwrap_or("").to_string(),
-        aimers: w.get("aimers").and_then(Value::as_array).unwrap_or(&[]).iter().map(aimer_desc).collect(),
+        class: def
+            .and_then(|d| d.get("class"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        aimers: w
+            .get("aimers")
+            .and_then(Value::as_array)
+            .unwrap_or(&[])
+            .iter()
+            .map(aimer_desc)
+            .collect(),
     }
 }
 

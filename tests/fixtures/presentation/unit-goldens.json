@@ -1,0 +1,42 @@
+{
+  "body": {
+    "fields": [
+      "state",
+      "root",
+      "pose",
+      "world"
+    ],
+    "sha256": "c704b5c223d95a21d58e75ead963982a0ad20ec166d1f2eda66def5bd41d9cda",
+    "frames": 600
+  },
+  "view-soldier": {
+    "fields": [
+      "state",
+      "pose",
+      "world"
+    ],
+    "sha256": "612e478e90dc98cb9dd36d12c1b53d9708d4d0599d663c233e0f406d3bd5738d",
+    "frames": 600
+  },
+  "view-droideka": {
+    "fields": [
+      "state",
+      "pose",
+      "world"
+    ],
+    "sha256": "b273df70a25b4b10b12ec5ac530a4227a20f3d19bb69f411cac94806cb22456c",
+    "frames": 600
+  },
+  "batch": {
+    "fields": [
+      "pose",
+      "world",
+      "root",
+      "state",
+      "presentation",
+      "skin"
+    ],
+    "sha256": "c63f34c8d84912eb81e5a42646e8de5b63f3cd917d9e29b4b1f2fa048cd6c5ce",
+    "frames": 360
+  }
+}

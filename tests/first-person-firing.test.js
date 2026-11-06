@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { existsSync, readFileSync } from 'node:fs';
 import { Clip, loadClips } from '../src/anim.js';
 import { PlayerCombat } from '../src/combat.js';
-import { FirstPersonView } from '../src/firstperson.js';
+import { FirstPersonView } from './helpers/presentation.js';
 import { prepareMelee } from '../src/heroes.js';
 import { PredictionArsenal } from '../src/runtime/prediction-arsenal.js';
 import { createClientPrediction } from '../src/runtime/client-prediction.js';

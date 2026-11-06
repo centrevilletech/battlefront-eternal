@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { Draw as D, Effect as E } from "../src/presentation/layout.js";
 
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
@@ -196,14 +197,23 @@ test("an analytic batch: its owner's emitters, and its instances from the first 
   const gpu = new GpuEffects({ spark: [def] }, particles);
   assert.equal(particles.gpu, gpu);
   const texture = new THREE.Texture();
-  const effect = { position: new THREE.Vector3(1, 2, 3), quaternion: new THREE.Quaternion(), tint: 1, time: 5, scale: 1 };
-  const made = Array.from({ length: 4 }, (_, i) => ({ position: new THREE.Vector3(i, 0, 0), velocity: new THREE.Vector3(), color: [1, 1, 1, 1], size: 1, rotation: 0, spin: 0, birth: i, life: 1 }));
+  const effect = new Float64Array(E.STRIDE);
+  effect.set([1, 2, 3], E.POSITION); effect[E.QUATERNION + 3] = 1;
+  effect[E.TINT] = effect[E.SCALE] = 1; effect[E.TIME] = 5;
+  // Synthetic native output keeps the renderer's record upload covered
+  // without retaining a second object-based particle interface.
+  const made = Array.from({ length: 4 }, (_, i) => {
+    const row = new Float64Array(D.STRIDE);
+    row[D.PARTICLE] = i + 1; row[D.POSITION] = row[D.BIRTH] = i;
+    row.set([1, 1, 1, 1], D.COLOR); row[D.SIZE] = row[D.LIFE] = 1;
+    return row;
+  });
   let batch = null;
   const fill = (list) => {
     particles.begin(); gpu.begin();
-    const slot = gpu.register(effect);
+    const slot = gpu.registerRecord(effect, 0);
     batch = gpu.batch(def, texture);
-    for (const p of list) batch.pushParticle(p, slot, gpu.definitions.get(def), gpu.epochs[slot]);
+    for (const p of list) batch.pushRecord(p, 0, slot, gpu.definitions.get(def), gpu.epochs[slot]);
     particles.end(); gpu.end();
   };
   fill(made);
@@ -223,8 +233,9 @@ test("an analytic batch: its owner's emitters, and its instances from the first 
   frame();
   assert.deepEqual(entry(0).slice(2, 4), [4, 4]);
   // The third changed (over two frames, the first not drawn): from it on.
-  fill([made[0], made[1], { ...made[2], birth: 9 }, made[3]]);
-  fill([made[0], made[1], { ...made[2], birth: 9 }, made[3]]);
+  const changed = new Float64Array(made[2]); changed[D.PARTICLE] = 5; changed[D.BIRTH] = 9;
+  fill([made[0], made[1], changed, made[3]]);
+  fill([made[0], made[1], changed, made[3]]);
   frame();
   assert.deepEqual(entry(0).slice(2, 4), [4, 2]);
   assert.deepEqual([...data.subarray(12, 15)], [2, 0, 0], "spawnPosition of the third, first");

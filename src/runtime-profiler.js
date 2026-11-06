@@ -2,8 +2,9 @@
 // object allocation happen only when report() is requested. Durations end at
 // render submission, not GPU completion or physical screen presentation.
 const PHASES = ['input', 'simulation', 'presentation', 'audio', 'world', 'hud', 'render'];
+export const PRESENTATION_BUCKETS = ['effectsUpdate', 'timelinePresentation', 'unitPresentation', 'animation', 'camera', 'hudBuild', 'hudDraw', 'outputPublication'];
 const FIELDS = [...PHASES, 'cpuMs', 'frameIntervalMs', 'visualClampMs', 'steps', 'simulatedMs',
-  'inputCount', 'eventDispatchDelayMs', 'inputToSubmitMs'];
+  'inputCount', 'eventDispatchDelayMs', 'inputToSubmitMs', ...PRESENTATION_BUCKETS];
 const INDEX = Object.fromEntries(FIELDS.map((name, index) => [name, index]));
 
 export class RuntimeProfiler {
@@ -48,6 +49,13 @@ export class RuntimeProfiler {
     this.phaseIndex = INDEX[name];
   }
 
+  // Detail spans are inclusive and may nest inside the exclusive CPU phases.
+  // In particular animation is part of unitPresentation, not an added cost.
+  start() { return this.active ? this.now() : NaN; }
+  finish(name, started) {
+    if (this.active && Number.isFinite(started)) this.current[INDEX[name]] += this.now() - started;
+  }
+
   step(dt) {
     if (!this.active) return;
     this.current[INDEX.steps]++;
@@ -80,10 +88,10 @@ export class RuntimeProfiler {
       }
       samples.sort((a, b) => a - b);
       const at = q => samples.length ? samples[Math.max(0, Math.ceil(samples.length * q) - 1)] : null;
-      metrics[name] = { samples: samples.length, p50: at(.5), p95: at(.95), p99: at(.99), max: at(1),
+      metrics[name] = { samples: samples.length, p50: at(.5), p90: at(.9), p95: at(.95), p99: at(.99), max: at(1),
         total: samples.reduce((sum, value) => sum + value, 0) };
     }
-    return { frames: this.count, retained, overwritten: this.count - retained,
+    return { detailBuckets: PRESENTATION_BUCKETS, detailNote: 'Inclusive CPU spans. unitPresentation covers own, remote, vehicle/rider presentation and first-person pose/publication; animation measures the native pose call, including derived body matrices. outputPublication is effects buffer finalization. hudDraw includes submission.', frames: this.count, retained, overwritten: this.count - retained,
       pendingInputs: this.pendingInputs, metrics,
       note: 'CPU phases are exclusive milliseconds; steps/inputCount are counts. Input ends at CPU render submission, not display. Event timestamps are browser timestamps, not device timestamps.' };
   }

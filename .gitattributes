@@ -11,3 +11,8 @@ rust/sim/src/gen/** -merge linguist-generated
 src/sim/gen/** -merge linguist-generated
 rust/sim/src/gen_test/** -merge linguist-generated
 tests/sim-gen/** -merge linguist-generated
+
+# Generated presentation records and browser binding. Rebuild on conflicts.
+src/presentation/layout.js merge=binary
+rust/bfe-presentation/src/layout.rs merge=binary
+src/presentation-pkg/* merge=binary

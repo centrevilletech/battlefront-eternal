@@ -1,4 +1,6 @@
 import { rustOrdnance } from './helpers/rust-simulation.js';
+import { presentUnit, unitHost } from './helpers/presentation.js';
+import { SoldierPresentation } from '../src/soldier-presentation.js';
 // Turret gunners (docs/formats.md "Riders" and "Turrets"): a turret whose
 // class names a pilot animation shows its gunner, and rounds, swings and
 // blasts meet him where he is drawn, whoever he is (a bot, a network human,
@@ -568,15 +570,19 @@ for (const [map, classes] of Object.entries(SHOWN)) {
       const unit = game.factory.acquire(className);
       unit.team = unit.combat.team = 1;
       unit.spawn(turret.position.x + 2, turret.position.y + 1, turret.position.z, 0);
+      // A page owns its interpolation records and submits one native batch;
+      // the world retains its authoritative hit-shape pose independently.
+      unit.presentation = new SoldierPresentation(unit.soldier);
+      unitHost(unit);
+      unit.combat.animator = unit.animator;
       assert.ok(game.turretSeats.man(unit, turret), cls);
-      if (cls === 'hoth_bldg_dish_turret' && unit.animator.clips.has('human_dishcannon_9pose')) assert.equal(unit.animator.gunning.clip.name, 'human_dishcannon_9pose');
+      if (cls === 'hoth_bldg_dish_turret' && unit.animator.clips.has('human_dishcannon_9pose')) assert.equal(turret.riderSample(unit.animator.clips, {}, turret.pitch, 0).clip.name, 'human_dishcannon_9pose');
       for (const [yaw, pitch] of [[0, 0], [1.2, turret.pitchLimits[1]], [-2.5, turret.pitchLimits[0]]]) {
         // Drive the native crew, rather than mutating its presentation mirror
         // or calling the removed JavaScript world-pose method.
         aim({ turret, system: game.vehicles }, unit, yaw, pitch);
         turret.present();
-        unit.animator.update(1 / 60, unit.soldier);
-        unit.actor.root.updateMatrixWorld(true);
+        presentUnit(unit, 1 / 60);
         const seat = (turret.seat || turret.rig.root);
         assert.ok(unit.actor.root.quaternion.angleTo(seat.getWorldQuaternion(new T.Quaternion())) < 1e-4, `${cls}: turned as the seat`);
         // Facing along the gun.
@@ -591,7 +597,7 @@ for (const [map, classes] of Object.entries(SHOWN)) {
         }
       }
       game.turretSeats.leave(unit, { placement: false });
-      unit.animator.update(1 / 60, unit.soldier);
+      presentUnit(unit, 1 / 60);
       assert.ok(Math.abs(unit.actor.root.rotation.x) + Math.abs(unit.actor.root.rotation.z) < 1e-9, `${cls}: upright again off the gun`);
       unit.remove();
     }

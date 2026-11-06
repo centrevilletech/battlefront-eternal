@@ -14,8 +14,8 @@
 //! module gives it the tree to pose and the nodes to read.
 
 use super::skeleton::{lower, BoneDesc, Skeleton};
-use three::{Quaternion, Vector3};
 use three::{NodeId, TransformNode, TransformTree};
+use three::{Quaternion, Vector3};
 
 /// A barrel of an aimer (BarrelNodeName, its FirePointName, BarrelLength
 /// and BarrelRecoil, as `num()` reads them).
@@ -100,7 +100,11 @@ pub struct ByName {
 }
 
 fn array_index(key: &str) -> Option<u32> {
-    if key.is_empty() || key.len() > 10 || !key.bytes().all(|b| b.is_ascii_digit()) || (key.len() > 1 && key.starts_with('0')) {
+    if key.is_empty()
+        || key.len() > 10
+        || !key.bytes().all(|b| b.is_ascii_digit())
+        || (key.len() > 1 && key.starts_with('0'))
+    {
         return None;
     }
     let n: u64 = key.parse().ok()?;
@@ -123,10 +127,18 @@ impl ByName {
         }
         // Integer-like keys come first, in ascending order; the rest keep
         // their insertion order.
-        let mut indexed: Vec<(String, usize)> = entries.iter().filter(|(k, _)| array_index(k).is_some()).cloned().collect();
+        let mut indexed: Vec<(String, usize)> = entries
+            .iter()
+            .filter(|(k, _)| array_index(k).is_some())
+            .cloned()
+            .collect();
         indexed.sort_by_key(|(k, _)| array_index(k).unwrap());
-        let rest = entries.into_iter().filter(|(k, _)| array_index(k).is_none());
-        ByName { entries: indexed.into_iter().chain(rest).collect() }
+        let rest = entries
+            .into_iter()
+            .filter(|(k, _)| array_index(k).is_none());
+        ByName {
+            entries: indexed.into_iter().chain(rest).collect(),
+        }
     }
 
     /// `byName[key]`.
@@ -141,7 +153,10 @@ impl ByName {
 
     /// The key holding a bone (`Object.keys(byName).find(n => byName[n] === bone)`).
     pub fn key_of(&self, bone: usize) -> Option<&str> {
-        self.entries.iter().find(|&&(_, i)| i == bone).map(|(k, _)| k.as_str())
+        self.entries
+            .iter()
+            .find(|&&(_, i)| i == bone)
+            .map(|(k, _)| k.as_str())
     }
 }
 
@@ -227,8 +242,14 @@ pub struct HullRig {
 /// `/^hp_(fire|gun(?!ner)|cannon|laser|turret)/i` on a lower-cased name.
 fn hardpoint(name: &str) -> bool {
     let n = lower(name);
-    let Some(rest) = n.strip_prefix("hp_") else { return false };
-    if rest.starts_with("fire") || rest.starts_with("cannon") || rest.starts_with("laser") || rest.starts_with("turret") {
+    let Some(rest) = n.strip_prefix("hp_") else {
+        return false;
+    };
+    if rest.starts_with("fire")
+        || rest.starts_with("cannon")
+        || rest.starts_with("laser")
+        || rest.starts_with("turret")
+    {
         return true;
     }
     rest.starts_with("gun") && !rest[3..].starts_with("ner")
@@ -253,16 +274,30 @@ impl HullRig {
         let skeleton = Skeleton::new(&desc.bones, true);
         let mut tree = TransformTree::new();
         let root = tree.add_node(TransformNode::default());
-        let bones: Vec<NodeId> = skeleton.bind.iter().map(|b| tree.add_node(b.clone())).collect();
+        let bones: Vec<NodeId> = skeleton
+            .bind
+            .iter()
+            .map(|b| tree.add_node(b.clone()))
+            .collect();
         for (i, d) in desc.bones.iter().enumerate() {
-            let parent = if d.parent >= 0 { bones[d.parent as usize] } else { root };
+            let parent = if d.parent >= 0 {
+                bones[d.parent as usize]
+            } else {
+                root
+            };
             tree.add_child(parent, bones[i]);
         }
         let by_name = ByName::new(&skeleton.names);
         let bind_q: Vec<Quaternion> = skeleton.bind.iter().map(|b| b.quaternion).collect();
         let bind_p: Vec<Vector3> = skeleton.bind.iter().map(|b| b.position).collect();
         let pose_root = if desc.has_clips && !desc.flying {
-            Some(skeleton.names.iter().position(|n| lower(n) == "dummyroot").map_or(-1, |i| i as i32))
+            Some(
+                skeleton
+                    .names
+                    .iter()
+                    .position(|n| lower(n) == "dummyroot")
+                    .map_or(-1, |i| i as i32),
+            )
         } else {
             None
         };
@@ -298,7 +333,9 @@ impl HullRig {
                 for a in 0..rig.seats[s].weapons[w].aimers.len() {
                     let bone = rig.seats[s].weapons[w].aimers[a].bone;
                     let owner = (0..rig.seats.len())
-                        .position(|o| o != s && rig.seats[o].turret.is_some() && rig.seats[o].turret == bone)
+                        .position(|o| {
+                            o != s && rig.seats[o].turret.is_some() && rig.seats[o].turret == bone
+                        })
                         .map_or(-1, |o| o as i32);
                     rig.seats[s].weapons[w].aimers[a].owner = owner;
                 }
@@ -318,7 +355,14 @@ impl HullRig {
     /// answers null for a hull that is not alive, which is the caller's to
     /// know.
     pub fn muzzle_point(&mut self, seat: usize, weapon: usize, barrel: usize) -> Option<Vector3> {
-        let node = self.seats.get(seat)?.weapons.get(weapon)?.muzzles.get(barrel)?.fire_node;
+        let node = self
+            .seats
+            .get(seat)?
+            .weapons
+            .get(weapon)?
+            .muzzles
+            .get(barrel)?
+            .fire_node;
         let mut out = Vector3::default();
         Some(self.tree.get_world_position(node, &mut out))
     }
@@ -335,7 +379,9 @@ impl HullRig {
     }
 
     fn marker(&mut self, parent: NodeId, position: Vector3) -> NodeId {
-        let node = self.tree.add_node(TransformNode::placed(position, Vector3::new(1.0, 1.0, 1.0)));
+        let node = self
+            .tree
+            .add_node(TransformNode::placed(position, Vector3::new(1.0, 1.0, 1.0)));
         self.tree.add_child(parent, node);
         self.markers.push(node);
         node
@@ -343,10 +389,23 @@ impl HullRig {
 
     /// `muzzleNode(bone)`: the bone's geometry muzzle (a marker at the tip
     /// its mesh shows, made once a bone), or the bone itself without one.
-    fn muzzle_node(&mut self, bone: Option<NodeId>, desc: &HullDesc, geometry: &mut Vec<(NodeId, NodeId)>) -> Option<NodeId> {
+    fn muzzle_node(
+        &mut self,
+        bone: Option<NodeId>,
+        desc: &HullDesc,
+        geometry: &mut Vec<(NodeId, NodeId)>,
+    ) -> Option<NodeId> {
         let bone = bone?;
-        let name = self.bone_index(bone).and_then(|i| self.by_name.key_of(i)).map(str::to_string);
-        let tip = name.and_then(|n| desc.muzzle_tips.iter().find(|(k, _)| *k == n).map(|&(_, t)| t));
+        let name = self
+            .bone_index(bone)
+            .and_then(|i| self.by_name.key_of(i))
+            .map(str::to_string);
+        let tip = name.and_then(|n| {
+            desc.muzzle_tips
+                .iter()
+                .find(|(k, _)| *k == n)
+                .map(|&(_, t)| t)
+        });
         let Some(tip) = tip else { return Some(bone) };
         if let Some(&(_, marker)) = geometry.iter().find(|&&(b, _)| b == bone) {
             return Some(marker);
@@ -366,13 +425,22 @@ impl HullRig {
         found
     }
 
-    fn visit_muzzles(&self, bone: NodeId, node: NodeId, excluded: &[Option<NodeId>], found: &mut Vec<NodeId>) {
+    fn visit_muzzles(
+        &self,
+        bone: NodeId,
+        node: NodeId,
+        excluded: &[Option<NodeId>],
+        found: &mut Vec<NodeId>,
+    ) {
         if bone != node && excluded.contains(&Some(bone)) {
             return;
         }
         // names.get(bone) || '': a marker, the static bone and a bone another
         // of its name shadows have none.
-        let name = self.bone_index(bone).and_then(|i| self.by_name.key_of(i)).unwrap_or("");
+        let name = self
+            .bone_index(bone)
+            .and_then(|i| self.by_name.key_of(i))
+            .unwrap_or("");
         if hardpoint(name) {
             found.push(bone);
             return;
@@ -383,13 +451,28 @@ impl HullRig {
     }
 
     fn build_seats(&mut self, desc: &HullDesc) {
-        let all_aimers: Vec<Option<NodeId>> =
-            desc.seats.iter().flat_map(|s| s.weapons.iter().flat_map(|w| w.aimers.iter().map(|a| a.node.as_deref()))).map(|n| self.named(n)).collect();
+        let all_aimers: Vec<Option<NodeId>> = desc
+            .seats
+            .iter()
+            .flat_map(|s| {
+                s.weapons
+                    .iter()
+                    .flat_map(|w| w.aimers.iter().map(|a| a.node.as_deref()))
+            })
+            .map(|n| self.named(n))
+            .collect();
         let mut geometry: Vec<(NodeId, NodeId)> = Vec::new();
         for seat in &desc.seats {
             let mut weapons = Vec::with_capacity(seat.weapons.len());
             for w in &seat.weapons {
-                let aimers: Vec<AimerRig> = w.aimers.iter().map(|a| AimerRig { bone: self.named(a.node.as_deref()), owner: -1 }).collect();
+                let aimers: Vec<AimerRig> = w
+                    .aimers
+                    .iter()
+                    .map(|a| AimerRig {
+                        bone: self.named(a.node.as_deref()),
+                        owner: -1,
+                    })
+                    .collect();
                 let mut muzzles: Vec<Muzzle> = Vec::new();
                 for (ai, a) in w.aimers.iter().enumerate() {
                     let bone = aimers[ai].bone;
@@ -417,8 +500,10 @@ impl HullRig {
                             let barrel = self.named(b.barrel_node_name.as_deref());
                             let mut node = self.named(b.fire_point_name.as_deref()).or(barrel);
                             let length = b.length;
-                            if node.is_some() && length != 0.0 && !length.is_nan() && node == barrel {
-                                let marker = self.marker(barrel.unwrap(), Vector3::new(0.0, 0.0, length));
+                            if node.is_some() && length != 0.0 && !length.is_nan() && node == barrel
+                            {
+                                let marker =
+                                    self.marker(barrel.unwrap(), Vector3::new(0.0, 0.0, length));
                                 node = Some(marker);
                             }
                             let Some(node) = node else { continue };
@@ -443,7 +528,10 @@ impl HullRig {
                             .by_name
                             .entries
                             .iter()
-                            .filter(|(name, i)| missile_rack_name(name) && self.tree.node(self.bones[*i]).parent == bone)
+                            .filter(|(name, i)| {
+                                missile_rack_name(name)
+                                    && self.tree.node(self.bones[*i]).parent == bone
+                            })
                             .map(|&(_, i)| self.bones[i])
                             .collect();
                         for rack in racks {
@@ -455,15 +543,27 @@ impl HullRig {
                     let nodes = if !descendants.is_empty() {
                         descendants
                     } else {
-                        self.muzzle_node(bone, desc, &mut geometry).into_iter().collect()
+                        self.muzzle_node(bone, desc, &mut geometry)
+                            .into_iter()
+                            .collect()
                     };
                     for node in nodes {
                         if !muzzles.iter().any(|m| m.fire_node == node) {
-                            muzzles.push(Muzzle { fire_node: node, source_aimer: Some(ai), barrel: None, recoil: None, rest: None });
+                            muzzles.push(Muzzle {
+                                fire_node: node,
+                                source_aimer: Some(ai),
+                                barrel: None,
+                                recoil: None,
+                                rest: None,
+                            });
                         }
                     }
                 }
-                if muzzles.len() > 2 && w.aimers.iter().any(|a| a.node.as_deref().is_some_and(missile_side_name)) {
+                if muzzles.len() > 2
+                    && w.aimers
+                        .iter()
+                        .any(|a| a.node.as_deref().is_some_and(missile_side_name))
+                {
                     // Interleave the racks: each rack's first, then each
                     // one's second, ...
                     let mut rack_bones: Vec<Option<NodeId>> = Vec::new();
@@ -475,13 +575,23 @@ impl HullRig {
                     }
                     let racks: Vec<Vec<Muzzle>> = rack_bones
                         .iter()
-                        .map(|&b| muzzles.iter().filter(|m| m.source_aimer.and_then(|a| aimers[a].bone) == b).copied().collect())
+                        .map(|&b| {
+                            muzzles
+                                .iter()
+                                .filter(|m| m.source_aimer.and_then(|a| aimers[a].bone) == b)
+                                .copied()
+                                .collect()
+                        })
                         .collect();
                     let longest = racks.iter().map(|r| r.len()).max().unwrap_or(0);
-                    muzzles = (0..longest).flat_map(|i| racks.iter().filter_map(move |r| r.get(i).copied())).collect();
+                    muzzles = (0..longest)
+                        .flat_map(|i| racks.iter().filter_map(move |r| r.get(i).copied()))
+                        .collect();
                 }
                 let turret = self.named(seat.turret_node_name.as_deref());
-                let fire = self.named(seat.fire_point_name.as_deref()).or_else(|| self.named(w.fire_point_name.as_deref()));
+                let fire = self
+                    .named(seat.fire_point_name.as_deref())
+                    .or_else(|| self.named(w.fire_point_name.as_deref()));
                 if muzzles.is_empty() {
                     let mut nodes = match fire {
                         Some(f) => vec![f],
@@ -495,19 +605,41 @@ impl HullRig {
                     // The retail Hailfire has no cannon hardpoint: its lower
                     // barrel is skinned to its centre body, whose rim is its
                     // mouth.
-                    if nodes.is_empty() && desc.model == "cis_tread_hailfire" && w.class == "cis_weap_walk_spider_cannon" {
-                        let center = self.by_name.get("cis_hailfire_droid_center").map(|i| self.bones[i]);
+                    if nodes.is_empty()
+                        && desc.model == "cis_tread_hailfire"
+                        && w.class == "cis_weap_walk_spider_cannon"
+                    {
+                        let center = self
+                            .by_name
+                            .get("cis_hailfire_droid_center")
+                            .map(|i| self.bones[i]);
                         if let Some(n) = self.muzzle_node(center, desc, &mut geometry) {
                             nodes.push(n);
                         }
                     }
                     for node in nodes {
-                        muzzles.push(Muzzle { fire_node: node, source_aimer: None, barrel: None, recoil: None, rest: None });
+                        muzzles.push(Muzzle {
+                            fire_node: node,
+                            source_aimer: None,
+                            barrel: None,
+                            recoil: None,
+                            rest: None,
+                        });
                     }
                 }
-                weapons.push(WeaponRig { aimers, muzzles, fire });
+                weapons.push(WeaponRig {
+                    aimers,
+                    muzzles,
+                    fire,
+                });
             }
-            self.seats.push(SeatRig { weapons, turret: None, pivot: Vector3::default(), up: Vector3::new(0.0, 1.0, 0.0), rider: None });
+            self.seats.push(SeatRig {
+                weapons,
+                turret: None,
+                pivot: Vector3::default(),
+                up: Vector3::new(0.0, 1.0, 0.0),
+                rider: None,
+            });
         }
     }
 
@@ -534,7 +666,9 @@ impl HullRig {
         if let Some(anim) = &seat.pilot_animation {
             let name = match &seat.pilot_position {
                 Some(p) => p.clone(),
-                None if creature && self.by_name.get("hp_active").is_some() => "hp_active".to_string(),
+                None if creature && self.by_name.get("hp_active").is_some() => {
+                    "hp_active".to_string()
+                }
                 None => seat.rider_node_hash.clone().unwrap_or_default(),
             };
             let clip = lower(anim);
@@ -569,14 +703,26 @@ impl HullRig {
         };
         let mut result = false;
         for (s, seat) in self.seats.iter().enumerate() {
-            if seat.turret.is_some() && hangs(seat.turret) || seat.rider.as_ref().is_some_and(|r| r.node.is_some() && hangs(r.node)) {
+            if seat.turret.is_some() && hangs(seat.turret)
+                || seat
+                    .rider
+                    .as_ref()
+                    .is_some_and(|r| r.node.is_some() && hangs(r.node))
+            {
                 result = true;
             }
             for (w, weapon) in seat.weapons.iter().enumerate() {
                 let wdesc = &desc.seats[s].weapons[w];
                 for (a, aimer) in weapon.aimers.iter().enumerate() {
-                    let fire_point = wdesc.aimers[a].fire_point_name.as_deref().filter(|n| !n.is_empty());
-                    if aimer.bone.is_some() && hangs(aimer.bone) || fire_point.is_some_and(|n| hangs(self.by_name.get(&lower(n)).map(|i| self.bones[i]))) {
+                    let fire_point = wdesc.aimers[a]
+                        .fire_point_name
+                        .as_deref()
+                        .filter(|n| !n.is_empty());
+                    if aimer.bone.is_some() && hangs(aimer.bone)
+                        || fire_point.is_some_and(|n| {
+                            hangs(self.by_name.get(&lower(n)).map(|i| self.bones[i]))
+                        })
+                    {
                         result = true;
                     }
                 }

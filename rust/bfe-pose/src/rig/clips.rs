@@ -3,7 +3,7 @@
 //! cycle's DummyRoot travels) and its own speed; and the two soldier timings
 //! made from clip durations (src/units.js buildBody).
 
-use crate::movement::soldier::js_hypot2;
+use v8math::hypot as js_hypot2;
 
 /// A clip's timings, as the Clip constructor works them out.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -20,10 +20,18 @@ impl ClipTimes {
     /// From the clip's description: its frame count, the bank's frame rate
     /// and its root's travel over the clip.
     pub fn new(frames: f64, fps: f64, travel: [f64; 3]) -> ClipTimes {
-        let duration = crate::collision::js_max(frames - 1.0, 0.0) / fps;
+        let duration = crate::js_max(frames - 1.0, 0.0) / fps;
         let stride = js_hypot2(travel[0], travel[2]);
-        let speed = if duration > 0.0 { stride / duration } else { 0.0 };
-        ClipTimes { duration, stride, speed }
+        let speed = if duration > 0.0 {
+            stride / duration
+        } else {
+            0.0
+        };
+        ClipTimes {
+            duration,
+            stride,
+            speed,
+        }
     }
 }
 

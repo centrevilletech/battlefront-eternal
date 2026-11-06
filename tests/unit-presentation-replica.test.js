@@ -1,3 +1,4 @@
+import {presentUnit} from './helpers/presentation.js';
 import {EntityWorldCapture} from '../src/runtime/network-entity-capture.js';
 import {EntityGameState} from '../src/runtime/network-entity-game.js';
 import test from 'node:test';
@@ -80,7 +81,7 @@ test('a page keeps what it draws a body with when the world it shows is replicat
   assert.equal(drawn.soldier.shield.on, true);
   // The raised shield it was sent is drawn, around the body.
   drawn.presentation.reset();
-  drawn.present(0.5, 1);
+  presentUnit(drawn,0.5, 1);
   assert.equal(drawn.bubble.mesh.visible, true);
   assert.ok(drawn.bubble.mesh.position.distanceTo(new THREE.Vector3(3, 1, 4)) < 1e-6);
   // Lowered in the world, it goes on the page. (The page's own frame let
@@ -89,7 +90,7 @@ test('a page keeps what it draws a body with when the world it shows is replicat
   authority.soldier.toggleShield();
   for (let i = 0; i < 3; i++) send();
   for (const key of own) assert.equal(drawn[key], kept[key], `${key} survives later packets`);
-  drawn.present(1, 1);
+  presentUnit(drawn,1, 1);
   assert.equal(drawn.bubble.mesh.visible, false);
 });
 
@@ -97,14 +98,14 @@ test('a unit off the field draws nothing, whatever its body was last told', () =
   const page = battle(false), unit = page.factory.build('deka');
   unit.spawn(0, 0, 0, 0);
   unit.soldier.toggleShield();
-  unit.present(0.5, 1);
+  presentUnit(unit,0.5, 1);
   assert.equal(unit.actor.root.visible, true);
   assert.equal(unit.bubble.mesh.visible, true);
   // A packet that removes it but leaves its body shown (as a dedicated
   // server's own viewpoint did) would stand it unposed where it last was.
   unit.removed = true;
   unit.alive = false;
-  unit.present(1 / 60, 1);
+  presentUnit(unit,1 / 60, 1);
   assert.equal(unit.actor.root.visible, false);
   assert.equal(unit.bubble.mesh.visible, false);
   assert.equal(unit.bubble.fade, 0);

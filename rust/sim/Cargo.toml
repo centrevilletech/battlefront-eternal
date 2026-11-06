@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 [features]
 # Reading and writing the replay harness's values (rust/sim-replay, native
 # only): `cargo test -p sim --features replay` replays captured phases.
-replay = ["dep:sim-replay"]
+replay = ["dep:sim-replay", "bfe-pose/replay"]
 # The navigation port's twin runner (src/bin/nav-twin.rs, tools/nav-twin.mjs),
 # off by default so `cargo test` builds no binary beside the tests: the
 # release profile aborts on a panic and tests unwind, so the lib would be
@@ -32,6 +32,7 @@ path = "src/bin/nav-twin.rs"
 required-features = ["nav-twin"]
 
 [dependencies]
+bfe-pose = { path = "../bfe-pose" }
 audio-control = { path = "../audio-control" }
 # The game's content as JavaScript loads it, and the JavaScript and
 # three.js arithmetic its loaders share with the simulation (a body's

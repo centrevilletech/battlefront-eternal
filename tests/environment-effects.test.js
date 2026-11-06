@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
 import {EnvironmentWakes,WAKE_COUNT} from '../src/environment-volume.js';
+import {presentationLoaded} from './helpers/presentation.js';
 import {EnvironmentEffects} from '../src/environment-effects.js';
 import {TIER} from '../src/fountain-jets.js';
 import {loadEnvironment} from '../src/environment/module.js';
@@ -50,7 +51,7 @@ const chamberPath=new URL('../public/maps/bes2/environment/effects.json',import.
 test('mode changes and culling clear old draws; Classic starts fully flowing',{skip:!fs.existsSync(chamberPath)},()=>{
   const data=JSON.parse(fs.readFileSync(chamberPath)),scene=new THREE.Scene();let mode='classic';
   const texture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);
-  const e=new EnvironmentEffects({graphics:{scene},settings:{get:()=>mode},data,texture:()=>texture,model:()=>null});
+  const e=new EnvironmentEffects({presentationLoaded,graphics:{scene},settings:{get:()=>mode},data,texture:()=>texture,model:()=>null});
   const camera=new THREE.PerspectiveCamera(70,1,.1,200);camera.position.set(-167,-59,-9);camera.lookAt(-178,-63,-20);
   e.update(0,camera,[]);assert.equal(e.stats.activeSources,9);assert.ok(e.stats.classicParticles>50);
   mode='enhanced';e.update(.05,camera,[]);assert.equal(e.stats.classicParticles,0);assert.equal(e.stats.volumes,9);
@@ -63,7 +64,7 @@ const theedPath=new URL('../public/maps/nab2/environment/effects.json',import.me
 test('Theed fountains keep fixed jet slots and their basin levels; jets follow mode and view',{skip:!fs.existsSync(theedPath)},()=>{
   const data=JSON.parse(fs.readFileSync(theedPath)),scene=new THREE.Scene();let mode='enhanced';
   const texture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);
-  const e=new EnvironmentEffects({graphics:{scene},settings:{get:()=>mode},data,texture:()=>texture,model:()=>null});
+  const e=new EnvironmentEffects({presentationLoaded,graphics:{scene},settings:{get:()=>mode},data,texture:()=>texture,model:()=>null});
   const fountains=e.instances.filter(i=>i.jet);assert.deepEqual(fountains.map(f=>f.slot),[0,1,2,3,4]);
   // Each stock basin's water lies about 0.2 m under its nozzle; Enhanced
   // fills the inner tier to its lip, 0.8 m above it, and keeps the outer pool.
@@ -95,7 +96,7 @@ test('placed stock effects play in both modes, out to the near scene, with no En
   const data={instances:[{effect:'campfire',hardpoint:'hp_smoke',owner:'fire1',matrix:at}],basins:[],effects:{campfire:SMOKE},textures:{smoke:'textures/smoke.png'},models:{}};
   const scene=new THREE.Scene();let mode='enhanced';
   const texture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);
-  const e=new EnvironmentEffects({graphics:{scene},settings:{get:()=>mode},data,texture:()=>texture,model:()=>null});
+  const e=new EnvironmentEffects({presentationLoaded,graphics:{scene},settings:{get:()=>mode},data,texture:()=>texture,model:()=>null});
   assert.equal(e.volume,null);assert.equal(e.steam,null);assert.equal(e.water,null);
   const camera=new THREE.PerspectiveCamera(60,1,.5,300);camera.position.set(0,1.8,0);camera.lookAt(40,2,0);
   e.update(.05,camera,[]);assert.equal(e.stats.activeSources,1);assert.ok(e.stats.classicParticles>0,'Enhanced plays the stock effect');
@@ -114,7 +115,7 @@ test('placed stock effects play in both modes, out to the near scene, with no En
 // held to a recorded run.
 test('the placed effects in view are found exactly as the recorded walk has them',()=>{
   const golden=JSON.parse(fs.readFileSync(new URL('./fixtures/environment-golden.json',import.meta.url),'utf8'));
-  const rows=runEnvironment(EnvironmentEffects);
+  const rows=runEnvironment(EnvironmentEffects,presentationLoaded);
   assert.equal(rows.length,golden.length);
   rows.forEach((row,i)=>assert.deepEqual(row,golden[i],`frame ${i}`));
 });

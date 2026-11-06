@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import {ENTITY_POSTURES,ENTITY_SOLDIER_STATES} from './runtime/network-entity-codec.js';
 
 const NETWORK_POSE = ['posture', 'air', 'dive', 'dead'];
 const WALKER_POSE = ["roll", "lean", "legs", "time"];
@@ -68,7 +67,6 @@ export class SoldierPresentation {
 
   clearNetworkState() {
     for (const key of NETWORK_POSE) delete this.state[key];
-    this.networkState = false;
   }
 
   beforeStep() {
@@ -89,54 +87,6 @@ export class SoldierPresentation {
   update(dt, alpha = 1) {
     const s = this.soldier;
     this.networkFired = false;
-    // Independent remote entity samples already interpolate their own two
-    // timestamps. Applying the world's alpha again would introduce a second
-    // interpolation and would advance actors absent from the latest packet.
-    if (this.networkPose) {
-      this.position.fromArray(this.networkPose.position);
-      this.velocity.fromArray(this.networkPose.velocity);
-      this.state.aimYaw = this.networkPose.yaw;
-      this.state.aimPitch = this.networkPose.pitch;
-      if (this.networkPose.kind === 'soldier') {
-        // A lost shot event must not leave a firing replica in its relaxed
-        // stance. Consume only counters at the rendered sample's tick, never
-        // the newer collision state. Joining/respawning establishes a baseline.
-        const pose = this.networkPose, previous = this.networkFire;
-        if (Number.isSafeInteger(pose.fireCounter) && Number.isSafeInteger(pose.fromTick)) {
-          if (!previous || previous.generation !== pose.generation) {
-            this.networkFire = { generation: pose.generation, tick: pose.fromTick, counter: pose.fireCounter };
-          } else if (pose.fromTick > previous.tick) {
-            const shots = pose.fireCounter - previous.counter;
-            this.networkFired = shots >= 1 && shots <= 3;
-            previous.tick = pose.fromTick;
-            previous.counter = Math.max(previous.counter, pose.fireCounter);
-          }
-        }
-        // Animation follows the same historical sample as the drawn body,
-        // not the newer collision state already received from the server.
-        const mode = ENTITY_SOLDIER_STATES[this.networkPose.state];
-        this.state.posture = ENTITY_POSTURES[this.networkPose.posture];
-        this.state.air = mode === 'thrownDead' ? 'thrown' : ['jump','fall','thrown','jet'].includes(mode) ? mode : null;
-        this.state.dive = mode === 'diveRight' ? 1 : mode === 'diveLeft' ? -1 : 0;
-        this.state.dead = mode === 'dead' || mode === 'thrownDead';
-        this.networkState = true;
-      }
-      if (this.networkPose.kind === 'droideka') {
-        for (const key of [...WALKER_POSE, 'mode', 'reverse', 'dead']) this.state[key] = this.networkPose[key];
-      }
-      this.stepOffset = 0;
-      return this.state;
-    }
-    this.networkFire = null;
-    if (this.networkState) {
-      this.clearNetworkState();
-      // Off records (a body at rest stops sending them): no tick has been
-      // stepped here since, so the last tick's start is wherever it was
-      // before them (a dead gunner's, his seat 7 m up on an AT-TE). Start
-      // from where the body is.
-      this.previousPosition.copy(s.position);
-      this.previousVelocity.copy(s.velocity);
-    }
     alpha = THREE.MathUtils.clamp(alpha, 0, 1);
     this.position.lerpVectors(this.previousPosition, s.position, alpha);
     this.velocity.lerpVectors(this.previousVelocity, s.velocity, alpha);
