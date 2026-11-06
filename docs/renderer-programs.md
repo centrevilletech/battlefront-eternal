@@ -114,6 +114,53 @@ noise-envelope allowance. Raw captures stay outside the repository and should
 be removed after recording results.
 
 
+# Whole-build pixel gate
+
+`node tools/build-gate.mjs --reference DIST --candidate DIST --out DIR` compares
+a candidate desktop build with a reference build over every map at
+Classic, Balanced and High: on foot in first person with the HUD (`foot-*`), in a
+vehicle in the chase view (`vehicle-*`) and the cockpit (`cockpit-*`), and on the
+front end's own screens (`shell-*`). A vehicle case walks the player to the
+nearest hull within 120 m of the spawn and presses E; a map with no hull in
+reach is reported `skipped`, not failed. `--list` prints the case ids; `--kind`,
+`--map`, `--preset` and `--cases` select a subset, which the summary marks as
+incomplete.
+
+Fresh whole-game sessions are not pixel identical, so a case records the
+reference's renderer inputs once (the post, HUD and world stage inputs of the
+reusable corpus) and replays them in the reference, in a repeat session of the
+reference and in the candidate. Those replays must be RGBA exact, with no
+tolerance. The finished frame is read in all three sessions as well: the repeat
+shows how much of a frame differs between two runs of one build, and the
+candidate's pixels beyond that need a cause: the case's `frame.verdict` is `exact`,
+`within-noise` (the candidate's visible differences, over 16 levels in a channel,
+are within 1.5 times the repeat's plus 0.1% of the frame) or `beyond-noise`. A build with no stage interface
+(a three.js-only build) can only be compared this way, and the case reports
+`frame-only`. Each case also records the world state it drew (tick, player and
+camera position, live units) so a frame difference can be told from a world
+difference. A difference image (red: changed where the repeat did not; yellow:
+changed where the repeat is noisy too) is written next to the result.
+
+Build both distributions with `--minify false` for the cleanest comparison. A
+minified build cannot tell the object-id stream of the seeded randomness from
+the one that scatters leaves, flowers and grass (the harness finds it by the
+`generateUUID` function name), so two runs of the same minified build scatter
+differently and a fifth to a half of the frame can differ between them. Two runs of
+an unminified build agree to the pixel, and the gate's frame comparison is then
+exact for equal builds. The chase-view vehicle cases need a minified build until
+an unminified one draws a third-person soldier.
+
+`--wrap` names the command that runs one case where the GPU is, and `--jobs` how
+many run at once. The case runs `tools/build-gate/run-case.mjs` there, which
+starts the application with the `BFE_GATE_START` command (given the dist as
+`$1`, returning once the application answers on `CDP_PORT`), stops it with
+`BFE_GATE_STOP`, and runs the three sessions in turn on the same display, so
+reference, repeat and candidate always share one GPU and driver. Use the
+OpenGL ANGLE backend: Vulkan replays are not exact. Raw pixels and inputs
+(`BFE_GATE_RAW`) are removed after the comparison and must not be kept or
+committed.
+
+
 # Compilation and caches
 
 Owned source removes the dependency on three's first draw and exposes the finite

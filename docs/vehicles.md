@@ -409,10 +409,11 @@ through `Vehicles.board` and his seat lease) and the bots (the Classic AI's
   earlier in the tick (E, a seat key) cannot leave stale bindings behind.
 
 `BFE_CONTENT_DIR=<game data> node tools/vehicle-matrix.mjs [map ...]` boards
-every vehicle class on every imported map, every seat, as the player and as
-a network human, through the real command path (E, the seat key, throttle,
-takeoff, both triggers, E out), after surveying every craft's pads for a
-takeoff. `tests/boarding.test.js` covers the rules.
+every vehicle class on every imported map, every seat, as a network human
+(offline play is the same one-player world), through the real command path
+(E, the seat key, throttle, takeoff, both triggers, E out), after surveying
+every craft's pads for a takeoff. Each hull is built by the world's own pad
+respawn, never by the tool. `tests/boarding.test.js` covers the rules.
 
 ## Riders in the open
 

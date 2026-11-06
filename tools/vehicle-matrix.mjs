@@ -2,15 +2,18 @@
 // (each era fields its own: src/mission.js), every
 // seat, through the real command path in the headless world (the engine the
 // world worker, a dedicated server and a desktop host run; tools/
-// headless-world.mjs). Once as the player (single player) and once as a
-// network human (src/runtime/multiplayer-world.js): E (use) boards the
+// headless-world.mjs), as a network human (src/runtime/multiplayer-world.js).
+// Offline play is that same path: its local server is a one-player
+// multiplayer world (src/runtime/local-server.js), and the world no longer
+// boards the in-process player of a bare game on E, so a bare-game row would
+// only test a body nothing drives. E (use) boards the
 // hull, the seat key reaches each seat, the throttle drives a driver's seat
 // (a craft takes off first), the mouse turns a gunner's aim, both triggers
 // fire, and E gets out, bailing out of a craft in flight. Prints one row per
 // path, map, class and seat; exits 1 if any row fails (an exception, not
 // boarded, a seat not reached, no control, no way out).
 //
-//   BFE_CONTENT_DIR=<game data> node tools/vehicle-matrix.mjs [map ...] [--sp | --mp] [--json <file>]
+//   BFE_CONTENT_DIR=<game data> node tools/vehicle-matrix.mjs [map ...] [--json <file>]
 import fs from 'node:fs';
 import path from 'node:path';
 import { content, headlessGame } from './headless-world.mjs';
@@ -19,7 +22,6 @@ import { battlesOf, selectMission } from '../src/mission.js';
 const args = process.argv.slice(2);
 const option = (name) => { const i = args.indexOf(name); return i < 0 ? null : args.splice(i, 2)[1]; };
 const jsonOut = option('--json');
-const only = args.includes('--sp') ? 'sp' : args.includes('--mp') ? 'mp' : null;
 const wanted = args.filter((a) => !a.startsWith('--'));
 const mapsDir = path.join(content, 'maps');
 // Each era's battle of each map that has vehicles: { map, era, unit }, the
@@ -46,33 +48,8 @@ const TICK = 1 / 60;
 const seatControl = (v, index) => (index > 0 ? 'turret' : v.flying ? 'flight' : 'drive');
 const PRESS_LIMIT = 8; // seat key presses to reach a seat
 
-// Someone who boards: the player of a single-player battle, or a network
-// human on a server's battle. step(extra) is one tick with that command.
-async function playerBoarder(battle) {
-  const game = await headlessGame(`${battleQuery(battle)}&ai=off&seed=1`);
-  await game.ready; game.begin?.();
-  let sequence = 0;
-  const boarder = {
-    path: 'sp', game,
-    get unit() { return game.playerUnit; },
-    get soldier() { return game.soldier; },
-    get alive() { return !game.combat.dead; },
-    get seat() { const v = game.driver.vehicle; return v ? { vehicle: v, index: v.seatIndex } : null; },
-    step(extra = {}) {
-      const tick = game.worldClock.tick + 1;
-      sequence = Math.max(sequence + 1, tick);
-      game.step({ epoch: 1, sequence, tick, generation: game.playerUnit.generation, down: [], actions: [], look: [], ...extra });
-    },
-    revive() {
-      if (game.combat.dead || game.playerUnit.removed) { game.respawn(0); game.combat.reset(); game.actor.root.visible = true; }
-      boarder.step();
-    },
-    release() { game.driver.release(); },
-  };
-  boarder.revive();
-  return boarder;
-}
-
+// Someone who boards: a network human on a battle held by the world. step(extra)
+// is one tick with that command.
 async function networkBoarder(battle) {
   const game = await headlessGame(`${battleQuery(battle)}&ai=classic&seed=1`);
   await game.ready; game.begin?.();
@@ -102,17 +79,37 @@ async function networkBoarder(battle) {
   return boarder;
 }
 
-// The class's hull at its first pad, new, nobody aboard (another class's
-// hull on that pad is put away without a blast).
+// The class's hull on a pad, new, nobody aboard. The vehicle phase is native:
+// it holds a row for every hull and builds each life itself, choosing the
+// class from the pad's team. A hull built or spawned in JavaScript alone is
+// unknown to it (its weapon inputs have nowhere to go, the first tick throws,
+// and every later step then reports a stale world command). So the pad's hulls
+// are retired, as when the game replaces one, the pad is told the team whose
+// class is wanted, and the native respawn builds the hull (f2Variant and
+// f2Life, src/f2-sim.js).
 function freshHull(game, slot, name, team) {
-  for (const other of slot.variants.values()) if (other.name !== name && other.alive) {
-    for (const seat of other.seats) if (seat.lease) game.vehicles.vacate(seat.lease, { placement: false, promote: false, reason: 'removed' });
-    other.alive = other.root.visible = other.body.enabled = false;
-  }
-  const v = game.vehicles.variant(slot, name);
-  for (const seat of v.seats) if (seat.lease) game.vehicles.vacate(seat.lease, { placement: false, promote: false, reason: 'removed' });
-  slot.vehicle = v;
-  v.spawn(team);
+  const vehicles = game.vehicles, f2 = vehicles.f2, pad = vehicles.slots.indexOf(slot);
+  // The matrix owns the pads: every other pad's hull is put away and the pad
+  // told a team with no class, so no abandoned or respawned neighbour stands
+  // in this footprint (pads on some maps overlap).
+  vehicles.slots.forEach((each, index) => {
+    for (const other of [...each.variants.values()]) {
+      for (const seat of other.seats) if (seat.lease) vehicles.vacate(seat.lease, { placement: false, promote: false, reason: 'removed' });
+      f2.retire(other);
+    }
+    if (each !== slot) f2.padPosts[index] = { team: -1 };
+  });
+  f2.padPosts[pad] = { team };
+  // A pad does not build while the game's own player body stands in its
+  // footprint (game.js spawnOccupant); nobody is meant to be there for these
+  // ticks, since the boarder is placed at the hull afterwards.
+  const occupant = vehicles.spawnOccupant; vehicles.spawnOccupant = null;
+  // A pad whose hull was lost counts its respawn time down first.
+  const limit = Math.ceil((Math.max(slot.remaining, 0) + 10) / TICK);
+  for (let i = 0; i < limit && !(slot.vehicle?.alive && slot.vehicle.name === name); i++) vehicles.update(TICK);
+  vehicles.spawnOccupant = occupant;
+  const v = slot.vehicle;
+  if (!v?.alive || v.name !== name) throw new Error(`pad ${slot.desc.name} did not build ${name} for team ${team} (respawn clock ${slot.remaining})`);
   return v;
 }
 
@@ -269,34 +266,33 @@ function testSeat(b, slot, name, team, index, shots, survey = null) {
 const rows = [];
 for (const battle of battles) {
   const map = [battle.map, battle.era].filter(Boolean).join(':');
-  for (const kind of only ? [only] : ['sp', 'mp']) {
-    const started = performance.now();
-    let b;
-    try { b = kind === 'sp' ? await playerBoarder(battle) : await networkBoarder(battle); }
-    catch (error) { rows.push({ path: kind, map, vehicle: '*', seat: '*', pass: false, why: 'load', error: String(error).slice(0, 200) }); console.log(JSON.stringify(rows.at(-1))); continue; }
-    const { game } = b;
-    const shots = new Map(), fired = game.vehicles.onFired;
-    game.vehicles.onFired = (object, seat, shot, ...rest) => {
-      const count = shots.get(`${object.aiTarget.id}:${seat}`);
-      if (count) count[Math.max(0, object.seats[seat].weapons.findIndex((w) => w.state === shot.weapon))] += 1;
-      fired?.(object, seat, shot, ...rest);
-    };
-    const done = new Set();
-    for (const slot of game.vehicles.slots) for (const [team, name] of Object.entries(slot.desc.classes)) {
-      if (done.has(name)) continue;
-      done.add(name);
-      const def = game.data.vehicles.classes[name], count = def.seats.length;
-      let survey = null;
-      // An exception here shows again, row by row, in the seat tests.
-      if (def.base === 'flyer') try { survey = surveyPads(b, name); } catch { survey = null; }
-      for (let index = 0; index < count; index++) {
-        const row = testSeat(b, survey?.slot ?? slot, name, survey?.team ?? Number(team), index, shots, survey);
-        rows.push(row);
-        console.log(JSON.stringify(row));
-      }
+  const kind = 'mp';
+  const started = performance.now();
+  let b;
+  try { b = await networkBoarder(battle); }
+  catch (error) { rows.push({ path: kind, map, vehicle: '*', seat: '*', pass: false, why: 'load', error: String(error).slice(0, 200) }); console.log(JSON.stringify(rows.at(-1))); continue; }
+  const { game } = b;
+  const shots = new Map(), fired = game.vehicles.onFired;
+  game.vehicles.onFired = (object, seat, shot, ...rest) => {
+    const count = shots.get(`${object.aiTarget.id}:${seat}`);
+    if (count) count[Math.max(0, object.seats[seat].weapons.findIndex((w) => w.state === shot.weapon))] += 1;
+    fired?.(object, seat, shot, ...rest);
+  };
+  const done = new Set();
+  for (const slot of game.vehicles.slots) for (const [team, name] of Object.entries(slot.desc.classes)) {
+    if (done.has(name)) continue;
+    done.add(name);
+    const def = game.data.vehicles.classes[name], count = def.seats.length;
+    let survey = null;
+    // An exception here shows again, row by row, in the seat tests.
+    if (def.base === 'flyer') try { survey = surveyPads(b, name); } catch { survey = null; }
+    for (let index = 0; index < count; index++) {
+      const row = testSeat(b, survey?.slot ?? slot, name, survey?.team ?? Number(team), index, shots, survey);
+      rows.push(row);
+      console.log(JSON.stringify(row));
     }
-    console.error(`${kind} ${map}: ${((performance.now() - started) / 1000).toFixed(1)} s`);
   }
+  console.error(`${kind} ${map}: ${((performance.now() - started) / 1000).toFixed(1)} s`);
 }
 const failed = rows.filter((r) => !r.pass);
 console.log(`\n${rows.length} rows, ${rows.length - failed.length} pass, ${failed.length} fail`);
