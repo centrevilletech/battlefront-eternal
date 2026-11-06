@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
@@ -10,109 +11,8 @@ const TYPES = [
   { name: "embers", capacity: 64, rate: 4.5, life: [0.2, 0.45], drag: 1.8, opacity: 0.75 },
 ];
 
-const VERTEX = /* glsl */ `
-  attribute vec4 birth; // position, exact emission time
-  attribute vec4 flow;  // initial world velocity, lifetime
-  attribute vec4 axis;  // exhaust axis, initial radius
-  attribute vec2 style; // random phase, opacity
-  uniform float wakeTime;
-  uniform float kind;
-  uniform float drag;
-  varying vec2 wakeUv;
-  varying vec4 wakeState;
-  varying float viewDepth;
-  void main() {
-    float seconds = max(0.0, wakeTime - birth.w);
-    float age = clamp(seconds / flow.w, 0.0, 1.0);
-    vec3 direction = normalize(axis.xyz);
-    vec3 tangent = cross(direction, abs(direction.y) > 0.9 ? vec3(1,0,0) : vec3(0,1,0));
-    tangent = normalize(tangent);
-    vec3 bitangent = cross(direction, tangent);
-    float seed = style.x;
-    float curl = axis.w * (kind > 0.5 && kind < 1.5 ? 1.8 : 0.7) * age;
-    float phase = seed + seconds * (3.0 + fract(seed) * 4.0);
-    vec3 vortex = tangent * (sin(phase) - sin(seed)) + bitangent * (cos(phase * 1.31) - cos(seed * 1.31));
-    vec3 at = birth.xyz + flow.xyz * ((1.0 - exp(-drag * seconds)) / drag) + vortex * curl;
-    at.y += seconds * seconds * (kind > 1.5 ? -1.0 : 0.35);
-    if (kind > 0.5 && kind < 1.5) at.xz += vec2(0.10, -0.07) * seconds * seconds;
-    vec4 view = viewMatrix * vec4(at, 1.0);
-    vec2 motion = (viewMatrix * vec4(flow.xyz, 0.0)).xy;
-    vec2 along = normalize(motion + vec2(0.0001));
-    vec2 across = vec2(along.y, -along.x);
-    float radius = axis.w * (kind > 1.5 ? 1.0 : mix(0.65, kind > 0.5 ? 2.0 : 1.5, age));
-    float stretch = kind > 1.5 ? 3.8 : (kind > 0.5 ? 1.35 : 2.2);
-    // Tilt each wisp around the velocity axis so the wake does not become
-    // a stack of identically oriented circles or a single continuous sheet.
-    float twist = kind > 1.5 ? 0.0 : sin(seed + age * 2.0) * 0.65;
-    vec2 p = mat2(cos(twist), -sin(twist), sin(twist), cos(twist)) * position.xy;
-    view.xy += across * p.x * radius + along * p.y * radius * stretch;
-    wakeUv = uv;
-    wakeState = vec4(age, seed, style.y, seconds);
-    viewDepth = -view.z;
-    gl_Position = projectionMatrix * view;
-  }
-`;
-const FRAGMENT = /* glsl */ `
-  uniform float kind;
-  uniform vec3 fogColor;
-  uniform vec2 fogRange;
-  uniform sampler2D sceneDepth;
-  uniform float softParticles;
-  uniform vec2 depthResolution;
-  uniform vec2 cameraRange;
-  varying vec2 wakeUv;
-  varying vec4 wakeState;
-  varying float viewDepth;
-  float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7))) * 43758.5453); }
-  float noise(vec2 p) {
-    vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
-    return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
-  }
-  void main() {
-    float age = wakeState.x, seed = wakeState.y;
-    vec2 q = wakeUv * 2.0 - 1.0;
-    float radial = max(0.0, 1.0 - dot(q,q));
-    float alpha = radial * radial * smoothstep(0.0, 0.08, age) * pow(1.0-age, 1.5);
-    vec3 color;
-    if (kind > 1.5) {
-      color = mix(vec3(1.6,0.75,0.19), vec3(0.7,0.16,0.025), age);
-    } else {
-      vec2 advect = vec2(seed, -wakeState.w * 2.0);
-      vec2 p = wakeUv * vec2(5.0,8.0) + advect;
-      float bend = noise(p * 0.53 + seed) - 0.5;
-      p.x += bend * 1.4;
-      float detail = noise(p) * 0.6 + noise(p * 2.03 + 7.1) * 0.4;
-      // Two wandering filaments break up the outline; empty regions remain
-      // transparent rather than reading as uniformly filled smoke balloons.
-      float filament = 1.0-smoothstep(0.08,0.48,abs(q.x + bend * 0.8 + sin(q.y*4.0+seed+age*2.0)*0.23));
-      alpha *= kind < 0.5
-        ? smoothstep(0.14,0.65,detail) * mix(0.45,1.0,filament)
-        : smoothstep(0.24,0.69,detail) * mix(0.25,1.0,filament);
-      if (kind < 0.5) {
-        float heat = 1.0-smoothstep(0.20,0.85,age);
-        color = mix(vec3(0.28,0.10,0.035),vec3(2.1,0.72,0.08),heat);
-        color += vec3(1.2,0.82,0.3) * pow(detail,3.0) * heat;
-      } else {
-        color = mix(vec3(0.25,0.27,0.29),vec3(0.47,0.45,0.40),detail);
-        // A little residual heat at the start, quickly cooling into vapor.
-        color += vec3(0.09,0.035,0.006) * pow(1.0-age,5.0);
-      }
-    }
-    alpha *= wakeState.z * smoothstep(0.2,0.8,viewDepth);
-    if (softParticles > 0.5) {
-      float z=texture2D(sceneDepth,gl_FragCoord.xy/depthResolution).x;
-      float surface=cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));
-      alpha *= smoothstep(0.0,kind>1.5?0.035:0.14,surface-viewDepth);
-    }
-    if (alpha < 0.0015) discard;
-    float fog=clamp((viewDepth-fogRange.x)/max(1.0,fogRange.y-fogRange.x),0.0,1.0);
-    if(kind>0.5&&kind<1.5) color=mix(color,fogColor,fog);
-    else alpha*=1.0-fog;
-    // Premultiply emissive radiance before the normalized target clamps it.
-    // Otherwise hot red (>1) clips first and the fire turns muddy yellow.
-    gl_FragColor=vec4(kind>0.5&&kind<1.5 ? color : color*alpha,alpha);
-  }
-`;
+
+
 
 // The pools by their meshes, for a renderer that draws them itself
 // (src/rust-render/effects.js): while a pool is `external`, three is shown
@@ -142,14 +42,14 @@ class WakePool {
     }
     this.attributeList = Object.values(this.attributes);
     geometry.instanceCount = 0;
-    const material = new THREE.ShaderMaterial({
+    const material = ownedEffectMaterial('effects/wake', {
       uniforms: {
         wakeTime: clock, kind: { value: kind }, drag: { value: this.spec.drag },
         fogColor: lighting.fogColor, fogRange: lighting.fogRange,
         sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
         depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
       },
-      vertexShader: VERTEX, fragmentShader: FRAGMENT, transparent: true,
+      transparent: true,
       depthTest: true, depthWrite: false, toneMapped: false,
       blending: kind === 1 ? THREE.NormalBlending : THREE.AdditiveBlending,
       premultipliedAlpha: kind !== 1,

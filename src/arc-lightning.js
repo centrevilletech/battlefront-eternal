@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
@@ -93,135 +94,9 @@ const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
 const STRIDE = 20;
 const LAYOUT = [["iA", 3, 0], ["iB", 3, 3], ["iNA", 3, 6], ["iNB", 3, 9], ["iColor", 4, 12], ["iSize", 4, 16]];
 
-const vertexShader = /* glsl */ `
-  attribute vec2 corner;
-  attribute vec3 iA;
-  attribute vec3 iB;
-  attribute vec3 iNA;   // the joint's plane at A (zero: A is an end)
-  attribute vec3 iNB;   // the joint's plane at B
-  attribute vec4 iColor; // rgb sheath colour (max channel 1), a brightness
-  attribute vec4 iSize;  // core radius, glow radius, white-hot share
-  uniform float pixelAngle; // image-plane units per pixel at unit depth
-  uniform float nearDepth;  // just past the camera's near plane
-  uniform float closeRange; // m from the eye where the glow starts to narrow (0: never)
-  varying vec2 vPlane;
-  varying vec3 vA;
-  varying vec3 vB;
-  varying vec3 vNA;
-  varying vec3 vNB;
-  varying vec4 vColor;
-  varying vec3 vSize;
-  varying float vEnergy;
-  varying float vCoreShare;
-  void main() {
-    vec3 a = (modelViewMatrix * vec4(iA, 1.0)).xyz;
-    vec3 b = (modelViewMatrix * vec4(iB, 1.0)).xyz;
-    const float NEAR = 0.05;
-    if (a.z > -NEAR && b.z > -NEAR) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
-    bool clipA = a.z > -NEAR, clipB = b.z > -NEAR;
-    if (clipA) a = mix(b, a, (b.z + NEAR) / (b.z - a.z));
-    if (clipB) b = mix(a, b, (a.z + NEAR) / (a.z - b.z));
-    float nearest = min(-a.z, -b.z);
-    // Close to the eye (a shooter's own bolt in first person) the glow
-    // narrows, so the gun's end doesn't fill the view.
-    float close = closeRange > 0.0 ? clamp(nearest / closeRange, 0.3, 1.0) : 1.0;
-    // Held to a couple of pixels far away, its brightness thinned to match,
-    // so a distant bolt stays visible without growing brighter.
-    float glow = max(iSize.y * close, nearest * pixelAngle * 2.2);
-    float core = max(iSize.x * close, nearest * pixelAngle * 0.65);
-    vEnergy = clamp(iSize.y * close / glow, 0.12, 1.0);
-    vCoreShare = clamp(iSize.x * close / core, 0.0, 1.0);
-    vec2 ap = a.xy / -a.z, bp = b.xy / -b.z;
-    float reach = glow * 2.4;
-    float ra = reach / -a.z, rb = reach / -b.z, r = max(ra, rb);
-    vec2 dir = bp - ap;
-    float len = length(dir);
-    dir = len > 1e-7 ? dir / len : vec2(1.0, 0.0);
-    vec2 across = vec2(-dir.y, dir.x);
-    float along = corner.x * 0.5 + 0.5;
-    vec2 p = mix(ap - dir * ra, bp + dir * rb, along) + across * r * corner.y;
-    vPlane = p;
-    vA = a;
-    vB = b;
-    mat3 toView = mat3(modelViewMatrix);
-    vNA = clipA ? vec3(0.0) : toView * iNA;
-    vNB = clipB ? vec3(0.0) : toView * iNB;
-    vColor = iColor;
-    vSize = vec3(core, glow, iSize.z);
-    // All four corners share one depth (past the near plane, so a segment
-    // at the gun in first person still draws), so the image-plane position
-    // interpolates linearly across the quad.
-    float depth = max(nearest, nearDepth);
-    gl_Position = projectionMatrix * vec4(p * depth, -depth, 1.0);
-  }
-`;
 
-const fragmentShader = /* glsl */ `
-  uniform mat4 projectionMatrix;
-  uniform vec2 fade;
-  uniform vec2 eyeFade;
-  uniform sampler2D sceneDepth;
-  uniform float softParticles;
-  uniform vec2 depthResolution;
-  uniform vec2 cameraRange;
-  varying vec2 vPlane;
-  varying vec3 vA;
-  varying vec3 vB;
-  varying vec3 vNA;
-  varying vec3 vNB;
-  varying vec4 vColor;
-  varying vec3 vSize;
-  varying float vEnergy;
-  varying float vCoreShare;
-  void main() {
-    vec3 ray = normalize(vec3(vPlane, -1.0));
-    // Where two segments meet, the side of the plane halving their angle
-    // that a pixel's ray passes the joint on decides which one draws it.
-    if (dot(vNA, vNA) > 0.0 && dot(ray * dot(ray, vA) - vA, vNA) < 0.0) discard;
-    if (dot(vNB, vNB) > 0.0 && dot(ray * dot(ray, vB) - vB, vNB) >= 0.0) discard;
-    vec3 span = vB - vA;
-    float rv = dot(ray, span), ra = dot(ray, vA), vv = dot(span, span);
-    float den = vv - rv * rv;
-    float s = den > 1e-9 ? clamp((rv * ra - dot(span, vA)) / den, 0.0, 1.0) : 0.0;
-    vec3 closest = vA + span * s;
-    float along = dot(ray, closest);
-    if (along <= 0.0) discard;
-    float d2 = max(dot(closest, closest) - along * along, 0.0);
-    float d = sqrt(d2);
-    float core = vSize.x, glow = vSize.y;
-    float hot = (1.0 - smoothstep(core * 0.35, core * 1.25, d)) * vCoreShare;
-    float sheath = exp(-d2 / (glow * glow) * 3.2);
-    float halo = exp(-d / glow * 1.7) * 0.25;
-    // Light adds up as energy and saturates per channel: the core goes white
-    // while the sheath around it keeps the bolt's hue instead of clipping.
-    vec3 energy = mix(vColor.rgb, vec3(1.0), 0.75) * hot * 2.4 * (0.4 + vSize.z) + vColor.rgb * (sheath * 1.7 + halo);
-    vec3 color = 1.0 - exp(-energy * vColor.a * vEnergy);
-    vec3 point = ray * along;
-    float depth = -point.z;
-    float near = clamp((fade.y - depth) / max(fade.y - fade.x, 1.0), 0.0, 1.0);
-    // Nothing flares in the eye: in the world, what passes within half a
-    // metre of it fades (not over the first-person arms, which are that
-    // close).
-    color *= near * near * (eyeFade.y > 0.0 ? smoothstep(eyeFade.x, eyeFade.y, depth) : 1.0);
-    // Most of a capsule's quad is past its glow: let go before the scene's
-    // depth is read (the soft edge only dims it further).
-    if (max(color.r, max(color.g, color.b)) < 0.003) discard;
-    if (softParticles > 0.5) {
-      float stored = texture2D(sceneDepth, gl_FragCoord.xy / depthResolution).x;
-      float surface = cameraRange.x * cameraRange.y / (cameraRange.y - stored * (cameraRange.y - cameraRange.x));
-      color *= smoothstep(0.0, max(glow * 0.6, 0.04), surface - depth);
-    }
-    if (max(color.r, max(color.g, color.b)) < 0.003) discard;
-    // Only the projection's z and w rows make the depth.
-    vec4 hp = vec4(point, 1.0);
-    float clipZ = dot(vec4(projectionMatrix[0].z, projectionMatrix[1].z, projectionMatrix[2].z, projectionMatrix[3].z), hp);
-    float clipW = dot(vec4(projectionMatrix[0].w, projectionMatrix[1].w, projectionMatrix[2].w, projectionMatrix[3].w), hp);
-    gl_FragDepth = clamp(clipZ / clipW * 0.5 + 0.5, 0.0, 1.0);
-    // Premultiplied: the light adds, and the sheath also covers part of what
-    // is behind it, so the bolt keeps its hue in front of bright ground or sky.
-    gl_FragColor = vec4(color, max(color.r, max(color.g, color.b)) * 0.45);
-  }
-`;
+
+
 
 // The batches by their meshes, for a renderer that draws them itself
 // (src/rust-render/effects.js): while a batch is `external`, three is shown
@@ -243,7 +118,7 @@ export class ArcBatch {
     this.geometry = new THREE.InstancedBufferGeometry();
     this.geometry.setAttribute("corner", new THREE.BufferAttribute(QUAD, 2));
     this.geometry.setIndex(QUAD_INDEX);
-    this.material = new THREE.ShaderMaterial({
+    this.material = ownedEffectMaterial('effects/arc', {
       name: "arc-lightning",
       uniforms: {
         fade: lighting.fade, eyeFade: { value: new THREE.Vector2(soft ? 0.12 : 0, soft ? 0.5 : 0) }, closeRange: { value: soft ? 2.5 : 0 },
@@ -251,8 +126,6 @@ export class ArcBatch {
         sceneDepth: particleDepth.map, softParticles: soft ? particleDepth.enabled : { value: 0 },
         depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
       },
-      vertexShader,
-      fragmentShader,
       transparent: true,
       depthWrite: false,
       blending: THREE.CustomBlending,
@@ -264,7 +137,7 @@ export class ArcBatch {
     });
     // Over the first-person arms, arcs run between their bones, inside the
     // models: drawn over them.
-    if (!soft) this.material.depthTest = false;
+    if (!soft) { this.material.depthTest = false; this.material.userData.bfeNoShadows = true; }
     this.mesh = new THREE.Mesh(this.geometry, this.material);
     this.mesh.name = "arc-lightning";
     this.mesh.frustumCulled = false;
@@ -356,68 +229,16 @@ export class ArcBatch {
 // its own (shockTime, not the frame's time). Veins of
 // noise fixed to the skin (its bind pose) jump to a new pattern 24 times a
 // second, brightest edge on.
-const shockVertex = /* glsl */ `
-  #include <common>
-  #include <skinning_pars_vertex>
-  uniform float inflate;
-  varying vec3 vBind;
-  varying vec3 vNormalView;
-  varying vec3 vView;
-  void main() {
-    #include <beginnormal_vertex>
-    #include <skinbase_vertex>
-    #include <skinnormal_vertex>
-    #include <begin_vertex>
-    #include <skinning_vertex>
-    vec3 n = normalize(objectNormal);
-    transformed += n * inflate;
-    vBind = position;
-    vec4 view = modelViewMatrix * vec4(transformed, 1.0);
-    vView = view.xyz;
-    vNormalView = normalize(normalMatrix * n);
-    gl_Position = projectionMatrix * view;
-  }
-`;
 
-const shockFragment = /* glsl */ `
-  uniform float shockTime;
-  uniform float intensity;
-  uniform float seed;
-  uniform vec3 color;
-  varying vec3 vBind;
-  varying vec3 vNormalView;
-  varying vec3 vView;
-  float cellHash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
-  float noise(vec3 p) {
-    vec3 i = floor(p), f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    float a = mix(mix(cellHash(i), cellHash(i + vec3(1.0, 0.0, 0.0)), f.x), mix(cellHash(i + vec3(0.0, 1.0, 0.0)), cellHash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y);
-    float b = mix(mix(cellHash(i + vec3(0.0, 0.0, 1.0)), cellHash(i + vec3(1.0, 0.0, 1.0)), f.x), mix(cellHash(i + vec3(0.0, 1.0, 1.0)), cellHash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y);
-    return mix(a, b, f.z);
-  }
-  void main() {
-    vec3 V = normalize(-vView);
-    float facing = abs(dot(normalize(vNormalView), V));
-    float rim = pow(1.0 - facing, 2.2);
-    float step = floor(shockTime * 24.0);
-    vec3 q = vBind * 6.5 + vec3(seed, step * 1.37, step * 0.71);
-    float n = noise(q) * 0.62 + noise(q * 2.15 + 3.1) * 0.38;
-    float m = noise(q * 1.3 + vec3(5.2, -step * 0.9, 1.7));
-    // Veins: the noise's crossings of a half, thin and bright.
-    float vein = 1.0 - smoothstep(0.0, 0.045, abs(n - 0.5));
-    float vein2 = 1.0 - smoothstep(0.0, 0.03, abs(m - 0.5));
-    float web = max(vein, vein2 * 0.7);
-    vec3 c = color * (rim * 0.85 + web * (0.9 + rim)) + vec3(0.85, 0.92, 1.0) * web * web * 0.9;
-    gl_FragColor = vec4(c * intensity, 1.0);
-  }
-`;
+
+
 
 function shockMaterial() {
-  return new THREE.ShaderMaterial({
+  return ownedEffectMaterial('effects/shock', {
     name: "arc-shock",
     uniforms: { shockTime: { value: 0 }, intensity: { value: 0 }, seed: { value: 0 }, color: { value: new THREE.Color() }, inflate: { value: 0.012 } },
-    vertexShader: shockVertex,
-    fragmentShader: shockFragment,
+
+
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,

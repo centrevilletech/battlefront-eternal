@@ -1,0 +1,94 @@
+#version 300 es
+#define varying in
+layout(location = 0) out highp vec4 pc_fragColor;
+#define gl_FragColor pc_fragColor
+#define gl_FragDepthEXT gl_FragDepth
+#define texture2D texture
+#define textureCube texture
+#define texture2DProj textureProj
+#define texture2DLodEXT textureLod
+#define texture2DProjLodEXT textureProjLod
+#define textureCubeLodEXT textureLod
+#define texture2DGradEXT textureGrad
+#define texture2DProjGradEXT textureProjGrad
+#define textureCubeGradEXT textureGrad
+precision highp float;
+	precision highp int;
+	precision highp sampler2D;
+	precision highp samplerCube;
+	precision highp sampler3D;
+	precision highp sampler2DArray;
+	precision highp sampler2DShadow;
+	precision highp samplerCubeShadow;
+	precision highp sampler2DArrayShadow;
+	precision highp isampler2D;
+	precision highp isampler3D;
+	precision highp isamplerCube;
+	precision highp isampler2DArray;
+	precision highp usampler2D;
+	precision highp usampler3D;
+	precision highp usamplerCube;
+	precision highp usampler2DArray;
+	
+#define HIGH_PRECISION
+#define SHADER_TYPE ShaderMaterial
+#define SHADER_NAME 
+#define DOUBLE_SIDED
+uniform mat4 viewMatrix;
+uniform vec3 cameraPosition;
+uniform bool isOrthographic;
+vec4 LinearTransferOETF( in vec4 value ) {
+	return value;
+}
+vec4 sRGBTransferEOTF( in vec4 value ) {
+	return vec4( mix( pow( value.rgb * 0.9478672986 + vec3( 0.0521327014 ), vec3( 2.4 ) ), value.rgb * 0.0773993808, vec3( lessThanEqual( value.rgb, vec3( 0.04045 ) ) ) ), value.a );
+}
+vec4 sRGBTransferOETF( in vec4 value ) {
+	return vec4( mix( pow( value.rgb, vec3( 0.41666 ) ) * 1.055 - vec3( 0.055 ), value.rgb * 12.92, vec3( lessThanEqual( value.rgb, vec3( 0.0031308 ) ) ) ), value.a );
+}
+vec4 linearToOutputTexel( vec4 value ) {
+	return LinearTransferOETF( vec4( value.rgb * mat3( 1.0000,-0.0000,-0.0000,-0.0000,1.0000,0.0000,0.0000,0.0000,1.0000 ), value.a ) );
+}
+float luminance( const in vec3 rgb ) {
+	const vec3 weights = vec3( 0.2126, 0.7152, 0.0722 );
+	return dot( weights, rgb );
+}
+
+
+  uniform sampler2D cover,sceneDepth;
+  uniform float coverCell, coverSize,enhanced,effect,rainTime,softParticles;
+  uniform vec2 depthResolution,cameraRange;
+  uniform vec3 color;
+  // The map's ambient light (materials.js lighting), on a line of its own.
+  uniform vec3 ambient;
+  uniform vec2 alpha;
+  varying vec2 vUv;
+  varying vec3 vWorld;
+  varying float vOpacity,vDepth,vGlint;
+  float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+  float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
+  void main() {
+    vec2 cell = mod(floor(vWorld.xz / coverCell), coverSize);
+    float roof = texture2D(cover, (cell + 0.5) / coverSize).r;
+    if (vWorld.y < roof + 0.04) discard;
+    float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
+    float tip = sin(vUv.y * 3.14159265);
+    float a = mix(alpha.x, alpha.y, vUv.y) * edge * tip * vOpacity;
+    vec3 light=color;
+    if(enhanced>.5){
+      a*=mix(1.05,1.45,vGlint);
+      // Drops pass on the light of the sky all around them: brighter than the
+      // ambient they fall through, and far brighter in a lightning flash.
+      light*=(.8+vGlint*.3)*clamp(.55+dot(ambient,vec3(.3,.59,.11))*1.6,0.,1.4);
+      if(effect>.5){
+        float cloud=noise(vUv*5.0+vec2(rainTime*.35,0.0))*.65+noise(vUv*12.0-vec2(rainTime*.2,0.0))*.35;
+        float boundary=pow(max(0.0,1.0-dot(vUv*2.0-1.0,vUv*2.0-1.0)),2.0);
+        a=cloud*boundary*vOpacity*.055;
+      }
+      if(softParticles>.5){float d=texture2D(sceneDepth,gl_FragCoord.xy/depthResolution).r;
+        float z=cameraRange.x*cameraRange.y/(cameraRange.y-d*(cameraRange.y-cameraRange.x));
+        a*=clamp((z-vDepth)/(effect>.5?.7:.12),0.0,1.0);}
+    }
+    if(a<.001)discard;
+    gl_FragColor = vec4(light, a);
+  }

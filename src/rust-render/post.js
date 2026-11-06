@@ -10,7 +10,8 @@
 // compiled-source bridge for unported materials (Kind::Plain). A refused step
 // stops the battle. The temporal commit (`after`) runs once per completed chain.
 import * as THREE from "three";
-import { ownedProgram } from "./programs.js";
+import { ownedProgram, ownsEffectSource } from "./programs.js";
+import { ownedEffectProgram } from "./effect-material.js";
 import { applyValues } from "../render-passes.js";
 
 const PLAIN = 3;
@@ -60,6 +61,11 @@ const unread = (material, name) => (name === "zeroLights" || name === "zeroLight
 // or null for three's own attributes at locations 0, 1... (entry.attributes,
 // for core.geometry).
 export function plainProgram(core, material, attributes) {
+  if (ownsEffectSource(material)) {
+    const entry = ownedEffectProgram(core, material, PLAIN);
+    if (attributes !== null && entry.attributes.map(([n,l]) => `${n}:${l}`).join(",") !== attributes) throw Error(`Attribute layout for ${entry.key}: ${attributes}`);
+    return entry;
+  }
   if (material.userData?.bfeProgram) return ownedProgram(core, material.userData.bfeProgram, attributes);
   const threeProgram = core.renderer.properties.get(material).currentProgram;
   if (!threeProgram) return undefined;

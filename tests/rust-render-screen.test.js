@@ -12,6 +12,8 @@ import * as THREE from "three";
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
 const { standinModule, standinThree, fakeProgram, GL } = await import("./support/rust-standin.mjs");
+const { ownedEffectMaterial } = await import("../src/rust-render/effect-material.js");
+const { bindProgram } = await import("../src/rust-render/programs.js");
 
 // post.rs's step and state layouts.
 const STRIDE = 5 + 12 * 18, STATE = 10;
@@ -53,17 +55,15 @@ const support = await import("./support/rust-standin.mjs");
 // Making a plain program without those values would still link but draw wrong.
 // No native render call is used to prepare the material or populate its target.
 // The fixture checks exact state flags as well as the emitted screen draw.
-test("the storm's cloud panorama: drawn into its target by the renderer, its noise volume a 3D sampler, once three made its program", () => {
+test("the storm's cloud panorama: drawn into its target by the renderer from its catalog program, its noise volume a 3D sampler", async () => {
   const { core, calls, renderer, setTarget } = screenBridge();
+  const { ownedFullScreenPass } = await import("../src/render-passes.js");
   const noise = new THREE.Data3DTexture(new Uint8Array(8), 2, 2, 2);
-  const material = new THREE.ShaderMaterial({ uniforms: { volumeNoise: { value: noise }, wind: { value: new THREE.Vector2(1, 2) }, eyePosition: { value: new THREE.Vector3(3, 4, 5) },
-    hazeColor: { value: new THREE.Vector3(0.1, 0.2, 0.3) }, time: { value: 7 } }, depthTest: false, depthWrite: false, blending: THREE.NoBlending });
-  const pass = new THREE.Mesh(new THREE.BufferGeometry(), material);
-  pass.frustumCulled = false;
+  const pass = ownedFullScreenPass("effects/storm-clouds", { volumeNoise: { value: noise }, wind: { value: new THREE.Vector2(1, 2) }, eyePosition: { value: new THREE.Vector3(3, 4, 5) },
+    hazeColor: { value: new THREE.Vector3(0.1, 0.2, 0.3) }, time: { value: 7 } });
+  const material = pass.material;
   const target = { texture: new THREE.Texture(), width: 768, height: 384 }, camera = new THREE.Camera();
   setTarget(target);
-  assert.throws(() => core.cover("skyClouds", renderer, pass, camera), /Incomplete Rust/);
-  renderer.properties.get(material).currentProgram = fakeProgram([["volumeNoise", 0x8b5f], ["wind", GL.FLOAT_VEC2], ["eyePosition", GL.FLOAT_VEC3], ["hazeColor", GL.FLOAT_VEC3], ["time", GL.FLOAT]]);
   calls.length = 0;
   assert.equal(core.cover("skyClouds", renderer, pass, camera), true);
   assert.ok(calls.some((c) => c[0] === "post_target"), "its target, by its texture");
@@ -71,9 +71,10 @@ test("the storm's cloud panorama: drawn into its target by the renderer, its noi
   core.views();
   const step = core.postInput;
   assert.deepEqual([step[2], step[3], step[4]], [768, 384, 5], "its size, five uniforms");
-  assert.equal(step[5 + 1], 33, "a 3D sampler");
-  assert.ok(step[5 + 2] >= 0, "the noise volume, registered");
-  assert.deepEqual([...step.subarray(5 + 18 + 1, 5 + 18 + 4)], [2, 1, 2], "the wind");
+  // The catalog orders the uniforms: wind, eye, haze, time, then the noise volume.
+  assert.equal(step[5 + 4 * 18 + 1], 33, "a 3D sampler");
+  assert.ok(step[5 + 4 * 18 + 2] >= 0, "the noise volume, registered");
+  assert.deepEqual([...step.subarray(5 + 1, 5 + 4)], [2, 1, 2], "the wind");
   assert.deepEqual([...core.postStates.subarray(0, 2)], [0, 0], "a full-screen pass's state");
   renderer.autoClear = true;
   assert.throws(() => core.cover("skyClouds", renderer, pass, camera), /Incomplete Rust/);
@@ -86,12 +87,11 @@ test("the storm's cloud panorama: drawn into its target by the renderer, its noi
 // The expected blend factors are checked at the shared-state boundary.
 test("the Low water's underwater tint: over the finished frame, blended as three blends it", () => {
   const { core, calls, renderer, setTarget } = screenBridge();
-  const material = new THREE.ShaderMaterial({ uniforms: { color: { value: new THREE.Vector4(0.1, 0.2, 0.3, 0.4) } }, transparent: true, depthTest: false, depthWrite: false });
+  const material = ownedEffectMaterial("effects/water-underwater-tint", { uniforms: { color: { value: new THREE.Vector4(0.1, 0.2, 0.3, 0.4) } }, transparent: true, depthTest: false, depthWrite: false, visible: true });
   const tint = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
   tint.frustumCulled = false;
   const scene = new THREE.Scene();
   scene.add(tint);
-  renderer.properties.get(material).currentProgram = fakeProgram([["color", GL.FLOAT_VEC4]], ["position"]);
   setTarget(null);
   calls.length = 0;
   assert.equal(core.cover("underwater", renderer, scene, new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)), true);
@@ -125,4 +125,20 @@ test("underwater fog copies the completed scene before its Rust composite and om
   calls.length = 0;
   core.byName.transparent.atEnd();
   assert.deepEqual(calls.filter((c) => ["fog-copy", "screen_frame"].includes(c[0])).map((c) => c[0]), ["fog-copy", "screen_frame"]);
-  });
+  assert.equal(fog.material.visible, false);
+});
+
+test("owned underwater shells stay hidden outside the scene target", () => {
+  const {core,renderer,scene,graphics,camera,calls}=bridge();
+  const fogMaterial=bindProgram(new THREE.Material(),"effects/water-underwater-fog-s0");
+  fogMaterial.uniforms={cameraRange:{value:new THREE.Vector2(.1,100)},tint:{value:new THREE.Color()},time:{value:0},sceneColor:{value:new THREE.Texture()},sceneDepth:{value:new THREE.Texture()}};fogMaterial.depthTest=false;fogMaterial.depthWrite=false;
+  const fog=new THREE.Mesh(new THREE.PlaneGeometry(2,2),fogMaterial);scene.add(fog);scene.userData.water={underwaterFog:fog,captureSurface(){calls.push(["fog-copy"]);}};
+  core.byName.fog.place(renderer,scene,new THREE.PerspectiveCamera(),null);
+  assert.equal(fogMaterial.visible,false);
+  core.byName.fog.place(renderer,scene,camera,graphics.sceneTarget);
+  assert.equal(fogMaterial.visible,false);
+  calls.length=0;
+  core.byName.fog.drawComposite(renderer,scene,camera);
+  assert.deepEqual(calls.filter(c=>["fog-copy","screen_frame"].includes(c[0])).map(c=>c[0]),["fog-copy","screen_frame"]);
+  assert.equal(renderer.properties.get(fogMaterial).currentProgram,undefined);
+});

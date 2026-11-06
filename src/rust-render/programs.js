@@ -3,6 +3,16 @@
 // there is no compiled-source or nearest-variant substitution.
 import { programLayouts } from "../render-programs.js";
 
+// A material's catalog key and its family are settled once, when it is made;
+// no pass inspects key strings per object per frame.
+export function bindProgram(material, key) {
+  material.userData.bfeProgram = key;
+  if (key.startsWith("effects/")) material.userData.bfeEffect = true;
+  return material;
+}
+
+export const ownsEffectSource = (material) => material?.userData?.bfeEffect === true;
+
 export function ownedProgram(core, key, attributes) {
   const cache = core.ownedPrograms ||= new Map();
   if (cache.has(key)) return cache.get(key);
@@ -12,8 +22,8 @@ export function ownedProgram(core, key, attributes) {
   try {
     if (!source) throw Error(`unknown shader variant: ${key}`);
     const layout = source.attributes.map(([n, l]) => `${n}:${l}`).join(",");
-    if (attributes !== layout) throw Error(`attribute layout for ${key}: ${attributes}`);
-    entry = { id: core.rust.add_owned_program(key), uniforms: source.uniforms, attributes: null };
+    if (attributes !== null && attributes !== layout) throw Error(`attribute layout for ${key}: ${attributes}`);
+    entry = { key, kind: source.kind, id: core.rust.add_owned_program(key), uniforms: source.uniforms, attributes: source.attributes, names: new Set(source.uniforms.map(u => u.name)) };
   } catch (error) {
     core.fail(Error(`${key}: ${String(error)}`, { cause: error }));
   }

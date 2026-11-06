@@ -29,6 +29,7 @@ import { linesPass } from "./lines.js";
 import { InterfacePass } from "./interface.js";
 import { bindInterfaceRenderer } from "./draw-guard.js";
 import { GL_TYPES } from "./geometry-types.js";
+import { ownsEffectSource } from "./programs.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -583,7 +584,7 @@ export class RustRender {
       known.add(object);
       const material = object.material;
       if (!material || Array.isArray(material) || !material.visible) return;
-      if (material.userData.bfeFamily !== "world" && !renderer.properties.get(material).currentProgram) fresh.push([object, material]);
+      if (material.userData.bfeFamily !== "world" && !ownsEffectSource(material) && !renderer.properties.get(material).currentProgram) fresh.push([object, material]);
       if (material.transparent) list.transparent.push({ object, material, geometry: object.geometry, group: null });
     });
     if (fresh.length) compileFor(renderer, fresh, camera, scene);

@@ -1,6 +1,6 @@
 // The battle's effects, drawn in the near scene's transparent list; their
-// simulation stays in the page. Two kinds of item, each drawn with the
-// program three compiled for it and three's GL state for its material:
+// simulation stays in the page. Each kind of item uses a catalog-owned
+// program and the material's published raster state:
 //
 // - Particle batches: particles.js's (bolts and their glow, sparks, smoke,
 //   the effects' particles worked out on the CPU) and effects-gpu.js's
@@ -34,7 +34,7 @@
 // the key three would have sorted it by in its transparent list; each is an
 // item of the transparent pass's list (transparent.rs Source), drawn where
 // three would have drawn it among everything else that blends.
-use crate::core::{bytes, Core, GlState, MultiDraw, Stats, Value, PASS_EFFECTS, UNIT_MAP};
+use crate::core::{bytes, Core, GlState, MultiDraw, Stats, Value, PASS_EFFECTS, PASS_VIEW, UNIT_MAP};
 use crate::math::{self, Mat4};
 use crate::transparent::{three_z, Item, Source, View};
 use glow::HasContext;
@@ -68,6 +68,8 @@ pub const DRAW_STRIDE: usize = 12;
 pub const KIND_BATCH: usize = 0;
 pub const KIND_MESH: usize = 1;
 pub const KIND_MODEL: usize = 2;
+// FountainJets.capture: a sorted copy of the color accumulated so far.
+pub const KIND_COPY: usize = 3;
 pub const MAX_DRAWS: usize = 512;
 pub const INPUT_LEN: usize = DRAW_AT + MAX_DRAWS * DRAW_STRIDE;
 // Floats of data a frame, to start with (the page asks for more).
@@ -78,7 +80,7 @@ pub const MATRICES_LEN: usize = MAX_DRAWS * 16;
 const EMITTER_FLOATS: usize = 12;
 
 // The material values the batches' programs read from the frame (by name,
-// as the page gives them to add_program): softParticles, depthResolution,
+// as declared by the catalog): softParticles, depthResolution,
 // cameraRange, then an owner's trackRows and emitterRows.
 const NAMES: [&str; 5] = ["softParticles", "depthResolution", "cameraRange", "trackRows", "emitterRows"];
 
@@ -101,6 +103,8 @@ struct Batch<C: HasContext> {
     owner: Option<usize>,
     // Where the program keeps NAMES (its material values), if it reads them.
     slots: [Option<usize>; 5],
+    // Plain first-person effects retain their own camera uniforms.
+    camera_slots: [Option<C::UniformLocation>; 2],
     // Its own material values (batch_values), written after its instances,
     // and where its program keeps them.
     values: Vec<MaterialValue>,
@@ -377,6 +381,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.batches.push(Batch {
             program: program as usize, texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             vao, vbo, capacity: 0, sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
+            camera_slots: ["projectionMatrix", "modelViewMatrix"].map(|name| p.uniforms.iter().find(|u| u.0 == name).and_then(|u| u.1.clone())),
             values: vec![], value_slots: vec![], samplers: vec![], samplers_3d: vec![], index_count: 6, interleaved: false, side: 2, depth: None,
         });
         // Its samplers besides the map on their units.
@@ -446,6 +451,24 @@ impl<C: HasContext> EffectsPass<C> {
         }
     }
 
+    // The shared frame values for a batch drawn outside the transparent sort
+    // (a view-space or captured target): its program, then the camera matrices
+    // in the slots the batch's own material declares.
+    fn bind_batch<M: MultiDraw>(&mut self, core: &mut Core<C, M>, batch: usize) {
+        self.common(core);
+        if let Some(b) = self.batches.get(batch) {
+            let p = &core.programs[b.program];
+            core.state.use_program(&core.gl, &mut core.stats, p.program);
+            for (i, location) in b.camera_slots.iter().enumerate() {
+                if let Some(location) = location {
+                    let offset = crate::shader::FRAME_OFFSETS[i];
+                    unsafe { core.gl.uniform_matrix_4_f32_slice(Some(location), false, &core.frame[offset..offset + 16]); }
+                    core.stats.gl_calls += 1;
+                }
+            }
+        }
+    }
+
     // A batch drawn into a texture of its own rather than the scene (the
     // steam's volumes, into their half-size target, cleared first): its
     // `count` instances and its values as the page wrote them from `at` of
@@ -464,8 +487,24 @@ impl<C: HasContext> EffectsPass<C> {
             core.gl.clear(glow::COLOR_BUFFER_BIT);
         }
         core.stats.gl_calls += 3;
-        self.common(core);
+        self.bind_batch(core, batch);
+        let before = core.stats.pass_draws[PASS_EFFECTS];
         self.draw_batch(core, [batch, count, 0, at, capacity]);
+        core.stats.pass_draws[PASS_VIEW] += core.stats.pass_draws[PASS_EFFECTS] - before;
+        core.stats.pass_draws[PASS_EFFECTS] = before;
+    }
+
+    // ArcLightning.viewBatch: an owned instanced draw at its sorted view
+    // position. Soft intersections are disabled by this material in the page.
+    pub fn draw_view_batch<M: MultiDraw>(&mut self, core: &mut Core<C, M>, batch: usize, count: usize, at: usize, capacity: usize) {
+        let soft = self.input[IN_SOFT];
+        self.input[IN_SOFT] = 0.0;
+        self.bind_batch(core, batch);
+        let before = core.stats.pass_draws[PASS_EFFECTS];
+        self.draw_batch(core, [batch, count, 0, at, capacity]);
+        core.stats.pass_draws[PASS_VIEW] += core.stats.pass_draws[PASS_EFFECTS] - before;
+        core.stats.pass_draws[PASS_EFFECTS] = before;
+        self.input[IN_SOFT] = soft;
     }
 
     // A batch's own material values ("name:size" or "name:size:form",
@@ -681,8 +720,41 @@ impl<C: HasContext> EffectsPass<C> {
         (self.input[at] as usize, e)
     }
 
-    // A batch: its instances written this frame, interleaved, into its
-    // buffer (made again when the batch's room grew), then one draw.
+    // FountainJets.capture: resolve the current color into the jets' scene
+    // texture at the copier's exact transparent sort position, then refresh
+    // its smaller mip levels before the refracting jets sample them.
+    fn copy_scene<M: MultiDraw>(&mut self, core: &mut Core<C, M>, e: [usize; 5]) {
+        let (texture, width, height) = (e[0] as u32, e[1] as i32, e[2] as i32);
+        unsafe {
+            let external = core.multi.save_framebuffers();
+            let draw = if external { None } else { core.gl.get_parameter_framebuffer(glow::DRAW_FRAMEBUFFER_BINDING) };
+            let read = if external { None } else { core.gl.get_parameter_framebuffer(glow::READ_FRAMEBUFFER_BINDING) };
+            let depth = e[3] != 0;
+            // A framebuffer the driver rejects ends the phase with that error
+            // (Core::fail) instead of aborting the page.
+            let target = match core.framebuffer(if depth { None } else { Some(texture) }, if depth { Some(texture) } else { None }) {
+                Ok(target) => target,
+                Err(error) => {
+                    if external { core.multi.restore_framebuffers(); }
+                    core.fail(format!("effects scene copy: {error}"));
+                    return;
+                }
+            };
+            core.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(target));
+            if external { core.multi.read_saved_draw_framebuffer(); } else { core.gl.bind_framebuffer(glow::READ_FRAMEBUFFER, draw); }
+            core.gl.blit_framebuffer(0, 0, width, height, 0, 0, width, height, if depth { glow::DEPTH_BUFFER_BIT } else { glow::COLOR_BUFFER_BIT }, glow::NEAREST);
+            if !depth { core.state.bind_texture(&core.gl, &mut core.stats, 0, core.textures.get(texture as usize).copied());
+            core.gl.generate_mipmap(glow::TEXTURE_2D); }
+            if external { core.multi.restore_framebuffers(); } else {
+                core.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, draw);
+                core.gl.bind_framebuffer(glow::READ_FRAMEBUFFER, read);
+            }
+            core.stats.gl_calls += 7;
+        }
+    }
+
+    // A batch's changed instances, interleaved into its retained buffer,
+    // then one draw. The buffer grows only when its capacity changes.
     fn draw_batch<M: MultiDraw>(&mut self, core: &mut Core<C, M>, e: [usize; 5]) {
         let [bi, count, from, at, capacity] = e;
         let Some(b) = self.batches.get_mut(bi) else { return };
@@ -975,6 +1047,7 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
                 (KIND_BATCH, e) => self.draw_batch(core, e),
                 (KIND_MESH, e) => self.draw_mesh(core, e),
                 (KIND_MODEL, e) => self.draw_model(core, view, e),
+                (KIND_COPY, e) => self.copy_scene(core, e),
                 _ => {}
             }
         }

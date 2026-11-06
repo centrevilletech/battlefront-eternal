@@ -6,13 +6,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { ArcBatch } from "../src/arc-lightning.js";
+import { ownedEffectMaterial, ownedBasicEffect } from "../src/rust-render/effect-material.js";
 
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
 const { motionVectors } = await import("../src/motion-vectors.js");
 
-import { GL, fakeProgram as program, standinModule, standinThree } from "./support/rust-standin.mjs";
+import { standinModule, standinThree } from "./support/rust-standin.mjs";
 
 // The bridge over the shared stand-ins (support/rust-standin.mjs), with
 // three's render logged, the motion pass's views given room.
@@ -87,13 +89,81 @@ function programs(properties, proxies, locked) {
 // The returned target belongs to the resource owner after the phase finishes.
 // No native draw is available to repair an incomplete velocity submission.
 // The driver fixture independently proves nonzero repeatable motion output.
-test("the motion pass: the proxies three would draw, in its order, then the view's locked mask, drawn by the renderer", () => {
+test("the motion pass: the proxies three would draw, in its order, then the view's locked mask, drawn by the renderer", async () => {
   const { core, calls, renderer, properties } = bridge();
   assert.equal(motionVectors.drawer, core.byName.motion, "the pass draws for motion-vectors.js");
   const { root, body, gun } = bodies();
   const { camera, view } = cameras();
   const skinned = motionVectors.track(body), rigid = motionVectors.track(gun);
-  });
+  try {
+    // The view scene: a part the view pass hides from three, a hidden one.
+    const viewScene = new THREE.Scene();
+    const part = new THREE.Mesh(gun.geometry, ownedBasicEffect('glow-basic', { visible: false }));
+    let prepared = 0;
+    part.onBeforeRender = (_renderer, _scene, camera, _geometry, material) => { assert.equal(camera, view); assert.equal(material, motionVectors.locked); prepared++; part.rotation.y = .2; part.updateMatrixWorld(true); };
+    const gone = new THREE.Mesh(gun.geometry, new THREE.MeshBasicMaterial({ visible: false }));
+    const arc = new ArcBatch(1, { soft: false });
+    arc.mesh.visible = true;
+    assert.equal(arc.geometry.attributes.position, undefined);
+    core.byName.view.parts.set(arc.mesh, { material: arc.material });
+    viewScene.add(part, gone, arc.mesh);
+    viewScene.updateMatrixWorld(true);
+    core.byName.view.parts.set(part, { material: part.material });
+    core.byName.view.records.push({ mesh: part, material: part.material });
+    const target = { texture: new THREE.Texture(), width: 8, height: 4 }, depth = new THREE.DepthTexture(8, 4);
+    const current = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), previous = current.clone();
+    // Every kind is linked by the loading screen's warmup, without a browser program.
+    await (await import("../src/rust-render/effect-material.js")).warmEffectPrograms(core, async () => {});
+    assert.ok(core.ownedPrograms.has("effects/motion-skinned"));
+    assert.ok(core.ownedPrograms.has("effects/motion-rigid"));
+    assert.ok(core.ownedPrograms.has("effects/motion-locked"));
+    delete properties.get(target.texture).__webglTexture;
+    renderer.initRenderTarget = (value) => { assert.equal(value, target); properties.get(value.texture).__webglTexture = "motion-attachment"; calls.push(["init-motion-target"]); };
+    calls.length = 0;
+    motionVectors.render(renderer, { target, root, camera, viewScene, view, depth, current, previous });
+    assert.ok(calls.some(c => c[0] === "init-motion-target"));
+    assert.ok(!calls.some((c) => c[0] === "render"), "three renders none of it");
+    assert.deepEqual(calls.find((c) => c[0] === "motion_frame"), ["motion_frame", 3], "two proxies and the hidden part");
+    assert.equal(calls.some((c) => c[0] === "add_program"), false, "no source bridge");
+    const input = core.motionInput, at = 106, stride = 88;
+    assert.deepEqual([...input.subarray(0, 16)], camera.projectionMatrix.elements);
+    assert.deepEqual([...input.subarray(32, 48)], view.projectionMatrix.elements, "the mask's camera");
+    assert.deepEqual([input[96], input[97]], [0.5, 200], "the depth range");
+    assert.deepEqual([input[98], input[99], input[100]], [0, 8, 4], "the target, by its texture");
+    assert.equal(input[102], 1, "cleared: no extras");
+    assert.equal(input[103], 2, "one skeleton's two bones");
+    // In three's order: the skinned proxy's material was made first.
+    assert.deepEqual([input[at], input[at + stride], input[at + 2 * stride]], [1, 1, 2], "proxy, proxy, mask");
+    assert.deepEqual([input[at + 3], input[at + 4], input[at + 5]], [0, 3, 2], "the whole index, both sides");
+    assert.deepEqual([...input.subarray(at + 8, at + 24)], body.matrixWorld.elements);
+    assert.deepEqual([...input.subarray(at + 40, at + 56)], skinned.bindMatrix.elements);
+    assert.deepEqual([...core.motionBones.subarray(0, 32)], [...body.skeleton.boneMatrices]);
+    assert.deepEqual([...input.subarray(at + 2 * stride + 8, at + 2 * stride + 24)], part.matrixWorld.elements);
+    assert.equal(prepared, 1, "the owned blade's facing hook runs for its motion mask too");
+    assert.equal(skinned.userData.seen, motionVectors.frame - 1, "committed after the owned draw");
+    // A proxy three has not drawn yet: its kind's program.
+    const second = bodies().gun;
+    root.add(second);
+    root.updateMatrixWorld(true);
+    const fresh = motionVectors.track(second);
+    calls.length = 0;
+    motionVectors.render(renderer, { target, root, camera, viewScene, view, depth, current, previous });
+    assert.deepEqual(calls.find((c) => c[0] === "motion_frame"), ["motion_frame", 4]);
+    assert.ok(!calls.some((c) => c[0] === "render" || c[0] === "add_program"), "no program made again");
+    motionVectors.release(fresh);
+    // Removing a browser program cannot affect the owned mask.
+    properties.get(motionVectors.locked).currentProgram = undefined;
+    calls.length = 0;
+    motionVectors.render(renderer, { target, root, camera, viewScene, view, depth, current, previous });
+    assert.ok(calls.some((c) => c[0] === "motion_frame"));
+    assert.equal(calls.some((c) => c[0] === "render"), false);
+  } finally {
+    motionVectors.release(skinned);
+    motionVectors.release(rigid);
+    motionVectors.drawer = null;
+  }
+  assert.equal(motionVectors.drawer, null, "host released");
+});
 
 // A sky ship's motion mesh as sky-flyers.js makes one: a model part drawn
 // instanced, each ship's matrices now and last frame and whether it shows
@@ -124,7 +194,7 @@ function shipMotion(material, count, at) {
 test("the sky's ships' own motion: drawn by the renderer first, in three's order, their instances and uniforms written, their hook run", () => {
   const { core, calls, renderer, properties } = bridge();
   const { camera } = cameras();
-  const material = new THREE.ShaderMaterial({
+  const material = ownedEffectMaterial("effects/motion-flyer", {
     uniforms: { currentViewProjection: { value: new THREE.Matrix4() }, previousViewProjection: { value: new THREE.Matrix4() }, sceneDepth: { value: null }, still: { value: 0 } },
     depthTest: false, depthWrite: false, side: THREE.DoubleSide,
   });
@@ -135,4 +205,28 @@ test("the sky's ships' own motion: drawn by the renderer first, in three's order
   const target = { texture: new THREE.Texture(), width: 8, height: 4 }, depth = new THREE.DepthTexture(8, 4);
   const current = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), previous = current.clone();
   const root = new THREE.Scene();
-  });
+  try {
+    calls.length = 0;
+    motionVectors.render(renderer, { target, root, camera, viewScene: null, view: null, depth, current, previous });
+    assert.ok(!calls.some((c) => c[0] === "render"), "three renders none of it");
+    assert.deepEqual(calls.find((c) => c[0] === "motion_frame"), ["motion_frame", 0], "no proxies");
+    assert.ok(core.ownedPrograms.has("effects/motion-flyer"));
+    assert.equal(calls.some((c) => c[0] === "add_program"), false);
+    const extras = calls.filter((c) => c[0] === "motion_extra");
+    assert.equal(extras.length, 2, "each mesh registered");
+    assert.deepEqual([...extras[0][4]], [0, 4, 4, 7, 4, 4, 11, 1, 1], "instance matrix, last frame's (four columns each), shown");
+    assert.deepEqual(hooks, [near, far], "their hooks, in their order");
+    const ex = core.motionExtras, values = core.motionExtraValues, EXTRA = 5 + 8 * 18;
+    assert.equal(ex[0], 2);
+    // The nearer first: registered second (id 1), its two ships.
+    assert.deepEqual([ex[1], ex[2], ex[3], ex[4], ex[5]], [1, 2, 2, 0, 7], "id, instances, both sides, values at 0, seven uniforms");
+    assert.deepEqual([ex[1 + EXTRA], ex[2 + EXTRA], ex[4 + EXTRA]], [0, 3, 2 * 33], "then the far one's three ships");
+    assert.deepEqual([...values.subarray(0, 32)], [...near.instanceMatrix.array.subarray(0, 32)]);
+    assert.deepEqual([...values.subarray(32, 64)], [...near.geometry.attributes.previousMatrix.array.subarray(0, 32)]);
+    assert.deepEqual([...values.subarray(64, 66)], [1, 1]);
+    assert.equal(core.motionInput[102], 1, "the target cleared first");
+  } finally {
+    for (const mesh of [far, near]) motionVectors.removeExtra(mesh);
+    motionVectors.drawer = null;
+  }
+});

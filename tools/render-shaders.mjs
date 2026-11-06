@@ -7,18 +7,24 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 export function generate(check = false) {
   interfaceLayout(check);
   const base = root + 'rust/bfe-render/shaders/';
-  const sources = {}, rows = [];
+  const sources = {}, rows = [], twins = [];
   for (const family of readdirSync(base).sort()) {
     const manifest = JSON.parse(readFileSync(base + family + '/manifest.json'));
     if (manifest.version !== 1) throw Error('Unsupported shader manifest');
+    const entries = new Map(manifest.programs.map(q => [q.key, q]));
     for (const p of manifest.programs) {
       if (!p.key.startsWith(family + '/') || sources[p.key]) throw Error('Invalid shader key ' + p.key);
-      const vertex = (p.vertexPrefix || '') + readFileSync(base + family + '/' + p.vertex, 'utf8');
-      const fragment = (p.fragmentPrefix || '') + readFileSync(base + family + '/' + p.fragment, 'utf8');
+      // A shadowed twin stores no source of its own: it is its unshadowed base with
+      // the two shadow defines inserted at the recorded line, as three emits them.
+      const twin = p.shadowOf, own = twin ? entries.get(twin.key) : p;
+      if (!own?.vertex || own.shadowOf) throw Error('Invalid shadow base for ' + p.key);
+      const withShadow = (text, line) => twin ? text.split('\n').toSpliced(line, 0, '#define USE_SHADOWMAP', '#define SHADOWMAP_TYPE_PCF_SOFT').join('\n') : text;
+      const vertex = (p.vertexPrefix || '') + withShadow(readFileSync(base + family + '/' + own.vertex, 'utf8'), twin?.vertexLine);
+      const fragment = (p.fragmentPrefix || '') + withShadow(readFileSync(base + family + '/' + own.fragment, 'utf8'), twin?.fragmentLine);
       const kind = p.kind ?? 'Plain';
       const source = p.source ?? 'body';
       const lamps = p.lamps ?? false;
-      if (!['Plain', 'World'].includes(kind)) throw Error('Unsupported shader kind ' + kind);
+      if (!['Plain', 'World', 'Effect', 'Motion', 'Skinned'].includes(kind)) throw Error('Unsupported shader kind ' + kind);
       if (!['body', 'expanded'].includes(source)) throw Error('Unsupported shader source ' + source);
       if (typeof lamps !== 'boolean' || (lamps && kind !== 'World')) throw Error('Invalid lamp mode');
       if (/#[ \t]*include/.test(vertex + fragment)) throw Error('Source must be self contained');
@@ -28,14 +34,20 @@ export function generate(check = false) {
       const uniforms = Object.entries(p.uniforms).map(([name, value]) => {
         const type = typeof value === 'number' ? value : value.type;
         const size = typeof value === 'number' ? 1 : value.size;
-        if (!Number.isInteger(type) || !Number.isInteger(size) || size < 1) throw Error('Invalid uniform ' + name);
-        return size === 1 ? { name, type } : { name, type, size };
+        if (![1,2,3,4,5,9,16,32,33,34,35].includes(type) || !Number.isInteger(size) || size < 1) throw Error('Invalid uniform ' + name);
+        return { name, type, size };
       });
       const hash = createHash('sha256').update(JSON.stringify({ vertex, fragment, attributes, uniforms, kind, source, lamps })).digest('hex');
-      sources[p.key] = { attributes, uniforms, hash, kind, source, lamps, ...(p.selector ? { selector: p.selector, inputs: p.inputs } : {}) };
+      // The page picks a shadowed program through its base's shadowTwin, never by name.
+      if (twin) twins.push([twin.key, p.key]);
+      sources[p.key] = { attributes, uniforms, hash, kind, source, lamps, ...(twin ? { shadowOf: twin.key } : {}), ...(p.material ? {material:p.material} : {}), ...(p.selector ? { selector: p.selector, inputs: p.inputs } : {}) };
       const pairs = (xs) => xs.map(([n,v]) => `(${JSON.stringify(n)}, ${v})`).join(', ');
-      rows.push(`    Spec { key: ${JSON.stringify(p.key)}, vertex: include_str!("../shaders/${family}/${p.vertex}"), fragment: include_str!("../shaders/${family}/${p.fragment}"), vertex_prefix: ${JSON.stringify(p.vertexPrefix || "")}, fragment_prefix: ${JSON.stringify(p.fragmentPrefix || "")}, kind: Kind::${kind}, expanded: ${source === "expanded"}, lamps: ${lamps}, attributes: &[${pairs(attributes)}], uniforms: &[${pairs(uniforms.map(u => [u.name, u.type]))}], uniform_sizes: &[${pairs(uniforms.filter(u => u.size).map(u => [u.name, u.size]))}] },`);
+      rows.push(`    Spec { key: ${JSON.stringify(p.key)}, vertex: include_str!("../shaders/${family}/${own.vertex}"), fragment: include_str!("../shaders/${family}/${own.fragment}"), vertex_prefix: ${JSON.stringify(p.vertexPrefix || "")}, fragment_prefix: ${JSON.stringify(p.fragmentPrefix || "")}, kind: Kind::${kind}, expanded: ${source === "expanded"}, lamps: ${lamps}, shadow_at: ${twin ? `Some((${twin.vertexLine}, ${twin.fragmentLine}))` : 'None'}, attributes: &[${pairs(attributes)}], uniforms: &[${pairs(uniforms.map(u => [u.name, u.type]))}], uniform_sizes: &[${pairs(uniforms.filter(u => u.size > 1).map(u => [u.name, u.size]))}] },`);
     }
+  }
+  for (const [from, key] of twins) {
+    if (!sources[from] || sources[from].shadowTwin) throw Error('Invalid shadow twin for ' + key);
+    sources[from].shadowTwin = key;
   }
   const outputs = {
     'src/render-programs.js': '// Generated by tools/render-shaders.mjs; edit rust/bfe-render/shaders instead.\nexport const programLayouts = ' + JSON.stringify(sources, null, 2) + ';\n',

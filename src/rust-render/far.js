@@ -25,8 +25,11 @@ import { ownedWorldProgram } from "./world-programs.js";
 // material's are written each frame.
 import * as THREE from "three";
 import { compileFor, unbuilt } from "./instances.js";
+import { ownedEffectProgram } from "./effect-material.js";
+import { ownsEffectSource } from "./programs.js";
 import { lighting } from "../materials.js";
 import { VIEW_FAR } from "./index.js";
+
 
 // add_program's kinds (web/mod.rs).
 const WORLD = 0, PLAIN = 3;
@@ -210,7 +213,7 @@ class FarPass {
     const sea = core.graphics.scene.userData.water?.oceanSurface?.near ?? null;
     let draw = false;
     if (sea) {
-      let shown = Boolean(sea.material?.visible);
+      let shown = Boolean(sea.material?.visible || ownsEffectSource(sea.material));
       for (let n = sea; shown && n && n !== scene; n = n.parent) if (!n.visible) shown = false;
       if (shown && (this.ownLayers(sea) & camera.layers.mask) !== 0) {
         this.find(sea, sea.material, 0);
@@ -243,7 +246,7 @@ class FarPass {
       if (object.userData.patches) { this.find(object, object.children[0]?.material, groupOrder); return; }
       if (object.isMesh || object.isLine || object.isPoints || object.isSprite) {
         const material = object.material;
-        if (Array.isArray(material) ? material.some((m) => m?.visible) : material?.visible) this.find(object, material, groupOrder);
+        if (Array.isArray(material) ? material.some((m) => m?.visible || ownsEffectSource(m)) : material?.visible || ownsEffectSource(material)) this.find(object, material, groupOrder);
       }
     }
     const children = object.children;
@@ -252,11 +255,11 @@ class FarPass {
 
   // Its item for the material and program it has now, registered if it can be.
   find(object, material, groupOrder) {
-    if (material && material.userData.bfeFamily !== "world" && !Array.isArray(material) && unbuilt(this.core.renderer, material)) {
+    if (material && !ownsEffectSource(material) && material.userData.bfeFamily !== "world" && !Array.isArray(material) && unbuilt(this.core.renderer, material)) {
       const mesh = object.userData.patches ? object.children[0] : object;
       compileFor(this.core.renderer, [[mesh, material]], this.camera, this.scene);
     }
-    const program = material?.userData?.bfeFamily === "world" ? ownedWorldProgram(this.core, material, this.scene, this.camera) : material && !Array.isArray(material) ? this.core.renderer.properties.get(material).currentProgram : null;
+    const program = ownsEffectSource(material) ? material.userData.bfeProgram : material?.userData?.bfeFamily === "world" ? ownedWorldProgram(this.core, material, this.scene, this.camera) : material && !Array.isArray(material) ? this.core.renderer.properties.get(material).currentProgram : null;
     let item = null;
     for (const i of this.items.get(object) || []) if (i.material === material && i.threeProgram === program) { item = i; break; }
     if (!item && program && this.failed.get(object) !== material) {
@@ -287,7 +290,7 @@ class FarPass {
     // An instanced mesh three culls by its instances' bounds: not here.
     const instanced = Boolean(mesh.isInstancedMesh);
     if (instanced && mesh.frustumCulled) return null;
-    if (Array.isArray(material) || (!material.isShaderMaterial && material.userData.bfeFamily !== "world") || material.wireframe || material.stencilWrite || material.polygonOffset || material.clippingPlanes?.length) return null;
+    if (Array.isArray(material) || !(material.isShaderMaterial || ownsEffectSource(material) || material.userData?.bfeFamily === "world") || material.wireframe || material.stencilWrite || material.polygonOffset || material.clippingPlanes?.length) return null;
     // three draws a two-sided blended material in two passes.
     if (material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass) return null;
     if (mesh.matrixWorld.determinant() < 0) return null;
@@ -302,13 +305,25 @@ class FarPass {
     if (blend === undefined || DEPTH[material.depthFunc] === undefined) return null;
     // Its uniforms: the frame block's when every frame value it reads is
     // the shared one, else each its own.
-    const p = threeProgram.program, active = threeProgram.owned ? threeProgram.inputs.map(u => ({...u, name:u.name.replace(/\[0\]$/, "")})) : [];
-    for (let i = 0, n = threeProgram.owned ? 0 : gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
-      const u = gl.getActiveUniform(p, i);
-      active.push({ name: u.name.replace(/\[0\]$/, ""), type: u.type, size: u.size });
+    const active = [];
+    let shared, program;
+    if (ownsEffectSource(material)) {
+      let root = object;
+      while (root.parent) root = root.parent;
+      program = ownedEffectProgram(core, material, [WORLD, PLAIN], material.side, root === core.graphics.scene && core.shadowsOn());
+      shared = program.kind === "World";
+      const types = { 1: gl.FLOAT, 2: gl.FLOAT_VEC2, 3: gl.FLOAT_VEC3, 4: gl.FLOAT_VEC4, 5: gl.INT, 9: gl.FLOAT_MAT3, 16: gl.FLOAT_MAT4, 32: gl.SAMPLER_2D, 33: gl.SAMPLER_3D, 34: gl.SAMPLER_2D_SHADOW, 35: gl.SAMPLER_CUBE };
+      for (const u of program.uniforms) active.push({ name: u.name, type: types[u.type], size: u.size });
+    } else {
+      const p = threeProgram.program;
+      if (threeProgram.owned) active.push(...threeProgram.inputs.map(u => ({...u, name:u.name.replace(/\[0\]$/, "")})));
+      for (let i = 0, n = threeProgram.owned ? 0 : gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
+        const u = gl.getActiveUniform(p, i);
+        active.push({ name: u.name.replace(/\[0\]$/, ""), type: u.type, size: u.size });
+      }
+      shared = active.every(({ name }) => !FRAME_NAMES.has(name) || name in CAMERA || material.uniforms?.[name] === lighting[name]);
+      program = threeProgram.owned ? threeProgram : shared ? core.program(threeProgram, WORLD, material, ANY) : this.plainProgram(threeProgram);
     }
-    const shared = active.every(({ name }) => !FRAME_NAMES.has(name) || name in CAMERA || material.uniforms?.[name] === lighting[name]);
-    const program = threeProgram.owned ? threeProgram : shared ? core.program(threeProgram, WORLD, material, ANY) : this.plainProgram(threeProgram);
     if (!program) return null;
     const own = shared ? active.filter(({ name }) => !FRAME_NAMES.has(name)) : active;
     // A zero material's values are its own and never change (materials.js):

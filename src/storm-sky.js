@@ -1,86 +1,16 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { lighting } from './materials.js';
-import { fullScreenPass } from './render-passes.js';
+import { ownedFullScreenPass } from './render-passes.js';
 import { SKY_ORDER } from './world.js';
 
 // A world-oriented panorama means looking around never invalidates the cloud
 // cache. Only the low-resolution volume integration runs at 10 Hz; lightning,
 // camera rotation and final composition run at the display's frame rate.
-const CLOUDS = /* glsl */`
- uniform sampler3D volumeNoise;
- uniform vec2 wind;
- uniform vec3 eyePosition,hazeColor;
- uniform float time;
- varying vec2 vUv;
- float field(vec3 p){
-   p.xz-=wind*time*7.0;
-   vec3 q=p*.000065;
-   float shape=texture(volumeNoise,q).r*.58+texture(volumeNoise,q*2.03).r*.28+texture(volumeNoise,q*4.11).r*.14;
-   float height=(p.y-180.0)/460.0;
-   float envelope=smoothstep(0.0,.18,height)*(1.0-smoothstep(.65,1.0,height));
-   return max(0.0,shape-.48)*envelope*5.5;
- }
- void main(){
-   float azimuth=(vUv.x-.5)*6.2831853,elevation=vUv.y*1.5707963;
-   vec3 ray=vec3(sin(azimuth)*cos(elevation),sin(elevation),cos(azimuth)*cos(elevation));
-   if(ray.y<.015){gl_FragColor=vec4(hazeColor,0);return;}
-   float start=max(0.0,(180.0-eyePosition.y)/ray.y),end=max(0.0,(640.0-eyePosition.y)/ray.y);
-   end=min(end,11000.0);
-   float stepSize=max(1.0,(end-start)/28.0),transmission=1.0;vec3 color=vec3(0);
-   // Fixed per-ray jitter removes marching bands without temporal grain.
-   float jitter=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);
-   for(int i=0;i<28;i++){
-     vec3 p=eyePosition+ray*(start+(float(i)+jitter)*stepSize);
-     float density=field(p);
-     if(density>.005){
-       float light=exp(-field(p+vec3(-80,130,60))*2.7);
-       float top=clamp((p.y-180.0)/460.0,0.0,1.0);
-       vec3 cloud=mix(vec3(.012,.018,.03),vec3(.26,.32,.39),pow(light,1.7)*.72+top*.18);
-       float opacity=1.0-exp(-density*stepSize*.022);
-       color+=transmission*opacity*cloud;transmission*=1.0-opacity;
-       if(transmission<.015)break;
-     }
-   }
-   vec3 sky=mix(hazeColor,vec3(.028,.042,.065),smoothstep(.0,.7,ray.y));
-   color+=transmission*sky;
-   float fog=1.0-exp(-start*.00014);
-   color=mix(color,hazeColor,fog);
-   gl_FragColor=vec4(color,1.0-transmission);
- }
-`;
-const SKY = /* glsl */`
- uniform sampler2D cloudMap;
- uniform mat4 viewRotation,inverseProjection;
- uniform vec3 eyePosition,lightningPosition;
- uniform float lightningFlash;
- varying vec2 vUv;
- void main(){
-   vec4 view=inverseProjection*vec4(vUv*2.0-1.0,1,1);
-   vec3 ray=normalize(mat3(viewRotation)*view.xyz);
-   vec2 uv=vec2(atan(ray.x,ray.z)/6.2831853+.5,asin(clamp(ray.y,0.0,1.0))/1.5707963);
-   vec4 cloud=texture2D(cloudMap,uv);
-   vec3 strike=normalize(lightningPosition-eyePosition);
-   float glow=pow(max(dot(ray,strike),0.0),38.0);
-   vec3 color=cloud.rgb+vec3(.52,.64,.8)*lightningFlash*(.055+glow*(.35+cloud.a*.7));
-   gl_FragColor=vec4(color,1);
- }
-`;
-const BOLT_VERTEX=/* glsl */`
- attribute vec3 tangent;
- attribute float edge,width,energy;
- varying float vEdge,vEnergy;
- void main(){
-   vec3 across=normalize(cross(tangent,normalize(cameraPosition-position)));
-   vec3 world=position+across*edge*width;
-   vEdge=edge;vEnergy=energy;gl_Position=projectionMatrix*viewMatrix*vec4(world,1);
- }
-`;
-const BOLT_FRAGMENT=/* glsl */`
- uniform float lightningFlash;
- varying float vEdge,vEnergy;
- void main(){float a=pow(max(0.0,1.0-abs(vEdge)),1.5)*lightningFlash*vEnergy;
-   gl_FragColor=vec4(.72,.84,1.0,a);}
-`;
+
+
+
+
 // The models on the dome's horizon (Kamino's city) in the storm, in place of
 // their sky material: the texture as the sky draws it, in the storm's dim,
 // cool, grey light (the light painted into the texture loses some of its
@@ -88,44 +18,8 @@ const BOLT_FRAGMENT=/* glsl */`
 // a flash as the clouds are, most on the strike's bearing. Below the horizon
 // the ocean covers them, and the horizon veil (ocean-storm.js) thickens the
 // haze toward their feet.
-const HORIZON_VERTEX=/* glsl */`
- varying vec2 vUv;
- varying vec3 vRay;
- void main(){
-   vUv=uv;vec4 world=modelMatrix*vec4(position,1);vRay=world.xyz-cameraPosition;
-   gl_Position=projectionMatrix*viewMatrix*world;
- }
-`;
-const HORIZON_FRAGMENT=/* glsl */`
- uniform sampler2D map;
- uniform vec3 hazeColor,lightningPosition;
- uniform float lightningFlash;
- varying vec2 vUv;
- varying vec3 vRay;
- void main(){
-   vec4 texel=texture2D(map,vUv);
-   #ifdef ALPHA_TEST
-     if(texel.a<.5)discard;
-   #endif
-   float luma=dot(texel.rgb,vec3(.3,.59,.11));
-   vec3 color=mix(texel.rgb,vec3(luma),.4)*vec3(.64,.74,.88)+texel.rgb*smoothstep(.5,.9,luma)*.7;
-   vec2 strike=lightningPosition.xz-cameraPosition.xz;
-   float bearing=max(dot(vRay.xz,strike),0.0)/max(length(vRay.xz)*length(strike),1e-4);
-   float glow=pow(bearing,4.0);
-   vec3 flash=vec3(.52,.64,.8)*lightningFlash;
-   color+=texel.rgb*flash*(.3+glow*1.2);
-   #ifdef ADDITIVE
-     color*=1.0-.24;
-   #else
-     color=mix(color,hazeColor+flash*(.055+glow*.35),.24);
-   #endif
-   #ifdef BLENDED
-     gl_FragColor=vec4(color,texel.a);
-   #else
-     gl_FragColor=vec4(color,1.0);
-   #endif
- }
-`;
+
+
 
 export class StormSky {
  constructor({graphics,uniforms}) {
@@ -143,10 +37,10 @@ export class StormSky {
    this.target.texture.wrapS=THREE.RepeatWrapping;
    Object.assign(uniforms,{cloudMap:{value:this.target.texture},cloudReady:{value:0},volumeNoise:{value:this.noise},eyePosition:{value:new THREE.Vector3()},
      lightningFlash:{value:0},lightningPosition:{value:new THREE.Vector3()},viewRotation:{value:new THREE.Matrix4()},inverseProjection:{value:new THREE.Matrix4()}});
-   this.cloudPass=fullScreenPass(CLOUDS,uniforms);this.passCamera=new THREE.Camera();
+   this.cloudPass=ownedFullScreenPass('effects/storm-clouds',uniforms);this.cloudPass.material.userData.bfeNoShadows=true;this.passCamera=new THREE.Camera();
    // Drawn in the dome's place, just after it (world.js), so the models on
    // its horizon draw over the panorama as they draw over the dome.
-   this.sky=fullScreenPass(SKY,uniforms);this.sky.name='storm-volume-clouds';this.sky.renderOrder=SKY_ORDER+.5;
+   this.sky=ownedFullScreenPass('effects/storm-sky',uniforms);this.sky.name='storm-volume-clouds';this.sky.renderOrder=SKY_ORDER+.5;
    this.horizonMaterials=new Map();this.replaced=[];
    this.sky.onBeforeRender=(renderer,scene,camera)=>{uniforms.viewRotation.value.copy(camera.matrixWorld);uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);};
    this.boltGeometry=new THREE.BufferGeometry();
@@ -155,7 +49,7 @@ export class StormSky {
    for(const [name,array,itemSize] of [['position',this.positions,3],['tangent',this.tangents,3],['edge',this.edges,1],['width',this.widths,1],['energy',this.energies,1]])
      this.boltGeometry.setAttribute(name,new THREE.BufferAttribute(array,itemSize).setUsage(THREE.DynamicDrawUsage));
    this.boltGeometry.setDrawRange(0,0);
-   this.bolt=new THREE.Mesh(this.boltGeometry,new THREE.ShaderMaterial({uniforms,vertexShader:BOLT_VERTEX,fragmentShader:BOLT_FRAGMENT,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,forceSinglePass:true}));
+   this.bolt=new THREE.Mesh(this.boltGeometry,ownedEffectMaterial('effects/storm-lightning', {uniforms,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,forceSinglePass:true}));
    this.bolt.name='storm-lightning';this.bolt.frustumCulled=false;this.bolt.renderOrder=8;
    this.sky.visible=this.bolt.visible=false;graphics.farScene.add(this.sky,this.bolt);
  }
@@ -182,8 +76,7 @@ export class StormSky {
    if(material)return material;
    const defines={};
    for(const key of ['ALPHA_TEST','BLENDED','ADDITIVE'])if(key in (original.defines||{}))defines[key]='';
-   material=new THREE.ShaderMaterial({name:'storm-horizon',defines,vertexShader:HORIZON_VERTEX,fragmentShader:HORIZON_FRAGMENT,
-     uniforms:{map:original.uniforms?.map||{value:original.map||null},hazeColor:this.uniforms.hazeColor,
+   material=ownedEffectMaterial('effects/storm-horizon', {name:'storm-horizon',defines,uniforms:{map:original.uniforms?.map||{value:original.map||null},hazeColor:this.uniforms.hazeColor,
        lightningFlash:this.uniforms.lightningFlash,lightningPosition:this.uniforms.lightningPosition},
      transparent:false,depthTest:false,depthWrite:false,side:original.side,alphaToCoverage:original.alphaToCoverage,
      blending:original.blending,blendSrc:original.blendSrc,blendDst:original.blendDst,blendEquation:original.blendEquation});

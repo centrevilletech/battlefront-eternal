@@ -2,6 +2,7 @@ import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { ownedBasicEffect } from "../src/rust-render/effect-material.js";
 import { worldMaterial } from "../src/materials.js";
 import { ownWorldMaterial } from "../src/rust-render/world-programs.js";
 
@@ -50,6 +51,7 @@ function bridge() {
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   standinResources(renderer,calls);
   const core = new RustRender(graphics, { memory }, BfeRenderer);
+  calls.length = 0; // These assertions cover phase calls after source prewarming.
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   const setSegments = (values) => { segments.length = 0; segments.push(...values); new Uint32Array(memory.buffer, region("transparent_segments"), values.length).set(values); };
   return { core, calls, graphics, renderer, scene, camera, memory, list, setSegments, setTarget: (t) => { target = t; } };
@@ -123,10 +125,12 @@ test("a pass's views of the renderer's memory are made again when it grows", () 
 test("objects the transparent pass draws leave three's list as records with three's keys", () => {
   const { core, renderer, scene, camera, graphics, list, setSegments } = bridge();
   const pass = core.byName.transparent;
-  const material = new THREE.MeshBasicMaterial({ transparent: true, color: 0x336699, opacity: 0.25 });
+  const material = ownedBasicEffect('basic', { visible: true, transparent: true, color: 0x336699, opacity: 0.25 });
   const holo = new THREE.Mesh(new THREE.BufferGeometry(), material), other = new THREE.Object3D();
   holo.position.set(1, 2, 3);
   holo.updateMatrixWorld(true);
+  let prepared = 0;
+  holo.onBeforeRender = (_renderer, _scene, view) => { assert.equal(view, camera); prepared++; holo.position.x = 9; holo.updateMatrixWorld(true); };
   // Registered in an earlier frame, three's program for it unchanged since.
   const program = { id: 3 };
   renderer.properties.get(material).currentProgram = program;
@@ -137,12 +141,14 @@ test("objects the transparent pass draws leave three's list as records with thre
     { object: other, material: {}, group: null, groupOrder: 0, renderOrder: 0, z: 0.5, id: other.id });
   setSegments([0, 1, 1]);
   pass.frameNo = 1;
-  pass.take(list.transparent);
+  pass.take(list.transparent,{renderer,scene,camera});
   assert.deepEqual(list.transparent.map((item) => item.object), [other], "unclaimed items remain visible to the near-scene completeness check");
   const r = core.transparentObjects;
   assert.equal(r[0], 1);
   assert.deepEqual([...r.subarray(1, 6)], [7, 0, 2, 0.75, holo.id]);
   assert.deepEqual([...r.subarray(6, 22)], holo.matrixWorld.elements);
+  assert.equal(prepared, 1);
+  assert.equal(r[18], 9, "the owned object's draw hook runs before its matrix is published");
   assert.deepEqual([...r.subarray(22, 26)], [material.color.r, material.color.g, material.color.b, 0.25]);
 });
 

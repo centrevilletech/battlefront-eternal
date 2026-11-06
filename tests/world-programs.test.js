@@ -31,7 +31,7 @@ test('every declared world feature set selects its exact variant and caches in i
 });
 
 test('an uncensused feature combination fails instead of selecting a near match',()=>{
-  const layout=Object.values(programLayouts).find(p=>p.selector);
+  const layout=Object.entries(programLayouts).find(([key,p])=>key.startsWith('world/')&&p.selector)[1];
   const {core,material,calls}=fixture({...layout.selector,points:1000});
   assert.throws(()=>ownedWorldProgram(core,material),/Unowned world variant/);
   assert.deepEqual(calls,[]);

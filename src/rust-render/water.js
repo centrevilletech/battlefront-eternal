@@ -5,8 +5,7 @@
 // water, at High and Ultra the shore's lapping and splashes (water-shore.js,
 // one quad instanced at each shore point), and the Enhanced ocean's crest
 // spray (ocean-storm.js, one card instanced at each of its seeds).
-// Each is registered the first time three has a program for its material
-// (made as three compiled it: Kind::Plain), then hidden from three; each
+// Each is registered directly from its catalog-owned Plain program; each
 // frame, in the transparent phase, the pass writes whether three would have
 // drawn it (its object's and parents' visibility, the camera's layers), its
 // sort key as three's projectObject makes it, its draw range and every
@@ -22,8 +21,9 @@
 // preserve the depth written by preceding transparent items without a dummy
 // copier mesh.
 import * as THREE from "three";
+import { ownedEffectProgram } from "./effect-material.js";
 import { particleDepth } from "../particle-depth.js";
-import { uniformType, writeUniform } from "./post.js";
+import { writeUniform } from "./post.js";
 import { blendOf, sidesOf, stateOf } from "./transparent.js";
 
 const PLAIN = 3;
@@ -37,36 +37,17 @@ const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4();
 const BASE_BEFORE = THREE.Object3D.prototype.onBeforeRender;
 const point = new THREE.Vector3();
 
-// Rust's program for a water material's three program, as three compiled
-// it, with its uniforms ({ name, type } in slot order) and its one uniform
-// array ({ name, width, size, slot }, after them), or null when it reads one
-// the renderer can't set; undefined until three has made it.
-const programs = new WeakMap();
+// The source catalog declares water's scalar slots and its one array. Its
+// geometry bindings are the water phase's fixed attribute layout.
 function surfaceProgram(core, material, attributes) {
-  const threeProgram = core.renderer.properties.get(material).currentProgram;
-  if (!threeProgram) return undefined;
-  let entry = programs.get(threeProgram);
-  if (entry !== undefined) return entry;
-  entry = null;
-  const gl = core.gl, p = threeProgram.program, uniforms = [], arrays = [];
-  for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
-    const u = gl.getActiveUniform(p, i), name = u.name.replace(/\[0\]$/, ""), type = uniformType(gl, u.type);
-    if (u.size === 1 && type) uniforms.push({ name, type, size: 1 });
-    else if (u.size > 1 && type >= 1 && type <= 4) arrays.push({ name, width: type, size: u.size });
-    else arrays.push(null);
-  }
-  const array = arrays[0] ?? null;
-  if (arrays.length <= 1 && (!array || array.width * array.size <= ARRAY_FLOATS) && uniforms.length <= MAX_UNIFORMS) {
-    const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
-    try {
-      const names = [...uniforms.map((u) => u.name), ...(array ? [array.name] : [])];
-      entry = { id: core.rust.add_program(PLAIN, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes, names.join(",")), uniforms, array: array && { ...array, slot: uniforms.length } };
-    } catch (error) {
-      core.fail(error);
-    }
-  } else core.fail(new Error(`Water program ${threeProgram.id} has unsupported uniform arrays`));
-  programs.set(threeProgram, entry);
-  return entry;
+  const program = ownedEffectProgram(core, material, PLAIN);
+  const layout = program.attributes.map(([name, location]) => `${name}:${location}`).join(",");
+  if (layout !== attributes) throw Error(`${program.key}: incompatible water attribute layout`);
+  const uniforms = program.uniforms.filter((u) => u.size === 1);
+  const arrays = program.uniforms.filter((u) => u.size > 1);
+  if (arrays.length > 1 || arrays.some((u) => u.type > 4 || u.type * u.size > ARRAY_FLOATS)) throw Error(`${program.key}: incompatible water array layout`);
+  const array = arrays[0];
+  return { ...program, uniforms, array: array && { name: array.name, width: array.type, size: array.size, slot: uniforms.length } };
 }
 
 class WaterPass {
@@ -166,13 +147,12 @@ class WaterPass {
   registerMesh(mesh, kind) {
     const core = this.core, material = mesh.material;
     const geometry = mesh.geometry, set = kind === "instanced" ? this.instanceSet(geometry) : null;
-    if (kind === "instanced" && !set) { this.tried.add(mesh); return; }
+    if (kind === "instanced" && !set) throw Error("Owned water instance layout is unsupported");
     const attributes = kind === "rings" ? "position:0,uv:1,alpha:2" : kind === "instanced" ? `position:0,uv:1,${set.attributes.map((a, k) => `${a.name}:${2 + k}`).join(",")}` : "position:0,uv:1";
     const program = surfaceProgram(core, material, attributes);
-    if (program === undefined) return; // until three has made it
     this.tried.add(mesh);
     const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
-    if (!program || !blend || !state || sides.length !== 1 || !geometry.index || geometry.groups.length || this.surfaces.length >= MAX_SURFACES) return;
+    if (!program || !blend || !state || sides.length !== 1 || !geometry.index || geometry.groups.length || this.surfaces.length >= MAX_SURFACES) throw Error("Owned water state or geometry is unsupported");
     let id;
     if (kind === "rings") {
       if (!this.input) this.views();
@@ -180,7 +160,7 @@ class WaterPass {
       id = core.rust.water_rings(index instanceof Uint32Array ? index : Uint32Array.from(index), new Uint32Array(blend), state.func, state.flags, sides[0]);
     } else {
       const g = core.geometry(geometry, { id: program.id, attributes: [["position", 0], ["uv", 1]] });
-      if (g === null || g === undefined) return;
+      if (g === null || g === undefined) throw Error("Owned water geometry failed to register");
       id = core.rust.water_surface(g, new Uint32Array(blend), state.func, state.flags, sides[0]);
       if (set) set.attributes.forEach((a, k) => core.rust.water_instanced(id, set.id, k, 2 + k));
     }

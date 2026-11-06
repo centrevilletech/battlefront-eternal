@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
@@ -74,272 +75,15 @@ const STREAK_STRIDE = 18;
 const FLARE_ATTRIBUTES = [["iCenter", 3, 0], ["iAxis", 3, 3], ["iColor", 4, 6], ["iParam", 4, 10]];
 const FLARE_STRIDE = 14;
 
-const NOISE = /* glsl */ `
-  float hash12(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-  }
-  float vnoise(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x),
-               mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
-  }
-  float fbm(vec2 p) {
-    return vnoise(p) * 0.55 + vnoise(p * 2.13 + 7.1) * 0.3 + vnoise(p * 4.37 + 3.7) * 0.15;
-  }
-`;
 
-const streakVertex = /* glsl */ `
-  attribute vec2 corner;
-  attribute vec3 iHead;
-  attribute vec3 iTail;
-  attribute vec4 iColor; // rgb (max channel 1), brightness
-  attribute vec4 iSize;  // core radius, glow radius, kind (0 tracer line, 1 vapour, 2 bolt or spark), seed
-  attribute vec4 iMisc;  // age (s), vapour opacity (a bolt's: metres it fades in over), metres from the muzzle at the tail, 1 if it may sit before the eye
-  uniform float pixelAngle;
-  varying vec2 vPlane;
-  varying vec3 vHead;
-  varying vec3 vTail;
-  varying vec4 vColor;
-  varying vec4 vSize;
-  varying vec4 vMisc;
-  varying float vEnergy;
-  varying float vCoreShare;
-  void main() {
-    vec3 h = (modelViewMatrix * vec4(iHead, 1.0)).xyz;
-    vec3 t = (modelViewMatrix * vec4(iTail, 1.0)).xyz;
-    const float NEAR = 0.06;
-    if (h.z > -NEAR && t.z > -NEAR) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
-    vec3 h0 = h, t0 = t;
-    if (h.z > -NEAR) h = mix(t0, h0, (t0.z + NEAR) / (t0.z - h0.z));
-    if (t.z > -NEAR) t = mix(h0, t0, (h0.z + NEAR) / (h0.z - t0.z));
-    float nearest = min(-h.z, -t.z);
-    bool vapor = iSize.z > 0.5 && iSize.z < 1.5;
-    float glow = vapor ? iSize.y : max(iSize.y, nearest * pixelAngle * 2.5);
-    float core = max(iSize.x, nearest * pixelAngle * 0.75);
-    vEnergy = vapor ? 1.0 : clamp(iSize.y / glow, 0.08, 1.0);
-    vCoreShare = clamp(iSize.x / core, 0.0, 1.0);
-    vec2 hp = h.xy / -h.z, tp = t.xy / -t.z;
-    // The quad reaches only as far from the segment as the fragment shader
-    // can light a pixel: beyond it every pixel is let go (its discards),
-    // so the quad can stop there. Each kind's bound is its brightest term
-    // solved for the 0.002 cut, with the shader's own peak factors folded
-    // in (vapour: body 1.3 x keep x (0.9 a + 0.6 opacity); tracer line:
-    // the halo 0.32 e^-2x, x 1.7 redGlow x 1.35 pulse, the sheath folded in
-    // as 1.5 % past x = 2; bolt and spark: the sheath 2 e^-2.4x^2 with its
-    // red glow 1.25 wider and 1.7 brighter).
-    float energy = iColor.a * vEnergy;
-    float reach;
-    if (vapor) {
-      float radius = glow * 0.5;
-      reach = radius * sqrt(max(-log(0.0019 / (1.3 * (0.9 * iColor.a + 0.6 * iMisc.y))), 0.0) / 1.6);
-    } else if (iSize.z < 0.5) {
-      reach = glow * max(2.0, 0.5 * log(392.0 * energy));
-    } else {
-      reach = glow * sqrt(max(log(1790.0 * energy), 0.0) * 0.651);
-    }
-    // A pixel's distance from the segment falls short of its offset in the
-    // plane (times the depth) by its ray's slant, 1 / |(p, 1)|: each end's
-    // half width is widened to what covers the slant at the quad's own far
-    // edge (r = k sqrt(1 + (|p| + r)^2), k the reach over the depth).
-    float kh = min(reach / -h.z, 0.9), kt = min(reach / -t.z, 0.9);
-    float lh = length(hp), lt = length(tp);
-    float rh = (kh * kh * lh + kh * sqrt(max(1.0 + lh * lh - kh * kh, 0.0))) / (1.0 - kh * kh);
-    float rt = (kt * kt * lt + kt * sqrt(max(1.0 + lt * lt - kt * kt, 0.0))) / (1.0 - kt * kt);
-    float r = max(rh, rt);
-    vec2 dir = tp - hp;
-    float len = length(dir);
-    dir = len > 1e-7 ? dir / len : vec2(1.0, 0.0);
-    vec2 across = vec2(-dir.y, dir.x);
-    float along = corner.x * 0.5 + 0.5;
-    vec2 p = mix(hp - dir * rh, tp + dir * rt, along) + across * r * corner.y;
-    vPlane = p;
-    vHead = h;
-    vTail = t;
-    vColor = iColor;
-    vSize = vec4(core, glow, iSize.z, iSize.w);
-    // The tail's distance from the muzzle, carried to where the clipped
-    // tail now starts, so the noise stays fixed along the path.
-    float cut = length(t - t0);
-    vMisc = vec4(iMisc.x, iMisc.y, iMisc.z + cut, iMisc.w);
-    float depth = nearest;
-    gl_Position = projectionMatrix * vec4(p * depth, -depth, 1.0);
-  }
-`;
 
-const streakFragment = /* glsl */ `
-  uniform mat4 projectionMatrix;
-  uniform vec2 fade;
-  uniform float time;
-  uniform sampler2D sceneDepth;
-  uniform float softParticles;
-  uniform vec2 depthResolution;
-  uniform vec2 cameraRange;
-  varying vec2 vPlane;
-  varying vec3 vHead;
-  varying vec3 vTail;
-  varying vec4 vColor;
-  varying vec4 vSize;
-  varying vec4 vMisc;
-  varying float vEnergy;
-  varying float vCoreShare;
-  ${NOISE}
-  void main() {
-    vec3 ray = normalize(vec3(vPlane, -1.0));
-    vec3 span = vTail - vHead;
-    float rv = dot(ray, span), rh = dot(ray, vHead), vv = dot(span, span);
-    float den = vv - rv * rv;
-    float s = den > 1e-6 ? clamp((rv * rh - dot(span, vHead)) / den, 0.0, 1.0) : 0.0;
-    vec3 closest = vHead + span * s;
-    float along = dot(ray, closest);
-    if (along <= 0.0) discard;
-    float d2 = max(dot(closest, closest) - along * along, 0.0);
-    float d = sqrt(d2);
-    float len = sqrt(vv);
-    // Metres from the muzzle (the tail end) at this pixel.
-    float m = vMisc.z + (1.0 - s) * len;
-    float age = vMisc.x;
-    float kind = vSize.z;
-    float seed = vSize.w;
-    vec3 rgb = vColor.rgb;
-    // A red-dominant bolt (the CIS's) is drawn as the films draw droid
-    // bolts: a thin white-hot core inside a wide, bright red glow. Spread
-    // across the whole core, the white's green and blue turned it pink.
-    float redness = clamp((rgb.r - max(rgb.g, rgb.b)) * 1.2, 0.0, 1.0);
-    float whiten = mix(0.45, 0.85, redness);
-    float thinCore = mix(1.0, 0.45, redness);
-    float redGlow = mix(1.0, 1.7, redness);
-    vec3 point = ray * along;
-    float depth = -point.z;
-    float near = clamp((fade.y - depth) / max(fade.y - fade.x, 1.0), 0.0, 1.0);
-    // Nothing flares right in front of the eye (the shooter's own view down
-    // the shot), but the puff at his own muzzle (vMisc.w).
-    float eye = vMisc.w > 0.5 ? smoothstep(0.08, 0.3, depth) : smoothstep(0.3, 2.5, depth);
-    float keep = near * near * eye;
-    vec3 energy = vec3(0.0);
-    float cover = 0.0;
-    if (kind < 0.5) {
-      // A tracer line: an even glow along it.
-      float core = vSize.x * thinCore, glow = vSize.y;
-      float axial = vv > 1e-8 ? abs(rv) / len : 1.0;
-      float hot = (1.0 - smoothstep(core * 0.5, core * 1.15, d)) * vCoreShare;
-      float sheath = exp(-d2 / (glow * glow) * 2.6) * (1.0 + 0.4 * axial);
-      float halo = exp(-d / glow * 2.0) * 0.32;
-      float pulse = 1.0 + 0.35 * exp(-age * 2.5) * sin(m * 0.8 - age * 70.0 + seed * 6.28);
-      float shimmer = 0.9 + 0.1 * sin(time * 83.0 + seed * 40.0 + m * 0.3);
-      energy = (mix(rgb, vec3(1.0), whiten) * hot * 2.2 + rgb * (sheath * 2.0 + halo) * redGlow) * pulse * shimmer;
-      energy *= vColor.a * vEnergy;
-    } else if (kind < 1.5) {
-      // Vapour: a soft tube that tears into wisps as it ages.
-      float radius = vSize.y * 0.5;
-      float body = exp(-d2 / (radius * radius) * 1.6);
-      // The noise below is the costliest part of the look: where even its
-      // densest (1.3 x body) would end under the discard below, the pixel
-      // is let go first.
-      if (body * 1.3 * keep * (vColor.a * 0.9 + vMisc.y * 0.6) < 0.002) discard;
-      float tear = fbm(vec2(m * 0.42 + seed * 31.0, age * 0.55));
-      float wisp = fbm(vec2(m * 1.6 - seed * 7.0, d / radius * 1.7 - age * 1.2));
-      float density = body * smoothstep(0.18, 0.72, tear + 0.42 - age * 0.22) * (0.55 + 0.75 * wisp);
-      cover = clamp(density * vMisc.y, 0.0, 1.0);
-      // Fresh vapour still glows with the shot's colour.
-      energy = rgb * density * vColor.a * 0.9;
-    } else {
-      // A spark: a short tapering streak.
-      float core = vSize.x * thinCore * mix(1.0, 0.25, s), glow = vSize.y * mix(1.0, 0.5, s) * mix(1.0, 1.25, redness);
-      float hot = (1.0 - smoothstep(core * 0.5, core * 1.2, d)) * vCoreShare;
-      float sheath = exp(-d2 / (glow * glow) * 2.4);
-      energy = (mix(rgb, vec3(1.0), whiten) * hot * 2.0 + rgb * sheath * 2.0 * redGlow) * vColor.a * mix(1.0, 0.25, s) * vEnergy;
-    }
-    // A bolt or tracer comes out of the gun: it fades in over its first
-    // metres (vMisc.y), so its world-fixed start never shows as an edge
-    // beside a gun that has since kicked and moved on.
-    if (kind < 0.5 || kind > 1.5) energy *= smoothstep(0.0, max(vMisc.y, 1e-3), m);
-    vec3 light = (1.0 - exp(-energy)) * keep;
-    cover *= keep;
-    // Vapour covers what is behind it in a pale haze; light adds.
-    vec3 haze = mix(vec3(0.62, 0.66, 0.72), rgb, 0.18) * cover * 0.55;
-    vec3 color = light + haze;
-    // It also covers a little of the ground behind its glow, so the red
-    // holds over bright sand without going dark.
-    float shade = kind > 0.5 && kind < 1.5 ? 0.5 : mix(0.5, 0.62, redness);
-    float alpha = max(max(light.r, max(light.g, light.b)) * shade, cover * 0.6);
-    // Faint already, it is let go before the scene's depth is read (the
-    // soft edge below only dims it further).
-    if (max(color.r, max(color.g, color.b)) < 0.002 && alpha < 0.002) discard;
-    if (softParticles > 0.5) {
-      float stored = texture2D(sceneDepth, gl_FragCoord.xy / depthResolution).x;
-      float surface = cameraRange.x * cameraRange.y / (cameraRange.y - stored * (cameraRange.y - cameraRange.x));
-      float soft = smoothstep(0.0, max(vSize.y * 0.8, 0.05), surface - depth);
-      color *= soft;
-      alpha *= soft;
-      if (max(color.r, max(color.g, color.b)) < 0.002 && alpha < 0.002) discard;
-    }
-    vec4 clip = projectionMatrix * vec4(point, 1.0);
-    gl_FragDepth = clamp(clip.z / clip.w * 0.5 + 0.5, 0.0, 1.0);
-    gl_FragColor = vec4(color, alpha);
-  }
-`;
 
-const flareVertex = /* glsl */ `
-  attribute vec2 corner;
-  attribute vec3 iCenter;
-  attribute vec3 iAxis;  // a ring's facing; zero for one that faces the camera
-  attribute vec4 iColor; // rgb, brightness
-  attribute vec4 iParam; // radius, ring width (of the radius), kind (0 flare, 1 ring), turn
-  varying vec2 vCorner;
-  varying vec4 vColor;
-  varying vec4 vParam;
-  void main() {
-    vCorner = corner;
-    vColor = iColor;
-    vParam = iParam;
-    float radius = iParam.x;
-    vec4 view;
-    if (dot(iAxis, iAxis) > 0.25) {
-      vec3 a = normalize(iAxis);
-      vec3 u = normalize(cross(a, abs(a.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
-      vec3 v = cross(a, u);
-      view = modelViewMatrix * vec4(iCenter + (u * corner.x + v * corner.y) * radius, 1.0);
-    } else {
-      view = modelViewMatrix * vec4(iCenter, 1.0);
-      // Pulled toward the eye, so a flash on a wall isn't cut in half by it.
-      view.xyz += normalize(-view.xyz) * min(radius * 0.6, max(-view.z - 0.1, 0.0));
-      float c = cos(iParam.w), s = sin(iParam.w);
-      view.xy += mat2(c, s, -s, c) * corner * radius;
-    }
-    gl_Position = projectionMatrix * view;
-  }
-`;
 
-const flareFragment = /* glsl */ `
-  varying vec2 vCorner;
-  varying vec4 vColor;
-  varying vec4 vParam;
-  void main() {
-    float r = length(vCorner);
-    if (r > 1.0) discard;
-    vec3 rgb = vColor.rgb;
-    vec3 energy;
-    if (vParam.z < 0.5) {
-      // A flare: a hot point, a soft bloom and a four-pointed star.
-      float core = exp(-r * r * 60.0) * 2.4;
-      float bloom = exp(-r * 5.0) * 0.8;
-      float a = atan(vCorner.y, vCorner.x);
-      float rays = pow(abs(cos(a * 2.0)), 48.0) * exp(-r * 3.2) * 1.3;
-      energy = vec3(1.0) * core + rgb * (bloom + rays);
-    } else {
-      float width = max(vParam.y, 0.02);
-      float band = exp(-pow((r - (1.0 - width)) / width, 2.0));
-      energy = mix(rgb, vec3(1.0), 0.35) * band * 1.6;
-    }
-    energy *= vColor.a * (1.0 - smoothstep(0.85, 1.0, r));
-    vec3 color = 1.0 - exp(-energy);
-    if (max(color.r, max(color.g, color.b)) < 0.002) discard;
-    gl_FragColor = vec4(color, 0.0);
-  }
-`;
+
+
+
+
+
 
 function instanced(attributes, stride, material, capacity, name, order) {
   const geometry = new THREE.InstancedBufferGeometry();
@@ -389,8 +133,8 @@ function upload(batch, warm = false) {
   batch.buffer.needsUpdate = true;
 }
 
-const premultiplied = (uniforms, vertexShader, fragmentShader) => new THREE.ShaderMaterial({
-  uniforms, vertexShader, fragmentShader,
+const premultiplied = (uniforms, key) => ownedEffectMaterial(key, {
+  uniforms,
   transparent: true, depthWrite: false,
   blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
   blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
@@ -444,8 +188,8 @@ export class SniperTrace {
     };
     // Sized for a busy fight (a dozen rifles' smoke, vapour and sparks at
     // once): growing mid-battle makes new buffers.
-    this.streaks = instanced(STREAK_ATTRIBUTES, STREAK_STRIDE, premultiplied(uniforms, streakVertex, streakFragment), 512, "sniper-trace", 11);
-    this.flares = instanced(FLARE_ATTRIBUTES, FLARE_STRIDE, premultiplied({}, flareVertex, flareFragment), 64, "sniper-flares", 12);
+    this.streaks = instanced(STREAK_ATTRIBUTES, STREAK_STRIDE, premultiplied(uniforms, 'effects/sniper-streak'), 512, "sniper-trace", 11);
+    this.flares = instanced(FLARE_ATTRIBUTES, FLARE_STRIDE, premultiplied({}, 'effects/sniper-flare'), 64, "sniper-flares", 12);
     this.flares.mesh.material.depthTest = true;
     this.mesh = new THREE.Group();
     this.mesh.name = "sniper-shots";

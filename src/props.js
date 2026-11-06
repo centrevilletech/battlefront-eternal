@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ownedBasicEffect } from "./rust-render/effect-material.js";
 import { descendantMuzzles } from "./muzzles.js";
 import { gradientTexture } from "./commandposts.js";
 import { blastBlocked, blastDamage, blastDistance, healthScale } from "./ordnance.js";
@@ -123,7 +124,7 @@ class BuildHologram {
     this.materials = [];
     if (image) {
       for (const part of image) {
-        const material = new THREE.MeshBasicMaterial({
+        const material = ownedBasicEffect('basic', { visible: true,
           map: part.map,
           color: this.color,
           transparent: true,
@@ -137,7 +138,7 @@ class BuildHologram {
     }
     this.beam = new THREE.Mesh(
       new THREE.CylinderGeometry(0.35, 0.05, look.height, 16, 1, true).translate(0, look.height / 2, 0),
-      new THREE.MeshBasicMaterial({
+      ownedBasicEffect('basic', { visible: true,
         map: gradientTexture(),
         color: this.color,
         transparent: true,

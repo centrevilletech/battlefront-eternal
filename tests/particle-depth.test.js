@@ -13,10 +13,10 @@ function threeOrder(scene, camera, depth) {
   const walk = (o, groupOrder) => {
     if (!o.visible) return;
     if (o.isGroup) groupOrder = o.renderOrder;
-    else if (o.isMesh && o.material.visible) {
+    else if (o.name === "particle-depth-copier" && !o.isGroup || o.isMesh && o.material.visible) {
       const g = o.geometry;
-      if (g.boundingSphere === null) g.computeBoundingSphere();
-      const v = new THREE.Vector4().copy(g.boundingSphere.center).applyMatrix4(o.matrixWorld).applyMatrix4(screen);
+      if (g && g.boundingSphere === null) g.computeBoundingSphere();
+      const v = new THREE.Vector4().copy(g ? g.boundingSphere.center : new THREE.Vector3()).applyMatrix4(o.matrixWorld).applyMatrix4(screen);
       items.push({ object: o, groupOrder, renderOrder: o.renderOrder, z: v.z, id: o.id });
     }
     for (const child of o.children) walk(child, groupOrder);
@@ -111,7 +111,7 @@ test("the copier: just before the earliest reader asked for, in three's own orde
   }
 });
 
-test("nothing placed without a request or for another render, and the copier shown once at first (its program built)", () => {
+test("nothing placed without a request or for another render, and the marker has no browser draw program", () => {
   const { depth, scene, camera, reader, start, source, mirror, restore } = setup();
   try {
     const mesh = reader(0, 0, -10, 10);

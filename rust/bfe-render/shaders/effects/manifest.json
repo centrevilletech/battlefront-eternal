@@ -1,0 +1,5173 @@
+{
+  "version": 1,
+  "programs": [
+    {
+      "key": "effects/arc-s2",
+      "material": "effects/arc",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "arc-s2.vert",
+      "fragment": "arc-s2.frag",
+      "attributes": {
+        "corner": 3,
+        "iA": 4,
+        "iB": 5,
+        "iNA": 6,
+        "iNB": 7,
+        "iColor": 8,
+        "iSize": 9
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "pixelAngle": 1,
+        "nearDepth": 1,
+        "closeRange": 1,
+        "fade": 2,
+        "eyeFade": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/arc-s2-shadow",
+      "material": "effects/arc",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3,
+        "iA": 4,
+        "iB": 5,
+        "iNA": 6,
+        "iNB": 7,
+        "iColor": 8,
+        "iSize": 9
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "pixelAngle": 1,
+        "nearDepth": 1,
+        "closeRange": 1,
+        "fade": 2,
+        "eyeFade": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/arc-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/basic-colors-s0-mesh",
+      "material": "effects/lightning-basic",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "vertexColors": true
+      },
+      "kind": "Effect",
+      "vertex": "basic-colors-s0.vert",
+      "fragment": "basic-colors-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "color": 3
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/basic-colors-s0-shadow-mesh",
+      "material": "effects/lightning-basic",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {},
+        "vertexColors": true
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "color": 3
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/basic-colors-s0-mesh",
+        "vertexLine": 30,
+        "fragmentLine": 38
+      }
+    },
+    {
+      "key": "effects/basic-colors-s1-mesh",
+      "material": "effects/lightning-basic",
+      "selector": {
+        "side": 1,
+        "shadows": false,
+        "defines": {},
+        "vertexColors": true
+      },
+      "kind": "Effect",
+      "vertex": "basic-colors-s1.vert",
+      "fragment": "basic-colors-s1.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "color": 3
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/basic-colors-s1-shadow-mesh",
+      "material": "effects/lightning-basic",
+      "selector": {
+        "side": 1,
+        "shadows": true,
+        "defines": {},
+        "vertexColors": true
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "color": 3
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/basic-colors-s1-mesh",
+        "vertexLine": 31,
+        "fragmentLine": 39
+      }
+    },
+    {
+      "key": "effects/basic-s0",
+      "material": "effects/basic",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "vertex": "basic-s0.vert",
+      "fragment": "basic-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/basic-s0-shadow",
+      "material": "effects/basic",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/basic-s0",
+        "vertexLine": 28,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/basic-s1",
+      "material": "effects/basic",
+      "selector": {
+        "side": 1,
+        "shadows": false,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "vertex": "basic-s1.vert",
+      "fragment": "basic-s1.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/basic-s1-shadow",
+      "material": "effects/basic",
+      "selector": {
+        "side": 1,
+        "shadows": true,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/basic-s1",
+        "vertexLine": 29,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/blaster-s2",
+      "material": "effects/blaster",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "blaster-s2.vert",
+      "fragment": "blaster-s2.frag",
+      "attributes": {
+        "corner": 3,
+        "iHead": 4,
+        "iTail": 5,
+        "iColor": 6,
+        "iSize": 7
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "pixelAngle": 1,
+        "fade": 2,
+        "time": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/blaster-s2-shadow",
+      "material": "effects/blaster",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3,
+        "iHead": 4,
+        "iTail": 5,
+        "iColor": 6,
+        "iSize": 7
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "pixelAngle": 1,
+        "fade": 2,
+        "time": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/blaster-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/death-trace-s2",
+      "material": "effects/death-trace",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "vertex": "death-trace-s2.vert",
+      "fragment": "death-trace-s2.frag",
+      "attributes": {
+        "position": 0,
+        "line": 3
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "color": 3,
+        "head": 1,
+        "opacity": 1,
+        "span": 1,
+        "traceTime": 1
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/death-trace-s2-shadow",
+      "material": "effects/death-trace",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "line": 3
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "color": 3,
+        "head": 1,
+        "opacity": 1,
+        "span": 1,
+        "traceTime": 1
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/death-trace-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/destruction-arcs-s2",
+      "material": "effects/destruction-arcs",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "vertex": "destruction-arcs-s2.vert",
+      "fragment": "destruction-arcs-s2.frag",
+      "attributes": {
+        "position": 0,
+        "tangent": 3,
+        "meta": 4
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "resolution": 2,
+        "fogRange": 2
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/destruction-arcs-s2-shadow",
+      "material": "effects/destruction-arcs",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "tangent": 3,
+        "meta": 4
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "resolution": 2,
+        "fogRange": 2
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/destruction-arcs-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/destruction-hot-s2",
+      "material": "effects/destruction-hot",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "vertex": "destruction-hot-s2.vert",
+      "fragment": "destruction-hot-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "a0": 3,
+        "a1": 4,
+        "a2": 5,
+        "a3": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "fxTime": 1,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/destruction-hot-s2-shadow",
+      "material": "effects/destruction-hot",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "a0": 3,
+        "a1": 4,
+        "a2": 5,
+        "a3": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "fxTime": 1,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/destruction-hot-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/destruction-smoke-s2",
+      "material": "effects/destruction-smoke",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "vertex": "destruction-smoke-s2.vert",
+      "fragment": "destruction-smoke-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "a0": 3,
+        "a1": 4,
+        "a2": 5,
+        "a3": 6,
+        "a4": 7
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "fxTime": 1,
+        "wind": 3,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "fogColor": 3,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/destruction-smoke-s2-shadow",
+      "material": "effects/destruction-smoke",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "a0": 3,
+        "a1": 4,
+        "a2": 5,
+        "a3": 6,
+        "a4": 7
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "fxTime": 1,
+        "wind": 3,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "fogColor": 3,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/destruction-smoke-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/far-image",
+      "material": "effects/far-image",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "far-image.vert",
+      "fragment": "far-image.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/far-image-shadow",
+      "material": "effects/far-image",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/far-image",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/flame-s2-premultiplied",
+      "material": "effects/flame",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": true
+      },
+      "kind": "Effect",
+      "vertex": "flame-s2-premultiplied.vert",
+      "fragment": "flame-s2-premultiplied.frag",
+      "attributes": {
+        "position": 0,
+        "nozzle": 3,
+        "direction": 4,
+        "bend": 5,
+        "nozzleRadius": 6,
+        "phase": 7
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "flameTime": 1,
+        "power": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "hasDepth": 1,
+        "noiseField": 33,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/flame-s2-shadow-premultiplied",
+      "material": "effects/flame",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": true
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "nozzle": 3,
+        "direction": 4,
+        "bend": 5,
+        "nozzleRadius": 6,
+        "phase": 7
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "flameTime": 1,
+        "power": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "hasDepth": 1,
+        "noiseField": 33,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/flame-s2-premultiplied",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/fountain-water-s2",
+      "material": "effects/fountain-water",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "fountain-water-s2.vert",
+      "fragment": "fountain-water-s2.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "reflectionMatrix": 16,
+        "waterResolution": 2,
+        "cameraRange": 2,
+        "waterTime": 1,
+        "hasReflection": 1,
+        "hasFoam": 1,
+        "hasTier": 1,
+        "sky": 3,
+        "waterSunDirection": 3,
+        "waterSunColor": 3,
+        "wakes": {
+          "type": 4,
+          "size": 8
+        },
+        "motion": {
+          "type": 4,
+          "size": 8
+        },
+        "basins": {
+          "type": 4,
+          "size": 5
+        },
+        "reflection": 32,
+        "sceneColor": 32,
+        "sceneDepth": 32,
+        "foamMap": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/fountain-water-s2-shadow",
+      "material": "effects/fountain-water",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "reflectionMatrix": 16,
+        "waterResolution": 2,
+        "cameraRange": 2,
+        "waterTime": 1,
+        "hasReflection": 1,
+        "hasFoam": 1,
+        "hasTier": 1,
+        "sky": 3,
+        "waterSunDirection": 3,
+        "waterSunColor": 3,
+        "wakes": {
+          "type": 4,
+          "size": 8
+        },
+        "motion": {
+          "type": 4,
+          "size": 8
+        },
+        "basins": {
+          "type": 4,
+          "size": 5
+        },
+        "reflection": 32,
+        "sceneColor": 32,
+        "sceneDepth": 32,
+        "foamMap": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/fountain-water-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/glow-basic-s0",
+      "material": "effects/glow-basic",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "vertex": "basic-s0.vert",
+      "fragment": "basic-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/glow-basic-s0-shadow",
+      "material": "effects/glow-basic",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/glow-basic-s0",
+        "vertexLine": 28,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/glow-basic-s1",
+      "material": "effects/glow-basic",
+      "selector": {
+        "side": 1,
+        "shadows": false,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "vertex": "basic-s1.vert",
+      "fragment": "basic-s1.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/glow-basic-s1-shadow",
+      "material": "effects/glow-basic",
+      "selector": {
+        "side": 1,
+        "shadows": true,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/glow-basic-s1",
+        "vertexLine": 29,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/jet-composite-s0",
+      "material": "effects/jet-composite",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "jet-composite-s0.vert",
+      "fragment": "jet-composite-s0.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "sprayResolution": 2,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "enabled": 1,
+        "sprayMap": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/jet-composite-s0-shadow",
+      "material": "effects/jet-composite",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "sprayResolution": 2,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "enabled": 1,
+        "sprayMap": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/jet-composite-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/jet-core-s0",
+      "material": "effects/jet-core",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "vertex": "jet-core-s0.vert",
+      "fragment": "jet-core-s0.frag",
+      "attributes": {
+        "sweep": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "levels": {
+          "type": 1,
+          "size": 5
+        },
+        "jetTime": 1,
+        "sunDirection": 3,
+        "visible": {
+          "type": 1,
+          "size": 5
+        },
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "fade": 2,
+        "hasDepth": 1,
+        "sunColor": 3,
+        "ambient": 3,
+        "ambientTop": 3,
+        "ambientBottom": 3,
+        "sceneResolution": 2,
+        "hasScene": 1,
+        "fragScale": 2,
+        "sceneDepth": 32,
+        "sceneColor": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/jet-core-s0-shadow",
+      "material": "effects/jet-core",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "attributes": {
+        "sweep": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "levels": {
+          "type": 1,
+          "size": 5
+        },
+        "jetTime": 1,
+        "sunDirection": 3,
+        "visible": {
+          "type": 1,
+          "size": 5
+        },
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "fade": 2,
+        "hasDepth": 1,
+        "sunColor": 3,
+        "ambient": 3,
+        "ambientTop": 3,
+        "ambientBottom": 3,
+        "sceneResolution": 2,
+        "hasScene": 1,
+        "fragScale": 2,
+        "sceneDepth": 32,
+        "sceneColor": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/jet-core-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/jet-film-s2",
+      "material": "effects/jet-film",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "vertex": "jet-film-s2.vert",
+      "fragment": "jet-film-s2.frag",
+      "attributes": {
+        "film": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "levels": {
+          "type": 1,
+          "size": 5
+        },
+        "lows": {
+          "type": 1,
+          "size": 5
+        },
+        "jetTime": 1,
+        "side": 1,
+        "sunDirection": 3,
+        "visible": {
+          "type": 1,
+          "size": 5
+        },
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "fade": 2,
+        "hasDepth": 1,
+        "sunColor": 3,
+        "ambient": 3,
+        "ambientTop": 3,
+        "ambientBottom": 3,
+        "sceneResolution": 2,
+        "hasScene": 1,
+        "fragScale": 2,
+        "sceneDepth": 32,
+        "sceneColor": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/jet-film-s2-shadow",
+      "material": "effects/jet-film",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "attributes": {
+        "film": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "levels": {
+          "type": 1,
+          "size": 5
+        },
+        "lows": {
+          "type": 1,
+          "size": 5
+        },
+        "jetTime": 1,
+        "side": 1,
+        "sunDirection": 3,
+        "visible": {
+          "type": 1,
+          "size": 5
+        },
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "fade": 2,
+        "hasDepth": 1,
+        "sunColor": 3,
+        "ambient": 3,
+        "ambientTop": 3,
+        "ambientBottom": 3,
+        "sceneResolution": 2,
+        "hasScene": 1,
+        "fragScale": 2,
+        "sceneDepth": 32,
+        "sceneColor": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/jet-film-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/jet-ropes-s2",
+      "material": "effects/jet-ropes",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "vertex": "jet-ropes-s2.vert",
+      "fragment": "jet-ropes-s2.frag",
+      "attributes": {
+        "strip": 3,
+        "rope": 4
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "levels": {
+          "type": 1,
+          "size": 5
+        },
+        "lows": {
+          "type": 1,
+          "size": 5
+        },
+        "jetTime": 1,
+        "side": 1,
+        "wind": 3,
+        "sunDirection": 3,
+        "depthResolution": 2,
+        "perFountain": 1,
+        "visible": {
+          "type": 1,
+          "size": 5
+        },
+        "cameraRange": 2,
+        "fade": 2,
+        "hasDepth": 1,
+        "sunColor": 3,
+        "ambient": 3,
+        "ambientTop": 3,
+        "ambientBottom": 3,
+        "sceneResolution": 2,
+        "hasScene": 1,
+        "fragScale": 2,
+        "sceneDepth": 32,
+        "sceneColor": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/jet-ropes-s2-shadow",
+      "material": "effects/jet-ropes",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "attributes": {
+        "strip": 3,
+        "rope": 4
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "levels": {
+          "type": 1,
+          "size": 5
+        },
+        "lows": {
+          "type": 1,
+          "size": 5
+        },
+        "jetTime": 1,
+        "side": 1,
+        "wind": 3,
+        "sunDirection": 3,
+        "depthResolution": 2,
+        "perFountain": 1,
+        "visible": {
+          "type": 1,
+          "size": 5
+        },
+        "cameraRange": 2,
+        "fade": 2,
+        "hasDepth": 1,
+        "sunColor": 3,
+        "ambient": 3,
+        "ambientTop": 3,
+        "ambientBottom": 3,
+        "sceneResolution": 2,
+        "hasScene": 1,
+        "fragScale": 2,
+        "sceneDepth": 32,
+        "sceneColor": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/jet-ropes-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/jets-s2",
+      "material": "effects/jets",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "vertex": "jets-s2.vert",
+      "fragment": "jets-s2.frag",
+      "attributes": {
+        "corner": 3,
+        "seed": 4
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "levels": {
+          "type": 1,
+          "size": 5
+        },
+        "lows": {
+          "type": 1,
+          "size": 5
+        },
+        "jetTime": 1,
+        "side": 1,
+        "wind": 3,
+        "depthResolution": 2,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "ambientTop": 3,
+        "ambientBottom": 3,
+        "perFountain": 1,
+        "visible": {
+          "type": 1,
+          "size": 5
+        },
+        "cameraRange": 2,
+        "fade": 2,
+        "hasDepth": 1,
+        "hasFoam": 1,
+        "sceneResolution": 2,
+        "hasScene": 1,
+        "fragScale": 2,
+        "atlas": 32,
+        "foamMap": 32,
+        "sceneDepth": 32,
+        "sceneColor": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/jets-s2-shadow",
+      "material": "effects/jets",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3,
+        "seed": 4
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "levels": {
+          "type": 1,
+          "size": 5
+        },
+        "lows": {
+          "type": 1,
+          "size": 5
+        },
+        "jetTime": 1,
+        "side": 1,
+        "wind": 3,
+        "depthResolution": 2,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "ambientTop": 3,
+        "ambientBottom": 3,
+        "perFountain": 1,
+        "visible": {
+          "type": 1,
+          "size": 5
+        },
+        "cameraRange": 2,
+        "fade": 2,
+        "hasDepth": 1,
+        "hasFoam": 1,
+        "sceneResolution": 2,
+        "hasScene": 1,
+        "fragScale": 2,
+        "atlas": 32,
+        "foamMap": 32,
+        "sceneDepth": 32,
+        "sceneColor": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/jets-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/motion-flyer",
+      "kind": "Plain",
+      "vertex": "motion-flyer.vert",
+      "fragment": "motion-flyer.frag",
+      "attributes": {
+        "instanceMatrix": 0,
+        "position": 4,
+        "previousMatrix": 7,
+        "shown": 11
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "currentViewProjection": 16,
+        "previousViewProjection": 16,
+        "still": 1,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/motion-locked",
+      "kind": "Motion",
+      "vertex": "motion-locked.vert",
+      "fragment": "motion-locked.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/motion-rigid",
+      "kind": "Motion",
+      "vertex": "motion-rigid.vert",
+      "fragment": "motion-rigid.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "currentViewProjection": 16,
+        "previousViewProjection": 16,
+        "previousModel": 16,
+        "depthRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/motion-skinned",
+      "kind": "Motion",
+      "vertex": "motion-skinned.vert",
+      "fragment": "motion-skinned.frag",
+      "attributes": {
+        "position": 0,
+        "skinIndex": 3,
+        "skinWeight": 4
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "bindMatrix": 16,
+        "bindMatrixInverse": 16,
+        "currentViewProjection": 16,
+        "previousViewProjection": 16,
+        "previousModel": 16,
+        "previousBindInverse": 16,
+        "depthRange": 2,
+        "boneTexture": 32,
+        "previousBones": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/ocean-classic-s2",
+      "material": "effects/ocean-classic",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "ocean-classic-s2.vert",
+      "fragment": "ocean-classic-s2.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "amplitude": 1,
+        "tile": 2,
+        "foamTile": 2,
+        "velocity": 2,
+        "gridOffset": 2,
+        "fogRange": 2,
+        "cell": 1,
+        "gridWidth": 1,
+        "fogColor": 3,
+        "sunColor": 3,
+        "sunDirection": 3,
+        "waterMap": 32,
+        "foamMap": 32,
+        "mask": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/ocean-classic-s2-shadow",
+      "material": "effects/ocean-classic",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "amplitude": 1,
+        "tile": 2,
+        "foamTile": 2,
+        "velocity": 2,
+        "gridOffset": 2,
+        "fogRange": 2,
+        "cell": 1,
+        "gridWidth": 1,
+        "fogColor": 3,
+        "sunColor": 3,
+        "sunDirection": 3,
+        "waterMap": 32,
+        "foamMap": 32,
+        "mask": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/ocean-classic-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/ocean-haze-s1",
+      "material": "effects/ocean-haze",
+      "selector": {
+        "side": 1,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "ocean-haze-s1.vert",
+      "fragment": "ocean-haze-s1.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "hazeColor": 3
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/ocean-s2",
+      "material": "effects/ocean",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "ocean-s2.vert",
+      "fragment": "ocean-s2.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "stormStrength": 1,
+        "gridOffset": 2,
+        "gridWidth": 1,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "rainRipples": 1,
+        "waterColor": 3,
+        "ambient": 3,
+        "reflectAmount": 1,
+        "mask": 32,
+        "skyProbe": 35
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/ocean-s2-shadow",
+      "material": "effects/ocean",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "stormStrength": 1,
+        "gridOffset": 2,
+        "gridWidth": 1,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "rainRipples": 1,
+        "waterColor": 3,
+        "ambient": 3,
+        "reflectAmount": 1,
+        "mask": 32,
+        "skyProbe": 35
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/ocean-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/ocean-spray-s2",
+      "material": "effects/ocean-spray",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "ocean-spray-s2.vert",
+      "fragment": "ocean-spray-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "seed": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "stormStrength": 1,
+        "gridOffset": 2,
+        "gridWidth": 1,
+        "eye": 2,
+        "seaLevel": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "hazeColor": 3,
+        "mask": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/ocean-spray-s2-shadow",
+      "material": "effects/ocean-spray",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "seed": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "stormStrength": 1,
+        "gridOffset": 2,
+        "gridWidth": 1,
+        "eye": 2,
+        "seaLevel": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "hazeColor": 3,
+        "mask": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/ocean-spray-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/ocean-spray-storm-s2",
+      "material": "effects/ocean-spray",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {
+          "STORM": ""
+        }
+      },
+      "kind": "Plain",
+      "vertex": "ocean-spray-storm-s2.vert",
+      "fragment": "ocean-spray-storm-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "seed": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "stormStrength": 1,
+        "gridOffset": 2,
+        "gridWidth": 1,
+        "eye": 2,
+        "seaLevel": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "hazeColor": 3,
+        "mask": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/ocean-spray-storm-s2-shadow",
+      "material": "effects/ocean-spray",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {
+          "STORM": ""
+        }
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "seed": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "stormStrength": 1,
+        "gridOffset": 2,
+        "gridWidth": 1,
+        "eye": 2,
+        "seaLevel": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "hazeColor": 3,
+        "mask": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/ocean-spray-storm-s2",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/ocean-storm-s2",
+      "material": "effects/ocean",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {
+          "STORM": ""
+        }
+      },
+      "kind": "Plain",
+      "vertex": "ocean-storm-s2.vert",
+      "fragment": "ocean-storm-s2.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "stormStrength": 1,
+        "gridOffset": 2,
+        "gridWidth": 1,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "rainRipples": 1,
+        "hazeColor": 3,
+        "lightningPosition": 3,
+        "cloudReady": 1,
+        "lightningFlash": 1,
+        "mask": 32,
+        "cloudMap": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/ocean-storm-s2-shadow",
+      "material": "effects/ocean",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {
+          "STORM": ""
+        }
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "wind": 2,
+        "time": 1,
+        "stormStrength": 1,
+        "gridOffset": 2,
+        "gridWidth": 1,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "rainRipples": 1,
+        "hazeColor": 3,
+        "lightningPosition": 3,
+        "cloudReady": 1,
+        "lightningFlash": 1,
+        "mask": 32,
+        "cloudMap": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/ocean-storm-s2",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/particle-analytic",
+      "kind": "Effect",
+      "vertex": "particle-analytic.vert",
+      "fragment": "particle-analytic.frag",
+      "attributes": {
+        "corner": 3,
+        "spawnPosition": 4,
+        "spawnVelocity": 5,
+        "spawnColor": 6,
+        "spawnShape": 7,
+        "spawnMeta": 8
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "trackRows": 1,
+        "emitterRows": 1,
+        "fade": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "tracks": 32,
+        "emitters": 32,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/particle-analytic-shadow",
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3,
+        "spawnPosition": 4,
+        "spawnVelocity": 5,
+        "spawnColor": 6,
+        "spawnShape": 7,
+        "spawnMeta": 8
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "trackRows": 1,
+        "emitterRows": 1,
+        "fade": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "tracks": 32,
+        "emitters": 32,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/particle-analytic",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/particle-bolt",
+      "kind": "Effect",
+      "vertex": "particle-bolt.vert",
+      "fragment": "particle-bolt.frag",
+      "attributes": {
+        "corner": 3,
+        "iPosition": 4,
+        "iColor": 5,
+        "iShape": 6,
+        "iAxis": 7,
+        "iAxis2": 8,
+        "iFrame": 9
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "fade": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/particle-bolt-shadow",
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3,
+        "iPosition": 4,
+        "iColor": 5,
+        "iShape": 6,
+        "iAxis": 7,
+        "iAxis2": 8,
+        "iFrame": 9
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "fade": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/particle-bolt",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/particle-cpu",
+      "kind": "Effect",
+      "vertex": "particle-cpu.vert",
+      "fragment": "particle-cpu.frag",
+      "attributes": {
+        "corner": 3,
+        "iPosition": 4,
+        "iColor": 5,
+        "iShape": 6,
+        "iAxis": 7,
+        "iAxis2": 8,
+        "iFrame": 9
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "fade": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/particle-cpu-shadow",
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3,
+        "iPosition": 4,
+        "iColor": 5,
+        "iShape": 6,
+        "iAxis": 7,
+        "iAxis2": 8,
+        "iFrame": 9
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "fade": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/particle-cpu",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/rain-impacts-s2",
+      "material": "effects/rain-impacts",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "rain-impacts-s2.vert",
+      "fragment": "rain-impacts-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "impact": 3,
+        "surfaceNormal": 4,
+        "kind": 5
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "impactTime": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/rain-impacts-s2-shadow",
+      "material": "effects/rain-impacts",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "impact": 3,
+        "surfaceNormal": 4,
+        "kind": 5
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "impactTime": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/rain-impacts-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/rain-s2",
+      "material": "effects/rain",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "rain-s2.vert",
+      "fragment": "rain-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "seed": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "eye": 3,
+        "cameraMotion": 3,
+        "wind": 2,
+        "depthResolution": 2,
+        "rainTime": 1,
+        "range": 1,
+        "velocity": 1,
+        "velocityRange": 1,
+        "width": 1,
+        "streak": 1,
+        "enhanced": 1,
+        "effect": 1,
+        "coverCell": 1,
+        "coverSize": 1,
+        "softParticles": 1,
+        "cameraRange": 2,
+        "color": 3,
+        "ambient": 3,
+        "alpha": 2,
+        "cover": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/rain-s2-shadow",
+      "material": "effects/rain",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "seed": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "eye": 3,
+        "cameraMotion": 3,
+        "wind": 2,
+        "depthResolution": 2,
+        "rainTime": 1,
+        "range": 1,
+        "velocity": 1,
+        "velocityRange": 1,
+        "width": 1,
+        "streak": 1,
+        "enhanced": 1,
+        "effect": 1,
+        "coverCell": 1,
+        "coverSize": 1,
+        "softParticles": 1,
+        "cameraRange": 2,
+        "color": 3,
+        "ambient": 3,
+        "alpha": 2,
+        "cover": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/rain-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/rain-sheets-s2",
+      "material": "effects/rain-sheets",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "rain-sheets-s2.vert",
+      "fragment": "rain-sheets-s2.frag",
+      "attributes": {
+        "sheet": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "eye": 3,
+        "radii": 3,
+        "rainTime": 1,
+        "speed": 1,
+        "coverCell": 1,
+        "coverSize": 1,
+        "softParticles": 1,
+        "strength": 1,
+        "wind": 2,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "color": 3,
+        "ambient": 3,
+        "streaks": 32,
+        "cover": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/rain-sheets-s2-shadow",
+      "material": "effects/rain-sheets",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "sheet": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "eye": 3,
+        "radii": 3,
+        "rainTime": 1,
+        "speed": 1,
+        "coverCell": 1,
+        "coverSize": 1,
+        "softParticles": 1,
+        "strength": 1,
+        "wind": 2,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "color": 3,
+        "ambient": 3,
+        "streaks": 32,
+        "cover": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/rain-sheets-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/shield-aura-s0",
+      "material": "effects/shield-aura",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "shield-aura-s0.vert",
+      "fragment": "shield-aura-s0.frag",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "normalMatrix": 9,
+        "shieldTime": 1,
+        "shieldFade": 1,
+        "birth": 1,
+        "inside": 1,
+        "flash": 1
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/shield-aura-s0-shadow",
+      "material": "effects/shield-aura",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "normalMatrix": 9,
+        "shieldTime": 1,
+        "shieldFade": 1,
+        "birth": 1,
+        "inside": 1,
+        "flash": 1
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/shield-aura-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/shield-s2",
+      "material": "effects/shield",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "shield-s2.vert",
+      "fragment": "shield-s2.frag",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "hasMap": 1,
+        "shieldTime": 1,
+        "shieldFade": 1,
+        "charge": 1,
+        "enhanced": 1,
+        "birth": 1,
+        "inside": 1,
+        "flash": 1,
+        "fieldColor": 3,
+        "specularColor": 3,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "impacts": {
+          "type": 4,
+          "size": 6
+        },
+        "powers": {
+          "type": 1,
+          "size": 6
+        },
+        "blasts": {
+          "type": 1,
+          "size": 6
+        },
+        "fieldMap": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/shield-s2-shadow",
+      "material": "effects/shield",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "hasMap": 1,
+        "shieldTime": 1,
+        "shieldFade": 1,
+        "charge": 1,
+        "enhanced": 1,
+        "birth": 1,
+        "inside": 1,
+        "flash": 1,
+        "fieldColor": 3,
+        "specularColor": 3,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "impacts": {
+          "type": 4,
+          "size": 6
+        },
+        "powers": {
+          "type": 1,
+          "size": 6
+        },
+        "blasts": {
+          "type": 1,
+          "size": 6
+        },
+        "fieldMap": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/shield-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/shock-s0-shadow",
+      "material": "effects/shock",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Skinned",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "skinIndex": 3,
+        "skinWeight": 4
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "normalMatrix": 9,
+        "bindMatrix": 16,
+        "bindMatrixInverse": 16,
+        "inflate": 1,
+        "shockTime": 1,
+        "intensity": 1,
+        "seed": 1,
+        "color": 3,
+        "boneTexture": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/shock-s0",
+        "vertexLine": 27,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/sky-flyer-lit-blended-s2-fading",
+      "material": "effects/sky-flyer",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {
+          "LIT": "",
+          "BLENDED": ""
+        }
+      },
+      "kind": "World",
+      "vertex": "sky-flyer-lit-blended-s2-fading.vert",
+      "fragment": "sky-flyer-lit-blended-s2-fading.frag",
+      "attributes": {
+        "instanceMatrix": 0,
+        "position": 4,
+        "normal": 5,
+        "uv": 6,
+        "look": 7
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "reach": 1,
+        "map": 32,
+        "skyProbe": 35
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sky-flyer-lit-s0-fading",
+      "material": "effects/sky-flyer",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {
+          "LIT": ""
+        }
+      },
+      "kind": "World",
+      "vertex": "sky-flyer-lit-s0-fading.vert",
+      "fragment": "sky-flyer-lit-s0-fading.frag",
+      "attributes": {
+        "instanceMatrix": 0,
+        "position": 4,
+        "normal": 5,
+        "uv": 6,
+        "look": 7
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "reach": 1,
+        "map": 32,
+        "skyProbe": 35
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sky-flyer-s0-fading",
+      "material": "effects/sky-flyer",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "sky-flyer-s0-fading.vert",
+      "fragment": "sky-flyer-s0-fading.frag",
+      "attributes": {
+        "instanceMatrix": 0,
+        "position": 4,
+        "uv": 6,
+        "look": 7
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "reach": 1,
+        "map": 32,
+        "skyProbe": 35
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sky-zero-lights-16-sky-no-point-blended-s2-csm-chunks",
+      "material": "effects/sky",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {
+          "ZERO_LIGHTS": "16",
+          "SKY": "",
+          "NO_POINT": "",
+          "BLENDED": ""
+        },
+        "csmChunks": true
+      },
+      "kind": "World",
+      "vertex": "sky-zero-lights-16-sky-no-point-blended-s2-csm-chunks.vert",
+      "fragment": "sky-zero-lights-16-sky-no-point-blended-s2-csm-chunks.frag",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "sunScale": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sky-zero-lights-16-sky-no-point-blended-s2-plain-chunks",
+      "material": "effects/sky",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {
+          "ZERO_LIGHTS": "16",
+          "SKY": "",
+          "NO_POINT": "",
+          "BLENDED": ""
+        },
+        "csmChunks": false
+      },
+      "kind": "World",
+      "vertex": "sky-zero-lights-16-sky-no-point-blended-s2-plain-chunks.vert",
+      "fragment": "sky-zero-lights-16-sky-no-point-blended-s2-plain-chunks.frag",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "sunScale": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sky-zero-lights-16-sky-no-point-s0-csm-chunks",
+      "material": "effects/sky",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {
+          "ZERO_LIGHTS": "16",
+          "SKY": "",
+          "NO_POINT": ""
+        },
+        "csmChunks": true
+      },
+      "kind": "World",
+      "vertex": "sky-zero-lights-16-sky-no-point-s0-csm-chunks.vert",
+      "fragment": "sky-zero-lights-16-sky-no-point-s0-csm-chunks.frag",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "sunScale": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sky-zero-lights-16-sky-no-point-s0-plain-chunks",
+      "material": "effects/sky",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {
+          "ZERO_LIGHTS": "16",
+          "SKY": "",
+          "NO_POINT": ""
+        },
+        "csmChunks": false
+      },
+      "kind": "World",
+      "vertex": "sky-zero-lights-16-sky-no-point-s0-plain-chunks.vert",
+      "fragment": "sky-zero-lights-16-sky-no-point-s0-plain-chunks.frag",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "sunScale": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sniper-flare-s2",
+      "material": "effects/sniper-flare",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "sniper-flare-s2.vert",
+      "fragment": "sniper-flare-s2.frag",
+      "attributes": {
+        "corner": 3,
+        "iCenter": 4,
+        "iAxis": 5,
+        "iColor": 6,
+        "iParam": 7
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sniper-flare-s2-shadow",
+      "material": "effects/sniper-flare",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3,
+        "iCenter": 4,
+        "iAxis": 5,
+        "iColor": 6,
+        "iParam": 7
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sniper-flare-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/sniper-streak-s2",
+      "material": "effects/sniper-streak",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "sniper-streak-s2.vert",
+      "fragment": "sniper-streak-s2.frag",
+      "attributes": {
+        "corner": 3,
+        "iHead": 4,
+        "iTail": 5,
+        "iColor": 6,
+        "iSize": 7,
+        "iMisc": 8
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "pixelAngle": 1,
+        "fade": 2,
+        "time": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sniper-streak-s2-shadow",
+      "material": "effects/sniper-streak",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3,
+        "iHead": 4,
+        "iTail": 5,
+        "iColor": 6,
+        "iSize": 7,
+        "iMisc": 8
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "pixelAngle": 1,
+        "fade": 2,
+        "time": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sniper-streak-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/snow-s2",
+      "material": "effects/snow",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "snow-s2.vert",
+      "fragment": "snow-s2.frag",
+      "attributes": {
+        "corner": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "flakeCount": 5,
+        "size": 1,
+        "cameraRight": 3,
+        "cameraUp": 3,
+        "tint": 4,
+        "coverCell": 1,
+        "coverSize": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "flakes": 32,
+        "boxes": 32,
+        "map": 32,
+        "cover": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/snow-s2-shadow",
+      "material": "effects/snow",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "flakeCount": 5,
+        "size": 1,
+        "cameraRight": 3,
+        "cameraUp": 3,
+        "tint": 4,
+        "coverCell": 1,
+        "coverSize": 1,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "flakes": 32,
+        "boxes": 32,
+        "map": 32,
+        "cover": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/snow-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/spray-s0",
+      "material": "effects/spray",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "spray-s0.vert",
+      "fragment": "spray-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "seed": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "sprayTime": 1,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "wakes": {
+          "type": 4,
+          "size": 8
+        },
+        "motion": {
+          "type": 4,
+          "size": 8
+        },
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "hasDepth": 1,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/spray-s0-shadow",
+      "material": "effects/spray",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "seed": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "sprayTime": 1,
+        "sources": {
+          "type": 4,
+          "size": 5
+        },
+        "wakes": {
+          "type": 4,
+          "size": 8
+        },
+        "motion": {
+          "type": 4,
+          "size": 8
+        },
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "hasDepth": 1,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/spray-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/sprite-s0",
+      "material": "effects/sprite",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "vertex": "sprite-s0.vert",
+      "fragment": "sprite-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "rotation": 1,
+        "center": 2,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sprite-s0-shadow",
+      "material": "effects/sprite",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "rotation": 1,
+        "center": 2,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sprite-s0",
+        "vertexLine": 28,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/square-s2",
+      "material": "effects/square",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "square-s2.vert",
+      "fragment": "square-s2.frag",
+      "attributes": {
+        "corner": 3,
+        "center": 4,
+        "spin": 5
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "axisU": 3,
+        "axisV": 3,
+        "tint": 4,
+        "fade": 2,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "softParticles": 1,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/square-s2-shadow",
+      "material": "effects/square",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "corner": 3,
+        "center": 4,
+        "spin": 5
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "axisU": 3,
+        "axisV": 3,
+        "tint": 4,
+        "fade": 2,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "softParticles": 1,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/square-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/storm-clouds-s0",
+      "material": "effects/storm-clouds",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "storm-clouds-s0.vert",
+      "fragment": "storm-clouds-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "wind": 2,
+        "eyePosition": 3,
+        "hazeColor": 3,
+        "time": 1,
+        "volumeNoise": 33
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/storm-horizon-blended-s2",
+      "material": "effects/storm-horizon",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {
+          "BLENDED": ""
+        }
+      },
+      "kind": "World",
+      "vertex": "storm-horizon-blended-s2.vert",
+      "fragment": "storm-horizon-blended-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "hazeColor": 3,
+        "lightningPosition": 3,
+        "lightningFlash": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/storm-lightning-s2",
+      "material": "effects/storm-lightning",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "storm-lightning-s2.vert",
+      "fragment": "storm-lightning-s2.frag",
+      "attributes": {
+        "position": 0,
+        "tangent": 3,
+        "edge": 4,
+        "width": 5,
+        "energy": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "lightningFlash": 1
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/storm-sky-s0",
+      "material": "effects/storm-sky",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "storm-sky-s0.vert",
+      "fragment": "storm-sky-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "viewRotation": 16,
+        "inverseProjection": 16,
+        "eyePosition": 3,
+        "lightningPosition": 3,
+        "lightningFlash": 1,
+        "cloudMap": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/trail-s0-shadow",
+      "material": "effects/trail",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "birth": 3,
+        "drift": 4,
+        "shape": 5
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "trailTime": 1,
+        "tint": 3,
+        "fogColor": 3,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/trail-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/view-arc-s2",
+      "material": "effects/arc",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Plain",
+      "vertex": "arc-s2.vert",
+      "fragment": "arc-s2.frag",
+      "attributes": {
+        "corner": 3,
+        "iA": 4,
+        "iB": 5,
+        "iNA": 6,
+        "iNB": 7,
+        "iColor": 8,
+        "iSize": 9
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "pixelAngle": 1,
+        "nearDepth": 1,
+        "closeRange": 1,
+        "fade": 2,
+        "eyeFade": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/view-glow-basic-s0",
+      "material": "effects/glow-basic",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "Plain",
+      "vertex": "basic-s0.vert",
+      "fragment": "basic-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/view-glow-basic-s1",
+      "material": "effects/glow-basic",
+      "selector": {
+        "side": 1,
+        "shadows": false,
+        "defines": {},
+        "vertexColors": false
+      },
+      "kind": "Plain",
+      "vertex": "basic-s1.vert",
+      "fragment": "basic-s1.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "mapTransform": 9,
+        "diffuse": 3,
+        "opacity": 1,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/volume-composite-s0",
+      "material": "effects/volume-composite",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "World",
+      "vertex": "volume-composite-s0.vert",
+      "fragment": "volume-composite-s0.frag",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "volumeResolution": 2,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "enabled": 1,
+        "volumeMap": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/volume-composite-s0-shadow",
+      "material": "effects/volume-composite",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "volumeResolution": 2,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "enabled": 1,
+        "volumeMap": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/volume-composite-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/volume-s1",
+      "material": "effects/volume",
+      "selector": {
+        "side": 1,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "vertex": "volume-s1.vert",
+      "fragment": "volume-s1.frag",
+      "attributes": {
+        "position": 0,
+        "origin": 3,
+        "direction": 4,
+        "extent": 5,
+        "kind": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "volumeResolution": 2,
+        "cameraRange": 2,
+        "volumeTime": 1,
+        "hasDepth": 1,
+        "wakes": {
+          "type": 4,
+          "size": 8
+        },
+        "motion": {
+          "type": 4,
+          "size": 8
+        },
+        "noiseField": 33,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/wake-s0",
+      "material": "effects/wake",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "wake-s0.vert",
+      "fragment": "wake-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "birth": 3,
+        "flow": 4,
+        "axis": 5,
+        "style": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "wakeTime": 1,
+        "kind": 1,
+        "drag": 1,
+        "fogColor": 3,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/wake-s0-premultiplied",
+      "material": "effects/wake",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": true
+      },
+      "kind": "Effect",
+      "vertex": "wake-s0-premultiplied.vert",
+      "fragment": "wake-s0-premultiplied.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "birth": 3,
+        "flow": 4,
+        "axis": 5,
+        "style": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "wakeTime": 1,
+        "kind": 1,
+        "drag": 1,
+        "fogColor": 3,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/wake-s0-shadow",
+      "material": "effects/wake",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "birth": 3,
+        "flow": 4,
+        "axis": 5,
+        "style": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "wakeTime": 1,
+        "kind": 1,
+        "drag": 1,
+        "fogColor": 3,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/wake-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/wake-s0-shadow-premultiplied",
+      "material": "effects/wake",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": true
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "birth": 3,
+        "flow": 4,
+        "axis": 5,
+        "style": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "wakeTime": 1,
+        "kind": 1,
+        "drag": 1,
+        "fogColor": 3,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/wake-s0-premultiplied",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/water-reflection-far-far-water-s2",
+      "material": "effects/water-reflection-far",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {
+          "FAR_WATER": ""
+        }
+      },
+      "kind": "Plain",
+      "vertex": "water-reflection-far-far-water-s2.vert",
+      "fragment": "water-reflection-far-far-water-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "reflectionMatrix": 16,
+        "normalMix": 1,
+        "bumpMix": 1,
+        "distort": 1,
+        "viewYaw": 1,
+        "tile": 2,
+        "toSun": 3,
+        "reflectAmount": 1,
+        "fresnel": 2,
+        "quality": 1,
+        "time": 1,
+        "sunColor": 3,
+        "cameraRange": 2,
+        "reflection": 32,
+        "normalA": 32,
+        "normalB": 32,
+        "bumpA": 32,
+        "bumpB": 32,
+        "waders": {
+          "type": 4,
+          "size": 8
+        }
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-reflection-far-s2",
+      "material": "effects/water-reflection-far",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-reflection-far-s2.vert",
+      "fragment": "water-reflection-far-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "reflectionMatrix": 16,
+        "normalMix": 1,
+        "bumpMix": 1,
+        "distort": 1,
+        "viewYaw": 1,
+        "tile": 2,
+        "toSun": 3,
+        "reflectAmount": 1,
+        "fresnel": 2,
+        "quality": 1,
+        "time": 1,
+        "sunColor": 3,
+        "cameraRange": 2,
+        "reflection": 32,
+        "normalA": 32,
+        "normalB": 32,
+        "bumpA": 32,
+        "bumpB": 32,
+        "waders": {
+          "type": 4,
+          "size": 8
+        }
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-reflection-s2",
+      "material": "effects/water-reflection",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-reflection-s2.vert",
+      "fragment": "water-reflection-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "screenSpace": 1,
+        "resolution": 2,
+        "reflectionMatrix": 16,
+        "normalMix": 1,
+        "bumpMix": 1,
+        "distort": 1,
+        "viewYaw": 1,
+        "tile": 2,
+        "toSun": 3,
+        "reflectAmount": 1,
+        "fresnel": 2,
+        "quality": 1,
+        "time": 1,
+        "sunColor": 3,
+        "cameraRange": 2,
+        "sceneDepth": 32,
+        "sceneColor": 32,
+        "reflection": 32,
+        "normalA": 32,
+        "normalB": 32,
+        "bumpA": 32,
+        "bumpB": 32,
+        "waders": {
+          "type": 4,
+          "size": 8
+        }
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-reflection-s2-shadow",
+      "material": "effects/water-reflection",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "screenSpace": 1,
+        "resolution": 2,
+        "reflectionMatrix": 16,
+        "normalMix": 1,
+        "bumpMix": 1,
+        "distort": 1,
+        "viewYaw": 1,
+        "tile": 2,
+        "toSun": 3,
+        "reflectAmount": 1,
+        "fresnel": 2,
+        "quality": 1,
+        "time": 1,
+        "sunColor": 3,
+        "cameraRange": 2,
+        "sceneDepth": 32,
+        "sceneColor": 32,
+        "reflection": 32,
+        "normalA": 32,
+        "normalB": 32,
+        "bumpA": 32,
+        "bumpB": 32,
+        "waders": {
+          "type": 4,
+          "size": 8
+        }
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-reflection-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/water-refraction-far-far-water-s2",
+      "material": "effects/water-refraction-far",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {
+          "FAR_WATER": ""
+        }
+      },
+      "kind": "World",
+      "vertex": "water-refraction-far-far-water-s2.vert",
+      "fragment": "water-refraction-far-far-water-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "tint": 3,
+        "quality": 1,
+        "cameraRange": 2
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-refraction-far-s2",
+      "material": "effects/water-refraction-far",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-refraction-far-s2.vert",
+      "fragment": "water-refraction-far-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "tint": 3,
+        "quality": 1,
+        "cameraRange": 2
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-refraction-s2",
+      "material": "effects/water-refraction",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-refraction-s2.vert",
+      "fragment": "water-refraction-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "tint": 3,
+        "quality": 1,
+        "resolution": 2,
+        "cameraRange": 2,
+        "underwater": 1,
+        "time": 1,
+        "sceneColor": 32,
+        "sceneDepth": 32,
+        "waders": {
+          "type": 4,
+          "size": 8
+        }
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-refraction-s2-shadow",
+      "material": "effects/water-refraction",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "tint": 3,
+        "quality": 1,
+        "resolution": 2,
+        "cameraRange": 2,
+        "underwater": 1,
+        "time": 1,
+        "sceneColor": 32,
+        "sceneDepth": 32,
+        "waders": {
+          "type": 4,
+          "size": 8
+        }
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-refraction-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/water-rings-s2",
+      "material": "effects/water-rings",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-rings-s2.vert",
+      "fragment": "water-rings-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "alpha": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-rings-s2-shadow",
+      "material": "effects/water-rings",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "alpha": 2
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-rings-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/water-shore-s2",
+      "material": "effects/water-shore",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-shore-s2.vert",
+      "fragment": "water-shore-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "shore": 2,
+        "phase": 3
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "time": 1,
+        "height": 1,
+        "splash": 1
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-shore-s2-shadow",
+      "material": "effects/water-shore",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1,
+        "shore": 2,
+        "phase": 3
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "time": 1,
+        "height": 1,
+        "splash": 1
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-shore-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/water-textured-far-far-water-s2",
+      "material": "effects/water-textured-far",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {
+          "FAR_WATER": ""
+        }
+      },
+      "kind": "Plain",
+      "vertex": "water-textured-far-far-water-s2.vert",
+      "fragment": "water-textured-far-far-water-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "maskMix": 1,
+        "time": 1,
+        "tint": 4,
+        "tile": 2,
+        "velocity": 2,
+        "maskTile": 2,
+        "maskVelocity": 2,
+        "cameraRange": 2,
+        "toSun": 3,
+        "mainMap": 32,
+        "maskA": 32,
+        "maskB": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-textured-far-s2",
+      "material": "effects/water-textured-far",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-textured-far-s2.vert",
+      "fragment": "water-textured-far-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "maskMix": 1,
+        "time": 1,
+        "tint": 4,
+        "tile": 2,
+        "velocity": 2,
+        "maskTile": 2,
+        "maskVelocity": 2,
+        "cameraRange": 2,
+        "toSun": 3,
+        "mainMap": 32,
+        "maskA": 32,
+        "maskB": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-textured-s2",
+      "material": "effects/water-textured",
+      "selector": {
+        "side": 2,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-textured-s2.vert",
+      "fragment": "water-textured-s2.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "maskMix": 1,
+        "time": 1,
+        "tint": 4,
+        "tile": 2,
+        "velocity": 2,
+        "maskTile": 2,
+        "maskVelocity": 2,
+        "cameraRange": 2,
+        "toSun": 3,
+        "mainMap": 32,
+        "maskA": 32,
+        "maskB": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-textured-s2-shadow",
+      "material": "effects/water-textured",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "maskMix": 1,
+        "time": 1,
+        "tint": 4,
+        "tile": 2,
+        "velocity": 2,
+        "maskTile": 2,
+        "maskVelocity": 2,
+        "cameraRange": 2,
+        "toSun": 3,
+        "mainMap": 32,
+        "maskA": 32,
+        "maskB": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-textured-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/water-underwater-fog-s0",
+      "material": "effects/water-underwater-fog",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-underwater-fog-s0.vert",
+      "fragment": "water-underwater-fog-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "cameraRange": 2,
+        "tint": 3,
+        "time": 1,
+        "sceneColor": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/water-underwater-fog-s0-shadow",
+      "material": "effects/water-underwater-fog",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "cameraRange": 2,
+        "tint": 3,
+        "time": 1,
+        "sceneColor": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-underwater-fog-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/water-underwater-tint-s0",
+      "material": "effects/water-underwater-tint",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "vertex": "water-underwater-tint-s0.vert",
+      "fragment": "water-underwater-tint-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "color": 4
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/wisps-s0",
+      "material": "effects/wisps",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "wisps-s0.vert",
+      "fragment": "wisps-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "seed": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "wispTime": 1,
+        "sources": {
+          "type": 4,
+          "size": 9
+        },
+        "directions": {
+          "type": 4,
+          "size": 9
+        },
+        "wakes": {
+          "type": 4,
+          "size": 8
+        },
+        "motion": {
+          "type": 4,
+          "size": 8
+        },
+        "hasDepth": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/wisps-s0-shadow",
+      "material": "effects/wisps",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "seed": 3
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "wispTime": 1,
+        "sources": {
+          "type": 4,
+          "size": 9
+        },
+        "directions": {
+          "type": 4,
+          "size": 9
+        },
+        "wakes": {
+          "type": 4,
+          "size": 8
+        },
+        "motion": {
+          "type": 4,
+          "size": 8
+        },
+        "hasDepth": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "map": 32,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/wisps-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/trail-s0",
+      "material": "effects/trail",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {},
+        "premultipliedAlpha": false
+      },
+      "kind": "Effect",
+      "vertex": "trail-s0.vert",
+      "fragment": "trail-s0.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2,
+        "birth": 3,
+        "drift": 4,
+        "shape": 5
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "trailTime": 1,
+        "tint": 3,
+        "fogColor": 3,
+        "fogRange": 2,
+        "softParticles": 1,
+        "depthResolution": 2,
+        "cameraRange": 2,
+        "sceneDepth": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/shock-s0",
+      "material": "effects/shock",
+      "selector": {
+        "side": 0,
+        "shadows": false,
+        "defines": {}
+      },
+      "kind": "Skinned",
+      "vertex": "shock-s0.vert",
+      "fragment": "shock-s0.frag",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "skinIndex": 3,
+        "skinWeight": 4
+      },
+      "uniforms": {
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "normalMatrix": 9,
+        "bindMatrix": 16,
+        "bindMatrixInverse": 16,
+        "inflate": 1,
+        "shockTime": 1,
+        "intensity": 1,
+        "seed": 1,
+        "color": 3,
+        "boneTexture": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/ocean-haze-s1-shadow",
+      "material": "effects/ocean-haze",
+      "selector": {
+        "side": 1,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "hazeColor": 3
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/ocean-haze-s1",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/sky-flyer-lit-blended-s2-fading-shadow",
+      "material": "effects/sky-flyer",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {
+          "LIT": "",
+          "BLENDED": ""
+        }
+      },
+      "kind": "World",
+      "attributes": {
+        "instanceMatrix": 0,
+        "position": 4,
+        "normal": 5,
+        "uv": 6,
+        "look": 7
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "reach": 1,
+        "map": 32,
+        "skyProbe": 35
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sky-flyer-lit-blended-s2-fading",
+        "vertexLine": 30,
+        "fragmentLine": 38
+      }
+    },
+    {
+      "key": "effects/sky-flyer-lit-s0-fading-shadow",
+      "material": "effects/sky-flyer",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {
+          "LIT": ""
+        }
+      },
+      "kind": "World",
+      "attributes": {
+        "instanceMatrix": 0,
+        "position": 4,
+        "normal": 5,
+        "uv": 6,
+        "look": 7
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "reach": 1,
+        "map": 32,
+        "skyProbe": 35
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sky-flyer-lit-s0-fading",
+        "vertexLine": 28,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/sky-flyer-s0-fading-shadow",
+      "material": "effects/sky-flyer",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "instanceMatrix": 0,
+        "position": 4,
+        "uv": 6,
+        "look": 7
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "reach": 1,
+        "map": 32,
+        "skyProbe": 35
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sky-flyer-s0-fading",
+        "vertexLine": 27,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/sky-zero-lights-16-sky-no-point-blended-s2-csm-chunks-shadow",
+      "material": "effects/sky",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {
+          "ZERO_LIGHTS": "16",
+          "SKY": "",
+          "NO_POINT": "",
+          "BLENDED": ""
+        },
+        "csmChunks": true
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "sunScale": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sky-zero-lights-16-sky-no-point-blended-s2-csm-chunks",
+        "vertexLine": 33,
+        "fragmentLine": 41
+      }
+    },
+    {
+      "key": "effects/sky-zero-lights-16-sky-no-point-blended-s2-plain-chunks-shadow",
+      "material": "effects/sky",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {
+          "ZERO_LIGHTS": "16",
+          "SKY": "",
+          "NO_POINT": "",
+          "BLENDED": ""
+        },
+        "csmChunks": false
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "sunScale": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sky-zero-lights-16-sky-no-point-blended-s2-plain-chunks",
+        "vertexLine": 33,
+        "fragmentLine": 41
+      }
+    },
+    {
+      "key": "effects/sky-zero-lights-16-sky-no-point-s0-csm-chunks-shadow",
+      "material": "effects/sky",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {
+          "ZERO_LIGHTS": "16",
+          "SKY": "",
+          "NO_POINT": ""
+        },
+        "csmChunks": true
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "sunScale": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sky-zero-lights-16-sky-no-point-s0-csm-chunks",
+        "vertexLine": 31,
+        "fragmentLine": 39
+      }
+    },
+    {
+      "key": "effects/sky-zero-lights-16-sky-no-point-s0-plain-chunks-shadow",
+      "material": "effects/sky",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {
+          "ZERO_LIGHTS": "16",
+          "SKY": "",
+          "NO_POINT": ""
+        },
+        "csmChunks": false
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "normal": 1,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "modelViewMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "normalMatrix": 9,
+        "sunDirection": 3,
+        "sunColor": 3,
+        "ambient": 3,
+        "sunScale": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/sky-zero-lights-16-sky-no-point-s0-plain-chunks",
+        "vertexLine": 31,
+        "fragmentLine": 39
+      }
+    },
+    {
+      "key": "effects/storm-clouds-s0-shadow",
+      "material": "effects/storm-clouds",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "wind": 2,
+        "eyePosition": 3,
+        "hazeColor": 3,
+        "time": 1,
+        "volumeNoise": 33
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/storm-clouds-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/storm-horizon-blended-s2-shadow",
+      "material": "effects/storm-horizon",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {
+          "BLENDED": ""
+        }
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "hazeColor": 3,
+        "lightningPosition": 3,
+        "lightningFlash": 1,
+        "map": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/storm-horizon-blended-s2",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/storm-lightning-s2-shadow",
+      "material": "effects/storm-lightning",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "tangent": 3,
+        "edge": 4,
+        "width": 5,
+        "energy": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "lightningFlash": 1
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/storm-lightning-s2",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/storm-sky-s0-shadow",
+      "material": "effects/storm-sky",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "viewRotation": 16,
+        "inverseProjection": 16,
+        "eyePosition": 3,
+        "lightningPosition": 3,
+        "lightningFlash": 1,
+        "cloudMap": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/storm-sky-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    },
+    {
+      "key": "effects/volume-s1-shadow",
+      "material": "effects/volume",
+      "selector": {
+        "side": 1,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Effect",
+      "attributes": {
+        "position": 0,
+        "origin": 3,
+        "direction": 4,
+        "extent": 5,
+        "kind": 6
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "volumeResolution": 2,
+        "cameraRange": 2,
+        "volumeTime": 1,
+        "hasDepth": 1,
+        "wakes": {
+          "type": 4,
+          "size": 8
+        },
+        "motion": {
+          "type": 4,
+          "size": 8
+        },
+        "noiseField": 33,
+        "sceneDepth": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/volume-s1",
+        "vertexLine": 27,
+        "fragmentLine": 36
+      }
+    },
+    {
+      "key": "effects/water-reflection-far-far-water-s2-shadow",
+      "material": "effects/water-reflection-far",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {
+          "FAR_WATER": ""
+        }
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "reflectionMatrix": 16,
+        "normalMix": 1,
+        "bumpMix": 1,
+        "distort": 1,
+        "viewYaw": 1,
+        "tile": 2,
+        "toSun": 3,
+        "reflectAmount": 1,
+        "fresnel": 2,
+        "quality": 1,
+        "time": 1,
+        "sunColor": 3,
+        "cameraRange": 2,
+        "reflection": 32,
+        "normalA": 32,
+        "normalB": 32,
+        "bumpA": 32,
+        "bumpB": 32,
+        "waders": {
+          "type": 4,
+          "size": 8
+        }
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-reflection-far-far-water-s2",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/water-reflection-far-s2-shadow",
+      "material": "effects/water-reflection-far",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "reflectionMatrix": 16,
+        "normalMix": 1,
+        "bumpMix": 1,
+        "distort": 1,
+        "viewYaw": 1,
+        "tile": 2,
+        "toSun": 3,
+        "reflectAmount": 1,
+        "fresnel": 2,
+        "quality": 1,
+        "time": 1,
+        "sunColor": 3,
+        "cameraRange": 2,
+        "reflection": 32,
+        "normalA": 32,
+        "normalB": 32,
+        "bumpA": 32,
+        "bumpB": 32,
+        "waders": {
+          "type": 4,
+          "size": 8
+        }
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-reflection-far-s2",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/water-refraction-far-far-water-s2-shadow",
+      "material": "effects/water-refraction-far",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {
+          "FAR_WATER": ""
+        }
+      },
+      "kind": "World",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "tint": 3,
+        "quality": 1,
+        "cameraRange": 2
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-refraction-far-far-water-s2",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/water-refraction-far-s2-shadow",
+      "material": "effects/water-refraction-far",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "tint": 3,
+        "quality": 1,
+        "cameraRange": 2
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-refraction-far-s2",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/water-textured-far-far-water-s2-shadow",
+      "material": "effects/water-textured-far",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {
+          "FAR_WATER": ""
+        }
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "maskMix": 1,
+        "time": 1,
+        "tint": 4,
+        "tile": 2,
+        "velocity": 2,
+        "maskTile": 2,
+        "maskVelocity": 2,
+        "cameraRange": 2,
+        "toSun": 3,
+        "mainMap": 32,
+        "maskA": 32,
+        "maskB": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-textured-far-far-water-s2",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/water-textured-far-s2-shadow",
+      "material": "effects/water-textured-far",
+      "selector": {
+        "side": 2,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "modelMatrix": 16,
+        "projectionMatrix": 16,
+        "viewMatrix": 16,
+        "cameraPosition": 3,
+        "surfaceRange": 2,
+        "fogColor": 3,
+        "fogRange": 2,
+        "maskMix": 1,
+        "time": 1,
+        "tint": 4,
+        "tile": 2,
+        "velocity": 2,
+        "maskTile": 2,
+        "maskVelocity": 2,
+        "cameraRange": 2,
+        "toSun": 3,
+        "mainMap": 32,
+        "maskA": 32,
+        "maskB": 32
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-textured-far-s2",
+        "vertexLine": 28,
+        "fragmentLine": 37
+      }
+    },
+    {
+      "key": "effects/water-underwater-tint-s0-shadow",
+      "material": "effects/water-underwater-tint",
+      "selector": {
+        "side": 0,
+        "shadows": true,
+        "defines": {}
+      },
+      "kind": "Plain",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "color": 4
+      },
+      "source": "expanded",
+      "shadowOf": {
+        "key": "effects/water-underwater-tint-s0",
+        "vertexLine": 26,
+        "fragmentLine": 35
+      }
+    }
+  ]
+}

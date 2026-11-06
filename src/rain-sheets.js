@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { lighting } from './materials.js';
 import { particleDepth } from './particle-depth.js';
@@ -42,64 +43,13 @@ function cylinders() {
   return geometry;
 }
 
-const vertexShader = /* glsl */`
-  attribute vec3 sheet; // layer, around, bottom/top
-  uniform vec3 eye;
-  uniform vec3 radii;
-  varying vec3 vWorld;
-  varying vec2 vAround;
-  varying float vLayer, vDepth;
-  void main() {
-    float radius = sheet.x < 0.5 ? radii.x : sheet.x < 1.5 ? radii.y : radii.z;
-    float turn = sheet.y * 6.2831853;
-    vec3 world = vec3(eye.x + cos(turn) * radius, eye.y + mix(-${BELOW.toFixed(1)}, ${ABOVE.toFixed(1)}, sheet.z), eye.z + sin(turn) * radius);
-    vWorld = world;
-    vAround = vec2(sheet.y * 6.2831853 * radius, sheet.z);
-    vLayer = sheet.x;
-    vec4 view = viewMatrix * vec4(world, 1.0);
-    vDepth = -view.z;
-    gl_Position = projectionMatrix * view;
-  }
-`;
 
-const fragmentShader = /* glsl */`
-  uniform sampler2D streaks, cover, sceneDepth;
-  uniform float rainTime, speed, coverCell, coverSize, softParticles, strength;
-  uniform vec2 wind, depthResolution, cameraRange;
-  uniform vec3 color;
-  // The map's ambient light (materials.js lighting), on a line of its own.
-  uniform vec3 ambient;
-  varying vec3 vWorld;
-  varying vec2 vAround;
-  varying float vLayer, vDepth;
-  void main() {
-    vec2 cell = mod(floor(vWorld.xz / coverCell), coverSize);
-    if (vWorld.y < texture2D(cover, (cell + 0.5) / coverSize).r + 0.05) discard;
-    // Farther sheets: finer, denser streaks moving more slowly on screen.
-    float scale = vLayer < 0.5 ? 2.2 : vLayer < 1.5 ? 3.4 : 5.5;
-    float slant = dot(wind, vec2(0.7, 0.7)) * 0.04;
-    vec2 uv = vec2(vAround.x / scale + vWorld.y * slant, (vWorld.y + rainTime * speed) / (scale * 2.4));
-    float a = texture2D(streaks, uv).a * 0.65 + texture2D(streaks, uv * vec2(1.7, 1.3) + vec2(0.31, rainTime * 0.21)).a * 0.35;
-    float layer = vLayer < 0.5 ? 0.17 : vLayer < 1.5 ? 0.13 : 0.1;
-    a *= layer * strength * smoothstep(0.0, 0.25, vAround.y) * (1.0 - smoothstep(0.75, 1.0, vAround.y));
-    if (softParticles > 0.5) {
-      float stored = texture2D(sceneDepth, gl_FragCoord.xy / depthResolution).r;
-      float surface = cameraRange.x * cameraRange.y / (cameraRange.y - stored * (cameraRange.y - cameraRange.x));
-      a *= clamp((surface - vDepth) / 1.5, 0.0, 1.0);
-    }
-    if (a < 0.003) discard;
-    // Drops are lit by the whole sky around them and pass most of it on: a
-    // little brighter than the scene's ambient light, much more in a flash.
-    float sky = dot(ambient, vec3(0.3, 0.59, 0.11));
-    gl_FragColor = vec4(color * clamp(0.45 + sky * 1.6, 0.0, 1.4), a);
-  }
-`;
 
 export class RainSheets {
   constructor(scene, uniforms, streaks) {
     this.texture = streakTexture(streaks);
-    this.material = new THREE.ShaderMaterial({
-      vertexShader, fragmentShader, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
+    this.material = ownedEffectMaterial("effects/rain-sheets", {
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
       uniforms: {
         streaks: { value: this.texture }, eye: uniforms.eye, rainTime: uniforms.rainTime, wind: uniforms.wind, color: uniforms.color,
         speed: { value: Math.max(6, uniforms.velocity.value * 1.4) }, radii: { value: new THREE.Vector3(...RADII) }, strength: { value: 1 },

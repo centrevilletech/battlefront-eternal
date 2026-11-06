@@ -49,8 +49,8 @@ export class NearPass {
     if (!this.ours(renderer, scene, camera, target) || graphics.background.parent !== scene) return false;
     if (!renderer.autoClear || !renderer.autoClearColor || !renderer.autoClearDepth || !renderer.autoClearStencil || !renderer.sortObjects) return false;
     if (scene.background || scene.fog || scene.overrideMaterial || renderer.localClippingEnabled || renderer.clippingPlanes?.length) return false;
-    // Three compiles the unported far-image material. Registering its Rust
-    // program changes GL state, even if validation subsequently fails.
+    // The far image is a catalog program. Linking it on first use changes GL
+    // state, even if validation subsequently fails.
     const fresh = !plainProgramKnown(core, graphics.background.material);
     const left = () => { if (fresh) core.stale = true; return false; };
     const program = plainProgram(core, graphics.background.material, ATTRIBUTES);

@@ -1,0 +1,28 @@
+{
+  "extends": "./manifest.json",
+  "cases": [
+    {
+      "id": "shock-body-balanced-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced",
+      "scenario": "shock"
+    },
+    {
+      "id": "shock-body-high-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "scenario": "shock"
+    }
+  ],
+  "programs": []
+}

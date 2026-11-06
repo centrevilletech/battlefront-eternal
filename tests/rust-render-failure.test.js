@@ -12,9 +12,11 @@ import { ownedProgram } from '../src/rust-render/programs.js';
 globalThis.location ??= { search: '' };
 const { RustRender } = await import('../src/rust-render/index.js');
 
-function fixture(method) {
+// Only the named key is rejected, so the passes that register their own
+// programs at construction still start.
+function fixture(method, only) {
   const cause = Error('fixture link rejected');
-  const { BfeRenderer, memory, calls } = standinModule({ methods: { [method]() { throw cause; } } });
+  const { BfeRenderer, memory, calls } = standinModule({ methods: { [method](key) { if (only === undefined || key === only) throw cause; return 1; } } });
   const { renderer, graphics } = standinThree(calls);
   const gl = renderer.getContext();
   gl.getExtension = () => ({ UNMASKED_RENDERER_WEBGL: 1 });
@@ -39,7 +41,7 @@ test('a rewritten program link error names the GPU and never caches a skipped pr
 // Catalog keys must be retained in diagnostics as well as the GPU identity.
 // A source-free material has no native compilation path to recover through.
 test('an owned program link error uses the same required-renderer failure path', () => {
-  const { core } = fixture('add_owned_program');
+  const { core } = fixture('add_owned_program', 'post-hud/copy');
   const material = new THREE.ShaderMaterial();material.userData.bfeProgram = 'post-hud/copy';
   assert.throws(() => ownedProgram(core, 'post-hud/copy', 'position:0,uv:1'), /Fixture GPU: post-hud\/copy:.*fixture link rejected/);
   assert.equal(core.ownedPrograms.has('post-hud/copy'), false);

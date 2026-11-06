@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from "./rust-render/effect-material.js";
 import * as THREE from "three";
 import { localLighting } from "./local-lights.js";
 import { ZERO_LIGHTS, lightMask, packed, pointLighting, sphereLightMask, useLights } from "./point-lights.js";
@@ -371,19 +372,6 @@ const fragmentShader = /* glsl */ `
   }
 
   void main() {
-    #ifdef SKY
-      // The dome is opaque; the models over it (mountains, a moon, cloud
-      // layers) keep their texture's alpha.
-      vec4 sky = texture2D(map, vUv);
-      #ifdef ALPHA_TEST
-        if (sky.a < 0.5) discard;
-      #endif
-      #ifdef BLENDED
-        gl_FragColor = sky;
-      #else
-        gl_FragColor = vec4(sky.rgb, 1.0);
-      #endif
-    #else
       #ifdef BUMP
         // The bump fetch's gradients, taken where every pixel still runs.
         // The fetch sits behind the BUMPMAPPING switch, and Direct3D's
@@ -516,7 +504,6 @@ const fragmentShader = /* glsl */ `
         color.a = coverage;
       #endif
       gl_FragColor = color;
-    #endif
   }
 `;
 
@@ -564,6 +551,22 @@ function materialFor(kind, options, create) {
   if (options.blending) defines.BLENDED = "";
   if (options.blending === "additive") defines.ADDITIVE = "";
   if (options.far) defines.FAR = "";
+  if (kind === "sky") {
+    const blended = Boolean(options.blending);
+    const uniforms = { ...lighting, map: { value: options.map || null }, sunScale: { value: 1 } };
+    const material = ownedEffectMaterial("effects/sky", {
+      name: "zero:sky", defines, uniforms,
+      transparent: blended, depthWrite: false, depthTest: false,
+      blending: options.blending === "additive" ? THREE.AdditiveBlending : THREE.NormalBlending,
+      side: options.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+      alphaToCoverage: Boolean(options.alphaTest) && !blended,
+    });
+    material.map = options.map || null;
+    material.alphaTest = options.alphaTest ? 0.5 : 0;
+    material.shadowSide = material.side;
+    material.userData.pointLit = false;
+    return material;
+  }
   const [exponent = 0, r = 0, g = 0, b = 0] = options.specular || [];
   const uniforms = {
     ...THREE.UniformsUtils.clone(THREE.UniformsLib.lights),

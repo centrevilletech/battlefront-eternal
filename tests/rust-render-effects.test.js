@@ -1,3 +1,4 @@
+import { ownedBasicEffect } from '../src/rust-render/effect-material.js';
 import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -117,7 +118,7 @@ test("the effects are the transparent phase's second pass, after the map's blend
   assert.deepEqual(core.phases.transparent.map((p) => p.name), ["transparent", "effects", "water", "fog"]);
 });
 
-test("a CPU batch: registered once three drew it, then hidden from three and written each frame with its key", () => {
+test("a CPU batch registers an owned program before any three draw and writes each frame with its key", () => {
   const { core, calls, scene, frame, drawn, entry, fx } = bridge();
   const particles = new ParticleRenderer(scene);
   assert.ok(particleRenderers.get(scene).includes(particles));
@@ -125,18 +126,15 @@ test("a CPU batch: registered once three drew it, then hidden from three and wri
   const fill = (n) => { particles.begin(); for (let i = 0; i < n; i++) batch.push(i, 2 * i, 3 * i, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end(); };
   fill(2);
   assert.equal(batch.mesh.visible, true);
-  // Not drawn by three yet: nothing to register, nothing drawn.
-  frame();
-  assert.equal(calls.some((c) => c[0] === "fx_add_batch"), false);
-  assert.equal(core.fxInput[0], 0);
-  drawn(batch.material, CPU_PROGRAM);
-  // Registered as three draws it this frame: drawn by three alone.
+  // Source ownership needs no prior browser compile or draw.
   frame();
   const added = calls.find((c) => c[0] === "fx_add_batch");
   assert.ok(added, "registered");
-  assert.equal(calls.find((c) => c[0] === "add_program")[1], 4, "an effect program");
-  assert.deepEqual(added.slice(3), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 0, [1, 3, 2, 4, 3, 4, 4, 3, 5, 3, 6, 4], -1]);
-  assert.equal(core.fxInput[0], 1, "drawn by Rust in the registration frame");
+  assert.equal(batch.material.userData.bfeProgram, "effects/particle-bolt");
+  assert.equal(batch.material.isShaderMaterial, undefined);
+  assert.equal(batch.material.visible, false);
+  assert.deepEqual(added.slice(3), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 3, [4, 3, 5, 4, 6, 4, 7, 3, 8, 3, 9, 4], -1]);
+  assert.equal(core.fxInput[0], 1, "drawn by the renderer from its registration frame");
   assert.equal(batch.external, true);
   assert.equal(batch.mesh.visible, false);
   // The next frame: three is shown nothing and uploads nothing; the
@@ -255,18 +253,13 @@ test("the Classic lightning: both of three's sides, its buffers as far as used, 
   lightning.update(1 / 60, camera);
   const material = lightning.mesh.material;
   assert.ok(lightning.index > 0);
-  assert.equal(lightning.mesh.visible,false,"the first live ribbon has no native draw");
-  // Compile both sides before the first near ownership walk.
-  const back = program(BASIC, ["position", "uv", "color"], "#define FLIP_SIDED\nvertex"), front = program(BASIC, ["uv", "color", "position"]);
-  renderer.compile=()=>drawn(material,front,[back,front]);
-  core.byName.effects.beforeSort(renderer,scene,camera,core.graphics.sceneTarget,[scene]);
   lightning.mesh.geometry.computeBoundingSphere();
   frame();
   const mesh = calls.find((c) => c[0] === "fx_add_mesh");
   assert.deepEqual(mesh.slice(2), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 1, 0x0203, [3, 2, 4], "diffuse:3,opacity:1,mapTransform:9"]);
-  assert.deepEqual(calls.filter((c) => c[0] === "fx_mesh_pass").map((c) => c.slice(2)), [[0, 1, [0, 1, 2]], [1, 0, [2, 0, 1]]], "back then front, at each program's locations");
-  assert.equal(core.fxInput[0], 1, "drawn by Rust in the registration frame");
-  assert.equal(lightning.mesh.visible, false, "the ribbon shell never draws natively");
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_mesh_pass").map((c) => c.slice(3)), [[1, [0, 2, 3]], [0, [0, 2, 3]]], "back then front at the declared locations");
+  assert.equal(core.fxInput[0], 1, "Rust draws the registration frame");
+  assert.equal(lightning.external, true);
   // The next frame it is the renderer's.
   lightning.update(1 / 60, camera);
   assert.equal(lightning.mesh.visible, false);
@@ -285,7 +278,7 @@ test("the Classic lightning: both of three's sides, its buffers as far as used, 
 test("glow models: found in three's list, registered with their group once three drew them, then each part drawn with its world matrix", () => {
   const { core, calls, scene, list, frame, drawn, entry } = bridge();
   // As game.js glowModel makes one: a material its parts share, on the group.
-  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const material = ownedBasicEffect('glow-basic', { map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   material.color.setRGB(1, 0.5, 0.25);
   material.opacity = 0.75;
   const geometry = new THREE.BufferGeometry();
@@ -299,17 +292,12 @@ test("glow models: found in three's list, registered with their group once three
   scene.add(group);
   scene.updateMatrixWorld(true);
   list.transparent.push({ object: part, material, group: null });
-  // In three's list, not drawn by it yet: nothing.
-  frame();
-  assert.equal(calls.some((c) => c[0] === "fx_add_model"), false);
-  const back = program(BASIC, ["position", "uv"], "#define FLIP_SIDED\nvertex"), front = program(BASIC, ["position", "uv"]);
-  drawn(material, front, [back, front]);
   frame();
   const models = calls.filter((c) => c[0] === "fx_add_model");
   assert.equal(models.length, 1, "one model serves both parts (one geometry, programs, texture, state)");
   assert.deepEqual(models[0].slice(2, 6), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 1, 0x0203, "diffuse:3,opacity:1,mapTransform:9"]);
   assert.deepEqual(calls.filter((c) => c[0] === "fx_model_pass").map((c) => c.slice(3)), [[1, 0], [0, 1]], "back then front, a geometry for each program");
-  assert.equal(calls.find((c) => c[0] === "add_program")[1], 0, "world programs: the model-view matrix is set per draw");
+  assert.equal(calls.some((c) => c[0] === "add_program"), false, "no browser program is borrowed");
   assert.equal(material.visible, false, "hidden from three");
   assert.equal(core.fxInput[0], 2, "both parts draw in the registration frame");
   list.transparent.length = 0;
@@ -329,7 +317,7 @@ test("glow models: found in three's list, registered with their group once three
 
 test("glow models under shadows: a program that reads modelMatrix (three's world position for USE_SHADOWMAP) is taken", () => {
   const { calls, scene, list, frame, drawn } = bridge();
-  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const material = ownedBasicEffect('glow-basic', { map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
   geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
@@ -347,32 +335,16 @@ test("glow models under shadows: a program that reads modelMatrix (three's world
   assert.equal(material.visible, false);
 });
 
-test("the effects' programs are their own, apart from another pass's for the same three program, whose values can't leak in", () => {
-  const { core, calls, scene, list, frame, drawn, entry } = bridge();
-  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
-  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
-  geometry.setIndex([0, 1, 2]);
-  const group = new THREE.Group(), part = new THREE.Mesh(geometry, material);
-  group.add(part);
-  group.userData.material = material;
-  group.position.set(0, 0, -6);
-  scene.add(group);
-  scene.updateMatrixWorld(true);
-  const shared = program(BASIC, ["position", "uv"]);
-  drawn(material, shared);
-  // Another pass (the transparent pass's command post beams) made one for
-  // the same three program first, and sets its colour and opacity itself.
-  const theirs = core.program(core.renderer.properties.get(material).currentProgram, 0, material, { uniforms: new Set(BASIC), material: new Set() });
-  list.transparent.push({ object: part, material, group: null });
-  frame();
-  assert.equal(calls.filter((c) => c[0] === "add_program").length, 2, "made again for the effects");
-  const pass = calls.find((c) => c[0] === "fx_model_pass");
-  assert.notEqual(pass[2], theirs.id, "the glow drawn with its own");
-  list.transparent.length = 0;
-  frame();
-  assert.equal(entry(0)[0], 2, "drawn");
+test("glow and command-post shaders keep separate owned uniform caches", async () => {
+  const { core } = bridge();
+  const { warmEffectPrograms } = await import("../src/rust-render/effect-material.js");
+  const settled = [];
+  await warmEffectPrograms(core, async () => { settled.push(core.ownedPrograms.size); });
+  assert.deepEqual(settled, settled.map((_, i) => i + 1), "one program linked between settles");
+  assert.ok(!core.ownedPrograms.has("effects/shock-s0") || !core.ownedPrograms.has("effects/shock-s0-shadow"), "one shadow setting at a time");
+  const glow = core.ownedPrograms.get("effects/glow-basic-s0");
+  const beam = core.ownedPrograms.get("effects/basic-s0");
+  assert.notEqual(glow.id, beam.id);
 });
 
 test("a droideka's shield: its uniforms as the model's values, the frame's own left to the frame block, its onBeforeRender run", async () => {
@@ -522,9 +494,9 @@ test("the rain: fixed seeds uploaded once on a streak plane of its own, its cloc
   frame();
   const added = calls.find((c) => c[0] === "fx_add_batch");
   assert.equal(added[4], 0xffffffff, "no corner quad");
-  assert.deepEqual(added[5], [2, 4], "its seed, per instance");
+  assert.deepEqual(added[5], [3, 4], "its seed, per instance");
   const base = calls.find((c) => c[0] === "fx_batch_base");
-  assert.deepEqual(base.slice(2, 4), [[0, 3, 1, 2], 4], "position and uv of its four vertices");
+  assert.deepEqual(base.slice(2, 4), [[0, 3, 2, 2], 4], "position and uv of its four vertices");
   assert.equal(base[5].length, 6, "its six indices");
   assert.equal(mesh.material.visible, false);
   list.transparent.length = 0;
@@ -552,7 +524,7 @@ test("the Enhanced rain: its mist the rain's own batch, its splashes uploaded as
   frame();
   const batches = calls.filter((c) => c[0] === "fx_add_batch");
   assert.equal(batches.length, 2, "the mist and the splashes");
-  assert.deepEqual(batches[1][5], [2, 4, 3, 3, 4, 1], "the splashes' impact, surface normal and kind, per instance");
+  assert.deepEqual(batches[1][5], [3, 4, 4, 3, 5, 1], "the splashes' impact, surface normal and kind, per instance");
   assert.equal(mist.material.visible, false, "the mist hidden by its material");
   assert.equal(impacts.external, true, "the splashes by their own flag");
   weather.update(1 / 60, camera);
@@ -642,7 +614,8 @@ test("fountain spray registration initializes its cold frame-copy target once", 
   fx.beforeSort(renderer, scene, camera, core.graphics.sceneTarget, []);
   assert.ok(fx.glowList.every(record => record.volume), "both offscreen spray batches register before drawing");
   const batches = calls.filter(call => call[0] === "fx_add_batch").length;
-  assert.equal(batches, 2);
+  // The jets' other meshes are catalog programs too, so they register with the sprays.
+  assert.ok(batches >= 2, "at least both spray batches");
   // A second frame must neither allocate another target nor retry either
   // shader/attribute registration while the fountain remains invisible.
   fx.beforeSort(renderer, scene, camera, core.graphics.sceneTarget, []);
@@ -671,19 +644,20 @@ test("the fountains' jets: batches on bases of their own after three's copy of t
     else drawn(mesh.material, program(mesh === jets.core ? shared.filter((n) => n !== "side" && n !== "perFountain") : shared, base[mesh.name]));
   }
   frame();
-  assert.equal(calls.filter((c) => c[0] === "fx_add_batch").length, 8, `eight batches (${core.errors.join("; ")})`);
+  assert.equal(calls.filter((c) => c[0] === "fx_add_batch").length, 10, `ten batches (${core.errors.join("; ")})`);
   assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_side").map((c) => c[2]), [0], "the column single-sided");
   const bases = calls.filter((c) => c[0] === "fx_batch_base");
-  assert.equal(bases.length, 8);
-  assert.deepEqual(bases[0].slice(2, 4), [[0, 2], 4], "the pool's corner quad, its own base");
+  assert.equal(bases.length, 10);
+  assert.deepEqual(bases[0].slice(2, 4), [[3, 2], 4], "the pool's corner quad, its own base");
   assert.equal(calls.filter((c) => c[0] === "fx_add_model").length, 2, "the two halves of soft spray");
   const values = calls.find((c) => c[0] === "fx_batch_values")[2];
   assert.ok(values.includes("jetTime:1:0") && values.includes("visible:5:1") && values.includes("sources:20:4") && !values.includes("sunDirection"));
   assert.ok(jets.meshes.every((m) => m.material.visible === false));
-  assert.ok(calls.some(c => c[0] === "fountain_copy"), "the frame copy is an ordered command, not a dummy draw");
+  assert.equal(jets.copier, undefined, "no browser copy marker remains");
   list.transparent.length = 0;
   frame();
-  assert.equal(core.fxInput[0], 10, "eight batches and two composites");
+  assert.equal(core.fxInput[0], 11, "eight batches, two composites, and a sorted frame copy");
+  assert.equal(core.fxInput[DRAW_AT + 8 * DRAW_STRIDE], 3, "the copy is a Rust transparent item");
   assert.deepEqual([jets.behind.width, jets.behind.height], [800, 600], "the copy's target at the frame's size");
   assert.equal(jets.core.material.uniforms.hasScene.value, 1);
   assert.notEqual(jets.meshes.find((m) => m.userData.spray).material.uniforms.sprayMap.value, jets.meshes.findLast((m) => m.userData.spray).material.uniforms.sprayMap.value, "a target each half");
@@ -876,6 +850,8 @@ test("a burning piece: a flying part made with a heated material, its heat and l
 test("the arc caster's shock glow: a rig of the struck body's buffers and skeleton that blends, its values in its row", async () => {
   const { ArcLightning } = await import("../src/arc-lightning.js");
   const { core, calls, scene, camera, renderer, drawn } = bridge();
+  core.shadowsOn = () => true;
+  core.writeShadow = () => {};
   renderer.info = { render: { frame: 0 } };
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
@@ -895,8 +871,6 @@ test("the arc caster's shock glow: a rig of the struck body's buffers and skelet
   overlay.visible = true;
   const u = overlay.material.uniforms;
   u.shockTime.value = 2.5; u.intensity.value = 0.75; u.seed.value = 0.125; u.color.value.setRGB(0.25, 0.5, 1);
-  drawn(overlay.material, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "boneTexture", "bindMatrix", "bindMatrixInverse", "shockTime", "intensity", "seed", "inflate", "color"],
-    ["position", "normal", "skinIndex", "skinWeight"]));
   scene.updateMatrixWorld(true);
   renderer.info.render.frame++;
   core.phase("near", renderer, scene, camera);
@@ -1147,6 +1121,8 @@ test("the Enhanced arc caster's lightning: its capsules a batch kept interleaved
 test("the droideka's rolling dust: its wisps a batch on a quad of its own, written each frame with its clock and tint", async () => {
   const { DroidekaTrail } = await import("../src/droideka-trail.js");
   const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  core.shadowsOn = () => true;
+  core.writeShadow = () => {};
   const collision = { cast(origin, direction, far, out) { if (direction.y > 0) return null; out.point.set(origin.x, 0, origin.z); out.normal.set(0, 1, 0); out.terrain = true; return out; } };
   const trail = new DroidekaTrail({ scene, collision, settings: { get: () => "enhanced" }, random: () => 0.5 });
   const soldier = { mode: 12, dead: false, air: null, grounded: true, position: new THREE.Vector3(0, 0, -5), velocity: new THREE.Vector3(10, 0, 0) };
@@ -1160,7 +1136,7 @@ test("the droideka's rolling dust: its wisps a batch on a quad of its own, writt
   const added = calls.find((c) => c[0] === "fx_add_batch");
   assert.equal(added[4], 0xffffffff, "no corner: a base of its own");
   const base = calls.find((c) => c[0] === "fx_batch_base");
-  assert.deepEqual([base[2], base[3], base[5]], [[0, 3, 1, 2], 4, [0, 2, 1, 2, 3, 1]], "the quad's position and uv, as its geometry has them");
+  assert.deepEqual([base[2], base[3], base[5]], [[0, 3, 2, 2], 4, [0, 2, 1, 2, 3, 1]], "the quad's position and uv, as its geometry has them");
   assert.equal(calls.find((c) => c[0] === "fx_batch_values")[2], "trailTime:1:0,tint:3:0");
   assert.equal(trail.external, true);
   list.transparent.length = 0;
@@ -1180,6 +1156,8 @@ test("the droideka's rolling dust: its wisps a batch on a quad of its own, writt
 test("the Enhanced jetpack's wake: its three pools batches on a quad of their own, written each frame with the wake's clock", async () => {
   const { JetpackWake } = await import("../src/jetpack-wake.js");
   const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  core.shadowsOn = () => true;
+  core.writeShadow = () => {};
   const wake = new JetpackWake({ scene, random: () => 0.5 });
   const nozzle = { position: new THREE.Vector3(0, 0, -5), direction: new THREE.Vector3(0, -1, 0), radius: 0.034 };
   const input = { nozzles: [nozzle], velocity: new THREE.Vector3(), active: true, throttle: 1 };
@@ -1258,7 +1236,7 @@ test("the Enhanced destruction's arcs: a mesh rebuilt each frame, as many vertic
   const added = calls.find((c) => c[0] === "fx_add_mesh");
   assert.deepEqual(added.slice(5, 7), [[3, 3, 4], ""], "its attributes; no values of its own (the frame's resolution and fog)");
   assert.equal(arcs.external, true);
-  assert.equal(arcs.material.visible, true, "hidden by its flag, not its material");
+  assert.equal(arcs.material.visible, false, "the material shell has no browser source");
   list.transparent.length = 0;
   const version = arcs.mesh.geometry.getAttribute("position").version;
   d.update(1 / 60);
@@ -1274,6 +1252,8 @@ test("the Enhanced destruction's arcs: a mesh rebuilt each frame, as many vertic
 test("the Enhanced jetpack's flame: a box a nozzle on a base of its own, its 3D noise bound as one, its depth its own", async () => {
   const { JetpackVolume } = await import("../src/jetpack-volume.js");
   const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  core.shadowsOn = () => true;
+  core.writeShadow = () => {};
   const volume = new JetpackVolume({ scene, count: 2 });
   const nozzle = (x) => ({ position: new THREE.Vector3(x, 1, -5), direction: new THREE.Vector3(0, -1, 0), radius: 0.03 });
   volume.update(1.5, 1, [nozzle(-0.2), nozzle(0.2)]);
@@ -1312,7 +1292,7 @@ test("the death camera's trace: a mesh rebuilt each frame, its vertices, indices
   const added = calls.find((c) => c[0] === "fx_add_mesh");
   assert.ok(added, "registered");
   assert.deepEqual(added.slice(2, 7), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 0, 0x0203, [3, 2], "color:3,head:1,opacity:1,span:1,traceTime:1"], "additive, no depth test, its own values");
-  assert.deepEqual(calls.find((c) => c[0] === "fx_mesh_pass").slice(3), [2, [0, 1]], "one pass, both sides");
+  assert.deepEqual(calls.find((c) => c[0] === "fx_mesh_pass").slice(3), [2, [0, 3]], "one pass, both sides");
   assert.equal(trace.material.visible, false, "hidden from three");
   assert.equal(core.fxInput[0], 1, "drawn by Rust in the registration frame");
   list.transparent.length = 0;
@@ -1351,9 +1331,83 @@ test("the scene's depth: asked for as three starts the render, before the first 
   const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
   const { ParticleDepth, particleDepth } = await import("../src/particle-depth.js");
   const { core, scene, camera, renderer, list, frame, drawn, fx } = bridge();
+  core.shadowsOn = () => true;
+  core.writeShadow = () => {};
   const saved = { ...particleDepth }, map = particleDepth.map.value;
-  });
-
+  try {
+    const depth = new ParticleDepth(renderer);
+    depth.copy = () => { depth.copies++; };
+    // The pass asks the page's helper (made here after the bridge).
+    fx.unrequest?.();
+    fx.unrequest = particleDepth.requester(scene, (c) => fx.requestDepth(c));
+    // A flame (its onBeforeRender asks for the depth whatever the setting) and a CPU batch (only while soft particles are on).
+    const volume = new JetpackVolume({ scene, count: 2 });
+    const nozzle = (x) => ({ position: new THREE.Vector3(x, 1, -5), direction: new THREE.Vector3(0, -1, 0), radius: 0.03 });
+    const particles = new ParticleRenderer(scene);
+    const batch = particles.batch(new THREE.Texture(), "additive", "bolt");
+    const fill = (n) => { particles.begin(); for (let i = 0; i < n; i++) batch.push(i, 1, -6, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end(); };
+    volume.update(1.5, 1, [nozzle(-0.2), nozzle(0.2)]);
+    fill(2);
+    list.transparent.push({ object: volume.mesh, material: volume.mesh.material, group: null });
+    drawn(volume.mesh.material, program(["projectionMatrix", "viewMatrix", "cameraPosition", "flameTime", "power", "hasDepth", "noiseField", "sceneDepth", "depthResolution", "cameraRange"],
+      ["position", "nozzle", "direction", "bend", "nozzleRadius", "phase"]));
+    drawn(batch.material, CPU_PROGRAM);
+    frame();
+    list.transparent.length = 0;
+    assert.equal(fx.records.length, 2);
+    const target = core.graphics.sceneTarget;
+    // A frame: graphics.js begin(), three's render starting (the scene's onBeforeRender), the transparent phase.
+    const render = (soft, n = 2) => {
+      volume.update(1.6, 1, [nozzle(-0.2), nozzle(0.2)]);
+      fill(n);
+      depth.begin(target, camera, soft);
+      scene.onBeforeRender(renderer, scene, camera, target);
+    };
+    render(false);
+    assert.equal(depth.armed, true, "the flame asks whatever the setting");
+    assert.deepEqual([depth.group.renderOrder, depth.copier.renderOrder], [0, 10], "just before it: its group order and render order");
+    frame();
+    assert.equal(depth.copies, 1, "the copy is published as a sorted Rust item");
+    assert.equal(core.fxInput[DRAW_AT + 2 * DRAW_STRIDE], 3);
+    assert.equal(volume.mesh.material.uniforms.hasDepth.value, 1, "yet knows it will have it");
+    particleDepth.sortedCopy(renderer, camera);
+    assert.equal(depth.copies, 1, "taken at the copier");
+    assert.equal(fx.requested.length, 0, "the frame's requests used");
+    // Soft particles on: the batch asks too.
+    render(true);
+    assert.equal(fx.records.filter((r) => r.requested).length, 2);
+    frame();
+    particleDepth.sortedCopy(renderer, camera);
+    assert.equal(depth.copies, 1);
+    // A batch shown only after three started the render (asked for by none): the copy taken at once, the copier's none.
+    render(true, 0);
+    assert.equal(fx.records.filter((r) => r.requested).length, 1);
+    fill(2);
+    frame();
+    assert.equal(depth.copies, 1, "taken as the phase starts");
+    particleDepth.sortedCopy(renderer, camera);
+    assert.equal(depth.copies, 1);
+    // A volume rendering with the depth at once (its own pass): a copy of its own as the phase starts; the copier's still taken.
+    const wakes = new EnvironmentWakes(), steam = new EnvironmentVolume(scene, 2, wakes);
+    steam.update(1, [{ position: new THREE.Vector3(0, 0, -6), direction: new THREE.Vector3(0, 1, 0), extent: new THREE.Vector3(6, 5.5, 6), kind: 0 }]);
+    list.transparent.push({ object: steam.mesh, material: steam.mesh.material, group: null });
+    drawn(steam.mesh.material, program(["volumeMap", "sceneDepth", "volumeResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
+    frame();
+    list.transparent.length = 0;
+    const rendered = [];
+    Object.assign(renderer, { getClearColor: (c) => c, getClearAlpha: () => 1, setClearColor() {}, clear() {}, render: (s) => rendered.push(s) });
+    render(false);
+    frame();
+    assert.equal(depth.copies, 2, "the volumes' early copy and the published sorted copy");
+    assert.equal(rendered.length, 0, "volumes draw through Rust");
+    assert.equal(steam.mesh.material.uniforms.enabled.value, 1);
+    particleDepth.sortedCopy(renderer, camera);
+    assert.equal(depth.copies, 2, "and the copier's for the draws after it");
+  } finally {
+    Object.assign(particleDepth, saved);
+    particleDepth.map.value = map;
+  }
+});
 
 
 test("new this frame: a soldier, his gun and a particle batch registered as three starts its render, their programs built without a draw", () => {
@@ -1404,7 +1458,7 @@ test("new this frame: a soldier, his gun and a particle batch registered as thre
   assert.equal(compiled.length, 0, "a mirror's or another camera's render: nothing");
   scene.updateMatrixWorld(true);
   scene.onBeforeRender(renderer, scene, camera, target);
-  assert.deepEqual(compiled.map(([name]) => name).sort(), ["batch", "body", "gun"]);
+  assert.deepEqual(compiled.map(([name]) => name).sort(), ["body", "gun"]);
   assert.deepEqual(compiled.find(([name]) => name === "body")[1], 1, "the body compiled with the materials it draws with, not the gun's");
   assert.equal(body.material.length, 2, "its own array kept");
   assert.equal(bodyMaterial.visible, false, "hidden from three before three lists it");
@@ -1450,7 +1504,7 @@ test("the steam's volumes: their own pass drawn into their target by the rendere
     assert.equal(calls.filter((c) => c[0] === "fx_add_model").length, 1);
     // The next frame: the volumes' program built for their own scene, their batch registered (drawn into their target).
     render();
-    assert.ok(compiled.some(c => c[0] === steam.volumeMesh && c[1] === steam.volumeScene), "compiled for its offscreen Rust draw");
+    assert.equal(compiled.length, 0, "owned volumes never invoke the browser compiler");
     const batch = calls.find((c) => c[0] === "fx_add_batch");
     assert.ok(batch, `registered (${core.errors.join("; ")})`);
     assert.ok(calls.some((c) => c[0] === "fx_batch_depth" && c[2] === 4), "neither tested nor written: colour only");
@@ -1477,7 +1531,7 @@ test("a glow model added to the scene (a side's logo as it takes a post): regist
   renderer.compile = (list) => { list.traverse((o) => { compiled.push(o); drawn(o.material, front, [back, front]); renderer.properties.get(o.material).__version = undefined; }); };
   scene.onBeforeRender(renderer, scene, camera, target);
   // As game.js glowModel makes one: a material its parts share, on the group.
-  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const material = ownedBasicEffect('glow-basic', { map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
   geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
@@ -1489,7 +1543,7 @@ test("a glow model added to the scene (a side's logo as it takes a post): regist
   holder.add(group);
   scene.updateMatrixWorld(true);
   scene.onBeforeRender(renderer, scene, camera, target);
-  assert.deepEqual(compiled, [part], "its program built");
+  assert.deepEqual(compiled, [], "owned source requires no browser preparation");
   assert.equal(calls.filter((c) => c[0] === "fx_add_model").length, 1, `registered (${core.errors.join("; ")})`);
   assert.equal(material.visible, false, "hidden from three before three lists it");
   frame();

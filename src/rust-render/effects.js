@@ -1,63 +1,34 @@
-// The effects pass (effects.rs): the battle's effects, including the native
-// particle phase's published buffers, drawn as items of the near scene's transparent
-// list (transparent.js: the renderer sorts every source's items with what
-// three still draws, as three would sort them all). So far:
+// Effects presentation inputs for effects.rs. Batches, dynamic meshes and
+// glow models share the near and mirror transparent lists. Every program is
+// registered from the Rust effects catalog (src/render-programs.js declares
+// layouts; rust/bfe-render/shaders/effects holds the sources); material
+// shells retain only values, raster state and resource handles, and no
+// browser GLSL is made for an effect.
+// The native particle phase's published buffers are drawn here too, as items of the
+// near scene's transparent list (transparent.js sorts every source's items together).
 //
-// - The particle batches: particles.js's (the Classic bolts and their glow,
-//   the effects' CPU particles) and effects-gpu.js's analytic ones, every
-//   particle renderer's of the near scene (particles.js particleRenderers:
-//   the ordnance's, the effects', the map's environment effects').
-// - The Classic arc caster's lightning (lightning.js): one mesh rebuilt each
-//   frame, drawn twice as three draws a double-sided transparent material.
-// - Glow models (game.js glowModel: the muzzle flashes, the effects' model
-//   particles): additive basic materials on models, each part a mesh with a
-//   world matrix, found in three's transparent list as it first draws them.
-// - The droidekas' shields (droideka-shield.js): a shader material on a
-//   sphere, its values read from its uniforms each frame (after its
-//   onBeforeRender, as three would call it), found the same way; and the
-//   Enhanced aura around a shield, another sphere with the shield's values.
-// - The map's haze and weather: atmosphere.js's square batches (dust, the
-//   FogCloud), drawn like particle batches with values of their own;
-//   snow.js's flakes, a batch with no instance attributes (its program
-//   finds each flake and box by instance number in data textures, which
-//   three uploads as they change and the renderer samples); weather.js's
-//   rain, a batch of fixed seeds on a streak plane of its own.
-// - The Enhanced environment: the rain's ground mist (the rain's own batch
-//   with other values), its splashes (rain-impacts.js: instances rewritten
-//   as drops land) and its sheets (rain-sheets.js: a shader model around the
-//   eye); the steam's wisps (steam-wisps.js) and the fountains' wake
-//   splashes (fountain-spray.js), batches of fixed seeds placed by their
-//   programs; and the steam's volumes as three composites them
-//   (environment-volume.js: a shader model over the screen, its image drawn
-//   by three into its own target by the model's onBeforeRender, as three
-//   would call it).
-// - The fountains' jets (fountain-jets.js): batches of fixed seeds on bases
-//   of their own (quads, ribbons, the column, the tier's overflow), which
-//   read the frame drawn so far, copied by an object three still draws just
-//   before them (its own list then splits the renderer's there); and their
-//   two halves of soft spray, each drawn by three into a target of its own
-//   and composited by the renderer (shader models, as the steam's volumes).
+// Programs: the loading screen links the variants the current settings use,
+// one at a time (effect-material.js warmEffectPrograms). A shadow setting
+// changed later queues the other set, linked one program per frame in
+// beforeSort. Any variant a draw needs that is still missing links on first
+// use and is recorded in core.shaderPrograms.
 //
-// Each is registered the first time three has drawn it (which gives its
-// material a program), then marked external: three is shown it no more and
-// uploads it nothing, and each frame this pass writes what it draws into the
-// renderer's memory (a CPU batch's instances, an analytic batch's from the
-// first that changed, the lightning's vertices and indices as far as they
-// are used), with the key three would have sorted it by: group order,
-// render order, the centre of its bounding sphere (through its world
-// matrix, as three's projectObject takes it) and its id.
+// Ownership: a material is an effect's when it was made with bindProgram (the
+// bfeEffect flag); passes test that flag, never the key text. Registration
+// is by kind: a batch is the page's instanced particles (one record per batch,
+// its instances uploaded incrementally), a mesh a dynamic geometry whose
+// vertices the page rewrites, a model a skinned or rigid overlay (shields,
+// shock, hologram and blade materials) whose values come from its uniforms,
+// a glow a model's emissive part, a volume or spray a half-size target the
+// renderer draws before the composite that samples it.
 //
-// Of what the Enhanced looks draw, the bolts (blaster-bolts.js), the
-// sniper's trace (sniper-trace.js), the arc caster's lightning
-// (arc-lightning.js: its capsules; the glow over a shocked body stays
-// three's), the droideka's rolling dust (droideka-trail.js), the
-// jetpack's wake (jetpack-wake.js), the destruction's fire, smoke and arcs
-// (destruction-fx.js) and the death camera's trace of the killing shot
-// (death-trace.js; it and the arcs meshes rebuilt each frame with shader
-// materials of their own) and the jetpack's flame (jetpack-volume.js: boxes
-// ray-marched through a 3D noise texture) are drawn here too; the
-// destruction's burning pieces are the instance pass's.
+// External batches keep the page's spawn arrays and incremental-upload marks.
+// Volumes and soft fountain spray draw into their own targets, then their
+// composites enter the same sorted list. Color and depth copies are sorted
+// Rust commands. First-person arcs use the same batch upload in the view list.
 import * as THREE from "three";
+import { ownedEffectProgram, effectProgramKeys } from "./effect-material.js";
+import { ownedProgram, ownsEffectSource } from "./programs.js";
 import { particleRenderers } from "../particles.js";
 import { squareBatches } from "../atmosphere.js";
 import { classicLightning } from "../lightning.js";
@@ -71,26 +42,16 @@ import { fountainJets } from "../fountain-jets.js";
 import { environmentVolumes } from "../environment-volume.js";
 import { fountainWaters } from "../fountain-water.js";
 import { particleDepth } from "../particle-depth.js";
-import { compileFor, unbuilt } from "./instances.js";
 import { lighting } from "../materials.js";
-import { blendOf, stateOf, sidesOf, programForSide } from "./transparent.js";
+import { blendOf, stateOf, sidesOf } from "./transparent.js";
 
 // add_program's kinds (web/mod.rs): the world's (a model's model-view
 // matrix set per draw), and the effects' (the identity for a model matrix,
 // read as modelViewMatrix).
 const WORLD = 0, EFFECT = 4;
-// The material values a batch's program reads, set by the renderer from
-// the frame (soft particles) and the batch's owner (its rows).
-const MATERIAL = new Set(["softParticles", "depthResolution", "cameraRange", "trackRows", "emitterRows"]);
-const POLICY = { uniforms: new Set(["modelViewMatrix", "map", "sceneDepth", "tracks", "emitters", ...MATERIAL]), material: MATERIAL };
-const policyOf = (kind) => ({ uniforms: new Set([...POLICY.uniforms, ...kind.values, ...kind.samplers]), material: MATERIAL });
 // A basic material's values (three's refreshUniformsCommon), as the page
 // writes them for a mesh: name, size.
 const BASIC = [["diffuse", 3], ["opacity", 1], ["mapTransform", 9]];
-// modelMatrix: three's own materials read it under shadows (their world
-// position); the renderer sets it per draw (a mesh's: the identity).
-const MESH_POLICY = { uniforms: new Set(["modelViewMatrix", "modelMatrix", "map", ...BASIC.map(([name]) => name)]), material: new Set() };
-const MODEL_POLICY = MESH_POLICY;
 // Each kind of batch: its instance attributes, in the order this pass
 // writes them; the material values of its own the page writes after them
 // (names; ints among them by `ints`); the textures it samples on units of
@@ -168,6 +129,8 @@ const KINDS = {
 };
 // The batches of fixed seeds found in three's list by their meshes' names,
 // and the shader models (registerShader).
+KINDS.arcView = { ...KINDS.arc, values: [...KINDS.arc.values, "fade"], programKind: 3, into: true, copies: null };
+KINDS.jetSpray = { ...KINDS.jets, into: true };
 const SEEDED = { "map-precipitation": "rain", "rain-ground-mist": "rain", "chamber-steam-wisps": "wisps", "fountain-wake-spray": "spray" };
 const SHADER_MODELS = new Set(["rain-sheets", "environment-volumes", "fountain-spray-beyond", "fountain-spray-before"]);
 // What the shader models' onBeforeRender ask of the scene's depth (as KINDS'
@@ -190,7 +153,7 @@ const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
 const IN_DRAWS = 0, IN_OWNERS = 1, IN_SOFT = 2;
 const OWNER_AT = 8, OWNER_STRIDE = 4, MAX_OWNERS = 8;
 const DRAW_AT = OWNER_AT + MAX_OWNERS * OWNER_STRIDE, DRAW_STRIDE = 12, DRAW_KEY = 6, MAX_DRAWS = 512;
-const KIND_BATCH = 0, KIND_MESH = 1, KIND_MODEL = 2;
+const KIND_BATCH = 0, KIND_MESH = 1, KIND_MODEL = 2, KIND_COPY = 3;
 // Floats of an emitter row (effects-gpu.js).
 const EMITTER_FLOATS = 12;
 const center = new THREE.Vector4();
@@ -199,7 +162,7 @@ const center = new THREE.Vector4();
 // doesn't draw, such as the Enhanced bolts').
 function kindOf(batch) {
   const a = batch.arrays, m = batch.material;
-  if (!a || !m?.isShaderMaterial || !batch.mesh || !batch.geometry?.isInstancedBufferGeometry) return null;
+  if (!a || !ownsEffectSource(m) || !batch.mesh || !batch.geometry?.isInstancedBufferGeometry) return null;
   if (a.iShape && a.iPosition) return "cpu";
   if (a.spawnMeta && a.spawnPosition) return "analytic";
   if (a.iHead && a.iSize && !a.iMisc) return "blaster";
@@ -305,7 +268,7 @@ function drops(mesh) {
 // on its group).
 function glowOf(object) {
   const m = object.material;
-  return object.isMesh && !object.isSkinnedMesh && !object.isInstancedMesh && m?.isMeshBasicMaterial && m.transparent && object.parent?.userData?.material === m;
+  return object.isMesh && !object.isSkinnedMesh && !object.isInstancedMesh && m?.userData?.bfeProgram === "effects/glow-basic" && m.transparent && object.parent?.userData?.material === m;
 }
 
 // src[from..to) into data from `at`, without a view for a short run; where
@@ -333,8 +296,12 @@ function bindSampler(core, batch, sampler, texture, id) {
 
 // A droideka's shield (droideka-shield.js), and the Enhanced aura around it
 // (the same uniforms, another fragment shader).
+function shaderMaterial(material) {
+  return ownsEffectSource(material);
+}
+
 function shieldOf(object) {
-  return object.isMesh && object.material?.isShaderMaterial && (object.material.name === "droideka-energy-shield" || object.name === "droideka-shield-aura");
+  return object.isMesh && shaderMaterial(object.material) && (object.material.name === "droideka-energy-shield" || object.name === "droideka-shield-aura");
 }
 
 // A uniform's value as floats: [size, form] (effects.rs MaterialValue: 0 a
@@ -399,24 +366,33 @@ class EffectsPass {
     this.name = "effects";
     this.phase = "transparent";
     this.records = []; // registered batches
-    this.byBatch = new Map(); // batch -> its record, or null (unregistered)
+    this.byBatch = new Map(); // batch -> its registered record
+    this.viewBatches = new WeakMap();
     this.owners = new Map(); // GpuEffects -> { id }
     this.meshes = new Map(); // the lightning's material -> its record, or null
     this.shaderMeshes = new Map(); // the death camera's trace -> its record, or null
-    this.glows = new Map(); // a glow model's part -> its record, or null (unregistered)
+    this.glows = new Map(); // a glow model's part -> its registered record
     this.glowList = []; // the records, in registration order
     // This frame's batches and glow models drawn (kept, not made each frame).
     this.drawn = [];
     this.glowing = [];
     this.traced = [];
     this.models = new Map(); // what a model is made of -> its id
-    // The renderer's programs for this pass's draws, made for it alone:
-    // effects.rs keeps the values it last set in each program's uniforms
-    // (`held`) and skips setting them again, so no other pass may set them
-    // (a command post's beam can draw with a glow model's three program).
-    this.programs = new Map();
+    // The loading screen links the variants the settings use, one at a time
+    // (warmEffectPrograms). A shadow setting changed later queues the other
+    // set, linked one program per frame in beforeSort, never all at once.
+    this.shadows = core.shadowsOn();
+    this.linkQueue = [];
+    this.ownedPending = new Set();
+    this.ownedItems = [];
+    this.ownedContext = { renderer: core.renderer, scene: core.graphics.scene };
+    this.ownedInitial = true;
+    this.collectOwned = (root) => root.traverse((mesh) => {
+      if (shaderMaterial(mesh.material) && (glowOf(mesh) || shieldOf(mesh) || SHADER_MODELS.has(mesh.name) || SEEDED[mesh.name] || JETS.has(mesh.name) || mesh.name === "map-snow" || arcBatches.has(mesh) || droidekaTrails.has(mesh) || jetpackVolumes.has(mesh) || jetpackWakes.has(mesh) || destructionPools.has(mesh) || destructionArcs.has(mesh) || mesh.name === "death-trace" || fountainWaters.has(mesh) || rainImpacts.has(mesh)) && !this.glows.has(mesh) && !this.byBatch.has(mesh) && !this.shaderMeshes.has(mesh)) this.ownedPending.add(mesh);
+    });
+    this.ownedItem = new WeakMap();
     this.batchCount = -1;
-    this.waiting = new Map(); // batch -> its registration, until three has drawn it
+    this.waiting = new Map(); // batch -> its registration, run in beforeSort once its geometry is ready
     this.frame = 0;
     // What the measurement tools read: last frame's draws and instances.
     this.draws = 0;
@@ -436,70 +412,63 @@ class EffectsPass {
     core.addView("fxMatrices", Float64Array, () => core.rust.fx_matrices_ptr(), () => core.rust.fx_matrices_len());
   }
 
-  // Before three lists the frame's own render of the near scene (the core's
-  // watchScene): the particle renderers' batches it has not drawn yet, their
-  // programs built by three without a draw (compileFor), registered now and
-  // so hidden from three before it lists them: the renderer draws them from
-  // their first frame. (What is found in three's list is still registered
-  // once three has drawn it.)
+  // Register new source-owned meshes before the scene is listed. Textures
+  // still loading remain pending; no browser compilation is requested.
   beforeSort(renderer, scene, camera, target, added) {
     const graphics = this.core.graphics;
     if (scene !== graphics.scene || (camera !== graphics.camera || target !== graphics.sceneTarget) && camera.userData?.mirror !== true) return;
     try {
+      if (this.core.shadowsOn() !== this.shadows) {
+        this.shadows = !this.shadows;
+        this.linkQueue = effectProgramKeys(this.core).filter((key) => !this.core.ownedPrograms?.has(key)).reverse();
+      }
+      const queued = this.linkQueue.pop();
+      if (queued) ownedProgram(this.core, queued, null);
       this.glowsAdded(renderer, scene, camera, added);
-      this.lightning();
+      const collect = this.collectOwned;
+      if (this.ownedInitial) { collect(scene); this.ownedInitial = false; }
+      else for (const root of added || []) collect(root);
+      this.ownedItems.length = 0;
+      for (const object of this.ownedPending) {
+        let item = this.ownedItem.get(object);
+        if (!item) { item = { object }; this.ownedItem.set(object, item); }
+        this.ownedItems.push(item);
+      }
+      this.listed(this.ownedContext, this.ownedItems);
+      for (const mesh of this.ownedPending) if (this.glows.has(mesh) || this.byBatch.has(mesh) || this.shaderMeshes.has(mesh)) this.ownedPending.delete(mesh);
       this.batches();
-      const fresh = [];
-      for (const batch of this.waiting.keys()) {
-        const mesh = batch.mesh;
-        if (mesh && mesh.visible && unbuilt(renderer, mesh.material)) fresh.push([mesh, mesh.material]);
-      }
-      if (fresh.length) {
-        compileFor(renderer, fresh, camera, scene);
-        this.batches();
-      }
+      this.lightning();
       // The steam's volumes, drawn into their target by the renderer from
-      // the frame after their composite was registered (three builds their
-      // program here, outside its render).
+      // the frame after their composite was registered.
       for (const record of this.glowList) {
         if (record.volume !== undefined) continue;
         if (environmentVolumes.has(record.mesh)) record.volume = this.registerVolume(environmentVolumes.get(record.mesh), camera);
         else if (record.mesh.userData.spray && fountainJets.has(record.mesh)) record.volume = this.registerSpray(record.mesh, camera);
       }
     } catch (error) {
-      this.core.fail(error);
+      this.core.errors.push(`effects before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
+      throw error;
     }
   }
 
-  // New command-post logos and muzzle-flash models compile before their
-  // first Rust frame. Unready resources remain in the registration retry set.
+  // New glow groups share their registered geometry and owned programs.
   glowsAdded(renderer, scene, camera, added) {
+    if (!this.glowRetry.size && !added?.length) return;
     const groups = new Set(this.glowRetry);
     this.glowRetry.clear();
     for (const root of added || []) root.traverse((o) => { if (glowOf(o) && !this.glows.has(o)) groups.add(o.parent); });
     if (!groups.size) return;
-    const fresh = [];
-    for (const group of groups) {
-      const material = group.userData.material, part = group.children.find((o) => o.isMesh && o.material === material);
-      if (part && unbuilt(renderer, material)) fresh.push([part, material]);
-    }
-    if (fresh.length) compileFor(renderer, fresh, camera, scene);
     for (const group of groups) {
       const material = group.userData.material, part = group.children.find((o) => o.isMesh && o.material === material);
       if (!part || this.glows.has(part)) continue;
-      this.registerGlow(group, true);
-      if (!this.glows.has(part) && renderer.properties.get(material).__version === undefined) this.glowRetry.add(group);
+      this.registerGlow(group);
+      if (!this.glows.has(part)) this.glowRetry.add(group);
     }
   }
 
-  // A steam volume's own pass (environment-volume.js): its batch of boxes,
-  // drawn into its target (KINDS.volume) with three's program for it, which
-  // three builds now without a draw where it has none (for its own render of
-  // the volumes' scene, as the composite's onBeforeRender would make it).
-  // Null when the renderer can't draw it, undefined to look again.
+  // Register the auxiliary volume geometry with its owned batch program.
   registerVolume(volume, camera) {
     const renderer = this.core.renderer, mesh = volume.volumeMesh, g = mesh.geometry;
-    if (unbuilt(renderer, mesh.material)) compileFor(renderer, [[mesh, mesh.material]], camera, volume.volumeScene);
     const arrays = {};
     for (const [name, a] of Object.entries(g.attributes)) if (a.isInstancedBufferAttribute) arrays[name] = a.array;
     const batch = { mesh, material: mesh.material, geometry: g, get count() { return g.instanceCount; }, capacity: g.getAttribute("origin").count, arrays, external: false };
@@ -517,7 +486,6 @@ class EffectsPass {
     // initTexture cannot allocate a render target: leaving it uninitialized
     // makes every hidden spray retry registration on every subsequent frame.
     if (!renderer.properties.get(owner.behind.texture).__webglTexture) renderer.initRenderTarget(owner.behind);
-    if (unbuilt(renderer, mesh.material)) compileFor(renderer, [[mesh, mesh.material]], camera, composite.userData.scene);
     const record = this.registerBatch(instancedOf(mesh), "jetsSpray", null);
     if (!record) return record;
     record.source = {
@@ -581,6 +549,33 @@ class EffectsPass {
     return true;
   }
 
+  // The first-person arc uses the same owned batch program and upload as
+  // the near arcs, at its position among the view's transparent draws.
+  viewBatch(mesh) {
+    let record = this.viewBatches.get(mesh);
+    if (!record) {
+      const arc = arcBatches.get(mesh);
+      if (!arc) throw Error("Unknown first-person arc batch");
+      record = this.registerBatch(interleavedBatch(arc), "arcView", null);
+      if (!record) throw Error("First-person arc batch failed to register");
+      mesh.material.visible = false;
+      this.viewBatches.set(mesh, record);
+    }
+    return record;
+  }
+
+  writeViewBatch(record, camera, at) {
+    const core = this.core, batch = record.batch, count = batch.count;
+    record.mesh.onBeforeRender(core.renderer, core.graphics.viewScene, camera, batch.geometry, batch.material, null);
+    let need = at + count * record.stride;
+    for (const [, size] of record.values) need += size;
+    core.views();
+    if (need > core.fxData.length) { core.rust.fx_reserve(Math.max(need, core.fxData.length * 2)); core.buffer = null; core.views(); }
+    at = copy(core.fxData, at, batch.source.data, 0, count * record.stride);
+    for (const [name] of record.values) at = put(core.fxData, at, batch.material.uniforms[name].value);
+    return at;
+  }
+
   // The frame's soft particle values for the renderer (effects.rs IN_SOFT):
   // whether soft particles are on, the depth's size, the camera's range, the
   // scene's depth (registered texture, -1 none).
@@ -598,55 +593,55 @@ class EffectsPass {
     return this.core.nearList(renderer, scene);
   }
 
-  // What three draws this frame that this pass has not seen, each
-  // registered once three has drawn it, then hidden from three: glow models
+  // What the scene lists this frame that this pass has not seen, each
+  // registered on first sight and hidden from three: glow models
   // (with their group's other parts: they share its material), shields and
   // the other shader models, the snow, the rain, the environment's batches,
   // the Enhanced arcs', the droideka's dust, the jetpack's flame and wake,
   // the destruction's fire, smoke and arcs and the death camera's trace.
-  listed(ctx) {
-    const list = this.threeList(ctx.renderer, ctx.scene);
-    for (const item of list?.transparent || []) {
+  listed(ctx, ownedItems = null) {
+    const list = ownedItems ? null : this.threeList(ctx.renderer, ctx.scene);
+    for (const item of ownedItems || list?.transparent || []) {
       const object = item.object;
       if (this.glows.has(object) || this.byBatch.has(object)) continue;
       if (glowOf(object)) this.registerGlow(object.parent);
-      else if (shieldOf(object) || (SHADER_MODELS.has(object.name) && object.material?.isShaderMaterial)) this.registerShader(object);
+      else if (shieldOf(object) || (SHADER_MODELS.has(object.name) && shaderMaterial(object.material))) this.registerShader(object);
       // The fountains' water (fountain-water.js): every mesh drawn with its
       // material at once (hiding the material hides them all from three).
-      else if (fountainWaters.has(object) && object.material?.isShaderMaterial) {
+      else if (fountainWaters.has(object) && shaderMaterial(object.material)) {
         for (const mesh of fountainWaters.get(object).meshes()) if (!this.glows.has(mesh)) this.registerShader(mesh, false);
       }
-      else if (object.name === "map-snow" && object.material?.isShaderMaterial) {
+      else if (object.name === "map-snow" && shaderMaterial(object.material)) {
         const record = this.registerBatch(flakes(object), "snow", null);
         if (record !== undefined) this.byBatch.set(object, record);
-      } else if (SEEDED[object.name] && object.material?.isShaderMaterial && object.geometry.getAttribute("seed")?.itemSize === 4) {
+      } else if (SEEDED[object.name] && shaderMaterial(object.material) && object.geometry.getAttribute("seed")?.itemSize === 4) {
         const record = this.registerBatch(drops(object), SEEDED[object.name], null);
         if (record !== undefined) this.byBatch.set(object, record);
       } else if (object.name === "rain-surface-impacts" && rainImpacts.has(object)) {
         const record = this.registerBatch(splashes(rainImpacts.get(object)), "impacts", null);
         if (record !== undefined) this.byBatch.set(object, record);
-      } else if (JETS.has(object.name) && fountainJets.has(object) && object.material?.isShaderMaterial) {
+      } else if (JETS.has(object.name) && fountainJets.has(object) && shaderMaterial(object.material)) {
         const record = this.registerBatch(instancedOf(object), "jets", null);
         if (record !== undefined) this.byBatch.set(object, record);
-      } else if (object.name === "arc-lightning" && arcBatches.has(object) && object.material?.isShaderMaterial) {
+      } else if (object.name === "arc-lightning" && arcBatches.has(object) && shaderMaterial(object.material)) {
         const record = this.registerBatch(interleavedBatch(arcBatches.get(object)), "arc", null);
         if (record !== undefined) this.byBatch.set(object, record);
-      } else if (object.name === "droideka-rolling-dust" && droidekaTrails.has(object) && object.material?.isShaderMaterial) {
+      } else if (object.name === "droideka-rolling-dust" && droidekaTrails.has(object) && shaderMaterial(object.material)) {
         const record = this.registerBatch(trailOf(droidekaTrails.get(object)), "trail", null);
         if (record !== undefined) this.byBatch.set(object, record);
-      } else if (jetpackVolumes.has(object) && object.material?.isShaderMaterial) {
+      } else if (jetpackVolumes.has(object) && shaderMaterial(object.material)) {
         const record = this.registerBatch(volumeOf(jetpackVolumes.get(object)), "flame", null);
         if (record !== undefined) this.byBatch.set(object, record);
-      } else if (object.name.startsWith("jetpack-wake-") && jetpackWakes.has(object) && object.material?.isShaderMaterial) {
+      } else if (object.name.startsWith("jetpack-wake-") && jetpackWakes.has(object) && shaderMaterial(object.material)) {
         const record = this.registerBatch(wakeOf(jetpackWakes.get(object)), "wake", null);
         if (record !== undefined) this.byBatch.set(object, record);
-      } else if (destructionPools.has(object) && object.material?.isShaderMaterial) {
+      } else if (destructionPools.has(object) && shaderMaterial(object.material)) {
         const record = this.registerBatch(poolOf(destructionPools.get(object)), "pool", null);
         if (record !== undefined) this.byBatch.set(object, record);
-      } else if (object.name === "death-trace" && object.material?.isShaderMaterial && !this.shaderMeshes.has(object)) {
+      } else if (object.name === "death-trace" && shaderMaterial(object.material) && !this.shaderMeshes.has(object)) {
         const record = this.registerShaderMesh(object);
         if (record !== undefined) this.shaderMeshes.set(object, record);
-      } else if (destructionArcs.has(object) && object.material?.isShaderMaterial && !this.shaderMeshes.has(object)) {
+      } else if (destructionArcs.has(object) && shaderMaterial(object.material) && !this.shaderMeshes.has(object)) {
         const record = this.registerShaderMesh(object, destructionArcs.get(object));
         if (record !== undefined) this.shaderMeshes.set(object, record);
       }
@@ -663,17 +658,14 @@ class EffectsPass {
     }
   }
 
-  // compiled: its program built by three without a draw (glowsAdded).
-  registerGlow(group, compiled = false) {
+  registerGlow(group) {
     const core = this.core, renderer = core.renderer, material = group.userData.material;
     const parts = group.children.filter((o) => o.isMesh && o.material === material);
-    const props = renderer.properties.get(material);
-    if (!props.currentProgram) return; // requires a compiled program
-    const fail = (why) => { core.errors.push(`effects glow: ${why}`); for (const mesh of parts) this.glows.set(mesh, null); };
+    const fail = (why) => { throw Error(`effects glow: ${why}`); };
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
     const sides = sidesOf(material);
-    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, WORLD, material, MODEL_POLICY, this.programs); });
+    const programs = sides.map((side) => ownedEffectProgram(core, material, WORLD, side));
     if (programs.some((p) => !p)) return fail("program");
     const map = material.map ?? null;
     const texture = map ? core.texture(map) : -1;
@@ -733,20 +725,21 @@ class EffectsPass {
     }
   }
 
-  // A batch's record, or null when the renderer can't draw it; undefined
-  // while three has not drawn it yet.
+  // A batch's record, or undefined while a source texture is loading.
   registerBatch(batch, kind, renderer) {
     const core = this.core, material = batch.material;
     let spec = KINDS[kind];
-    const threeProgram = core.renderer.properties.get(material).currentProgram;
-    if (!threeProgram) return undefined;
-    const fail = (why) => { core.errors.push(`effects ${kind}: ${why}`); return null; };
+    const fail = (why) => { throw Error(`effects ${kind}: ${why}`); };
     const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
     // A particle material: depth tested less-or-equal, not written, drawn in
     // one pass (double-sided, or the side three draws); one drawn into a
     // texture of its own (`into`) as its material has it.
     if (!blend || !state || (!spec.into && (state.func !== 0x0203 || state.flags !== 5)) || sides.length !== 1) return fail("state");
-    const program = core.program(threeProgram, EFFECT, material, policyOf(spec), this.programs);
+    if (kind === "jets") {
+      const jets = fountainJets.get(batch.mesh);
+      if (jets && !core.renderer.properties.get(jets.behind.texture).__webglTexture) core.renderer.initRenderTarget(jets.behind);
+    }
+    const program = ownedEffectProgram(core, material, spec.programKind ?? EFFECT);
     if (!program) return fail("program");
     // Attributes as its geometry has them: instance ones, then its base.
     if (spec.attributes === "instanced") {
@@ -848,11 +841,11 @@ class EffectsPass {
     let record = this.meshes.get(material);
     if (record === undefined) {
       const core=this.core;
-      if (unbuilt(core.renderer,material)) compileFor(core.renderer,[[lightning.mesh,material]],core.graphics.camera,core.graphics.scene);
       record = this.registerMesh(lightning.mesh, material, LIGHTNING);
       if (record !== undefined) this.meshes.set(material, record);
     }
-    if (!record) this.core.fail(new Error("Unregistered Classic lightning"));
+    lightning.external = Boolean(record);
+    if (record && material.userData?.bfeProgram) lightning.mesh.visible = false;
     return record ? { lightning, record } : null;
   }
 
@@ -860,13 +853,11 @@ class EffectsPass {
   // compiled yet; null reports a configuration this pass cannot own.
   registerMesh(mesh, material, attributes) {
     const core = this.core, renderer = core.renderer;
-    const props = renderer.properties.get(material);
-    if (!props.currentProgram) return undefined;
-    const fail = (why) => { core.errors.push(`effects mesh: ${why}`); return null; };
+    const fail = (why) => { throw Error(`effects mesh: ${why}`); };
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
     const sides = sidesOf(material);
-    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, EFFECT, material, MESH_POLICY, this.programs); });
+    const programs = sides.map((side) => ownedEffectProgram(core, material, EFFECT, side));
     if (programs.some((p) => !p)) return fail("program");
     const locations = programs.map((p) => { const at = new Map(p.attributes); return attributes.map(([name]) => at.get(name)); });
     if (locations.some((l) => l.some((v) => v === undefined))) return fail("attributes");
@@ -891,9 +882,7 @@ class EffectsPass {
   // it as it is yet, null when the renderer can't.
   registerShaderMesh(mesh, source = null) {
     const core = this.core, renderer = core.renderer, material = mesh.material, geometry = mesh.geometry;
-    const props = renderer.properties.get(material);
-    if (!props.currentProgram) return undefined;
-    const fail = (why) => { core.errors.push(`effects ${mesh.name}: ${why}`); return null; };
+    const fail = (why) => { throw Error(`effects ${mesh.name}: ${why}`); };
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
     const index = geometry.index?.array;
@@ -901,8 +890,7 @@ class EffectsPass {
     const uniforms = material.uniforms, names = Object.keys(uniforms);
     if (names.some((name) => uniforms[name].value?.isTexture)) return fail("samplers");
     const sides = sidesOf(material);
-    const policy = { uniforms: new Set([...names, "modelViewMatrix", "modelMatrix"]), material: new Set() };
-    const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, EFFECT, material, policy, this.programs); });
+    const programs = sides.map((side) => ownedEffectProgram(core, material, EFFECT, side));
     if (programs.some((p) => !p)) return fail("program");
     // Its attributes as its programs read them, each of its geometry's.
     const read = new Set(programs.flatMap((p) => p.attributes.map(([name]) => name)));
@@ -946,7 +934,8 @@ class EffectsPass {
 
   // A mesh with a shader material of its own, its values read from its
   // uniforms each frame (a droideka's shield, the rain's sheets, the
-  // steam's volumes). Registered once three has drawn it as it is. What it
+  // steam's volumes). Registered when first listed, its program already in
+  // the catalog. What it
   // samples: its first texture on the map's unit, the scene's depth on its
   // own (the pass binds it), any other on a unit of its own (MODEL_UNITS).
   // One three does not cull is never culled.
@@ -954,9 +943,7 @@ class EffectsPass {
   // caller hides it once every mesh drawn with it is).
   registerShader(mesh, hide = true) {
     const core = this.core, renderer = core.renderer, material = mesh.material, geometry = mesh.geometry;
-    const props = renderer.properties.get(material);
-    if (!props.currentProgram) return; // requires a compiled program
-    const fail = (why) => { core.errors.push(`effects ${mesh.name}: ${why}`); this.glows.set(mesh, null); };
+    const fail = (why) => { throw Error(`effects ${mesh.name}: ${why}`); };
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
     const sides = sidesOf(material);
@@ -968,8 +955,7 @@ class EffectsPass {
     const ownDepth = "sceneDepth" in uniforms && uniforms.sceneDepth !== particleDepth.map;
     const textures = samplers.filter((name) => name !== "sceneDepth" || ownDepth);
     if (textures.length > 1 + MODEL_UNITS.length) return fail("samplers");
-    const policy = { uniforms: new Set([...names, "modelViewMatrix", "modelMatrix", "normalMatrix"]), material: new Set() };
-    const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, WORLD, material, policy, this.programs); });
+    const programs = sides.map((side) => ownedEffectProgram(core, material, WORLD, side));
     if (programs.some((p) => !p)) return fail("program");
     if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return fail("geometry");
     const geometries = programs.map((p) => core.geometry(geometry, p));
@@ -1003,6 +989,14 @@ class EffectsPass {
     for (const x of extra) core.rust.fx_model_sampler(model, x.name, x.unit, x.id);
     const record = { mesh, model, material, map, handle: this.handle(map), sampler: textures[0] ?? null, extra, depth: samplers.includes("sceneDepth") && !ownDepth, values, shader: true, from: this.frame,
       copies: SHADER_COPIES[mesh.name] ?? null, atOnce: AT_ONCE.has(mesh.name), requested: false };
+    if (mesh.userData.spray) {
+      const jets = fountainJets.get(mesh), spray = mesh.userData.spray;
+      if (!renderer.properties.get(jets.behind.texture).__webglTexture) renderer.initRenderTarget(jets.behind);
+      const volume = this.registerBatch(instancedOf(spray), "jetSpray", null);
+      if (!volume) throw Error("Fountain spray registration failed");
+      volume.source = { target: mesh.userData.target, prepare(renderer, scene, camera) { return jets.prepareSpray(renderer, camera, mesh); } };
+      record.volume = volume;
+    }
     this.glows.set(mesh, record);
     this.glowList.push(record);
     if (hide || (fountainWaters.has(mesh) && fountainWaters.get(mesh).meshes().every((m) => this.glows.get(m)))) material.visible = false;
@@ -1039,7 +1033,7 @@ class EffectsPass {
 
     for (const record of this.records) {
       const b = record.batch, mode = copiesOf(record);
-      if (!mode || b.count <= 0 || (record.hiddenBy !== "material" && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
+      if (!mode || b.count <= 0 || (record.hiddenBy !== "material" && !b.material.userData?.bfeProgram && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
       if (particleDepth.request(record.key, mode === "always")) { record.requested = true; requested.push(record); }
     }
     for (const record of this.glowList) {
@@ -1102,7 +1096,7 @@ class EffectsPass {
     let need = 0, jets = false;
     for (const record of this.records) {
       const b = record.batch;
-      if (b.count <= 0 || (record.hiddenBy !== "material" && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
+      if (b.count <= 0 || (record.hiddenBy !== "material" && !b.material.userData?.bfeProgram && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
       drawn.push(record);
       if (record.depth) reads = true;
       if (!record.requested) late = lateOf(record, late);
@@ -1169,6 +1163,10 @@ class EffectsPass {
       for (const record of this.requested) record.requested = false;
       this.requested.length = 0;
     }
+    const depthCopy = particleDepth.sortedCopy(ctx.renderer, camera);
+    // The resource owner allocates a target on first use. The ordered copy below is
+    // Rust's, so nothing else would make the depth snapshot before it blits into it.
+    if (depthCopy && !ctx.renderer.properties.get(depthCopy.target.depthTexture).__webglTexture) ctx.renderer.initRenderTarget(depthCopy.target);
     const depth = reads && particleDepth.map.value ? core.texture(particleDepth.map.value) : -1;
     for (const gpu of this.owners.keys()) need += Math.min(gpu.count, gpu.uniforms.emitterRows.value) * EMITTER_FLOATS;
     core.views();
@@ -1241,6 +1239,17 @@ class EffectsPass {
       input[e] = KIND_MESH; input[e + 1] = record.id; input[e + 2] = vertices; input[e + 3] = indices; input[e + 4] = start; input[e + 5] = 0;
       this.keyOf(mesh, input, e + DRAW_KEY);
     }
+    // The fountain copier used to be a colorless three draw between scene
+    // items. Publish its key alongside the jets so Rust copies at that point.
+    if (jets && ctx.renderer.getRenderTarget() === core.graphics.sceneTarget && draws < MAX_DRAWS) {
+      const record = drawn.find((record) => record.jets);
+      const target = record.jets.behind, e = DRAW_AT + draws++ * DRAW_STRIDE;
+      input[e] = KIND_COPY; input[e + 1] = core.texture(target.texture);
+      input[e + 2] = target.width; input[e + 3] = target.height; input[e + 4] = 0; input[e + 5] = 0;
+      this.keyOf(record.mesh, input, e + DRAW_KEY);
+      input[e + DRAW_KEY + 1] = 9 - 0.025;
+      input[e + DRAW_KEY + 2] = 0; input[e + DRAW_KEY + 3] = 0; input[e + DRAW_KEY + 4] = 0;
+    }
     let models = 0;
     for (const record of glowing) {
       if (draws === MAX_DRAWS) core.fail(new Error("Too many effect draws"));
@@ -1254,6 +1263,18 @@ class EffectsPass {
       input[e] = KIND_MODEL; input[e + 1] = record.model; input[e + 2] = m; input[e + 3] = start; input[e + 4] = 0; input[e + 5] = 0;
       this.keyOf(mesh, input, e + DRAW_KEY);
     }
+    if (depthCopy) {
+      if (draws === MAX_DRAWS) throw Error("Effects copy exceeds transparent item capacity");
+      const e = DRAW_AT + draws++ * DRAW_STRIDE, m = depthCopy.copier.matrixWorld.elements;
+      input[e] = KIND_COPY; input[e + 1] = core.texture(depthCopy.target.depthTexture);
+      input[e + 2] = depthCopy.source.width; input[e + 3] = depthCopy.source.height;
+      input[e + 4] = 1; input[e + 5] = 0;
+      input[e + DRAW_KEY] = depthCopy.group.renderOrder; input[e + DRAW_KEY + 1] = depthCopy.copier.renderOrder;
+      input[e + DRAW_KEY + 2] = m[12]; input[e + DRAW_KEY + 3] = m[13]; input[e + DRAW_KEY + 4] = m[14]; input[e + DRAW_KEY + 5] = depthCopy.copier.id;
+    }
+    // The ordered copies read the framebuffer bound when Rust reaches them, so the
+    // resource owner's current target is bound for real before that frame runs.
+    if (depthCopy || jets) ctx.renderer.setRenderTarget(ctx.renderer.getRenderTarget());
     input[IN_DRAWS] = draws;
     input[IN_OWNERS] = draws ? owners : 0;
     this.writeSoft(depth);

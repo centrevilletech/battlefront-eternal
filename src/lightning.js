@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ownedBasicEffect } from "./rust-render/effect-material.js";
 import { ArcLightning } from "./arc-lightning.js";
 
 // LightningBolt effects (the arc caster's), drawn the way the 2004 renderer
@@ -108,7 +109,7 @@ export class Lightning {
     if (!this.materials.has(name)) {
       this.materials.set(
         name,
-        new THREE.MeshBasicMaterial({
+        ownedBasicEffect("lightning-basic", { visible: true,
           map: this.texture(name),
           vertexColors: true,
           transparent: true,

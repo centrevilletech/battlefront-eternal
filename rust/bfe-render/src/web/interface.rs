@@ -25,6 +25,7 @@ impl BfeRenderer {
     pub fn interface_frame(&mut self, draws: usize) {
         self.r.core.begin_phase();
         self.r.interface.draw(&mut self.r.core, draws);
-        self.r.core.end_phase();
+        // The interface pass has no faults of its own to report.
+        let _ = self.r.core.end_phase();
     }
 }

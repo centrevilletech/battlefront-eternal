@@ -1,0 +1,50 @@
+{
+  "extends": "./manifest.json",
+  "cases": [
+    {
+      "id": "saber-classic-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "classic",
+      "scenario": "blade"
+    },
+    {
+      "id": "saber-balanced-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced",
+      "scenario": "blade"
+    },
+    {
+      "id": "saber-high-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "scenario": "blade"
+    },
+    {
+      "id": "saber-high-third-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "scenario": "blade"
+    }
+  ],
+  "programs": []
+}

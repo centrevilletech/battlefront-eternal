@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ownedEffectMaterial } from "./rust-render/effect-material.js";
 
 // Screen motion of moving bodies, for the temporal upscaler (upscaler.js).
 //
@@ -27,75 +28,6 @@ const shared = {
   depthRange: { value: new THREE.Vector2(0.5, 200) },
 };
 
-const vertexShader = /* glsl */ `
-  #include <common>
-  #include <skinning_pars_vertex>
-  uniform mat4 currentViewProjection;
-  uniform mat4 previousViewProjection;
-  uniform mat4 previousModel;
-  #ifdef USE_SKINNING
-    uniform mat4 previousBindInverse;
-    uniform highp sampler2D previousBones;
-    mat4 previousBone(const in float i) {
-      int size = textureSize(previousBones, 0).x;
-      int j = int(i) * 4;
-      int x = j % size, y = j / size;
-      return mat4(texelFetch(previousBones, ivec2(x, y), 0), texelFetch(previousBones, ivec2(x + 1, y), 0),
-        texelFetch(previousBones, ivec2(x + 2, y), 0), texelFetch(previousBones, ivec2(x + 3, y), 0));
-    }
-  #endif
-  varying vec4 vCurrent;
-  varying vec4 vPrevious;
-  varying float vDepth;
-  void main() {
-    #include <skinbase_vertex>
-    #include <begin_vertex>
-    #include <skinning_vertex>
-    #include <project_vertex>
-    vec4 before = vec4(position, 1.0);
-    #ifdef USE_SKINNING
-      // Last frame's bones, and last frame's bind inverse: an attached
-      // skeleton's is the inverse of the mesh's own placement then.
-      vec4 bound = bindMatrix * before;
-      vec4 moved = previousBone(skinIndex.x) * bound * skinWeight.x + previousBone(skinIndex.y) * bound * skinWeight.y
-        + previousBone(skinIndex.z) * bound * skinWeight.z + previousBone(skinIndex.w) * bound * skinWeight.w;
-      before = previousBindInverse * moved;
-    #endif
-    vCurrent = currentViewProjection * modelMatrix * vec4(transformed, 1.0);
-    vPrevious = previousViewProjection * previousModel * before;
-    vDepth = -mvPosition.z;
-  }
-`;
-
-const fragmentShader = /* glsl */ `
-  uniform highp sampler2D sceneDepth;
-  uniform vec2 depthRange;
-  varying vec4 vCurrent;
-  varying vec4 vPrevious;
-  varying float vDepth;
-  void main() {
-    float stored = texelFetch(sceneDepth, ivec2(gl_FragCoord.xy), 0).r;
-    float near = depthRange.x, far = depthRange.y;
-    float surface = near * far / (far - stored * (far - near));
-    if (abs(surface - vDepth) > 0.04 + 0.01 * vDepth) discard;
-    vec2 now = vCurrent.xy / vCurrent.w, then = vPrevious.xy / vPrevious.w;
-    gl_FragColor = vec4((now - then) * 0.5, 0.0, 0.5);
-  }
-`;
-
-// The first-person weapon is drawn in a view of its own and moves with the
-// eye: it keeps its place on screen.
-const lockedVertexShader = /* glsl */ `
-  #include <common>
-  #include <skinning_pars_vertex>
-  void main() {
-    #include <skinbase_vertex>
-    #include <begin_vertex>
-    #include <skinning_vertex>
-    #include <project_vertex>
-  }
-`;
-
 // The uniforms every motion draw reads, for objects that draw their own
 // (addExtra).
 export const motionUniforms = shared;
@@ -111,9 +43,7 @@ export class MotionVectors {
     this.eye = new THREE.Vector3();
     this.at = new THREE.Vector3();
     this.was = new THREE.Vector3();
-    this.locked = new THREE.ShaderMaterial({
-      vertexShader: lockedVertexShader,
-      fragmentShader: "void main() { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); }",
+    this.locked = ownedEffectMaterial("effects/motion-locked", {
       depthTest: false, depthWrite: false, side: THREE.DoubleSide,
     });
     // The Rust renderer's motion pass when it draws for this one (render).
@@ -128,8 +58,7 @@ export class MotionVectors {
     geometry.index = source.geometry.index;
     geometry.attributes = source.geometry.attributes;
     geometry.boundingSphere = source.geometry.boundingSphere;
-    const material = new THREE.ShaderMaterial({
-      vertexShader, fragmentShader,
+    const material = ownedEffectMaterial(source.isSkinnedMesh ? "effects/motion-skinned" : "effects/motion-rigid", {
       uniforms: {
         ...shared, previousModel: { value: new THREE.Matrix4() }, previousBindInverse: { value: new THREE.Matrix4() },
         previousBones: { value: null },

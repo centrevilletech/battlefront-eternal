@@ -289,7 +289,18 @@ async function geonosis(page) {
   // without it. Geonosis's spires stand in many views, so a fighter counts
   // only when it shows itself, before and after.
   const result = await page.evaluate(async ([eye]) => {
-    const { fullScreenPass } = await import('/src/render-passes.js');
+    // A diagnostic readout of the velocity target: its one pass is made here,
+    // as a browser-compiled test material, because no shipped pass reads it.
+    const THREE = await import('three');
+    const triangle = new THREE.BufferGeometry();
+    triangle.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
+    triangle.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 2, 0, 0, 2], 2));
+    const fullScreenPass = (fragmentShader, uniforms) => {
+      const mesh = new THREE.Mesh(triangle, new THREE.ShaderMaterial({ uniforms, fragmentShader, depthTest: false, depthWrite: false, blending: THREE.NoBlending,
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }' }));
+      mesh.frustumCulled = false;
+      return mesh;
+    };
     const { screenProgram, writeScreenStep, TARGET_CANVAS } = await import('/src/rust-render/screen.js');
     const flyers = __bf.skyFlyers, kind = flyers.classes.find((k) => k.def.model === 'cis_fly_droidfighter_dome');
     const camera = __bf.camera;

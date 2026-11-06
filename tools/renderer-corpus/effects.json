@@ -1,0 +1,171 @@
+{
+  "extends": "./manifest.json",
+  "cases": [
+    {
+      "id": "jetpack-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_jet_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "scenario": "jetpack"
+    },
+    {
+      "id": "droideka-nab2",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "scenario": "droideka"
+    },
+    {
+      "id": "classic-particles-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "settings": {
+        "boltEffects": "classic",
+        "sniperShots": "classic",
+        "arcCasterEffects": "classic"
+      }
+    },
+    {
+      "id": "underwater-low-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "settings": {
+        "waterQuality": "low"
+      },
+      "scenario": "underwater"
+    },
+    {
+      "id": "underwater-ultra-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "settings": {
+        "waterQuality": "ultra"
+      },
+      "scenario": "underwater"
+    },
+    {
+      "id": "shock-balanced-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced",
+      "scenario": "shock"
+    },
+    {
+      "id": "shock-high-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "scenario": "shock"
+    },
+    {
+      "id": "jetpack-balanced-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_jet_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced",
+      "scenario": "jetpack"
+    },
+    {
+      "id": "classic-lightning-classic-nab2",
+      "query": "map=nab2&side=imp&era=gcw&unit=imp_inf_dark_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "classic",
+      "settings": {
+        "arcCasterEffects": "classic"
+      },
+      "scenario": "lightning"
+    },
+    {
+      "id": "classic-lightning-high-nab2",
+      "query": "map=nab2&side=imp&era=gcw&unit=imp_inf_dark_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "settings": {
+        "arcCasterEffects": "classic"
+      },
+      "scenario": "lightning"
+    },
+    {
+      "id": "droideka-balanced-nab2",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced",
+      "scenario": "droideka"
+    },
+    {
+      "id": "enhanced-lightning-balanced-nab2",
+      "query": "map=nab2&side=imp&era=gcw&unit=imp_inf_dark_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced",
+      "settings": {
+        "arcCasterEffects": "enhanced"
+      },
+      "scenario": "shock"
+    },
+    {
+      "id": "enhanced-lightning-high-nab2",
+      "query": "map=nab2&side=imp&era=gcw&unit=imp_inf_dark_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "settings": {
+        "arcCasterEffects": "enhanced"
+      },
+      "scenario": "shock"
+    }
+  ],
+  "programs": []
+}

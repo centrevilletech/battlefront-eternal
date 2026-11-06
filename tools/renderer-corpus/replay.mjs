@@ -5,7 +5,7 @@ export function installReplay() {
   const postFrame=core.rust.post_frame.bind(core.rust),hudFrame=core.rust.hud_frame.bind(core.rust);
   const fb=gl.createFramebuffer();
   const STEP=221,UNIFORM=18,HUD_GROUP=45;
-  let depthTarget;
+  const textureCopies=new Map();
   const replayTargets=new Map();
   T.records=[];T.blobs={};
   const store=T.store=(buf)=>{if(T.storeTarget!==T.blobs){T.storeTarget=T.blobs;T.nextBlob=0;}const key=String(T.nextBlob++);T.blobs[key]=buf;return key;};
@@ -13,7 +13,7 @@ export function installReplay() {
     const w=target?.width || gl.drawingBufferWidth,h=target?.height || gl.drawingBufferHeight;
     const bytes=target?.texture.type===1016?2:target?.texture.type===1015?4:1;
     const buf=bytes===2?new Uint16Array(w*h*4):bytes===4?new Float32Array(w*h*4):new Uint8Array(w*h*4);
-    if(target){const old=gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,R.resources.gpu.framebuffer(R.resources.targetId(target),false,0));gl.readPixels(0,0,w,h,gl.RGBA,bytes===2?gl.HALF_FLOAT:bytes===4?gl.FLOAT:gl.UNSIGNED_BYTE,buf);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,old);}
+    if(target){const old=gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,(R.resources?.gpu?R.resources.gpu.framebuffer(R.resources.targetId(target),false,0):R.properties.get(target).__webglFramebuffer));gl.readPixels(0,0,w,h,gl.RGBA,bytes===2?gl.HALF_FLOAT:bytes===4?gl.FLOAT:gl.UNSIGNED_BYTE,buf);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,old);}
     else {R.setRenderTarget(null);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,buf);}
     const error=gl.getError();if(error)throw Error('Replay read GL '+error);
     return {w,h,bytes,blob:store(buf)};
@@ -33,26 +33,34 @@ export function installReplay() {
     const bound=gl.getParameter(gl.TEXTURE_BINDING_2D);gl.bindTexture(gl.TEXTURE_2D,handle);
     const params=[gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER,gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T].map(p=>[p,gl.getTexParameter(gl.TEXTURE_2D,p)]);
     gl.bindTexture(gl.TEXTURE_2D,bound);gl.activeTexture(active);
-    if(texture.isDepthTexture){
-      if(!depthTarget || depthTarget.width!==w || depthTarget.height!==h){depthTarget?.dispose();depthTarget=new b.THREE.WebGLRenderTarget(w,h,{type:b.THREE.FloatType,depthBuffer:false,minFilter:b.THREE.NearestFilter,magFilter:b.THREE.NearestFilter});}
-      R.initRenderTarget(depthTarget);
-      const target=core.byName.post.target(depthTarget),program=core.rust.add_owned_program('post-hud/copy');
-      core.views();const saved=core.postInput.slice();core.postInput.fill(0);core.postInput.set([program,target,w,h,1,0,32,id]);postFrame(1);core.views();core.postInput.set(saved);
-      return {id,w,h,bytes:4,params,levels:[read(depthTarget).blob]};
-    }
     const bytes=texture.type===1016?2:texture.type===1015?4:1,levels=[];
     const count=params[0][1]>=9984 && params[0][1]<=9987?Math.floor(Math.log2(Math.max(w,h)))+1:1;
     const old=gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,fb);
     for(let level=0;level<count;level++){
       const width=Math.max(1,w>>level),height=Math.max(1,h>>level);
-      gl.framebufferTexture2D(gl.READ_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,handle,level);
-      if(gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw Error('Unrepresentable replay texture '+id+' level '+level);
+      if(!texture.isDepthTexture && !texture.isCompressedTexture)gl.framebufferTexture2D(gl.READ_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,handle,level);
+      if(texture.isDepthTexture || texture.isCompressedTexture || gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE){
+        // Sample formats that cannot be attached directly, preserving decoded
+        // texels in their native precision. Self replay verifies the conversion.
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER,old);
+        const copyBytes=texture.isDepthTexture?4:bytes;
+        const cacheKey=width+':'+height+':'+copyBytes;
+        let target=textureCopies.get(cacheKey);
+        if(!target){target=new b.THREE.WebGLRenderTarget(width,height,{type:copyBytes===4?b.THREE.FloatType:copyBytes===2?b.THREE.HalfFloatType:b.THREE.UnsignedByteType,depthBuffer:false,minFilter:b.THREE.NearestFilter,magFilter:b.THREE.NearestFilter});textureCopies.set(cacheKey,target);}
+        R.initRenderTarget(target);
+        const active=gl.getParameter(gl.ACTIVE_TEXTURE);gl.activeTexture(gl.TEXTURE0);const bound=gl.getParameter(gl.TEXTURE_BINDING_2D);gl.bindTexture(gl.TEXTURE_2D,handle);
+        const base=gl.getTexParameter(gl.TEXTURE_2D,gl.TEXTURE_BASE_LEVEL),max=gl.getTexParameter(gl.TEXTURE_2D,gl.TEXTURE_MAX_LEVEL);
+        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_BASE_LEVEL,level);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAX_LEVEL,level);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+        const program=core.rust.add_owned_program('post-hud/copy');core.views();const saved=core.postInput.slice();core.postInput.fill(0);core.postInput.set([program,core.byName.post.target(target),width,height,1,0,32,id]);postFrame(1);core.views();core.postInput.set(saved);levels.push(read(target).blob);
+        gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,handle);for(const [p,v] of params)gl.texParameteri(gl.TEXTURE_2D,p,v);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_BASE_LEVEL,base);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAX_LEVEL,max);gl.bindTexture(gl.TEXTURE_2D,bound);gl.activeTexture(active);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,fb);
+        continue;
+      }
       const buf=bytes===2?new Uint16Array(width*height*4):bytes===4?new Float32Array(width*height*4):new Uint8Array(width*height*4);
       gl.readPixels(0,0,width,height,gl.RGBA,bytes===2?gl.HALF_FLOAT:bytes===4?gl.FLOAT:gl.UNSIGNED_BYTE,buf);levels.push(store(buf));
     }
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER,old);
     const error=gl.getError();if(error)throw Error('Texture replay read GL '+error);
-    return {id,w,h,bytes,params,levels};
+    return {id,w,h,bytes:texture.isDepthTexture?4:bytes,params,levels};
   };
   const resources=(ids,objects)=>[...new Set(ids.filter(id=>id>=0))].map(id=>snapshot(id,objects));
   const post=core.post;
@@ -83,6 +91,15 @@ export function installReplay() {
     return result;
   };
   const upload=(s,blobs)=>{
+    // The frozen reference still lets three own its textures; the candidate's are the
+    // Rust resource owner's, so replayed bytes go through that owner there.
+    if(!R.resources?.gpu){
+    const handle=gl.createTexture();gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,handle);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+    for(const [p,v] of s.params)gl.texParameteri(gl.TEXTURE_2D,p,v);
+    for(let level=0;level<s.levels.length;level++)gl.texImage2D(gl.TEXTURE_2D,level,s.bytes===2?gl.RGBA16F:s.bytes===4?gl.RGBA32F:gl.RGBA8,Math.max(1,s.w>>level),Math.max(1,s.h>>level),0,gl.RGBA,s.bytes===2?gl.HALF_FLOAT:s.bytes===4?gl.FLOAT:gl.UNSIGNED_BYTE,blobs[s.levels[level]]);
+    return {handle,id:core.rust.add_texture(handle),dispose:()=>gl.deleteTexture(handle)};
+    }
     // Replayed source bytes use the same Rust resource owner as live images.
       const Three=b.THREE,type=s.bytes===2?Three.HalfFloatType:s.bytes===4?Three.FloatType:Three.UnsignedByteType;
       const size=s.levels.reduce((n,key)=>n+blobs[key].byteLength,0),bytes=new Uint8Array(size);let offset=0;
@@ -94,12 +111,13 @@ export function installReplay() {
       texture.needsUpdate=true;const id=core.texture(texture),handle=R.properties.get(texture).__webglTexture;
       return {handle,id,dispose:()=>texture.dispose()};
   };
-  T.replay=(records,blobs)=>{
+  T.replay=async(records,blobs)=>{
     const metrics=[];T.want=false;
     core.views();const savedPost=core.postInput.slice(),savedHud=core.hudInput.slice();
     const savedArrays=Object.fromEntries(['hudPosition','hudUv','hudMaskUv','hudTint'].map(n=>[n,core[n].slice()]));
     const before=R.getRenderTarget();
     for(const row of records){
+      if(row.kind==='gl-effect'){metrics.push(await T.replayGL(row,blobs));continue;}
       const created=row.resources.map(s=>[s.id,upload(s,blobs)]),ids=new Map(created.map(([old,s])=>[old,s.id]));
       const input=Float64Array.from(row.input),program=core.rust.add_owned_program(row.key);
       let target=null;

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { lighting } from "./materials.js";
+import { ownedEffectMaterial } from "./rust-render/effect-material.js";
 import { particleDepth } from "./particle-depth.js";
 
 // Batched particle drawing. Each batch is one texture and one blend mode, drawn
@@ -22,88 +23,6 @@ export const FLAT = 2;
 const QUAD = new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]);
 const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
 
-const attributes = /* glsl */ `
-  attribute vec2 corner;
-  attribute vec3 iPosition;
-  attribute vec4 iColor;
-  attribute vec4 iShape; // half size, rotation, streak length, shape
-  attribute vec3 iAxis; // streak direction, or the flat quad's first axis
-  attribute vec3 iAxis2; // the flat quad's second axis; x is a streak's tail width
-  attribute vec4 iFrame; // flipbook cell: uv offset, uv scale
-`;
-
-// Analytic effects share the exact quad placement, depth fade and blending
-// with CPU particles. Only the source of their draw values differs.
-export function particleVertexShader(inputs = attributes, initialize = "") {
-  return /* glsl */ `
-  ${inputs}
-  varying vec2 vUv;
-  varying vec4 vColor;
-  varying float vDepth;
-  varying float vSoftDistance;
-  void main() {
-    ${initialize}
-    vColor = iColor;
-    // Keep flat decals/shockwaves attached; soften volumetric sprites only.
-    vSoftDistance = iShape.w > 1.5 ? 0.0 : clamp(iShape.x * 0.6, 0.04, 0.6);
-    float size = iShape.x;
-    vec2 uv = corner * 0.5 + 0.5;
-    vec4 mv;
-    if (iShape.w > 1.5) {
-      vec3 p = iPosition + iAxis * (corner.x * size) + iAxis2 * (corner.y * size);
-      mv = modelViewMatrix * vec4(p, 1.0);
-    } else if (iShape.w > 0.5) {
-      float head = corner.y * 0.5 + 0.5;
-      vec3 dir = normalize(iAxis + vec3(0.0, 1e-6, 0.0));
-      mv = modelViewMatrix * vec4(iPosition - dir * ((1.0 - head) * iShape.z), 1.0);
-      vec3 along = normalize((modelViewMatrix * vec4(dir, 0.0)).xyz);
-      vec3 side = normalize(cross(along, normalize(mv.xyz)) + vec3(1e-6, 0.0, 0.0));
-      mv.xyz += side * corner.x * size * mix(iAxis2.x, 1.0, head);
-      uv = vec2(1.0 - head, corner.x * 0.5 + 0.5);
-    } else {
-      mv = modelViewMatrix * vec4(iPosition, 1.0);
-      float c = cos(iShape.y);
-      float s = sin(iShape.y);
-      mv.xy += vec2(c * corner.x - s * corner.y, s * corner.x + c * corner.y) * size;
-    }
-    vUv = iFrame.xy + uv * iFrame.zw;
-    vDepth = -mv.z;
-    gl_Position = projectionMatrix * mv;
-  }
-`;
-}
-
-export const particleFragmentShader = /* glsl */ `
-  uniform sampler2D map;
-  uniform vec2 fade;
-  uniform sampler2D sceneDepth;
-  uniform float softParticles;
-  uniform vec2 depthResolution;
-  uniform vec2 cameraRange;
-  varying vec2 vUv;
-  varying vec4 vColor;
-  varying float vDepth;
-  varying float vSoftDistance;
-  void main() {
-    vec4 color = texture2D(map, vUv) * vColor;
-    #ifdef BOLT_CORE
-      // The authored texture's own colour, as the stock game drew it, a
-      // little brighter so thin shots survive minification and soft focus.
-      // (A white-hot centre here made every bolt read white from afar.)
-      color.rgb *= 1.4;
-    #endif
-    float near = clamp((fade.y - vDepth) / max(fade.y - fade.x, 1.0), 0.0, 1.0);
-    color.a *= near * near;
-    if (softParticles > 0.5 && vSoftDistance > 0.0) {
-      float depth = texture2D(sceneDepth, gl_FragCoord.xy / depthResolution).x;
-      float surface = cameraRange.x * cameraRange.y / (cameraRange.y - depth * (cameraRange.y - cameraRange.x));
-      color.a *= smoothstep(0.0, vSoftDistance, surface - vDepth);
-    }
-    if (color.a < 0.002) discard;
-    gl_FragColor = color;
-  }
-`;
-
 const ATTRIBUTES = { iPosition: 3, iColor: 4, iShape: 4, iAxis: 3, iAxis2: 3, iFrame: 4 };
 
 class Batch {
@@ -114,15 +33,12 @@ class Batch {
     this.geometry = new THREE.InstancedBufferGeometry();
     this.geometry.setAttribute("corner", new THREE.BufferAttribute(QUAD, 2));
     this.geometry.setIndex(QUAD_INDEX);
-    this.material = new THREE.ShaderMaterial({
+    this.material = ownedEffectMaterial(profile === "bolt" ? "effects/particle-bolt" : "effects/particle-cpu", {
       uniforms: {
         map: { value: texture }, fade: lighting.fade,
         sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
         depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
       },
-      vertexShader: particleVertexShader(),
-      fragmentShader: particleFragmentShader,
-      defines: profile === "bolt" ? { BOLT_CORE: 1 } : {},
       transparent: true,
       depthWrite: false,
       blending: blending === "additive" ? THREE.AdditiveBlending : THREE.NormalBlending,

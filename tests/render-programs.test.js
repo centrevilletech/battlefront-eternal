@@ -26,6 +26,18 @@ test('unknown variants and link failures are reported without a source bridge', 
   assert.equal(core.ownedPrograms.size, 0);
 });
 
+import { ownedEffectProgram } from '../src/rust-render/effect-material.js';
+test('an effects base key with a selector still requires the exact shadow variant', () => {
+  let shadows = false;
+  const core = { graphics: {}, shadowsOn: () => shadows, rust: { add_owned_program: () => 1 } };
+  const material = ownedFullScreenPass('effects/far-image', {}).material;
+  assert.equal(ownedEffectProgram(core, material, 3).key, 'effects/far-image');
+  shadows = true;
+  assert.equal(ownedEffectProgram(core, material, 3).key, 'effects/far-image-shadow');
+  material.side = 1;
+  assert.throws(() => ownedEffectProgram(core, material, 3), /Missing shader variant/);
+});
+
 test('world geometry registration uses manifest locations without a browser material', () => {
   const calls = [];
   const core = { rust: { add_owned_program(key) { calls.push(key); return calls.length; } } };

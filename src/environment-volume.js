@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
 
@@ -56,112 +57,10 @@ function noiseTexture() {
   t.minFilter=t.magFilter=THREE.LinearFilter;t.wrapS=t.wrapT=t.wrapR=THREE.RepeatWrapping;
   t.unpackAlignment=1;t.needsUpdate=true;return t;
 }
-const vertexShader = /* glsl */ `
-attribute vec3 origin, direction, extent;
-attribute float kind;
-varying vec3 point, eye, base, rightAxis, upAxis, forwardAxis, size;
-varying float type;
-void main() {
-  vec3 up=normalize(direction),right=cross(up,vec3(0.,0.,1.));
-  if(dot(right,right)<.01)right=cross(up,vec3(1.,0.,0.));
-  right=normalize(right);vec3 forward=cross(right,up);
-  point=position+vec3(0.,.5,0.);size=extent;base=origin;type=kind;
-  rightAxis=right;upAxis=up;forwardAxis=forward;
-  vec3 relative=cameraPosition-base;
-  eye=vec3(dot(relative,right),dot(relative,up),dot(relative,forward))/size;
-  vec3 world=base+right*point.x*size.x+up*point.y*size.y+forward*point.z*size.z;
-  gl_Position=projectionMatrix*viewMatrix*vec4(world,1.);
-}`;
-const fragmentShader = /* glsl */ `
-uniform highp sampler3D noiseField;
-uniform sampler2D sceneDepth, reflection;
-uniform mat4 reflectionMatrix;
-uniform vec2 volumeResolution,cameraRange;
-uniform float volumeTime,hasDepth,hasReflection;
-uniform vec4 wakes[8], motion[8];
-varying vec3 point,eye,base,rightAxis,upAxis,forwardAxis,size;
-varying float type;
-vec3 worldAt(vec3 p){return base+rightAxis*p.x*size.x+upAxis*p.y*size.y+forwardAxis*p.z*size.z;}
-float noise3(vec3 p){return texture(noiseField,p/32.).r;}
-void main(){
-  vec3 ray=normalize(point-eye),inv=1./(ray+vec3(1e-7));
-  vec3 a=(vec3(-.5,0.,-.5)-eye)*inv,b=(vec3(.5,1.,.5)-eye)*inv;
-  vec3 lo=min(a,b),hi=max(a,b);
-  float start=max(0.,max(lo.x,max(lo.y,lo.z))),finish=min(hi.x,min(hi.y,hi.z));
-  float depthRate=-(viewMatrix*vec4(worldAt(eye+ray)-cameraPosition,0.)).z;
-  start=max(start,cameraRange.x/max(depthRate,1e-5));
-  if(finish<=start)discard;
-  float surface=1e6;
-  if(hasDepth>.5){float z=texture2D(sceneDepth,gl_FragCoord.xy/volumeResolution).r;
-    surface=cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
-  float samples=type>2.5?24.:(distance(cameraPosition,base)>35.?12.:18.);
-  float stepSize=(finish-start)/samples,meters=length(ray*size)*stepSize,trans=1.;vec3 color=vec3(0.);
-  for(int i=0;i<24;i++){
-    if(float(i)>=samples)break;
-    vec3 p=eye+ray*(start+(float(i)+.5)*stepSize),world=worldAt(p);
-    float depth=-(viewMatrix*vec4(world,1.)).z;if(depth>surface)break;
-    vec3 local=p*size;
-    float height=p.y;
-    vec2 bend=vec2(sin(local.y*.9-volumeTime*.7+base.x),cos(local.y*.7-volumeTime*.6+base.z))*local.y*.13;
-    float radius=type<.5?size.x*(.10+.25*height):mix(.09,.75,height);
-    if(type>1.5)radius=size.x*.37;
-    float radial=length(local.xz-bend)/max(radius,.05);
-    // Noise is in [0,1], so even maximal erosion cannot put density here.
-    // Skip texture fetches and character-wake work outside the actual plume.
-    if(radial>=1.81)continue;
-    vec3 flow=world*2.4-upAxis*volumeTime*(type<.5?1.15:3.6)+vec3(volumeTime*.16,0.,volumeTime*.11);
-    float n=noise3(flow),fine=noise3(flow*2.07+vec3(11.,7.,3.));
-    float edge=1.-smoothstep(.35,1.25,radial+(n-.5)*1.1);
-    float breakup=smoothstep(.28,.66,n*.72+fine*.28);
-    float density=edge*breakup*smoothstep(0.,.055,height)*(1.-smoothstep(.45,1.,height));
-    density*=type<.5?.65:type<1.5?1.7:.16;
-    if(density<=0.)continue;
-    float light=clamp(.65+(noise3(flow+vec3(0.,2.,0.))-n)*1.2,.45,1.);
-    // Cool, translucent steam. A restrained warm contribution stays close
-    // to the grates instead of tinting the entire cloud tan.
-    vec3 tint=vec3(.78,.84,.91)*light;
-    if(type<.5)tint+=vec3(.14,.045,0.)*exp(-local.y*1.8);
-    if(type<2.5){
-      for(int j=0;j<8;j++){
-        float age=volumeTime-wakes[j].w;
-        if(age>=0.&&age<2.){
-          vec3 center=wakes[j].xyz+motion[j].xyz*age*.18;
-          vec3 delta=world-center;delta.y-=clamp(delta.y,.15,1.65);
-          float r=length(delta),radius=.55+age*.42;
-          float strength=motion[j].w*exp(-age*1.8);
-          density*=1.-clamp(exp(-r*r/(radius*radius))*strength*.94,0.,.98);
-          // Displaced steam curls around the wake instead of simply vanishing.
-          density*=1.+.35*strength*exp(-pow((r-radius)*3.,2.))*n;
-        }
-      }
-    }
-    density*=smoothstep(0.,.12,surface-depth);
-    float alpha=1.-exp(-density*meters);color+=trans*alpha*tint;trans*=1.-alpha;
-    if(trans<.035)break;
-  }
-  if(1.-trans<.002)discard;gl_FragColor=vec4(color,1.-trans);
-}`;
 
-const compositeFragment = /* glsl */ `
-uniform sampler2D volumeMap,sceneDepth;
-uniform vec2 volumeResolution,depthResolution,cameraRange;
-uniform float enabled;
-float linearDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
-void main(){
-  if(enabled<.5)discard;
-  vec2 uv=gl_FragCoord.xy/depthResolution,pixel=uv*volumeResolution-.5,base=floor(pixel),f=fract(pixel);
-  float depth=linearDepth(texture2D(sceneDepth,uv).r),total=0.;vec4 color=vec4(0.);
-  for(int y=0;y<2;y++)for(int x=0;x<2;x++){
-    vec2 offset=vec2(float(x),float(y)),at=(base+offset+.5)/volumeResolution;
-    float neighbor=linearDepth(texture2D(sceneDepth,at).r);
-    vec2 weight=mix(1.-f,f,offset);
-    // Reject samples from the far side of silhouettes. Ordinary bilinear
-    // filtering would smear the steam onto foreground actors and railings.
-    float w=weight.x*weight.y*exp(-abs(depth-neighbor)*4./max(1.,depth*.02));
-    color+=texture2D(volumeMap,at)*w;total+=w;
-  }
-  if(total<.001)discard;gl_FragColor=color/total;
-}`;
+
+
+
 
 // The composites' meshes, each to its volume (a renderer that draws the
 // volumes itself finds them here).
@@ -176,20 +75,22 @@ export class EnvironmentVolume {
     this.noise = noiseTexture();
     this.target = new THREE.WebGLRenderTarget(1,1,{depthBuffer:false,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});
     this.resolution={value:new THREE.Vector2(1,1)};
-    const material = new THREE.ShaderMaterial({vertexShader,fragmentShader,
+    const material = ownedEffectMaterial("effects/volume", {
       uniforms:{noiseField:{value:this.noise},volumeTime:{value:0},sceneDepth:particleDepth.map,
         volumeResolution:this.resolution,cameraRange:particleDepth.cameraRange,hasDepth:{value:1},
         wakes:{value:wakes.points},motion:{value:wakes.motion},reflection:{value:null},reflectionMatrix:{value:new THREE.Matrix4()},hasReflection:{value:0},...reflectionUniforms},
       transparent:true,depthWrite:false,depthTest:false,side:THREE.BackSide,forceSinglePass:true,premultipliedAlpha:true,toneMapped:false});
+    material.userData.bfeNoShadows = true;
     this.volumeMesh = new THREE.Mesh(geometry, material);this.volumeMesh.frustumCulled=false;
     this.volumeScene=new THREE.Scene();this.volumeScene.add(this.volumeMesh);
-    this.mesh=new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.ShaderMaterial({
-      vertexShader:'void main(){gl_Position=vec4(position.xy,0.,1.);}',fragmentShader:compositeFragment,
+    this.mesh=new THREE.Mesh(new THREE.PlaneGeometry(2,2),ownedEffectMaterial("effects/volume-composite", {
+
       uniforms:{volumeMap:{value:this.target.texture},sceneDepth:particleDepth.map,volumeResolution:this.resolution,
         depthResolution:particleDepth.resolution,cameraRange:particleDepth.cameraRange,enabled:{value:0}},
       transparent:true,premultipliedAlpha:true,depthWrite:false,depthTest:false,toneMapped:false}));
     this.mesh.name='environment-volumes';this.mesh.frustumCulled=false;this.mesh.renderOrder=10;this.mesh.visible=false;
-    this.clearColor=new THREE.Color();this.scale=.5;
+    this.scale=.5;
+    this.mesh.onBeforeRender=(renderer,scene,camera)=>this.prepare(renderer,scene,camera);
     environmentVolumes.set(this.mesh,this);
     scene.add(this.mesh);
   }
@@ -205,6 +106,7 @@ export class EnvironmentVolume {
     this.target.setSize(width,height);this.resolution.value.set(width,height);
     return true;
   }
+
   update(time, volumes) {
     this.mesh.visible=volumes.length>0;this.volumeMesh.geometry.instanceCount=volumes.length;
     this.volumeMesh.material.uniforms.volumeTime.value=time;

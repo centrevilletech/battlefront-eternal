@@ -1,3 +1,4 @@
+import { ownedBasicEffect } from './rust-render/effect-material.js';
 import * as THREE from "three";
 import { radarRelation } from "./targeting-facts.js";
 import { MobilePosts } from "./mobile-posts.js";
@@ -160,7 +161,7 @@ class Hologram {
     const beamTexture = gradientTexture();
     this.beam = new THREE.Mesh(
       new THREE.CylinderGeometry(0.35, 0.05, look.height, 16, 1, true).translate(0, look.height / 2, 0),
-      new THREE.MeshBasicMaterial({
+      ownedBasicEffect('basic', { visible: true,
         map: beamTexture,
         color: this.color,
         transparent: true,
@@ -173,7 +174,7 @@ class Hologram {
     );
     this.group.add(this.beam);
     this.flare = new THREE.Sprite(
-      new THREE.SpriteMaterial({
+      ownedBasicEffect('sprite', { visible: true,
         map: textures.flare,
         color: this.color,
         transparent: true,
@@ -188,7 +189,7 @@ class Hologram {
     // Explicit emission halo keeps saturated team colors glowing even when
     // their translucent core falls below the scene bloom's white threshold.
     // Normal depth testing keeps the halo behind architecture.
-    const haloMaterial = new THREE.SpriteMaterial({
+    const haloMaterial = ownedBasicEffect('sprite', { visible: true,
       map: haloTexture(), color: this.color, transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false,
     });

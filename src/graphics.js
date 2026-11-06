@@ -2,8 +2,9 @@ import { compileUnowned, prewarmWorldPrograms } from "./rust-render/world-progra
 import { requireRustDraws } from "./rust-render/draw-guard.js";
 import { requireLinkedPrograms } from "./rust-render/failure.js";
 import { loadRustRenderer } from "./rust-render/load.js";
+import { warmEffectPrograms } from "./rust-render/effect-material.js";
 import * as THREE from "three";
-import { Bloom, applyValues, fullScreenPass, ownedFullScreenPass } from "./render-passes.js";
+import { Bloom, applyValues, ownedFullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
 import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
 import { CascadeWindow, planCascades } from "./shadow-cascades.js";
@@ -233,21 +234,7 @@ export class Graphics {
     // the clear's, the scene there wholly dissolved into this image) is now
     // under it rather than over it: a few pixels at the horizon, a few
     // levels at most.
-    this.background = fullScreenPass(
-      /* glsl */ `
-        uniform sampler2D map;
-        varying vec2 vUv;
-        void main() { gl_FragColor = vec4(texture2D(map, vUv).rgb, 1.0); }
-      `,
-      { map: { value: this.farTarget.texture } },
-      /* glsl */ `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = vec4(position.xy, 1.0, 1.0);
-        }
-      `,
-    );
+    this.background = ownedFullScreenPass("effects/far-image", { map: { value: this.farTarget.texture } });
     this.background.material.depthTest = true;
     this.background.renderOrder = 1e9;
     this.scene.add(this.background);
@@ -428,16 +415,26 @@ export class Graphics {
   // warmup() (compiled apart, its light would count twice or not at all),
   // which ends it and finds the rest made.
   async warmupPaced(settle, batch = 1) {
+    await this.rustReady;
+    await warmEffectPrograms(this.rust, settle);
     const { renderer } = this;
     const count = () => renderer.info.programs?.length ?? 0;
     const before = count(), started = performance.now();
     let settled = before;
     const compile = (object, scene, camera, target) => {
-      const current = renderer.getRenderTarget();
+      const current = renderer.getRenderTarget(), owned = [];
+      object.traverse((mesh) => {
+        const materials = [].concat(mesh.material || []);
+        if (materials.some((m) => m.userData?.bfeProgram)) {
+          owned.push([mesh, mesh.material]);
+          mesh.material = materials.filter((m) => !m.userData?.bfeProgram);
+        }
+      });
       try {
         renderer.setRenderTarget(target);
         compileUnowned(renderer, object, camera, scene);
       } finally {
+        for (const [mesh, material] of owned) mesh.material = material;
         renderer.setRenderTarget(current);
       }
     };
@@ -498,6 +495,16 @@ export class Graphics {
     const { renderer } = this;
     const before = renderer.info.programs?.length ?? 0, started = performance.now();
     const target = renderer.getRenderTarget();
+    // compile() visits invisible materials too. Source-owned material shells
+    // carry no browser GLSL and must never enter three's compiler.
+    const owned = [];
+    for (const scene of [this.scene, this.viewScene, this.farScene]) scene?.traverse((object) => {
+      const materials = [].concat(object.material || []);
+      if (materials.some((m) => m.userData?.bfeProgram)) {
+        owned.push([object, object.material]);
+        object.material = materials.filter((m) => !m.userData?.bfeProgram);
+      }
+    });
     try {
       renderer.setRenderTarget(this.sceneTarget);
       compileUnowned(renderer, this.scene, this.camera);
@@ -529,6 +536,7 @@ export class Graphics {
         renderer.compile(stage, this.camera);
       }
     } finally {
+      for (const [object, material] of owned) object.material = material;
       renderer.setRenderTarget(target);
     }
     return { programs: (renderer.info.programs?.length ?? 0) - before, ms: performance.now() - started };

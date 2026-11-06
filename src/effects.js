@@ -41,15 +41,8 @@ export class EffectResources {
     for (const defs of Object.values(this.library)) visit(defs);
   }
 
-  async warmup(renderer, camera) {
-    if (!this.gpu) return;
-    for (const def of this.gpu.definitions.keys()) {
-      const texture = this.texture(def.geometry.texture);
-      if (texture) {
-        await this.gpu.warmup(renderer, camera, texture);
-        break;
-      }
-    }
+  async warmup(renderer) {
+    if (this.gpu) await this.gpu.warmup(renderer);
   }
 
   // Start an effect at a point, its up axis along `normal`, or turned by

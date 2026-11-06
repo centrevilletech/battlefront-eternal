@@ -82,6 +82,11 @@ pub const PASSES: usize = 15;
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).
 pub trait MultiDraw {
     fn multi_draw(&self, mode: u32, counts: &mut [i32], element_type: u32, offsets: &mut [i32]);
+    // WebGL may be drawing into a host-created framebuffer that glow cannot
+    // adopt. Keep those handles on the platform side during sorted blits.
+    fn save_framebuffers(&mut self) -> bool { false }
+    fn read_saved_draw_framebuffer(&self) {}
+    fn restore_framebuffers(&self) {}
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -373,6 +378,9 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub state: GlState<C>,
     pub stats: Stats,
     pub log: Vec<String>,
+    // The first failure a pass met where it cannot return one (a draw run inside
+    // the transparent sort); the phase's end hands it back to the page as its error.
+    pub fault: Option<String>,
 }
 
 pub(crate) fn upload_texture<C: HasContext>(gl: &C, width: i32, height: i32) -> C::Texture {
@@ -416,7 +424,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             gl, multi, programs: vec![], owned_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
-            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![],
+            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![], fault: None,
         }
     }
 
@@ -870,13 +878,15 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
 
     // A phase's end: no vertex array bound and counter-clockwise front faces,
     // as three's resetState expects; the phase's stats.
-    pub fn end_phase(&mut self) -> Stats {
+    pub fn fail(&mut self, error: String) { self.fault.get_or_insert(error); }
+
+    pub fn end_phase(&mut self) -> Result<Stats, String> {
         unsafe {
             self.gl.bind_vertex_array(None);
             self.gl.front_face(glow::CCW);
         }
         self.state.front = Some(glow::CCW);
         self.stats.gl_calls += 2;
-        self.stats
+        match self.fault.take() { Some(error) => Err(error), None => Ok(self.stats) }
     }
 }

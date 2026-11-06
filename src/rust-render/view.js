@@ -2,6 +2,9 @@
 // Three compiles the material programs; view.rs submits the ordered draws.
 import * as THREE from "three";
 import { compileFor, unbuilt } from "./instances.js";
+import { ownedEffectProgram } from "./effect-material.js";
+import { ownsEffectSource } from "./programs.js";
+import { arcBatches } from "../arc-lightning.js";
 import { plainProgram, writeUniform } from "./post.js";
 import { blendOf, programForSide, sidesOf, stateOf } from "./transparent.js";
 
@@ -10,6 +13,10 @@ import { blendOf, programForSide, sidesOf, stateOf } from "./transparent.js";
 const RIGID = 2, BLENDED_RIGID = 4;
 // view.rs's blended draws.
 const D = { PROGRAM: 0, GEOMETRY: 1, BLEND: 2, DEPTH_FUNC: 9, FLAGS: 10, SIDES: 11, RANGE: 14, UNIFORMS: 16, FIRST: 17 };
+// A draw with this program is an effects batch drawn in view order: it reuses the
+// geometry, range and uniform-count slots as batch id, first instance, count and
+// capacity (view.rs VIEW_BATCH).
+const VIEW_BATCH = -2, B = { ID: D.GEOMETRY, AT: D.RANGE, COUNT: D.RANGE + 1, CAPACITY: D.UNIFORMS };
 const UNIFORM = 18, MAX_DRAW_UNIFORMS = 32, DRAW = D.FIRST + MAX_DRAW_UNIFORMS * UNIFORM, MAX_DRAWS = 16;
 const viewProjection = new THREE.Matrix4(), point = new THREE.Vector4(), frustum = new THREE.Frustum();
 // three's painterSortStable (opaque) and reversePainterSortStable (what blends).
@@ -81,7 +88,7 @@ class ViewPass {
     let record = this.parts.get(mesh);
     if (record === undefined || record && (mesh.material !== record.material || record.version !== mesh.material.version)) {
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      if (unbuilt(this.core.renderer, materials)) compileFor(this.core.renderer, [[mesh, mesh.material]], ctx.camera, ctx.scene);
+      if (!materials.every(material => ownsEffectSource(material)) && unbuilt(this.core.renderer, materials)) compileFor(this.core.renderer, [[mesh, mesh.material]], ctx.camera, ctx.scene);
       record = this.registerPart(mesh);
     }
     if (record && mesh.material === record.material) {
@@ -102,7 +109,13 @@ class ViewPass {
     const core = this.core;
     let record = null;
     const material = mesh.material, threeProgram = !Array.isArray(material) && core.renderer.properties.get(material).currentProgram;
-    if (threeProgram && material.isMeshBasicMaterial) return this.registerBlended(mesh);
+    if (material?.userData?.bfeProgram === "effects/glow-basic") return this.registerBlended(mesh);
+    if (material?.userData?.bfeProgram === "effects/arc" && arcBatches.has(mesh)) {
+      const batch = core.byName.effects.viewBatch(mesh);
+      record = { mesh, material, blended: true, fx: batch };
+      this.parts.set(mesh, record); this.records.push(record);
+      return record;
+    }
     // A zero material the instanced parts can't take (unlit, its texture
     // scrolling: the rifle's glowing sights): drawn as three compiled it.
     if (threeProgram && material.isShaderMaterial && !material.transparent && !("DYNAMIC" in (material.defines || {})) && "UNLIT" in (material.defines || {})) return this.registerBlended(mesh);
@@ -139,12 +152,15 @@ class ViewPass {
   registerBlended(mesh) {
     const core = this.core, material = mesh.material, geometry = mesh.geometry;
     let record = null;
-    const program = plainProgram(core, material, null);
+    const program = material.userData?.bfeProgram === "effects/glow-basic"
+      ? ownedEffectProgram(core, material, 3, material.side === THREE.DoubleSide ? THREE.FrontSide : material.side, false)
+      : plainProgram(core, material, null);
     if (program === undefined) return undefined; // until three has made it
     const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
     const why = !program ? "program" : program.uniforms.length > MAX_DRAW_UNIFORMS ? `${program.uniforms.length} uniforms` : !blend || !state ? "state"
       : material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile ? "shader hook" : !geometry.index || geometry.groups.length ? "geometry"
       : mesh.isSkinnedMesh || mesh.isInstancedMesh ? "kind" : null;
+    if (why && ownsEffectSource(material)) throw Error(`Owned view effect ${material.userData.bfeProgram}: ${why}`);
     if (why) core.errors.push(`view ${material.name || material.type}: ${why}`);
     else {
       const g = core.geometry(geometry, { id: program.id, attributes: program.attributes });
@@ -154,6 +170,7 @@ class ViewPass {
         material.visible = false;
         this.records.push(record);
       }
+      else if (ownsEffectSource(material)) throw Error(`Owned view effect ${material.userData.bfeProgram}: geometry`);
     }
     this.parts.set(mesh, record);
     return record;
@@ -187,7 +204,10 @@ class ViewPass {
   blend(record, groupOrder) {
     const mesh = record.mesh;
     if (mesh.frustumCulled && !frustum.intersectsObject(mesh)) return;
-    if (this.blends.length + this.opaques.length >= MAX_DRAWS) { this.complete = false; record.material.visible = true; return; }
+    if (this.blends.length + this.opaques.length >= MAX_DRAWS) {
+      if (ownsEffectSource(record.material)) throw Error("Owned view effects exceed the draw capacity");
+      this.complete = false; record.material.visible = true; return;
+    }
     point.copy(mesh.geometry.boundingSphere.center).applyMatrix4(mesh.matrixWorld).applyMatrix4(viewProjection);
     (record.material.transparent ? this.blends : this.opaques).push({ record, groupOrder, renderOrder: mesh.renderOrder, material: record.material.id, z: point.z, id: mesh.id });
   }
@@ -211,9 +231,16 @@ class ViewPass {
     input[0] = 0;
     this.opaques.sort(opaqueOrder);
     this.blends.sort(transparentOrder);
-    let n = 0;
+    let n = 0, fxAt = 0;
     for (const { record } of [...this.opaques, ...this.blends]) {
       const o = 1 + n * DRAW;
+      if (record.fx) {
+        input[o + D.PROGRAM] = VIEW_BATCH; input[o + B.ID] = record.fx.id;
+        input[o + B.AT] = fxAt; input[o + B.COUNT] = record.fx.batch.count;
+        input[o + B.CAPACITY] = record.fx.batch.capacity;
+        fxAt = core.byName.effects.writeViewBatch(record.fx, camera, fxAt);
+        n++; continue;
+      }
       // A part that blends drawn from its record's row: the k-th of those written.
       if (record.rigid) {
         if (record.k < 0) continue;
@@ -225,6 +252,7 @@ class ViewPass {
       const range = geometry.drawRange, count = geometry.index.count;
       const first = Math.max(0, range.start), last = Math.min(count, range.start + range.count);
       if (last <= first) continue;
+      if (material.userData?.bfeShape !== undefined) mesh.onBeforeRender(core.renderer, core.graphics.viewScene, camera, geometry, material, null);
       input[o + D.PROGRAM] = program.id; input[o + D.GEOMETRY] = record.geometry;
       for (let k = 0; k < 7; k++) input[o + D.BLEND + k] = record.blend[k];
       input[o + D.DEPTH_FUNC] = record.state.func; input[o + D.FLAGS] = record.state.flags;
@@ -240,6 +268,7 @@ class ViewPass {
       let failed = null;
       for (let k = 0; k < program.uniforms.length && !failed; k++) if (!writeUniform(core, input, o + D.FIRST + k * UNIFORM, k, program.uniforms[k], material, mesh, camera)) failed = program.uniforms[k].name;
       if (failed) {
+        if (ownsEffectSource(material)) throw Error(`Owned view effect ${material.userData.bfeProgram}: no value for ${failed}`);
         if (!record.failed) { record.failed = true; core.errors.push(`view ${material.name || material.type}: no value for ${failed}`); }
         this.complete = false; material.visible = true; continue;
       }

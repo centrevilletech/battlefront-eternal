@@ -93,7 +93,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     pub fn far_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();
         self.far.draw(&mut self.core, VIEW_FAR);
-        Ok(self.core.end_phase())
+        self.core.end_phase()
     }
 
     // The far scene from a water's mirror (water.js reflect, before the
@@ -102,7 +102,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     pub fn far_mirror_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();
         self.far.draw(&mut self.core, VIEW_FAR_MIRROR);
-        Ok(self.core.end_phase())
+        self.core.end_phase()
     }
 
     // A face of a sky probe's capture (sky-probe.js), into the cube face
@@ -111,7 +111,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     pub fn far_probe_frame(&mut self, face: usize) -> Result<Stats, String> {
         self.core.begin_phase();
         self.far.draw_probe(&mut self.core, face);
-        Ok(self.core.end_phase())
+        self.core.end_phase()
     }
 
     // The near scene's phase, inside three's near-scene pass right after the
@@ -134,7 +134,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.instances.draw(core, &camera, records);
         self.foliage.draw(core);
         self.far.draw_near(core);
-        Ok(core.end_phase())
+        core.end_phase()
     }
 
     // What the near scene blends (transparent.rs), at the start of three's
@@ -158,7 +158,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         core.begin_phase();
         core.upload_frame(VIEW_NEAR);
         self.effects.draw_into(core, batch, target, width, height, count, at, capacity);
-        Ok(core.end_phase())
+        core.end_phase()
     }
 
     // What a mirror's render of the near scene blends (water.js's
@@ -194,7 +194,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             // state stands (the page skips its reset).
             list.view = Some(view);
             self.transparent.list = list;
-            return Ok(if image > 0 { core.end_phase() } else { core.stats });
+            return if image > 0 { core.end_phase() } else { Ok(core.stats) };
         }
         core.upload_frame(frame);
         core.upload_shadow();
@@ -206,7 +206,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         }
         list.view = Some(view);
         self.transparent.list = list;
-        Ok(core.end_phase())
+        core.end_phase()
     }
 
     // Segment k (from 1) of the frame's transparent list, right after three
@@ -226,7 +226,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             }
         }
         self.transparent.list = list;
-        Ok(core.end_phase())
+        core.end_phase()
     }
 
     // The first-person view scene's phase, after the depth clear three makes
@@ -240,8 +240,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
-        self.view.draw(core, &camera, &mut self.instances, records);
-        Ok(core.end_phase())
+        self.view.draw(core, &camera, &mut self.instances, &mut self.effects, records);
+        core.end_phase()
     }
 
     // The near scene's start when the page draws all of it in place of
@@ -254,7 +254,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             crate::post::clear(&mut self.core, clear);
         }
         self.post.draw(&mut self.core, steps);
-        Ok(self.core.end_phase())
+        self.core.end_phase()
     }
 
     // The post passes' phase, once the scenes are drawn: the steps the page
@@ -262,7 +262,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     pub fn post_frame(&mut self, steps: usize) -> Result<Stats, String> {
         self.core.begin_phase();
         self.post.draw(&mut self.core, steps);
-        Ok(self.core.end_phase())
+        self.core.end_phase()
     }
 
     // A full-screen pass outside the post chain, drawn on its own (the
@@ -272,7 +272,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     pub fn screen_frame(&mut self, steps: usize) -> Result<Stats, String> {
         self.core.begin_phase();
         self.post.draw_screen(&mut self.core, steps);
-        Ok(self.core.end_phase())
+        self.core.end_phase()
     }
 
     // The near phase from a mirror (water.js's reflection of the near scene,
@@ -291,7 +291,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.core.begin_phase();
         let drawn = self.shadow.draw(&mut self.core);
         let stats = self.core.end_phase();
-        drawn.map(|_| stats)
+        drawn.and(stats)
     }
 
     // The temporal upscaler's motion phase, once the scenes are drawn: the
@@ -300,13 +300,13 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     pub fn motion_frame(&mut self, records: usize) -> Result<Stats, String> {
         self.core.begin_phase();
         self.motion.draw(&mut self.core, records);
-        Ok(self.core.end_phase())
+        self.core.end_phase()
     }
 
     // The HUD's phase, over the finished frame on the canvas (hud.rs).
     pub fn hud_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();
         self.hud.draw(&mut self.core);
-        Ok(self.core.end_phase())
+        self.core.end_phase()
     }
 }

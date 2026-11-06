@@ -19,9 +19,9 @@ import * as THREE from "three";
 //   required: whether the reader takes the depth whatever the setting
 //   (capture's `required`). It returns whether the copy will be taken before
 //   that reader.
-// - A copier, an item three draws (nothing to see), is placed just before the
+// - A sort marker is placed just before the
 //   earliest reader in three's order (its centre a hair farther along the
-//   view than the reader's) and takes the copy there.
+//   view than the reader's). Rust takes the copy at that position.
 // - The readers' onBeforeRender, called ahead of their turn, run inside
 //   ahead(fn, requested): capture() then only says whether the depth will be
 //   there (it takes the copy at once for a reader not requested). Those that
@@ -38,6 +38,7 @@ export const particleDepth = {
   capture: () => {},
   requester: () => () => {},
   request: () => false,
+  sortedCopy: () => null,
   ahead: (fn) => { fn(); },
   early: (fn) => { fn(); },
 };
@@ -58,6 +59,7 @@ export class ParticleDepth {
     particleDepth.capture = (renderer, scene, camera, required = false) => this.capture(camera, required);
     particleDepth.requester = (scene, fn) => this.requester(scene, fn);
     particleDepth.request = (key, required = false) => this.request(key, required);
+    particleDepth.sortedCopy = (renderer, camera) => this.sortedCopy(renderer, camera);
     particleDepth.ahead = (fn, requested = false) => this.within(AHEAD, fn, requested);
     particleDepth.early = (fn) => this.within(EARLY, fn, false);
     this.source = null;
@@ -151,14 +153,12 @@ export class ParticleDepth {
     return () => { this.requesters.delete(fn); };
   }
 
-  // The copier: zero instances outside the view, neither tested nor
-  // written, in a group of its own (whose render order is the group order
-  // three sorts it by); its world matrix set here alone. Shown for its first
-  // render (its program built then), then only while it has a copy to take.
+  // A sort marker in a group of its own. Its world matrix and group order
+  // retain the copy position; the effects phase publishes it to Rust.
   makeCopier(scene) {
     // An ordered depth-copy command, with the same placement arithmetic
     // as the old zero-instance mesh. It has no geometry or draw program.
-    this.copier = { matrixWorld: new THREE.Matrix4(), matrix: new THREE.Matrix4(), renderOrder: 0, visible: false };
+    this.copier = { id: 0, matrixWorld: new THREE.Matrix4(), matrix: new THREE.Matrix4(), renderOrder: 0, visible: false };
     this.group = { renderOrder: 0 };
     const previous = scene.onBeforeRender;
     scene.onBeforeRender = (...args) => { previous?.apply(scene, args); this.place(...args); };
@@ -209,6 +209,16 @@ export class ParticleDepth {
     copier.matrix.copy(m);
     copier.visible = true;
     this.armed = true;
+  }
+
+  // Publish the scheduled copy at its existing sort key. Rust resolves depth
+  // at that point in the transparent list; this object has no draw program.
+  sortedCopy(renderer, camera) {
+    if (!this.armed || !this.pending || renderer.getRenderTarget() !== this.source || camera !== this.camera) return null;
+    renderer.initRenderTarget(this.target);
+    this.pending = false;
+    this.copies++;
+    return this;
   }
 
   // A reader's request (see particleDepth.request), from a requester's fn:

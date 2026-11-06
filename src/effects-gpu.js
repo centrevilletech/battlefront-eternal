@@ -2,7 +2,7 @@ import { Draw as D, Effect as E } from './presentation/layout.js';
 import * as THREE from 'three';
 import { lighting } from './materials.js';
 import { particleDepth } from './particle-depth.js';
-import { particleVertexShader, particleFragmentShader } from './particles.js';
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 
 // Spawn state stays in instance buffers. Authored tracks and the much smaller
 // array of emitter transforms/times are read in the vertex shader. One draw per
@@ -15,100 +15,15 @@ function dataTexture(data, width, height) {
   texture.needsUpdate = true;
   return texture;
 }
-const INPUTS = /* glsl */ `
-  attribute vec2 corner;
-  attribute vec3 spawnPosition, spawnVelocity;
-  attribute vec4 spawnColor, spawnShape, spawnMeta;
-  uniform sampler2D tracks, emitters;
-  uniform float trackRows, emitterRows;
-  vec4 track(float column) { return texture2D(tracks, vec2((column + 0.5) / ${WIDTH}.0, (spawnMeta.w + 0.5) / trackRows)); }
-  vec4 emitter(float column) { return texture2D(emitters, vec2((column + 0.5) / 3.0, (spawnMeta.z + 0.5) / emitterRows)); }
-  vec3 rotateBy(vec3 p, vec4 q) { return p + 2.0 * cross(q.xyz, cross(q.xyz, p) + q.w * p); }
-`;
-const INITIALIZE = /* glsl */ `
-  vec4 origin = emitter(0.0), turn = emitter(1.0), clock = emitter(2.0);
-  float age = max(0.0, clock.x - spawnMeta.x);
-  vec4 counts = track(0.0), settings = track(1.0), atlas = track(2.0);
-  vec3 velocity = spawnVelocity, displacement = vec3(0.0);
-  float left = age;
-  for (int k = 0; k < ${KEYS}; k++) {
-    if (float(k) >= counts.x || left <= 0.0) break;
-    vec4 key = track(4.0 + float(k) * 2.0), value = track(5.0 + float(k) * 2.0);
-    float span = key.x, op = key.y;
-    if (span <= 0.0) {
-      if (op == 1.0) velocity += value.xyz;
-      else if (op == 2.0) velocity = value.xyz;
-      else if (op == 3.0) velocity *= value.x;
-    } else {
-      float t = min(left, span), f = t / span;
-      vec3 change = vec3(0.0);
-      if (op == 1.0) change = value.xyz;
-      else if (op == 2.0) change = value.xyz - velocity;
-      else if (op == 3.0) change = velocity * (value.x - 1.0);
-      displacement += velocity * t + change * (t * f * 0.5);
-      velocity += change * f;
-      left -= t;
-    }
-  }
-  if (left > 0.0) displacement += velocity * left;
-  vec3 iPosition = spawnPosition + displacement + origin.xyz * settings.y;
-  float particleSize = spawnShape.x;
-  float effectScale = clock.y;
-  left = age;
-  for (int k = 0; k < ${KEYS}; k++) {
-    if (float(k) >= counts.y || left < 0.0) break;
-    vec4 key = track(20.0 + float(k) * 2.0);
-    float value = track(21.0 + float(k) * 2.0).x;
-    float f = key.x > 0.0 ? min(left / key.x, 1.0) : 1.0;
-    if (key.y == 1.0) particleSize *= 1.0 + (value - 1.0) * f;
-    else if (key.y == 2.0) particleSize += value * f;
-    else if (key.y == 3.0) particleSize += (value - particleSize) * f;
-    left -= key.x;
-    if (f < 1.0) break;
-  }
-  vec4 iColor = spawnColor;
-  left = age;
-  for (int k = 0; k < ${KEYS}; k++) {
-    if (float(k) >= counts.z) break;
-    vec4 key = track(36.0 + float(k) * 2.0), value = track(37.0 + float(k) * 2.0);
-    float f = key.x > 0.0 ? min(left / key.x, 1.0) : 1.0;
-    if (key.y == 1.0) iColor += (value - iColor) * f;
-    else if (key.y == 2.0) iColor = clamp(iColor + value * f, 0.0, 1.0);
-    left -= key.x;
-    if (f < 1.0) break;
-  }
-  iColor *= origin.w;
-  particleSize *= effectScale;
-  float rotation = spawnShape.y + spawnShape.z * age;
-  float speed = length(velocity);
-  vec4 iShape = vec4(particleSize, rotation, speed * settings.z, settings.x);
-  vec3 iAxis = vec3(0.0, 0.0, 1.0), iAxis2 = vec3(1.0, 0.0, 0.0);
-  if (settings.x > 1.5) {
-    iAxis = rotateBy(vec3(cos(rotation), 0.0, sin(rotation)), turn);
-    iAxis2 = rotateBy(vec3(-sin(rotation), 0.0, cos(rotation)), turn);
-  } else if (settings.x > 0.5 && speed > 0.0) iAxis = velocity / speed;
-  vec4 iFrame = vec4(0.0, 0.0, 1.0, 1.0);
-  if (atlas.x > 0.0) {
-    float index = min(floor(age / atlas.x), atlas.z - 1.0);
-    iFrame = vec4(mod(index, atlas.y), floor(index / atlas.y), 1.0, 1.0) / atlas.y;
-  }
-  // The CPU owns expiry: a float-rounded GPU lifetime comparison can remove
-  // a still-live flash one frame early. Only invisible shapes are clipped here.
-  if (particleSize <= 0.0 || (settings.x == 1.0 && speed < 0.0001)) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return;
-  }
-`;
-
 export class AnalyticParticleBatch {
   constructor(texture, blending, owner) {
     this.geometry = new THREE.InstancedBufferGeometry();
     this.geometry.setAttribute('corner', new THREE.Float32BufferAttribute([-1,-1,1,-1,1,1,-1,1],2));
     this.geometry.setIndex([0,1,2,0,2,3]);
-    this.material = new THREE.ShaderMaterial({
+    this.material = ownedEffectMaterial('effects/particle-analytic', {
       uniforms: { map:{value:texture}, fade:lighting.fade, ...owner.uniforms,
         sceneDepth:particleDepth.map, softParticles:particleDepth.enabled,
         depthResolution:particleDepth.resolution, cameraRange:particleDepth.cameraRange },
-      vertexShader:particleVertexShader(INPUTS, INITIALIZE), fragmentShader:particleFragmentShader,
       transparent:true, depthWrite:false, side:THREE.DoubleSide, forceSinglePass:true,
       blending:blending==='additive'?THREE.AdditiveBlending:THREE.NormalBlending,
     });
@@ -222,19 +137,14 @@ export class GpuEffects {
     const blend=def.geometry.blend==='additive'?'additive':'normal';
     return this.renderer.custom(`analytic:${texture.uuid}:${blend}`,()=>new AnalyticParticleBatch(texture,blend,this));
   }
-  async warmup(renderer, camera, texture) {
-    if(this.warmBatch)return;
-    // Keep a reference to the compiled program without inserting an empty
-    // batch into the live transparent draw order. Every track uses this shader.
-    this.warmBatch=new AnalyticParticleBatch(texture,'normal',this);
-    const stage=new THREE.Scene();stage.add(this.warmBatch.mesh);
-    await renderer.compileAsync(stage,camera);
+  async warmup(renderer) {
+    // Source-owned analytic programs prewarm in the Rust effects pass. Only
+    // the authored track and emitter textures still need browser allocation.
     renderer.initTexture(this.uniforms.tracks.value);
     renderer.initTexture(this.uniforms.emitters.value);
   }
   end() { if(this.count)this.uniforms.emitters.value.needsUpdate=true; }
   dispose() {
     this.uniforms.tracks.value.dispose();this.uniforms.emitters.value.dispose();
-    this.warmBatch?.geometry.dispose();this.warmBatch?.material.dispose();
   }
 }

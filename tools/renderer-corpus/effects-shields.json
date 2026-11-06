@@ -1,0 +1,38 @@
+{
+  "extends": "./manifest.json",
+  "cases": [
+    {
+      "id": "shield-classic-nab2",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "third-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "classic",
+      "scenario": "shield"
+    },
+    {
+      "id": "shield-balanced-nab2",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "third-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced",
+      "scenario": "shield"
+    },
+    {
+      "id": "shield-high-nab2",
+      "query": "map=nab2&side=cis&era=cw&unit=cis_inf_droideka&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=3rd",
+      "tags": [
+        "third-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high",
+      "scenario": "shield"
+    }
+  ]
+}

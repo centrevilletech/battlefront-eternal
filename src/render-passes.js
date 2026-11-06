@@ -1,25 +1,10 @@
 import * as THREE from "three";
+import { bindProgram } from "./rust-render/programs.js";
 
 // One oversized triangle avoids a diagonal seam and redundant fragment quads.
 const triangle = new THREE.BufferGeometry();
 triangle.setAttribute("position", new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
 triangle.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 2, 0, 0, 2], 2));
-
-export function fullScreenPass(fragmentShader, uniforms, vertexShader = /* glsl */ `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = vec4(position.xy, 0.0, 1.0);
-  }
-`) {
-  const material = new THREE.ShaderMaterial({
-    uniforms, vertexShader, fragmentShader,
-    depthTest: false, depthWrite: false, blending: THREE.NoBlending,
-  });
-  const mesh = new THREE.Mesh(triangle, material);
-  mesh.frustumCulled = false;
-  return mesh;
-}
 
 // A post step's values (uniform name -> value) set on its pass's material
 // before it is drawn, by whichever renderer draws it (graphics.js postStep,
@@ -73,7 +58,7 @@ export function ownedFullScreenPass(key, uniforms) {
   material.uniforms = uniforms;
   material.depthTest = material.depthWrite = false;
   material.blending = THREE.NoBlending;
-  material.userData.bfeProgram = key;
+  bindProgram(material, key);
   const pass = new THREE.Mesh(triangle, material);
   pass.frustumCulled = false;
   return pass;

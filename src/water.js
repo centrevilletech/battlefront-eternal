@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import { COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT } from "./render-resources.js";
 import { WaterState } from "./runtime/water-state.js";
 import * as THREE from "three";
@@ -54,317 +55,31 @@ const rgba = (c, fallback = [255, 255, 255, 255]) => {
   return [r / 255, g / 255, b / 255, a / 255];
 };
 
-const VERTEX = /* glsl */ `
-  varying float vSurfaceDepth;
-  varying vec3 vWorld;
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    vec4 world = modelMatrix * vec4(position, 1.0);
-    vWorld = world.xyz;
-    vec4 view = viewMatrix * world;
-    vSurfaceDepth = -view.z;
-    gl_Position = projectionMatrix * view;
-    // Preserve plane coverage across the near plane, including triangles
-    // straddling behind the eye. Fragments restore the true surface depth.
-    gl_Position.z = 0.0;
-  }
-`;
+
 
 // The far scene's copy of a pass (FAR_WATER, Water.farPass) draws from where
 // the near scene ends (surfaceRange.x) out to the water's reach
 // (surfaceRange.y), in the far scene's fog.
-const SURFACE_DEPTH = /* glsl */ `
-    #ifdef FAR_WATER
-      if (vSurfaceDepth < surfaceRange.x || vSurfaceDepth > surfaceRange.y) discard;
-    #else
-      if (vSurfaceDepth > cameraRange.y) discard;
-    #endif
-    gl_FragDepth = clamp((cameraRange.y - cameraRange.x * cameraRange.y / max(vSurfaceDepth, 0.0001))
-      / (cameraRange.y - cameraRange.x), 0.0, 1.0);
-`;
 
-const FAR_WATER_PARS = /* glsl */ `
-  #ifdef FAR_WATER
-    uniform vec2 surfaceRange;
-    uniform vec3 fogColor;
-    uniform vec2 fogRange;
-    // The far scene's linear fog (materials.js FAR), 0 where there is none.
-    float farFog(float depth) {
-      return clamp((depth - fogRange.x) / (fogRange.y - fogRange.x), 0.0, 1.0);
-    }
-  #endif
-`;
+
+
 
 // Native low quality uses the authored scrolling colour texture and animated
 // specular mask. It needs no mirrored scene or opaque framebuffer copy.
-const TEXTURED_WATER = /* glsl */ `
-  ${FAR_WATER_PARS}
-  uniform sampler2D mainMap, maskA, maskB;
-  uniform float maskMix, time;
-  uniform vec4 tint;
-  uniform vec2 tile, velocity, maskTile, maskVelocity, cameraRange;
-  uniform vec3 toSun;
-  varying float vSurfaceDepth;
-  varying vec3 vWorld;
-  varying vec2 vUv;
-  void main() {
-    ${SURFACE_DEPTH}
-    vec4 color = texture2D(mainMap, (vUv + fract(velocity * time)) * tile) * tint;
-    vec2 uv = (vUv + fract(maskVelocity * time)) * maskTile;
-    vec3 mask = mix(texture2D(maskA, uv).rgb, texture2D(maskB, uv).rgb, maskMix);
-    vec3 halfVector = normalize(normalize(cameraPosition - vWorld) + toSun);
-    color.rgb += mask * pow(max(halfVector.y, 0.0), 32.0);
-    #ifdef FAR_WATER
-      color.rgb = mix(color.rgb, fogColor, farFog(vSurfaceDepth));
-    #endif
-    gl_FragColor = color;
-  }
-`;
+
 
 // Wading soldiers (xz, depth, activity) for contact foam and ripples.
 const WADERS = 8;
-const WADER_RIPPLES = /* glsl */ `
-  uniform vec4 waders[${WADERS}];
-  // Rings spreading from the legs of each wading soldier, as a slope.
-  vec2 waderSlope(vec2 at, float time, out float near) {
-    vec2 slope = vec2(0.0);
-    near = 0.0;
-    for (int i = 0; i < ${WADERS}; i++) {
-      if (waders[i].w <= 0.0) continue;
-      vec2 delta = at - waders[i].xy;
-      float d = length(delta);
-      near = max(near, (1.0 - smoothstep(0.35, 0.8, d)) * waders[i].w);
-      float wave = cos(d * 26.0 - time * 7.5) * exp(-max(d - 0.25, 0.0) * 2.2) * smoothstep(0.15, 0.3, d);
-      slope += delta / max(d, 0.01) * wave * 0.09 * waders[i].w;
-    }
-    return slope;
-  }
-`;
 
-const REFRACTION = /* glsl */ `
-  ${FAR_WATER_PARS}
-  ${WADER_RIPPLES}
-  uniform vec3 tint;
-  uniform float quality;
-  uniform sampler2D sceneColor;
-  uniform sampler2D sceneDepth;
-  uniform vec2 resolution;
-  uniform vec2 cameraRange;
-  uniform float underwater;
-  uniform float time;
-  varying float vSurfaceDepth;
-  varying vec3 vWorld;
-  float viewDepth(float depth) {
-    return cameraRange.x * cameraRange.y / (cameraRange.y - depth * (cameraRange.y - cameraRange.x));
-  }
-  void main() {
-    ${SURFACE_DEPTH}
-    #ifdef FAR_WATER
-    {
-      // Past the near scene: what lies under it multiplied by the tint, or
-      // (Enhanced) the colour the near pass gives water that deep, in the
-      // fog (toward white where it multiplies).
-      float fog = farFog(vSurfaceDepth);
-      gl_FragColor = vec4(quality < 0.5 ? mix(tint, vec3(1.0), fog) : mix(tint * vec3(0.16, 0.36, 0.34), fogColor, fog), 1.0);
-      return;
-    }
-    #endif
-    if (quality < 0.5) { gl_FragColor = vec4(tint, 1.0); return; }
-    vec2 screen = gl_FragCoord.xy / resolution;
-    if (underwater > 0.5) {
-      // The underside transmits the view above it; it must never reuse the
-      // last above-water planar reflection when the eye crosses the surface.
-      gl_FragColor = vec4(texture2D(sceneColor, screen).rgb * mix(vec3(1.0), tint, 0.25), 1.0);
-      return;
-    }
-    float surface = max(vSurfaceDepth, 0.0001);
-    float thickness = max(0.0, viewDepth(texture2D(sceneDepth, screen).r) - surface);
-    vec2 bend = vec2(sin(vWorld.z * 1.2 + time), cos(vWorld.x * 0.9 - time * 0.8));
-    vec2 refracted = clamp(screen + bend * 0.003 * min(thickness, 1.0), vec2(0.001), vec2(0.999));
-    // Never pull an above-water object into the refracted silhouette.
-    if (viewDepth(texture2D(sceneDepth, refracted).r) < surface) refracted = screen;
-    vec3 transmission = exp(-thickness * vec3(0.22, 0.085, 0.13));
-    vec3 deep = tint * vec3(0.16, 0.36, 0.34);
-    vec3 color = mix(deep, texture2D(sceneColor, refracted).rgb, transmission);
-    float caustic = pow(max(0.0, sin(vWorld.x * 2.5 + time) * sin(vWorld.z * 2.8 - time * 0.8)), 8.0);
-    color += vec3(0.045, 0.07, 0.055) * caustic * exp(-thickness * 0.65);
-    float edge = (1.0 - smoothstep(0.02, 0.55, thickness)) * smoothstep(0.0, 0.04, thickness);
-    float foam = edge * (0.3 + 0.15 * sin(vWorld.x * 13.0 + vWorld.z * 11.0 + time * 1.7));
-    color = mix(color, vec3(0.55, 0.64, 0.59), foam);
-    // White water hugging whatever breaks the surface near a wading soldier
-    // (his legs), broken up by moving noise, and the crests of his ripples.
-    float near;
-    vec2 ripple = waderSlope(vWorld.xz, time, near);
-    float churn = 0.55 + 0.45 * sin(vWorld.x * 37.0 + time * 4.1) * sin(vWorld.z * 31.0 - time * 3.3);
-    float hug = near * (1.0 - smoothstep(0.015, 0.14, thickness)) * smoothstep(0.0, 0.01, thickness);
-    float crest = clamp(length(ripple) * 4.0, 0.0, 1.0) * near;
-    color = mix(color, vec3(0.86, 0.92, 0.9), clamp(hug * churn * 1.1 + crest * 0.18, 0.0, 0.9));
-    gl_FragColor = vec4(color, 1.0);
-  }
-`;
 
-const REFLECTION = /* glsl */ `
-  ${FAR_WATER_PARS}
-  ${WADER_RIPPLES}
-  uniform mat4 projectionMatrix;
-  uniform sampler2D sceneDepth;
-  uniform sampler2D sceneColor;
-  uniform float screenSpace;
-  uniform vec2 resolution;
-  uniform sampler2D reflection;
-  uniform mat4 reflectionMatrix;
-  uniform sampler2D normalA;
-  uniform sampler2D normalB;
-  uniform float normalMix;
-  uniform sampler2D bumpA;
-  uniform sampler2D bumpB;
-  uniform float bumpMix;
-  uniform float distort;
-  uniform float viewYaw;
-  uniform vec2 tile;
-  uniform vec3 toSun;
-  uniform float reflectAmount;
-  uniform vec2 fresnel;
-  uniform float quality;
-  uniform float time;
-  uniform vec3 sunColor;
-  uniform vec2 cameraRange;
-  varying float vSurfaceDepth;
-  varying vec3 vWorld;
-  varying vec2 vUv;
-  void main() {
-    ${SURFACE_DEPTH}
-    vec2 uv = vUv * tile;
-    vec3 n = mix(texture2D(normalA, uv).rgb, texture2D(normalB, uv).rgb, normalMix) * 2.0 - 1.0;
-    // The maps hold x in red, z in green, and up in blue.
-    vec3 N = normalize(vec3(n.r, n.b, n.g));
-    if (quality > 0.5) {
-      // Cross-flowing world-space waves remove cell seams and visibly repeat
-      // less than the original low-resolution flipbook on its own.
-      vec2 flow = vWorld.xz * 0.22;
-      vec3 detail = texture2D(normalA, flow + vec2(time * 0.018, -time * 0.011)).rgb * 2.0 - 1.0;
-      vec3 crossFlow = texture2D(normalB, flow * 2.17 + vec2(-time * 0.013, time * 0.019)).rgb * 2.0 - 1.0;
-      vec2 slope = vec2(
-        cos(dot(vWorld.xz, vec2(0.72, 0.38)) + time * 0.95),
-        cos(dot(vWorld.xz, vec2(-0.31, 1.13)) - time * 1.3)) * 0.075;
-      float near;
-      slope += waderSlope(vWorld.xz, time, near);
-      N = normalize(vec3(N.xz * 0.35 + detail.rg * 0.22 + crossFlow.rg * 0.09 + slope, 1.0)).xzy;
-    }
-    vec3 V = normalize(cameraPosition - vWorld);
-    vec3 H = normalize(V + toSun);
-    float spec = pow(clamp(dot(N, H), 0.0, 1.0), 8.0);
-    float grazing = 1.0 - clamp(dot(N, V), 0.0, 1.0);
-    float F = fresnel.x + (fresnel.y - fresnel.x) * grazing * grazing;
-    vec4 clip = reflectionMatrix * vec4(vWorld, 1.0);
-    vec2 at = clip.xy / clip.w;
-    if (distort > 0.0) {
-      vec2 d = (mix(texture2D(bumpA, uv).rg, texture2D(bumpB, uv).rg, bumpMix) * 255.0 - 128.0) / 127.0;
-      float c = cos(viewYaw);
-      float s = sin(viewYaw);
-      at += distort * vec2(c * d.x - s * d.y, s * d.x + c * d.y);
-    }
-    if (quality > 0.5) {
-      // Fine normal distortion and energy-bounded highlights, with derivative
-      // roughness to suppress shimmering subpixel sun glints in motion.
-      at += N.xz * 0.012;
-      float variance = dot(dFdx(N), dFdx(N)) + dot(dFdy(N), dFdy(N));
-      float exponent = mix(90.0, 14.0, clamp(variance * 50.0, 0.0, 1.0));
-      spec = pow(max(dot(N, H), 0.0), exponent) * 0.7;
-      F = mix(max(0.04, fresnel.x * 0.4), fresnel.y, pow(grazing, 5.0));
-    }
-    vec3 mirrored = texture2D(reflection, clamp(at, vec2(0.002), vec2(0.998))).rgb;
-    #ifdef FAR_WATER
-    {
-      // Past the near scene there is nothing near to reflect or meet.
-      vec3 glint = quality > 0.5 ? sunColor * spec : vec3(spec);
-      gl_FragColor = vec4(mix(mirrored * reflectAmount + glint, fogColor, farFog(vSurfaceDepth)), F);
-      return;
-    }
-    #endif
-    if (screenSpace > 0.5) {
-      // High: the near scene comes from the opaque colour/depth copy the
-      // water already takes, by a short march along the reflected ray in
-      // view space, instead of a second (mirrored) render of the whole near
-      // scene. Off-screen rays keep the far scene's planar mirror.
-      vec3 viewPos = (viewMatrix * vec4(vWorld, 1.0)).xyz;
-      vec3 ray = reflect(normalize(viewPos), normalize(mat3(viewMatrix) * N));
-      vec3 p = viewPos;
-      float stride = 0.2, found = 0.0;
-      vec2 hit = vec2(0.0);
-      for (int i = 0; i < 24; i++) {
-        p += ray * stride;
-        stride *= 1.28;
-        vec4 clip = projectionMatrix * vec4(p, 1.0);
-        if (clip.w <= 0.0) break;
-        vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
-        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) break;
-        float stored = texture2D(sceneDepth, uv).r;
-        float scene = cameraRange.x * cameraRange.y / (cameraRange.y - stored * (cameraRange.y - cameraRange.x));
-        float depth = -p.z;
-        if (depth > scene && depth - scene < stride * 1.6 + 0.25) {
-          vec2 edge = min(uv, 1.0 - uv);
-          found = smoothstep(0.0, 0.06, min(edge.x, edge.y)) * (1.0 - smoothstep(14.0, 24.0, float(i)));
-          hit = uv;
-          break;
-        }
-      }
-      mirrored = mix(mirrored, texture2D(sceneColor, hit).rgb, found);
-    }
-    vec3 highlight = quality > 0.5 ? sunColor * spec : vec3(spec);
-    if (quality > 0.5) {
-      // Where a leg, wall or step meets the surface the mirror fades, so the
-      // contact shows its foam and what's under it instead of a hard edge.
-      float stored = texture2D(sceneDepth, gl_FragCoord.xy / resolution).r;
-      float behind = cameraRange.x * cameraRange.y / (cameraRange.y - stored * (cameraRange.y - cameraRange.x));
-      float meet = smoothstep(0.0, 0.18, behind - vSurfaceDepth);
-      F *= meet;
-      highlight *= meet;
-    }
-    gl_FragColor = vec4(mirrored * reflectAmount + highlight, F);
-  }
-`;
 
-const UNDERWATER_FRAGMENT = /* glsl */ `
-  uniform sampler2D sceneColor;
-  uniform sampler2D sceneDepth;
-  uniform vec2 cameraRange;
-  uniform vec3 tint;
-  uniform float time;
-  varying vec2 vUv;
-  void main() {
-    vec2 drift = vec2(sin(vUv.y * 25.0 + time * 0.7), cos(vUv.x * 21.0 + time * 0.55)) * 0.0007;
-    vec2 at = clamp(vUv + drift, vec2(0.001), vec2(0.999));
-    float z = texture2D(sceneDepth, at).r;
-    float distance = cameraRange.x * cameraRange.y / (cameraRange.y - z * (cameraRange.y - cameraRange.x));
-    vec3 source = texture2D(sceneColor, at).rgb;
-    // Nearby surfaces remain legible; distant objects disappear into colored
-    // scattering instead of applying the same dark tint at every distance.
-    vec3 transmission = exp(-distance * vec3(0.105, 0.045, 0.065));
-    vec3 scattering = tint * vec3(0.3, 0.55, 0.52);
-    gl_FragColor = vec4(mix(scattering, source * vec3(0.86, 0.98, 0.93), transmission), 1.0);
-  }
-`;
 
-const RIPPLE_FRAGMENT = /* glsl */ `
-  uniform sampler2D map;
-  varying vec2 vUv;
-  varying float vAlpha;
-  void main() {
-    gl_FragColor = vec4(1.0, 1.0, 1.0, texture2D(map, vUv).a * vAlpha);
-  }
-`;
-const RIPPLE_VERTEX = /* glsl */ `
-  attribute float alpha;
-  varying vec2 vUv;
-  varying float vAlpha;
-  void main() {
-    vUv = uv;
-    vAlpha = alpha;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
+
+
+
+
+
+
 
 // Whether the water is a sea rather than a pool or canal: its cells reach
 // all four edges of the water grid (the map ends in water on every side).
@@ -436,7 +151,7 @@ export class Water extends WaterState {
     this.reflectionMatrix = new THREE.Matrix4();
     this.tintPass = new THREE.Mesh(
       geometry,
-      new THREE.ShaderMaterial({
+      ownedEffectMaterial('effects/water-refraction', {
         uniforms: {
           tint: { value: new THREE.Vector3(c0[0], c0[1], c0[2]) },
           quality: { value: 0 }, time: { value: 0 }, underwater: { value: 0 },
@@ -445,8 +160,6 @@ export class Water extends WaterState {
           cameraRange: { value: new THREE.Vector2(0.5, 200) },
           waders: { value: Array.from({ length: WADERS }, () => new THREE.Vector4()) },
         },
-        vertexShader: VERTEX,
-        fragmentShader: REFRACTION,
         transparent: true,
         depthWrite: true,
         side: THREE.DoubleSide,
@@ -461,7 +174,7 @@ export class Water extends WaterState {
     blank.needsUpdate = true;
     this.mirrorPass = new THREE.Mesh(
       geometry,
-      new THREE.ShaderMaterial({
+      ownedEffectMaterial('effects/water-reflection', {
         uniforms: {
           reflection: { value: this.target.texture },
           quality: { value: 0 },
@@ -488,8 +201,6 @@ export class Water extends WaterState {
           reflectAmount: { value: c1[3] },
           fresnel: { value: new THREE.Vector2(fresnel[0], fresnel[1]) },
         },
-        vertexShader: VERTEX,
-        fragmentShader: REFLECTION,
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -508,8 +219,7 @@ export class Water extends WaterState {
       black.needsUpdate = true;
       const pair = (values, multiplier = 1) => new THREE.Vector2(
         (values?.[0] ?? 0) * multiplier, (values?.[1] ?? values?.[0] ?? 0) * multiplier);
-      this.lowPass = new THREE.Mesh(geometry, new THREE.ShaderMaterial({
-        vertexShader: VERTEX, fragmentShader: TEXTURED_WATER,
+      this.lowPass = new THREE.Mesh(geometry, ownedEffectMaterial('effects/water-textured', {
         uniforms: {
           mainMap: { value: mainMap }, tint: { value: new THREE.Vector4(...c0) },
           tile: { value: pair(tile, scale) }, velocity: { value: pair(look.Velocity, 1 / scale) },
@@ -576,16 +286,16 @@ export class Water extends WaterState {
     const u = rgba(look.UnderwaterColor, [255, 255, 255, 0]);
     this.underwater = new THREE.Mesh(
       new THREE.PlaneGeometry(2, 2),
-      new THREE.ShaderMaterial({
+      ownedEffectMaterial('effects/water-underwater-tint', {
         uniforms: { color: { value: new THREE.Vector4(...u) } },
-        vertexShader: "void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }",
-        fragmentShader: "uniform vec4 color; void main() { gl_FragColor = color; }",
         transparent: true,
         depthTest: false,
         depthWrite: false,
       }),
     );
     this.underwater.frustumCulled = false;
+    this.underwater.material.userData.bfeNoShadows = true;
+    this.underwater.material.visible = true;
     this.underwaterScene = new THREE.Scene();
     this.underwaterScene.add(this.underwater);
     this.passCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -596,13 +306,11 @@ export class Water extends WaterState {
     const surfaceUniforms = this.tintPass.material.uniforms;
     this.underwaterFog = new THREE.Mesh(
       new THREE.PlaneGeometry(2, 2),
-      new THREE.ShaderMaterial({
+      ownedEffectMaterial('effects/water-underwater-fog', {
         uniforms: {
           sceneColor: surfaceUniforms.sceneColor, sceneDepth: surfaceUniforms.sceneDepth,
           cameraRange: surfaceUniforms.cameraRange, tint: surfaceUniforms.tint, time: surfaceUniforms.time,
         },
-        vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
-        fragmentShader: UNDERWATER_FRAGMENT,
         transparent: true, blending: THREE.NoBlending, depthTest: false, depthWrite: false,
       }),
     );
@@ -642,9 +350,7 @@ export class Water extends WaterState {
   // the far scene's fog.
   farPass(pass, geometry) {
     const source = pass.material;
-    const material = new THREE.ShaderMaterial({
-      vertexShader: source.vertexShader,
-      fragmentShader: source.fragmentShader,
+    const material = ownedEffectMaterial(source.userData.bfeProgram + '-far', {
       uniforms: { ...source.uniforms, ...this.farUniforms },
       defines: { FAR_WATER: "" },
       transparent: source.transparent, depthWrite: source.depthWrite, side: source.side, forceSinglePass: true,
@@ -823,10 +529,8 @@ export class Water extends WaterState {
     geometry.setDrawRange(0, 0);
     const mesh = new THREE.Mesh(
       geometry,
-      new THREE.ShaderMaterial({
+      ownedEffectMaterial('effects/water-rings', {
         uniforms: { map: { value: map } },
-        vertexShader: RIPPLE_VERTEX,
-        fragmentShader: RIPPLE_FRAGMENT,
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,

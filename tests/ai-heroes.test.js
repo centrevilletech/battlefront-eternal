@@ -182,6 +182,8 @@ test("blade attaches at the hilt's authored point with native length and core wi
   const blade = attachBlade(group, [.1, .2, .3], { Texture: "test" }, () => texture);
   assert.deepEqual(blade.position.toArray(), [.1, .2, .3]);
   assert.equal(blade.children.length, 2);
+  assert.equal(blade.children[0].material.userData.bfeProgram, "effects/glow-basic");
+  assert.equal(blade.children[0].material.vertexShader, undefined);
   assert.equal(blade.children[0].geometry.parameters.width, .08);
   assert.ok(Math.abs(blade.children[0].geometry.parameters.height - Math.hypot(.8, .5)) < 1e-12);
   const camera = new THREE.PerspectiveCamera(); camera.position.set(4, 2, 1);

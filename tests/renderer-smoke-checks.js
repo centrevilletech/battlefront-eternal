@@ -12,6 +12,7 @@ import { zeroMaterial, worldMaterial, lighting } from '../src/materials.js';
 import { plainProgram } from '../src/rust-render/post.js';
 import { writeScreenStep } from '../src/rust-render/screen.js';
 import { ownWorldMaterial } from '../src/rust-render/world-programs.js';
+import { ownedBasicEffect, ownedEffectMaterial } from '../src/rust-render/effect-material.js';
 import { programLayouts } from '../src/render-programs.js';
 import { interfaceFixture, shellInterfaceFixture } from './renderer-interface-checks.js';
 
@@ -160,7 +161,9 @@ export async function checkRenderer(backend, manifests) {
     const root = new THREE.Group(); root.userData.parts = { body }; root.add(body); g.scene.add(root); g.cullRoots.push(root);
     const farMaterial=worldMaterial('unlit',{map:texture([20,40,80,255]),far:true,lights:false});farMaterial.defines.WORLD_SPACE='';ownWorldMaterial(farMaterial);
     const far = new THREE.Mesh(new THREE.PlaneGeometry(20,20).translate(0,0,-90),farMaterial);far.matrixAutoUpdate=false;g.farScene.add(far);
-    const transparent = new THREE.Mesh(new THREE.PlaneGeometry(.7, .7), new THREE.MeshBasicMaterial({ color: 0x2277aa, transparent: true, opacity: .5 }));
+    // Owned basic effects are the effects pass's; the transparent pass's own draws are
+    // blended world surfaces, which this scene has none of.
+    const transparent = new THREE.Mesh(new THREE.PlaneGeometry(.7, .7), ownedBasicEffect('basic', { color: 0x2277aa, map: white, transparent: true, opacity: .5 }));
     transparent.position.set(0, 1, 1); g.scene.add(transparent);
     const view = new THREE.Mesh(new THREE.PlaneGeometry(.12, .12), zeroMaterial('dynamic', { map: white }));
     view.position.set(.2, -.15, -1); g.viewScene.add(view);
@@ -386,7 +389,7 @@ export async function checkRenderer(backend, manifests) {
     const cameraAt=g.camera.position.clone(),cameraRotation=g.camera.quaternion.clone();
     const basin=water.cellBounds[0].getCenter(new THREE.Vector3());
     // A glow can be created between frames and first appear in a reflection.
-    const lateGlowMaterial=new THREE.MeshBasicMaterial({map:white,transparent:true,opacity:.7,depthWrite:false});
+    const lateGlowMaterial=ownedBasicEffect('glow-basic',{map:white,transparent:true,opacity:.7,depthWrite:false});
     const lateGlow=new THREE.Mesh(new THREE.PlaneGeometry(1,1),lateGlowMaterial),lateGlowGroup=new THREE.Group();
     lateGlowGroup.userData.material=lateGlowMaterial;lateGlowGroup.add(lateGlow);g.scene.add(lateGlowGroup);
     lateGlow.position.set(basin.x,water.level+1,basin.z);lateGlow.frustumCulled=false;
@@ -420,14 +423,12 @@ export async function checkRenderer(backend, manifests) {
     const worldPixel=sample(Math.floor((projected.x+1)*.5*gl.drawingBufferWidth),Math.floor((projected.y+1)*.5*gl.drawingBufferHeight));
     assert('World binding sees the uploaded lazy image',[80,130,200].every((v,k)=>Math.abs(worldPixel[k]-v)<=1),worldPixel);
     const tintScene = new THREE.Scene(), tintCamera = new THREE.OrthographicCamera(-1,1,1,-1,0,1);
-    tintScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2), new THREE.ShaderMaterial({
+    // The Low water's tint is a catalog program like every other screen material.
+    tintScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2), ownedEffectMaterial('effects/water-underwater-tint', {
       uniforms:{color:{value:new THREE.Vector4(.1,.2,.3,.5)}},
-      vertexShader:'void main(){gl_Position=vec4(position,1.0);}',
-      fragmentShader:'uniform vec4 color; void main(){gl_FragColor=color;}',
-      transparent:true,depthTest:false,depthWrite:false,
+      transparent:true,depthTest:false,depthWrite:false,visible:true,
     })));
     tintScene.children[0].frustumCulled=false;
-    g.renderer.compile(tintScene,tintCamera);
     g.renderer.autoClear=false;
     g.rust.cover('underwater',g.renderer,tintScene,tintCamera);
     g.renderer.autoClear=true;
@@ -541,7 +542,10 @@ export async function checkRenderer(backend, manifests) {
     retainedTarget.dispose();
     assert('Battle never invokes three draw', g.renderer.battleThreeCalls === 0);
     assert('Every shader rewrite kind links', [0,1,2,3,4,9].every(k => programKinds.has(k)), [...programKinds]);
-    assert('All Rust passes draw', passDraws.every(n => n > 0), { names: ['world','instances','far','terrain','transparent','effects','foliage','view','post','hud','water','shadow','motion','canopies','screen'], counts: passDraws });
+    // The transparent pass draws blended world surfaces, which the fixture has none of
+    // (its blended mesh is an owned effect, drawn by the effects pass).
+    const passNames = ['world','instances','far','terrain','transparent','effects','foliage','view','post','hud','water','shadow','motion','canopies','screen'];
+    assert('All Rust passes draw', passDraws.every((n, i) => n > 0 || passNames[i] === 'transparent'), { names: passNames, counts: passDraws });
     assert('Available Rust draw path exercised', fallback || !multiAvailable ? multiDraws === 0 : multiDraws > 0, { fallback, multiAvailable, multiDraws });
     assert('Every declared Rust post and HUD program draws',Object.keys(programLayouts).filter(key=>key.startsWith('post-hud/')).every(key=>ownedIds.has(key)&&ownedDraws.has(ownedIds.get(key))), {registered:[...ownedIds.keys()],drawn:[...ownedDraws]});
     // Count actual successful links, including reconstructed programs. Program

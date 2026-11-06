@@ -1,3 +1,4 @@
+import { ownedBasicEffect } from './rust-render/effect-material.js';
 import { observePresentation } from "./presentation-profile.js";
 import { InputLatencyTrace } from './runtime/input-latency-trace.js';
 import { PredictionArsenal } from './runtime/prediction-arsenal.js';
@@ -686,7 +687,7 @@ async function start() {
     const parts = fxModels.get(name);
     if (!parts) return null;
     return () => {
-      const material = new THREE.MeshBasicMaterial({
+      const material = ownedBasicEffect('glow-basic', {
         map: anyTexture(parts[0].texture),
         transparent: true,
         blending: THREE.AdditiveBlending,
@@ -3905,7 +3906,7 @@ function hologramLogos(logos, models, texture) {
     const parts = models.get(model.toLowerCase());
     if (!parts) continue;
     factories.set(sideName, () => {
-      const material = new THREE.MeshBasicMaterial({
+      const material = ownedBasicEffect('glow-basic', { visible: true,
         map: texture(parts[0].texture),
         transparent: true,
         blending: THREE.AdditiveBlending,

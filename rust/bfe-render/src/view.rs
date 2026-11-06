@@ -22,6 +22,7 @@
 // same order.
 use crate::core::{Camera, Core, MultiDraw, PASS_INSTANCES, PASS_VIEW};
 use crate::instances::InstancePass;
+use crate::effects::EffectsPass;
 use crate::post::{set_uniform, UNIFORM};
 use crate::transparent::{apply, DrawState};
 use glow::HasContext;
@@ -41,6 +42,14 @@ pub const D_SIDES: usize = 11; // how many, then two
 pub const D_RANGE: usize = 14;
 pub const D_UNIFORMS: usize = 16;
 pub const D_FIRST: usize = 17;
+// A draw whose program is VIEW_BATCH is an effects batch drawn in view order,
+// not a program draw: it reuses the geometry, range and uniform-count slots
+// for the batch id, its first instance and count, and its capacity.
+pub const VIEW_BATCH: f64 = -2.0;
+pub const D_BATCH: usize = D_GEOMETRY;
+pub const D_BATCH_AT: usize = D_RANGE;
+pub const D_BATCH_COUNT: usize = D_RANGE + 1;
+pub const D_BATCH_CAPACITY: usize = D_UNIFORMS;
 pub const MAX_UNIFORMS: usize = 32;
 pub const DRAW: usize = D_FIRST + MAX_UNIFORMS * UNIFORM;
 pub const MAX_DRAWS: usize = 16;
@@ -61,7 +70,7 @@ impl<C: HasContext> ViewPass<C> {
     }
 
     // records: how many the page wrote for the view's parts.
-    pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, camera: &Camera, instances: &mut InstancePass<C>, records: usize) {
+    pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, camera: &Camera, instances: &mut InstancePass<C>, effects: &mut EffectsPass<C>, records: usize) {
         if records > 0 {
             let before = core.stats.pass_draws[PASS_INSTANCES];
             instances.draw(core, camera, records);
@@ -72,6 +81,10 @@ impl<C: HasContext> ViewPass<C> {
         let draws = (self.input[IN_DRAWS] as usize).min(MAX_DRAWS);
         for d in 0..draws {
             let v = &self.input[IN_FIRST_DRAW + d * DRAW..IN_FIRST_DRAW + (d + 1) * DRAW];
+            if v[D_PROGRAM] == VIEW_BATCH {
+                effects.draw_view_batch(core, v[D_BATCH] as usize, v[D_BATCH_COUNT] as usize, v[D_BATCH_AT] as usize, v[D_BATCH_CAPACITY] as usize);
+                continue;
+            }
             if v[D_PROGRAM] < 0.0 {
                 let before = core.stats.pass_draws[PASS_INSTANCES];
                 instances.draw_blended(core, v[D_GEOMETRY] as usize);

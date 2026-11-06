@@ -1476,6 +1476,21 @@ export class BfeRenderer {
         }
     }
     /**
+     * @param {number} program
+     * @param {number} mode
+     * @param {number} count
+     * @param {number} index_type
+     * @param {number} offset
+     * @param {number} instances
+     * @param {boolean} indexed
+     */
+    replay_program_draw(program, mode, count, index_type, offset, instances, indexed) {
+        const ret = wasm.bferenderer_replay_program_draw(this.__wbg_ptr, program, mode, count, index_type, offset, instances, indexed);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {number} steps
      * @returns {Uint32Array}
      */
@@ -2626,6 +2641,12 @@ function __wbg_get_imports() {
         __wbg_disable_8a9e81e6d64d046b: function(arg0, arg1) {
             arg0.disable(arg1 >>> 0);
         },
+        __wbg_drawArraysInstancedANGLE_635e10224985b842: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.drawArraysInstancedANGLE(arg1 >>> 0, arg2, arg3, arg4);
+        },
+        __wbg_drawArraysInstanced_762b36f2147c7a85: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.drawArraysInstanced(arg1 >>> 0, arg2, arg3, arg4);
+        },
         __wbg_drawArrays_a9c18db2e94f4a82: function(arg0, arg1, arg2, arg3) {
             arg0.drawArrays(arg1 >>> 0, arg2, arg3);
         },
@@ -2805,6 +2826,16 @@ function __wbg_get_imports() {
             let result;
             try {
                 result = arg0 instanceof Uint32Array;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
+        __wbg_instanceof_WebGlFramebuffer_65301cc37e9738f1: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof WebGLFramebuffer;
             } catch (_) {
                 result = false;
             }

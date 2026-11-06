@@ -2,7 +2,15 @@
 // New programs are compiled before registration. Dissolves, shock overlays and
 // blended rigid parts publish their values and ordered transparent records.
 import * as THREE from "three";
+import { ownedEffectProgram } from "./effect-material.js";
+import { ownsEffectSource } from "./programs.js";
 import { blendOf, stateOf, sidesOf, programForSide } from "./transparent.js";
+
+function hasEffectSource(materials) {
+  if (!Array.isArray(materials)) return ownsEffectSource(materials);
+  for (const material of materials) if (ownsEffectSource(material)) return true;
+  return false;
+}
 
 const SKINNED = 1, RIGID = 2, BLENDED = 3, BLENDED_RIGID = 4;
 // The layer a flying model's part goes on while the renderer draws it: no
@@ -167,7 +175,7 @@ class InstancePass {
       this.standIn(renderer, scene, camera, added, mainFrame);
       const fresh = this.fresh, roots = graphics.playerRoot ? [...graphics.cullRoots, graphics.playerRoot] : graphics.cullRoots;
       fresh.length = 0;
-      const add = (mesh, materials) => { if (unbuilt(renderer, materials)) fresh.push([mesh, materials]); };
+      const add = (mesh, materials) => { if (!hasEffectSource(materials) && unbuilt(renderer, materials)) fresh.push([mesh, materials]); };
       for (const root of roots) this.newParts(root, (o) => add(o, o.isSkinnedMesh ? this.usedOf(o) : o.material));
       if (this.rigList) for (const mesh of this.rigList) if (!this.bodies.has(mesh)) add(mesh, mesh.material);
       if (this.flyingPending?.size) for (const group of this.flyingPending) group.traverse((o) => { if (o.isMesh && !this.flyingByMesh.has(o)) add(o, o.material); });
@@ -195,11 +203,11 @@ class InstancePass {
     for (const root of added || []) root.traverse((o) => { if (o.isSkinnedMesh && o.name === "arc-shock-warm") this.warm = o; });
     const warm = this.warm;
     if (!warm) return;
-    if (!warm.parent || !warm.visible) { if (warm.material) warm.material.visible = true; this.warm = null; return; }
+    if (!warm.parent || !warm.visible) { if (warm.material && !ownsEffectSource(warm.material)) warm.material.visible = true; this.warm = null; return; }
     const material = warm.material;
     if (!this.warmProgram) {
-      if (unbuilt(renderer, material)) compileFor(renderer, [[warm, material]], camera, scene);
-      const programs = sidesOf(material).map((side) => { const p = programForSide(renderer, material, side); return p && this.core.program(p, SKINNED, material, POLICIES[SKINNED]); });
+      if (!ownsEffectSource(material) && unbuilt(renderer, material)) compileFor(renderer, [[warm, material]], camera, scene);
+      const programs = sidesOf(material).map((side) => { if (ownsEffectSource(material)) return ownedEffectProgram(this.core, material, SKINNED, side); const p = programForSide(renderer, material, side); return p && this.core.program(p, SKINNED, material, POLICIES[SKINNED]); });
       this.warmProgram = programs.length > 0 && programs.every(Boolean);
       if (!this.warmProgram) this.core.fail(new Error("Cannot prepare arc shock program"));
     }
@@ -355,9 +363,9 @@ class InstancePass {
     const core = this.core;
     let record = null;
     const material = mesh.material;
-    if (unbuilt(core.renderer, material)) compileFor(core.renderer, [[mesh, material]], core.graphics.camera, core.graphics.scene);
+    if (!ownsEffectSource(material) && unbuilt(core.renderer, material)) compileFor(core.renderer, [[mesh, material]], core.graphics.camera, core.graphics.scene);
     const threeProgram = core.renderer.properties.get(material).currentProgram;
-    if (threeProgram && material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
+    if ((threeProgram || ownsEffectSource(material)) && material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
       record = this.registerBlended(mesh);
       if (record === undefined) return undefined;
     } else if (threeProgram && !material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
@@ -384,7 +392,7 @@ class InstancePass {
     const core = this.core, renderer = core.renderer, material = mesh.material;
     const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
     if (!blend || !state) return null;
-    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, SKINNED, material, POLICIES[SKINNED]); });
+    const programs = sides.map((side) => { if (ownsEffectSource(material)) return ownedEffectProgram(core, material, SKINNED, side); const p = programForSide(renderer, material, side); return p && core.program(p, SKINNED, material, POLICIES[SKINNED]); });
     if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
     const texture = mapOf(core, material);
     if (texture === undefined) return undefined;

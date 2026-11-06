@@ -1,13 +1,14 @@
 // The screen pass (post.rs draw_screen): the full-screen passes outside the
 // post chain that the renderer draws in three's place. Each is one draw of a
-// full-screen pass's material with three's program for it (Kind::Plain, made
-// as three compiled it), written as a post step with its material's own
+// full-screen pass's material with a catalog-owned Plain program,
+// written as a post step with its material's own
 // state (post.rs `states`: its depth test and function, depth write and
 // blending) and, where a varying must be interpolated over three's own
 // triangles, three's geometry for it.
 //
 import * as THREE from "three";
-import { compileFor } from "./instances.js";
+import { ownedEffectProgram } from "./effect-material.js";
+import { ownsEffectSource } from "./programs.js";
 import { plainProgram, writeUniform } from "./post.js";
 import { blendOf, stateOf } from "./transparent.js";
 
@@ -36,8 +37,8 @@ function views(core) {
 // Rust's program for a full-screen material (post.js plainProgram), when a
 // step can draw it: no more uniforms than a step holds, and a state a step
 // has (no stencil, polygon offset or alpha to coverage, its colour written,
-// a blending the renderer sets). undefined until three has made its
-// program; null when never. Making it can make a program of the renderer's:
+// a blending the renderer sets). null when never. Making it can make a program
+// of the renderer's:
 // only inside a phase, whose end resets three's state.
 export function screenProgram(core, material, attributes = ATTRIBUTES) {
   const program = plainProgram(core, material, attributes);
@@ -124,7 +125,8 @@ class ScreenPass {
     if (renderer.autoClear) return;
     const mesh = this.mesh(ctx.scene, ctx.camera);
     if (!mesh || Array.isArray(mesh.material) || mesh.geometry.groups.length || mesh.isInstancedMesh || mesh.isSkinnedMesh) return;
-    if (!renderer.properties.get(mesh.material).currentProgram) compileFor(renderer, [[mesh, mesh.material]], ctx.camera, ctx.scene);
+    // Screen materials are catalog programs from the moment they are made.
+    if (!ownsEffectSource(mesh.material)) { core.fail(Error(`Screen material ${mesh.name} has no catalog program`)); return; }
     const program = screenProgram(core, mesh.material);
     if (!program) return;
     const target = renderer.getRenderTarget();
@@ -159,9 +161,11 @@ export function underwaterPass(core) {
 // the near scene's transparent list (its render order the list's highest),
 // right after its hook copies the scene drawn so far (water.captureSurface).
 // The renderer draws it at that very point: the transparent pass runs the
-// pass's atEnd after the list's last draw. The copy precedes the Rust
-// underwater phase, which uses the compiled material program and geometry.
-// The material compiles before registration, including its first frame.
+// pass's atEnd after the list's last draw (its own last segment, or three's
+// last item), where the copy is made as three makes it, then the composite
+// drawn (the underwater phase) with its owned program and
+// three's own geometry for it (its uv interpolated as three's are). Three
+// leaves its source-free shell out of every browser draw list.
 class FogPass {
   constructor(core) {
     this.core = core;
@@ -192,8 +196,8 @@ class FogPass {
   beforeSort() {
     const core = this.core, fog = this.composite();
     if (!fog) return;
-    if (!core.renderer.properties.get(fog.material).currentProgram) compileFor(core.renderer,[[fog,fog.material]],core.graphics.camera,core.graphics.scene);
-    const current = core.renderer.properties.get(fog.material).currentProgram;
+    if (!ownsEffectSource(fog.material)) { core.fail(Error("Fog material has no catalog program")); return; }
+    const current = fog.material;
     if (this.made.has(current)) return;
     const program = screenProgram(core, fog.material);
     if (!program) throw new Error("Missing Rust underwater fog program");
@@ -210,9 +214,16 @@ class FogPass {
     const core = this.core, graphics = core.graphics, fog = this.composite();
     this.pending = null;
     if (!fog || scene !== graphics.scene) return;
+    if (ownsEffectSource(fog.material) && !this.made.has(fog.material)) {
+      const program = screenProgram(core, fog.material);
+      const geometry = core.geometry(fog.geometry, program);
+      if (geometry === null || geometry === undefined) throw Error("Owned underwater geometry failed to register");
+      this.made.set(fog.material, { id: geometry, count: fog.geometry.index.count });
+      renderer.resetState(); renderer.setRenderTarget(target);
+    }
     const take = !core.contextLost && fog.visible && fog.parent === scene && camera === graphics.camera
-      && target === graphics.sceneTarget && this.made.has(renderer.properties.get(fog.material).currentProgram);
-    fog.material.visible = !take;
+      && target === graphics.sceneTarget && this.made.has(fog.material);
+    fog.material.visible = !ownsEffectSource(fog.material) && !take;
     if (take) this.pending = { camera, target };
   }
 
@@ -223,7 +234,7 @@ class FogPass {
     const core = this.core, fog = this.composite(), pending = this.pending;
     this.pending = null;
     if (!fog) return;
-    const threeProgram = core.renderer.properties.get(fog.material).currentProgram;
+    const threeProgram = fog.material;
     if (threeProgram && !this.made.has(threeProgram)) {
       const program = screenProgram(core, fog.material);
       const geometry = program && fog.geometry.index && !fog.geometry.groups.length ? core.geometry(fog.geometry, { id: program.id, attributes: [["position", 0], ["uv", 1]] }) : null;
@@ -239,7 +250,7 @@ class FogPass {
     const core = this.core, fog = this.composite(), water = core.graphics.scene.userData.water;
     if (!fog || !water) core.fail(new Error("Missing underwater composite resources"));
     water.captureSurface(renderer, camera);
-    const program = screenProgram(core, fog.material), geometry = this.made.get(renderer.properties.get(fog.material).currentProgram);
+    const program = screenProgram(core, fog.material), geometry = this.made.get(fog.material);
     if (!program || !geometry || !writeScreenStep(core, 0, program, fog.material, fog, camera, { geometry })) core.fail(new Error("Incomplete underwater composite"));
     core.phase("underwater", renderer, scene, camera, false, null, { steps: 1 });
     this.drawn++;

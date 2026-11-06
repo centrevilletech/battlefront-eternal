@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
 import { lighting } from "./materials.js";
@@ -5,69 +6,8 @@ import { particleDepth } from "./particle-depth.js";
 
 const CAPACITY = 160;
 const UP = new THREE.Vector3(0, 1, 0), DOWN = new THREE.Vector3(0, -1, 0);
-const VERTEX = /* glsl */ `
-  attribute vec4 birth; // world position, birth time
-  attribute vec4 drift; // velocity, lifetime
-  attribute vec4 shape; // initial size, seed, opacity, terrain dust
-  uniform float trailTime;
-  varying vec2 dustUv;
-  varying vec4 dustShape;
-  varying float age;
-  varying float viewDepth;
-  void main() {
-    age = clamp((trailTime - birth.w) / drift.w, 0.0, 1.0);
-    float seconds = max(trailTime - birth.w, 0.0);
-    vec3 at = birth.xyz + drift.xyz * (1.0 - exp(-seconds * 1.8)) / 1.8;
-    at.xz += vec2(sin(shape.y + seconds * 1.6), cos(shape.y * 1.7 + seconds)) * seconds * 0.13;
-    at.y += seconds * 0.18;
-    vec4 view = viewMatrix * vec4(at, 1.0);
-    float size = shape.x * (0.45 + age * 2.8);
-    float angle = shape.y + age * 0.35;
-    vec2 p = position.xy;
-    p = mat2(cos(angle), -sin(angle), sin(angle), cos(angle)) * p;
-    view.xy += p * size * vec2(1.6, 0.85);
-    viewDepth = -view.z;
-    dustUv = uv;
-    dustShape = shape;
-    gl_Position = projectionMatrix * view;
-  }
-`;
-const FRAGMENT = /* glsl */ `
-  uniform vec3 tint;
-  uniform vec3 fogColor;
-  uniform vec2 fogRange;
-  uniform sampler2D sceneDepth;
-  uniform float softParticles;
-  uniform vec2 depthResolution;
-  uniform vec2 cameraRange;
-  varying vec2 dustUv;
-  varying vec4 dustShape;
-  varying float age;
-  varying float viewDepth;
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-  float noise(vec2 p) {
-    vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-    return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);
-  }
-  void main() {
-    vec2 q = dustUv * 2.0 - 1.0;
-    float envelope = pow(max(1.0 - dot(q,q), 0.0), 1.8);
-    vec2 flow = dustUv * vec2(4.5, 7.0) + vec2(dustShape.y, -age * 1.6);
-    float wisps = noise(flow) * 0.65 + noise(flow * 2.1 + 3.7) * 0.35;
-    float alpha = envelope * smoothstep(0.0, 0.09, age) * pow(1.0-age, 1.5);
-    alpha *= smoothstep(0.20, 0.72, wisps) * dustShape.z;
-    if (softParticles > 0.5) {
-      float depth = texture2D(sceneDepth, gl_FragCoord.xy / depthResolution).x;
-      float surface = cameraRange.x * cameraRange.y / (cameraRange.y-depth*(cameraRange.y-cameraRange.x));
-      alpha *= smoothstep(0.0, 0.35, surface - viewDepth);
-    }
-    alpha *= smoothstep(0.3, 1.2, viewDepth);
-    if (alpha < 0.002) discard;
-    vec3 color = tint * (0.8 + wisps * 0.3);
-    float fog = clamp((viewDepth-fogRange.x)/max(fogRange.y-fogRange.x,1.0),0.0,1.0);
-    gl_FragColor = vec4(mix(color, fogColor, fog), alpha);
-  }
-`;
+
+
 
 function dustTint(name) {
   if (/hot/i.test(name)) return [0.78, 0.83, 0.86];
@@ -118,14 +58,13 @@ export class DroidekaTrail {
       return a;
     });
     this.geometry.instanceCount = 0;
-    this.material = new THREE.ShaderMaterial({
+    this.material = ownedEffectMaterial('effects/trail', {
       uniforms: {
         trailTime: { value: 0 }, tint: { value: new THREE.Vector3(...dustTint(mapName)) },
         fogColor: lighting.fogColor, fogRange: lighting.fogRange,
         sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
         depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
       },
-      vertexShader: VERTEX, fragmentShader: FRAGMENT,
       transparent: true, depthWrite: false, depthTest: true, toneMapped: false,
     });
     this.mesh = new THREE.Mesh(this.geometry, this.material);

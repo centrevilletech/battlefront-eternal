@@ -5,27 +5,28 @@
 //
 // Each proxy prepare() shows this frame that three's render would list (on
 // the camera's layers, in its frustum) is a record, in three's order (the
-// proxies' material ids: each proxy has a material of its own): three's
-// program for its material as three compiled it (Kind::Motion: what it
+// proxies' material ids: each proxy has a material of its own): its owned
+// program (Kind::Motion: what it
 // reads per object from its row), its source's geometry, its matrices now
 // and last frame (the ones prepare() keeps) and its bones now and last
 // frame. Then each part of the first-person view three's override render
 // would list (a part the view pass hides from three included) with the
-// locked mask's program and the view's camera. Programs compile before
-// registration; Rust draws the complete motion frame.
+// locked mask's owned program and the view's camera. Registration requires
+// every proxy kind and mask program before the motion phase draws.
 // The sky's ships draw their own motion (MotionVectors.addExtra: an
 // instanced mesh a model part, sky-flyers.js), first, in three's order
-// (render order, material, depth, id), each with three's program for its
-// material as three compiled it (Kind::Plain: every uniform set per draw)
+// (render order, material, depth, id), each with its catalog-owned program
+// (Kind::Plain: every uniform set per draw)
 // and its ships' instance attributes written each frame; their hook (the
 // flyers' still frame) runs first, as three runs it. They write only where
 // the near scene drew nothing (no proxy's pixel: a proxy keeps only what
 // lies on the near scene's surface), so drawing them before the proxies is
 // three's order.
 import * as THREE from "three";
-import { compileFor } from "./instances.js";
+import { arcBatches } from "../arc-lightning.js";
+import { ownedEffectProgram } from "./effect-material.js";
 import { motionUniforms, motionVectors } from "../motion-vectors.js";
-import { plainProgram, writeUniform } from "./post.js";
+import { writeUniform } from "./post.js";
 
 const MOTION = 9;
 const KIND_PROXY = 1, KIND_LOCKED = 2;
@@ -39,27 +40,7 @@ const STRIDE = 88, MAX_RECORDS = 256, MAX_BONES = (1024 * 32) / 4;
 // instances' values start, its uniforms (post.rs's layout).
 const EX = { ID: 0, INSTANCES: 1, SIDE: 2, AT: 3, UNIFORMS: 4, FIRST: 5 };
 const UNIFORM = 18, MAX_EXTRA_UNIFORMS = 8, EXTRA = EX.FIRST + MAX_EXTRA_UNIFORMS * UNIFORM, MAX_EXTRAS = 16;
-// What a motion program reads besides the frame's values the pass sets
-// (the projection, the view-projections now and last frame, the depth
-// range): its row's matrices, both frames' bones, the scene's depth.
-const POLICY = {
-  uniforms: new Set(["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrix", "bindMatrixInverse", "boneTexture", "previousModel", "previousBindInverse",
-    "previousBones", "currentViewProjection", "previousViewProjection", "sceneDepth", "depthRange"]),
-  material: new Set(),
-};
 const IDENTITY = new THREE.Matrix4().elements;
-// Whether three compiled a program with skinning (the locked mask's
-// program is made per object it overrides).
-const skinnedPrograms = new WeakMap();
-function skinned(gl, threeProgram) {
-  let is = skinnedPrograms.get(threeProgram);
-  if (is === undefined) {
-    const vs = gl.getAttachedShaders(threeProgram.program).find((s) => gl.getShaderParameter(s, gl.SHADER_TYPE) === gl.VERTEX_SHADER);
-    is = /^\s*#define USE_SKINNING\b/m.test(vs ? gl.getShaderSource(vs) : "");
-    skinnedPrograms.set(threeProgram, is);
-  }
-  return is;
-}
 
 // three's index range for an item (renderBufferDirect, triangles): the
 // geometry's draw range within the group's and the index.
@@ -76,11 +57,8 @@ class MotionPass {
     this.core = core;
     this.name = "motion";
     this.phase = "motion";
-    // Its programs are its own (Kind::Motion), apart from any other pass's.
-    this.programs = new Map();
-    // A program three made for a proxy of each kind (rigid, skinned): every
-    // proxy of a kind compiles to it (one material each, made alike).
-    this.kinds = [null, null];
+    // Proxy programs use the motion row; sky extras have explicit Plain
+    // descriptors because their shaders consume their own instance attributes.
     this.input = false;
     this.pending = null;
     this.complete = false;
@@ -98,6 +76,7 @@ class MotionPass {
     this.scratch = new Float64Array(EX.FIRST + MAX_EXTRA_UNIFORMS * UNIFORM);
     this.drawn = 0;
     this.left = 0;
+    // Why coverage failed on the last frame (for diagnostics).
     this.why = null;
   }
 
@@ -117,11 +96,6 @@ class MotionPass {
   cover(renderer, motion, { target, camera, viewScene, view, depth }) {
     const core = this.core;
     if (core.contextLost) return this.decline("off", false);
-    const fresh = this.fresh ??= [];
-    fresh.length = 0;
-    for (const proxy of motion.proxies) if (!renderer.properties.get(proxy.material).currentProgram) fresh.push([proxy, proxy.material]);
-    for (const extra of motion.extras) if (!renderer.properties.get(extra.material).currentProgram) fresh.push([extra, extra.material]);
-    if (fresh.length) { compileFor(renderer, fresh, camera, motion.scene); core.stale = true; }
     const records = this.records;
     records.length = 0;
     this.skeletons.clear();
@@ -138,15 +112,10 @@ class MotionPass {
     }
     proxies.sort((a, b) => a.renderOrder - b.renderOrder || a.material.id - b.material.id || a.id - b.id);
     for (const proxy of proxies) {
-      const kind = proxy.isSkinnedMesh ? 1 : 0, source = proxy.userData.source;
-      // Its own program, or (until three has drawn it) its kind's.
-      const threeProgram = core.renderer.properties.get(proxy.material).currentProgram ?? this.kinds[kind];
-      if (threeProgram) this.kinds[kind] ??= threeProgram;
-      const program = threeProgram && core.program(threeProgram, MOTION, proxy.material, POLICY, this.programs);
-      // The source's buffers, which the proxy shares (one registration for
-      // every proxy of a model).
-      const geometry = source.geometry.index === proxy.geometry.index && program ? core.geometry(source.geometry, program) : null;
-      if (geometry === null || geometry === undefined || records.length >= MAX_RECORDS) return this.decline(!threeProgram ? `proxy ${kind ? "skinned" : "rigid"}: no program yet` : !program ? "proxy: program" : geometry === null || geometry === undefined ? "proxy: geometry" : "records");
+      const source = proxy.userData.source;
+      const program = ownedEffectProgram(core, proxy.material, MOTION);
+      const geometry = source.geometry.index === proxy.geometry.index ? core.geometry(source.geometry, program) : null;
+      if (geometry === null || geometry === undefined || records.length >= MAX_RECORDS) return this.decline(geometry === null || geometry === undefined ? "proxy: geometry" : "records");
       const record = { kind: KIND_PROXY, object: proxy, program: program.id, geometry, first: 0, count: proxy.geometry.index.count, side: proxy.material.side, bones: -1 };
       if (proxy.isSkinnedMesh) {
         const skeleton = proxy.skeleton;
@@ -217,23 +186,16 @@ class MotionPass {
   // three's attribute locations: an instance matrix takes four), its
   // geometry's shared attributes and index, and its instance attributes
   // (the mesh's matrices, the geometry's instanced ones, a buffer each).
-  // undefined until three has drawn it; null for one the renderer can't
-  // draw as three does.
+  // null for one the renderer can't draw as three does (blended, tested or
+  // not instanced by plain float attributes).
   extra(mesh, camera) {
     let entry = this.extraEntries.get(mesh);
     if (entry !== undefined) return entry;
-    const core = this.core, gl = core.gl, threeProgram = core.renderer.properties.get(mesh.material).currentProgram;
-    if (!threeProgram) return undefined;
+    const core = this.core, material = mesh.material, geometry = mesh.geometry;
+    const program = ownedEffectProgram(core, material, 3);
+    const attributes = program.attributes;
     entry = null;
-    const p = threeProgram.program, attributes = [];
-    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) {
-      const name = gl.getActiveAttrib(p, i).name;
-      attributes.push([name, gl.getAttribLocation(p, name)]);
-    }
-    const geometry = mesh.geometry, material = mesh.material;
     const perInstance = (name) => name === "instanceMatrix" || Boolean(geometry.attributes[name]?.isInstancedBufferAttribute);
-    const program = mesh.isInstancedMesh && !Array.isArray(material) && !geometry.groups.length && geometry.index
-      ? plainProgram(core, material, attributes.map(([name, location]) => `${name}:${location}`).join(",")) : null;
     const instanced = [], layout = [];
     let ok = Boolean(program) && program.uniforms.length <= MAX_EXTRA_UNIFORMS && material.blending === THREE.NormalBlending && !material.transparent
       && !material.depthTest && !material.depthWrite && material.colorWrite;
@@ -272,16 +234,8 @@ class MotionPass {
   // program not made by three yet).
   lockedParts(viewScene, view, locked, records) {
     const core = this.core;
-    if (!core.renderer.properties.get(locked).currentProgram) {
-      const fresh = [];
-      viewScene.traverse(object => { if (object.isMesh) fresh.push([object, locked]); });
-      if (fresh.length) { compileFor(core.renderer, fresh, view, viewScene); core.stale = true; }
-    }
-    const threeProgram = core.renderer.properties.get(locked).currentProgram;
-    this.maskWhy = !threeProgram ? "no program yet" : "program";
-    if (!threeProgram || skinned(core.gl, threeProgram)) return false;
-    const program = core.program(threeProgram, MOTION, locked, POLICY, this.programs);
-    if (!program) return false;
+    this.maskWhy = "program";
+    const program = ownedEffectProgram(core, locked, MOTION);
     const frustum = this.viewFrustum.setFromProjectionMatrix(this.viewScreen.multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse));
     const hidden = core.byName.view?.parts;
     // Shown to three, or hidden from it by the view pass (which draws it).
@@ -292,7 +246,12 @@ class MotionPass {
         if (object.isSprite || object.isLine || object.isPoints || object.isSkinnedMesh || object.isInstancedMesh || object.isBatchedMesh) { this.maskWhy = object.type; return false; }
         if (object.isMesh && (!object.frustumCulled || frustum.intersectsObject(object))) {
           const material = object.material, groups = Array.isArray(material) ? object.geometry.groups.filter((g) => shown(object, material[g.materialIndex])) : shown(object, material) ? [null] : [];
-          if (groups.length) {
+          // Arc capsules expose corners, not positions. The original mask
+          // received a constant zero position and produced degenerate triangles.
+          // Their visible view draw remains the effects batch's responsibility.
+          const emptyArcMask = arcBatches.has(object) && !object.geometry.attributes.position;
+          if (groups.length && !emptyArcMask) {
+            if (material.userData?.bfeShape !== undefined) object.onBeforeRender(core.renderer, viewScene, view, object.geometry, locked, null);
             this.maskWhy = "geometry";
             if (!object.geometry.index) return false;
             const geometry = core.geometry(object.geometry, program);

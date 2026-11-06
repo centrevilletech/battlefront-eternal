@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from "three";
 
 // The killing shot's trace for the Enhanced death camera (src/death-shot.js),
@@ -11,36 +12,10 @@ const FRIEND = new THREE.Color(0.3, 1, 0.45);
 const WIDTH = 0.34; // m across the glow, near
 const FAR_WIDTH = 0.006; // and at least this much of the distance from the eye
 
-const VERTEX = /* glsl */ `
-attribute vec2 line;
-varying vec2 vLine;
-void main() {
-  vLine = line;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}`;
+
 
 // line.x: 0 at the killer, 1 at the body; line.y: -1 to 1 across.
-const FRAGMENT = /* glsl */ `
-uniform vec3 color;
-uniform float head;
-uniform float opacity;
-uniform float span;
-uniform float traceTime;
-varying vec2 vLine;
-void main() {
-  float along = vLine.x;
-  if (along > head) discard;
-  float across = vLine.y;
-  float core = exp(-across * across * 40.0);
-  float glow = exp(-across * across * 4.0);
-  float behind = (head - along) * span;
-  float spark = exp(-behind * behind * 0.6);
-  float tail = 0.35 + 0.65 * exp(-behind / max(span * 0.5, 6.0));
-  float pulse = 0.9 + 0.1 * sin(along * span * 0.5 - traceTime * 14.0);
-  float ends = smoothstep(0.0, 0.02, along);
-  float light = (core * 1.4 + glow * 0.35) * (tail * pulse + spark * 1.8) * ends * opacity;
-  gl_FragColor = vec4(color * light, 1.0);
-}`;
+
 
 export class DeathTrace {
   constructor(scene) {
@@ -49,10 +24,10 @@ export class DeathTrace {
     geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
     geometry.setAttribute("line", new THREE.BufferAttribute(new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]), 2));
     geometry.setIndex([0, 2, 1, 1, 2, 3]);
-    this.material = new THREE.ShaderMaterial({
+    this.material = ownedEffectMaterial("effects/death-trace", {
       uniforms: { color: { value: ENEMY.clone() }, head: { value: 0 }, opacity: { value: 0 }, span: { value: 1 }, traceTime: { value: 0 } },
-      vertexShader: VERTEX,
-      fragmentShader: FRAGMENT,
+
+
       transparent: true,
       depthWrite: false,
       depthTest: false,

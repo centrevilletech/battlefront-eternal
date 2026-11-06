@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
 
@@ -39,60 +40,8 @@ function clipToTile(a, b, x, z) {
   return hi > lo ? [a.clone().lerp(b, lo), a.clone().lerp(b, hi)] : null;
 }
 
-const VERTEX = /* glsl */ `
-  attribute vec4 shore;
-  attribute float phase;
-  uniform float time;
-  uniform float height;
-  uniform float splash;
-  varying vec2 vUv;
-  varying float vPhase;
-  varying float vPulse;
-  varying vec3 vWorld;
-  void main() {
-    vUv = uv;
-    vPhase = phase;
-    vec2 normal = shore.zw;
-    vec2 tangent = vec2(-normal.y, normal.x);
-    float lap = 0.5 + 0.5 * sin(time * 1.35 + phase * 6.283);
-    float event = fract(time * 0.115 + phase);
-    vPulse = sin(clamp(event / 0.16, 0.0, 1.0) * 3.14159);
-    float width = mix(0.28, 0.64, lap);
-    vec2 at = shore.xy + tangent * (uv.x - 0.5) * 1.85;
-    at += normal * (splash > 0.5 ? 0.06 + uv.y * 0.09 : 0.03 + uv.y * width);
-    float y = height + 0.024 + (splash > 0.5 ? uv.y * (0.08 + 0.27 * vPulse) : 0.0);
-    vec4 world = modelMatrix * vec4(at.x, y, at.y, 1.0);
-    vWorld = world.xyz;
-    gl_Position = projectionMatrix * viewMatrix * world;
-  }
-`;
-const FRAGMENT = /* glsl */ `
-  uniform float time;
-  uniform float splash;
-  varying vec2 vUv;
-  varying float vPhase;
-  varying float vPulse;
-  varying vec3 vWorld;
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
-  void main() {
-    float endFade = smoothstep(0.0, 0.16, vUv.x) * (1.0 - smoothstep(0.84, 1.0, vUv.x));
-    float ripple = sin(vUv.y * 18.0 - time * 1.7 + vPhase * 6.283 + sin(vUv.x * 15.0) * 0.5);
-    float flecks = hash(floor(vUv * vec2(55.0, 18.0) + vec2(time * 0.35, 0.0)));
-    float band = pow(max(ripple, 0.0), 3.0) * (0.3 + 0.7 * flecks);
-    float edgeFade = smoothstep(0.0, 0.08, vUv.y) * (1.0 - smoothstep(0.45, 1.0, vUv.y));
-    float alpha = band * edgeFade * endFade * 0.38;
-    if (splash > 0.5) {
-      float column = floor(vUv.x * 13.0);
-      float center = 0.2 + hash(vec2(column, vPhase)) * 0.5;
-      vec2 drop = vec2((fract(vUv.x * 13.0) - 0.5) * 3.2, (vUv.y - center) * 8.0);
-      float droplets = 1.0 - smoothstep(0.35, 1.0, length(drop));
-      alpha = droplets * endFade * vPulse * 0.28;
-    }
-    alpha *= 1.0 - smoothstep(28.0, 40.0, distance(cameraPosition.xz, vWorld.xz));
-    if (alpha < 0.006) discard;
-    gl_FragColor = vec4(0.66, 0.76, 0.73, alpha);
-  }
-`;
+
+
 
 export class WaterShore {
   constructor({ water, collision, graphics }) {
@@ -120,9 +69,8 @@ export class WaterShore {
     this.geometry.setAttribute("shore", this.shore);
     this.geometry.setAttribute("phase", this.phase);
     this.geometry.instanceCount = 0;
-    this.materials = [0, 1].map(splash => new THREE.ShaderMaterial({
+    this.materials = [0, 1].map(splash => ownedEffectMaterial('effects/water-shore', {
       uniforms: { time: { value: 0 }, height: { value: water.height }, splash: { value: splash } },
-      vertexShader: VERTEX, fragmentShader: FRAGMENT,
       transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
       toneMapped: false,
     }));

@@ -1,3 +1,4 @@
+import { ownedBasicEffect } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import {PageEffects} from './presentation/effects.js';
 import { lighting } from './materials.js';
@@ -29,22 +30,11 @@ export class EnvironmentEffects {
     const packed=modelPack(data.models,vertices,indices),textures=new Map(Object.entries(data.textures).map(([name,path])=>[name.toLowerCase(),loadTexture(`${dir}/${path}`)]));
     const texture=name=>textures.get(name?.toLowerCase())||null;
     const model=name=>{const parts=packed.get(name);if(!parts)return null;return()=>{
-      const material=new THREE.MeshBasicMaterial({map:texture(parts[0].texture),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+      const material=ownedBasicEffect('glow-basic', {map:texture(parts[0].texture),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
       const group=modelGroup(parts,()=>material);group.userData.material=material;return group;};};
     const environment=new EnvironmentEffects({graphics,settings,data,texture,model,presentationLoaded});
-    // Compile these shaders during map loading, before entering a fountain or
-    // chamber can stall a gameplay frame. No world/model materials are rebuilt.
-    const waterMesh=environment.water?.original[0]?.mesh;
-    const warmWater=waterMesh?new THREE.Mesh(waterMesh.geometry,environment.water.material):null;
-    if(warmWater)environment.group.add(warmWater);
-    try{
-      await environment.classic.warmup(graphics.renderer,graphics.camera);
-      await graphics.renderer.compileAsync(environment.group,graphics.camera,graphics.scene);
-      if(environment.volume){
-        await graphics.renderer.compileAsync(environment.volume.volumeScene,graphics.camera);
-        graphics.renderer.initTexture(environment.volume.noise);
-      }
-    }finally{warmWater?.removeFromParent();}
+    await environment.classic.warmup(graphics.renderer,graphics.camera);
+    if(environment.volume)graphics.renderer.initTexture(environment.volume.noise);
     return environment;
   }
   constructor({graphics,settings,data,texture,model,presentationLoaded}) {

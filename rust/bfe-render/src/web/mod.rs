@@ -26,7 +26,8 @@ use crate::shader::Kind;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-pub struct WebMultiDraw(Option<web_sys::WebglMultiDraw>, web_sys::WebGl2RenderingContext);
+pub struct WebMultiDraw(Option<web_sys::WebglMultiDraw>, web_sys::WebGl2RenderingContext,
+    Option<(Option<web_sys::WebGlFramebuffer>, Option<web_sys::WebGlFramebuffer>)>);
 
 impl MultiDraw for WebMultiDraw {
     fn multi_draw(&self, mode: u32, counts: &mut [i32], element_type: u32, offsets: &mut [i32]) {
@@ -37,6 +38,20 @@ impl MultiDraw for WebMultiDraw {
                     self.1.draw_elements_with_i32(mode, *c, element_type, *o);
                 }
             }
+        }
+    }
+    fn save_framebuffers(&mut self) -> bool {
+        let get = |p| self.1.get_parameter(p).ok().and_then(|v| v.dyn_into::<web_sys::WebGlFramebuffer>().ok());
+        self.2 = Some((get(glow::DRAW_FRAMEBUFFER_BINDING), get(glow::READ_FRAMEBUFFER_BINDING)));
+        true
+    }
+    fn read_saved_draw_framebuffer(&self) {
+        if let Some((draw, _)) = &self.2 { self.1.bind_framebuffer(glow::READ_FRAMEBUFFER, draw.as_ref()); }
+    }
+    fn restore_framebuffers(&self) {
+        if let Some((draw, read)) = &self.2 {
+            self.1.bind_framebuffer(glow::DRAW_FRAMEBUFFER, draw.as_ref());
+            self.1.bind_framebuffer(glow::READ_FRAMEBUFFER, read.as_ref());
         }
     }
 }
@@ -54,7 +69,7 @@ impl BfeRenderer {
     #[wasm_bindgen(constructor)]
     pub fn new(context: web_sys::WebGl2RenderingContext) -> BfeRenderer {
         let ext = context.get_extension("WEBGL_multi_draw").ok().flatten().map(|e| e.unchecked_into::<web_sys::WebglMultiDraw>());
-        let multi = WebMultiDraw(ext, context.clone());
+        let multi = WebMultiDraw(ext, context.clone(), None);
         BfeRenderer { r: Renderer::new(glow::Context::from_webgl2_context(context), multi), recovery: recovery::Recovery::default(), hud_model: crate::hud_model::HudModel::new(), rebuilding: false }
     }
 
@@ -131,6 +146,24 @@ impl BfeRenderer {
     pub fn add_owned_program(&mut self, key: &str) -> Result<u32, JsValue> {
         self.remember_add_owned_program(key); // recovery
  self.r.core.add_owned_program(key).map_err(|e| JsValue::from_str(&e))
+    }
+
+    // Draw a captured shader-conformance fixture with its already restored GL
+    // inputs. Normal frame submission uses the phase APIs below. The corpus
+    // replay runs inside the shipped application, so this stays in the module;
+    // it binds through the program cache like every other draw so the cache
+    // never believes a different program is current.
+    #[allow(clippy::too_many_arguments)]
+    pub fn replay_program_draw(&mut self, program: u32, mode: u32, count: i32, index_type: u32, offset: i32, instances: i32, indexed: bool) -> Result<(), JsValue> { use glow::HasContext;
+        let core = &mut self.r.core;
+        let handle = core.programs.get(program as usize).ok_or_else(|| JsValue::from_str("invalid replay program"))?.program;
+        if count < 0 || offset < 0 || instances < 0 { return Err(JsValue::from_str("invalid replay draw range")); }
+        core.state.use_program(&core.gl, &mut core.stats, handle);
+        unsafe {
+            if indexed { core.gl.draw_elements_instanced(mode, count, index_type, offset, instances); }
+            else { core.gl.draw_arrays_instanced(mode, offset, count, instances); }
+        }
+        Ok(())
     }
 
     // Allocate before recording any dependent buffer/pointer command. JS keeps

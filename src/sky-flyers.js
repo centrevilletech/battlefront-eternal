@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ownedEffectMaterial } from "./rust-render/effect-material.js";
 import { SkyHost, loaded } from "./environment/module.js";
 import { SkyClass as SKY_CLASS, SkyConfig as SKY_CONFIG, SkyFrame as SKY_FRAME, SkyResult as SKY_RESULT } from "./environment/layout.js";
 import { lighting } from "./materials.js";
@@ -56,75 +57,7 @@ import { SkyProbe } from "./sky-probe.js";
 // The setting whose Enhanced choice turns the Enhanced sky on.
 export const SKY_SETTING = "oceanEffects";
 
-const vertexShader = /* glsl */ `
-  uniform vec3 sunDirection;
-  uniform vec3 sunColor;
-  uniform vec3 ambient;
-  uniform float reach;
-  // fade, haze, past the far plane (1) or not, the scale it is drawn at
-  attribute vec4 look;
-  varying vec2 vUv;
-  varying vec3 vLight;
-  varying float vFade;
-  varying float vHaze;
-  varying vec3 vDirection;
-  void main() {
-    mat4 placed = modelMatrix;
-    #ifdef USE_INSTANCING
-      placed = placed * instanceMatrix;
-    #endif
-    #ifdef LIT
-      // A prop's light: the ambient and the sun, per vertex.
-      vec3 n = normalize(mat3(placed) * normal);
-      vLight = clamp(ambient + max(dot(n, -sunDirection), 0.0) * sunColor, 0.0, 1.0);
-    #else
-      vLight = vec3(1.0);
-    #endif
-    vUv = uv;
-    vFade = look.x;
-    vHaze = look.y;
-    vec4 world = placed * vec4(position, 1.0);
-    vDirection = world.xyz - cameraPosition;
-    gl_Position = projectionMatrix * viewMatrix * world;
-    if (look.z > 0.5) {
-      // Drawn scaled toward the eye (Enhanced): its depth goes just inside
-      // the far plane, in the order of its true distance, behind everything
-      // else the far scene draws.
-      float far = length(vDirection) / max(look.w, 1e-6);
-      float near = clamp(reach / far, 0.0, 1.0);
-      gl_Position.z = gl_Position.w * (0.999999 - 9e-6 * near);
-    }
-  }
-`;
 
-const fragmentShader = /* glsl */ `
-  uniform sampler2D map;
-  uniform samplerCube skyProbe;
-  varying vec2 vUv;
-  varying vec3 vLight;
-  varying float vFade;
-  varying float vHaze;
-  varying vec3 vDirection;
-  void main() {
-    vec4 texel = texture2D(map, vUv);
-    #ifdef ALPHA_TEST
-      if (texel.a * 255.0 <= 127.0) discard;
-    #endif
-    float alpha = vFade;
-    #ifdef BLENDED
-      alpha *= texel.a;
-    #endif
-    if (alpha <= 0.0) discard;
-    vec3 color = texel.rgb * vLight;
-    // Enhanced, far off and low: the sky behind it, softened.
-    if (vHaze > 0.0) color = mix(color, textureCube(skyProbe, normalize(vDirection), 2.0).rgb, vHaze);
-    #ifdef ADDITIVE
-      gl_FragColor = vec4(color * alpha, 1.0);
-    #else
-      gl_FragColor = vec4(color, alpha);
-    #endif
-  }
-`;
 
 // A part's material by its MTRL flags: lit (0x1) or not, cut out (0x2),
 // laid over by its alpha (0x4) or added (0x80), two-sided (0x86). Every
@@ -140,7 +73,7 @@ export function flyerMaterial(part, map, { fading = false } = {}) {
   if (flags & 0x2) defines.ALPHA_TEST = "";
   if (flags & 0x80) defines.ADDITIVE = "";
   else if (flags & 0x4) defines.BLENDED = "";
-  const material = new THREE.ShaderMaterial({
+  const material = ownedEffectMaterial('effects/sky-flyer', {
     name: fading ? "sky-flyer-fading" : "sky-flyer",
     defines,
     uniforms: {
@@ -151,8 +84,6 @@ export function flyerMaterial(part, map, { fading = false } = {}) {
       skyProbe: { value: null },
       reach: { value: 1 },
     },
-    vertexShader,
-    fragmentShader,
     side: flags & 0x86 ? THREE.DoubleSide : THREE.FrontSide,
   });
   material.transparent = false;
@@ -167,46 +98,12 @@ export function flyerMaterial(part, map, { fading = false } = {}) {
 // upscaler (motion-vectors.js). It covers the pixels the far scene shows
 // (where the near scene drew nothing), from its true placement now and
 // then; past the near scene's far plane it is kept by taking no depth.
-const motionVertexShader = /* glsl */ `
-  uniform mat4 currentViewProjection;
-  uniform mat4 previousViewProjection;
-  uniform float still;
-  attribute mat4 previousMatrix;
-  attribute float shown;
-  varying vec4 vCurrent;
-  varying vec4 vPrevious;
-  varying float vShown;
-  void main() {
-    vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
-    vCurrent = currentViewProjection * world;
-    // A frame without flight (paused): where it was is where it is.
-    vec4 before = still > 0.5 ? world : modelMatrix * previousMatrix * vec4(position, 1.0);
-    vPrevious = previousViewProjection * before;
-    vShown = shown;
-    gl_Position = projectionMatrix * viewMatrix * world;
-    gl_Position.z = 0.0;
-  }
-`;
 
-const motionFragmentShader = /* glsl */ `
-  uniform highp sampler2D sceneDepth;
-  varying vec4 vCurrent;
-  varying vec4 vPrevious;
-  varying float vShown;
-  void main() {
-    if (vShown < 0.5) discard;
-    if (texelFetch(sceneDepth, ivec2(gl_FragCoord.xy), 0).r < 1.0) discard;
-    vec2 now = vCurrent.xy / vCurrent.w, then = vPrevious.xy / vPrevious.w;
-    gl_FragColor = vec4((now - then) * 0.5, 0.0, 0.5);
-  }
-`;
 
 let motionMaterial = null;
 function flyerMotion() {
-  motionMaterial ??= new THREE.ShaderMaterial({
+  motionMaterial ??= ownedEffectMaterial("effects/motion-flyer", {
     name: "sky-flyer-motion",
-    vertexShader: motionVertexShader,
-    fragmentShader: motionFragmentShader,
     uniforms: {
       currentViewProjection: motionUniforms.currentViewProjection,
       previousViewProjection: motionUniforms.previousViewProjection,

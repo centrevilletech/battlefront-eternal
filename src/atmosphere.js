@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { makeGround } from './collision.js';
 import { AtmosphereHost, loaded } from './environment/module.js';
@@ -22,49 +23,8 @@ import { particleDepth } from './particle-depth.js';
 // What is left here is the shell around them: the meshes, materials and
 // uniforms.
 
-const VERTEX = /* glsl */ `
-  attribute vec2 corner;
-  attribute vec4 center; // position, size across
-  attribute vec2 spin; // angle, alpha
-  uniform vec3 axisU, axisV;
-  varying vec2 vUv;
-  varying float vAlpha, vDepth, vSoft;
-  void main() {
-    float c = cos(spin.x), s = sin(spin.x);
-    vec2 turned = vec2(c * corner.x - s * corner.y, s * corner.x + c * corner.y);
-    vec3 world = center.xyz + (axisU * turned.x + axisV * turned.y) * (center.w * 0.5);
-    vec4 view = viewMatrix * vec4(world, 1.0);
-    vUv = corner * 0.5 + 0.5;
-    vAlpha = spin.y;
-    vDepth = -view.z;
-    vSoft = clamp(center.w * 0.1, 0.5, 3.0);
-    gl_Position = projectionMatrix * view;
-  }
-`;
-const FRAGMENT = /* glsl */ `
-  uniform sampler2D map;
-  uniform vec4 tint;
-  // The near scene's fade (materials.js lighting), on a line of its own.
-  uniform vec2 fade;
-  uniform vec2 depthResolution, cameraRange;
-  uniform sampler2D sceneDepth;
-  uniform float softParticles;
-  varying vec2 vUv;
-  varying float vAlpha, vDepth, vSoft;
-  void main() {
-    vec4 color = texture2D(map, vUv) * vec4(tint.rgb, tint.a * vAlpha);
-    // The near scene's end, as every particle fades there.
-    float near = clamp((fade.y - vDepth) / max(fade.y - fade.x, 1.0), 0.0, 1.0);
-    color.a *= near * near;
-    if (softParticles > 0.5) {
-      float depth = texture2D(sceneDepth, gl_FragCoord.xy / depthResolution).x;
-      float surface = cameraRange.x * cameraRange.y / (cameraRange.y - depth * (cameraRange.y - cameraRange.x));
-      color.a *= smoothstep(0.0, vSoft, surface - vDepth);
-    }
-    if (color.a < 0.002) discard;
-    gl_FragColor = color;
-  }
-`;
+
+
 
 // The square batches drawing into each scene (keyed by the scene at the
 // root of theirs), for a renderer that draws them itself
@@ -84,8 +44,7 @@ class SquareBatch {
     this.geometry.setAttribute('spin', this.spin);
     this.attributes = [this.center, this.spin];
     this.geometry.instanceCount = 0;
-    this.material = new THREE.ShaderMaterial({
-      vertexShader: VERTEX, fragmentShader: FRAGMENT,
+    this.material = ownedEffectMaterial('effects/square', {
       uniforms: {
         map: { value: texture }, tint: { value: new THREE.Vector4(...tint) },
         axisU: { value: new THREE.Vector3(1, 0, 0) }, axisV: { value: new THREE.Vector3(0, 1, 0) },

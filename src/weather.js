@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
 import { particleDepth } from './particle-depth.js';
@@ -7,90 +8,6 @@ import { lighting } from './materials.js';
 import { WeatherHost, loaded } from './environment/module.js';
 import { WeatherFrame as WEATHER_FRAME, WeatherResult as RESULT } from './environment/layout.js';
 
-const VERTEX = /* glsl */ `
-  attribute vec4 seed;
-  uniform vec3 eye, cameraMotion;
-  uniform vec2 wind, depthResolution;
-  uniform float rainTime, range, velocity, velocityRange, width, streak, enhanced, effect;
-  uniform sampler2D cover;
-  uniform float coverCell,coverSize;
-  varying vec2 vUv;
-  varying vec3 vWorld;
-  varying float vOpacity,vDepth,vGlint;
-  void main() {
-    float radius = mix(range,range*mix(.22,1.0,seed.w*seed.w),enhanced);
-    float span = radius * 2.0;
-    float speed = max(0.1, velocity + (seed.w - 0.5) * velocityRange);
-    speed *= mix(1.0,1.25+seed.z*.6,enhanced);
-    vec2 gust = wind*(1.0+enhanced*2.0) + enhanced*vec2(sin(rainTime*.7)*4.5,cos(rainTime*.43)*2.0);
-    vec2 drift = wind*rainTime*(1.0+enhanced*2.0)+enhanced*vec2(-cos(rainTime*.7)*6.43,sin(rainTime*.43)*4.65);
-    vec3 center;
-    center.xz = mod(seed.xy * span + drift - eye.xz + radius, span) + eye.xz - radius;
-    center.y = eye.y + radius - mod(seed.z * span + rainTime * speed, span);
-    vec3 fall = normalize(vec3(gust.x, -speed, gust.y)-cameraMotion*.2*enhanced);
-    vec3 viewFall = normalize(mat3(viewMatrix) * fall);
-    vec3 side = normalize(vec3(-viewFall.y, viewFall.x + 0.00001, 0.0));
-    float length = streak*mix(1.0,mix(.18,.45+seed.z*.55,step(.18,seed.w)),enhanced);
-    float thickness = width*mix(1.0,.35+seed.w*.65,enhanced);
-    vOpacity = (1.0 - smoothstep(radius * 0.7, radius, distance(center.xz, eye.xz)))
-      * smoothstep(0.35, 1.2, distance(center, eye));
-    if(effect>.5){
-      vec2 cell=mod(floor(center.xz/coverCell),coverSize);
-      float floorY=texture2D(cover,(cell+.5)/coverSize).r;
-      center.y=floorY+.4+seed.z;
-      vOpacity*=step(floorY,eye.y+.5)*step(eye.y-10.0,floorY);
-    }
-    vec4 view = viewMatrix * vec4(center, 1.0);
-    // Keep fine rain visible through MSAA/FXAA and the map's soft-focus pass.
-    // Bound the minimum in pixels, so distant drops never become thick rods.
-    if(enhanced>.5)thickness=max(thickness,.85*max(0.0,-view.z)/(projectionMatrix[1][1]*max(1.0,depthResolution.y)));
-    if(effect>.5)view.xy+=position.xy*vec2(3.0,2.0);
-    else view.xyz += side * position.x * thickness + viewFall * position.y * length;
-    vWorld = center + (effect>.5?vec3(0,position.y*2.0,0):fall * position.y * length);
-    vGlint=seed.w;
-    vDepth=-view.z;vUv = uv;
-    gl_Position = projectionMatrix * view;
-  }
-`;
-const FRAGMENT = /* glsl */ `
-  uniform sampler2D cover,sceneDepth;
-  uniform float coverCell, coverSize,enhanced,effect,rainTime,softParticles;
-  uniform vec2 depthResolution,cameraRange;
-  uniform vec3 color;
-  // The map's ambient light (materials.js lighting), on a line of its own.
-  uniform vec3 ambient;
-  uniform vec2 alpha;
-  varying vec2 vUv;
-  varying vec3 vWorld;
-  varying float vOpacity,vDepth,vGlint;
-  float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-  float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
-  void main() {
-    vec2 cell = mod(floor(vWorld.xz / coverCell), coverSize);
-    float roof = texture2D(cover, (cell + 0.5) / coverSize).r;
-    if (vWorld.y < roof + 0.04) discard;
-    float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
-    float tip = sin(vUv.y * 3.14159265);
-    float a = mix(alpha.x, alpha.y, vUv.y) * edge * tip * vOpacity;
-    vec3 light=color;
-    if(enhanced>.5){
-      a*=mix(1.05,1.45,vGlint);
-      // Drops pass on the light of the sky all around them: brighter than the
-      // ambient they fall through, and far brighter in a lightning flash.
-      light*=(.8+vGlint*.3)*clamp(.55+dot(ambient,vec3(.3,.59,.11))*1.6,0.,1.4);
-      if(effect>.5){
-        float cloud=noise(vUv*5.0+vec2(rainTime*.35,0.0))*.65+noise(vUv*12.0-vec2(rainTime*.2,0.0))*.35;
-        float boundary=pow(max(0.0,1.0-dot(vUv*2.0-1.0,vUv*2.0-1.0)),2.0);
-        a=cloud*boundary*vOpacity*.055;
-      }
-      if(softParticles>.5){float d=texture2D(sceneDepth,gl_FragCoord.xy/depthResolution).r;
-        float z=cameraRange.x*cameraRange.y/(cameraRange.y-d*(cameraRange.y-cameraRange.x));
-        a*=clamp((z-vDepth)/(effect>.5?.7:.12),0.0,1.0);}
-    }
-    if(a<.001)discard;
-    gl_FragColor = vec4(light, a);
-  }
-`;
 // The instanced quads the drops are drawn as, their seeds the Rust phase's.
 function geometry(count,seeds){
   const base=new THREE.PlaneGeometry(2,1),g=new THREE.InstancedBufferGeometry();g.setIndex(base.index.clone());
@@ -142,12 +59,12 @@ export class Weather {
       width:{value:p.ParticleSize?.[0]??.02},streak:{value:p.StreakLength?.[0]??1},color:{value:new THREE.Vector3(...c).multiplyScalar(1/255)},
       alpha:{value:new THREE.Vector2(...(p.AlphaMinMax||[.3,.45]))},cover:{value:null},coverCell:{value:0},coverSize:{value:0},
       enhanced:{value:0},effect:{value:0},ambient:lighting.ambient,sceneDepth:particleDepth.map,softParticles:particleDepth.enabled,depthResolution:particleDepth.resolution,cameraRange:particleDepth.cameraRange};
-    const options={vertexShader:VERTEX,fragmentShader:FRAGMENT,transparent:true,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true};
-    this.material=new THREE.ShaderMaterial({...options,uniforms});
+    const options={transparent:true,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true};
+    this.material=ownedEffectMaterial('effects/rain', {...options,uniforms});
     // The drops, and the mist they leave on the ground (the same shader in its
     // `effect` mode, forty-eight big soft quads).
     this.mesh=new THREE.Mesh(geometry(this.capacity,this.host.seeds),this.material);this.mesh.name='map-precipitation';
-    this.mist=new THREE.Mesh(geometry(48,this.host.mist),new THREE.ShaderMaterial({...options,uniforms:{...uniforms,effect:{value:1}}}));this.mist.name='rain-ground-mist';
+    this.mist=new THREE.Mesh(geometry(48,this.host.mist),ownedEffectMaterial('effects/rain', {...options,uniforms:{...uniforms,effect:{value:1}}}));this.mist.name='rain-ground-mist';
     // None of them is culled by three: the drops fill the view, and their
     // visibility is the phase's call (it hides all of them until the cover cache
     // holds every cell around the eye).

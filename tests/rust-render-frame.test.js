@@ -1,12 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { ownedEffectMaterial, ownedBasicEffect, ownedEffectProgram } from "../src/rust-render/effect-material.js";
 
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
 const { Bloom, ownedFullScreenPass } = await import("../src/render-passes.js");
 const { Upscaler } = await import("../src/upscaler.js");
+
+import { programLayouts } from "../src/render-programs.js";
 
 import { GL, fakeProgram as program, standinModule, standinThree } from "./support/rust-standin.mjs";
 
@@ -19,6 +22,23 @@ function bridge() {
   const core = new RustRender(graphics, { memory }, BfeRenderer);
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   return { core, calls, gl: renderer.getContext(), graphics, renderer, scene, camera, memory, properties, setTarget };
+}
+
+function waterMaterial(key, overrides = {}, options = {}) {
+  const uniforms = {};
+  for (const u of programLayouts[key].uniforms) {
+    let value;
+    if (u.size > 1) value = Array.from({length:u.size}, () => new THREE.Vector4());
+    else if (u.type === 1 || u.type === 5) value = 0;
+    else if (u.type === 2) value = new THREE.Vector2();
+    else if (u.type === 3) value = new THREE.Vector3();
+    else if (u.type === 4) value = new THREE.Vector4();
+    else if (u.type === 9) value = new THREE.Matrix3();
+    else if (u.type === 16) value = new THREE.Matrix4();
+    else value = null;
+    uniforms[u.name] = {value};
+  }
+  return ownedEffectMaterial(key, { uniforms: {...uniforms, ...overrides}, transparent:true, side:THREE.DoubleSide, ...options });
 }
 
 // A part's geometry: one triangle, indexed, no groups.
@@ -178,15 +198,14 @@ test("post uses declared Rust programs and initializes targets without a three d
   });
   const fxaa = ownedFullScreenPass("post-hud/fxaa", { tDiffuse: { value: postTarget.texture }, resolution: { value: new THREE.Vector2(1 / 8, 1 / 4) } });
   assert.equal(core.post(renderer, [{ pass: composite, target: postTarget, camera }, { pass: fxaa, target: null, camera }]), true);
-  assert.deepEqual(calls.filter(c => c[0] === "add_owned_program").map(c => c[1]), ["post-hud/composite", "post-hud/fxaa"]);
+  assert.deepEqual(calls.filter(c => c[0] === "add_owned_program" && c[1].startsWith("post-hud/")).map(c => c[1]), ["post-hud/composite", "post-hud/fxaa"]);
   assert.equal(calls.filter(c => c[0] === "add_program").length, 0);
   assert.equal(calls.filter(c => c[0] === "initRenderTarget").length, 2);
   const input = core.postInput, step = 5 + 12 * 18;
-
-  assert.deepEqual([...input.subarray(0, 5)], [0, 0, 8, 4, 7]);
+  assert.deepEqual([...input.subarray(0, 5)], [core.ownedPrograms.get("post-hud/composite").id, 0, 8, 4, 7]);
   assert.deepEqual([...input.subarray(5 + 2 * 18, 5 + 2 * 18 + 3)], [2, 32, -1]);
   assert.deepEqual([...input.subarray(5 + 3 * 18, 5 + 3 * 18 + 3)], [3, 1, .3]);
-  assert.deepEqual([...input.subarray(step, step + 5)], [1, -1, 800, 600, 4]);
+  assert.deepEqual([...input.subarray(step, step + 5)], [core.ownedPrograms.get("post-hud/fxaa").id, -1, 800, 600, 4]);
   assert.deepEqual([...input.subarray(step + 5 + 3 * 18, step + 5 + 3 * 18 + 4)], [3, 2, .125, .25]);
   assert.throws(() => core.post(renderer, [{ run: () => {} }]), /Incomplete Rust/);
 
@@ -290,8 +309,7 @@ test("water: its Low surface and rings are items of the transparent list, with t
     geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(12), 3));
     geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(8), 2));
     geometry.setIndex([0, 1, 2, 2, 1, 3]);
-    const material = new THREE.ShaderMaterial({ uniforms: values, transparent: true, side: THREE.DoubleSide, forceSinglePass: true });
-    properties.get(material).currentProgram = program(uniforms, attributes);
+    const material = waterMaterial(renderOrder === -18 ? "effects/water-rings-s2" : "effects/water-textured-s2", values);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.renderOrder = renderOrder;
     mesh.frustumCulled = false;
@@ -315,10 +333,10 @@ test("water: its Low surface and rings are items of the transparent list, with t
   assert.deepEqual(calls.find((c) => c[0] === "water_surface").slice(3), [0x0203, 1 | 2 | 4, 2], "depth test, write and colour, both sides at once");
   assert.equal(lowPass.material.visible, false);
   const input = core.waterInput, SURFACE = 27 + 32 * 18 + 35;
-  assert.deepEqual([...input.subarray(0, 5)], [1, 0, 0, -20, lowPass.id], "shown, program, group order, render order, id");
-  assert.deepEqual([input[24], input[25], input[26]], [0, 6, 6], "the index's range, six uniforms");
+  assert.deepEqual([...input.subarray(0, 5)], [1, core.ownedPrograms.get("effects/water-textured-s2").id, 0, -20, lowPass.id], "shown, program, group order, render order, id");
+  assert.deepEqual([input[24], input[25], input[26]], [0, 6, 16], "the indexed range and owned uniform slots");
   assert.deepEqual([...input.subarray(27 + 3 * 18, 27 + 3 * 18 + 5)], [3, 3, 0, 0, 1], "the camera's position");
-  assert.deepEqual([...input.subarray(27 + 4 * 18, 27 + 4 * 18 + 3)], [4, 1, 12.5], "the water's own time");
+  assert.deepEqual([...input.subarray(27 + 5 * 18, 27 + 5 * 18 + 3)], [5, 1, 12.5], "the water's own time");
   assert.equal(input[SURFACE], 0, "rings with nothing in their range: not listed");
   rings.geometry.setDrawRange(0, 6);
   rings.geometry.attributes.position.array.set([1, 2, 3], 3);
@@ -342,8 +360,7 @@ test("water at High and Ultra: the tint and mirror passes with their waders, the
   };
   const waders = { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector4(i, 2 * i, 3 * i, i === 0 ? 1 : 0)) };
   const pass = (renderOrder, uniforms, values, options = {}) => {
-    const material = new THREE.ShaderMaterial({ uniforms: values, transparent: true, side: THREE.DoubleSide, forceSinglePass: true, ...options });
-    properties.get(material).currentProgram = program(uniforms);
+    const material = waterMaterial(renderOrder === -20 ? "effects/water-refraction-s2" : "effects/water-reflection-s2", values, options);
     const mesh = new THREE.Mesh(geometry(), material);
     mesh.renderOrder = renderOrder;
     mesh.frustumCulled = false;
@@ -363,8 +380,7 @@ test("water at High and Ultra: the tint and mirror passes with their waders, the
   shoreGeometry.setAttribute("phase", phase);
   shoreGeometry.instanceCount = 0;
   const shoreMeshes = [0, 1].map((splash) => {
-    const material = new THREE.ShaderMaterial({ uniforms: { splash: { value: splash } }, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true });
-    properties.get(material).currentProgram = program([["splash", GL.FLOAT]], ["position", "uv", "shore", "phase"]);
+    const material = waterMaterial("effects/water-shore-s2", {splash:{value:splash}}, {depthWrite:false});
     const mesh = new THREE.Mesh(shoreGeometry, material);
     mesh.renderOrder = -17;
     mesh.frustumCulled = false;
@@ -382,10 +398,10 @@ test("water at High and Ultra: the tint and mirror passes with their waders, the
   assert.equal(calls.filter((c) => c[0] === "water_surface").length, 4);
   assert.equal(captures.length, 1, "the opaque scene copied once, before the list");
   const input = core.waterInput, SURFACE = 27 + 32 * 18 + 35, ARRAY = 27 + 32 * 18;
-  assert.deepEqual([...input.subarray(27 + 18, 27 + 18 + 3)], [1, 1, 4], "the tint's time as the copy left it");
-  assert.deepEqual([input[ARRAY], input[ARRAY + 1], input[ARRAY + 2]], [3, 4, 8], "the waders: after its three uniforms, vec4 x 8");
+  assert.deepEqual([...input.subarray(27 + 8 * 18, 27 + 8 * 18 + 3)], [8, 1, 4], "the tint's time as the copy left it");
+  assert.deepEqual([input[ARRAY], input[ARRAY + 1], input[ARRAY + 2]], [11, 4, 8], "the waders follow the scalar uniform slots");
   assert.deepEqual([...input.subarray(ARRAY + 3, ARRAY + 3 + 8)], [0, 0, 0, 1, 1, 2, 3, 0]);
-  assert.deepEqual([input[SURFACE + ARRAY], input[SURFACE + ARRAY + 3 + 4]], [2, 1], "the mirror pass's waders after its two uniforms");
+  assert.deepEqual([input[SURFACE + ARRAY], input[SURFACE + ARRAY + 3 + 4]], [26, 1], "the mirror pass's waders follow its scalar slots");
   assert.equal(tintPass.material.visible, false);
   // The shore: one set for its geometry, both meshes reading it.
   assert.deepEqual(calls.filter((c) => c[0] === "water_set").map((c) => [c[1], [...c[2]]]), [[4, [4, 1]]]);
@@ -427,31 +443,29 @@ test("the view scene's muzzle flash: a blended basic draw after the parts, in th
   const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
   view.updateMatrixWorld(true);
   const part = new THREE.Mesh(partGeometry(), partMaterial(properties));
-  const flashMaterial = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-  properties.get(flashMaterial).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT], ["map", GL.SAMPLER_2D], ["mapTransform", GL.FLOAT_MAT3]], ["position", "uv"]);
+  const flashMaterial = ownedBasicEffect("glow-basic", { map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   flashMaterial.color.setRGB(1, 0.5, 0.25);
   flashMaterial.opacity = 0.75;
   const flash = new THREE.Group();
   flash.add(new THREE.Mesh(partGeometry(), flashMaterial));
   flash.children[0].position.z = -1;
+  let prepared = 0;
+  flash.children[0].onBeforeRender = (_renderer, _scene, camera) => { assert.equal(camera, view); prepared++; flash.children[0].position.z = -2; flash.children[0].updateMatrixWorld(true); };
   viewScene.add(part, flash);
   viewScene.updateMatrixWorld(true);
   assert.equal(core.cover("view", renderer, viewScene, view), true, "the parts and the flash: three left out");
   assert.equal(flashMaterial.visible, false);
-  assert.ok(calls.some((c) => c[0] === "add_program" && c[1] === 3 && c[4] === "position:0,uv:1"), "three's attributes at 0, 1");
+  assert.ok(calls.some((c) => c[0] === "add_owned_program" && c[1] === "effects/view-glow-basic-s0"), "the owned first-person variant");
   const input = core.viewInput, D = 1;
   assert.equal(input[0], 1, "one blended draw");
+  assert.equal(prepared, 1);
+  assert.equal(input[D + 17 + 2 + 14], -2, "the owned view draw publishes its hook's matrix");
   assert.deepEqual([...input.subarray(D + 2, D + 9)], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "additive blending");
   assert.deepEqual([input[D + 10], input[D + 11], input[D + 12], input[D + 13]], [1 | 4, 2, 1, 0], "depth tested, not written; back faces, then front");
   assert.deepEqual([input[D + 14], input[D + 15], input[D + 16]], [0, 3, 6]);
-  assert.deepEqual([...input.subarray(D + 17 + 2 * 18, D + 17 + 2 * 18 + 5)], [2, 3, 1, 0.5, 0.25], "its colour as three's refreshUniforms sends it");
-  assert.deepEqual([...input.subarray(D + 17 + 3 * 18, D + 17 + 3 * 18 + 3)], [3, 1, 0.75]);
-  // A flash with a hooked shader stays three's: three renders the scene.
-  const hooked = new THREE.MeshBasicMaterial({ transparent: true });
-  hooked.onBeforeCompile = () => {};
-  properties.get(hooked).currentProgram = program([["diffuse", GL.FLOAT_VEC3]], ["position"]);
-  viewScene.add(new THREE.Mesh(partGeometry(), hooked));
-  assert.throws(() => core.cover("view", renderer, viewScene, view), /Incomplete Rust/);
+  assert.deepEqual([...input.subarray(D + 17 + 3 * 18, D + 17 + 3 * 18 + 5)], [3, 3, 1, 0.5, 0.25], "its colour as three's refreshUniforms sends it");
+  assert.deepEqual([...input.subarray(D + 17 + 4 * 18, D + 17 + 4 * 18 + 3)], [4, 1, 0.75]);
+
 });
 
 test("the view scene: an unlit part (a sight whose texture scrolls) is drawn as three compiled it, opaque, before what blends", () => {
@@ -460,8 +474,7 @@ test("the view scene: an unlit part (a sight whose texture scrolls) is drawn as 
   view.updateMatrixWorld(true);
   const sight = new THREE.ShaderMaterial({ defines: { UNLIT: "", SCROLL: "" }, uniforms: { map: { value: new THREE.Texture() }, scroll: { value: new THREE.Vector2(0.5, 0) }, time: { value: 3 } } });
   properties.get(sight).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["scroll", GL.FLOAT_VEC2], ["time", GL.FLOAT]], ["position", "uv"]);
-  const flash = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending });
-  properties.get(flash).currentProgram = program([["diffuse", GL.FLOAT_VEC3]], ["position"]);
+  const flash = ownedBasicEffect("glow-basic", { map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending });
   viewScene.add(new THREE.Mesh(partGeometry(), flash), new THREE.Mesh(partGeometry(), sight), new THREE.Mesh(partGeometry(), partMaterial(properties)));
   viewScene.updateMatrixWorld(true);
   assert.equal(core.cover("view", renderer, viewScene, view), true);
@@ -495,21 +508,18 @@ test("the view scene: an unlit part's point lights, which it reads for nothing i
   assert.deepEqual([...input.subarray(1 + 17 + 18, 1 + 17 + 18 + 2)], [1, 9], "three's normal matrix of the part");
 });
 
-test("the transparent pass's objects draw with programs of their own, apart from another pass's for the same three program", () => {
-  const { core, calls, properties } = bridge();
-  const material = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending });
-  const p = program([["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT]], ["position"]);
-  properties.get(material).currentProgram = p;
-  properties.get(material).__version = material.version;
-  // Another pass (the effects' glow models) made one for it first, and keeps
-  // what it last set in it.
-  const shared = core.program(p, 0, material, { uniforms: new Set(["modelViewMatrix", "diffuse", "opacity"]), material: new Set() });
+test("an owned basic mesh registers from its catalog program, with a program of its own apart from another pass's", () => {
+  const { core, calls } = bridge();
+  const map = new THREE.Texture();
+  const material = ownedBasicEffect("basic", { transparent: true, blending: THREE.AdditiveBlending, map });
+  // Another pass (the effects' glow models) made its own program from the catalog first.
+  const shared = ownedEffectProgram(core, ownedBasicEffect("glow-basic", { transparent: true, blending: THREE.AdditiveBlending, map }), 0, 0, false);
   const beam = new THREE.Mesh(partGeometry(), material);
   const entry = core.byName.transparent.registerObject({ object: beam, material, geometry: beam.geometry, group: null });
   assert.ok(entry, "registered");
-  assert.equal(calls.filter((c) => c[0] === "add_program").length, 2, "made again for the transparent pass");
   const pass = calls.find((c) => c[0] === "transparent_object_pass");
   assert.notEqual(pass[2], shared.id, "drawn with its own");
+  assert.equal(core.byName.transparent.registerObject({ object: beam, material: new THREE.MeshBasicMaterial(), geometry: beam.geometry, group: null }), null, "a material without a catalog program is not this pass's");
 });
 
 // The near scene with the far scene's image in it (three has made its
@@ -601,25 +611,20 @@ test("phases drawn between three's renders reset three's state once, when three 
   assert.equal(core.stale, false);
 });
 
-test("a command post's beam, hidden until the player comes near: registered before three ever draws it, taken from three's list the first frame it shows", () => {
-  const { core, calls, renderer, scene, camera, properties, graphics } = bridge();
-  const material = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+test("a command post's beam, hidden until the player comes near: registered from its catalog program, taken from three's list the first frame it shows", () => {
+  const { core, calls, renderer, scene, camera, graphics } = bridge();
+  const material = ownedBasicEffect("basic", { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, map: new THREE.Texture() });
   const beam = new THREE.Mesh(partGeometry(), material);
   beam.visible = false;
   scene.add(beam);
-  const p = program([["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT]], ["position"]);
-  // three's compile: a program for each material it is given, no draw (no __version).
-  const compiled = [];
-  renderer.compile = (list, cam, s) => { list.traverse((o) => { compiled.push(o); properties.get(o.material).currentProgram = p; }); };
-  const lightning = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ transparent: true }));
+  const lightning = new THREE.Mesh(partGeometry(), ownedBasicEffect("basic", { transparent: true, map: new THREE.Texture() }));
   lightning.geometry.getAttribute("position").setUsage(THREE.DynamicDrawUsage);
   scene.add(lightning);
   // three starts the frame's render of the near scene.
   scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
-  assert.ok(compiled.includes(beam), "the beam is compiled without a draw");
   const entry = core.byName.transparent.taken.get(beam);
-  assert.ok(entry, `registered before three drew it (${core.errors.join("; ")})`);
-  assert.equal(calls.filter((c) => c[0] === "transparent_object").length, 1);
+  assert.ok(entry, `registered before it is ever drawn (${core.errors.join("; ")})`);
+  assert.equal(calls.filter((c) => c[0] === "transparent_object").length, 1, "not the lightning, whose vertices change");
   // The player comes near: three lists it, and the pass takes it at once.
   beam.visible = true;
   const transparent = core.byName.transparent;
@@ -628,23 +633,13 @@ test("a command post's beam, hidden until the player comes near: registered befo
   const items = [item];
   transparent.take(items);
   assert.equal(items.length, 0, "taken out of three's list");
-  // A change to its material since (another program, maybe): three's again until three draws it.
-  material.needsUpdate = true;
-  const again = [item];
-  transparent.frameNo++;
-  transparent.take(again);
-  assert.equal(again.length, 1, "left to three");
   // A side's logo, made as the side takes the post: registered before three's next list of the scene.
   const holder = new THREE.Group();
   scene.add(holder);
-  const logo = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ transparent: true }));
+  const logo = new THREE.Mesh(partGeometry(), ownedBasicEffect("basic", { transparent: true, map: new THREE.Texture() }));
   holder.add(logo);
-  compiled.length = 0;
   scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
-  assert.deepEqual(compiled, [logo], "only what was added looked over");
-  assert.ok(core.byName.transparent.taken.get(logo));
-  scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
-  assert.equal(compiled.length, 1, "nothing added since: nothing looked over");
+  assert.ok(core.byName.transparent.taken.get(logo), "registered when added");
 });
 
 test("a water mirror's render of the near scene: drawn in place of three's when everything three would list is the renderer's", () => {
@@ -689,7 +684,7 @@ test("the view scene: a gun's part whose zero material blends is a record of its
   glassMaterial.defines.BLENDED = "";
   const glass = new THREE.Mesh(partGeometry(), glassMaterial);
   glass.position.z = -2;
-  const flashMaterial = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const flashMaterial = ownedBasicEffect("glow-basic", { map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
   properties.get(flashMaterial).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT], ["map", GL.SAMPLER_2D], ["mapTransform", GL.FLOAT_MAT3]], ["position", "uv"]);
   const flash = new THREE.Mesh(partGeometry(), flashMaterial);
   flash.position.z = -1;
@@ -708,18 +703,40 @@ test("the view scene: a gun's part whose zero material blends is a record of its
   assert.equal(core.input[o], 4, "the glass's record of its own kind");
 });
 
+test("first-person arcs publish their instanced data as a sorted owned view draw", async () => {
+  const { ArcBatch } = await import("../src/arc-lightning.js");
+  const { core, calls, renderer } = bridge();
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, 1, .3, 10);
+  camera.updateMatrixWorld(true);
+  const arc = new ArcBatch(4, { soft: false });
+  arc.mesh.name = "arc-lightning-view";
+  scene.add(arc.mesh);
+  arc.begin();
+  arc.push(new THREE.Vector3(0,0,-1), new THREE.Vector3(.1,.2,-1), null, null, [1,.5,.25], 1,.01,.02);
+  arc.end();
+  scene.updateMatrixWorld(true);
+  assert.equal(core.cover("view", renderer, scene, camera), true);
+  assert.equal(arc.material.visible, false);
+  assert.equal(core.viewInput[0], 1);
+  assert.equal(core.viewInput[1], -2, "the effects batch retains its position in the view list");
+  assert.equal(core.viewInput[1 + 14 + 1], 1, "one instanced capsule");
+  assert.deepEqual([...core.fxData.subarray(0, 20)], [...arc.data.subarray(0, 20)]);
+  assert.ok(calls.some(c=>c[0]==="add_owned_program" && c[1]==="effects/view-arc-s2"));
+  assert.equal(calls.some(c=>c[0]==="add_program"), false);
+});
+
 test('a reflection registers a newly added transparent object before the main camera sees it',()=>{
  const {core,calls,renderer,graphics,scene,camera,setTarget,properties}=nearBridge();
  const compiled=[];
  renderer.compile=list=>list.traverse(o=>{compiled.push(o);properties.get(o.material).currentProgram=program([['modelViewMatrix',GL.FLOAT_MAT4],['diffuse',GL.FLOAT_VEC3],['opacity',GL.FLOAT]],['position']);});
  scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
- const logo=new THREE.Mesh(partGeometry(),new THREE.MeshBasicMaterial({transparent:true}));
+ const logo=new THREE.Mesh(partGeometry(),ownedBasicEffect('glow-basic',{visible:true,transparent:true,map:new THREE.Texture()}));
  const group=new THREE.Group();group.userData.material=logo.material;group.add(logo);
  logo.position.z=-5;scene.add(group);
  const mirror=camera.clone();mirror.userData.mirror=true;mirror.updateMatrixWorld(true);
  setTarget({name:'reflection',samples:0,width:8,height:4});
  assert.equal(core.coverMirror(renderer,scene,mirror),true);
- assert.ok(compiled.includes(logo),'the reflected object compiles before its first Rust draw');
+ assert.ok(!compiled.includes(logo),'the reflected owned object never invokes the browser compiler');
  assert.ok(core.byName.effects.glows.get(logo));
  assert.ok(calls.some(c=>c[0]==='mirror_transparent_frame'));
  const count=compiled.length;

@@ -35,7 +35,8 @@ import { ownedWorldProgram } from "./world-programs.js";
 // once three has drawn it as it is now, and drawn by three again when three
 // would draw it with another program.
 import * as THREE from "three";
-import { fountainCopies } from "../fountain-jets.js";
+import { ownedEffectProgram } from "./effect-material.js";
+import { ownsEffectSource } from "./programs.js";
 import { compileFor, unbuilt } from "./instances.js";
 
 // add_program's kind for the map's meshes (web/mod.rs).
@@ -65,10 +66,9 @@ const FACTORS = {
   [THREE.OneMinusDstAlphaFactor]: GL.ONE_MINUS_DST_ALPHA, [THREE.DstColorFactor]: GL.DST_COLOR, [THREE.OneMinusDstColorFactor]: GL.ONE_MINUS_DST_COLOR,
   [THREE.SrcAlphaSaturateFactor]: GL.SRC_ALPHA_SATURATE,
 };
-// three's materials whose objects this pass draws (transparent.rs OBJECT_*),
-// and what their programs may read besides the frame block: the object's
-// matrices, the material's values and map, a sprite's rotation and centre.
-const OBJECT_KINDS = { MeshBasicMaterial: 0, SpriteMaterial: 1 };
+// What the owned basic mesh and sprite programs may read besides the frame
+// block (transparent.rs OBJECT_*): the object's matrices, the material's
+// values and map, a sprite's rotation and centre.
 const OBJECT_POLICY = {
   uniforms: new Set(["modelViewMatrix", "modelMatrix", "diffuse", "opacity", "map", "mapTransform", "rotation", "center", "isOrthographic"]),
   material: new Set(),
@@ -204,15 +204,13 @@ class TransparentPass {
       this.frameNo++;
       this.takenCount = 0;
       this.list = this.walkedList(ctx.walked || []);
-      this.take(this.list.transparent);
+      this.take(this.list.transparent, ctx);
       if (this.list.transparent.length) throw new Error("Unclaimed Rust transparent items");
       this.core.phase(name === "near" ? "transparent" : "mirrorTransparent", ctx.renderer, ctx.scene, ctx.camera, ctx.defer, ctx.walked);
     } else if (name === "transparent" || name === "mirrorTransparent") {
       for (let k=0;k<(this.commands?.length || 0);k++) {
         const command = this.commands[k];
-        if (command.depth) command.depth.capture(ctx.camera, true);
-        else if (command.line) this.core.byName.lines.drawOne(command.line,ctx);
-        else command.jets.capture(ctx.renderer);
+        this.core.byName.lines.drawOne(command.line,ctx);
         const tail = this.core.rust.transparent_segment(k + 1), stats = this.core.phaseStats[name];
         for (let i=0;i<tail.length;i++) stats[i] += tail[i];
         this.core.stale = true;
@@ -239,6 +237,13 @@ class TransparentPass {
   // using its previous record. Failure must remain visible to the required drawer.
   takes(item) {
     const ownedMaterial=item.material;
+    if (ownsEffectSource(ownedMaterial)) {
+      let entry=this.taken.get(item.object);
+      if(!entry || entry.material!==ownedMaterial || entry.version!==ownedMaterial.version){
+        entry=this.registerObject(item,true);if(!entry)return false;this.taken.set(item.object,entry);this.core.stale=true;
+      }
+      return !item.group;
+    }
     if(ownedMaterial.userData.bfeFamily === "world") {
       let entry=this.taken.get(item.object);
       if(!entry || entry.material!==ownedMaterial || entry.version!==ownedMaterial.version){
@@ -283,7 +288,7 @@ class TransparentPass {
       this.retry.clear();
       for (const root of added) root.traverse((o) => {
         const material = o.material;
-        if (!(o.isMesh || o.isSprite) || !material || Array.isArray(material) || OBJECT_KINDS[material.type] === undefined || !material.transparent || this.taken.has(o)) return;
+        if (!(o.isMesh || o.isSprite) || !material || Array.isArray(material) || material.userData?.bfeShape === undefined || !material.transparent || this.taken.has(o)) return;
         // Not a glow model's part (the effects pass's: its group keeps its
         // material), nor one whose vertices change (the Classic lightning's):
         // this pass keeps an object's geometry as it first finds it.
@@ -291,7 +296,7 @@ class TransparentPass {
         found.push(o);
       });
       if (!found.length) return;
-      const fresh = found.filter((o) => unbuilt(renderer, o.material)).map((o) => [o, o.material]);
+      const fresh = found.filter((o) => !o.material.userData?.bfeProgram && unbuilt(renderer, o.material)).map((o) => [o, o.material]);
       if (fresh.length) compileFor(renderer, fresh, camera, scene);
       // Only what registered: anything else is looked at as three lists it
       // (a texture still loading, say).
@@ -307,7 +312,13 @@ class TransparentPass {
     }
   }
 
-  take(items) {
+  // What this pass draws, out of three's transparent list (in place: three's
+  // loop over it has not started), each a record for the renderer with
+  // three's key. Taken only while three's program for it is the one it was
+  // registered with, and three has drawn it as it is now (it still does in
+  // other renders, a mirror's); else three draws it, and it is registered
+  // again if its program changed.
+  take(items, ctx) {
     const core = this.core, renderer = core.renderer, stride = this.objectStride;
     core.views();
     const records = core.transparentObjects;
@@ -321,12 +332,14 @@ class TransparentPass {
       else if (entry && entry.material.userData.bfeFamily === "world") {
         if (entry.version !== entry.material.version) { this.taken.delete(item.object); entry = undefined; }
       }
-      else if (entry) {
+      else if (entry && !entry.material.userData?.bfeProgram) {
         const props = renderer.properties.get(entry.material);
         if (props.currentProgram !== entry.program) { this.taken.delete(item.object); entry = undefined; }
         else if (!drawnAsNow(props, entry) || entry.frame >= this.frameNo) entry = null;
       }
-      if (entry === undefined && this.candidate(item)) {
+      if (entry === undefined && item.material.userData?.bfeProgram) {
+        entry=this.registerObject(item,true);if(!entry)throw Error("Owned transparent effect failed to register");this.taken.set(item.object,entry);
+      } else if (entry === undefined && this.candidate(item)) {
         if (item.material.userData.bfeFamily === "world") { entry = this.registerBucket(item); if (entry !== undefined) this.taken.set(item.object, entry); }
         else this.candidates.push(item);
       }
@@ -335,7 +348,7 @@ class TransparentPass {
         if (entry.bucket) {
           records[o] = entry.id; records[o + OBJ.BUCKET] = 1;
           records[o + OBJ.KEY] = item.groupOrder; records[o + OBJ.KEY + 1] = item.renderOrder; records[o + OBJ.KEY + 2] = item.z; records[o + OBJ.KEY + 3] = item.id;
-        } else this.writeObject(records, o, entry, item);
+        } else this.writeObject(records, o, entry, item, ctx);
         n++;
         continue;
       }
@@ -352,16 +365,16 @@ class TransparentPass {
   candidate(item) {
     const { object, material } = item;
     if (item.group || Array.isArray(object.material)) return false;
-    if (OBJECT_KINDS[material.type] !== undefined) return object.parent?.userData?.material !== material && object.geometry?.attributes.position?.usage !== THREE.DynamicDrawUsage;
+    if (material.userData?.bfeShape !== undefined) return object.parent?.userData?.material !== material && object.geometry?.attributes.position?.usage !== THREE.DynamicDrawUsage;
     return Boolean(object.isMesh && object.parent === this.core.graphics.scene && !object.matrixAutoUpdate && object.matrix.equals(IDENTITY)
       && material.defines && "WORLD_SPACE" in material.defines && !("TERRAIN" in material.defines) && (material.isShaderMaterial || material.userData.bfeFamily === "world"));
   }
 
-  // Match refreshUniformsCommon for built-in basic meshes and sprites.
-  // Colour/opacity, sprite centre/rotation and map transforms are material or
-  // object values; they must not be inherited from whichever draw came before.
-  writeObject(r, o, entry, item) {
+  writeObject(r, o, entry, item, ctx) {
     const object = item.object, material = entry.material;
+    if (material.userData?.bfeShape !== undefined && object.onBeforeRender !== baseBeforeRender) {
+      object.onBeforeRender(ctx.renderer, ctx.scene, ctx.camera, item.geometry, material, item.group);
+    }
     r[o + OBJ.INDEX] = entry.id; r[o + OBJ.BUCKET] = 0;
     r[o + OBJ.KEY] = item.groupOrder; r[o + OBJ.KEY + 1] = item.renderOrder; r[o + OBJ.KEY + 2] = item.z; r[o + OBJ.KEY + 3] = item.id;
     r.set(object.matrixWorld.elements, o + OBJ.WORLD);
@@ -382,31 +395,13 @@ class TransparentPass {
     const core = this.core;
     for (const item of this.candidates) {
       if (this.taken.has(item.object)) continue;
-      const entry = OBJECT_KINDS[item.material.type] !== undefined ? this.registerObject(item) : this.registerBucket(item);
+      const entry = item.material.userData?.bfeShape !== undefined ? this.registerObject(item) : this.registerBucket(item);
       if (entry !== undefined) this.taken.set(item.object, entry);
     }
     this.candidates.length = 0;
     core.views();
     const commands = this.commands ??= [];
     commands.length = 0;
-    const depth = core.graphics.particleDepth;
-    const point = this.commandPoint ??= new THREE.Vector4();
-    if (depth && depth.armed && ctx.camera === depth.camera && ctx.renderer.getRenderTarget() === depth.source) {
-      point.setFromMatrixPosition(depth.copier.matrixWorld).applyMatrix4(depth.screen);
-      const command = this.depthCopy ??= { depth, key: new Float64Array(4) };
-      command.key[0] = depth.group.renderOrder; command.key[1] = depth.copier.renderOrder; command.key[2] = point.z; command.key[3] = -1;
-      commands.push(command);
-    }
-    const copies = fountainCopies.get(ctx.scene);
-    if (copies && ctx.renderer.getRenderTarget() === core.graphics.sceneTarget) for (const jets of copies) {
-      if (!jets.copyNeeded) continue;
-      point.set(0, 0, 0, 1).applyMatrix4(ctx.camera.matrixWorldInverse).applyMatrix4(ctx.camera.projectionMatrix);
-      const cache = this.fountainCommands ??= new WeakMap();
-      let command = cache.get(jets);
-      if (!command) { command = { jets, key: new Float64Array(4) }; cache.set(jets, command); }
-      command.key[0] = 0; command.key[1] = 8.975; command.key[2] = point.z; command.key[3] = -1;
-      commands.push(command);
-    }
     for (const command of core.byName.lines.transparent) commands.push(command);
     commands.sort(copyOrder);
     for (let k=0;k<commands.length;k++) core.transparentKeys.set(commands[k].key, k*4);
@@ -421,8 +416,10 @@ class TransparentPass {
   passesOf(material, policy, cache = undefined) {
     const core = this.core, renderer = core.renderer;
     const sides = sidesOf(material);
-    if (material.userData.bfeFamily === "world") {
-      return { sides, programs: sides.map(side => ownedWorldProgram(core, material, core.graphics.scene, core.graphics.camera, side)), current: null };
+    if (material.userData?.bfeFamily === "world") return { sides, programs:sides.map(side=>ownedWorldProgram(core,material,core.graphics.scene,core.graphics.camera,side)),current:null };
+    if (material.userData?.bfeProgram) {
+      const programs = sides.map((side) => ownedEffectProgram(core, material, WORLD, side));
+      return { sides, programs, current: null };
     }
     const three = sides.map((side) => programForSide(renderer, material, side));
     if (three.some((p) => !p)) return null;
@@ -465,17 +462,15 @@ class TransparentPass {
     return { bucket: true, id, material, program: passes.current, version: material.version, frame: this.frameNo - (material.userData.bfeFamily === "world" ? 1 : 0) };
   }
 
-  // Built-in object sources remain a compiler dependency. Import their linked
-  // bindings before hiding them from any native render list; a draw is never
-  // used as a prerequisite for discovering the correct material program.
+  // An owned basic mesh or sprite (bfeShape names which): it has a catalog
+  // program from the moment it is made, so nothing waits on a draw.
   registerObject(item, compiled = false) {
-    const core = this.core, renderer = core.renderer, rust = core.rust;
+    const core = this.core, rust = core.rust;
     const { object, material, geometry } = item;
-    const props = renderer.properties.get(material);
-    if (!props.currentProgram) return undefined;
-    const kind = OBJECT_KINDS[material.type];
+    const kind = material.userData?.bfeShape;
+    if (kind === undefined || !material.userData?.bfeProgram) return null;
     if (object.isSkinnedMesh || object.isInstancedMesh || object.isBatchedMesh || object.morphTargetInfluences?.length || (!object.isMesh && !object.isSprite)) return null;
-    if (object.onBeforeRender !== baseBeforeRender || object.onAfterRender !== baseAfterRender || material.onBeforeRender !== baseMaterialBeforeRender) return null;
+    if ((object.onBeforeRender !== baseBeforeRender && material.userData?.bfeShape === undefined) || object.onAfterRender !== baseAfterRender || material.onBeforeRender !== baseMaterialBeforeRender) return null;
     if (material.alphaMap || material.alphaTest > 0 || material.alphaHash || material.vertexColors || material.envMap || material.lightMap || material.aoMap || material.specularMap || material.wireframe) return null;
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state || !geometry.index || Object.keys(geometry.morphAttributes).length) return null;

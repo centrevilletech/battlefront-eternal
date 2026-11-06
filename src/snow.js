@@ -1,3 +1,4 @@
+import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { makeHit } from './collision.js';
 import { particleDepth } from './particle-depth.js';
@@ -25,51 +26,8 @@ const BOX = LIMITS.BOX;
 // here is the shell around them: the mesh, the material and the textures
 // the shader reads the phase's records from.
 
-const VERTEX = /* glsl */ `
-  attribute vec2 corner;
-  uniform sampler2D flakes, boxes;
-  uniform int flakeCount;
-  uniform float size;
-  uniform vec3 cameraRight, cameraUp;
-  varying vec2 vUv;
-  varying vec3 vWorld;
-  varying float vAlpha, vDepth;
-  void main() {
-    int flake = gl_InstanceID % flakeCount, cell = gl_InstanceID / flakeCount;
-    vec4 at = texelFetch(flakes, ivec2(flake, 0), 0), spin = texelFetch(flakes, ivec2(flake, 1), 0);
-    vec4 box = texelFetch(boxes, ivec2(cell, 0), 0);
-    vec3 center = box.xyz + (at.xyz - 0.5) * ${BOX.toFixed(1)};
-    float angle = spin.x * 6.2831853, c = cos(angle), s = sin(angle);
-    vec2 turned = vec2(c * corner.x - s * corner.y, s * corner.x + c * corner.y);
-    vWorld = center + (cameraRight * turned.x + cameraUp * turned.y) * size;
-    vec4 view = viewMatrix * vec4(vWorld, 1.0);
-    vUv = corner * 0.5 + 0.5;
-    vAlpha = at.w * box.w;
-    vDepth = -view.z;
-    gl_Position = projectionMatrix * view;
-  }
-`;
-const FRAGMENT = /* glsl */ `
-  uniform sampler2D map, cover, sceneDepth;
-  uniform vec4 tint;
-  uniform float coverCell, coverSize, softParticles;
-  uniform vec2 depthResolution, cameraRange;
-  varying vec2 vUv;
-  varying vec3 vWorld;
-  varying float vAlpha, vDepth;
-  void main() {
-    vec2 cell = mod(floor(vWorld.xz / coverCell), coverSize);
-    if (vWorld.y < texture2D(cover, (cell + 0.5) / coverSize).r) discard;
-    vec4 color = texture2D(map, vUv) * vec4(tint.rgb, tint.a * vAlpha);
-    if (softParticles > 0.5) {
-      float depth = texture2D(sceneDepth, gl_FragCoord.xy / depthResolution).x;
-      float surface = cameraRange.x * cameraRange.y / (cameraRange.y - depth * (cameraRange.y - cameraRange.x));
-      color.a *= clamp((surface - vDepth) / 0.05, 0.0, 1.0);
-    }
-    if (color.a < 0.002) discard;
-    gl_FragColor = color;
-  }
-`;
+
+
 
 
 
@@ -124,8 +82,7 @@ export class Snow {
     this.flakeData = floatTexture(this.host.flakes, count, 2);
     this.boxData = floatTexture(this.host.boxes, boxLimit, 1);
     const c = p.Color || [192, 192, 192, 160];
-    this.material = new THREE.ShaderMaterial({
-      vertexShader: VERTEX, fragmentShader: FRAGMENT,
+    this.material = ownedEffectMaterial('effects/snow', {
       uniforms: {
         map: { value: texture(p.Texture?.[0]) }, flakes: { value: this.flakeData }, boxes: { value: this.boxData },
         flakeCount: { value: count }, size: { value: p.ParticleSize?.[0] ?? 0.02 },
