@@ -1,0 +1,258 @@
+{
+  "source": "0342b93c360a9a9f9c0df81ff13e6c227445f628",
+  "fixtureSha256": "d179bdc08f53f48394507ff0a9d24969142983161c8582f611100a6f0ca69039",
+  "runtime": "v24.22.0",
+  "browser": "158.0.8127.18",
+  "statsColumns": [
+    "real",
+    "virtual",
+    "started",
+    "stolen",
+    "dropped",
+    "culled"
+  ],
+  "scenes": [
+    {
+      "name": "control-original-stereo",
+      "quality": "original",
+      "output": "stereo",
+      "seconds": 2,
+      "sha256": "716da37ccfa44f1c161d35bfe140ab7d75c77befbfb1cec86b455b41e2650608",
+      "peak": 0.12076807022094727,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-original-5.1",
+      "quality": "original",
+      "output": "5.1",
+      "seconds": 2,
+      "sha256": "35c0ab9557bfdc9417c2411a3051afdbd7745938cb3c03dff80a4a5f5aa5ba95",
+      "peak": 0.13879868388175964,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-original-7.1",
+      "quality": "original",
+      "output": "7.1",
+      "seconds": 2,
+      "sha256": "6119cd92ec6aac933349f3da69c56feeefdbb7ddb11a8221a8c6e6d65fb21afd",
+      "peak": 0.1253429800271988,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-original-headphones",
+      "quality": "original",
+      "output": "headphones",
+      "seconds": 2,
+      "sha256": "e36c4b3e936e26c2e792dd7aace385ee16ad67a7cb95e3fe9de207d9f685a5e0",
+      "peak": 0.13400790095329285,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-original-mono",
+      "quality": "original",
+      "output": "stereo",
+      "mono": true,
+      "seconds": 2,
+      "sha256": "e4e5cd1e4b6dbb5111d79d8f52d451e0bdb9d58cad97226a0e52c0a6b2c2fd50",
+      "peak": 0.06740689277648926,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-enhanced-stereo",
+      "quality": "enhanced",
+      "output": "stereo",
+      "seconds": 2,
+      "sha256": "d1d58d4e20aea5a868e900c2efe918df1a51ae5feb6809bdc22fd680f7015376",
+      "peak": 0.11386102437973022,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-enhanced-5.1",
+      "quality": "enhanced",
+      "output": "5.1",
+      "seconds": 2,
+      "sha256": "e42286978cd52fc83f60ef38635193bf967c79e90fdd60a32fb90835e8e41fd8",
+      "peak": 0.10447195917367935,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-enhanced-7.1",
+      "quality": "enhanced",
+      "output": "7.1",
+      "seconds": 2,
+      "sha256": "684e1f15a0c6fd10cad1ac259b5054001ce861259cf279ec1d3d82d422caca8e",
+      "peak": 0.09686041623353958,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-enhanced-headphones",
+      "quality": "enhanced",
+      "output": "headphones",
+      "seconds": 2,
+      "sha256": "5863116c495ef1bf78baf697c95ff9e958afe0067d01ba2d6da817438b06e3e1",
+      "peak": 0.11733082681894302,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-enhanced-mono",
+      "quality": "enhanced",
+      "output": "stereo",
+      "mono": true,
+      "seconds": 2,
+      "sha256": "69d3c7e6ac8c479217a5eacd1816fd662d9c73d54a602e3eecb18996edfd31c6",
+      "peak": 0.08955629169940948,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-enhanced-binaural",
+      "quality": "enhanced",
+      "output": "headphones",
+      "binaural": true,
+      "seconds": 2,
+      "sha256": "3518ea52583dd05a04b298989d0e5d6d0ff0bcaec15c534f9beae12e37ba8f3a",
+      "peak": 0.03120756521821022,
+      "seed": 473018866,
+      "traceSha256": "1dfdc7502d3b24a9458bd267036685c7d7f998a2942ea61b3b58df6c6f1e54e4",
+      "finalStats": [
+        4,
+        3,
+        88,
+        74,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-original-layered-droideka",
+      "quality": "original",
+      "output": "stereo",
+      "seconds": 2,
+      "layeredAmbience": true,
+      "enemyDroideka": true,
+      "sha256": "41208bbe036c34685f65fc012ec18ec707c5e99bde6acfe3dc44323aad549073",
+      "peak": 0.09263205528259277,
+      "seed": 1267202752,
+      "traceSha256": "7d7079655c581a4e6202acf5f9d7e10473644815f56493360d5fee1e2a2948f8",
+      "final": [
+        4,
+        3,
+        87,
+        77,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "control-enhanced-layered-droideka",
+      "quality": "enhanced",
+      "output": "stereo",
+      "seconds": 2,
+      "layeredAmbience": true,
+      "enemyDroideka": true,
+      "sha256": "1e582f00864bf859c1f573b8384c94858f1b8885ed6580e0d4c9e2c30006fb0c",
+      "peak": 0.10838633030653,
+      "seed": 1267202752,
+      "traceSha256": "7d7079655c581a4e6202acf5f9d7e10473644815f56493360d5fee1e2a2948f8",
+      "final": [
+        4,
+        3,
+        87,
+        77,
+        1,
+        1
+      ]
+    }
+  ],
+  "additionalFixtureSha256": "a08a69bbd2d66023a334008eb5b004f7bc53c589d94aaf2c7717b32be3673701"
+}

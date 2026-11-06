@@ -111,7 +111,7 @@ The Info line: every frame, while the post stands, its update asks for the
 owner's Info line for the local player's side, not while the
 game is over. The line's stream properties pace it: these say
 `PlayInterval 90`, so it is heard as the battle starts and every 90 s
-after. The port does the same in `src/audio/vo.js` (`objectives`), once the
+after. The port does the same in `rust/audio-control/src/director.rs` (`objectives`), once the
 player has a body; `tools/zero_sound.py` exports the Info keys
 (`CP_EVENTS`). No line or message is tied to the post taking damage: the
 original game has no "under attack" report.

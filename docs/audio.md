@@ -88,54 +88,55 @@ Settings → Audio (`src/audio/options.js`; the defaults are in
 
 The panel shows the device (channels, rate, latency), what is rendering,
 the loudness meter (momentary, short-term and integrated LUFS, true peak,
-each channel's peak, the limiter's gain reduction), the room the listener
-is in, and the voices playing. Its speaker test plays pink noise on one
+each channel's peak, the limiter's gain reduction), and the voices playing. Its speaker test plays pink noise on one
 channel at a time, named, with the game muted (the LFE gets a 50 Hz tone),
 and "around the room" pans a burst once round through the game's own
 panner.
 
-`window.__bf.audio` is the `GameAudio` object: `engine` (voices, buses,
-`stats`, `culled` among them: one-shots asked for out of earshot),
-`engine.renderer` (the graph; its `dsp` is the WebAssembly module, built
-from `rust/audio`, shared by the output and optional meter worklets. `engine`
-and `master` describe the active Rust graph; `streams` (`queues`: lines
-waiting) and the voice counts describe its inputs. There is one audio
-implementation. A required module that fails to compile, instantiate or
-render produces a visible player error.
+`window.__bf.audio` is the browser I/O owner. `engine.stats` exposes the native
+voice counts and rejection counters; `control.diagnostic()` reads native voice
+rows for the panel. `engine.renderer` holds the device host and required render
+module. There is one battle sound implementation. A required module failure
+produces a visible audio error and suspends the device.
 
 ## How it fits together
 
-The battle engine is in `src/audio/`; `src/shell/audio.js` and
-`loading-audio.js` select the front end's sounds. Gameplay code reports discrete events
-through `events.js` (one-line hooks); the rest is read off the game's objects
-each frame, as the original's entities poll their own state.
+`rust/audio-control` owns the whole battle sound-control phase inside the
+simulation module, where it borrows the current collision world without JS ray
+callbacks. `src/audio/game.js` loads assets, owns the browser lifecycle and
+forwards gameplay events through `events.js`. `control.js` captures scalar facts
+and makes one `sound_step` call per presented frame.
 
-| File | Does |
+| Owner | Does |
 | --- | --- |
-| `game.js` | Loads a battle's sound, maps events to sounds, runs each frame. |
-| `data.js`, `hash.js`, `props.js` | The extracted data: objects by name hash, `Inherit` as the library reads it, property defaults, the gates and the dice. |
-| `engine.js` | The voice engine: 64 virtual and 32 heard voices, scored and stolen as the library does; buses and ducking; distance, Doppler, the listener. |
-| `automation.js` | Params steered once a frame, without re-sending targets that have settled. |
-| `streams.js`, `stream-worker.js`, `adpcm.js` | Stream slots, segment picks, the voice-over queue (lines scored as the library scores them, a soldier's line 3D where he said it); segments fetched by byte range and decoded in a worker. |
-| `player.js` | The player's unit: weapons' three voices, footsteps (both detectors), foley, voice, jetpack, the droideka. |
-| `soldiers.js`, `weapons.js` | Every other soldier's weapons (shots, the fire loop, reloads, overheats) and voice (hurt, death), by the player's own rules, which `weapons.js` and `soldierVoice()` share. |
-| `chatter.js` | The Classic AI's chatter: a "vo" record's line from the speaker's class, queued 3D where he said it, or the player's own command at once, 2D. |
-| `scene.js` | Rounds in flight, command posts, recharge droids, turrets' guns, mines, recon droids, other soldiers' charges. |
-| `vehicles.js` | Every hull's engine, turning on and off, flight, hurt, death, crashes and feet, and every turret's activation, whirs and deactivation (a hull's turret seats and the placed turrets, whoever mans them). |
-| `music.js`, `vo.js`, `ambience.js` | The music state machine, voice-over, the map's emitters and stream regions. |
-| `spatial.js`, `layouts.js` | The output graph: layouts, panning laws, beds, the LFE, reverb send, master chain. |
-| `acoustics.js`, `mixer.js` | Enhanced only: air, occlusion, rooms; the loudness window. |
-| `enhanced.js` | The upscaled assets, loaded in the background. |
-| `panel.js`, `options.js` | The panel and the settings' choices. |
-| `worklets/` | Thin required-module hosts: `output` copies the Rust render quantum to the device; `frontend` copies the menu/loading output; `meter` copies PCM in and loudness readings out. |
-| `rust/audio/src/output.rs` | Owns voice and stream playback, placement, convolution, room sends, mono and the complete master phase. |
-| `frontend.js`, `rust/audio/src/frontend.rs` | Menu music, whooshes, interface sounds and loading pulses: timed playback, resampling, bus gains and linear fades in Rust. |
-| `codec.js`, `codec-worker.js` | Required Rust FLAC, Ogg Opus and PCM/float WAV decoding off the audio thread; bounded range I/O and PCM transfer. |
+| `rust/audio-control/src/phase.rs` | Runs event selection, weapons, player, soldiers, scene, vehicles, acoustics and directors in their recorded order. |
+| `engine.rs`, `layers.rs` | Gates, sample cycles, layered and parameterized sounds, voice ranking and stealing, bus fades and ducks, distance, Doppler and timed render commands. |
+| `player.rs`, `scene.rs`, `vehicles.rs`, `feet.rs` | Unit foley and state sounds, mines, posts, recon and ordnance, engines, flight, turrets, crashes and walker schedules. |
+| `director.rs`, `streams.rs` | Mission music, VO, chatter, static and region ambience, stream slots and queues, asset variants, decoded-cache budget and segment scheduling. |
+| `acoustics.rs` | Native room and occlusion ray budgets, air, LFE, reverb sends and the loudness window. |
+| `tools/audio-control-schema.mjs` | Generates matching input/resource/output layouts for Rust and the host. |
+| `src/audio/control.js` | Publishes changed identity rows and scalar events, forwards native commands, and delivers generation-checked asset readiness. |
+| `control-resources.js`, `data.js`, `hash.js` | Cold bank and mission serialization: resolved identities, immutable authored tables, PCM uploads and rig height samples. No frame policy runs here. |
+| `engine.js`, `game.js`, `spatial.js`, `layouts.js` | Browser device, clock, lifecycle, selected output configuration and PCM transport. |
+| `stream-assets.js`, `stream-worker.js`, `enhanced.js` | Fetch/Range requests, loading-worker transport and browser asset ownership. Native requests choose what plays and when. |
+| `panel.js`, `options.js` | Diagnostics and settings UI. Speaker checks use native slot ownership. |
+| `rust/audio/src/output.rs` | Voice and stream playback, placement, convolution, room sends, mono and the complete master phase. |
+| `frontend.js`, `rust/audio/src/frontend.rs` | Menu and loading PCM playback, resampling, bus gains and fades. Shell/loading callers retain their own event selection. |
+| `codec.js`, `codec-worker.js`, `rust/audio-decode` | Required FLAC, Ogg Opus and PCM/float WAV decoding off the audio thread, with credited PCM windows. |
+| `worklets/` | Thin required-module hosts for device PCM, front-end PCM and metering. |
 
-Each frame: the listener follows the camera; the player and scene modules
-start, stop and steer their sounds; voices are scored and the top 32 play;
-each voice's direction, filters and sends are batched to the worklets in
-one message.
+The frame block contains listener pose, device time/configuration, game clocks,
+poses and velocities, raw entity/weapon/post facts and discrete events. Stable
+rows are retained on both sides; only changed rows cross again. Native voice
+commands use the render phase's existing generated ABI. A small pool of transfer
+buffers is returned by the output host and reused each frame. Stream decode
+completion is a separate I/O boundary so a ready segment starts at device time
+without waiting for a new gameplay frame. It never reruns gameplay policy.
+
+The browser still parses the extracted asset tables and samples rig assets at
+attachment. Native content loading removes that cold serialization dependency;
+a native device host removes the remaining AudioContext and worklet transport.
+There is no JS sound-policy fallback or runtime comparison switch.
 
 ## The original mode
 
@@ -562,17 +563,30 @@ recorded HRTF impulses cover 44.1 and 48 kHz, azimuth and elevation. Rust
 allocation tests count allocations from the first block, including stream,
 convolution, front-end playback and meter report paths.
 
-`tests/audio-bench.mjs` measures the complete live engine over generated
-voices and beds using a running Chromium debug endpoint. It no longer
-builds isolated browser/worklet DSP graphs. Its header gives the endpoint,
-mode, warm-up and measurement options. Use calibrated local slots when
-comparing revisions; a reference run uses its own frozen build.
+`tests/audio-control.test.js` additionally drives the battle's complete sound
+controller with synthetic game facts. Thirteen recorded scenes cover Classic and
+Enhanced stereo, mono, 5.1, 7.1, HRTF and synthetic binaural output. They exercise
+weapon state changes, moving sources, voice stealing and rejection, command
+posts, stations, timed mines, hull and turret sounds, speech, room probes and
+pause fades, layered-emitter curves and droideka reload/heat state. PCM differences must remain below -96 dBFS; per-frame voice counts,
+steals, rejections and random-draw state must match exactly. Synthetic asset
+completions are drained before offline resume, and release timers follow the
+scripted context clock, so host scheduling cannot change the reference.
 
-Offline rendering proves samples, not real-time cost: it never reaches the
-same optimizing tiers as a live context. CPU measurements must use a live
-context after warm-up, with the frozen dist and candidate running the same
-synthetic scene in alternating order. Count all audio threads and verify
-nonzero output and the requested layout before measuring. Hardware listening
+`tests/audio-bench.mjs` measures an already loaded live battle through its
+debug endpoint. It samples audio render threads and the page main thread from
+Linux scheduling counters, verifies the device and world clocks, and records
+voice counts and the selected quality/layout. Its header documents the endpoint,
+warm-up and sample options. Run immutable base and candidate desktop builds in
+one interleaved farm job with the same mission, seed and settings.
+
+Offline rendering proves samples rather than real-time cost. It does not reach
+the same optimizing tiers as a live context. Native control allocation tests
+exercise the complete first frame and retained frames, including asynchronous
+asset completion. The deleted JS policy tests are replaced by native phase
+regressions in `rust/audio-control/tests/` and frozen scripted decisions/PCM.
+
+Hardware listening
 still needs to check device channel order, headphone placement, mode changes
 and glitches during a battle.
 

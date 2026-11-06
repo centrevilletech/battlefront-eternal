@@ -304,7 +304,7 @@ world space rather than view space.
   `unpacksBc7` matches Mesa's names for Intel before Ivy Bridge. GPU memory
   for a map fell by about 80 MB and the near scene by 0.8 ms.
 - **Audio:** on a PC with 4 GB or less, decoded stream audio is kept for two
-  minutes of sound instead of ten (`audio/streams.js`); ten minutes of the
+  minutes of sound instead of ten (`rust/audio-control/src/streams.rs`); ten minutes of the
   game's music decoded is about 270 MB.
 - **First session on an old GPU** (`settings.js` `adoptHardwareDefaults`,
   `gpu-info.js` `oldGpu`): Intel before Ivy Bridge, under Mesa or Windows'

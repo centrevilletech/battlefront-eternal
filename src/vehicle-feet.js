@@ -29,7 +29,7 @@ import { classSetting } from "./vehicle-motion.js";
 // cycle, any other's replicated one) passing one of those phases is the
 // step, whatever the frame rate or the records' rate; the place is the
 // foot as drawn. The stomp effect (src/vehicle-effects.js) and the
-// footsteps and hydraulics (src/audio/vehicles.js) each keep their own
+// footsteps and hydraulics (rust/audio-control/src/vehicles.rs) each keep their own
 // Footfalls. A walker without a walk cycle falls back on the drawn foot's
 // fall (fall()).
 
@@ -51,7 +51,7 @@ const _q = new THREE.Quaternion();
 // full blend, idle out; the two clips' keys lie 1/fps apart all round),
 // posed on a copy of the hull's skeleton so the drawn one is left alone.
 // Between keys the pose blends linearly, and so (near enough) does a foot.
-function cycleHeights(v, feet) {
+export function cycleHeights(v, feet) {
   const root = new THREE.Object3D();
   const bones = v.bones.map((b) => { const bone = new THREE.Bone(); bone.scale.copy(b.scale); return bone; });
   v.bones.forEach((b, i) => { const parent = v.bones.indexOf(b.parent); (parent >= 0 ? bones[parent] : root).add(bones[i]); });

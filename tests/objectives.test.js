@@ -3,7 +3,7 @@
 // control panel. The building (src/props.js ObjectivePost) takes damage
 // from anyone and dies for good; its post (src/commandposts.js) then leaves
 // the battle; its KillRegion goes off once (src/objectives.js); the Info
-// voice-over asks for its line while it stands (src/audio/vo.js).
+// voice-over asks for its line while it stands (rust/audio-control/src/director.rs).
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -11,7 +11,6 @@ import { CommandPosts } from "../src/commandposts.js";
 import { Battle } from "../src/battle.js";
 import { ObjectivePost } from "../src/props.js";
 import { KILL_REGION_BLASTS, ObjectiveTarget, killRegion } from "../src/objectives.js";
-import { VoiceOver } from "../src/audio/vo.js";
 import { friendlySpawn } from "../src/ai/classic/goals.js";
 
 const IDENTITY = new THREE.Matrix4().toArray();
@@ -147,21 +146,6 @@ test("the objective is a building target for its enemies while it stands", () =>
   assert.equal(target.alive, false);
 });
 
-test("the Info line is asked for while the post stands, by the listener's side and the owner's", () => {
-  const queued = [];
-  const posts = { posts: [{ desc: { name: "shield" }, team: 2, active: true, building: { alive: true } }] };
-  const audio = {
-    streams: { queue: (name) => queued.push(name) },
-    game: { battle: { over: false, bleed: {}, human: { unit: {} } }, posts },
-  };
-  const world = { posts: { shield: { vo: { VO_Imp_AllInfo: "imp_impdestroy_shieldgenerator", VO_All_AllInfo: "all_alldefend_shieldgenerator" } } } };
-  const vo = new VoiceOver(audio, {}, world, 1, { 1: "Imp", 2: "All" });
-  vo.update(1 / 60);
-  assert.deepEqual(queued, ["imp_impdestroy_shieldgenerator"]);
-  posts.posts[0].active = false;
-  vo.update(1 / 60);
-  assert.equal(queued.length, 1);
-});
 
 test("bots: an enemy objective on the front is drawn three times as often, ranks first for those sent to it, and is no repair job", async () => {
   const { selectObjective, OBJECTIVE_ATTACK_BIAS } = await import("../src/ai/classic/goals.js");

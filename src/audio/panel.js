@@ -1,3 +1,4 @@
+import { EVENT_KIND } from "./control-layout.js";
 import { LAYOUTS } from "./layouts.js";
 
 // The audio panel: what the device offers, a speaker test, and a live view
@@ -110,7 +111,7 @@ export class AudioPanel {
     const e = this.audio.engine;
     const r = e.renderer;
     const ctx = e.ctx;
-    if (!ctx || !r?.layout) return;
+    if (!ctx || !r?.layout || !this.audio.control) return;
     const dest = ctx.destination;
     this.device.innerHTML =
       `device: ${dest.maxChannelCount} channels, ${ctx.sampleRate} Hz, latency ${((ctx.baseLatency || 0) * 1000).toFixed(1)}` +
@@ -119,19 +120,16 @@ export class AudioPanel {
       `<br>${this.law(r)}`;
     const m = this.reading;
     const f = (x, unit = "") => (Number.isFinite(x) ? `${x.toFixed(1)}${unit}` : "-inf");
-    const room = this.audio.acoustics?.room;
     this.mixView.innerHTML = m
       ? `loudness M ${f(m.momentary)} S ${f(m.shortTerm)} I ${f(m.integrated)} LUFS · true peak ${f(m.truePeak, " dBTP")} · limiter ${f(this.reduction, " dB")}<br>` +
         `peaks ${m.channels.map((p, c) => `${r.layout.names[c] || c} ${f(p)}`).join("  ")}<br>` +
-        `voices ${e.stats.real} heard / ${e.stats.virtual} virtual · streams ${this.audio.streams.voices.size}` +
-        (room && r.enhanced ? `<br>room: enclosure ${room.enclosure.toFixed(2)}, mean free ${room.meanFree.toFixed(1)} m, roof ${room.roof.toFixed(2)}` : "")
+        `voices ${e.stats.real} heard / ${e.stats.virtual} virtual`
       : "waiting for the meter...";
-    const lines = e.voices
-      .filter((v) => !v.done && v.audible !== undefined)
+    const lines = this.audio.control.diagnostic()
       .sort((a, b) => b.score - a.score)
       .slice(0, 24)
       .map((v) => {
-        const name = this.audio.data.label(v.sound?.Name || "?");
+        const name = this.audio.data.label(v.name || "?");
         const db = v.audible > 0 ? (20 * Math.log10(v.audible)).toFixed(1) : "-inf";
         return `${v.real ? "*" : " "} ${name.padEnd(34).slice(0, 34)} ${v.category.padEnd(10)} ${v.mode3D ? `${v.distance.toFixed(1).padStart(6)} m` : "    2D  "} ${db.padStart(6)} dB${v.occluded > 0.5 ? " occl" : ""}`;
       });
@@ -145,7 +143,6 @@ export class AudioPanel {
     if (!ctx || ctx.state !== "running") return;
     const layout = r.layout;
     const N = layout.channels;
-    const lanes = [];
     const pink = await r.testBuffer(false, BURST);
     const tone = await r.testBuffer(true, BURST);
     const restore = r.masterVolume ?? 1;
@@ -154,10 +151,7 @@ export class AudioPanel {
     for (const c of channels) {
       // A Rust stream test bus targets exactly this device channel after
       // the muted game mix, including the LFE's generated 50 Hz tone.
-      const lane = r.stream(1, 3 + c);
-      lane.gain.value = c === layout.lfe ? 1 : 0.35;
-      lane.start(c === layout.lfe ? tone : pink, t);
-      lanes.push(lane);
+      this.audio.control.enqueue(EVENT_KIND.TEST_CHANNEL,-1,-1,-1,r.engineSample(c === layout.lfe ? tone : pink),null,t,c === layout.lfe ? 1 : 0.35,c,BURST);
       const at = t;
       setTimeout(() => {
         if (this.testing) this.testing.textContent = `playing: ${layout.names[c]} (channel ${c + 1} of ${N})`;
@@ -166,7 +160,6 @@ export class AudioPanel {
       t += BURST + 0.25;
     }
     setTimeout(() => {
-      for (const lane of lanes) lane.dispose();
       r.setVolume(restore);
       if (this.testing) this.testing.textContent = "done: did each name match the speaker it came from?";
       for (const b of this.root.querySelectorAll("[data-channel]")) b.style.outline = "";
@@ -179,28 +172,10 @@ export class AudioPanel {
     const e = this.audio.engine;
     const ctx = e.ctx;
     const r = e.renderer;
-    if (!ctx || ctx.state !== "running" || !r.voice) return;
+    if (!ctx || ctx.state !== "running") return;
     const buffer = await r.testBuffer(false, BURST);
-    const out = r.voice({ mode3D: 1 });
-    out.engineStart(buffer, 0, true, 1);
-    out.engineGain(0.3);
-    out.level = 0.3;
-    const start = performance.now();
-    const seconds = 6;
-    const tick = () => {
-      const t = (performance.now() - start) / 1000;
-      const a = (t / seconds) * Math.PI * 2;
-      // Start ahead and go round to the left.
-      out.update({ x: -Math.sin(a), y: 0, z: -Math.cos(a) }, 3, 0, { send: 0, cutoff: 20000 });
-      r.flush();
-      if (this.testing) this.testing.textContent = `around: ${Math.round(((a * 180) / Math.PI) % 360)} degrees left of ahead`;
-      if (t < seconds) requestAnimationFrame(tick);
-      else {
-        out.engineRelease(0.01, 0.05);
-        out.dispose();
-        if (this.testing) this.testing.textContent = "done";
-      }
-    };
-    tick();
+    this.audio.control.enqueue(EVENT_KIND.TEST_AROUND,-1,-1,-1,r.engineSample(buffer),null,ctx.currentTime,0.3,-1,6);
+    if (this.testing) this.testing.textContent = "playing: one turn around the listener";
+    setTimeout(()=> { if (this.testing) this.testing.textContent = "done"; },6100);
   }
 }

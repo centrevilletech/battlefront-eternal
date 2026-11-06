@@ -44,6 +44,7 @@ export class EnhancedAssets {
         try {
           const buffer = await loadAudioPcm(`${this.base}/${entry.file}`, { rate: this.ctx.sampleRate, gain: entry.playback_db });
           this.buffers.set(id, buffer);
+          this.onSample?.(id,buffer);
           this.stats.loaded++;
         } catch (error) {
           this.stats.failed++;
@@ -55,18 +56,5 @@ export class EnhancedAssets {
     return this.loading;
   }
 
-  sample(id) {
-    return this.buffers.get(id) || null;
-  }
 
-  // The file for a stream segment in this layout, and its playback gain.
-  segment(stream, key, channels) {
-    const entry = this.manifest.streams?.[stream]?.[key];
-    if (!entry || entry.fallback) return null;
-    const files = entry.files || {};
-    let file = null;
-    if (files.stereo) file = channels >= 8 ? files["7.1"] || files["5.1"] || files.stereo : channels >= 6 ? files["5.1"] || files.stereo : files.stereo;
-    else file = Object.values(files)[0];
-    return file ? { url: `${this.base}/${file}`, playback: entry.playback_db || 0 } : null;
-  }
 }

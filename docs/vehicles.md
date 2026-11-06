@@ -752,7 +752,7 @@ prompts, names, colours, map range, death and layer display ordering.
 ## Effects and sounds
 
 What a hull shows and plays beyond its model, at Classic:
-`src/vehicle-effects.js` (effects), `src/audio/vehicles.js` (sounds) and
+`src/vehicle-effects.js` (effects), `rust/audio-control/src/vehicles.rs` (sounds) and
 `src/vehicle-feet.js` (a walker's footfalls, for both). They run on the page
 only and read nothing but what every host gives a hull: whether it is alive,
 its health, flight state and velocity, who holds which seat, and the pose
@@ -788,7 +788,7 @@ The death blast is `ExplosionName`, else `Explosion`, else `ExplosionDestruct`
 
 `tools/zero_sound.py` also exports the class sound keys `TurningOffSound`,
 `WindUpSound`, `WindDownSound`, `HydraulicSound` and `FootstepSound0` to `5`.
-Older exports give some of them by hash; `src/audio/vehicles.js` reads both.
+Older exports give some of them by hash; `rust/audio-control/src/vehicles.rs` reads both.
 In the sound configs a scope that follows another for the same object adds to
 it: 46 objects are followed by an empty one, which must not wipe their name
 and samples (the AT-ST's and AT-AT's head cannon `FireSound` among them).

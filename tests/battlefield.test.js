@@ -11,7 +11,6 @@ import * as THREE from 'three';
 import { Battlefield, LeavingWarning, LEAVING_TIME, boundaryFromNav } from '../src/battlefield.js';
 import { Boundary } from '../src/ai/classic/nav/boundary.js';
 import { Character } from '../src/battle.js';
-import { VoiceOver } from '../src/audio/vo.js';
 
 const TICK = 1 / 60;
 // A square 200 m across, clockwise in x/z as the maps' are.
@@ -153,17 +152,6 @@ test('the page\'s warning: what he controls as it sees it, the voice-over once e
   assert.equal(w.update(++tick, false), false);
   assert.equal(w.alpha, 0);
   assert.equal(w.update(++tick, true), true, 'out again: the line again');
-});
-
-test('the voice-over: the listener\'s own side\'s SetOutOfBoundsVoiceOver line', () => {
-  const lines = [];
-  const audio = { game: { battle: { bleed: {}, over: false } }, streams: { queue: (name) => lines.push(name) } };
-  const vo = new VoiceOver(audio, { outOfBounds: { 1: 'repleaving', 2: 'cisleaving' } }, { posts: {} }, 2, { 1: 'Rep', 2: 'Cis' });
-  vo.leaving();
-  vo.team = 1;
-  vo.leaving();
-  new VoiceOver(audio, {}, { posts: {} }, 1, {}).leaving();
-  assert.deepEqual(lines, ['cisleaving', 'repleaving']);
 });
 
 // With an import (BFE_CONTENT_DIR or public/): the battle's own boundary.

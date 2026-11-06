@@ -776,7 +776,7 @@ async function start() {
   // mission table (set below, once the mission's calls are read).
   posts.teams = units;
   const simEvents = new SimEvents();
-  // The AI's chatter is the audio's to play (src/audio/chatter.js); a world
+  // The AI's chatter is the audio's to play (rust/audio-control/src/phase.rs); a world
   // worker records the call for the page (src/runtime/network-entity-game.js).
   simEvents.listen((record) => record.kind === "vo" && audio.on("vo", record));
   let simTime = 0;
@@ -1730,7 +1730,7 @@ async function start() {
   setPerspective(params.get("view") === "1st");
   audio.attach({ camera, soldier, combat, ordnance, controls, posts, battle, collision, teams, actor, water, live, gunner, items, remotes, units, team: playerTeam, foe: enemyTeam, unit: UNIT, def: soldierDef });
 
-  // Every hull's own sounds read the hulls this page shows (src/audio/vehicles.js).
+  // Every hull's own sounds read the hulls this page shows (rust/audio-control/src/vehicles.rs).
   audio.retarget({ vehicles });
 
   // Killed: a reinforcement is spent, and the soldier deploys again after

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["glbench", "bfe-render", "bfe-native", "sim", "sim-replay", "content", "v8math", "v8math-check", "jsrt", "three", "audio", "audio-decode", "bfe-environment"]
+members = ["glbench", "bfe-render", "bfe-native", "sim", "sim-replay", "content", "v8math", "v8math-check", "jsrt", "three", "audio", "audio-decode", "bfe-environment", "audio-control"]
 
 [profile.release]
 opt-level = 3

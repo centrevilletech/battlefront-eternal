@@ -254,7 +254,7 @@ The six segments of the `shell_music` stream, as Ogg Opus (48 kHz stereo,
   track; `duration` is in seconds.
 - How the original plays it: `shell_soundtrack` starts with
   the profile screen and cycles the first five (CyclePlayback: in order,
-  from a random first pick as `src/audio/props.js` does it), 10 s of silence
+  from a random first pick as `rust/audio-control/src/engine.rs` does it), 10 s of silence
   between tracks (0 while the audio options page is open). Galactic
   Conquest switches to `shell_galacticconquest`, each briefing to its
   mission's track. The bus is `shellmusic` (gain 0.6, under `music`, `main`

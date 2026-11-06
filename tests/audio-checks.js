@@ -26,7 +26,6 @@ export async function audioChecks(options = {}) {
         result = compareAudio(bytes, expected);
         result.detail = `max difference ${result.db.toFixed(2)} dBFS`;
       }
-      if (scene.life && (!render.seen.ended || !render.seen.stopped || Math.abs(render.seen.offset - 0.4) > 0.01)) result.pass = false;
       results.push({ name: scene.name, ...result });
     } catch (error) { results.push({ name: scene.name, pass: false, detail: error.message }); }
     options.report?.(results.at(-1));

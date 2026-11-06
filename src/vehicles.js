@@ -1114,7 +1114,7 @@ export class Vehicle {
   // seats' turret nodes and aimer bones from their angles (no integration:
   // dt is 0 on a page showing a worker's battle). Its effects and sounds
   // are the page's, from the hull's state (src/vehicle-effects.js,
-  // src/audio/vehicles.js).
+  // rust/audio-control/src/vehicles.rs).
   //
   // ticked: aimTick has just posed the hull at this alpha (Vehicles.update).
   // A craft in flight whose flight this host steps, with no walk pose and

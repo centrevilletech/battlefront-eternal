@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "audio-control"
+version = "0.1.0"
+dependencies = [
+ "v8math",
+]
+
+[[package]]
 name = "audio-decode"
 version = "0.1.0"
 dependencies = [
@@ -393,6 +400,7 @@ dependencies = [
 name = "sim"
 version = "0.1.0"
 dependencies = [
+ "audio-control",
  "content",
  "jsrt",
  "sim-replay",

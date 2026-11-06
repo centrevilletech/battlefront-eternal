@@ -46,20 +46,22 @@ export async function codecChecks(report = () => {}) {
       } else {
         const renderer = new Renderer(ctx); renderer.onError = (error) => { failure = error; };
         await renderer.configure({ quality: "enhanced", output: "stereo", mono: false });
-        const lane = renderer.stream(8, "music");
-        const preparing = lane.prepare(asset);
+        const { attachAudioStream } = await import("../src/audio/stream-pcm.js");
+        const { VOICE } = await import("../src/audio/commands.js");
+        const preparing = attachAudioStream(asset,renderer.mixer,0,renderer.streamWaits,(error)=>renderer.fail(error));
         if (kind === "cancel") {
-          lane.dispose();
+          renderer.mixer.port.postMessage({type:"release-samples",ids:[0]}); asset.close();
           try { await preparing; throw Error("cancelled preparation resolved"); }
           catch (error) { if (error.name !== "AbortError") throw error; }
         } else {
-          const pcm = await preparing; lane.start(pcm, ctx.currentTime, 1.07); renderer.flush();
-          await new Promise((resolve) => setTimeout(resolve, 150));
-          // Rebuild the live host while a producer is attached. The module
-          // stays in the worklet; only the new output state is messaged.
-          await renderer.configure({ quality: "original", output: "stereo", mono: true });
-          await renderer.configure({ quality: "enhanced", output: "stereo", mono: false });
-          await new Promise((resolve) => setTimeout(resolve, 550)); lane.dispose();
+          await preparing;
+          renderer.command(VOICE.STREAM_BIND,0,8,2,0,VOICE.STREAM_START,0,0,0,ctx.currentTime,0,1.07,0); renderer.flush();
+          await new Promise((resolve) => setTimeout(resolve,150));
+          await renderer.configure({quality:"original",output:"stereo",mono:true});
+          await renderer.configure({quality:"enhanced",output:"stereo",mono:false});
+          await new Promise((resolve) => setTimeout(resolve,550));
+          renderer.command(VOICE.STREAM_RELEASE,0); renderer.flush();
+          renderer.mixer.port.postMessage({type:"release-samples",ids:[0]});
         }
       }
       asset.close();

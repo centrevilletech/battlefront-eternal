@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { installAudioHost } from "./audio-offline-host.js";
+import { VOICE } from "../src/audio/commands.js";
 import { Renderer } from "../src/audio/spatial.js";
 import { prepareAudioPcm, normalizePcm16 } from "../src/audio/pcm.js";
 
@@ -24,8 +25,8 @@ test("Classic stereo has one required Rust source-to-output host", async () => {
   assert.equal(r.ctx.nodes.length, 1); assert.equal(r.mixer.options.numberOfInputs, 0);
   assert.equal(r.mixer.options.outputChannelCount[0], 12); assert.equal(r.light, true);
   const b = r.ctx.createBuffer(1, 1000, 48000); b.getChannelData(0).fill(0.25);
-  const out = r.voice({ mode3D: 1 }); out.engineStart(b, 0, true, 1); out.level = 0.5;
-  out.update({ x: -1, y: 0, z: 0 }, 1, 0); r.flush(); await Promise.resolve(); await Promise.resolve();
+  r.command(VOICE.BIND,0,1,VOICE.START,0,r.engineSample(b),0,1,1,20000,0);
+  r.command(VOICE.PLACE,0,-1,0,0,0.5,0); r.flush(); await Promise.resolve(); await Promise.resolve();
   const rendered = await r.ctx.startRendering();
   assert.ok(rendered.getChannelData(0).some((v) => v > 0.05));
   assert.ok(rendered.getChannelData(1).every((v) => v === 0));
@@ -35,7 +36,7 @@ test("sample uploads after rendering starts refresh detached heap views", async 
   const node = r.mixer, x = node.processor.x;
   globalThis.currentFrame = 0; node.processor.process([], [node.output]); const before = x.memory.buffer;
   const b = r.ctx.createBuffer(1, 1000000, 48000); b.getChannelData(0).fill(0.25);
-  const out = r.voice({ mode3D: 1 }); out.engineStart(b, 0, true, 1); out.level = 0.5; out.update({ x: -1, y: 0, z: 0 }, 1, 0); r.flush();
+  r.command(VOICE.BIND,0,1,VOICE.START,0,r.engineSample(b),0,1,1,20000,0); r.command(VOICE.PLACE,0,-1,0,0,0.5,0); r.flush();
   await Promise.resolve(); await Promise.resolve();
   assert.notEqual(x.memory.buffer, before);
   globalThis.currentFrame = 128; node.processor.process([], [node.output]);
@@ -44,7 +45,7 @@ test("sample uploads after rendering starts refresh detached heap views", async 
 test("layout changes retain the host, decoded samples and scheduled sources", async () => {
   const r = new Renderer(context(8)); await r.configure(config);
   const first = r.mixer, b = r.ctx.createBuffer(2, 48000, 48000); b.getChannelData(0).fill(0.1); b.getChannelData(1).fill(0.1);
-  const lane = r.stream(2); lane.start(b, 0, 1, true); r.flush(); await Promise.resolve();
+  r.command(VOICE.STREAM_BIND,0,2,0,0,VOICE.STREAM_START,0,0,r.engineSample(b),0,0,1,1); r.flush(); await Promise.resolve();
   for (const output of ["5.1", "7.1", "stereo"]) {
     await r.configure({ ...config, output });
     assert.equal(r.mixer, first);
@@ -52,12 +53,6 @@ test("layout changes retain the host, decoded samples and scheduled sources", as
     for (let block = 0; block < 5; block++) { globalThis.currentFrame = 1024 + block * 128; first.processor.process([], [first.output]); }
     assert.ok(first.output.slice(0, r.channels).some((c) => c.some((v) => v !== 0)));
   }
-});
-test("stream segment PCM uses bounded reusable slots", async () => {
-  const r = new Renderer(context()); await r.configure(config);
-  const buffer = r.ctx.createBuffer(1, 128, 48000); buffer.getChannelData(0).fill(0.1);
-  for (let i = 0; i < 20; i++) { const lane = r.stream(1); lane.start(buffer); r.flush(); await Promise.resolve(); lane.dispose(); await Promise.resolve(); }
-  assert.equal(r.nextSample, 3); assert.equal(r.freeStreamSamples.length, 3);
 });
 test("Rust bank preparation preserves signed PCM", async () => {
   await prepareAudioPcm();
@@ -71,7 +66,7 @@ test("speaker test reaches its named channel after the muted mono game mix", asy
   const r = new Renderer(context(6)); r.masterVolume = 0;
   await r.configure({ ...config, quality: "enhanced", output: "5.1", mono: true });
   const b = r.ctx.createBuffer(1, 128, 48000); b.getChannelData(0).fill(0.25);
-  const lane = r.stream(1, 3 + 3); lane.start(b, 0); r.flush();
+  r.command(VOICE.STREAM_BIND,0,1,6,0,VOICE.STREAM_START,0,0,r.engineSample(b),0,0,1,0); r.flush();
   await Promise.resolve(); await Promise.resolve();
   const out = await r.ctx.startRendering();
   for (let c = 0; c < 6; c++) {
@@ -85,8 +80,7 @@ test("a narrower queued segment preserves the first segment's surround lanes", a
   await r.configure({ ...config, quality: "enhanced", output: "5.1", dynamics: "home", clarity: false });
   const first = r.ctx.createBuffer(6, 48000, 48000); first.getChannelData(3).fill(0.25);
   const next = r.ctx.createBuffer(2, 48000, 48000); next.getChannelData(0).fill(0.1);
-  const lane = r.stream(2, "music"); lane.start(first, 0, 1, true); lane.start(next, 0.03, 1, true);
-  assert.equal(lane.channels, 6); r.flush(); await Promise.resolve(); await Promise.resolve();
+  r.command(VOICE.STREAM_BIND,0,6,2,0,VOICE.STREAM_START,0,0,r.engineSample(first),0,0,1,1,VOICE.STREAM_START,0,1,r.engineSample(next),0.03,0,1,1); r.flush(); await Promise.resolve(); await Promise.resolve();
   const out = await r.ctx.startRendering();
   assert.ok(out.getChannelData(3).subarray(512, 8192).every((v) => v > 0.05));
 });

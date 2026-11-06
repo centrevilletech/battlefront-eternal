@@ -22,5 +22,4 @@ for (const scene of manifest.scenes) test(`recorded audio: ${scene.name}`, async
     const result = compareAudio(bytes, expected);
     assert.ok(result.pass, `max difference ${result.db} dBFS; required below -96 dBFS`);
   }
-  if (scene.life) { assert.equal(render.seen.ended, true); assert.equal(render.seen.stopped, true); assert.ok(Math.abs(render.seen.offset - 0.4) < 0.01); }
 });

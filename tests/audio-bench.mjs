@@ -1,109 +1,74 @@
-// Live whole-engine cost over synthetic PCM. Offline renders do not reach
-// real-time optimizing tiers and must not be reported as playback cost.
-// Connect to a dedicated, already running Chromium (use a local emulator slot for
-// comparable numbers), with a Vite server serving this checkout:
-//   AUDIO_CDP_URL=http://127.0.0.1:9222 AUDIO_TEST_URL=http://127.0.0.1:18449 \
-//     node tests/audio-bench.mjs
-// QUALITY=original|enhanced, OUTPUT=stereo|5.1|7.1|7.1.4|headphones,
-// MONO=1, BINAURAL=1, VOICES=32, BENCH_WARM=10, BENCH_SECONDS=15,
-// BENCH_REPS=4. Binaural uses generated 256-tap filters, no game assets.
+// Sample an already loaded battle: its audio render threads, page main thread
+// and drawn frames. Run base and candidate builds in an interleaved job with
+// the same mission, seed, quality and device layout. The renderer's offline
+// fixtures are fidelity gates and do not measure real-time playback cost.
+// AUDIO_CDP_URL is required. BENCH_WARM=6, BENCH_SECONDS=20 and BENCH_REPS=1
+// control the sample window; AUDIO_BENCH_OUT optionally saves the JSON result.
 import fs from "node:fs";
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const endpoint = process.env.AUDIO_CDP_URL;
-if (!endpoint) throw new Error("Set AUDIO_CDP_URL to a running Chromium debug endpoint; no measurement started");
-if (!fs.existsSync("/proc/self/task")) throw new Error("This benchmark needs Linux audio-thread CPU counters");
-const base = process.env.AUDIO_TEST_URL || "http://127.0.0.1:18449";
-const quality = process.env.QUALITY || "enhanced", output = process.env.OUTPUT || "stereo";
-const mono = process.env.MONO === "1", binaural = process.env.BINAURAL === "1";
-const voices = Number(process.env.VOICES || 32), warm = Number(process.env.BENCH_WARM || 10);
-const seconds = Number(process.env.BENCH_SECONDS || 15), reps = Number(process.env.BENCH_REPS || 4);
-const pause = (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+if (!endpoint) throw Error("AUDIO_CDP_URL must name the loaded battle's debugging endpoint");
+const seconds = Number(process.env.BENCH_SECONDS || 20), warm = Number(process.env.BENCH_WARM ?? 6), reps = Number(process.env.BENCH_REPS || 1);
+const pause = (s)=>new Promise((resolve)=>setTimeout(resolve,s*1000));
 function counters(pids) {
-  const result = new Map();
+  const audio = new Map(), page = new Map(), names = {};
   for (const pid of pids) {
+    page.set(pid,Number(fs.readFileSync(`/proc/${pid}/task/${pid}/schedstat`,"utf8").split(" ")[0]));
     for (const tid of fs.readdirSync(`/proc/${pid}/task`)) {
       try {
-        const at = `/proc/${pid}/task/${tid}/`;
-        if (/audio/i.test(fs.readFileSync(at + "comm", "utf8"))) result.set(`${pid}/${tid}`, Number(fs.readFileSync(at + "schedstat", "utf8").split(" ")[0]));
-      } catch { /* A thread may retire while enumerating. */ }
+        const path = `/proc/${pid}/task/${tid}/`, name = fs.readFileSync(path+"comm","utf8").trim();
+        if (/audio/i.test(name)) { const key = `${pid}/${tid}`; audio.set(key,Number(fs.readFileSync(path+"schedstat","utf8").split(" ")[0])); names[key] = name; }
+      } catch { /* Threads can retire between directory enumeration and read. */ }
     }
   }
-  return result;
+  return {audio,page,names};
 }
-const browser = await chromium.connectOverCDP(endpoint, { timeout: 5000 });
-const context = browser.contexts()[0];
-if (!context) throw new Error("The connected browser has no audio-capable context");
-// Electron exposes its existing app tab but cannot create another target.
-const page = context.pages()[0];
-if (!page) throw new Error("Open a blank tab in the dedicated benchmark browser");
+function delta(before,after,wall) { let ns = 0; for (const [id,value] of after) if (before.has(id)) ns += value-before.get(id); return ns/wall*100; }
+// Node's built-in CDP transport keeps the benchmark independent of browser
+// launch packages. It attaches to the existing app and disconnects at the end.
+const version = await (await fetch(endpoint+"/json/version")).json(), ws = new WebSocket(version.webSocketDebuggerUrl), pending = new Map(), errors = [];
+await new Promise((resolve,reject)=> { ws.onopen = resolve; ws.onerror = reject; });
+let serial = 0, session;
+ws.onmessage = ({data})=> {
+  const m = JSON.parse(data);
+  if (m.id && pending.has(m.id)) { const request = pending.get(m.id); pending.delete(m.id); if (m.error) request.reject(Error(JSON.stringify(m.error))); else request.resolve(m.result); }
+  if (m.method === "Runtime.exceptionThrown") errors.push(m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text);
+};
+function send(method,params={},sessionId) {
+  return new Promise((resolve,reject)=> { const id = ++serial, timer = setTimeout(()=> { pending.delete(id); reject(Error(method+" timed out")); },15000); pending.set(id,{resolve:(r)=> { clearTimeout(timer); resolve(r); },reject:(e)=> { clearTimeout(timer); reject(e); }}); ws.send(JSON.stringify({id,method,params,sessionId})); });
+}
+async function evaluate(expression) {
+  const r = await send("Runtime.evaluate",{expression,returnByValue:true,awaitPromise:true},session);
+  if (r.exceptionDetails) throw Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
+  return r.result.value;
+}
 try {
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  page.on("requestfailed", (r) => errors.push(`${r.url()}: ${r.failure()?.errorText}`));
-  await page.route("**/__audio-bench__", (r) => r.fulfill({ contentType: "text/html", body: "<!doctype html>" }));
-  const system = await browser.newBrowserCDPSession(), values = [];
-  for (let rep = 0; rep < reps; rep++) {
-    await page.goto(`${base}/__audio-bench__`, { timeout: 5000 });
-    const info = await page.evaluate(async ({ quality, output, mono, binaural, voices }) => {
-      const [{ AudioEngine }, { SoundData }] = await Promise.all([import("/src/audio/engine.js"), import("/src/audio/data.js")]);
-      const ctx = new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
-      const channels = ({ "5.1": 6, "7.1": 8, "7.1.4": 12 })[output] || 2;
-      // A unity output adapter lets a stereo null device accept the full
-      // requested graph. It performs no game mixing or signal processing.
-      const sink = ctx.createGain(); sink.channelCount = channels; sink.channelCountMode = "explicit"; sink.channelInterpretation = "discrete";
-      sink.connect(ctx.destination); Object.defineProperty(sink, "maxChannelCount", { value: channels }); Object.defineProperty(ctx, "destination", { value: sink });
-      const engine = new AudioEngine({ context: ctx }), r = engine.renderer;
-      const config = { quality, output, mono, dynamics: "normal", clarity: true };
-      if (binaural) r.decoder = { filters: Array.from({ length: 16 }, (_, c) => {
-        const b = ctx.createBuffer(2, 256, 48000);
-        for (let e = 0; e < 2; e++) b.getChannelData(e)[c + e + 1] = 0.1 / (c + 1);
-        return b;
-      }) };
-      r.setRoom({ room: 0.5, decay: 1.2, reflections: 0.3 });
-      await r.load(null, config); await r.configure(config);
-      const pcm = new Int16Array(22050);
-      for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(8000 * Math.sin(i / 7));
-      const name = (i) => `0x0000e${String(i).padStart(3, "0")}`;
-      engine.setData(new SoundData({ objects: Array.from({ length: voices }, (_, i) => ({
-        type: "SoundProperties", Name: name(i), Mode3D: 1, MinDistance: 2, MaxDistance: 400, MuteDistance: 400,
-        RollOff: 1, Looping: 1, PitchVariation: 0, ReverbGain: 0.5, SampleList: [["0x00000100", 1]],
-      })), samples: { "0x00000100": [0, pcm.length, 22050] } }, pcm.buffer));
-      for (let i = 0; i < voices; i++) engine.play(name(i), { position: { x: 30 * Math.sin(i), y: 2, z: 30 * Math.cos(i) }, loop: true, category: "ambience" });
-      for (const [channels, kind] of [[4, "ambience"], [2, "music"], [1, "voice"]]) {
-        const b = ctx.createBuffer(channels, 96000, 48000);
-        for (let c = 0; c < channels; c++) for (let i = 0; i < b.length; i++) b.getChannelData(c)[i] = 0.06 * Math.sin(i * (c + 1) * 0.03);
-        const lane = r.stream(channels, kind); lane.gain.value = 0.6; lane.start(b, ctx.currentTime, 1, true);
-      }
-      const probe = ctx.createAnalyser(); r.output.connect(probe);
-      let tick = 0;
-      const timer = setInterval(() => {
-        const t = ++tick / 60;
-        engine.setListener({ x: 3 * Math.sin(t), y: 1.6, z: Math.sin(t * 0.3) }, { x: -Math.sin(t * 0.8), y: 0, z: -Math.cos(t * 0.8) }, { x: 0, y: 1, z: 0 });
-        engine.update(1 / 60);
-      }, 1000 / 60);
-      window.audioBench = { ctx, timer, probe, r };
-      await ctx.resume();
-      return { rate: ctx.sampleRate, state: ctx.state, channels: r.channels, output: r.mode, binaural: r.binaural };
-    }, { quality, output, mono, binaural, voices });
-    if (info.state !== "running" || info.output !== output || info.binaural !== binaural) throw new Error(`Graph preflight failed: ${JSON.stringify(info)}`);
-    await pause(warm);
-    const check = async () => page.evaluate(() => {
-      const { probe, r } = window.audioBench, data = new Float32Array(2048); probe.getFloatTimeDomainData(data);
-      return { peak: data.reduce((p, v) => Math.max(p, Math.abs(v)), 0), error: r.error?.message };
-    });
-    const signal = await check();
-    if (errors.length || signal.error || !(signal.peak > 0.001)) throw new Error(`Audio preflight failed: ${JSON.stringify({ signal, errors })}`);
-    const pids = (await system.send("SystemInfo.getProcessInfo")).processInfo.filter((p) => p.type === "renderer").map((p) => p.id);
-    const before = counters(pids);
-    if (!before.size) throw new Error("No audio thread counters; refusing to report zero cost");
-    const start = process.hrtime.bigint(); await pause(seconds); const after = counters(pids), wall = Number(process.hrtime.bigint() - start);
-    let cpu = 0; for (const [key, ns] of after) if (before.has(key)) cpu += ns - before.get(key);
-    const final = await check();
-    if (errors.length || final.error || !(final.peak > 0.001)) throw new Error(`Audio failed during measurement: ${JSON.stringify({ final, errors })}`);
-    values.push(cpu / wall * 100);
-    await page.evaluate(async () => { clearInterval(window.audioBench.timer); await window.audioBench.ctx.close(); });
-    console.log(`round ${rep + 1}: ${values.at(-1).toFixed(1)}% of a core; ${JSON.stringify(info)}`);
+  const {targetInfos} = await send("Target.getTargets"), page = targetInfos.find((t)=>t.type === "page");
+  if (!page) throw Error("The connected app has no battle page");
+  session = (await send("Target.attachToTarget",{targetId:page.targetId,flatten:true})).sessionId;
+  await send("Runtime.enable",{},session); const results = [];
+  const probe = ()=>evaluate(`(()=> {
+    const b = window.__bf, a = b?.audio, r = a?.engine.renderer, ctx = a?.engine.ctx;
+    if (!a?.ready || !a.started || a.error || r?.error) throw Error(a?.error?.message || r?.error?.message || "Battle audio is not ready");
+    return {time:performance.now(),frame:b.profile?.frame ?? null,tick:b.worldClock.tick,rate:ctx.sampleRate,state:ctx.state,quality:r.enhanced?"enhanced":"original",output:r.mode,real:a.engine.stats.real,virtual:a.engine.stats.virtual};
+  })()`);
+  await evaluate("window.__bf.audio.engine.ctx.resume().then(()=>true)");
+  const setup = await probe(); if (setup.state !== "running") throw Error("The device clock is suspended");
+  // Confirm nonzero Rust output outside the measured CPU window, then
+  // detach the optional meter so its work is not reported as mixer cost.
+  await evaluate(`(()=> { window.__audioBenchPeak = -Infinity; const r = window.__bf.audio.engine.renderer; r.onMeter = (m)=> { window.__audioBenchPeak = Math.max(window.__audioBenchPeak,m.truePeak); }; r.meter(true); })()`);
+  await pause(Math.max(warm,1.5));
+  const peak = await evaluate(`(()=> { const r = window.__bf.audio.engine.renderer; r.meter(false); r.onMeter = null; return window.__audioBenchPeak; })()`);
+  if (!(peak > -96)) throw Error("No audible PCM reached the Rust output meter");
+  for (let rep=0;rep<reps;rep++) {
+    const pids = (await send("SystemInfo.getProcessInfo")).processInfo.filter((p)=>p.type==="renderer").map((p)=>p.id);
+    if (pids.length !== 1) throw Error("Use an isolated app with one page renderer for a page CPU measurement");
+    const info = await probe(), before = counters(pids), start = process.hrtime.bigint();
+    if (!before.audio.size) throw Error("No audio render thread was found; refusing to report zero cost");
+    await pause(seconds); const wall = Number(process.hrtime.bigint()-start), after = counters(pids), final = await probe();
+    if (errors.length) throw Error(errors.join("; "));
+    if (!(final.tick > info.tick) || final.state !== "running") throw Error("Battle or device clock stopped during the sample");
+    const result = {peakDbTP:peak,rep:rep+1,seconds:wall/1e9,audioCorePercent:delta(before.audio,after.audio,wall),pageCorePercent:delta(before.page,after.page,wall),ticksPerSecond:(final.tick-info.tick)/(wall/1e9),audioThreads:after.names,info,final};
+    results.push(result); console.log(JSON.stringify(result));
   }
-  values.sort((a, b) => a - b);
-  console.log(`${quality} ${output}, mono=${mono}, binaural=${binaural}, ${voices} voices + 3 beds: median ${((values[Math.floor((values.length - 1) / 2)] + values[Math.floor(values.length / 2)]) / 2).toFixed(1)}% of a core`);
-} finally { await page.goto("about:blank"); await browser.close(); }
+  if (process.env.AUDIO_BENCH_OUT) fs.writeFileSync(process.env.AUDIO_BENCH_OUT,JSON.stringify({setup,results},null,2)+"\n");
+} finally { ws.close(); }

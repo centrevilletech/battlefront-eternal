@@ -432,7 +432,7 @@ request:
 | Vehicle guns | 412 | | 0.1 to 4.5 s | 2.7 (9) | bursts at ShotDelay |
 
 What is heard and seen follows the shots. Every soldier's fire cycle plays
-FireSound, and a new one lets the last play out, as `src/audio/weapons.js`
+FireSound, and a new one lets the last play out, as `rust/audio-control/src/phase.rs`
 does: a pistol bot near the player is five sounds a second. Bolts fly at
 Velocity. The laser draws a core of min(LaserLength, flown) half LaserWidth
 wide and a glow of min(GlowLength, flown) 1.6 LaserWidth wide; the port's

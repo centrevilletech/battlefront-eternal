@@ -1,25 +1,8 @@
-import { readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fnv1a, hashKey } from "../src/audio/hash.js";
 import { decodeXboxAdpcm, decodeSubstreams } from "../src/audio/adpcm.js";
-import { distanceGain, pickSample } from "../src/audio/props.js";
-import { dopplerRate, graph } from "../src/audio/engine.js";
 import { LAYOUTS, autoLayout } from "../src/audio/layouts.js";
-import { BattleMusic } from "../src/audio/music.js";
-import { VoiceOver } from "../src/audio/vo.js";
-import { PlayerSounds } from "../src/audio/player.js";
-
-// Pure checks of the audio code, with made-up data (no retail assets).
-
-test("names hash as the engine hashes them (each byte OR 0x20)", () => {
-  assert.equal(hashKey("SoundProperties"), "0xee65c519");
-  assert.equal(hashKey("MinDistance"), "0xb835cf50");
-  // "_" becomes 0x7f, so this isn't the lowercase name's FNV-1a.
-  assert.equal(fnv1a("Value_ATK_CIS"), 0x00e73245);
-  assert.equal(hashKey("nab2cw"), "0xeb76afde");
-});
 
 // A tiny Xbox ADPCM encoder for test signals: the reference IMA step and
 // index rules, 64 frames per 36-byte block (header sample, 63 codes).
@@ -69,6 +52,15 @@ function encode(channels) {
   return out;
 }
 
+
+test("names hash as the engine hashes them (each byte OR 0x20)", () => {
+  assert.equal(hashKey("SoundProperties"), "0xee65c519");
+  assert.equal(hashKey("MinDistance"), "0xb835cf50");
+  // "_" becomes 0x7f, so this isn't the lowercase name's FNV-1a.
+  assert.equal(fnv1a("Value_ATK_CIS"), 0x00e73245);
+  assert.equal(hashKey("nab2cw"), "0xeb76afde");
+});
+
 test("Xbox ADPCM decodes a stereo test tone back to the tone", () => {
   const n = 64 * 40;
   const L = Float64Array.from({ length: n }, (_, i) => 12000 * Math.sin((2 * Math.PI * 440 * i) / 48000));
@@ -106,281 +98,9 @@ test("substreams interleave in fixed chunks and come back in order", () => {
   for (let i = 0; i < n; i += 97) assert.equal(out[2][i], ref[0][i]);
 });
 
-test("distance gain is full inside MinDistance, falls monotonically, and is silent past MaxDistance", () => {
-  const sound = { MinDistance: 11, MaxDistance: 400, MuteDistance: 400, RollOff: 3.5 };
-  assert.equal(distanceGain(sound, 5), 1);
-  assert.equal(distanceGain(sound, 11), 1);
-  let last = 1;
-  for (let d = 12; d < 400; d += 7) {
-    const g = distanceGain(sound, d);
-    assert.ok(g <= last + 1e-12 && g >= 0, `d=${d} g=${g}`);
-    last = g;
-  }
-  assert.equal(distanceGain(sound, 400), 0);
-  assert.equal(distanceGain(sound, 1000), 0);
-});
-
-test("samples are picked by weight", () => {
-  const list = [["a", 3], ["b", 1]];
-  const counts = { a: 0, b: 0 };
-  const real = Math.random;
-  let seed = 1;
-  Math.random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  try {
-    for (let i = 0; i < 4000; i++) counts[pickSample(list)[0]]++;
-  } finally {
-    Math.random = real;
-  }
-  assert.ok(Math.abs(counts.a / 4000 - 0.75) < 0.03, JSON.stringify(counts));
-  assert.equal(pickSample(list, (id) => id === "b")[0], "b");
-  assert.equal(pickSample([], () => true), null);
-});
-
-test("parameter graphs interpolate between points and hold past the ends", () => {
-  const points = [[0, 0], [0.5, 0.2], [1, 0.65]];
-  assert.equal(graph(points, -1), 0);
-  assert.ok(Math.abs(graph(points, 0.25) - 0.1) < 1e-12);
-  assert.ok(Math.abs(graph(points, 0.75) - 0.425) < 1e-12);
-  assert.equal(graph(points, 2), 0.65);
-});
-
 test("auto layout follows the device's channel count", () => {
   assert.equal(autoLayout(2), "stereo");
   assert.equal(autoLayout(6), "5.1");
   assert.equal(autoLayout(8), "7.1");
   assert.equal(autoLayout(12), "7.1.4");
 });
-
-test("Doppler is the original game's 1 + v / 344, and off at 172 m/s", () => {
-  // A bolt closing at 150 m/s plays 1.436x; going away at 150 m/s, 0.564x.
-  assert.ok(Math.abs(dopplerRate(150) - 1.43605) < 1e-5);
-  assert.ok(Math.abs(dopplerRate(-150) - 0.56395) < 1e-5);
-  assert.equal(dopplerRate(0), 1);
-  assert.equal(dopplerRate(172), 1);
-  assert.equal(dopplerRate(-400), 1);
-});
-
-// The battle's music with made-up tracks: team 1 listening, each team with a
-// start, middle, and end track at 100%, 99%, and 10% of 200 tickets.
-function musicRig() {
-  const plays = [];
-  const battle = { start: { 1: 200, 2: 200 }, reinforcements: { 1: 200, 2: 200 }, over: false };
-  const track = (rest) => ({ Priority: 0, FadeInTime: 1, FadeOutTime: 1, MinPlaybackTime: 5, MinInactiveTime: rest });
-  const configs = { a_start: track(90), a_middle: track(30), a_end: track(30), b_start: track(90), b_middle: track(30), b_end: track(30), a_win: track(0), a_lose: track(0) };
-  const audio = {
-    game: { battle },
-    data: { object: (kind, name) => configs[name] },
-    streams: {
-      play(stream, options) {
-        const voice = { stream, options, stopped: null, stop(fade) { this.stopped = fade; } };
-        plays.push(voice);
-        return voice;
-      },
-    },
-    endOfBattle() { audio.over = true; },
-  };
-  const mission = {
-    music: {
-      1: [[1, "a_start", 0, 1], [0.99, "a_middle", 1, 1], [0.1, "a_end", 2, 1]],
-      2: [[1, "b_start", 0, 1], [0.99, "b_middle", 1, 1], [0.1, "b_end", 2, 1]],
-    },
-    victory: { 1: "a_win" },
-    defeat: { 1: "a_lose" },
-  };
-  return { music: new BattleMusic(audio, mission, 1), battle, plays, audio };
-}
-
-test("music: thresholds are whole tickets, and team 2's tickets set the stage", () => {
-  const { music, battle, plays } = musicRig();
-  assert.deepEqual(music.slots[1].map((s) => s.threshold), [200, 198, 20]);
-  music.update(0.1);
-  assert.deepEqual(plays.map((p) => p.stream), ["a_start"]);
-  // Team 1 nearly out, team 2 untouched: team 2's start stage still holds.
-  battle.reinforcements[1] = 10;
-  music.update(0.1);
-  assert.equal(music.stage, 0);
-  battle.reinforcements[2] = 150;
-  music.update(0.1);
-  assert.equal(music.stage, 1);
-});
-
-test("music: a track plays at least MinPlaybackTime before the next stage takes over", () => {
-  const { music, battle, plays } = musicRig();
-  music.update(0.1);
-  battle.reinforcements[2] = 150;
-  music.update(1);
-  assert.equal(plays.length, 1, "the start track holds for 5 s");
-  assert.equal(plays[0].stopped, null);
-  music.update(4);
-  assert.equal(plays[0].stopped, 1, "then fades out over FadeOutTime");
-  assert.deepEqual(plays.map((p) => p.stream), ["a_start", "a_middle"]);
-});
-
-test("music: a track that ends rests MinInactiveTime before it plays again", () => {
-  const { music, plays } = musicRig();
-  music.update(0.1);
-  plays[0].options.onEnd(plays[0]);
-  for (let t = 0; t < 89; t++) music.update(1);
-  assert.equal(plays.length, 1);
-  music.update(1.5);
-  assert.deepEqual(plays.map((p) => p.stream), ["a_start", "a_start"]);
-});
-
-test("music: 2 s after a side runs out, everything stops and the outcome plays", () => {
-  const { music, battle, plays, audio } = musicRig();
-  music.update(0.1);
-  battle.over = true;
-  battle.reinforcements[1] = 0;
-  music.update(1.5);
-  assert.ok(!audio.over);
-  music.update(0.6);
-  assert.ok(audio.over);
-  assert.equal(plays[0].stopped, 0.05);
-  assert.equal(plays.at(-1).stream, "a_lose");
-});
-
-function voRig() {
-  const lines = [];
-  const battle = { bleed: { 1: 0, 2: 0 }, over: false };
-  const audio = { game: { battle }, streams: { queue: (name) => lines.push(name) } };
-  const world = { posts: { cp1: { vo: { VO_Rep_RepCapture: "we_took_it", VO_Rep_CisCapture: "they_took_it", VO_Rep_RepLost: "we_lost_it" } } } };
-  const mission = { bleeding: [[1, 1, "we_are_bleeding", 1], [1, 2, "they_are_bleeding", 1]] };
-  return { vo: new VoiceOver(audio, mission, world, 1, { 1: "Rep", 2: "Cis" }), battle, lines };
-}
-
-test("voice-over: command post lines by listener side, actor side, and event", () => {
-  const { vo, lines } = voRig();
-  const post = { desc: { name: "cp1" } };
-  vo.post({ kind: "captured", by: 1, post });
-  vo.post({ kind: "captured", by: 2, post });
-  vo.post({ kind: "neutralized", from: 1, post });
-  assert.deepEqual(lines, ["we_took_it", "they_took_it", "we_lost_it"]);
-});
-
-test("voice-over: bleeding plays at onset; only our own repeats, every 30 s", () => {
-  const { vo, battle, lines } = voRig();
-  battle.bleed[2] = 1;
-  vo.update(0.1);
-  for (let t = 0; t < 40; t++) vo.update(1);
-  assert.deepEqual(lines, ["they_are_bleeding"]);
-  battle.bleed[2] = 0;
-  vo.update(0.1);
-  battle.bleed[1] = 1;
-  vo.update(0.1);
-  for (let t = 0; t < 31; t++) vo.update(1);
-  assert.deepEqual(lines, ["they_are_bleeding", "we_are_bleeding", "we_are_bleeding"]);
-  // The enemy starting to bleed while we bleed: silent.
-  battle.bleed[2] = 1;
-  vo.update(0.1);
-  assert.equal(lines.length, 3);
-});
-
-// The player's feet: no skeleton (the stride alone), or the feet's bones.
-function feetRig(heights = null, { enhanced = true } = {}) {
-  const soldier = { position: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, dive: false, air: null, grounded: true };
-  const foot = (h) => ({ getWorldPosition: (v) => (v.y = soldier.position.y + h()) });
-  const actor = heights ? { byName: { bone_l_foot: foot(heights.left), bone_r_foot: foot(heights.right) } } : null;
-  const rustles = [];
-  const audio = {
-    game: { soldier, combat: { dead: false, mounted: false }, actor, unit: "x" },
-    engine: { renderer: { enhanced } },
-    scratch: { y: 0 },
-    data: { classSounds: () => ({}) },
-    playClass: (cls, key) => rustles.push(key) && null,
-  };
-  const player = new PlayerSounds(audio);
-  const steps = [];
-  player.step = (f) => {
-    player.feet.flags[f] = false;
-    steps.push(f === 0 ? "L" : "R");
-  };
-  return { player, soldier, steps, rustles };
-}
-
-test("footsteps: the stride steps every 1.75 m, right foot first, rustling at each half", () => {
-  const { player, soldier, steps, rustles } = feetRig();
-  soldier.velocity.x = 5;
-  for (let i = 0; i < 120; i++) player.updateFeet(1 / 60);
-  assert.deepEqual(steps, ["R", "L", "R", "L", "R"]);
-  // Flagged at 0.875 m and every 1.75 m after: six in 10 m.
-  assert.equal(rustles.filter((k) => k === "ClothingRustleSound").length, 6);
-});
-
-test("footsteps: stopping steps the foot already flagged", () => {
-  const { player, soldier, steps } = feetRig();
-  soldier.velocity.x = 5;
-  for (let i = 0; i < 12; i++) player.updateFeet(1 / 60);
-  assert.deepEqual(steps, []);
-  soldier.velocity.x = 0;
-  player.updateFeet(1 / 60);
-  assert.deepEqual(steps, ["R"]);
-});
-
-test("footsteps: a foot dropping faster than 0.3 m/s and rising from under 0.17 m steps", () => {
-  let t = 0;
-  // The left foot falls from 0.3 m to 0.05 m at 1 m/s and rises again;
-  // the right foot drifts down at 0.2 m/s, too slow to count.
-  const left = () => (t < 0.25 ? 0.3 - t : Math.min(0.05 + (t - 0.25), 0.3));
-  const right = () => 0.3 - 0.2 * Math.min(t, 0.5);
-  const { player, steps } = feetRig({ left, right });
-  for (let i = 0; i < 40; i++) {
-    t = i / 60;
-    player.updateFeet(1 / 60);
-  }
-  assert.deepEqual(steps, ["L"]);
-});
-
-// A running foot cycle like the port's: each foot planted at about 0.12 m
-// for a third of the cycle with a few millimetres of wobble, swinging up to
-// 0.5 m in between, the feet half a cycle apart.
-function runningFeet(period = 0.62) {
-  let t = 0;
-  const foot = (phase) => () => {
-    const u = ((t / period + phase) % 1 + 1) % 1;
-    const wobble = 0.006 * Math.sin(t * 60 * Math.PI); // flips sign every frame at 60 Hz
-    if (u < 0.35) return 0.122 + wobble;
-    return 0.122 + 0.38 * Math.sin(((u - 0.35) / 0.65) * Math.PI);
-  };
-  return { left: foot(0), right: foot(0.5), advance: (dt) => (t += dt) };
-}
-
-test("footsteps: one step a footfall while the feet animate, wobble and stride notwithstanding", () => {
-  const feet = runningFeet();
-  const { player, soldier, steps } = feetRig(feet);
-  soldier.velocity.x = 6.5;
-  for (let i = 0; i < 240; i++) {
-    feet.advance(1 / 60);
-    player.updateFeet(1 / 60);
-  }
-  // 4 s at a 0.62 s cycle: about 6.5 cycles, two footfalls each.
-  assert.ok(steps.length >= 11 && steps.length <= 14, `${steps.length} steps: ${steps.join("")}`);
-  for (let i = 1; i < steps.length; i++) assert.notEqual(steps[i], steps[i - 1], `feet alternate: ${steps.join("")}`);
-});
-
-test("footsteps: in the air the enhanced mode is silent; the original's stride steps on", () => {
-  for (const enhanced of [true, false]) {
-    const { player, soldier, steps } = feetRig(null, { enhanced });
-    soldier.air = "jet";
-    soldier.grounded = false;
-    soldier.velocity.x = 8;
-    soldier.velocity.y = 2;
-    for (let i = 0; i < 120; i++) player.updateFeet(1 / 60);
-    if (enhanced) assert.deepEqual(steps, []);
-    // 2 s at |v| = 8.25 m/s: 16.5 m, a step every 1.75 m.
-    else assert.equal(steps.length, 9);
-  }
-});
-
-// Frozen decoder outputs include clipped predictors, index clamping and
-// incomplete trailing blocks, in mono, stereo, four-channel and quad chunks.
-for (const row of JSON.parse(readFileSync(new URL("./fixtures/audio/adpcm.json", import.meta.url)))) {
-  test(`recorded ADPCM: ${row.channels} channels, ${row.count} substreams`, () => {
-    const bytes = new Uint8Array(row.interleave * row.count * 5 + 7);
-    let seed = 7;
-    for (let i = 0; i < bytes.length; i++) { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; bytes[i] = seed & 255; }
-    const output = decodeSubstreams(bytes, row.channels, row.count, row.interleave);
-    assert.equal(output[0].length, row.frames);
-    const pcm = Buffer.concat(output.map((a) => Buffer.from(a.buffer, a.byteOffset, a.byteLength)));
-    assert.equal(createHash("sha256").update(pcm).digest("hex"), row.sha256);
-  });
-}

@@ -32,6 +32,7 @@ path = "src/bin/nav-twin.rs"
 required-features = ["nav-twin"]
 
 [dependencies]
+audio-control = { path = "../audio-control" }
 # The game's content as JavaScript loads it, and the JavaScript and
 # three.js arithmetic its loaders share with the simulation (a body's
 # class numbers, units/class.rs).

@@ -36,6 +36,7 @@ class AudioOutput extends AudioWorkletProcessor {
     this.h = null;
     this.outs = null;
     this.configure(options.processorOptions);
+    this.recycle = { type: "control-buffer", data: null }; this.recycleTransfer = [null];
     this.streams = []; this.poll = 0;
     this.port.onmessageerror = () => this.port.postMessage({ type: "error", message: "audio: the Rust output could not read a command; reload the game" });
     // Worklet messages and render callbacks execute serially on this thread.
@@ -45,7 +46,8 @@ class AudioOutput extends AudioWorkletProcessor {
       try {
         const x = this.x;
         const h = this.h;
-        if (m.type === "configure") this.configure(m.options);
+        if (m.type === "controls") this.controls(m.data);
+        else if (m.type === "configure") this.configure(m.options);
         else if (m.type === "stream") this.attachStream(m);
         else if (m.type === "sample") {
           this.detachStream(m.id);
@@ -54,11 +56,11 @@ class AudioOutput extends AudioWorkletProcessor {
         } else if (m.type === "release-samples") {
           for (const id of m.ids) { this.detachStream(id); x.output_free_sample(h, id); }
         } else if (m.type === "voices") {
-          const at = x.output_commands_ptr(h, m.data.length);
+          const at = x.output_commands_ptr(h, Math.max(m.data.length, 65536));
           new Float64Array(x.memory.buffer, at, m.data.length).set(m.data);
           x.output_commands(h, m.data.length);
         } else if (m.type === "params") {
-          const at = x.output_cfg(h, m.data.length);
+          const at = x.output_cfg(h, Math.max(m.data.length, 8192));
           new Float64Array(x.memory.buffer, at, m.data.length).set(m.data);
           x.output_params(h, m.data.length);
         } else if (m.type === "room") {
@@ -78,6 +80,7 @@ class AudioOutput extends AudioWorkletProcessor {
     else x.output_rebuild(this.h, o.channels, o.enhanced ? 1 : 0, o.headphones ? 1 : 0, o.binaural ? 1 : 0, o.mono ? 1 : 0);
     const h = this.h;
     this.channels = o.channels;
+    this.controlLayout = o.controlLayout;
     const speakers = o.speakers;
     const decoder = o.decoder;
     const data = [];
@@ -102,8 +105,26 @@ class AudioOutput extends AudioWorkletProcessor {
       for (let i = 0; i < 32; i++) dest.set(o.filters[i], i * frames);
       x.output_decoder_ready(h, frames);
     }
+    this.controlCommandsAt = x.output_commands_ptr(h, 65536); this.controlParamsAt = x.output_cfg(h, 8192); this.controlRoomAt = x.output_io(h);
     this.refresh();
     this.port.postMessage({ type: "ready", id: o.id });
+  }
+  // The control phase lends a reserved transfer buffer. Copy just its used
+  // prefix, apply native commands and placement, then return ownership. No
+  // arrays or views are constructed for an ordinary presented frame.
+  controls(data) {
+    const layout = this.controlLayout;
+    if (!layout) throw Error("audio: missing generated control layout");
+    const commands = data[layout.COMMANDS], placements = data[layout.PLACEMENTS];
+    if (commands > 65536 || placements > 8192 || layout.STRIDE + commands + placements > data.length) throw Error("audio: invalid control batch");
+    if (!this.outs[0].byteLength) this.refresh();
+    for (let i = 0; i < commands; i++) this.controlCommands[i] = data[layout.STRIDE + i];
+    for (let i = 0; i < placements; i++) this.controlParams[i] = data[layout.STRIDE + commands + i];
+    const mask = data[layout.ROOM_CHANGED];
+    if (mask) { for (let i = 0; i < ROOM.length; i++) this.controlRoom[i] = data[layout.ROOM + i]; this.controlRoom[ROOM.length] = mask; this.x.output_room(this.h, 0); }
+    if (commands) this.x.output_commands(this.h, commands);
+    if (placements) this.x.output_params(this.h, placements);
+    this.recycle.data = data; this.recycleTransfer[0] = data.buffer; this.port.postMessage(this.recycle, this.recycleTransfer);
   }
   // PCM and credits travel directly between the loading worker and
   // this host. The render callback only polls preallocated records.
@@ -171,6 +192,9 @@ class AudioOutput extends AudioWorkletProcessor {
     this.outs = views(this.x, this.x.output_out(this.h), this.channels);
     this.reading = new Float64Array(this.x.memory.buffer, this.x.output_io(this.h), 1);
     this.report ||= { reduction: 0 };
+    this.controlCommands = new Float64Array(this.x.memory.buffer, this.controlCommandsAt, 65536);
+    this.controlParams = new Float64Array(this.x.memory.buffer, this.controlParamsAt, 8192);
+    this.controlRoom = new Float64Array(this.x.memory.buffer, this.controlRoomAt, ROOM.length + 1);
   }
   // Rust owns playback through the final master sample. This callback copies
   // the completed planar lanes to Web Audio's device buffer and zeros unused

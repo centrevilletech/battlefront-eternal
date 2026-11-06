@@ -66,12 +66,12 @@ does, on the page in every mode, from what every host gives it: its state
   have no `hp_smoke_1`, so theirs rise from the base) while built and its
   health is in the record's band; destroyed, its pieces fly (`Debris`),
   passing through the wreck they start inside; built again, a new life.
-- `src/audio/vehicles.js` `updateBuildings` sounds whoever mans it, the player,
+- `rust/audio-control/src/vehicles.rs` `updateBuildings` sounds whoever mans it, the player,
   a bot, or another player online: `TurretActivateSound` as the lease arrives,
   the yaw and pitch whirs while the drum turns (at its `MaxTurnSpeed`),
   `TurretDeactivateSound` as the lease goes. Destroyed while manned, it falls
   silent without a sound. The player's own turret has no separate path in
-  `src/audio/scene.js`.
+  `rust/audio-control/src/scene.rs`.
 
 What the retail classes give:
 
