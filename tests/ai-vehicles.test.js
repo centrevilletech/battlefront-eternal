@@ -174,7 +174,7 @@ test('stale leases steer nothing: a respawned or dead occupant is let go', () =>
   const pilot = bot();
   assert.ok(system.board(pilot, a, 0));
   pilot.intent.forward = 1;
-  pilot.generation += 1; // died and respawned elsewhere; the integrator's spawn reset left seat as is
+  pilot.f3.advanceLife(pilot); // a reconnect advances life without moving the body
   const start = a.position.clone();
   const where = pilot.soldier.position.clone();
   system.update(1 / 60);
@@ -186,7 +186,7 @@ test('stale leases steer nothing: a respawned or dead occupant is let go', () =>
   // A unit that died in its seat.
   const gunner = bot();
   assert.ok(system.board(gunner, a, 1));
-  gunner.alive = false; gunner.dead = true;
+  gunner.combat.damage(Infinity);
   system.update(1 / 60);
   same(a.seats[1].lease, null);
   // A lease from a past life never matches the unit's current seat.
@@ -314,6 +314,7 @@ function aiWorld({ base = 'hover', hard = false, extra = {} } = {}) {
   const fx = fixture({ base, extra });
   const units = new Units();
   fx.system.attachUnits(units);
+  fx.system.f3; // Complete the owner before the fixture admits AI bodies.
   const world = {
     time: 0, random: new ClassicRandom(7), randomB: new ClassicRandom(9), units,
     relation: (a, b) => units.relation(a, b),
@@ -968,6 +969,7 @@ test('with every Classic module loaded: board, crew wait, then drive a Nav route
   const fx = fixture();
   const units = new Units();
   fx.system.attachUnits(units);
+  fx.system.f3; // Complete the owner before the fixture admits AI bodies.
   const world = {
     time: 0, random: new ClassicRandom(7), randomB: new ClassicRandom(9), units,
     relation: (a, b) => units.relation(a, b),
@@ -981,8 +983,6 @@ test('with every Classic module loaded: board, crew wait, then drive a Nav route
   vehicleAI.adaptClassicAI(handle.ai);
   const env = { ...fx, units, world, ai: handle.ai };
   const unit = soldierUnit(units, 1, 2.5, 0);
-  unit.combat.arsenal = { weapons: [], current: () => null, channels: [[], []], selected: [0, 0] };
-  unit.combat.maxHealth = 300;
   const character = enlist(env, unit);
   const controller = character.controller;
   controller.commands.overwrite(SourceGoal.of(GOAL.WAIT));

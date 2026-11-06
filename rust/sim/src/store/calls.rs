@@ -48,11 +48,15 @@ impl Default for Events {
 }
 
 impl Events {
-    /// Reserve the phase journal while loading, before gameplay can emit.
-    pub fn reserve(&mut self, words: usize, row: usize, heap: usize) {
+    /// Reserve a phase's event working set during construction. Payloads keep
+    /// their generated layouts and append directly; publication need not rebuild
+    /// the events already delivered at an earlier synchronous observation point.
+    pub fn reserve(&mut self, words: usize, record: usize, heap: usize) {
         self.words.reserve(words.saturating_sub(self.words.len()));
-        self.row.reserve(row); self.heap.reserve(heap);
+        self.row.reserve(record.saturating_sub(self.row.len()));
+        self.heap.reserve(heap.saturating_sub(self.heap.len()));
     }
+
     /// Emits an event of `code` whose record is `words` words long.
     pub fn emit(&mut self, code: u32, words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) {
         self.row.clear();

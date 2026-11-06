@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiFireOp_NAMES = ["start","selected","requests","target","validate","charge","single","cannon","gravity","limit","chargeDraw","chargeHeld","drawRange","drawInt","sniper","idle","deployer","clearRequests","burst","burstHeat","protected","spread","buttons"];
 export const AiFireOp_INDEX = new Map(AiFireOp_NAMES.map((name, i) => [name, i]));
+export const AiFireOp_VALUE = Object.freeze({"start":0,"selected":1,"requests":2,"target":3,"validate":4,"charge":5,"single":6,"cannon":7,"gravity":8,"limit":9,"chargeDraw":10,"chargeHeld":11,"drawRange":12,"drawInt":13,"sniper":14,"idle":15,"deployer":16,"clearRequests":17,"burst":18,"burstHeat":19,"protected":20,"spread":21,"buttons":22});
 
 export class AiFireArgsMirror {
   constructor() {
@@ -55,7 +56,7 @@ export class AiFireResultMirror {
 export function syncAiFireResult(b, f, at, h, m) {
   m.number = f[at + 0];
   m.flag = f[at + 1] !== 0;
-  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 

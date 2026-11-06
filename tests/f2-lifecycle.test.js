@@ -2,7 +2,6 @@ import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { F2MemberLayout } from '../src/sim/gen/f2.js';
 
 const content = contentPath();
 test('F2 keeps pooled identity through death and respawn and rejects retired handles', {
@@ -23,7 +22,7 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   v.damage(Infinity);
   assert.equal(v.alive, false);
   assert.equal(v.slot.remaining, v.slot.desc.respawnTime);
-  for (let tick = 1; tick < 3000 && !v.alive; tick++) vs.update(1 / 60);
+  for (let tick = 1; tick < 3000 && !v.alive; tick++) game.unitsSim.phase(1 / 60);
   assert.ok(v.alive, 'the native spawn clock respawns the hull');
   assert.equal(v.aiTarget, target);
   assert.equal(v.position, position);
@@ -32,7 +31,7 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   assert.equal(f2.x.f2_command(slot, gen, generation, 0, 10, 0, 0, 0), 0, 'stale gameplay life rejected');
   const flyer = vs.vehicles.find(v => v.flying), flyerPad = flyer.slot;
   f2.retire(flyer);
-  vs.update(1 / 60);
+  game.unitsSim.phase(1 / 60);
   const fresh = flyerPad.vehicle;
   assert.notEqual(fresh, flyer);
   assert.ok(fresh.alive);
@@ -45,7 +44,7 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   v.health++;
   f2.retire(v);
   assert.equal(f2.x.f2_command(slot, gen, target.generation, 1, 10, 0, 0, 0), 0);
-  vs.update(1 / 60);
+  game.unitsSim.phase(1 / 60);
   const replacement = v.slot.vehicle;
   assert.ok(replacement.alive);
   assert.notEqual(replacement, v);
@@ -55,15 +54,9 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   assert.equal(f2.pool.at(replacement.simSlot, replacement.simGen), replacement);
   // Registry entries can outlive a retired hull. They must remain dead facts,
   // rather than asking targeting to resolve the replacement in the same slot.
-  f2.foreignIn();
-  // The phase retains registry rows and sends only changes. The committed
-  // cache is the input already imported by the preceding native step; there
-  // need not be another copy of this dead fact in the next delta batch.
   const index = game.units.all().indexOf(target);
   assert.ok(index >= 0, 'the retired target is still in registry order');
-  const words = f2.memberCache, at = index * F2MemberLayout.words;
-  assert.equal(words[at + F2MemberLayout.id], target.id);
-  const oldTarget = [words[at + F2MemberLayout.kind], words[at + F2MemberLayout.alive]];
-  assert.deepEqual(oldTarget, [2, 0], 'retired registry identity stays a dead foreign fact');
+  assert.equal(target.alive,false);
+  assert.ok(!game.units.query(target.position,10,[]).includes(target), 'canonical queries skip the retired target');
   assert.equal(f2.x.f2_command(slot, gen, target.generation, 1, 10, 0, 0, 0), 0, 'slot reuse cannot retarget the old identity');
 });

@@ -60,7 +60,7 @@ export function createWireSemanticBridge(bridge) {
     into.bytes.set(bytes); return into.bytes.subarray(0, bytes.length);
   }
   function droideka(d) {
-    const prerequisite = d.clips instanceof Map && typeof d.clip === 'function' && typeof d.toggleShield === 'function'
+    const prerequisite = d.clips instanceof Map && typeof d.clip === 'function'
       && ['position', 'velocity', 'avoidance', 'previous', 'settled'].every(key => d[key]?.isVector3);
     const words = [+prerequisite, num(d.mode), num(d.gun), flag(d.grounded), flag(d.reverse), flag(d.dead), +!!d.shield];
     if (d.shield) words.push(flag(d.shield.on), num(d.shield.value), Number(d.shield.max));

@@ -1,3 +1,5 @@
+import { f3World } from './fixtures/f3-world.js';
+import './fixtures/native-anim.js';
 import { contentPath } from './helpers/content.js';
 import {presentUnit} from './helpers/presentation.js';
 import {EntityWorldCapture} from '../src/runtime/network-entity-capture.js';
@@ -42,7 +44,14 @@ const walk = {
 };
 const ground = () => new CollisionWorld(new Float32Array([-100, 0, -100, 100, 0, -100, 100, 0, 100, -100, 0, 100]), new Uint32Array([0, 2, 1, 0, 3, 2]), new Uint32Array([0, 1]));
 
-function battle(headless) {
+async function battle(headless) {
+  if (headless) {
+    const world = await f3World({deka:{...def,class:'deka'}}, {
+      prepareUnit:unit => unit.soldier.arm(def.weapons),
+    });
+    world.playerUnit = {}; world.battle = {characters:[]};
+    return world;
+  }
   const units = new Units();
   const factory = new UnitFactory({ cis: { dir: '/sides/cis', units: { deka: def }, items: {}, texture: () => null, firePoints: {} } }, {
     graphics: { caster() {}, hiddenLayer: 1 }, scene: new THREE.Scene(), collision: ground(), animMeta: { fps: 30, clips: {}, sets: {} }, animBuf: new ArrayBuffer(0),
@@ -54,6 +63,11 @@ function battle(headless) {
   return { units, factory, playerUnit: {}, battle: { characters: [] } };
 }
 
+function toggle(world,unit) {
+  unit.intent.buttons[1]=1;world.phase.phase(1/60);
+  unit.intent.buttons[1]=0;world.phase.phase(1/60);
+}
+
 function link(world,page) {
   const registry={classes:new Map([[1,'deka']]),weapons:new Map([[1,'repeater'],[2,'shield']])};
   const capture=new EntityWorldCapture(world,registry);
@@ -63,8 +77,8 @@ function link(world,page) {
   return ()=>{for(const r of capture.capture(++tick))if(r.kind==='droideka')adapter.droideka(r);};
 }
 
-test('a page keeps what it draws a body with when the world it shows is replicated onto it', () => {
-  const world = battle(true), page = battle(false);
+test('a page keeps what it draws a body with when the world it shows is replicated onto it', async() => {
+  const world = await battle(true), page = await battle(false);
   const authority = world.factory.build('deka'), drawn = page.factory.build('deka');
   assert.equal(authority.id, drawn.id);
   // Whatever the drawing build adds that the headless one leaves empty is the
@@ -75,7 +89,7 @@ test('a page keeps what it draws a body with when the world it shows is replicat
   const kept = Object.fromEntries(own.map((key) => [key, drawn[key]]));
   const send = link(world, page);
   authority.spawn(3, 0, 4, 0);
-  authority.soldier.toggleShield();
+  toggle(world,authority);
   send();
   for (const key of own) assert.equal(drawn[key], kept[key], `${key} survives the keyframe`);
   assert.equal(drawn.removed, false);
@@ -88,18 +102,18 @@ test('a page keeps what it draws a body with when the world it shows is replicat
   // Lowered in the world, it goes on the page. (The page's own frame let
   // go of the idle flame; it is the page's to keep or drop, not a packet's.)
   drawn.jetFlame = kept.jetFlame;
-  authority.soldier.toggleShield();
+  toggle(world,authority);
   for (let i = 0; i < 3; i++) send();
   for (const key of own) assert.equal(drawn[key], kept[key], `${key} survives later packets`);
   presentUnit(drawn,1, 1);
   assert.equal(drawn.bubble.mesh.visible, false);
 });
 
-test('a unit off the field draws nothing, whatever its body was last told', () => {
-  const page = battle(false), unit = page.factory.build('deka');
+test('a unit off the field draws nothing, whatever its body was last told', async() => {
+  const page = await battle(false), unit = page.factory.build('deka');
   unit.spawn(0, 0, 0, 0);
-  unit.soldier.toggleShield();
-  presentUnit(unit,0.5, 1);
+  unit.soldier.shield.on = true;
+  presentUnit(unit,0.5,1);
   assert.equal(unit.actor.root.visible, true);
   assert.equal(unit.bubble.mesh.visible, true);
   // A packet that removes it but leaves its body shown (as a dedicated
@@ -112,12 +126,12 @@ test('a unit off the field draws nothing, whatever its body was last told', () =
   assert.equal(unit.bubble.fade, 0);
 });
 
-test('every life of a droideka starts with its shield full and down', () => {
-  const world = battle(true), unit = world.factory.build('deka');
+test('every life of a droideka starts with its shield full and down', async() => {
+  const world = await battle(true), unit = world.factory.build('deka');
   unit.spawn(0, 0, 0, 0);
   assert.deepEqual([unit.soldier.shield.on, unit.soldier.shield.value], [false, 4000]);
-  unit.soldier.toggleShield();
-  unit.soldier.shield.value = 120;
+  toggle(world,unit);
+  unit.combat.damage(1,3880);
   unit.remove();
   unit.spawn(5, 0, 5, 0);
   assert.deepEqual([unit.soldier.shield.on, unit.soldier.shield.value], [false, 4000]);

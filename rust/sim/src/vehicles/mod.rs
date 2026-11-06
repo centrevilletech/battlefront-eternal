@@ -28,6 +28,7 @@
 
 pub mod build;
 pub mod class;
+pub mod damage;
 pub mod firing;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "module/f2/firing.rs"]
@@ -85,6 +86,37 @@ pub struct Polygon {
     pub triangles: Vec<[Vector3; 3]>,
 }
 
+/// hoverContacts reads the gather until its next query. Native worlds lend
+/// that prepared storage directly; replay hosts retain their decoded rows.
+/// Neither representation changes polygon or triangle visitation order.
+pub enum SpringPolygons<'a> {
+    Recorded(&'a [Polygon]),
+    Native(&'a [crate::collision::spheres::Polygon]),
+}
+
+impl SpringPolygons<'_> {
+    pub fn len(&self) -> usize {
+        match self { Self::Recorded(rows) => rows.len(), Self::Native(rows) => rows.len() }
+    }
+    pub fn moving(&self, index: usize) -> bool {
+        match self { Self::Recorded(rows) => rows[index].moving, Self::Native(rows) => rows[index].moving }
+    }
+    pub fn triangles(&self, index: usize) -> usize {
+        match self { Self::Recorded(rows) => rows[index].triangles.len(), Self::Native(rows) => rows[index].tris.len() }
+    }
+    pub fn triangle(&self, index: usize, triangle: usize) -> [Vector3; 3] {
+        match self {
+            Self::Recorded(rows) => rows[index].triangles[triangle],
+            Self::Native(rows) => {
+                let t = &rows[index].tris[triangle];
+                [Vector3::new(t.a[0], t.a[1], t.a[2]),
+                 Vector3::new(t.b[0], t.b[1], t.b[2]),
+                 Vector3::new(t.c[0], t.c[1], t.c[2])]
+            }
+        }
+    }
+}
+
 /// What a hull asks of the rest of the battle (src/vehicles-world.js), each
 /// call as the JavaScript makes it. `hull` names a hull by its place in the
 /// battle's list (Vehicles.vehicles).
@@ -108,7 +140,7 @@ pub trait VehicleWorld {
     fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<Ground>;
     /// The polygons near spring `index` of a hover (CollisionWorld.gather
     /// through the spring's cache), into `out`.
-    fn spring_polygons(&mut self, hull: usize, index: usize, center: &Vector3, radius: f64, out: &mut Vec<Polygon>);
+    fn spring_polygons<'a>(&'a mut self, hull: usize, index: usize, center: &Vector3, radius: f64, out: &'a mut Vec<Polygon>) -> SpringPolygons<'a>;
     /// CollisionWorld.moveBody.
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4);
     /// A body in or out of the collision's queries.

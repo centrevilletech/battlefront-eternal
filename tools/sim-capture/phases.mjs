@@ -34,3 +34,8 @@ export const PHASES = [
 ].map(([name, rust, what]) => ({ name, rust, what }));
 
 export const PHASE_NAMES = PHASES.map((p) => p.name);
+
+// A combined native owner replaces these former JavaScript phase boundaries.
+// Keep their names above so historical capture files still decode unchanged.
+const nativeMembers = new Set(['restorePose','vehicles','turretSeats','gunner','remotes','separate']);
+export const LIVE_PHASES = PHASES.filter(phase => !nativeMembers.has(phase.name));

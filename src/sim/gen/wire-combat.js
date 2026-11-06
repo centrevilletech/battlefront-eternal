@@ -58,12 +58,12 @@ export function syncWbEncode(b, f, at, h, m) {
   m.channel = f[at + 10];
   m.launchTick = f[at + 11];
   m.executionTick = f[at + 12];
-  { const items = (m.position ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.direction ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.offset ??= []), start = h + f[at + 17], n = f[at + 18]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.velocity ??= []), start = h + f[at + 19], n = f[at + 20]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.quaternion ??= []), start = h + f[at + 21], n = f[at + 22]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.end ??= []), start = h + f[at + 23], n = f[at + 24]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.position ??= []), start = h + f[at + 13], n = f[at + 14]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.direction ??= []), start = h + f[at + 15], n = f[at + 16]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.offset ??= []), start = h + f[at + 17], n = f[at + 18]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.velocity ??= []), start = h + f[at + 19], n = f[at + 20]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.quaternion ??= []), start = h + f[at + 21], n = f[at + 22]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.end ??= []), start = h + f[at + 23], n = f[at + 24]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.positionArray = f[at + 25] !== 0;
   m.directionArray = f[at + 26] !== 0;
   m.offsetArray = f[at + 27] !== 0;
@@ -77,7 +77,7 @@ export function syncWbEncode(b, f, at, h, m) {
   m.attackerGeneration = f[at + 35];
   m.team = f[at + 36];
   m.attackerTeam = f[at + 37];
-  { const items = (m.source ??= []), start = h + f[at + 38], n = f[at + 39]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.source ??= []), start = h + f[at + 38], n = f[at + 39]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.hasSource = f[at + 40] !== 0;
   m.wet = f[at + 41] !== 0;
   m.terminal = f[at + 42] !== 0;
@@ -288,9 +288,9 @@ export class WbResultMirror {
 export function syncWbResult(b, f, at, h, m) {
   { const tag = f[at + 0]; if (tag === 0) { m.error = b.strings.at(f[at + 1]); } else m.error = tag === 1 ? null : undefined; }
   m.key = f[at + 2];
-  { const items = (m.ids ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.ids ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.nextId = f[at + 5];
-  { const items = (m.faults ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  { const items = (m.faults ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
   return m;
 }
 

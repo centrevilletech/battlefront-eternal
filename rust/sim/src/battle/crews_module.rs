@@ -15,8 +15,11 @@ fn v3(v: [f64; 3]) -> Vector3 { Vector3::new(v[0], v[1], v[2]) }
 fn a3(v: &Vector3) -> [f64; 3] { [v.x, v.y, v.z] }
 fn reason(v: SeatReason) -> Reason { match v { SeatReason::Exit => Reason::Exit, SeatReason::Stale => Reason::Stale, SeatReason::Killed => Reason::Killed, SeatReason::Destroyed => Reason::Destroyed, SeatReason::Displaced => Reason::Displaced } }
 fn why(v: Reason) -> SeatReason { match v { Reason::Exit => SeatReason::Exit, Reason::Stale => SeatReason::Stale, Reason::Killed => SeatReason::Killed, Reason::Destroyed => SeatReason::Destroyed, Reason::Displaced => SeatReason::Displaced } }
+// This callback adapter resolves the already imported identity. The owned
+// fleet passes its local Store directly to the same qualified lookup.
+fn unit_ref(id: u32) -> Ref<Unit> { seats::unit_ref(&sim().store, id) }
 fn attacker(v: By) -> Attacker { match v {
-    By::Nobody => Attacker::Null, By::Player => Attacker::Player, By::Unit(n) => Attacker::Unit(seats::unit_ref(n)), By::Record(v) => v,
+    By::Nobody => Attacker::Null, By::Player => Attacker::Player, By::Unit(n) => Attacker::Unit(unit_ref(n)), By::Record(v) => v,
     By::Hull(_) => unreachable!("live crews carry the combat schema's attacker references"),
 } }
 fn turret(holder: Holder) -> f64 { match holder { Holder::Turret(n) => n as f64, Holder::Hull(_) => unreachable!("turret crew holder") } }
@@ -61,11 +64,11 @@ fn record(st: &Store, crews: &Crews, latched: Vec<Ref<SeatUnit>>) -> PcState {
     PcState { time: st.turret_seats.time, ticks: st.turret_seats.ticks, leases: st.turret_seats.leases.clone(),
         rows: st.seat_lease.iter().map(|(r,_)| r).collect(), units: st.unit.iter().map(|(r,_)| r).collect(),
         turrets: crews.turrets.iter().map(|t| PcTurret { state: super::turrets::state(t), turret: t.turret, alive: t.alive, lease: t.lease,
-            gunner: t.gunner.map(seats::unit_ref), attacker: attacker(t.last_attacker), center: a3(&t.sphere.0), radius: t.sphere.1, weapon: t.weapon,
+            gunner: t.gunner.map(unit_ref), attacker: attacker(t.last_attacker), center: a3(&t.sphere.0), radius: t.sphere.1, weapon: t.weapon,
             missile_lock: t.missile_lock, body: t.desc.body, rider: t.desc.rider, shootable: t.desc.shootable }).collect(),
         riders: crews.riders.iter().map(|(&unit, r)| {
-            let combat = &st.unit.get(seats::unit_ref(unit)).expect("crew combat flags").combat;
-            PcRider { unit: seats::unit_ref(unit), no_enter: r.no_enter,
+            let combat = &st.unit.get(unit_ref(unit)).expect("crew combat flags").combat;
+            PcRider { unit: unit_ref(unit), no_enter: r.no_enter,
                 zoom_step: r.combat.zoom_step, zoom: r.combat.zoom, first_person: r.combat.first_person, blow_apart: r.combat.blow_apart,
                 dead: combat.dead, mounted: combat.mounted, gun_underwater: combat.gun_underwater, aim_override: combat.aim_override.clone() }
         }).collect(),
@@ -86,7 +89,7 @@ struct JsWorld { latched: usize }
 impl JsWorld {
     fn args(&self, kind: PcActionKind) -> PcAction { PcAction { kind, ..PcAction::default() } }
     fn unit(&mut self, kind: PcActionKind, unit: u32, yaw: f64, point: [f64;3]) {
-        import_pc_action(&PcAction { unit: Some(seats::unit_ref(unit)), yaw, point, ..self.args(kind) });
+        import_pc_action(&PcAction { unit: Some(unit_ref(unit)), yaw, point, ..self.args(kind) });
     }
 }
 impl SeatWorld for JsWorld {
@@ -118,7 +121,7 @@ impl SeatWorld for JsWorld {
         import_pc_action(&PcAction { point: a3(center), value: radius, body: ignore, ..self.args(PcActionKind::Overlaps) }).flag
     }
     fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64, exclude: Option<u32>) -> Option<f64> {
-        import_pc_action(&PcAction { point: a3(origin), direction: a3(direction), value: far, unit: exclude.map(seats::unit_ref), ..self.args(PcActionKind::Raycast) }).value
+        import_pc_action(&PcAction { point: a3(origin), direction: a3(direction), value: far, unit: exclude.map(unit_ref), ..self.args(PcActionKind::Raycast) }).value
     }
     fn relation(&mut self, _: f64, _: f64) -> f64 { unreachable!("turret crews do not query alliances") }
     fn stand_up(&mut self, unit: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
@@ -126,18 +129,18 @@ impl SeatWorld for JsWorld {
         s.spawn(x, y, z, yaw, &mut Ground(self));
     }
     fn kill(&mut self, _: &mut Store, _: Seating<'_>, unit: u32, by: By) {
-        import_pc_action(&PcAction { unit: Some(seats::unit_ref(unit)), attacker: attacker(by), ..self.args(PcActionKind::Kill) });
+        import_pc_action(&PcAction { unit: Some(unit_ref(unit)), attacker: attacker(by), ..self.args(PcActionKind::Kill) });
     }
     fn rider_drop(&mut self, holder: Holder, index: usize, unit: u32) -> Option<Vector3> {
-        let r = import_pc_action(&PcAction { turret: turret(holder), index: index as f64, unit: Some(seats::unit_ref(unit)), ..self.args(PcActionKind::RiderDrop) });
+        let r = import_pc_action(&PcAction { turret: turret(holder), index: index as f64, unit: Some(unit_ref(unit)), ..self.args(PcActionKind::RiderDrop) });
         r.flag.then(|| v3(r.point))
     }
     fn sync_rider(&mut self, _: Ref<SeatLease>, _: &mut Unit) { unreachable!("turret crew poses its own body") }
-    fn controller_state(&mut self, unit: Option<u32>) -> Option<f64> { import_pc_action(&PcAction { unit: unit.map(seats::unit_ref), ..self.args(PcActionKind::ControllerState) }).value }
+    fn controller_state(&mut self, unit: Option<u32>) -> Option<f64> { import_pc_action(&PcAction { unit: unit.map(unit_ref), ..self.args(PcActionKind::ControllerState) }).value }
     fn controllable(&mut self, lease: Ref<SeatLease>, _: usize, _: SeatRole) -> Ref<SeatUnit> { import_pc_action(&PcAction { lease: Some(lease), ..self.args(PcActionKind::Controllable) }).control.expect("seat control") }
-    fn boarded(&mut self, unit: u32, holder: Holder, index: usize) { import_pc_action(&PcAction { unit: Some(seats::unit_ref(unit)), turret: turret(holder), index: index as f64, ..self.args(PcActionKind::Boarded) }); }
+    fn boarded(&mut self, unit: u32, holder: Holder, index: usize) { import_pc_action(&PcAction { unit: Some(unit_ref(unit)), turret: turret(holder), index: index as f64, ..self.args(PcActionKind::Boarded) }); }
     fn unboarded(&mut self, unit: Option<u32>, holder: Holder, index: usize, post: Option<Ref<Post>>, reason: Reason) {
-        import_pc_action(&PcAction { unit: unit.map(seats::unit_ref), turret: turret(holder), index: index as f64, post, reason: why(reason), ..self.args(PcActionKind::Unboarded) });
+        import_pc_action(&PcAction { unit: unit.map(unit_ref), turret: turret(holder), index: index as f64, post, reason: why(reason), ..self.args(PcActionKind::Unboarded) });
     }
     fn moved(&mut self, _: Option<u32>, _: Holder, _: usize) { unreachable!("a turret has one seat") }
     fn seated(&mut self, unit: u32) { self.unit(PcActionKind::Seated, unit, 0.0, [0.0;3]); }
@@ -156,12 +159,12 @@ impl CrewWorld for JsWorld {
         out.extend(import_pc_action(&PcAction { turret: turret as f64, value: dt, flag: held, second: pressed, third: reload, ..self.args(PcActionKind::Weapon) }).shots.into_iter().map(|s| Shot { yaw: s.yaw, pitch: s.pitch }));
     }
     fn fire(&mut self, turret: usize, origin: &Vector3, direction: &Vector3, owner: Option<u32>, lease: Ref<SeatLease>, shot: usize) -> usize {
-        import_pc_action(&PcAction { turret: turret as f64, point: a3(origin), direction: a3(direction), unit: owner.map(seats::unit_ref), lease: Some(lease), shot: shot as f64, ..self.args(PcActionKind::Fire) }).value.expect("round index") as usize
+        import_pc_action(&PcAction { turret: turret as f64, point: a3(origin), direction: a3(direction), unit: owner.map(unit_ref), lease: Some(lease), shot: shot as f64, ..self.args(PcActionKind::Fire) }).value.expect("round index") as usize
     }
     fn bind_round(&mut self, round: usize, turret: usize, barrel: f64) { import_pc_action(&PcAction { index: round as f64, turret: turret as f64, value: barrel, ..self.args(PcActionKind::Bind) }); }
     fn sound(&mut self, turret: usize, shot: usize) { import_pc_action(&PcAction { turret: turret as f64, shot: shot as f64, ..self.args(PcActionKind::Sound) }); }
     fn fired(&mut self, turret: usize, shot: usize, owner: Option<u32>, muzzle: &Vector3, direction: &Vector3) {
-        import_pc_action(&PcAction { turret: turret as f64, shot: shot as f64, unit: owner.map(seats::unit_ref), point: a3(muzzle), direction: a3(direction), ..self.args(PcActionKind::Fired) });
+        import_pc_action(&PcAction { turret: turret as f64, shot: shot as f64, unit: owner.map(unit_ref), point: a3(muzzle), direction: a3(direction), ..self.args(PcActionKind::Fired) });
     }
 }
 #[no_mangle]
@@ -195,7 +198,8 @@ impl crate::units::world::UnitsWorld for Ground<'_> {
         let h = import_pc_action(&PcAction { point: a3(origin), direction: a3(direction), value: far, flag: true, ..self.0.args(PcActionKind::Cast) }).hit?;
         h.found.then(|| crate::units::world::CastHit { point: v3(h.point), normal: v3(h.normal), distance: h.distance, terrain: h.terrain })
     }
-    fn gather(&mut self, _: u32, _: &Vector3, _: f64, _: usize, _: &mut Vec<crate::units::world::GatherPolygon>) { unreachable!("spawn ground") }
+    fn visit_gathered(&mut self, _: u32, _: &Vector3, _: f64, _: usize,
+        _: &mut dyn FnMut(bool, &[Vector3; 3])) { unreachable!("spawn ground") }
     fn seat_exposed(&mut self, _: u32, _: &Unit) -> bool { unreachable!("spawn ground") }
     fn rider_shapes(&mut self, _: u32, _: &Unit, _: &mut [crate::units::shapes::HitShape]) -> usize { unreachable!("spawn ground") }
     fn held_shapes(&mut self, _: u32, _: &Unit, _: &mut [crate::units::shapes::HitShape]) -> usize { unreachable!("spawn ground") }

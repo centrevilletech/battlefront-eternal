@@ -195,9 +195,9 @@ impl<'f> VehicleWorld for Served<'f> {
         Some(Ground { height: r.get("height").num(), normal: vec3(r.get("normal")) })
     }
 
-    fn spring_polygons(&mut self, hull: usize, index: usize, center: &Vector3, radius: f64, out: &mut Vec<Polygon>) {
+    fn spring_polygons<'a>(&'a mut self, hull: usize, index: usize, center: &Vector3, radius: f64, out: &'a mut Vec<Polygon>) -> bfe_sim::vehicles::SpringPolygons<'a> {
         out.clear();
-        let Some(call) = self.call("world.springPolygons") else { return };
+        let Some(call) = self.call("world.springPolygons") else { return bfe_sim::vehicles::SpringPolygons::Recorded(out) };
         self.check_hull("springPolygons hull", call.arg(0), hull);
         self.check(check_num("springPolygons index", call.arg(1), index as f64));
         self.check(check_vec3("springPolygons center", call.arg(2), vec(center)));
@@ -209,6 +209,7 @@ impl<'f> VehicleWorld for Served<'f> {
                 triangles: p.get("triangles").items().map(|t| [vec3(t.get("a")), vec3(t.get("b")), vec3(t.get("c"))]).collect(),
             });
         }
+        bfe_sim::vehicles::SpringPolygons::Recorded(out)
     }
 
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4) {
@@ -393,7 +394,7 @@ fn hulls_tick_on_the_ground_as_captured() {
             let def = c.battle.vehicle_def.as_ref().and_then(|v| v.get("classes")).and_then(|cl| cl.get(&name)).expect("the hull's class in the content");
             HullClass::new(def, stored.turn_rate)
         });
-        let mut hull = Hull::from_store(r, &stored, class, index, &cx.strings);
+        let mut hull = Hull::from_store(r, &stored, class, index);
         // The collision body by the serial the capture names it by.
         hull.body = body_of(before.get("body"));
         let path = path_of(&hull);
@@ -539,7 +540,7 @@ fn load_hull(
         let def = content.battle.vehicle_def.as_ref().and_then(|d| d.get("classes")).and_then(|cl| cl.get(&name)).expect("the hull's class in the content");
         HullClass::new(def, stored.turn_rate)
     });
-    let mut hull = Hull::from_store(r, &stored, class, index, &cx.strings);
+    let mut hull = Hull::from_store(r, &stored, class, index);
     hull.body = body_of(v.get("body"));
     Ok((r, hull))
 }

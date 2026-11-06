@@ -2,21 +2,12 @@ import { rustOrdnance, rustItems } from './helpers/rust-simulation.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { Unit, blankIntent } from "../src/units.js";
+
 import { LiveObjects } from "../src/props.js";
 import { createServiceCandidates } from "../src/ai/services.js";
 import { dispatch } from "../src/ai/classic/combat.js";
 
-test("seated bodies leave movement and intent edges to the seat consumer", () => {
-  const unit = { removed: false, tickCount: 0, alive: true, seat: {}, intent: blankIntent() };
-  unit.intent.use = true;
-  unit.intent.buttons[0] = 1;
-  // Soldier/combat/presentation deliberately absent: none may be stepped.
-  Unit.prototype.tick.call(unit, 1 / 60);
-  assert.equal(unit.tickCount, 1);
-  assert.equal(unit.intent.use, true);
-  assert.equal(unit.intent.buttons[0], 1);
-});
+
 
 test("mounted beams follow their seat emitter while damage remains credited to the soldier", () => {
   const body = {}, hits = [];

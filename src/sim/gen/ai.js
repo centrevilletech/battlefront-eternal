@@ -283,7 +283,7 @@ export class CommandStateMirror {
 
 export function syncCommandState(b, f, at, h, m) {
   m.current = syncSourceGoal(b, f, at + 0, h, m.current ?? new SourceGoalMirror());
-  { const items = (m.queue ??= []), start = h + f[at + 19], n = f[at + 20]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 19; v = syncSourceGoal(b, f, at + 0, h, v ?? new SourceGoalMirror()); } items[i] = v; } }
+  { const items = (m.queue ??= []), start = h + f[at + 19], n = f[at + 20]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 19; v = syncSourceGoal(b, f, at + 0, h, v ?? new SourceGoalMirror()); } items[i] = v; } }
   m.latch = f[at + 21] !== 0;
   m.currentDone = f[at + 22] !== 0;
   return m;
@@ -705,14 +705,14 @@ export const CLASSIC_AI_EXPORT_STRIDE = 5, CLASSIC_AI_IMPORT_STRIDE = 15, CLASSI
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncClassicAI(b, f, at, h, m) {
-  { const items = (m.controllers ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CONTROLLER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.controllers ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CONTROLLER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.fallbackSensorRange = f[at + 4];
   return m;
 }
 
 // A full row into object `m`.
 export function syncFullClassicAI(b, f, at, h, m) {
-  { const items = (m.controllers ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CONTROLLER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.controllers ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CONTROLLER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   (m.scheduler ??= {}).counter = f[at + 4];
   (m.scheduler ??= {}).parity = f[at + 5];
   (m.scheduler ??= {}).inputParity = f[at + 6];
@@ -872,8 +872,8 @@ export function syncController(b, f, at, h, m) {
   { const tag = f[at + 77]; if (tag === 0) { m.leader = syncAiUnitRef(b, f, at + 78, h, m.leader ?? new AiUnitRefMirror()); } else m.leader = tag === 1 ? null : undefined; }
   m.danger = syncDangerIn(b, f, at + 82, h, m.danger ?? new DangerInMirror());
   m.shot = syncShotIn(b, f, at + 86, h, m.shot ?? new ShotInMirror());
-  { const items = (m.acoustic ??= []), start = h + f[at + 94], n = f[at + 95]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncAiUnitRef(b, f, at + 0, h, v ?? new AiUnitRefMirror()); } items[i] = v; } }
-  { const items = (m.vehicleNotes ??= []), start = h + f[at + 96], n = f[at + 97]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncAiUnitRef(b, f, at + 0, h, v ?? new AiUnitRefMirror()); } items[i] = v; } }
+  { const items = (m.acoustic ??= []), start = h + f[at + 94], n = f[at + 95]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncAiUnitRef(b, f, at + 0, h, v ?? new AiUnitRefMirror()); } items[i] = v; } }
+  { const items = (m.vehicleNotes ??= []), start = h + f[at + 96], n = f[at + 97]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncAiUnitRef(b, f, at + 0, h, v ?? new AiUnitRefMirror()); } items[i] = v; } }
   m.command = syncCommandIn(b, f, at + 98, h, m.command ?? new CommandInMirror());
   { const tag = f[at + 110]; if (tag === 0) { m.lastCommand = syncSquadCommand(b, f, at + 111, h, m.lastCommand ?? new SquadCommandMirror()); } else m.lastCommand = tag === 1 ? null : undefined; }
   m.secondaryWaitUntil = f[at + 121];
@@ -921,8 +921,8 @@ export function syncFullController(b, f, at, h, m) {
   { const tag = f[at + 77]; if (tag === 0) { m.leader = syncAiUnitRef(b, f, at + 78, h, m.leader ?? new AiUnitRefMirror()); } else m.leader = tag === 1 ? null : undefined; }
   m.danger = syncDangerIn(b, f, at + 82, h, m.danger ?? new DangerInMirror());
   m.shot = syncShotIn(b, f, at + 86, h, m.shot ?? new ShotInMirror());
-  { const items = (m.acoustic ??= []), start = h + f[at + 94], n = f[at + 95]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncAiUnitRef(b, f, at + 0, h, v ?? new AiUnitRefMirror()); } items[i] = v; } }
-  { const items = (m.vehicleNotes ??= []), start = h + f[at + 96], n = f[at + 97]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncAiUnitRef(b, f, at + 0, h, v ?? new AiUnitRefMirror()); } items[i] = v; } }
+  { const items = (m.acoustic ??= []), start = h + f[at + 94], n = f[at + 95]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncAiUnitRef(b, f, at + 0, h, v ?? new AiUnitRefMirror()); } items[i] = v; } }
+  { const items = (m.vehicleNotes ??= []), start = h + f[at + 96], n = f[at + 97]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncAiUnitRef(b, f, at + 0, h, v ?? new AiUnitRefMirror()); } items[i] = v; } }
   m.command = syncCommandIn(b, f, at + 98, h, m.command ?? new CommandInMirror());
   { const tag = f[at + 110]; if (tag === 0) { m.lastCommand = syncSquadCommand(b, f, at + 111, h, m.lastCommand ?? new SquadCommandMirror()); } else m.lastCommand = tag === 1 ? null : undefined; }
   m.secondaryWaitUntil = f[at + 121];

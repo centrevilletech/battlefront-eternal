@@ -19,7 +19,7 @@ fn a3(v: &Vector3) -> [f64; 3] {
 impl Hull {
     /// The hull the store holds (`id`), `index` its place in the battle's
     /// list, its class's keys from the content.
-    pub fn from_store(id: Ref<Vehicle>, v: &Vehicle, class: &HullClass, index: usize, strings: &Strings) -> Hull {
+    pub fn from_store(id: Ref<Vehicle>, v: &Vehicle, class: &HullClass, index: usize) -> Hull {
         let mut hull = Hull {
             index,
             id,
@@ -42,14 +42,14 @@ impl Hull {
             flight: crate::flight::Flight::default(),
             ..Hull::default()
         };
-        hull.load(v, strings);
+        hull.load(v);
         hull
     }
 
     /// Every field the store holds of the hull, from its record (its
     /// class's keys, its pose and its flight stay as they are): a hull made
     /// current again after a call that changed it in the store.
-    pub fn load(&mut self, v: &Vehicle, strings: &Strings) {
+    pub fn load(&mut self, v: &Vehicle) {
         let mut matrix = Matrix4::default();
         matrix.from_array(&v.matrix, 0);
         self.flying = v.flying;
@@ -100,7 +100,15 @@ impl Hull {
         self.matrix = matrix;
         self.item_center = v3(&v.item_center);
         self.support_normal = v3(&v.support_normal);
-        self.leg_side.clone_from(&v.leg_side);
+        // Vehicle.load preserves absence without discarding the prepared
+        // storage needed by standOnLegs on this or a later gameplay life.
+        match &v.leg_side {
+            Some(source) => {
+                if self.leg_side.is_none() { self.leg_side = Some(std::mem::take(&mut self.leg_side_storage)); }
+                self.leg_side.as_mut().unwrap().clone_from(source);
+            }
+            None => if let Some(mut old) = self.leg_side.take() { old.clear(); self.leg_side_storage = old; },
+        }
         self.seat_index = v.seat_index as usize;
         self.driver = v.driver.is_some();
         self.wheels.clear(); self.wheels.extend(v.wheels.iter().map(|w| Wheel { x: w.x, radius: w.radius, phase: w.phase, previous: w.previous, tick_from: w.tick_from }));
@@ -137,9 +145,9 @@ impl Hull {
         self.last_attacker = v.last_attacker;
         self.tow_target = v.tow_target;
         self.tow_local = v3(&v.tow_local);
-        if !self.tow_leg.encode_utf16().eq(strings.units(v.tow_leg).iter().copied()) {
-            self.tow_leg.clear(); self.tow_leg.extend(char::decode_utf16(strings.units(v.tow_leg).iter().copied()).map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)));
-        }
+        // Vehicle.load keeps the authored name's interned handle. Tow attach
+        // must not allocate text when a spare hull row reloads its cable.
+        self.tow_leg = Some(v.tow_leg);
         self.tow_angle = v.tow_angle;
         self.tow_winding = v.tow_winding;
         // Its team (a spawn's), kept with its flight's fields.
@@ -191,7 +199,7 @@ impl Hull {
         v.visible = self.visible;
         v.tow_target = self.tow_target;
         v.tow_local = a3(&self.tow_local);
-        v.tow_leg = strings.intern_str(&self.tow_leg);
+        v.tow_leg = self.tow_leg.unwrap_or_else(|| strings.intern_str(""));
         v.tow_angle = self.tow_angle;
         v.tow_winding = self.tow_winding;
         v.last_attacker = self.last_attacker;
@@ -208,5 +216,31 @@ impl Hull {
                 v.seat_leases[i] = crate::gen::SeatLeaseView { unit: Nullable::Undefined, ..Default::default() };
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Vehicle.load/to_store preserve authored tow names without rebuilding
+    // text. Spawn and release use the same absent handle for an empty cable.
+    #[test]
+    fn tow_name_survives_reloads_and_release() {
+        let mut strings = Strings::default();
+        let empty = strings.intern_str("");
+        let name = strings.intern_str("walker_leg");
+        let mut row = Vehicle { tow_leg: name, ..Default::default() };
+        let mut hull = Hull::default();
+        for _ in 0..100 {
+            hull.load(&row);
+            assert_eq!(hull.tow_leg, Some(name));
+            hull.to_store(&mut row, &mut strings);
+            assert_eq!(row.tow_leg, name);
+        }
+        hull.tow_leg = None;
+        hull.to_store(&mut row, &mut strings);
+        assert_eq!(row.tow_leg, empty);
+        assert_eq!(strings.list.len(), 2);
     }
 }

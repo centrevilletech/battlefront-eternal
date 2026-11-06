@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +10,6 @@ import {modelPack} from '../src/models.js';
 import {Droideka} from '../src/droideka.js';
 import {FirstPersonView} from './helpers/presentation.js';
 import {DROIDEKA_OFFSET} from '../src/firstperson.js';
-import {PlayerCombat} from '../src/combat.js';
 const root=contentURL('');
 const json=path=>JSON.parse(readFileSync(new URL(path,root)));
 const buffer=path=>{const b=readFileSync(new URL(path,root));return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);};
@@ -29,38 +29,19 @@ function fixture(){
  return {d,actor,view,camera,weapon};
 }
 
-test('native world and first-person rounds cycle through four actual barrel apertures',{skip:!available},()=>{
+test('drawn world and first-person muzzles lie at their actual barrel apertures',{skip:!available},()=>{
  const {d,actor,view}=fixture(),point=new T.Vector3(),vertex=new T.Vector3(),selected=[];
  for(let shot=0;shot<4;shot++){
-  d.nextGun(point);selected.push(`${d.lastGun.index}:${d.lastGun.barrel}`);
+  const gun={index:Math.floor(shot/2),barrel:shot%2};
+  d.visualGunAt(point,gun);selected.push(`${gun.index}:${gun.barrel}`);
   let nearest=Infinity;
   for(let i=0;i<actor.body.geometry.attributes.position.count;i++){actor.body.getVertexPosition(i,vertex);nearest=Math.min(nearest,vertex.distanceTo(point));}
   assert.ok(nearest<.025,`world muzzle is ${nearest}m away from the aperture rim`);
-  view.muzzlePoint(d.lastGun,point);nearest=Infinity;
+  view.muzzlePoint(gun,point);nearest=Infinity;
   for(const mesh of view.rigParts){const positions=mesh.geometry.attributes.position;for(let i=0;i<positions.count;i++){vertex.fromBufferAttribute(positions,i);mesh.localToWorld(vertex);nearest=Math.min(nearest,vertex.distanceTo(point));}}
   assert.ok(nearest<.025,`first-person muzzle is ${nearest}m away from the aperture rim`);
  }
  assert.equal(new Set(selected).size,4);
-});
-
-test('deferred emission samples the current world and view poses without changing physical muzzle collision',{skip:!available},()=>{
- const {d,actor,view,camera,weapon}=fixture(),c=Object.create(PlayerCombat.prototype),emitted=[];
- for(const name of ['origin','target','aimDir','shotDir','fireDir','side','gunPoint','muzzlePoint'])c[name]=new T.Vector3();
- Object.assign(c,{soldier:d,firstPerson:true,view,held:new Map(),deferMuzzles:true,pendingMuzzles:[],kick:{offset:0},animator:{weaponAction(){},fire(){}},flash(){},ordnance:{fire(def,from,dir){const round={from:from.clone(),dir:dir.clone()};emitted.push(round);return round;}}});
- c.aimDir.set(0,0,1);c.shotDir.copy(c.aimDir);c.target.set(0,1.8,100);
- c.fire({weapon,yaw:0,pitch:0});assert.equal(emitted.length,0);
- actor.root.position.x=3;actor.root.rotation.y=.4;actor.root.updateMatrixWorld(true);
- camera.position.x=3;camera.updateMatrixWorld();view.update(1/60,{active:true,camera,soldier:d,shown:weapon,zoomed:false});
- c.flushMuzzles();assert.equal(emitted.length,1);
- const e=emitted[0];assert.ok(e.from.distanceTo(d.gunAt(new T.Vector3()))<1e-8);
- const physical=e.from.clone();
- // Presentation can move again after the shot has entered the world.
- camera.position.x=4;camera.updateMatrixWorld();view.update(1/60,{active:true,camera,soldier:d,shown:weapon,zoomed:false});
- const visual=e.visualMuzzle().clone();
- assert.ok(visual.distanceTo(view.muzzlePoint(d.lastGun,new T.Vector3()))<1e-8);
- assert.ok(e.from.distanceTo(visual)>.3,'FP visuals must not move gameplay collision into the overlay rig');
- assert.deepEqual(e.from,physical);
- assert.ok(e.dir.dot(c.aimDir)>.9);assert.equal(c.pendingMuzzles.length,0);
 });
 
 test('droideka flash uses only the selected rendered barrel and survives its first low-FPS frame',{skip:!available},()=>{

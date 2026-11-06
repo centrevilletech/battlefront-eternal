@@ -6,48 +6,63 @@ import { LastGunMirror, exportLastGun, putLastGun, sameLastGun, syncLastGun } fr
 
 export const ClientOp_NAMES = ["configureActor","configureWeapon","predict","reset","configureMuzzles","configureHull"];
 export const ClientOp_INDEX = new Map(ClientOp_NAMES.map((name, i) => [name, i]));
+export const ClientOp_VALUE = Object.freeze({"configureActor":0,"configureWeapon":1,"predict":2,"reset":3,"configureMuzzles":4,"configureHull":5});
 
 export const ClientCorrectionSeatField_NAMES = ["aimYaw","pitch","lookYaw","lookPitch","yawRate","lastYaw"];
 export const ClientCorrectionSeatField_INDEX = new Map(ClientCorrectionSeatField_NAMES.map((name, i) => [name, i]));
+export const ClientCorrectionSeatField_VALUE = Object.freeze({"aimYaw":0,"pitch":1,"lookYaw":2,"lookPitch":3,"yawRate":4,"lastYaw":5});
 
 export const ClientFlightEnumField_NAMES = ["state","trick","lock","warning","message","reason"];
 export const ClientFlightEnumField_INDEX = new Map(ClientFlightEnumField_NAMES.map((name, i) => [name, i]));
+export const ClientFlightEnumField_VALUE = Object.freeze({"state":0,"trick":1,"lock":2,"warning":3,"message":4,"reason":5});
 
 export const ClientFlightBooleanField_NAMES = ["alive","sleeping","grounded","rollLock","boosting","boostExhausted","terrainWarning","actionHeld","trickHeld","immelmannHeld"];
 export const ClientFlightBooleanField_INDEX = new Map(ClientFlightBooleanField_NAMES.map((name, i) => [name, i]));
+export const ClientFlightBooleanField_VALUE = Object.freeze({"alive":0,"sleeping":1,"grounded":2,"rollLock":3,"boosting":4,"boostExhausted":5,"terrainWarning":6,"actionHeld":7,"trickHeld":8,"immelmannHeld":9});
 
 export const ClientFlightVector_NAMES = ["position","previous","velocity","tickFrom","start","end","trickRight"];
 export const ClientFlightVector_INDEX = new Map(ClientFlightVector_NAMES.map((name, i) => [name, i]));
+export const ClientFlightVector_VALUE = Object.freeze({"position":0,"previous":1,"velocity":2,"tickFrom":3,"start":4,"end":5,"trickRight":6});
 
 export const ClientFlightQuaternion_NAMES = ["quaternion","previous","tick","start","trickLoop","trickEnd"];
 export const ClientFlightQuaternion_INDEX = new Map(ClientFlightQuaternion_NAMES.map((name, i) => [name, i]));
+export const ClientFlightQuaternion_VALUE = Object.freeze({"quaternion":0,"previous":1,"tick":2,"start":3,"trickLoop":4,"trickEnd":5});
 
 export const ClientCompactFlightVector_NAMES = ["position","velocity","optional"];
 export const ClientCompactFlightVector_INDEX = new Map(ClientCompactFlightVector_NAMES.map((name, i) => [name, i]));
+export const ClientCompactFlightVector_VALUE = Object.freeze({"position":0,"velocity":1,"optional":2});
 
 export const ClientCompactFlightQuaternion_NAMES = ["quaternion","optional"];
 export const ClientCompactFlightQuaternion_INDEX = new Map(ClientCompactFlightQuaternion_NAMES.map((name, i) => [name, i]));
+export const ClientCompactFlightQuaternion_VALUE = Object.freeze({"quaternion":0,"optional":1});
 
 export const ClientMode_NAMES = ["actor","mounted","hull"];
 export const ClientMode_INDEX = new Map(ClientMode_NAMES.map((name, i) => [name, i]));
+export const ClientMode_VALUE = Object.freeze({"actor":0,"mounted":1,"hull":2});
 
 export const ClientActorKind_NAMES = ["soldier","droideka"];
 export const ClientActorKind_INDEX = new Map(ClientActorKind_NAMES.map((name, i) => [name, i]));
+export const ClientActorKind_VALUE = Object.freeze({"soldier":0,"droideka":1});
 
 export const ClientValueKind_NAMES = ["undefined","null","false","true","number","string","array","object"];
 export const ClientValueKind_INDEX = new Map(ClientValueKind_NAMES.map((name, i) => [name, i]));
+export const ClientValueKind_VALUE = Object.freeze({"undefined":0,"null":1,"false":2,"true":3,"number":4,"string":5,"array":6,"object":7});
 
 export const ClientHeld_NAMES = ["forward","backward","right","left","turnRight","turnLeft","primary","secondary","space"];
 export const ClientHeld_INDEX = new Map(ClientHeld_NAMES.map((name, i) => [name, i]));
+export const ClientHeld_VALUE = Object.freeze({"forward":0,"backward":1,"right":2,"left":3,"turnRight":4,"turnLeft":5,"primary":6,"secondary":7,"space":8});
 
 export const ClientFlightHeld_NAMES = ["throttle","brake","rollRight","rollLeft","boost","rollLock"];
 export const ClientFlightHeld_INDEX = new Map(ClientFlightHeld_NAMES.map((name, i) => [name, i]));
+export const ClientFlightHeld_VALUE = Object.freeze({"throttle":0,"brake":1,"rollRight":2,"rollLeft":3,"boost":4,"rollLock":5});
 
 export const ClientFlightAction_NAMES = ["takeoff","trick","immelmann","targetLock"];
 export const ClientFlightAction_INDEX = new Map(ClientFlightAction_NAMES.map((name, i) => [name, i]));
+export const ClientFlightAction_VALUE = Object.freeze({"takeoff":0,"trick":1,"immelmann":2,"targetLock":3});
 
 export const ClientAction_NAMES = ["jump","crouch","prone","use","firePrimary","fireSecondary","reload","nextPrimary","previousPrimary","nextSecondary","zoom"];
 export const ClientAction_INDEX = new Map(ClientAction_NAMES.map((name, i) => [name, i]));
+export const ClientAction_VALUE = Object.freeze({"jump":0,"crouch":1,"prone":2,"use":3,"firePrimary":4,"fireSecondary":5,"reload":6,"nextPrimary":7,"previousPrimary":8,"nextSecondary":9,"zoom":10});
 
 export const ClientGroundNumbersLayout = Object.freeze({ words: 11, health: 0, team: 1, yaw: 2, tilt: 3, roll: 4, yawRate: 5, forwardInput: 6, rightInput: 7, tiltRate: 8, rollRate: 9, support: 10 });
 export const CLIENT_GROUND_NUMBERS_WORDS = ClientGroundNumbersLayout.words;
@@ -568,8 +583,8 @@ export class ClientHullRefMirror {
 }
 
 export function syncClientHullRef(b, f, at, h, m) {
-  m.slot = f[at + 0];
-  m.generation = f[at + 1];
+  m.slot = f[at + 0] >>> 0;
+  m.generation = f[at + 1] >>> 0;
   return m;
 }
 
@@ -1153,15 +1168,15 @@ export class ClientHullMirror {
 }
 
 export function syncClientHull(b, f, at, h, m) {
-  m.slot = f[at + 0];
-  m.generation = f[at + 1];
-  m.stateAt = f[at + 2];
-  m.seatsAt = f[at + 3];
-  m.seatsCount = f[at + 4];
-  m.wheelsAt = f[at + 5];
-  m.wheelsCount = f[at + 6];
-  m.legsAt = f[at + 7];
-  m.legsCount = f[at + 8];
+  m.slot = f[at + 0] >>> 0;
+  m.generation = f[at + 1] >>> 0;
+  m.stateAt = f[at + 2] >>> 0;
+  m.seatsAt = f[at + 3] >>> 0;
+  m.seatsCount = f[at + 4] >>> 0;
+  m.wheelsAt = f[at + 5] >>> 0;
+  m.wheelsCount = f[at + 6] >>> 0;
+  m.legsAt = f[at + 7] >>> 0;
+  m.legsCount = f[at + 8] >>> 0;
   m.hasLegs = f[at + 9] !== 0;
   m.walkPhase = f[at + 10];
   m.walkBlend = f[at + 11];
@@ -1169,13 +1184,13 @@ export function syncClientHull(b, f, at, h, m) {
   m.walkFromBlend = f[at + 13];
   m.level = f[at + 14];
   m.assists = f[at + 15] !== 0;
-  m.correctionSchema = f[at + 16];
+  m.correctionSchema = f[at + 16] >>> 0;
   m.checkTick = f[at + 17];
-  m.membersAt = f[at + 18];
-  m.membersCount = f[at + 19];
-  m.teamsAt = f[at + 20];
-  m.teamsCount = f[at + 21];
-  m.relationsAt = f[at + 22];
+  m.membersAt = f[at + 18] >>> 0;
+  m.membersCount = f[at + 19] >>> 0;
+  m.teamsAt = f[at + 20] >>> 0;
+  m.teamsCount = f[at + 21] >>> 0;
+  m.relationsAt = f[at + 22] >>> 0;
   return m;
 }
 
@@ -1212,15 +1227,15 @@ export function createClientHullView(b, source) {
   const view = Object.create(Object.getPrototypeOf(source));
   Object.defineProperties(view, {
     predictionWords: { value: words },
-    slot: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 0]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 0] = value; } },
-    generation: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 1]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 1] = value; } },
-    stateAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 2]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 2] = value; } },
-    seatsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 3]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 3] = value; } },
-    seatsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 4]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 4] = value; } },
-    wheelsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 5]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 5] = value; } },
-    wheelsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 6]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 6] = value; } },
-    legsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 7]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 7] = value; } },
-    legsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 8]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 8] = value; } },
+    slot: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 0] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 0] = value; } },
+    generation: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 1] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 1] = value; } },
+    stateAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 2] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 2] = value; } },
+    seatsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 3] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 3] = value; } },
+    seatsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 4] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 4] = value; } },
+    wheelsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 5] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 5] = value; } },
+    wheelsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 6] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 6] = value; } },
+    legsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 7] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 7] = value; } },
+    legsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 8] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 8] = value; } },
     hasLegs: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 9] !== 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 9] = value ? 1 : 0; } },
     walkPhase: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 10]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 10] = value; } },
     walkBlend: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 11]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 11] = value; } },
@@ -1228,13 +1243,13 @@ export function createClientHullView(b, source) {
     walkFromBlend: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 13]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 13] = value; } },
     level: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 14]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 14] = value; } },
     assists: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 15] !== 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 15] = value ? 1 : 0; } },
-    correctionSchema: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 16]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 16] = value; } },
+    correctionSchema: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 16] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 16] = value; } },
     checkTick: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 17]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 17] = value; } },
-    membersAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 18]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 18] = value; } },
-    membersCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 19]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 19] = value; } },
-    teamsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 20]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 20] = value; } },
-    teamsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 21]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 21] = value; } },
-    relationsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 22]; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 22] = value; } },
+    membersAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 18] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 18] = value; } },
+    membersCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 19] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 19] = value; } },
+    teamsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 20] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 20] = value; } },
+    teamsCount: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 21] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 21] = value; } },
+    relationsAt: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; value = f[at + 22] >>> 0; return value; }, set(value) { const f = words, at = 0, heap = null; f[at + 22] = value; } },
   });
   for (const key of Object.keys(source)) if (!ClientHullViewFields.has(key)) view[key] = source[key];
   return view;
@@ -1461,7 +1476,7 @@ export class ClientWeaponsMirror {
 }
 
 export function syncClientWeapons(b, f, at, h, m) {
-  m.count = f[at + 0];
+  m.count = f[at + 0] >>> 0;
   return m;
 }
 
@@ -1500,7 +1515,7 @@ export function syncClientArsenalTail(b, f, at, h, m) {
   m.primary = f[at + 0];
   m.secondary = f[at + 1];
   m.zoomStep = f[at + 2];
-  m.barrelsCount = f[at + 3];
+  m.barrelsCount = f[at + 3] >>> 0;
   return m;
 }
 
@@ -1618,7 +1633,7 @@ export class ClientMuzzlesMirror {
 }
 
 export function syncClientMuzzles(b, f, at, h, m) {
-  { const items = (m.barrels ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.barrels ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] >>> 0; } items[i] = v; } }
   return m;
 }
 
@@ -1691,31 +1706,31 @@ export function syncClientFrame(b, f, at, h, m) {
   m.source = f[at + 3];
   m.authorityTick = f[at + 4];
   m.mode = ClientMode_NAMES[f[at + 5]];
-  m.hullAt = f[at + 6];
-  m.mountsAt = f[at + 7];
-  m.mountsCount = f[at + 8];
-  m.world = f[at + 9];
+  m.hullAt = f[at + 6] >>> 0;
+  m.mountsAt = f[at + 7] >>> 0;
+  m.mountsCount = f[at + 8] >>> 0;
+  m.world = f[at + 9] >>> 0;
   m.ignored = f[at + 10];
   m.movement = f[at + 11] !== 0;
   m.dead = f[at + 12] !== 0;
   m.underwater = f[at + 13] !== 0;
   m.shield = f[at + 14] !== 0;
-  m.actorAt = f[at + 15];
-  m.actorWords = f[at + 16];
-  m.correctionAt = f[at + 17];
-  m.correctionBytes = f[at + 18];
-  m.weaponsAt = f[at + 19];
-  m.weaponsWords = f[at + 20];
-  m.flagsAt = f[at + 21];
-  m.flagsCount = f[at + 22];
-  m.commandsAt = f[at + 23];
-  m.commandsCount = f[at + 24];
-  m.crowdAt = f[at + 25];
-  m.crowdCount = f[at + 26];
-  m.held = f[at + 27];
-  m.flightHeld = f[at + 28];
+  m.actorAt = f[at + 15] >>> 0;
+  m.actorWords = f[at + 16] >>> 0;
+  m.correctionAt = f[at + 17] >>> 0;
+  m.correctionBytes = f[at + 18] >>> 0;
+  m.weaponsAt = f[at + 19] >>> 0;
+  m.weaponsWords = f[at + 20] >>> 0;
+  m.flagsAt = f[at + 21] >>> 0;
+  m.flagsCount = f[at + 22] >>> 0;
+  m.commandsAt = f[at + 23] >>> 0;
+  m.commandsCount = f[at + 24] >>> 0;
+  m.crowdAt = f[at + 25] >>> 0;
+  m.crowdCount = f[at + 26] >>> 0;
+  m.held = f[at + 27] >>> 0;
+  m.flightHeld = f[at + 28] >>> 0;
   m.presentedThrough = f[at + 29];
-  m.cosmeticSlots = f[at + 30];
+  m.cosmeticSlots = f[at + 30] >>> 0;
   m.mouseScale = f[at + 31];
   m.invert = f[at + 32] !== 0;
   { const a = (m.kick ??= new Array(3)); a[0] = f[at + 33]; a[1] = f[at + 34]; a[2] = f[at + 35]; }
@@ -1872,16 +1887,16 @@ export function syncClientCommand(b, f, at, h, m) {
   m.generation = f[at + 1];
   m.sequence = f[at + 2];
   m.sent = f[at + 3] !== 0;
-  m.held = f[at + 4];
-  m.actions = f[at + 5];
-  m.lookAt = f[at + 6];
-  m.lookCount = f[at + 7];
+  m.held = f[at + 4] >>> 0;
+  m.actions = f[at + 5] >>> 0;
+  m.lookAt = f[at + 6] >>> 0;
+  m.lookCount = f[at + 7] >>> 0;
   { const tag = f[at + 8]; if (tag === 0) { m.mouseScale = f[at + 9]; } else m.mouseScale = tag === 1 ? null : undefined; }
   { const tag = f[at + 10]; if (tag === 0) { m.invert = f[at + 11] !== 0; } else m.invert = tag === 1 ? null : undefined; }
-  m.flightAt = f[at + 12];
-  m.primaryCount = f[at + 13];
+  m.flightAt = f[at + 12] >>> 0;
+  m.primaryCount = f[at + 13] >>> 0;
   m.primaryId = f[at + 14];
-  m.secondaryCount = f[at + 15];
+  m.secondaryCount = f[at + 15] >>> 0;
   m.secondaryId = f[at + 16];
   return m;
 }
@@ -1964,14 +1979,14 @@ export class ClientFlightCommandMirror {
 }
 
 export function syncClientFlightCommand(b, f, at, h, m) {
-  m.held = f[at + 0];
-  m.defaultHeld = f[at + 1];
-  m.actions = f[at + 2];
+  m.held = f[at + 0] >>> 0;
+  m.defaultHeld = f[at + 1] >>> 0;
+  m.actions = f[at + 2] >>> 0;
   m.scale = f[at + 3];
   m.invert = f[at + 4] !== 0;
   m.curve = f[at + 5];
   { const a = (m.padAxes ??= new Array(4)); a[0] = f[at + 6]; a[1] = f[at + 7]; a[2] = f[at + 8]; a[3] = f[at + 9]; }
-  m.padButtons = f[at + 10];
+  m.padButtons = f[at + 10] >>> 0;
   return m;
 }
 
@@ -2134,20 +2149,20 @@ export function syncClientResult(b, f, at, h, m) {
   m.tick = f[at + 0];
   m.continued = f[at + 1] !== 0;
   m.sequence = f[at + 2];
-  m.held = f[at + 3];
-  m.ticks = f[at + 4];
-  m.actorAt = f[at + 5];
-  m.actorWords = f[at + 6];
-  m.correctionAt = f[at + 7];
-  m.correctionBytes = f[at + 8];
-  m.weaponsAt = f[at + 9];
-  m.weaponsWords = f[at + 10];
-  m.shotsAt = f[at + 11];
-  m.shotsCount = f[at + 12];
-  m.hullAt = f[at + 13];
-  m.hullWords = f[at + 14];
-  m.beforeAt = f[at + 15];
-  m.beforeShot = f[at + 16];
+  m.held = f[at + 3] >>> 0;
+  m.ticks = f[at + 4] >>> 0;
+  m.actorAt = f[at + 5] >>> 0;
+  m.actorWords = f[at + 6] >>> 0;
+  m.correctionAt = f[at + 7] >>> 0;
+  m.correctionBytes = f[at + 8] >>> 0;
+  m.weaponsAt = f[at + 9] >>> 0;
+  m.weaponsWords = f[at + 10] >>> 0;
+  m.shotsAt = f[at + 11] >>> 0;
+  m.shotsCount = f[at + 12] >>> 0;
+  m.hullAt = f[at + 13] >>> 0;
+  m.hullWords = f[at + 14] >>> 0;
+  m.beforeAt = f[at + 15] >>> 0;
+  m.beforeShot = f[at + 16] >>> 0;
   m.lookYaw = f[at + 17];
   m.checkFound = f[at + 18] !== 0;
   { const $v = (m.checkPosition ??= new THREE.Vector3()); $v.x = f[at + 19]; $v.y = f[at + 20]; $v.z = f[at + 21]; }
@@ -2263,17 +2278,17 @@ export function syncClientShot(b, f, at, h, m) {
   m.sequence = f[at + 1];
   m.press = f[at + 2];
   m.held = f[at + 3] !== 0;
-  m.button = f[at + 4];
-  m.weapon = f[at + 5];
+  m.button = f[at + 4] >>> 0;
+  m.weapon = f[at + 5] >>> 0;
   m.level = f[at + 6];
-  m.kind = f[at + 7];
+  m.kind = f[at + 7] >>> 0;
   m.yaw = f[at + 8];
   m.pitch = f[at + 9];
   m.charge = f[at + 10];
   m.target = f[at + 11];
   m.targetGeneration = f[at + 12];
   m.swing = f[at + 13];
-  m.actorAt = f[at + 14];
+  m.actorAt = f[at + 14] >>> 0;
   { const tag = f[at + 15]; if (tag === 0) { m.visualGun = syncLastGun(b, f, at + 16, h, m.visualGun ?? new LastGunMirror()); } else m.visualGun = tag === 1 ? null : undefined; }
   return m;
 }

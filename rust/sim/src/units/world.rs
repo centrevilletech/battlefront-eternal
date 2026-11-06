@@ -24,34 +24,17 @@ pub struct CastHit {
     pub terrain: bool,
 }
 
-/// A polygon a sphere gather met (CollisionWorld.gather): its triangles and
-/// whether its body moves.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct GatherPolygon {
-    pub triangles: Vec<[Vector3; 3]>,
-    pub moving: bool,
-}
-
 /// The units' boundary.
 pub trait UnitsWorld {
     // ---- The collision world (src/collision.js).
 
     /// cast(origin, direction, far, hit): the first hit within `far`.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit>;
-    /// gather(center, radius, false, cache): the polygons near a sphere,
-    /// through the body's gather cache `cache` (a droideka's base 0, its
-    /// ball 1).
-    fn gather(&mut self, id: u32, center: &Vector3, radius: f64, cache: usize, out: &mut Vec<GatherPolygon>);
-
-    /// Visit gather's triangles in polygon order. Native prediction can read
-    /// its retained collision result directly, without allocating a second
-    /// polygon list for each droideka collision pass.
-    fn visit_gathered(&mut self, id: u32, center: &Vector3, radius: f64, cache: usize, polygons: &mut Vec<GatherPolygon>, visit: &mut dyn FnMut(bool, &[Vector3; 3])) {
-        self.gather(id, center, radius, cache, polygons);
-        for polygon in polygons {
-            for triangle in &polygon.triangles { visit(polygon.moving, triangle); }
-        }
-    }
+    /// CollisionWorld.gather visits triangles in polygon order. Consumers
+    /// borrow each triangle during the visit; retained native gathers need no
+    /// second polygon list or copied triangle buffers for touchPolygons.
+    fn visit_gathered(&mut self, id: u32, center: &Vector3, radius: f64, cache: usize,
+        visit: &mut dyn FnMut(bool, &[Vector3; 3]));
 
     // ---- Hit shapes on a seat or in a creature's hold.
 

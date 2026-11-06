@@ -520,6 +520,7 @@ impl CollisionKernel for NativeCollision {
             terrain: (terrain >= 0).then_some(terrain as usize),
             grid: (grid >= 0).then_some(grid as usize),
             order: Vec::new(),
+            prepared: Vec::new(),
             version: 0,
             statics: None,
             broad: Default::default(),

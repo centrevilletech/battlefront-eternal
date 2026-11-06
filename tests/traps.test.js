@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 // Endor's Ewok log traps (src/traps.js), as the original game's EntityTrap
 // runs them: unbuilt at first, built by a repair weapon's BuildingBuild,
 // hauled up, set off by a large vehicle of TriggerTeam's side, crushing

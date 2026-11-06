@@ -1,7 +1,11 @@
+import {BlockHeaderLayout as BLOCK} from './sim/gen/boundary.js';
+import {NO_RANDOM_STREAM} from './sim/gen/boundary.js';
 // The mounted weapon boundary: definitions and emitter identities at birth,
 // frozen foreign input at latch, publication and ordered presentation at end.
 import { EVENT_TABLE } from './sim/gen/index.js';
 import { Vector3 } from 'three';
+import { FfPhaseLayout } from './sim/gen/f2-firing.js';
+import { Weapon } from './weapons.js';
 import { rigNodes, copyMountedWeapon } from './vehicle-phase-data.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { seatLockTarget } from './weapon-targeting.js';
@@ -22,15 +26,17 @@ export class F2Firing {
     this.categories = new WeakMap();
     this.aim = new Vector3(); this.number = { value: 0 };
     this.facts = { alive: false, eligible: false, relation: 0, category: 0, center: new Vector3(), radius: 0, aim: this.aim, body: -1 };
+    this.shotRow = {weapon:null,yaw:0,pitch:0,charge:0,targetId:0,targetGeneration:0};
     this.phaseFields = new FfPhaseMirror();
     this.eventRows = [];
     for (const e of EVENT_TABLE) if (e && (e.name === 'f2Shot' || e.name === 'f2Tow')) this.eventRows[e.code ?? EVENT_TABLE.indexOf(e)] = new e.record.Mirror();
     this.drainedWords = 0;
     this.rows = []; this.cableRow = new FfCableOutMirror();
     this.inputWords = FfWeaponInputLayout.words;
-    this.change = { hull: null, seat: 0, weapon: 0, input: null };
+    this.change = { hull: null, life:0, seat: 0, weapon: 0, input: null };
+    this.lives = new WeakMap();
     this.inputScratch = new Float64Array(this.inputWords); this.inputCache = new WeakMap();
-    this.frozen = { channel: 0, target: -2, hasRandom: false, floor: 0, spreadScale: 1, sniperScale: 0, yawSpreadOverride: null };
+    this.frozen = { channel: 0, target: -2, hasRandom: false, randomBinding:NO_RANDOM_STREAM, floor: 0, spreadScale: 1, sniperScale: 0, yawSpreadOverride: null };
     this.supplyArgs = { words: phase.x.f2_firing_words(3), put: putFfSupply };
     this.supplyResult = new FfSupplyResultMirror();
     this.supplyResultType = { words: phase.x.f2_firing_words(4), Mirror: FfSupplyResultMirror, sync: syncFfSupplyResult };
@@ -105,7 +111,21 @@ export class F2Firing {
       row.seats.push(s);
     }
     this.rows[v.simSlot] = row;
+    this.lives.set(v,v.aiTarget.generation);
     for (const seat of v.seats) for (const weapon of seat.weapons) { const cache = new Float64Array(this.inputWords); cache.fill(NaN); this.inputCache.set(weapon, cache); }
+  }
+  // AI settings remain foreign scalar writes. Resolve a changed callback
+  // once, then send its numeric stream id beside the changed modifiers.
+  modifiers(weapon, out) {
+    out.channel = weapon.channel ?? 0; out.hasRandom = Boolean(weapon.random);
+    out.randomBinding = NO_RANDOM_STREAM;
+    if (weapon.f3RandomDraw !== weapon.random) {
+      weapon.f3RandomDraw = weapon.random;
+      weapon.f3RandomId = this.random.register(weapon.random);
+    }
+    out.randomBinding = weapon.f3RandomId ?? NO_RANDOM_STREAM;
+    out.floor = weapon.floor; out.spreadScale = weapon.spreadScale;
+    out.sniperScale = weapon.sniperScale; out.yawSpreadOverride = weapon.yawSpreadOverride;
   }
   // seatLockTarget and AI spread/channel edits remain foreign until AI owns
   // native rows. Canonical lease triggers and aim are deliberately omitted.
@@ -120,9 +140,7 @@ export class F2Firing {
         out.target = picked === undefined ? -2 : picked === null ? -1 : this.vs.units.all().indexOf(picked);
         for (let c = 0; c < seat.weapons.length; c++) {
           const w = seat.weapons[c].state;
-          out.channel = w.channel ?? 0;
-          out.hasRandom = Boolean(w.random);
-          out.floor = w.floor; out.spreadScale = w.spreadScale; out.sniperScale = w.sniperScale; out.yawSpreadOverride = w.yawSpreadOverride;
+          this.modifiers(w,out);
           putFfWeaponInput(b, out, this.inputScratch, 0, null);
           const cache = this.inputCache.get(seat.weapons[c]); let changed = false;
           for (let j = 0; j < this.inputWords; j++) {
@@ -130,7 +148,7 @@ export class F2Firing {
             if (old === next ? old === 0 && 1 / old !== 1 / next : old === old || next === next) changed = true;
           }
           if (changed) {
-            const a = this.change; a.hull = v; a.seat = si; a.weapon = c; a.input = out;
+            const a = this.change; a.hull = v; a.life = v.aiTarget.generation; a.seat = si; a.weapon = c; a.input = out;
             putFfWeaponChange(b, a, b.f, at, null); at += FfWeaponChangeLayout.words; count++;
           }
         }
@@ -155,6 +173,7 @@ export class F2Firing {
     if (!ptr) return;
     const b = this.bridge; b.views();
     const p = syncFfPhase(b, b.f, (ptr / 8) | 0, 0, this.phaseFields);
+    if (this.phase.counters) this.phase.counters.outputFields += FfPhaseLayout.words;
     this.sync(p.weapons, p.cables);
   }
   // fireCrews publishes changed mounted state, preserving the JS Weapon
@@ -163,16 +182,36 @@ export class F2Firing {
   sync(ptr, cables) {
     const b = this.bridge; b.views();
     const f = b.f;
+    if (this.phase.counters) {
+      this.phase.counters.outputBlock(f,(ptr / 8) | 0);
+      this.phase.counters.outputBlock(f,(cables / 8) | 0);
+    }
     if (ptr) {
-      const base = (ptr / 8) | 0, n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
+      const base = (ptr / 8) | 0, n = f[base] | 0, stride = f[base + BLOCK.stride] | 0, heap = base + (f[base + BLOCK.heap] | 0);
 
       for (let ri = 0; ri < n; ri++) {
-        const at = base + 5 + ri * stride;
+        const at = base + BLOCK.words + ri * stride;
         const row = syncFfHullOut(b, f, at, heap, this.rows[f[at]]), v = row.hull;
         if (v.aiTarget.generation !== row.life) continue;
+        if (this.lives.get(v) !== row.life) {
+          // Vehicle.spawn replaces each JS Weapon once per hull life. This
+          // facade construction follows the native reset; it never imports a
+          // new weapon row, rig or modifier batch back into the owned phase.
+          this.lives.set(v,row.life);
+          for (let i = 0; i < v.seats.length; i++) {
+            const weapons = v.seats[i].weapons;
+            for (let j = 0; j < weapons.length; j++) weapons[j].state = new Weapon(weapons[j].def);
+          }
+        }
         for (let i = 0; i < row.seats.length; i++) for (let j = 0; j < row.seats[i].weapons.length; j++) {
           const w = v.seats[i].weapons[j], state = row.seats[i].weapons[j];
           copyMountedWeapon(w.state, state.state);
+          // The constructor's first publication precedes stream binding.
+          // Its untouched weapons already hold their construction callbacks.
+          if (this.random) {
+            w.state.random = this.random.callback(state.randomBinding);
+            w.state.f3RandomDraw = w.state.random; w.state.f3RandomId = state.randomBinding;
+          }
           w.state.def = w.state.levels[state.state.level]; w.state.level = state.state.level;
           w.barrel = state.barrel;
           for (let k = 0; k < w.muzzles.length; k++) if (state.kicks[k] !== undefined) w.muzzles[k].kickAt = state.kicks[k];
@@ -184,10 +223,10 @@ export class F2Firing {
     // presentation only; a release event hides the existing line rather than
     // leaving an old cable attached to a respawned hull.
     if (cables) {
-      const base = (cables / 8) | 0, n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
+      const base = (cables / 8) | 0, n = f[base] | 0, stride = f[base + BLOCK.stride] | 0, heap = base + (f[base + BLOCK.heap] | 0);
 
       for (let i = 0; i < n; i++) {
-        const row = syncFfCableOut(b, f, base + 5 + i * stride, heap, this.cableRow);
+        const row = syncFfCableOut(b, f, base + BLOCK.words + i * stride, heap, this.cableRow);
         let t = this.vs.tethers.get(row.source);
         if (!t) {
           t = { source: row.source, line: null, start: new Vector3(), end: new Vector3() };
@@ -225,8 +264,11 @@ export class F2Firing {
   }
 
   shot(a) {
-    return { weapon: a.hull.seats[a.seat].weapons[a.weapon].state, yaw: a.yaw, pitch: a.pitch, charge: a.charge,
-      targetId: a.targetId, targetGeneration: a.targetGeneration };
+    const shot = this.shotRow;
+    shot.weapon = a.hull.seats[a.seat].weapons[a.weapon].state;
+    shot.yaw = a.yaw; shot.pitch = a.pitch; shot.charge = a.charge;
+    shot.targetId = a.targetId; shot.targetGeneration = a.targetGeneration;
+    return shot;
   }
   // The event buffer is ordered across shots and cable transitions. Reuse
   // decoders, while effects that retain a position receive their own event
@@ -238,6 +280,12 @@ export class F2Firing {
       // Advance before a listener can reenter and drain the same journal.
       const next = at + 2 + f[at + 1]; this.drainedWords = next - base - 1;
       const e = EVENT_TABLE[f[at]], r = e.record;
+      // Unit-owned combat shares this journal with fleet presentation. Its
+      // outer drain owns those other records and their later notification slot.
+      if (e.name !== 'f2Shot' && e.name !== 'f2Tow') {
+        at = base + 1 + this.drainedWords;
+        continue;
+      }
       const a = r.sync(b, f, at + 2, at + 2 + r.words, this.eventRows[f[at]]);
 
       if (e.name === 'f2Shot') this.presentShot(a);

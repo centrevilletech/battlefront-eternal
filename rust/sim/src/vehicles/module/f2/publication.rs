@@ -1,6 +1,6 @@
 //! Vehicles.update publication and synchronous hull callbacks. Each dirty hull
 //! is encoded against its last publication; unchanged rows never cross to JS.
-use crate::gen::{F2Delta, F2HullLife, F2Pad, Store, Vehicle};
+use crate::gen::{F2Delta, F2HullLife, F2Pad, Store, Vehicle, VehicleWheel, VehicleSeat};
 use crate::vehicles::f2_delta::Delta;
 use crate::store::block::Block;
 use crate::store::Ref;
@@ -37,7 +37,7 @@ fn life(r: Ref<Vehicle>, v: &Vehicle) -> F2HullLife {
 
 impl Publication {
     /// Vehicle construction reserves its publication buffers before the tick.
-    pub fn register(&mut self, st: &Store, r: Ref<Vehicle>) {
+    pub fn register(&mut self, st: &Store, r: Ref<Vehicle>, leg_count: usize) {
         if self.last.len() <= r.slot as usize { self.last.resize_with(r.slot as usize + 1, Last::default); }
         let count = self.last.len();
         let cache = &mut self.last[r.slot as usize];
@@ -47,15 +47,28 @@ impl Publication {
         let (row, heap) = cache.next.row(0);
         row[0] = r.slot as f64; row[1] = r.gen as f64;
         v.put_export(row, heap); cache.next.finish();
-        cache.row.words.reserve(cache.next.words.len());
-        cache.delta.reserve(cache.next.words.len());
-        cache.row.heap.reserve(cache.next.heap.len());
+        // Vehicle's legSide appears only after its first ground sample. The
+        // future list belongs in both encoding buffers' construction bound.
+        let leg_words = leg_count.max(v.leg_side.as_ref().map_or(0,Vec::len));
+        let heap_words = v.wheels.len()*VehicleWheel::WORDS + v.seats.len()*VehicleSeat::WORDS + leg_words;
+        let row_words = crate::store::block::HEADER + Vehicle::EXPORT_STRIDE + heap_words;
+        cache.row.words.reserve(row_words);
+        cache.next.words.reserve(row_words.saturating_sub(cache.next.words.len()));
+        cache.delta.reserve(row_words);
+        cache.row.heap.reserve(heap_words);
+        cache.next.heap.reserve(heap_words.saturating_sub(cache.next.heap.len()));
         cache.life.resize(F2HullLife::WORDS, f64::NAN);
         self.life_scratch.resize(F2HullLife::WORDS, 0.0);
         self.dirty.reserve(count); self.selected.reserve(count); self.life_selected.reserve(count);
-        let words: usize = self.last.iter().map(|r| r.next.words.len().max(r.row.words.len())).sum();
-        let heap: usize = self.last.iter().map(|r| r.next.heap.len().max(r.row.heap.len())).sum();
-        self.hulls.words.reserve(words); self.hulls.heap.reserve(heap);
+        let words: usize = self.last.iter().map(|r| r.next.words.capacity().max(r.row.words.capacity())).sum();
+        let heap: usize = self.last.iter().map(|r| r.next.heap.capacity().max(r.row.heap.capacity())).sum();
+        // F2Delta's heap contains masks and every changed encoded word, not
+        // just Vehicle's own variable fields. Reserve the full first delta
+        // now; a first incoming shot can publish before any fleet tick.
+        let masks: usize = self.last.iter().map(|r| r.next.words.capacity().max(r.row.words.capacity()).div_ceil(32)).sum();
+        let payload = words + masks;
+        self.hulls.words.reserve(5 + count * F2Delta::WORDS + payload);
+        self.hulls.heap.reserve(payload.max(heap));
         self.lives.words.reserve(5 + count * F2HullLife::WORDS);
         self.pad_dirty.reserve(st.vehicles.slots.len()); self.pads.words.reserve(5 + st.vehicles.slots.len() * F2Pad::WORDS);
         self.mark(r);

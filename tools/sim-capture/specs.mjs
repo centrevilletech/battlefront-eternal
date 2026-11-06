@@ -34,11 +34,9 @@
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
 import * as THREE from 'three';
-import { units } from './units.mjs';
 import { seats, hullExport, seatState, crewState } from './seats.mjs';
 import { f2Spec } from './f2.mjs';
 import { vehicleAI } from './vehicle-ai.mjs';
-import { combat } from './combat.mjs';
 import { battle, battlePhase } from './battle.mjs';
 import { flightSpec } from './flight.mjs';
 import { humanSpawn } from './human-spawn.mjs';
@@ -330,12 +328,8 @@ const ticks = { frames: [] };
 // (tools/sim-capture/flight.mjs).
 const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries });
 
-// The units package (flip F3): a unit's tick, the registry's queries and
-// the soldiers pushed apart (tools/sim-capture/units.mjs). The seats (flip
-// F2 with the hulls and flight): the hulls' seats and the turret crews
-// (tools/sim-capture/seats.mjs).
-// The combat package (flip F3 with units): a soldier's combat, what hurts
-// him and his new lives (tools/sim-capture/combat.mjs).
+// Unit and combat authority use native ownership. Their former JavaScript
+// method capture specs are removed; historical native replays remain valid.
 // The battle package (flip F4): the posts, the battle's rules, leaving the
 // battlefield and the spawn manager, and (battlePhase) the battle phase
 // whole (tools/sim-capture/battle.mjs).
@@ -343,4 +337,4 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 // steering, the vehicle patterns, the notifier and decay, and the boarding
 // and flyer agents (tools/sim-capture/vehicle-ai.mjs).
 const f2 = f2Spec({ hullExport, seatState, crewState, poseState, tetherState, boundaries: spawnBoundaries });
-export const SPECS = { f2, ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats, battle, battlePhase, vehicleAI, humanSpawn, ai, aiPolicy, aiCombat, traps, props, animated, liveObjects, turrets, debris, weapons };
+export const SPECS = { f2, ordnance, items, vehicles, ticks, navPlanner, flight, flightMissiles, seats, battle, battlePhase, vehicleAI, humanSpawn, ai, aiPolicy, aiCombat, traps, props, animated, liveObjects, turrets, debris, weapons };

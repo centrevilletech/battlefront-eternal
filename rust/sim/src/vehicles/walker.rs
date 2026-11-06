@@ -96,8 +96,10 @@ pub fn stand_on_legs<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, legs: &s
     let mut heights = std::mem::take(&mut v.support_heights); heights.clear();
     let created = v.leg_side.is_none();
     if created {
-        let mut sides = std::mem::take(&mut v.leg_side_scratch);
-        sides.clear(); sides.resize(legs.pairs.len(), 0.0);
+        // standOnLegs first exposes the list here, but construction has
+        // already reserved its storage beside the optional gameplay value.
+        let mut sides = std::mem::take(&mut v.leg_side_storage);
+        sides.resize(legs.pairs.len(), 0.0);
         v.leg_side = Some(sides);
     }
     w.leg_side(v.index, v.leg_side.as_mut().unwrap(), created);

@@ -137,10 +137,10 @@ Aircraft retain their existing flight targeting system.
 acquisition versus retention, generation changes, firing/switching resets,
 projectile guidance, partial clips, firing rates and cursor geometry. It also
 checks all four retail infantry launcher definitions when local extracts
-exist. `tests/weapon-cursor-browser.mjs` exercises the real ARC combat/HUD
-paths in chase and first-person views, checks that the diamond projects onto
-the target in both, and verifies that a switch to the pistol removes the
-marker. `tests/reticle-presentation-browser.mjs` runs with the world in its
+exist. Native acquisition and crew-team changes are exercised by
+`tests/f3-targeting.test.js` and `tests/f3-turrets.test.js`; page scope alignment
+uses the published basis in `tests/scoped-aim.test.js`.
+`tests/reticle-presentation-browser.mjs` runs with the world in its
 worker and 144 Hz presentation: the displayed aim stays aligned in both views
 while authoritative packets are pending.
 

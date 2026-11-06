@@ -11,11 +11,25 @@
 //! class's fields read as [`Js::or`] and [`Js::nn`], Math.min/max as
 //! jsrt's, a press's seeded draws as mulberry32 (jsrt::rng::Mulberry32).
 
-use super::defs::{Js, Level, WeaponClass, WeaponDefs, K};
+use super::defs::{WeaponBase, Js, Level, WeaponClass, WeaponDefs, K};
 use crate::gen::{Melee, Posture, Weapon};
 use crate::store::DefId;
 use jsrt::conv::{js_max, js_min, js_trunc};
 use jsrt::rng::Mulberry32;
+
+/// givePowerup and Station.serve keep the loaded round out of the reserve
+/// capacity. The small change threshold is deliberate; a pickup which gives
+/// no ammunition must remain available to the next target in list order.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn supply(weapon: &mut Weapon, level: &Level, amount: f64, powerup: bool) -> bool {
+    let ammo = level.get(K::Ammo).num();
+    if (powerup && level.powerup_dispenser) || weapon.bottomless || !(ammo > 0.0) { return false; }
+    let loaded = if weapon.clip >= weapon.per_shot - 1e-6 { 1.0 } else { 0.0 };
+    let next = three::clamp(weapon.reserve + amount, 0.0, ammo - loaded);
+    if !(v8math::abs(next - weapon.reserve) > 0.0001) { return false; }
+    weapon.reserve = next;
+    true
+}
 
 /// Degrees to radians (`Math.PI / 180`).
 pub const DEG: f64 = std::f64::consts::PI / 180.0;
@@ -172,7 +186,7 @@ impl Weapon {
     /// prepareMelee (heroes.js:17) on one weapon: a melee weapon's clip is
     /// bottomless and its update is its swing's.
     pub fn prepare_melee(&mut self, class: &WeaponClass) {
-        if !class.base().get(K::Base).is_str("melee") {
+        if class.base().kind!=WeaponBase::Melee {
             return;
         }
         self.bottomless = true;
@@ -192,12 +206,11 @@ impl Weapon {
 
     /// Thrown: grenades, dispensers' mines and power-ups, recon droids.
     pub fn thrown(&self, defs: &WeaponDefs) -> bool {
-        let base = defs.class(self.def).base().get(K::Base);
-        base.is_str("grenade") || base.is_str("dispenser") || base.is_str("remote")
+        defs.class(self.def).base().kind.thrown()
     }
 
     pub fn repair(&self, defs: &WeaponDefs) -> bool {
-        defs.class(self.def).base().get(K::Base).is_str("repair")
+        defs.class(self.def).base().kind==WeaponBase::Repair
     }
 
     pub fn reloading(&self) -> bool {
@@ -247,7 +260,7 @@ impl Weapon {
     /// the picked unit's id, generation and whether it lives, or none.
     pub fn update_lock(&mut self, class: &WeaponClass, dt: f64, target: Option<LockTarget>) {
         let d = self.level(class);
-        let launcher = d.get(K::Base).is_str("launcher") && d.get(K::Ordnance).get("base").is_str("missile");
+        let launcher = d.kind==WeaponBase::Launcher && d.missile;
         let Some(t) = target.filter(|t| launcher && t.alive) else {
             self.clear_lock();
             return;
@@ -437,7 +450,7 @@ impl Weapon {
             if cooldown {
                 self.wait = js_max(self.wait, self.salvo_wait + d.get(K::ShotDelay).or(0.0));
             }
-            if d.get(K::Base).is_str("launcher") && !matches!(d.get(K::ClearLockOnFire), Js::Num(x) if *x == 0.0) {
+            if d.kind==WeaponBase::Launcher && !matches!(d.get(K::ClearLockOnFire), Js::Num(x) if *x == 0.0) {
                 self.lock_elapsed = 0.0;
                 self.lock_complete = false;
             }
@@ -573,10 +586,7 @@ impl Weapon {
 
         let single = d.get(K::TriggerSingle).num() > 0.0;
         let most = class.base().get(K::MaxPressedTime).or(0.0);
-        let thrown = {
-            let base = class.base().get(K::Base);
-            base.is_str("grenade") || base.is_str("dispenser") || base.is_str("remote")
-        };
+        let thrown=class.base().kind.thrown();
         if most > 0.0 {
             if self.charging {
                 if trigger.held {
@@ -653,7 +663,7 @@ impl Weapon {
     }
 
     fn repair_of(&self, class: &WeaponClass) -> bool {
-        class.base().get(K::Base).is_str("repair")
+        class.base().kind==WeaponBase::Repair
     }
 
     /// MeleeSwing.update(dt, selected, trigger) (heroes.js:39): a press
@@ -662,9 +672,9 @@ impl Weapon {
     /// when old <= hit < old + dt; the swing ends strictly past its length.
     fn melee_update(&mut self, index: u32, class: &WeaponClass, dt: f64, selected: bool, trigger: &Trigger, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
-        let swings = &d.melee_swings;
+        let swings = d.swings.entries();
         let mut m = self.melee.clone().expect("a melee weapon's swing");
-        if m.active && m.time > swings[m.index as usize].duration.num() {
+        if m.active && m.time > swings[m.index as usize].duration {
             m.active = false;
             self.firing = false;
             out.push(Shot { weapon: index, kind: ShotKind::MeleeEnd });
@@ -686,7 +696,7 @@ impl Weapon {
             } else {
                 let before = m.time;
                 m.time += js_max(dt, 0.0);
-                let hit = swings[m.index as usize].hit.num();
+                let hit = swings[m.index as usize].hit;
                 if before <= hit && hit < m.time {
                     out.push(Shot { weapon: index, kind: ShotKind::MeleeHit });
                 }
@@ -742,14 +752,20 @@ pub struct ArsenalInput {
 
 /// `new Arsenal(loadout, { player })` with prepareMelee: its weapons.
 pub fn arm(loadout: &[DefId], defs: &WeaponDefs, player: bool) -> Vec<Weapon> {
-    loadout
-        .iter()
-        .map(|&def| {
-            let mut w = Weapon::create(def, defs, player);
-            w.prepare_melee(defs.class(def));
-            w
-        })
-        .collect()
+    let mut weapons = Vec::with_capacity(loadout.len());
+    arm_into(loadout,defs,player,&mut weapons);
+    weapons
+}
+
+/// Arsenal's constructor resets every weapon, including its prepared melee
+/// state. World-owned recon reuses the slot's storage when launching again.
+pub fn arm_into(loadout: &[DefId], defs: &WeaponDefs, player: bool, weapons: &mut Vec<Weapon>) {
+    weapons.clear();
+    for &def in loadout {
+        let mut weapon = Weapon::create(def,defs,player);
+        weapon.prepare_melee(defs.class(def));
+        weapons.push(weapon);
+    }
 }
 
 impl Arsenal<'_> {
@@ -761,23 +777,22 @@ impl Arsenal<'_> {
     /// current(channel) (weapons.js:511): the selected weapon's place.
     pub fn current(&self, defs: &WeaponDefs, c: usize) -> Option<usize> {
         let selected = self.selected[c];
-        if selected < 0.0 || !selected.is_finite() || selected.fract() != 0.0 {
-            return None;
+        if !(selected >= 0.0 && selected.fract() == 0.0) { return None; }
+        let mut index = 0;
+        for i in 0..self.weapons.len() {
+            if !self.weapons[i].in_channel(defs, c as f64) { continue; }
+            if index as f64 == selected { return Some(i); }
+            index += 1;
         }
-        self.weapons.iter().enumerate().filter(|(_, w)| w.in_channel(defs, c as f64))
-            .nth(selected as usize).map(|(i, _)| i)
+        None
     }
 
     /// next(channel, direction) (weapons.js:530).
     pub fn next(&mut self, defs: &WeaponDefs, c: usize, direction: f64) -> bool {
         let count = self.weapons.iter().filter(|w| w.in_channel(defs, c as f64)).count();
-        if count < 2 {
-            return false;
-        }
+        if count < 2 { return false; }
         if let Some(old) = self.current(defs, c) {
-            if self.weapons[old].busy() {
-                return false;
-            }
+            if self.weapons[old].busy() { return false; }
             self.weapons[old].deselect();
         }
         let n = count as f64;

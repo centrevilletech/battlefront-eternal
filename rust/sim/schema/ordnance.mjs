@@ -7,6 +7,8 @@
 // schema is written; tools/sim-schema.mjs makes the code from it.
 export default {
   enums: {
+    F3OrdnanceEvent: ['projectile', 'launch', 'impact', 'grenadeContact', 'bounce'],
+    F3ProjectileKind: ['bolt', 'beam', 'grenade', 'round'],
     // A round's base (ordnance.js:351 round(), 240 fatray()).
     RoundKind: ['bullet', 'missile', 'shell', 'fatray'],
     // Where a round struck a soldier (src/registry.js raycast).
@@ -25,6 +27,18 @@ export default {
   },
 
   records: {
+    // A native recon launch captures one immutable life. Bind its ordinary
+    // JS facade before decoding later notices that refer to this slab row.
+    F3OwnerCreated: { slot: 'u32', generation: 'u32', sourceUnit: 'ref:unit',
+      id: 'f64', life: 'f64', team: 'f64', human: 'bool', className: 'str', character: 'ref:character|null' },
+    // Lifecycle notices retain the sampled launch/contact values separately
+    // from a projectile's latest mirror. Capture keys still use its stable
+    // pooled mirror, including an instant bolt retired during its own launch.
+    F3OrdnanceKey: { kind: 'enum:F3ProjectileKind', slot: 'u32', generation: 'u32' },
+    F3OrdnanceNotice: { key: 'rec:F3OrdnanceKey', event: 'enum:F3OrdnanceEvent', def: 'def:ordnance', owner: 'union:OrdnanceOwner',
+      tick: 'f64|null|undefined', ownerId: 'f64', ownerGeneration: 'f64', fireId: 'f64', channel: 'f64', team: 'f64',
+      hasSource: 'bool', source: 'rec:F3LifeRef', position: 'vec3', direction: 'vec3', offset: 'vec3', hasOffset: 'bool',
+      speed: 'f64', life: 'f64', merge: 'f64', point: 'vec3', normal: 'vec3', surface: 'f64', struck: 'rec:Impact', hasStruck: 'bool' },
     // Where a bolt or rocket will strike, found when it was fired
     // (ordnance.js:369, 418) or as it flew (712, 716).
     Impact: {
@@ -138,6 +152,8 @@ export default {
     grenadeContact: { args: 'ContactArgs', result: null },
     bounce: { args: 'BounceArgs', result: null },
   },
+
+  events: { f3OwnerCreated: 'F3OwnerCreated', f3Ordnance: 'F3OrdnanceNotice' },
 
   kinds: {
     // The battle's Ordnance (ordnance.js:177): its four lists, in the order
@@ -316,6 +332,13 @@ export default {
     vehicle: { class: 'Vehicle' },
     body: {},
     emitter: {},
-    ownerSnapshot: {},
+    ownerSnapshot: {
+      class: 'OwnerSnapshot',
+      identity: true,
+      fields: {
+        sourceUnit: 'ref:unit', id: 'f64', generation: 'f64', team: 'f64',
+        human: 'bool', className: 'str', character: 'ref:character|null',
+      },
+    },
   },
 };

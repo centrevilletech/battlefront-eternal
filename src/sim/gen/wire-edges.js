@@ -204,10 +204,10 @@ export function syncWeCall(b, f, at, h, m) {
   m.capacity = f[at + 4];
   m.actionReceived = f[at + 5];
   m.fireReceived = f[at + 6];
-  { const items = (m.edges ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 23; v = syncWeEdge(b, f, at + 0, h, v ?? new WeEdgeMirror()); } items[i] = v; } }
-  { const items = (m.ids ??= []), start = h + f[at + 9], n = f[at + 10]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.edges ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 23; v = syncWeEdge(b, f, at + 0, h, v ?? new WeEdgeMirror()); } items[i] = v; } }
+  { const items = (m.ids ??= []), start = h + f[at + 9], n = f[at + 10]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   { const tag = f[at + 11]; if (tag === 0) { m.edge = syncWeEdge(b, f, at + 12, h, m.edge ?? new WeEdgeMirror()); } else m.edge = tag === 1 ? null : undefined; }
-  { const items = (m.outcomes ??= []), start = h + f[at + 35], n = f[at + 36]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncWeOutcome(b, f, at + 0, h, v ?? new WeOutcomeMirror()); } items[i] = v; } }
+  { const items = (m.outcomes ??= []), start = h + f[at + 35], n = f[at + 36]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncWeOutcome(b, f, at + 0, h, v ?? new WeOutcomeMirror()); } items[i] = v; } }
   m.fire = f[at + 37] !== 0;
   m.id = f[at + 38];
   m.externalId = f[at + 39];
@@ -315,12 +315,12 @@ export function syncWeResult(b, f, at, h, m) {
   m.accepted = f[at + 7] !== 0;
   m.fire = f[at + 8] !== 0;
   m.id = f[at + 9];
-  { const items = (m.received ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.results ??= []), start = h + f[at + 12], n = f[at + 13]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncWeOutcome(b, f, at + 0, h, v ?? new WeOutcomeMirror()); } items[i] = v; } }
-  { const items = (m.edges ??= []), start = h + f[at + 14], n = f[at + 15]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 23; v = syncWeEdge(b, f, at + 0, h, v ?? new WeEdgeMirror()); } items[i] = v; } }
-  { const items = (m.pending ??= []), start = h + f[at + 16], n = f[at + 17]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncWePending(b, f, at + 0, h, v ?? new WePendingMirror()); } items[i] = v; } }
+  { const items = (m.received ??= []), start = h + f[at + 10], n = f[at + 11]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.results ??= []), start = h + f[at + 12], n = f[at + 13]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncWeOutcome(b, f, at + 0, h, v ?? new WeOutcomeMirror()); } items[i] = v; } }
+  { const items = (m.edges ??= []), start = h + f[at + 14], n = f[at + 15]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 23; v = syncWeEdge(b, f, at + 0, h, v ?? new WeEdgeMirror()); } items[i] = v; } }
+  { const items = (m.pending ??= []), start = h + f[at + 16], n = f[at + 17]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncWePending(b, f, at + 0, h, v ?? new WePendingMirror()); } items[i] = v; } }
   m.highest = f[at + 18];
-  { const items = (m.seen ??= []), start = h + f[at + 19], n = f[at + 20]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.seen ??= []), start = h + f[at + 19], n = f[at + 20]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -477,7 +477,7 @@ export function syncWiCommand(b, f, at, h, m) {
   m.sequence = f[at + 1];
   m.tick = f[at + 2];
   m.view = f[at + 3];
-  { const items = (m.codes ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.codes ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   { const a = (m.look ??= new Array(2)); a[0] = f[at + 6]; a[1] = f[at + 7]; }
   return m;
 }
@@ -658,11 +658,11 @@ export class WiPacketMirror {
 export function syncWiPacket(b, f, at, h, m) {
   m.epoch = f[at + 0];
   m.generation = f[at + 1];
-  { const items = (m.views ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncWiView(b, f, at + 0, h, v ?? new WiViewMirror()); } items[i] = v; } }
-  { const items = (m.commands ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 8; v = syncWiCommand(b, f, at + 0, h, v ?? new WiCommandMirror()); } items[i] = v; } }
-  { const items = (m.edges ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 14; v = syncWiEdge(b, f, at + 0, h, v ?? new WiEdgeMirror()); } items[i] = v; } }
+  { const items = (m.views ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncWiView(b, f, at + 0, h, v ?? new WiViewMirror()); } items[i] = v; } }
+  { const items = (m.commands ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 8; v = syncWiCommand(b, f, at + 0, h, v ?? new WiCommandMirror()); } items[i] = v; } }
+  { const items = (m.edges ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 14; v = syncWiEdge(b, f, at + 0, h, v ?? new WiEdgeMirror()); } items[i] = v; } }
   { const tag = f[at + 8]; if (tag === 0) { m.ack = syncWiAck(b, f, at + 9, h, m.ack ?? new WiAckMirror()); } else m.ack = tag === 1 ? null : undefined; }
-  { const items = (m.validCodes ??= []), start = h + f[at + 11], n = f[at + 12]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.validCodes ??= []), start = h + f[at + 11], n = f[at + 12]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
   return m;
 }
 

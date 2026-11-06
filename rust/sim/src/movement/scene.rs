@@ -7,7 +7,9 @@
 
 use super::soldier::{js_hypot2, PART_CACHES, V3};
 use crate::collision::spheres::{closest_point_to_point, gather, ground, overlaps_sphere, GatherCache, Gathered, Polygon, Tri};
-use crate::collision::{triangle_normal, world_candidates_into, world_cast_ray_in, State, MAX_BODIES, MISS, TERRAIN};
+use crate::collision::{triangle_normal, world_candidates_into, world_cast_ray_in, State, MISS, TERRAIN};
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+use crate::collision::MAX_BODIES;
 use std::ptr::addr_of_mut;
 
 /// What a contact may hurt him on (collision-damage.js): terrain counts in

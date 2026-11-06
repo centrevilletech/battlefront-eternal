@@ -1,4 +1,5 @@
-import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
+import './fixtures/native-anim.js';
+import { stepPrediction, registerHullFixture, prepareAuthorityFixture } from './helpers/hull-prediction.js';
 // A flyer's landing gear, gear doors and S-foils: its bank's takeoff clip
 // posed at the flight state (src/flight/gear.js), the gear its own on the
 // host that steps or corrects its flight and its replicated flight state's
@@ -180,7 +181,9 @@ test('a craft drawn from its records follows its flight state: held through the 
 
 test('over the entity protocol a craft is drawn landed, stowing and stowed as the world flies it; the pilot\'s own keeps his replayed gear', () => {
   const server = craft(), client = craft();
-  const hull = server.v; hull.aiTarget.id = 40;
+  // The native mixed registry assigns the identity before records are sent.
+  prepareAuthorityFixture(server.system);
+  const hull = server.v;
   const registry = { contentEpoch: 1, classes: new Map([[2, 'ship']]), weapons: new Map(), inputCodes: [], bindingProfiles: new Map([[0, {}]]) };
   const units = { byIdMap: new Map(), byId() { return null; }, all() { return []; } };
   const game = { ordnance: { clearProjectilePresentation() {} }, playerUnit: { id: 1, generation: 1, seat: null }, playerTeam: 1, units, vehicles: client.system, turretSeats: { turrets: [] }, live: { buildings: [] },
@@ -190,7 +193,7 @@ test('over the entity protocol a craft is drawn landed, stowing and stowed as th
   const sender = createSnapshotSender(adapter);
   let tick = 10;
   const send = () => { tick += 1; sender.send(tick, [captureEntityVehicle(hull, { tick, classId: 2 }), captureEntityMount(hull, { tick, slot: 0 })]); };
-  const shown = () => client.system.vehicles.find((x) => x.aiTarget.id === 40);
+  const shown = () => client.system.vehicles.find((x) => x.aiTarget.id === hull.aiTarget.id);
   const f = { system: server.system, v: hull };
   hull.driver = {}; hull.seatIndex = 0;
   send();
@@ -219,7 +222,7 @@ test('over the entity protocol a craft is drawn landed, stowing and stowed as th
   lateGame.client = { seats: new EntitySeats(lateGame) };
   const lateAdapter = new EntityGameState(lateGame, registry); lateAdapter.baseline();
   createSnapshotSender(lateAdapter).send(tick, [captureEntityVehicle(hull, { tick, classId: 2 }), captureEntityMount(hull, { tick, slot: 0 })]);
-  assert.equal(shownGear(late.system.vehicles.find((x) => x.aiTarget.id === 40), 1 / 60), 0);
+  assert.equal(shownGear(late.system.vehicles.find((x) => x.aiTarget.id === hull.aiTarget.id), 1 / 60), 0);
   // His own: the records leave its exact replay state, gear included, alone.
   adapter.ownsMountAim = (vehicle, seat) => vehicle === remote && seat === 0;
   remote.gear = .42; run(f, 1); send();
@@ -318,7 +321,8 @@ test('a craft whose collision reaches down to its feet (the Y-wing\'s) takes off
 test('the world and a page stand a craft on the same feet: the same foot from the same data, its parked height from the world', () => {
   const server = craft({ parts: [HULL, LEG] }), client = craft({ parts: [HULL, LEG] });
   assert.equal(client.v.gearFoot, server.v.gearFoot, 'every host computes the same foot');
-  const hull = server.v; hull.aiTarget.id = 40;
+  prepareAuthorityFixture(server.system);
+  const hull = server.v;
   const registry = { contentEpoch: 1, classes: new Map([[2, 'ship']]), weapons: new Map(), inputCodes: [], bindingProfiles: new Map([[0, {}]]) };
   const game = { ordnance: { clearProjectilePresentation() {} }, playerUnit: { id: 1, generation: 1, seat: null }, playerTeam: 1, units: { byIdMap: new Map(), byId() { return null; }, all() { return []; } },
     vehicles: client.system, turretSeats: { turrets: [] }, live: { buildings: [] }, driver: null, gunner: null, factory: { build() { throw Error('unexpected body build'); } }, bodies: new Map(), adopt() {}, setHumanTeam() {} };
@@ -327,7 +331,7 @@ test('the world and a page stand a craft on the same feet: the same foot from th
   const sender = createSnapshotSender(adapter);
   let tick = 10;
   const send = () => { tick += 1; sender.send(tick, [captureEntityVehicle(hull, { tick, classId: 2 }), captureEntityMount(hull, { tick, slot: 0 })]); };
-  const shown = () => client.system.vehicles.find((x) => x.aiTarget.id === 40);
+  const shown = () => client.system.vehicles.find((x) => x.aiTarget.id === hull.aiTarget.id);
   send();
   // Records carry positions in 1/256 m steps (the entity codec).
   assert.ok(Math.abs(shown().position.y - hull.position.y) < 2e-3 && Math.abs(hull.position.y - hull.gearFoot) < 1e-9, `parked on its feet in both (${shown().position.y}, ${hull.position.y})`);

@@ -1,29 +1,9 @@
-//! Combat on the module, behind its switch (src/combat-sim.js; off unless a
-//! world asks for it): a world's combats are the store's, each unit's in
-//! its `combat` field, and JavaScript reads them through a facade shaped
-//! like src/combat.js PlayerCombat whose state is a mirror of the store's
-//! record and whose methods are these exports (an update, the rounds a
-//! droideka's guns owe, a hurt, a blast, a new life, a weapon chosen, a
-//! field the battle sets). What combat asks of the rest of the battle comes
-//! back as the imports of rust/sim/schema/combat.mjs, which src/combat-sim.js
-//! serves with the objects src/combat-world.js hands the battle.
-//!
-//! Units are still JavaScript's: each command brings the unit's view in
-//! (CbIn: his intent, controls, body, life and trigger edges, and the
-//! combat's fields the battle's JavaScript keeps), and its answer takes out
-//! what combat wrote into the unit (CbOut) with the combat's record, which
-//! the facade's mirror is synced from. The store is reached through short
-//! borrows of the instance's one `Sim`, never held across an import
-//! (P6's and P7's modules): the unit a command works on is taken out of the
-//! store while it runs, and before an import that runs the battle's code
-//! (a hook, a round fired, a link of the arc) it goes back, JavaScript
-//! syncs its facade and the unit from it, runs the code, which may come
-//! back into any combat (his own too: a blast his death sets off), gives
-//! the unit's view back (cmb_feed), and the command takes the unit out
-//! again (P7's current and reload), so the code after the call sees what
-//! the battle did, as it does in the JavaScript.
+//! Native combat services over canonical unit rows. Construction loads
+//! immutable definitions; the owning unit phase supplies retained scratch,
+//! registry queries and ordnance services. Character bookkeeping is the
+//! declared synchronous foreign leaf; presentation returns as notices.
 
-use super::combat::{self as cb, CombatDefs, Edge, Edges};
+use super::combat::{CombatDefs, Edge};
 use super::defs::{DefTable, Js, JsObj, WeaponClass};
 use super::weapons::{arm, Admission, Arsenal, Shot, ShotKind, WeaponDraws};
 use super::world::{ArcTarget, CastHit, CombatWorld, DamageInfo, Droid, LockPick, Presentation};
@@ -41,7 +21,7 @@ use three::Vector3;
 /// one it reads.
 struct Content {
     defs: Rc<CombatDefs>,
-    explosions: Vec<Js>,
+    explosion_packets: Vec<super::impacts::BlastPacket>,
 }
 
 static mut CONTENT: Option<Content> = None;
@@ -49,7 +29,12 @@ static mut CONTENT: Option<Content> = None;
 fn content() -> &'static mut Content {
     // SAFETY: one thread; nothing holds a reference to it across a call
     // out of the module (commands clone the Rc they read).
-    unsafe { (*addr_of_mut!(CONTENT)).get_or_insert_with(|| Content { defs: Rc::new(CombatDefs::default()), explosions: Vec::new() }) }
+    unsafe {
+        (*addr_of_mut!(CONTENT)).get_or_insert_with(|| Content {
+            defs: Rc::new(CombatDefs::default()),
+            explosion_packets: Vec::new(),
+        })
+    }
 }
 
 /// The combat classes and weapons the battle has given the module (a
@@ -58,35 +43,33 @@ pub(crate) fn defs() -> Rc<CombatDefs> {
     content().defs.clone()
 }
 
-/// Each unit's trigger edges as its last command brought them.
-static mut EDGES: Vec<Edges> = Vec::new();
-
-fn edges_of(id: u32) -> Edges {
-    // SAFETY: one thread, a copy out.
-    let all = unsafe { &*addr_of_mut!(EDGES) };
-    all.get(id as usize).cloned().unwrap_or_default()
+// PlayerCombat.zoom is a native seat read with no foreign callback. Borrow
+// prepared definitions directly; each rider needs no new Rc owner or array.
+pub(crate) fn zoom(c: &mut Combat) -> f64 {
+    super::combat::zoom_factor(c, &content().defs)
 }
 
-fn set_edges(id: u32, edges: Edges) {
-    // SAFETY: one thread, no reference kept.
-    let all = unsafe { &mut *addr_of_mut!(EDGES) };
-    if all.len() <= id as usize {
-        all.resize(id as usize + 1, Edges::default());
-    }
-    all[id as usize] = edges;
+/// Numeric blast fields are cached with the same construction id as the
+/// legacy definition. Victim traversal copies this small value, not a table.
+pub(crate) fn blast_packet(id: u32) -> super::impacts::BlastPacket {
+    content()
+        .explosion_packets
+        .get(id as usize)
+        .copied()
+        .unwrap_or_else(|| super::impacts::BlastPacket::read(&Js::Undefined))
 }
 
 fn unit_ref(id: u32) -> Ref<Unit> {
-    Ref::new(id, 0)
+    sim().store.unit.reference(id).unwrap_or(Ref::new(id, 0))
 }
 
-// ---- Content: JavaScript values as words (src/combat-sim.js `valueWords`):
+// ---- Content: JavaScript values as words (src/f3-combat.js `valueWords`):
 // 0 undefined, 1 null, 2 false, 3 true, 4 a number, 5 a string (its index),
 // 6 an array (its length, then its items), 7 an object (its keys' count,
 // then each key's index and value), 8 a weapon class by its index in the
 // battle's weapon table, 9 anything else (an object combat never reads).
 
-fn read_js(words: &[f64], at: &mut usize, strings: &Strings) -> Js {
+pub(crate) fn read_js(words: &[f64], at: &mut usize, strings: &Strings) -> Js {
     let tag = word_u32(words[*at]);
     *at += 1;
     match tag {
@@ -125,7 +108,10 @@ fn read_js(words: &[f64], at: &mut usize, strings: &Strings) -> Js {
         8 => {
             let id = word_u32(words[*at]);
             *at += 1;
-            Js::Obj(Rc::new(JsObj { fields: Vec::new(), def: Some((DefTable::Weapon, DefId(id))) }))
+            Js::Obj(Rc::new(JsObj {
+                fields: Vec::new(),
+                def: Some((DefTable::Weapon, DefId(id))),
+            }))
         }
         _ => Js::Obj(Rc::new(JsObj::default())),
     }
@@ -163,108 +149,24 @@ pub extern "C" fn cmb_class(id: u32) {
     Rc::make_mut(&mut content().defs).set_class(DefId(id), class);
 }
 
-/// Explosion `id` (src/combat-sim.js's table), in the call block.
+/// Explosion `id` (src/f3-combat.js's table), in the call block.
 #[no_mangle]
 pub extern "C" fn cmb_explosion(id: u32) {
     let v = call_value();
-    let list = &mut content().explosions;
-    if list.len() <= id as usize {
-        list.resize(id as usize + 1, Js::Undefined);
+    let packet = super::impacts::BlastPacket::read(&v);
+    let packets = &mut content().explosion_packets;
+    if packets.len() <= id as usize {
+        packets.resize_with(id as usize + 1, || super::impacts::BlastPacket::read(&Js::Undefined));
     }
-    list[id as usize] = v;
-}
-
-// ---- The unit's view, in and out.
-
-/// A command's view of the unit and of the combat's JavaScript-kept fields
-/// into the store's unit (and his trigger edges aside).
-fn feed_unit(u: &mut Unit, i: &CbIn) {
-    u.generation = i.generation;
-    u.class_def = i.class_def;
-    u.network_human = i.network_human;
-    u.seat = if i.seated { Some(Ref::new(0, 0)) } else { None };
-    u.remotes_active = i.remotes_active;
-    u.intent = i.intent.clone();
-    u.controls = i.controls.clone();
-    u.soldier = i.soldier.clone();
-    let c = &mut u.combat;
-    c.aim_override = i.aim_override;
-    c.mounted = i.mounted;
-    c.gun_underwater = i.gun_underwater;
-    c.team = i.team;
-    c.player = i.player;
-    c.defer_muzzles = i.defer_muzzles;
-    c.random = i.random;
-    c.has_remotes = i.has_remotes;
-    if i.weapons.len() == c.weapons.len() {
-        for (w, x) in c.weapons.iter_mut().zip(&i.weapons) {
-            w.random = x.random;
-            w.spread_scale = x.spread_scale;
-            w.yaw_spread_override = x.yaw_spread_override;
-        }
-    }
-}
-
-pub(crate) fn edge(e: &CbEdge) -> Edge {
-    Edge { button: e.button, id: e.id, late: e.late, aim_yaw: e.aim_yaw, aim_pitch: e.aim_pitch }
-}
-
-/// The view into the store's unit `id` (made the first time).
-fn feed(i: &CbIn) -> Ref<Unit> {
-    let id = word_u32(i.unit);
-    let r = unit_ref(id);
-    {
-        let s = sim();
-        let u = s.store.unit.ensure(r);
-        feed_unit(u, i);
-    }
-    set_edges(id, Edges { shots: i.edges.as_ref().map(|list| list.iter().map(edge).collect()), shot: i.edge.as_ref().map(edge) });
-    r
-}
-
-/// What combat wrote into the unit, for JavaScript to write into his
-/// objects (src/combat-sim.js `written`).
-fn out_of(u: &Unit) -> CbOut {
-    let mut o = CbOut {
-        pressed0: u.controls.pressed.first().copied().unwrap_or(false),
-        pressed1: u.controls.pressed.get(1).copied().unwrap_or(false),
-        reload: u.intent.reload,
-        next_primary: u.intent.next_primary,
-        previous_primary: u.intent.previous_primary,
-        next_secondary: u.intent.next_secondary,
-        zoom: u.intent.zoom,
-        ..CbOut::default()
-    };
-    match &u.soldier {
-        UnitBody::Soldier(s) => {
-            o.aim_pitch = s.aim_pitch;
-            o.velocity = s.velocity;
-            o.air = s.air;
-            o.state_time = s.state_time;
-            o.grounded = s.grounded;
-        }
-        UnitBody::Droideka(d) => {
-            o.aim_pitch = d.aim_pitch;
-            if let Some(shield) = &d.shield {
-                o.shield_on = shield.on;
-                o.shield_value = shield.value;
-            }
-        }
-    }
-    o
+    packets[id as usize] = packet;
 }
 
 /// A command's answer in the call block: what it wrote into the unit, then
 /// the combat's record. `flag`: a command's own answer (a weapon chosen).
-fn answer(r: Ref<Unit>, flag: bool) -> *const f64 {
+fn answer(r: Ref<Unit>) -> *const f64 {
     let s = sim();
-    let u = s.store.unit.get(r).expect("a unit the store holds");
-    let out = out_of(u);
-    s.calls.result(1 + CbOut::WORDS + Combat::WORDS, |row, heap| {
-        row[0] = if flag { 1.0 } else { 0.0 };
-        out.put(&mut row[1..], heap);
-        u.combat.put(&mut row[1 + CbOut::WORDS..], heap);
-    });
+    let u = s.store.unit.get(r).expect("a constructed unit");
+    s.calls.result(Combat::WORDS, |row, heap| u.combat.put(row, heap));
     s.calls.block.ptr()
 }
 
@@ -284,49 +186,31 @@ fn mark_taken(slot: Option<u32>) {
     unsafe { *addr_of_mut!(TAKEN) = slot }
 }
 
-/// The unit out of the store for a command to work on (the store keeps an
-/// empty one in its place until it goes back).
-pub(crate) fn take(r: Ref<Unit>) -> (Unit, Combat) {
-    let s = sim();
-    let mut u = std::mem::take(s.store.unit.get_mut(r).expect("a unit the store holds"));
-    let c = std::mem::take(&mut u.combat);
+// Unit.tick and Unit.onMoved own the complete body. Lend its combat in place
+// too; splitting it just to reunite it would construct another empty Combat.
+pub(crate) fn take_body(r: Ref<Unit>) -> Unit {
+    let unit = sim().store.unit.lend(r).expect("a unit the store holds");
     mark_taken(Some(r.slot));
-    (u, c)
+    unit
 }
-
-pub(crate) fn put(r: Ref<Unit>, mut u: Unit, c: Combat) {
-    u.combat = c;
-    *sim().store.unit.get_mut(r).expect("a unit the store holds") = u;
+pub(crate) fn put_body(r: Ref<Unit>, unit: Unit) {
+    sim().store.unit.restore(r,unit).unwrap_or_else(|_| panic!("return the same owned unit"));
     mark_taken(None);
 }
 
-/// Unit `slot` as the store holds it, for a field JavaScript sets on his
-/// combat: never the empty one in the place of a unit out of the store (a
-/// write there would be lost when he goes back).
-fn held(slot: u32) -> &'static mut Unit {
-    assert!(taken() != Some(slot), "unit {slot}'s combat set while he is out of the store");
-    sim().store.unit.get_mut(unit_ref(slot)).expect("a unit the store holds")
+// PlayerCombat methods borrow body and combat separately. Only that call
+// frame needs an empty Combat field; movement and aim handoffs do not.
+pub(crate) fn take(r: Ref<Unit>) -> (Unit, Combat) {
+    let mut unit = take_body(r);
+    let combat = std::mem::take(&mut unit.combat);
+    (unit, combat)
+}
+pub(crate) fn put(r: Ref<Unit>, mut unit: Unit, combat: Combat) {
+    unit.combat = combat;
+    put_body(r,unit);
 }
 
-/// Runs `f` on unit `r` and its combat taken out of the store, with the
-/// battle as the imports give it, and puts them back.
-fn run(r: Ref<Unit>, f: impl FnOnce(&mut Combat, &mut Unit, &CombatDefs, &Edges, &mut JsWorld)) {
-    let defs = content().defs.clone();
-    let edges = edges_of(r.slot);
-    let (mut u, mut c) = take(r);
-    let mut w = JsWorld { unit: r.slot as f64, r, remotes: c.has_remotes };
-    f(&mut c, &mut u, &defs, &edges, &mut w);
-    put(r, u, c);
-}
-
-/// The command's arguments, of the record `T`, out of the call block.
-fn args<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T {
-    let s = sim();
-    let (row, heap) = s.calls.args();
-    take(row, heap)
-}
-
-// ---- The commands (src/combat-sim.js CombatFacade).
+// ---- The commands (src/f3-combat.js CombatFacade).
 
 /// A combat made for unit `unit` of class `class` (PlayerCombat's
 /// constructor): full health, its class's loadout armed (a player's
@@ -337,7 +221,7 @@ fn args<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T {
 pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> *const f64 {
     let defs = content().defs.clone();
     let r = unit_ref(unit);
-    let weapons = arm(&defs.loadout(DefId(class)), &defs.weapons, player != 0);
+    let weapons = arm(defs.loadout(DefId(class)), &defs.weapons, player != 0);
     let n = weapons.len();
     let combat = Combat {
         owner: r,
@@ -354,7 +238,11 @@ pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, c
         blow_apart: false,
         chunks,
         zoom_step: 0.0,
-        kick: Kick { rate: 0.0, hold: 0.0, offset: 0.0 },
+        kick: Kick {
+            rate: 0.0,
+            hold: 0.0,
+            offset: 0.0,
+        },
         scale: StrId(scale),
         first_person: false,
         mounted: Some(false),
@@ -365,7 +253,14 @@ pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, c
         has_remotes: false,
         weapons,
         selected: [0.0, 0.0],
-        seen: vec![Seen { known: false, reloading: false, throwing: false }; n],
+        seen: vec![
+            Seen {
+                known: false,
+                reloading: false,
+                throwing: false
+            };
+            n
+        ],
         ..Combat::default()
     };
     {
@@ -374,101 +269,28 @@ pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, c
         u.class_def = DefId(class);
         u.combat = combat;
     }
-    answer(r, false)
-}
-
-/// PlayerCombat.update(dt, controls, stick), the unit's view (CbIn) in the
-/// call block.
-#[no_mangle]
-pub extern "C" fn cmb_update(dt: f64, stick: f64) -> *const f64 {
-    let i = args(CbIn::take);
-    let r = feed(&i);
-    run(r, |c, u, defs, edges, w| cb::update(c, r.slot, u, defs, dt, stick, edges, w));
-    answer(r, false)
-}
-
-/// PlayerCombat.flushMuzzles(), the unit's view in the call block.
-#[no_mangle]
-pub extern "C" fn cmb_flush() -> *const f64 {
-    let i = args(CbIn::take);
-    let r = feed(&i);
-    run(r, |c, u, defs, edges, w| cb::flush_muzzles(c, u, defs, edges, w));
-    answer(r, false)
-}
-
-/// PlayerCombat.damage(amount, onShield, source, attacker, info), its
-/// numbers (CbDamageIn: info.kind === "explosion" as `explosion`) in the
-/// call block. The info itself stays JavaScript's (its hook is given it).
-#[no_mangle]
-pub extern "C" fn cmb_damage() -> *const f64 {
-    let a = args(CbDamageIn::take);
-    let r = feed(&a.r#in);
-    let info = DamageInfo { explosion: a.explosion, ..DamageInfo::default() };
-    let source = a.source.map(|p| v(&p));
-    run(r, |c, u, defs, _, w| cb::damage_with(c, u, defs, a.amount, a.on_shield, source, a.attacker, &info, w));
-    answer(r, false)
-}
-
-/// PlayerCombat.explode(explosion, position, owner, scale), CbExplodeIn in
-/// the call block.
-#[no_mangle]
-pub extern "C" fn cmb_explode() -> *const f64 {
-    let a = args(CbExplodeIn::take);
-    let r = feed(&a.r#in);
-    let explosion = content().explosions.get(word_u32(a.explosion) as usize).cloned().unwrap_or_default();
-    let position = v(&a.position);
-    run(r, |c, u, defs, _, w| cb::explode(c, u, defs, &explosion, &position, a.owner, a.scale, w));
-    answer(r, false)
-}
-
-/// PlayerCombat.reset(): full health and a fresh loadout (the unit's view,
-/// for his class and whether he plays by a player's rules).
-#[no_mangle]
-pub extern "C" fn cmb_reset() -> *const f64 {
-    let i = args(CbIn::take);
-    let r = feed(&i);
-    run(r, |c, u, defs, _, _| cb::reset(c, u, defs));
-    answer(r, false)
-}
-
-/// The unit's view back from JavaScript after an import that ran the
-/// battle's code (its hook may have changed his body or intent).
-#[no_mangle]
-pub extern "C" fn cmb_feed() {
-    let i = args(CbIn::take);
-    feed(&i);
-}
-
-/// Unit `unit` as the store holds it now (put back for an import), for
-/// JavaScript to sync its facade and his objects from.
-#[no_mangle]
-pub extern "C" fn cmb_current(unit: u32) -> *const f64 {
-    answer(unit_ref(unit), false)
-}
-
-/// Arsenal.select(weapon) (the AI's weapon choice): refused while the
-/// channel's weapon is busy. The answer's flag is select's.
-#[no_mangle]
-pub extern "C" fn cmb_select(unit: u32, weapon: u32) -> *const f64 {
-    let r = unit_ref(unit);
-    let defs = content().defs.clone();
-    let chosen = {
-        let s = sim();
-        let c = &mut s.store.unit.get_mut(r).expect("a unit the store holds").combat;
-        select(c, &defs, weapon as usize)
-    };
-    answer(r, chosen)
+    answer(r)
 }
 
 /// weapons.js Arsenal.select (:517).
-fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
+pub(crate) fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
     if i >= c.weapons.len() {
         return false;
     }
     let channel = word_u32(c.weapons[i].channel(&defs.weapons)) as usize;
-    let arsenal = Arsenal { weapons: &mut c.weapons, selected: &mut c.selected };
-    let list = arsenal.channel(&defs.weapons, channel);
-    let Some(at) = list.iter().position(|&x| x == i) else { return false };
+    let arsenal = Arsenal {
+        weapons: &mut c.weapons,
+        selected: &mut c.selected,
+    };
+    let mut at = 0;
+    for w in &arsenal.weapons[..i] {
+        if w.in_channel(&defs.weapons, channel as f64) {
+            at += 1;
+        }
+    }
+    if !arsenal.weapons[i].in_channel(&defs.weapons, channel as f64) {
+        return false;
+    }
     let old = arsenal.current(&defs.weapons, channel);
     if old == Some(i) {
         return true;
@@ -483,123 +305,156 @@ fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
     true
 }
 
-/// Arsenal.next(channel, direction). The answer's flag is next's.
-#[no_mangle]
-pub extern "C" fn cmb_next(unit: u32, channel: u32, direction: f64) -> *const f64 {
-    let r = unit_ref(unit);
-    let defs = content().defs.clone();
-    let moved = {
-        let s = sim();
-        let c = &mut s.store.unit.get_mut(r).expect("a unit the store holds").combat;
-        Arsenal { weapons: &mut c.weapons, selected: &mut c.selected }.next(&defs.weapons, channel as usize, direction)
-    };
-    answer(r, moved)
-}
-
-/// A field the battle sets on a combat (src/combat-sim.js CombatFacade's
+/// A field the battle sets on a combat (src/f3-combat.js CombatFacade's
 /// setters): 0 health, 1 zoomStep, 2 dead, 3 deathTime, 4 blowApart; and
 /// what the battle's JavaScript keeps on a combat, which the units' phase
 /// reads from the store: 5 mounted, 6 gunUnderwater, 7 team, 8 player,
 /// 9 deferMuzzles, 10 whether it has a generator (random), 11 whether it
 /// has recon droids (remotes).
 #[no_mangle]
-pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) {
-    let c = &mut held(unit).combat;
-    match field {
-        0 => c.health = value,
-        1 => c.zoom_step = value,
-        2 => c.dead = value != 0.0,
-        3 => c.death_time = value,
-        4 => c.blow_apart = value != 0.0,
-        5 => c.mounted = Some(value != 0.0),
-        6 => c.gun_underwater = value != 0.0,
-        7 => c.team = value,
-        8 => c.player = value != 0.0,
-        9 => c.defer_muzzles = value != 0.0,
-        10 => c.random = value != 0.0,
-        11 => c.has_remotes = value != 0.0,
-        _ => panic!("no combat field {field} to set"),
+pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) -> u32 {
+    let Ok(code) = u8::try_from(field) else {
+        return 0;
+    };
+    let Some(field) = F3CombatField::from_u8(code) else {
+        return 0;
+    };
+    if taken() == Some(unit) {
+        return 0;
     }
+    let Some((_, body)) = sim().store.unit.at_mut(unit) else {
+        return 0;
+    };
+    let c = &mut body.combat;
+    match field {
+        F3CombatField::Health => c.health = value,
+        F3CombatField::ZoomStep => c.zoom_step = value,
+        F3CombatField::Dead => c.dead = value != 0.,
+        F3CombatField::DeathTime => c.death_time = value,
+        F3CombatField::BlowApart => c.blow_apart = value != 0.,
+        F3CombatField::Mounted => c.mounted = Some(value != 0.),
+        F3CombatField::GunUnderwater => c.gun_underwater = value != 0.,
+        F3CombatField::Team => c.team = value,
+        F3CombatField::Player => c.player = value != 0.,
+        F3CombatField::DeferMuzzles => c.defer_muzzles = value != 0.,
+        F3CombatField::Random => c.random = value != 0.,
+        F3CombatField::Remotes => c.has_remotes = value != 0.,
+    }
+    1
 }
 
-/// A field the battle sets on a weapon (WeaponFacade's setters): 0
-/// reserve, 1 kick, 2 clip, 3 heat, 4 floor; and what the battle's
-/// JavaScript keeps on a weapon, which the units' phase reads from the
-/// store: 5 whether it has a generator (random), 6 spreadScale, 7
-/// yawSpreadOverride, 8 yawSpreadOverride null (the value unread).
+/// WeaponFacade settings validate their generated field and arsenal index.
+/// A rejected command leaves the row intact and reports failure to its host.
 #[no_mangle]
-pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) {
-    let c = &mut held(unit).combat;
-    let w = &mut c.weapons[weapon as usize];
-    match field {
-        0 => w.reserve = value,
-        1 => w.kick = value,
-        2 => w.clip = value,
-        3 => w.heat = value,
-        4 => w.floor = value,
-        5 => w.random = value != 0.0,
-        6 => w.spread_scale = value,
-        7 => w.yaw_spread_override = Some(value),
-        8 => w.yaw_spread_override = None,
-        _ => panic!("no weapon field {field} to set"),
+pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) -> u32 {
+    let Ok(code) = u8::try_from(field) else {
+        return 0;
+    };
+    let Some(field) = F3WeaponField::from_u8(code) else {
+        return 0;
+    };
+    if taken() == Some(unit) {
+        return 0;
     }
-}
-
-/// The words of the records src/combat-sim.js reads and writes: 0 CbIn,
-/// 1 CbOut, 2 Combat, 3 CbDamageIn, 4 CbExplodeIn.
-#[no_mangle]
-pub extern "C" fn cmb_words(which: u32) -> u32 {
-    (match which {
-        0 => CbIn::WORDS,
-        1 => CbOut::WORDS,
-        2 => Combat::WORDS,
-        3 => CbDamageIn::WORDS,
-        4 => CbExplodeIn::WORDS,
-        _ => 0,
-    }) as u32
+    let Some((_, body)) = sim().store.unit.at_mut(unit) else {
+        return 0;
+    };
+    let Some(w) = body.combat.weapons.get_mut(weapon as usize) else {
+        return 0;
+    };
+    match field {
+        F3WeaponField::Reserve => w.reserve = value,
+        F3WeaponField::Kick => w.kick = value,
+        F3WeaponField::Clip => w.clip = value,
+        F3WeaponField::Heat => w.heat = value,
+        F3WeaponField::Floor => w.floor = value,
+        F3WeaponField::Random => w.random = value != 0.,
+        F3WeaponField::SpreadScale => w.spread_scale = value,
+        F3WeaponField::YawSpreadOverride => w.yaw_spread_override = Some(value),
+        F3WeaponField::ClearYawSpread => w.yaw_spread_override = None,
+    }
+    1
 }
 
 // ---- The battle, as the imports give it.
-
-fn v(a: &Vec3) -> Vector3 {
-    Vector3 { x: a[0], y: a[1], z: a[2] }
-}
 
 fn a3(v: &Vector3) -> Vec3 {
     [v.x, v.y, v.z]
 }
 
 /// The battle as the module's imports give it, for unit `unit`'s combat.
-pub(crate) struct JsWorld {
+pub(crate) struct JsWorld<'a> {
     unit: f64,
     r: Ref<Unit>,
     /// Whether he has recon droids (combat.remotes): without, no droid of
     /// his is out and nobody is asked.
     remotes: bool,
+    team: f64,
+    life: f64,
+    character: Option<Ref<Character>>,
+    human: bool,
+    // Game.arcTargets snapshots one acquisition. Nested blasts can mutate
+    // its victims, but cannot replace which index each later link names.
+    arc: Option<Vec<super::live::ArcVictim>>,
+    recon: Option<crate::units::f3::WorldServices<'a>>,
 }
 
-impl JsWorld {
-    /// The battle for unit `r`'s combat (`remotes`: combat.remotes).
-    pub(crate) fn new(r: Ref<Unit>, remotes: bool) -> JsWorld {
-        JsWorld { unit: r.slot as f64, r, remotes }
+impl<'a> JsWorld<'a> {
+    pub(crate) fn with_services(r: Ref<Unit>, unit: &Unit, combat: &Combat, recon: Option<crate::units::f3::WorldServices<'a>>) -> Self {
+        Self {
+            unit: r.slot as f64,
+            r,
+            remotes: combat.has_remotes,
+            team: combat.team,
+            life: unit.generation,
+            character: unit.character,
+            human: unit.human,
+            arc: None,
+            recon,
+        }
+    }
+
+    // Notifications can be emitted while the Unit is out of its slab. Keep
+    // the invocation's gameplay life rather than reading an empty placeholder.
+    fn key(&self) -> F3UnitKey {
+        F3UnitKey {
+            slot: self.r.slot,
+            generation: self.r.gen,
+            life: self.life,
+        }
     }
 
     /// An import that runs the battle's code: the unit and his combat back
     /// in the store for it (JavaScript syncs from them first and gives his
     /// view back after), then out again as the battle left them.
-    fn changing(&mut self, u: &mut Unit, c: &mut Combat, call: impl FnOnce()) {
+    fn changing(&mut self, u: &mut Unit, c: &mut Combat, call: impl FnOnce(Option<crate::units::f3::WorldServices<'_>>)) {
         put(self.r, std::mem::take(u), std::mem::take(c));
-        call();
+        // Native fire, repair and recursive deaths need committed state, but
+        // no mirror reader ran. Keep their touched rows pending until an
+        // actual foreign leaf or phase return consumes the publication.
+        crate::units::f3::changed(self.r);
+        call(self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
         let (nu, nc) = take(self.r);
         *u = nu;
         *c = nc;
     }
 
     fn shot(&self, shot: &Shot) -> CbShot {
-        let mut s = CbShot { unit: self.unit, weapon: shot.weapon as f64, ..CbShot::default() };
+        let mut s = CbShot {
+            unit: self.unit,
+            weapon: shot.weapon as f64,
+            ..CbShot::default()
+        };
         match shot.kind {
-            ShotKind::Round { yaw, pitch, charge, target_id, target_generation, admission } => {
-                s.kind = 0.0;
+            ShotKind::Round {
+                yaw,
+                pitch,
+                charge,
+                target_id,
+                target_generation,
+                admission,
+            } => {
+                s.kind = CbShotKind::Round;
                 s.yaw = yaw;
                 s.pitch = pitch;
                 s.charge = charge;
@@ -607,9 +462,9 @@ impl JsWorld {
                 s.target_generation = target_generation;
                 s.admission = admission;
             }
-            ShotKind::Repair => s.kind = 1.0,
+            ShotKind::Repair => s.kind = CbShotKind::Repair,
             ShotKind::MeleeStart { swing } => {
-                s.kind = 2.0;
+                s.kind = CbShotKind::MeleeStart;
                 s.swing = swing;
             }
             ShotKind::MeleeHit | ShotKind::MeleeEnd => unreachable!("a swing's hit or end is not a shot the battle is told of"),
@@ -618,35 +473,48 @@ impl JsWorld {
     }
 }
 
-impl WeaponDraws for JsWorld {
-    fn draw(&mut self, weapon: u32) -> f64 {
-        import_combat_draw(&CbDraw { unit: self.unit, weapon: weapon as f64, legacy: false }).value
-    }
-
-    fn legacy(&mut self, weapon: u32) -> f64 {
-        import_combat_draw(&CbDraw { unit: self.unit, weapon: weapon as f64, legacy: true }).value
-    }
-
-    fn seeded(&mut self, _seed: f64, _value: f64) {}
-
-    fn admit(&mut self, weapon: u32) -> Admission {
-        // CombatWorld.admitRemote: `remotes?.admitLaunch?.(weapon) ?? true`.
-        if !self.remotes {
-            return Admission::Yes;
-        }
-        let a = import_combat_admit(&CbWeapon { unit: self.unit, weapon: weapon as f64 });
-        match word_u32(a.kind) {
-            0 => Admission::Yes,
-            1 => Admission::No,
-            _ => Admission::Token(a.token),
+impl Drop for JsWorld<'_> {
+    fn drop(&mut self) {
+        // Return the invocation's handle buffer even when the shot produced
+        // no links. The next tick must not allocate another acquisition list.
+        if let Some(targets) = self.arc.take() {
+            crate::units::f3::put_arc(self.r, targets);
         }
     }
 }
 
-impl CombatWorld for JsWorld {
+impl WeaponDraws for JsWorld<'_> {
+    fn draw(&mut self, weapon: u32) -> f64 {
+        return crate::units::f3::random_draw(self.r, Some(weapon));
+    }
+
+    fn legacy(&mut self, _weapon: u32) -> f64 {
+        crate::units::f3::fail();
+        0.0
+    }
+
+    fn seeded(&mut self, _seed: f64, _value: f64) {}
+
+    fn admit(&mut self, _weapon: u32) -> Admission {
+        // CombatWorld.admitRemote: `remotes?.admitLaunch?.(weapon) ?? true`.
+        if !self.remotes {
+            return Admission::Yes;
+        }
+
+        return crate::units::f3::required_services!(self.recon.as_mut(), Admission::No)
+            .recon
+            .reserve(&sim().store)
+            .map_or(Admission::No, |r| Admission::Token(crate::recon::Authority::token(r)));
+    }
+}
+
+impl CombatWorld for JsWorld<'_> {
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit> {
-        let h = import_combat_cast(&CbRay { unit: self.unit, origin: a3(origin), direction: a3(direction), far, static_only });
-        h.found.then(|| CastHit { distance: h.distance, point: v(&h.point), normal: v(&h.normal) })
+        return crate::units::native::cast_static(crate::units::f3::collision_world(), origin, direction, far, static_only).map(|h| CastHit {
+            distance: h.distance,
+            point: h.point,
+            normal: h.normal,
+        });
     }
 
     fn remote_of(&mut self, weapon: u32) -> Option<Droid> {
@@ -654,187 +522,469 @@ impl CombatWorld for JsWorld {
         if !self.remotes {
             return None;
         }
-        let d = import_combat_remote_of(&CbWeapon { unit: self.unit, weapon: weapon as f64 });
-        d.found.then_some(Droid(word_u32(d.droid)))
+
+        let context = crate::recon::module::context_for(self.r, self.life)?;
+        return crate::units::f3::required_services!(self.recon.as_ref(), None)
+            .recon
+            .of(&sim().store, context, weapon)
+            .map(|r| Droid(r.slot));
     }
 
     fn remote_enter(&mut self, droid: Droid, unit: &mut Unit, combat: &mut Combat) {
-        let a = CbDroidCall { unit: self.unit, droid: droid.0 as f64 };
-        self.changing(unit, combat, || import_combat_remote_enter(&a));
+        self.changing(unit, combat, |authority| {
+            let services = authority.unwrap();
+            let authority = services.recon;
+            let reference = sim().store.recon_droid.at(droid.0).expect("live remote droid").0;
+            authority.enter(&mut sim().store, reference);
+            crate::recon::module::publish_active(authority);
+        });
+        return;
     }
 
     fn remote_kill(&mut self, droid: Droid, unit: &mut Unit, combat: &mut Combat) {
-        let a = CbDroidCall { unit: self.unit, droid: droid.0 as f64 };
-        self.changing(unit, combat, || import_combat_remote_kill(&a));
+        self.changing(unit, combat, |authority| {
+            let services = authority.unwrap();
+            let authority = services.recon;
+            let reference = sim().store.recon_droid.at(droid.0).expect("live remote droid").0;
+            authority.kill(&mut sim().store, &mut crate::recon::module::NativeWorld::idle(services.queries), reference);
+            crate::recon::module::publish_active(authority);
+        });
+        return;
     }
 
     fn remote_launch(&mut self, weapon: u32, origin: &Vector3, velocity: &Vector3, yaw: f64, team: f64, admission: Option<f64>, unit: &mut Unit, combat: &mut Combat) {
-        let a = CbLaunch { unit: self.unit, weapon: weapon as f64, origin: a3(origin), velocity: a3(velocity), yaw, team, admission };
-        self.changing(unit, combat, || import_combat_remote_launch(&a));
+        // CombatWorld.remoteLaunch is a no-op for bots without a context,
+        // even though their remote weapon still consumes its throw.
+        let Some(context) = crate::recon::module::context_for(self.r, self.life) else { return };
+        let definition = combat.weapons[weapon as usize].def;
+        let (class, immediate) = crate::recon::module::weapon(definition);
+        let (origin, velocity) = (*origin, *velocity);
+        self.changing(unit, combat, |authority| {
+            let services = authority.unwrap();
+            let authority = services.recon;
+            let token = admission
+                .and_then(|t| authority.reservation(t))
+                .or_else(|| if admission.is_none() { authority.reserve(&sim().store) } else { None });
+            if let Some(token) = token {
+                if authority
+                    .launch(
+                        &mut sim().store,
+                        &mut crate::recon::module::NativeWorld::idle(services.queries),
+                        context,
+                        token,
+                        class,
+                        weapon,
+                        origin,
+                        velocity,
+                        yaw,
+                        team,
+                        immediate,
+                    )
+                    .is_err()
+                {
+                    authority.cancel(token);
+                    crate::units::f3::fail();
+                    return;
+                }
+                crate::recon::module::publish_active(authority);
+            }
+        });
+        return;
     }
 
-    fn lock_on(&mut self, eye: &Vector3, dir: &Vector3, weapon: u32, tool: &Weapon, current: Option<RepairTarget>, held: bool, team: f64) -> Option<RepairTarget> {
-        import_combat_lock_on(&CbLockOn { unit: self.unit, eye: a3(eye), dir: a3(dir), weapon: weapon as f64, level: tool.level, current, held, team }).target
+    fn lock_on(&mut self, eye: &Vector3, dir: &Vector3, _weapon: u32, tool: &Weapon, current: Option<RepairTarget>, held: bool, team: f64) -> Option<RepairTarget> {
+        let defs = defs();
+        let definition = &tool.level(defs.weapons.class(tool.def)).repair;
+        return crate::units::f3_props::lock_on(
+            *eye,
+            *dir,
+            definition,
+            current,
+            held,
+            team,
+            crate::units::f3::required_services!(self.recon.as_mut(), None).reborrow(),
+        );
     }
 
     fn lock_key(&mut self, target: Option<RepairTarget>) -> StrId {
-        // repairLockKey(live, null) is "" without asking.
-        match target {
-            None => sim().strings.intern_str(""),
-            Some(_) => import_combat_lock_key(&CbLockKey { unit: self.unit, target }).value,
-        }
+        target.map_or_else(crate::units::f3::empty_text, crate::units::f3_props::lock_key)
     }
 
     fn repair(&mut self, weapon: u32, target: Option<RepairTarget>, team: f64, unit: &mut Unit, combat: &mut Combat) -> bool {
-        let a = CbRepair { unit: self.unit, weapon: weapon as f64, target, team };
+        let defs = defs();
+        let tool = &combat.weapons[weapon as usize];
+        let definition = &tool.level(defs.weapons.class(tool.def)).repair;
         let mut done = false;
-        self.changing(unit, combat, || done = import_combat_repair(&a).value);
-        done
-    }
-
-    fn lock_pick(&mut self, weapon: u32, launcher: &Weapon, origin: &Vector3, dir: &Vector3) -> LockPick {
-        let p = import_combat_lock_pick(&CbLockPick {
-            unit: self.unit,
-            weapon: weapon as f64,
-            level: launcher.level,
-            lock_complete: launcher.lock_complete,
-            lock_target_id: launcher.lock_target_id,
-            lock_generation: launcher.lock_generation,
-            origin: a3(origin),
-            dir: a3(dir),
+        self.changing(unit, combat, |services| {
+            done = crate::units::f3_props::repair(target, definition, team, crate::units::f3::required_services!(services, ()));
         });
-        match word_u32(p.pick) {
-            0 => LockPick::Nothing,
-            1 => LockPick::None,
-            _ => LockPick::Unit { id: p.id, generation: p.generation, alive: p.alive },
-        }
+        return done;
     }
 
-    fn fire_round(&mut self, from: &Vector3, dir: &Vector3, shot: &Shot, bind: bool, selected: Option<(f64, f64)>, unit: &mut Unit, combat: &mut Combat) {
-        let (index, barrel) = selected.unwrap_or((-1.0, -1.0));
-        let a = CbFire { shot: self.shot(shot), from: a3(from), from_origin: selected.is_none(), dir: a3(dir), bind, selected: selected.is_some(), selected_index: index, selected_barrel: barrel };
-        self.changing(unit, combat, || import_combat_fire_round(&a));
+    fn lock_pick(&mut self, _weapon: u32, launcher: &Weapon, origin: &Vector3, dir: &Vector3) -> LockPick {
+        return crate::units::f3_sensors::lock_pick(self.r, self.team, launcher, origin, dir);
+    }
+
+    fn fire_round(&mut self, from: &Vector3, dir: &Vector3, shot: &Shot, _bind: bool, _selected: Option<(f64, f64)>, unit: &mut Unit, combat: &mut Combat) {
+        let _allocations = crate::allocations::at(F3AllocationStage::Fire);
+        let weapon = &combat.weapons[shot.weapon as usize];
+        let service = crate::units::f3::weapon_service(weapon.def, weapon.level);
+        let ShotKind::Round { target_id, target_generation, .. } = shot.kind else { return };
+        let (from, direction, owner) = (a3(from), a3(dir), OrdnanceOwner::Unit(self.r));
+        self.changing(unit, combat, |recon| {
+            let (store, strings) = crate::ordnance::module::parts();
+            let mut world = crate::ordnance::module::JsWorld::with_services(store, strings, recon);
+            // Definitions are immutable during this phase. The shooter is
+            // back in the store before F1 can emit instant-hit callbacks.
+            let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
+            unsafe {
+                (*service).fire(&mut cx, from, direction, owner, target_id, target_generation);
+            }
+        });
+        return;
     }
 
     fn dispense(&mut self, weapon: u32, most: f64, origin: &Vector3, velocity: &Vector3, yaw: f64, team: f64, unit: &mut Unit, combat: &mut Combat) -> bool {
-        let a = CbDispense { unit: self.unit, weapon: weapon as f64, most, origin: a3(origin), velocity: a3(velocity), yaw, team };
+        let w = &combat.weapons[weapon as usize];
+        let service = crate::units::f3::weapon_service(w.def, w.level);
+        // Borrow buffers out of the sidecar before F1 can recursively
+        // damage or publish items. No binding borrow crosses that work.
+        let mut frame = crate::units::f3::items().take(self.r.slot, self.life, w.def, w.level as u32);
+        let (origin, velocity, owner) = (a3(origin), a3(velocity), ItemOwner::Unit(self.r));
         let mut made = false;
-        self.changing(unit, combat, || made = import_combat_dispense(&a).value);
-        made
+        self.changing(unit, combat, |recon| {
+            let (store, strings) = crate::ordnance::module::parts();
+            let mut world = crate::ordnance::module::JsWorld::with_services(store, strings, recon);
+            let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
+            made = unsafe { (*service).dispense(&mut cx, frame.key, &mut frame.work, &mut frame.spare, most, origin, velocity, yaw, owner, team) };
+        });
+        crate::units::f3::items().restore(frame);
+        return made;
     }
 
     fn melee_strike(&mut self, unit: &mut Unit, combat: &mut Combat) {
-        let a = CbUnit { unit: self.unit };
-        self.changing(unit, combat, || import_combat_melee_strike(&a));
+        // Commit the attacker before a defender's damage can recursively
+        // explode. The candidate buffer belongs to this invocation's Unit.
+        let (owner, origin, aim, source) = (self.r, combat.origin, combat.aim_dir, a3(&unit.position()));
+        self.changing(unit, combat, |recon| crate::units::f3_sensors::melee(owner, origin, aim, source, recon));
+        return;
     }
 
     fn arc_targets(&mut self) -> Vec<ArcTarget> {
-        import_combat_arc_targets(&CbUnit { unit: self.unit })
-            .targets
-            .iter()
-            .map(|t| ArcTarget { origin: v(&t.origin), center: t.center.as_ref().map(v), radius: t.radius })
-            .collect()
+        unreachable!("native arc acquisition requires retained scratch");
+    }
+
+    fn arc_targets_into(&mut self, out: &mut Vec<ArcTarget>) {
+        let targets = self.arc.get_or_insert_with(|| crate::units::f3::take_arc(self.r));
+        crate::units::f3_sensors::arc_targets(
+            self.r,
+            self.team,
+            self.human,
+            out,
+            targets,
+            crate::units::f3::required_services!(self.recon.as_ref(), ()).recon,
+        );
     }
 
     fn hurt_arc_target(&mut self, index: usize, amount: f64, from: &Vector3, unit: &mut Unit, combat: &mut Combat) {
-        let a = CbHurtArc { unit: self.unit, index: index as f64, amount, from: a3(from) };
-        self.changing(unit, combat, || import_combat_hurt_arc(&a));
+        let victim = self.arc.as_ref().expect("acquired arc targets")[index];
+        let (owner, from) = (self.r, *from);
+        // Commit the shooter before a link can kill a mine or start a
+        // class blast that reaches back into this same combat.
+        self.changing(unit, combat, |recon| super::live::arc_hit(victim, amount, from, owner, recon));
+        return;
     }
 
-    fn has_lightning(&mut self, name: &str) -> bool {
-        let value = sim().strings.intern_str(name);
-        import_combat_lightning(&CbText { value }).value
+    fn has_lightning(&mut self, _name: &str) -> bool {
+        unreachable!("native lightning requires a prepared weapon service");
+    }
+
+    fn has_lightning_for(&mut self, definition: DefId, level: f64, _name: &str) -> bool {
+        return unsafe { (*crate::units::f3::weapon_service(definition, level)).has_lightning };
+    }
+
+    fn headshot_effect(&mut self, point: &Vector3) {
+        F3EffectNotice {
+            key: self.key(),
+            effect: F3Effect::Headshot,
+            position: a3(point),
+        }
+        .emit(&mut sim().events);
+    }
+
+    fn headshot_credit(&mut self, previous: Attacker) {
+        // Game.onHitUnit credits the previous attacker, before damage replaces
+        // it. The victim itself may be out of the slab during that decision.
+        let character = match previous {
+            Attacker::Unit(_) | Attacker::Player => {
+                let r = match previous {
+                    Attacker::Unit(r) => r,
+                    _ => crate::units::f3::viewpoint(),
+                };
+                if r == self.r {
+                    self.character
+                } else {
+                    sim().store.unit.get(r).and_then(|u| u.character)
+                }
+            }
+            Attacker::OwnerSnapshot(r) => sim().store.owner_snapshot.get(r).and_then(|o| o.character),
+            // Hulls and turrets have no Character of their own. A null credit
+            // does not create or change any BattleStats record.
+            _ => None,
+        };
+        if let Some(character) = character {
+            import_f3_head_credit(&F3HeadCredit { character });
+        }
     }
 
     fn fired(&mut self, shot: &Shot, unit: &mut Unit, combat: &mut Combat) {
-        let a = self.shot(shot);
-        self.changing(unit, combat, || import_combat_fired(&a));
+        // instrument.onFired is a pure notice. Capture its origin and life
+        // now; later separation or reuse must not change the journal row.
+        F3ShotNotice {
+            key: F3UnitKey::of(self.r, unit),
+            shot: self.shot(shot),
+            position: super::live::origin(unit, combat),
+            direction: combat.shot_dir,
+            team: unit.team,
+        }
+        .emit(&mut sim().events);
+        return;
     }
 
-    fn damaged(&mut self, amount: f64, attacker: Attacker, info: &DamageInfo, _source: Option<Vector3>, unit: &mut Unit, combat: &mut Combat) {
-        let a = CbDamaged {
-            unit: self.unit,
+    fn damaged(&mut self, amount: f64, attacker: Attacker, info: &DamageInfo, _source: Option<Vector3>, unit: &mut Unit, _combat: &mut Combat) {
+        let _allocations = crate::allocations::at(F3AllocationStage::Hit);
+        // instrument.onDamaged keeps the authored amount/scale fields as
+        // well as actual health damage. Preserve absent and null points.
+        let (attacker_ref, attacker_team) = super::live::attribution(attacker, self.r, unit);
+        let point_state = match info.point {
+            None => F3OptionalState::Absent,
+            Some(None) => F3OptionalState::Null,
+            Some(Some(_)) => F3OptionalState::Value,
+        };
+        let point = info.point.flatten().map_or([0.0; 3], |p| a3(&p));
+        F3DamageNotice {
+            key: F3UnitKey::of(self.r, unit),
             amount,
             attacker,
-            explosion: info.explosion,
-            info_amount: info.amount.unwrap_or(f64::NAN),
-            typed: info.typed.unwrap_or(f64::NAN),
-            generic: info.generic.unwrap_or(f64::NAN),
-        };
-        self.changing(unit, combat, || import_combat_damaged(&a));
+            has_attacker_ref: attacker_ref.is_some(),
+            attacker_ref: attacker_ref.unwrap_or_default(),
+            attacker_team,
+            position: a3(&unit.position()),
+            team: unit.team,
+            info: F3DamageInfo {
+                explosion: info.explosion,
+                amount: info.amount,
+                typed: info.typed,
+                generic: info.generic,
+                known: info.known,
+                point_state,
+                point,
+                source_present: _source.is_some(),
+                source: _source.map_or([0.0; 3], |p| a3(&p)),
+            },
+        }
+        .emit(&mut sim().events);
+        return;
     }
 
     fn died(&mut self, unit: &mut Unit, combat: &mut Combat) {
-        let a = CbUnit { unit: self.unit };
-        self.changing(unit, combat, || import_combat_died(&a));
+        let _allocations = crate::allocations::at(F3AllocationStage::Death);
+        // DroidekaAnimator.die marks the body on the damage tick, before
+        // UnitFactory.onDeath. A blown-apart body skips that animator call.
+        if !combat.blow_apart {
+            if let UnitBody::Droideka(body) = &mut unit.soldier {
+                body.dead = true;
+            }
+        }
+        // UnitFactory.onDeath changes life flags before Game.onDeath.
+        // Character bookkeeping must finish before the drop's RNG draw.
+        unit.alive = false;
+        unit.dead = true;
+        unit.dead_time = 0.0;
+        if unit.seat.is_some() {
+            // Game.onDeath calls leaveKilled before Character credit and
+            // item drops. A gunner falls from the last native rider pose.
+            let reference = self.r;
+            self.changing(unit, combat, |services| {
+                crate::vehicles::module::f2::live_seats::leave_killed(reference, crate::units::f3::required_services!(services, ()));
+            });
+        }
+        if let UnitBody::Soldier(body) = &mut unit.soldier {
+            if body.air == Some(Air::Jet) {
+                body.air = Some(Air::Fall);
+                body.posture = Posture::Stand;
+                body.state_time = 0.0;
+            }
+        }
+        let key = F3UnitKey::of(self.r, unit);
+        let attacker = combat.last_attacker;
+        let (attacker_ref, attacker_team) = super::live::attribution(attacker, self.r, unit);
+        let killer = super::live::character(attacker, self.r, unit);
+        let credit = F3DeathCredit {
+            key: F3UnitKey::of(self.r, unit),
+            unit: self.r,
+            killer,
+            relation: if killer.is_some() { crate::units::f3::relation(attacker_team, unit.team) } else { 0.0 },
+        };
+        let mut controller = None;
+        self.changing(unit, combat, |_| {
+            crate::units::f3::foreign_barrier();
+            controller = import_f3_death_credit(&credit).controller;
+        });
+        unit.controller = controller;
+        F3DeathNotice {
+            key,
+            attacker,
+            has_attacker_ref: attacker_ref.is_some(),
+            attacker_ref: attacker_ref.unwrap_or_default(),
+            attacker_team,
+            position: a3(&unit.position()),
+            team: unit.team,
+        }
+        .emit(&mut sim().events);
+        let (class, mut position, velocity, yaw) = (unit.class_def, a3(&unit.position()), a3(&unit.velocity()), unit.aim_yaw());
+        position[1] += 1.048;
+        // Items.dropFor draws once even when the authored list is empty.
+        // The retained immutable list has no sidecar borrow across spawn.
+        let drops = crate::units::f3::items().drops(class) as *const [crate::items::Drop];
+        self.changing(unit, combat, |recon| {
+            let (store, strings) = crate::ordnance::module::parts();
+            let mut world = crate::ordnance::module::JsWorld::with_services(store, strings, recon);
+            let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
+            unsafe {
+                let _allocations = crate::allocations::at(F3AllocationStage::Drop);
+                cx.drop_for(&*drops, position, velocity, yaw);
+            }
+        });
+        return;
     }
 
     fn blown_apart(&mut self, health: f64, unit: &mut Unit, combat: &mut Combat) {
-        let a = CbHealth { unit: self.unit, health };
-        self.changing(unit, combat, || import_combat_blown_apart(&a));
+        let reference = self.r;
+        self.changing(unit, combat, |recon| super::live::blow_apart(reference, health, recon));
+        return;
     }
 
-    fn respawn(&mut self, unit: &mut Unit, combat: &mut Combat) {
-        let a = CbUnit { unit: self.unit };
-        self.changing(unit, combat, || import_combat_respawn(&a));
+    fn respawn(&mut self, _unit: &mut Unit, combat: &mut Combat) {
+        // PlayerCombat.onRespawn only notifies the host. Deliver it after
+        // the owning phase, when its canonical health is already published.
+
+        F3BodyNotice {
+            key: self.key(),
+            event: F3BodyEvent::Respawn,
+            health: combat.health,
+        }
+        .emit(&mut sim().events);
+        return;
     }
 
     fn presentation(&mut self, event: &Presentation) {
-        let s = sim();
-        let mut a = CbPresent { unit: self.unit, name: s.strings.intern_str(""), bank: s.strings.intern_str(""), ..CbPresent::default() };
+        let empty = crate::units::f3::empty_text();
+        let mut notice = F3Presentation {
+            key: self.key(),
+            bank: empty,
+            name: empty,
+            ..Default::default()
+        };
         match event {
-            Presentation::WeaponAction { action, bank, posture, prepare } => {
-                a.kind = 0.0;
-                a.action = Some(s.strings.intern_str(action));
-                a.bank = s.strings.intern_str(bank);
-                a.posture = posture.map(|p| s.strings.intern_str(p));
-                a.prepare = *prepare;
+            Presentation::WeaponAction {
+                definition,
+                action,
+                posture,
+                prepare,
+                ..
+            } => {
+                notice.kind = F3PresentKind::WeaponAction;
+                notice.action = Some(present_action(action));
+                notice.bank = unsafe { (*crate::units::f3::weapon_service(*definition, 0.0)).bank };
+                notice.posture = posture.map(|p| match p {
+                    "prone" => Posture::Prone,
+                    "crouch" => Posture::Crouch,
+                    _ => Posture::Stand,
+                });
+                notice.prepare = *prepare;
             }
             Presentation::EndWeaponAction { action } => {
-                a.kind = 1.0;
-                a.action = action.map(|x| s.strings.intern_str(x));
+                notice.kind = F3PresentKind::EndWeaponAction;
+                notice.action = action.map(present_action);
             }
-            Presentation::Lightning { name, from, to, charge, channel } => {
-                a.kind = 2.0;
-                a.name = s.strings.intern_str(name);
-                a.from = a3(from);
-                a.to = a3(to);
-                a.charge = *charge;
-                a.channel = *channel;
+            Presentation::Lightning {
+                definition,
+                level,
+                from,
+                to,
+                charge,
+                channel,
+                ..
+            } => {
+                notice.kind = F3PresentKind::Lightning;
+                notice.name = unsafe { (*crate::units::f3::weapon_service(*definition, *level)).lightning };
+                notice.from = a3(from);
+                notice.to = a3(to);
+                notice.charge = *charge;
+                notice.channel = *channel;
             }
         }
-        import_combat_present(&a);
+        notice.emit(&mut sim().events);
+        return;
     }
 
     fn next_gun(&mut self, unit: &mut Unit, _combat: &mut Combat) -> Option<Vector3> {
-        if let Some(point) = crate::units::muzzles::next_gun(self.unit as u32, unit) { return point }
-        let g = import_combat_next_gun(&CbUnit { unit: self.unit });
-        // The body moved on to its next gun (JavaScript's droideka did):
-        // the same here.
-        if let UnitBody::Droideka(d) = &mut unit.soldier {
-            d.gun = g.gun;
-            if g.has_last {
-                d.last_gun = Some(LastGun { index: g.last_index, barrel: g.last_barrel });
-            }
+        match crate::units::muzzles::next_gun(self.r.slot, unit) {
+            Some(point) => point,
+            None => { crate::units::f3::fail(); None }
         }
-        g.found.then(|| v(&g.point))
     }
 
     fn gun_at(&mut self, selected: (f64, f64)) -> Option<Vector3> {
-        if let Some(point) = crate::units::muzzles::gun_at(self.unit as u32, selected) { return point }
-        let p = import_combat_gun_at(&CbGunAt { unit: self.unit, index: selected.0, barrel: selected.1 });
-        p.found.then(|| v(&p.point))
+        match crate::units::muzzles::gun_at(self.r.slot, selected) {
+            Some(point) => point,
+            None => { crate::units::f3::fail(); None }
+        }
     }
 
     fn shield_hit(&mut self, taken: f64, left: f64, _source: Option<Vector3>, explosion: bool) {
-        import_combat_shield_hit(&CbShield { unit: self.unit, taken, left, explosion });
+        F3ShieldNotice {
+            key: self.key(),
+            taken,
+            left,
+            explosion,
+            source_present: _source.is_some(),
+            source: _source.map_or([0.0; 3], |p| a3(&p)),
+        }
+        .emit(&mut sim().events);
+        return;
     }
 
     fn draw_combat(&mut self, generator: bool) -> f64 {
-        import_combat_draw(&CbDraw { unit: self.unit, weapon: -1.0, legacy: !generator }).value
+        if !generator { crate::units::f3::fail(); return 0.; }
+        return crate::units::f3::random_draw(self.r, None);
     }
 
-    fn text(&self, id: StrId) -> String {
-        String::from_utf16_lossy(sim().strings.units(id))
+    fn text(&self, _id: StrId) -> String {
+        unreachable!("native explosions require prepared health scales");
+    }
+}
+
+// PlayerCombat uses this finite action vocabulary; an action is never a
+// content lookup or a newly allocated String on the owned phase path.
+fn present_action(name: &str) -> F3WeaponAction {
+    match name {
+        "reload" => F3WeaponAction::Reload,
+        "shoot2" => F3WeaponAction::Shoot2,
+        "shoot3" => F3WeaponAction::Shoot3,
+        "shoot" => F3WeaponAction::Shoot,
+        _ => unreachable!("weapon action"),
+    }
+}
+
+/// Copy the generation-qualified network edge into retained native controls.
+pub(crate) fn edge(e: &CbEdge) -> Edge {
+    Edge {
+        button: e.button,
+        id: e.id,
+        late: e.late,
+        aim_yaw: e.aim_yaw,
+        aim_pitch: e.aim_pitch,
     }
 }

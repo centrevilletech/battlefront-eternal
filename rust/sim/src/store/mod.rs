@@ -177,6 +177,18 @@ impl<V> StrMap<V> {
             None => self.entries.push((key, value)),
         }
     }
+    /// Map.set while retaining the displaced value's storage. Replacing a
+    /// live key keeps its position; a removed empty key can be appended again.
+    pub fn replace(&mut self, key: StrId, value: V) -> Option<V> {
+        match self.get_mut(key) {
+            Some(old) => Some(std::mem::replace(old,value)),
+            None => { self.entries.push((key,value)); None }
+        }
+    }
+    pub fn remove(&mut self, key: StrId) -> Option<V> {
+        let at = self.entries.iter().position(|(k,_)| *k == key)?;
+        Some(self.entries.remove(at).1)
+    }
     /// Map.delete.
     pub fn delete(&mut self, key: StrId) -> bool {
         match self.entries.iter().position(|(k, _)| *k == key) {

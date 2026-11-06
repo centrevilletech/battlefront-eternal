@@ -29,11 +29,21 @@ export function decodeProjectile(record){
 // Samples only; the authoritative Ordnance owns flight, bounces and collisions.
 export class ProjectileCapture {
  constructor(capture,ordnance){this.capture=capture;this.ordnance=ordnance;this.active=new Map();}
- launch(projectile,type){
+ launch(projectile,type,sample=null){
   if(this.active.has(projectile))return;
   const c=this.capture;if(this.active.size>=c.maxRecords)throw Error('dynamic projectile capture capacity exceeded');
-  const owner=projectile.owner,channel=projectile.networkFireChannel??0,shot=networkShotFor(owner,channel);
-  this.active.set(projectile,{id:c.nextId++,generation:c.generation,type,launchTick:c.tick(),definitionId:c.definitionId(projectile.def),ownerId:typeof owner==='object'?owner?.id??0:0,ownerGeneration:typeof owner==='object'?owner?.generation??0:0,fireId:shot?.id??0,channel});
+  // The stable projectile remains the key; a native notice supplies values
+  // sampled before later movement, owner reuse or an immediate terminal.
+  const owner=projectile.owner;
+  const channel=sample?sample.channel:projectile.networkFireChannel??0;
+  const shot=sample?null:networkShotFor(owner,channel);
+  this.active.set(projectile,{
+   id:c.nextId++,generation:c.generation,type,launchTick:c.tick(),
+   definitionId:c.definitionId(sample?sample.def:projectile.def),
+   ownerId:sample?sample.ownerId:typeof owner==='object'?owner?.id??0:0,
+   ownerGeneration:sample?sample.ownerGeneration:typeof owner==='object'?owner?.generation??0:0,
+   fireId:sample?sample.fireId:shot?.id??0,channel,
+  });
  }
  sample(){
   const c=this.capture,tick=c.tick(),live=new Set();

@@ -1,6 +1,6 @@
 import {CommandControls} from './commands.js';
 import {replayTicks} from './reconcile.js';
-import {reconRandom} from './network-remote-world.js';
+import {reconRandom} from './recon-random.js';
 import {captureRemoteReplay,restoreRemoteReplay} from './network-remote-replay.js';
 
 // The most ticks a replay runs past the authoritative checkpoint.

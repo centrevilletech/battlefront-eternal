@@ -22,8 +22,8 @@
 //! - `factory`: each class's free bodies, taken back last in, first out;
 //! - `separate`: the soldiers pushed apart, every pair;
 //! - `water`: the map's water and what it does to a soldier each tick;
-//! - `module` (the module only): the units' phase on the module, behind
-//!   its switch (src/units-sim.js).
+//! - `module` (the module only): canonical body and combat services for
+//!   the required owning phase and generation-qualified lifecycle commands.
 //!
 //! Units reach the rest of the battle (the collision world, combat, the AI,
 //! seats and props, the Characters) through `world::UnitsWorld`, the
@@ -34,15 +34,34 @@
 
 pub mod body;
 pub mod class;
+pub mod construction;
 pub mod damage;
 pub mod droideka;
 pub mod factory;
+#[cfg(target_arch = "wasm32")]
+pub mod f3;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod f3_construction;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod f3_items;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod f3_props;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod f3_hulls;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod f3_fleet;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod f3_sensors;
+pub mod ownership;
+pub mod poses;
 #[cfg(target_arch = "wasm32")]
 pub mod module;
 #[cfg(target_arch = "wasm32")]
 pub mod muzzles;
 #[cfg(target_arch = "wasm32")]
-mod native;
+pub(crate) mod live_pose;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod native;
 pub mod registry;
 pub mod separate;
 pub mod shapes;

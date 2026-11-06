@@ -1,3 +1,4 @@
+import {fixtureServices} from './helpers/rust-simulation.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -119,7 +120,7 @@ import { createHash } from 'node:crypto';
 
 test('Rust ordnance synthetic fixture matches recorded flight and events',async()=>{
 const world = battle(), log = [], o = ordnance(world, log);
-attachOrdnanceSim(o,new SimBridge(await loadSim(),{tests:{...ordnanceTests,unit:v=>v instanceof FakeUnit}}));
+attachOrdnanceSim(o,new SimBridge(await loadSim(),{tests:{...ordnanceTests,unit:v=>v instanceof FakeUnit}}));fixtureServices(o);
 const digest = createHash('sha256');
 const shots = ['bolt','beam','grenade','sticky','rocket','missile','shell','fatray'];
 for (let tick=0;tick<300;tick++) {

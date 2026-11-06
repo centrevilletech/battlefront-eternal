@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {Vector3} from 'three';
-import {reconRandom} from '../src/runtime/network-remote-world.js';
+import {reconRandom} from '../src/runtime/recon-random.js';
 import {RemoteDroids} from '../src/remote.js';import {captureRemoteReplay,restoreRemoteReplay} from '../src/runtime/network-remote-replay.js';
 function fixture(){const context=new RemoteDroids({scene:{add(){},remove(){}},camera:null,collision:{cast:()=>null,gather:()=>[]},lights:{flash(){}},model:()=>null,fire(){},explode(){}});context.random=reconRandom(123,1);
  const def={SwitchImmediately:1,droid:{weapons:[{base:'blaster',class:'probe_gun',channel:0,RoundsPerClip:0,ShotDelay:.2,ReloadTime:1,ordnance:{}}],AddHealth:-1}};

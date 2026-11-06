@@ -10,7 +10,7 @@ export class WireTickListMirror {
 }
 
 export function syncWireTickList(b, f, at, h, m) {
-  { const items = (m.ticks ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.ticks ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -42,7 +42,7 @@ export class WireBaselineChoiceMirror {
 
 export function syncWireBaselineChoice(b, f, at, h, m) {
   m.tick = f[at + 0];
-  { const items = (m.acks ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireTickList(b, f, at + 0, h, v ?? new WireTickListMirror()); } items[i] = v; } }
+  { const items = (m.acks ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireTickList(b, f, at + 0, h, v ?? new WireTickListMirror()); } items[i] = v; } }
   m.max = f[at + 3];
   return m;
 }
@@ -78,7 +78,7 @@ export class WireHostListMirror {
 }
 
 export function syncWireHostList(b, f, at, h, m) {
-  { const items = (m.values ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -115,7 +115,7 @@ export function syncWireHostOwn(b, f, at, h, m) {
   m.epoch = f[at + 1];
   m.baselineTick = f[at + 2];
   { const tag = f[at + 3]; if (tag === 0) { m.correction = syncWireField(b, f, at + 4, h, m.correction ?? new WireFieldMirror()); } else m.correction = tag === 1 ? null : undefined; }
-  { const items = (m.summaries ??= []), start = h + f[at + 9], n = f[at + 10]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncWireField(b, f, at + 0, h, v ?? new WireFieldMirror()); } items[i] = v; } }
+  { const items = (m.summaries ??= []), start = h + f[at + 9], n = f[at + 10]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncWireField(b, f, at + 0, h, v ?? new WireFieldMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -193,8 +193,8 @@ export class WireStaggerTakeMirror {
 
 export function syncWireStaggerTake(b, f, at, h, m) {
   m.tick = f[at + 0];
-  { const items = (m.records ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncWireStaggerRecord(b, f, at + 0, h, v ?? new WireStaggerRecordMirror()); } items[i] = v; } }
-  { const items = (m.complete ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.records ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncWireStaggerRecord(b, f, at + 0, h, v ?? new WireStaggerRecordMirror()); } items[i] = v; } }
+  { const items = (m.complete ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -263,7 +263,7 @@ export class WireCadencesMirror {
 }
 
 export function syncWireCadences(b, f, at, h, m) {
-  { const items = (m.values ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireCadence(b, f, at + 0, h, v ?? new WireCadenceMirror()); } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWireCadence(b, f, at + 0, h, v ?? new WireCadenceMirror()); } items[i] = v; } }
   return m;
 }
 

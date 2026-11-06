@@ -9,7 +9,7 @@ test('native network seat cycling swaps bots and preserves other humans', async 
   const { vs, v, crew } = await mountedFleet(weaponDefinition('fixture-seat-cycle'), { seats: 3, network: true });
   try {
     const bot = vs.units.add(new crew.constructor(vs.collision));
-    const other = vs.units.add(new crew.constructor(vs.collision)); other.networkHuman = true;
+    const other = vs.units.add(new crew.constructor(vs.collision)); other.networkHuman = true; other.f3.publishMetadata(other);
     assert.equal(vs.board(bot, v, 1), true);
     assert.equal(vs.board(other, v, 2), true);
     const first = crew.seat;

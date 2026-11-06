@@ -44,6 +44,8 @@ mod battle;
 pub use self::battle::*;
 mod battlefield;
 pub use self::battlefield::*;
+mod boundary;
+pub use self::boundary::*;
 mod client;
 pub use self::client::*;
 mod combat;
@@ -72,6 +74,8 @@ mod phase;
 pub use self::phase::*;
 mod props;
 pub use self::props::*;
+mod recon;
+pub use self::recon::*;
 mod roster;
 pub use self::roster::*;
 mod seats;
@@ -86,8 +90,6 @@ mod vehicle_firing;
 pub use self::vehicle_firing::*;
 mod vehicles;
 pub use self::vehicles::*;
-mod weapon_runtime;
-pub use self::weapon_runtime::*;
 mod wire_capture;
 pub use self::wire_capture::*;
 mod wire_combat;
@@ -131,29 +133,31 @@ pub const KIND_PATH_PLANNER: KindCode = 21;
 pub const KIND_PLANNER_REQUEST: KindCode = 22;
 pub const KIND_POST: KindCode = 23;
 pub const KIND_PROP: KindCode = 24;
-pub const KIND_ROUND: KindCode = 25;
-pub const KIND_SEAT_LEASE: KindCode = 26;
-pub const KIND_SEAT_UNIT: KindCode = 27;
-pub const KIND_SEATS: KindCode = 28;
-pub const KIND_SERVICE_TARGET: KindCode = 29;
-pub const KIND_SPAWNING: KindCode = 30;
-pub const KIND_TURRET: KindCode = 31;
-pub const KIND_TURRET_SEATS: KindCode = 32;
-pub const KIND_TURRET_TARGET: KindCode = 33;
-pub const KIND_UNIT: KindCode = 34;
-pub const KIND_UNITS: KindCode = 35;
-pub const KIND_VEHICLE: KindCode = 36;
-pub const KIND_VEHICLE_DRIVER: KindCode = 37;
-pub const KIND_VEHICLE_TARGET: KindCode = 38;
-pub const KIND_VEHICLES: KindCode = 39;
+pub const KIND_RECON_CONTEXT: KindCode = 25;
+pub const KIND_RECON_DROID: KindCode = 26;
+pub const KIND_ROUND: KindCode = 27;
+pub const KIND_SEAT_LEASE: KindCode = 28;
+pub const KIND_SEAT_UNIT: KindCode = 29;
+pub const KIND_SEATS: KindCode = 30;
+pub const KIND_SERVICE_TARGET: KindCode = 31;
+pub const KIND_SPAWNING: KindCode = 32;
+pub const KIND_TURRET: KindCode = 33;
+pub const KIND_TURRET_SEATS: KindCode = 34;
+pub const KIND_TURRET_TARGET: KindCode = 35;
+pub const KIND_UNIT: KindCode = 36;
+pub const KIND_UNITS: KindCode = 37;
+pub const KIND_VEHICLE: KindCode = 38;
+pub const KIND_VEHICLE_DRIVER: KindCode = 39;
+pub const KIND_VEHICLE_TARGET: KindCode = 40;
+pub const KIND_VEHICLES: KindCode = 41;
 /// How many kinds there are (codes run 1 to KINDS).
-pub const KINDS: usize = 39;
-pub const KIND_NAMES: [&str; 40] = ["", "battle", "beam", "body", "bolt", "building", "character", "classicAI", "commandPosts", "controller", "emitter", "grenade", "humanSpawn", "item", "items", "mobilePost", "mobilePosts", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "post", "prop", "round", "seatLease", "seatUnit", "seats", "serviceTarget", "spawning", "turret", "turretSeats", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
+pub const KINDS: usize = 41;
+pub const KIND_NAMES: [&str; 42] = ["", "battle", "beam", "body", "bolt", "building", "character", "classicAI", "commandPosts", "controller", "emitter", "grenade", "humanSpawn", "item", "items", "mobilePost", "mobilePosts", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "post", "prop", "reconContext", "reconDroid", "round", "seatLease", "seatUnit", "seats", "serviceTarget", "spawning", "turret", "turretSeats", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 40] = [0, 0x4df890db, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0xa6ce9011, 0x9a4379ca, 0xa0adafe0, 0x1e6714ff, 0xc667f062, 0xa3e130ff, 0xf310d66e, 0x6fbbce3d, 0xb7430d64, 0x9fea083b, 0x28884b1f, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x0c2115b7, 0x9b924a1b, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x28cdb4e2, 0xf7223e60, 0x512f6f6c, 0x2547f2df, 0xfbd22c8d, 0x19c3d924, 0x03866fa6, 0xb30b4400, 0x7252759a, 0x02390125, 0x4998e382];
+pub const KIND_HASHES: [u32; 42] = [0, 0x4df890db, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0xa6ce9011, 0x9a4379ca, 0xa0adafe0, 0x1e6714ff, 0xc667f062, 0xa3e130ff, 0xf310d66e, 0x6fbbce3d, 0xb7430d64, 0x9fea083b, 0x28884b1f, 0x00a2177c, 0xf0c0d700, 0x65070dab, 0xb0dc71af, 0x85519934, 0x45784696, 0x0c2115b7, 0x9b924a1b, 0x5725456c, 0x451ff0f2, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x28cdb4e2, 0xf7223e60, 0x512f6f6c, 0x2547f2df, 0x99217969, 0x19c3d924, 0x03866fa6, 0xb30b4400, 0x7252759a, 0xccc6d401, 0x4998e382];
 /// Whether each kind's objects carry their own number (its slot), by code.
-pub const KIND_KEYED: [bool; 40] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
+pub const KIND_KEYED: [bool; 42] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, true, false, false, false, true, false];
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -174,10 +178,6 @@ pub struct NavControl;
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ObjectiveTarget;
-
-/// A kind the store holds no fields of (only references to).
-#[derive(Clone, Copy, Debug, Default)]
-pub struct OwnerSnapshot;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -224,9 +224,12 @@ pub struct Store {
     pub mobile_post: Slab<MobilePost>,
     pub mobile_posts: MobilePosts,
     pub ordnance: Ordnance,
+    pub owner_snapshot: Slab<OwnerSnapshot>,
     pub path_planner: PathPlanner,
     pub planner_request: Slab<PlannerRequest>,
     pub post: Slab<Post>,
+    pub recon_context: Slab<ReconContext>,
+    pub recon_droid: Slab<ReconDroid>,
     pub round: Slab<Round>,
     pub seat_lease: Slab<SeatLease>,
     pub seats: Seats,
@@ -422,6 +425,26 @@ impl Store {
                 let (row, heap) = block.row(0);
                 if full { self.ordnance.put_full(row, heap) } else { self.ordnance.put_export(row, heap) }
             }
+            KIND_OWNER_SNAPSHOT => {
+                let list = self.owner_snapshot.iter().map(|(r, _)| r).collect::<Vec<_>>();
+                let retired = if mode == 0 { std::mem::take(&mut self.owner_snapshot.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.owner_snapshot.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { OwnerSnapshot::FULL_STRIDE } else { OwnerSnapshot::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.owner_snapshot.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
+                    let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    if let Some(v) = self.owner_snapshot.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
+                }
+            }
             KIND_PATH_PLANNER => {
                 block.begin(1, if full { PathPlanner::FULL_STRIDE } else { PathPlanner::EXPORT_STRIDE });
                 let (row, heap) = block.row(0);
@@ -465,6 +488,46 @@ impl Store {
                     row[0] = r.slot as f64;
                     row[1] = r.gen as f64;
                     if let Some(v) = self.post.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
+                }
+            }
+            KIND_RECON_CONTEXT => {
+                let list = self.recon_context.iter().map(|(r, _)| r).collect::<Vec<_>>();
+                let retired = if mode == 0 { std::mem::take(&mut self.recon_context.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.recon_context.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { ReconContext::FULL_STRIDE } else { ReconContext::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.recon_context.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
+                    let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    if let Some(v) = self.recon_context.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
+                }
+            }
+            KIND_RECON_DROID => {
+                let list = self.recon_droid.iter().map(|(r, _)| r).collect::<Vec<_>>();
+                let retired = if mode == 0 { std::mem::take(&mut self.recon_droid.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.recon_droid.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { ReconDroid::FULL_STRIDE } else { ReconDroid::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.recon_droid.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
+                    let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    if let Some(v) = self.recon_droid.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
                 }
             }
             KIND_ROUND => {
@@ -610,6 +673,9 @@ impl Store {
                 let r = self.mobile_post.insert(Default::default());
                 self.mobile_posts.posts.push(r);
             },
+            KIND_OWNER_SNAPSHOT => for _ in 0..count {
+                let r = self.owner_snapshot.insert(Default::default());
+            },
             KIND_PLANNER_REQUEST => for _ in 0..count {
                 let r = self.planner_request.insert(Default::default());
                 self.path_planner.queue.push(r);
@@ -617,6 +683,12 @@ impl Store {
             KIND_POST => for _ in 0..count {
                 let r = self.post.insert(Default::default());
                 self.command_posts.posts.push(r);
+            },
+            KIND_RECON_CONTEXT => for _ in 0..count {
+                let r = self.recon_context.insert(Default::default());
+            },
+            KIND_RECON_DROID => for _ in 0..count {
+                let r = self.recon_droid.insert(Default::default());
             },
             KIND_ROUND => for _ in 0..count {
                 let r = self.round.insert(Default::default());
@@ -644,8 +716,11 @@ impl Store {
             KIND_GRENADE => self.grenade.retire(Ref::new(slot, gen)),
             KIND_ITEM => self.item.retire(Ref::new(slot, gen)),
             KIND_MOBILE_POST => self.mobile_post.retire(Ref::new(slot, gen)),
+            KIND_OWNER_SNAPSHOT => self.owner_snapshot.retire(Ref::new(slot, gen)),
             KIND_PLANNER_REQUEST => self.planner_request.retire(Ref::new(slot, gen)),
             KIND_POST => self.post.retire(Ref::new(slot, gen)),
+            KIND_RECON_CONTEXT => self.recon_context.retire(Ref::new(slot, gen)),
+            KIND_RECON_DROID => self.recon_droid.retire(Ref::new(slot, gen)),
             KIND_ROUND => self.round.retire(Ref::new(slot, gen)),
             KIND_SEAT_LEASE => self.seat_lease.retire(Ref::new(slot, gen)),
             KIND_UNIT => self.unit.retire(Ref::new(slot, gen)),
@@ -780,6 +855,19 @@ impl Store {
                 let (row, heap) = block.read(0);
                 if full { self.ordnance.take_full(row, heap) } else { self.ordnance.take_import(row, heap) }
             }
+            KIND_OWNER_SNAPSHOT => {
+                let mut listed: Vec<bool> = Vec::new();
+                for i in 0..block.rows() {
+                    let (row, heap) = block.read(i);
+                    let r = Ref::new(word_u32(row[0]), word_u32(row[1]));
+                    let v = self.owner_snapshot.ensure(r);
+                    if full { v.take_full(row, heap) } else { v.take_import(row, heap) }
+                    let s = r.slot as usize;
+                    if listed.len() <= s { listed.resize(s + 1, false); }
+                    listed[s] = true;
+                }
+                if !some { self.owner_snapshot.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
+            }
             KIND_PATH_PLANNER => {
                 let (row, heap) = block.read(0);
                 if full { self.path_planner.take_full(row, heap) } else { self.path_planner.take_import(row, heap) }
@@ -809,6 +897,32 @@ impl Store {
                     listed[s] = true;
                 }
                 if !some { self.post.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
+            }
+            KIND_RECON_CONTEXT => {
+                let mut listed: Vec<bool> = Vec::new();
+                for i in 0..block.rows() {
+                    let (row, heap) = block.read(i);
+                    let r = Ref::new(word_u32(row[0]), word_u32(row[1]));
+                    let v = self.recon_context.ensure(r);
+                    if full { v.take_full(row, heap) } else { v.take_import(row, heap) }
+                    let s = r.slot as usize;
+                    if listed.len() <= s { listed.resize(s + 1, false); }
+                    listed[s] = true;
+                }
+                if !some { self.recon_context.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
+            }
+            KIND_RECON_DROID => {
+                let mut listed: Vec<bool> = Vec::new();
+                for i in 0..block.rows() {
+                    let (row, heap) = block.read(i);
+                    let r = Ref::new(word_u32(row[0]), word_u32(row[1]));
+                    let v = self.recon_droid.ensure(r);
+                    if full { v.take_full(row, heap) } else { v.take_import(row, heap) }
+                    let s = r.slot as usize;
+                    if listed.len() <= s { listed.resize(s + 1, false); }
+                    listed[s] = true;
+                }
+                if !some { self.recon_droid.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_ROUND => {
                 let mut listed: Vec<bool> = Vec::new();
@@ -898,7 +1012,38 @@ pub const COMMAND_NAMES: [&str; 6] = ["", "echo", "f2Seat", "fill", "relay", "se
 pub const EVENT_ECHOED: u32 = 1;
 pub const EVENT_F2_SHOT: u32 = 2;
 pub const EVENT_F2_TOW: u32 = 3;
-pub const EVENT_NAMES: [&str; 4] = ["", "echoed", "f2Shot", "f2Tow"];
+pub const EVENT_F3_BLAST: u32 = 4;
+pub const EVENT_F3_BODY: u32 = 5;
+pub const EVENT_F3_DAMAGE: u32 = 6;
+pub const EVENT_F3_DEATH: u32 = 7;
+pub const EVENT_F3_DISPENSER: u32 = 8;
+pub const EVENT_F3_EFFECT: u32 = 9;
+pub const EVENT_F3_HELD: u32 = 10;
+pub const EVENT_F3_HULL: u32 = 11;
+pub const EVENT_F3_HULL_BIRTH: u32 = 12;
+pub const EVENT_F3_ITEM: u32 = 13;
+pub const EVENT_F3_ITEM_RETIRED: u32 = 14;
+pub const EVENT_F3_LIFE_STREAMS: u32 = 15;
+pub const EVENT_F3_ORDNANCE: u32 = 16;
+pub const EVENT_F3_OWNER_CREATED: u32 = 17;
+pub const EVENT_F3_PICKUP: u32 = 18;
+pub const EVENT_F3_POWERUP_EFFECT: u32 = 19;
+pub const EVENT_F3_PRESENTATION: u32 = 20;
+pub const EVENT_F3_PROP_DAMAGE: u32 = 21;
+pub const EVENT_F3_RECON_CONTEXT: u32 = 22;
+pub const EVENT_F3_RECON_CONTEXT_CREATED: u32 = 23;
+pub const EVENT_F3_RECON_DROID: u32 = 24;
+pub const EVENT_F3_RECON_DROID_CREATED: u32 = 25;
+pub const EVENT_F3_RECON_RETIRED: u32 = 26;
+pub const EVENT_F3_RECON_SHOT: u32 = 27;
+pub const EVENT_F3_REMOVED: u32 = 28;
+pub const EVENT_F3_SEAT: u32 = 29;
+pub const EVENT_F3_SHIELD: u32 = 30;
+pub const EVENT_F3_SHOT: u32 = 31;
+pub const EVENT_F3_SPLASH: u32 = 32;
+pub const EVENT_F3_TURRET: u32 = 33;
+pub const EVENT_F3_UNIT_BIRTH: u32 = 34;
+pub const EVENT_NAMES: [&str; 35] = ["", "echoed", "f2Shot", "f2Tow", "f3Blast", "f3Body", "f3Damage", "f3Death", "f3Dispenser", "f3Effect", "f3Held", "f3Hull", "f3HullBirth", "f3Item", "f3ItemRetired", "f3LifeStreams", "f3Ordnance", "f3OwnerCreated", "f3Pickup", "f3PowerupEffect", "f3Presentation", "f3PropDamage", "f3ReconContext", "f3ReconContextCreated", "f3ReconDroid", "f3ReconDroidCreated", "f3ReconRetired", "f3ReconShot", "f3Removed", "f3Seat", "f3Shield", "f3Shot", "f3Splash", "f3Turret", "f3UnitBirth"];
 
 pub const IMPORT_AI_AWARENESS: u32 = 1;
 pub const IMPORT_AI_BINDING: u32 = 2;
@@ -928,117 +1073,89 @@ pub const IMPORT_BLOCKED: u32 = 25;
 pub const IMPORT_BOUNCE: u32 = 26;
 pub const IMPORT_CAST: u32 = 27;
 pub const IMPORT_CAST_MOVING: u32 = 28;
-pub const IMPORT_COMBAT_ADMIT: u32 = 29;
-pub const IMPORT_COMBAT_ARC_TARGETS: u32 = 30;
-pub const IMPORT_COMBAT_BLOWN_APART: u32 = 31;
-pub const IMPORT_COMBAT_CAST: u32 = 32;
-pub const IMPORT_COMBAT_DAMAGED: u32 = 33;
-pub const IMPORT_COMBAT_DIED: u32 = 34;
-pub const IMPORT_COMBAT_DISPENSE: u32 = 35;
-pub const IMPORT_COMBAT_DRAW: u32 = 36;
-pub const IMPORT_COMBAT_FIRE_ROUND: u32 = 37;
-pub const IMPORT_COMBAT_FIRED: u32 = 38;
-pub const IMPORT_COMBAT_GUN_AT: u32 = 39;
-pub const IMPORT_COMBAT_HURT_ARC: u32 = 40;
-pub const IMPORT_COMBAT_LIGHTNING: u32 = 41;
-pub const IMPORT_COMBAT_LOCK_KEY: u32 = 42;
-pub const IMPORT_COMBAT_LOCK_ON: u32 = 43;
-pub const IMPORT_COMBAT_LOCK_PICK: u32 = 44;
-pub const IMPORT_COMBAT_MELEE_STRIKE: u32 = 45;
-pub const IMPORT_COMBAT_NEXT_GUN: u32 = 46;
-pub const IMPORT_COMBAT_PRESENT: u32 = 47;
-pub const IMPORT_COMBAT_REMOTE_ENTER: u32 = 48;
-pub const IMPORT_COMBAT_REMOTE_KILL: u32 = 49;
-pub const IMPORT_COMBAT_REMOTE_LAUNCH: u32 = 50;
-pub const IMPORT_COMBAT_REMOTE_OF: u32 = 51;
-pub const IMPORT_COMBAT_REPAIR: u32 = 52;
-pub const IMPORT_COMBAT_RESPAWN: u32 = 53;
-pub const IMPORT_COMBAT_SHIELD_HIT: u32 = 54;
-pub const IMPORT_DB_ACTION: u32 = 55;
-pub const IMPORT_DROP_ROLL: u32 = 56;
-pub const IMPORT_EXPLODE: u32 = 57;
-pub const IMPORT_EXPLOSION: u32 = 58;
-pub const IMPORT_F2_FIRED: u32 = 59;
-pub const IMPORT_F2_FOREIGN: u32 = 60;
-pub const IMPORT_F2_LIFE: u32 = 61;
-pub const IMPORT_F2_POSED: u32 = 62;
-pub const IMPORT_F2_SEAT_ACTION: u32 = 63;
-pub const IMPORT_F2_TARGET_FACTS: u32 = 64;
-pub const IMPORT_F2_TURRET_DRAW: u32 = 65;
-pub const IMPORT_F2_TURRET_TARGET: u32 = 66;
-pub const IMPORT_F2_VARIANT: u32 = 67;
-pub const IMPORT_F2_WEAPON_DRAW: u32 = 68;
-pub const IMPORT_FAT_QUERY: u32 = 69;
-pub const IMPORT_GIVE: u32 = 70;
-pub const IMPORT_GONE: u32 = 71;
-pub const IMPORT_GRENADE_CONTACT: u32 = 72;
-pub const IMPORT_HISTORY_TICK: u32 = 73;
-pub const IMPORT_HIT: u32 = 74;
-pub const IMPORT_HIT_UNIT: u32 = 75;
-pub const IMPORT_HS_ACTION: u32 = 76;
-pub const IMPORT_HS_QUERY: u32 = 77;
-pub const IMPORT_IMPACT: u32 = 78;
-pub const IMPORT_IS_DROID: u32 = 79;
-pub const IMPORT_ITEM_CAST: u32 = 80;
-pub const IMPORT_ITEM_MODEL: u32 = 81;
-pub const IMPORT_ITEM_RELATIONS: u32 = 82;
-pub const IMPORT_ITEM_TARGETS: u32 = 83;
-pub const IMPORT_ITEM_WATER_CROSSING: u32 = 84;
-pub const IMPORT_LAUNCH: u32 = 85;
-pub const IMPORT_MISSILE_TARGET: u32 = 86;
-pub const IMPORT_NAVIGATE_MISSILE: u32 = 87;
-pub const IMPORT_NETWORK_LIFECYCLE: u32 = 88;
-pub const IMPORT_NETWORK_SEATS_WORLD: u32 = 89;
-pub const IMPORT_OWNER_KEY: u32 = 90;
-pub const IMPORT_PA_ACTION: u32 = 91;
-pub const IMPORT_PB_ACTION: u32 = 92;
-pub const IMPORT_PC_ACTION: u32 = 93;
-pub const IMPORT_PICKUP: u32 = 94;
-pub const IMPORT_POSTS_QUERY: u32 = 95;
-pub const IMPORT_PQ_ACTION: u32 = 96;
-pub const IMPORT_PROJECTILE: u32 = 97;
-pub const IMPORT_RAYCAST_UNITS: u32 = 98;
-pub const IMPORT_RIDER_MOUNT: u32 = 99;
-pub const IMPORT_ROSTER_ACTION: u32 = 100;
-pub const IMPORT_ROSTER_QUERY: u32 = 101;
-pub const IMPORT_SEAT_CAST: u32 = 102;
-pub const IMPORT_SEAT_CONTROLLABLE: u32 = 103;
-pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 104;
-pub const IMPORT_SEAT_OVERLAPS: u32 = 105;
-pub const IMPORT_SEAT_POLICY: u32 = 106;
-pub const IMPORT_SHOOTER: u32 = 107;
-pub const IMPORT_SHOT_TICK: u32 = 108;
-pub const IMPORT_SPAWNING_ACTION: u32 = 109;
-pub const IMPORT_SPAWNING_QUERY: u32 = 110;
-pub const IMPORT_SPIN: u32 = 111;
-pub const IMPORT_TRAPS_ACTION: u32 = 112;
-pub const IMPORT_TRAPS_QUERY: u32 = 113;
-pub const IMPORT_UNIT_AIM: u32 = 114;
-pub const IMPORT_UNIT_BODY_EVENT: u32 = 115;
-pub const IMPORT_UNIT_COMBAT: u32 = 116;
-pub const IMPORT_UNIT_DAMAGE: u32 = 117;
-pub const IMPORT_UNIT_REMOTE_STEP: u32 = 118;
-pub const IMPORT_UNIT_REMOVED: u32 = 119;
-pub const IMPORT_UNIT_SAMPLE_MUZZLES: u32 = 120;
-pub const IMPORT_UNIT_SPHERE: u32 = 121;
-pub const IMPORT_UNIT_SPLASH: u32 = 122;
-pub const IMPORT_VEH_AIM_POINT: u32 = 123;
-pub const IMPORT_VEH_AIM_POINTS: u32 = 124;
-pub const IMPORT_VEH_DAMAGED: u32 = 125;
-pub const IMPORT_VEH_DESTROYED: u32 = 126;
-pub const IMPORT_VEH_EFFECT: u32 = 127;
-pub const IMPORT_VEH_EXPLOSION: u32 = 128;
-pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 129;
-pub const IMPORT_WATER_CROSSING: u32 = 130;
-pub const IMPORT_WAVER: u32 = 131;
-pub const IMPORT_WEAPON_ACTION: u32 = 132;
-pub const IMPORT_WORLD_CLOCK: u32 = 133;
-pub const IMPORT_WORLD_CONTROLS: u32 = 134;
-pub const IMPORT_WORLD_EVENTS: u32 = 135;
-pub const IMPORT_WORLD_LOCAL: u32 = 136;
-pub const IMPORT_WORLD_NETWORK: u32 = 137;
-pub const IMPORT_WORLD_STEP: u32 = 138;
-pub const IMPORT_NAMES: [&str; 139] = ["", "aiAwareness", "aiBinding", "aiCombatAgent", "aiControllerDriver", "aiCover", "aiDispatch", "aiFire", "aiFsm", "aiPattern", "aiRange", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dbAction", "dropRoll", "explode", "explosion", "f2Fired", "f2Foreign", "f2Life", "f2Posed", "f2SeatAction", "f2TargetFacts", "f2TurretDraw", "f2TurretTarget", "f2Variant", "f2WeaponDraw", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkLifecycle", "networkSeatsWorld", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehDamaged", "vehDestroyed", "vehEffect", "vehExplosion", "vehRaycastUnits", "waterCrossing", "waver", "weaponAction", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
+pub const IMPORT_DB_ACTION: u32 = 29;
+pub const IMPORT_DROP_ROLL: u32 = 30;
+pub const IMPORT_EXPLODE: u32 = 31;
+pub const IMPORT_EXPLOSION: u32 = 32;
+pub const IMPORT_F2_FIRED: u32 = 33;
+pub const IMPORT_F2_FOREIGN: u32 = 34;
+pub const IMPORT_F2_LIFE: u32 = 35;
+pub const IMPORT_F2_POSED: u32 = 36;
+pub const IMPORT_F2_SEAT_ACTION: u32 = 37;
+pub const IMPORT_F2_TARGET_FACTS: u32 = 38;
+pub const IMPORT_F2_TURRET_DRAW: u32 = 39;
+pub const IMPORT_F2_TURRET_HINT: u32 = 40;
+pub const IMPORT_F2_TURRET_TARGET: u32 = 41;
+pub const IMPORT_F2_VARIANT: u32 = 42;
+pub const IMPORT_F2_WEAPON_DRAW: u32 = 43;
+pub const IMPORT_F3_CHARACTER_RELEASE: u32 = 44;
+pub const IMPORT_F3_DEATH_CREDIT: u32 = 45;
+pub const IMPORT_F3_HEAD_CREDIT: u32 = 46;
+pub const IMPORT_F3_HULL_CREDIT: u32 = 47;
+pub const IMPORT_F3_PROP_EFFECT: u32 = 48;
+pub const IMPORT_FAT_QUERY: u32 = 49;
+pub const IMPORT_GIVE: u32 = 50;
+pub const IMPORT_GONE: u32 = 51;
+pub const IMPORT_GRENADE_CONTACT: u32 = 52;
+pub const IMPORT_HISTORY_TICK: u32 = 53;
+pub const IMPORT_HIT: u32 = 54;
+pub const IMPORT_HIT_UNIT: u32 = 55;
+pub const IMPORT_HS_ACTION: u32 = 56;
+pub const IMPORT_HS_QUERY: u32 = 57;
+pub const IMPORT_IMPACT: u32 = 58;
+pub const IMPORT_IS_DROID: u32 = 59;
+pub const IMPORT_ITEM_CAST: u32 = 60;
+pub const IMPORT_ITEM_MODEL: u32 = 61;
+pub const IMPORT_ITEM_RELATIONS: u32 = 62;
+pub const IMPORT_ITEM_TARGETS: u32 = 63;
+pub const IMPORT_ITEM_WATER_CROSSING: u32 = 64;
+pub const IMPORT_LAUNCH: u32 = 65;
+pub const IMPORT_MISSILE_TARGET: u32 = 66;
+pub const IMPORT_NAVIGATE_MISSILE: u32 = 67;
+pub const IMPORT_NETWORK_LIFECYCLE: u32 = 68;
+pub const IMPORT_NETWORK_SEATS_WORLD: u32 = 69;
+pub const IMPORT_OWNER_KEY: u32 = 70;
+pub const IMPORT_PA_ACTION: u32 = 71;
+pub const IMPORT_PB_ACTION: u32 = 72;
+pub const IMPORT_PC_ACTION: u32 = 73;
+pub const IMPORT_PICKUP: u32 = 74;
+pub const IMPORT_POSTS_QUERY: u32 = 75;
+pub const IMPORT_PQ_ACTION: u32 = 76;
+pub const IMPORT_PROJECTILE: u32 = 77;
+pub const IMPORT_RAYCAST_UNITS: u32 = 78;
+pub const IMPORT_RIDER_MOUNT: u32 = 79;
+pub const IMPORT_ROSTER_ACTION: u32 = 80;
+pub const IMPORT_ROSTER_QUERY: u32 = 81;
+pub const IMPORT_SEAT_CAST: u32 = 82;
+pub const IMPORT_SEAT_CONTROLLABLE: u32 = 83;
+pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 84;
+pub const IMPORT_SEAT_OVERLAPS: u32 = 85;
+pub const IMPORT_SEAT_POLICY: u32 = 86;
+pub const IMPORT_SHOOTER: u32 = 87;
+pub const IMPORT_SHOT_TICK: u32 = 88;
+pub const IMPORT_SPAWNING_ACTION: u32 = 89;
+pub const IMPORT_SPAWNING_QUERY: u32 = 90;
+pub const IMPORT_SPIN: u32 = 91;
+pub const IMPORT_TRAPS_ACTION: u32 = 92;
+pub const IMPORT_TRAPS_QUERY: u32 = 93;
+pub const IMPORT_UNIT_AIM: u32 = 94;
+pub const IMPORT_UNIT_SPHERE: u32 = 95;
+pub const IMPORT_VEH_AIM_POINT: u32 = 96;
+pub const IMPORT_VEH_AIM_POINTS: u32 = 97;
+pub const IMPORT_VEH_DAMAGED: u32 = 98;
+pub const IMPORT_VEH_DESTROYED: u32 = 99;
+pub const IMPORT_VEH_EFFECT: u32 = 100;
+pub const IMPORT_VEH_EXPLOSION: u32 = 101;
+pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 102;
+pub const IMPORT_WATER_CROSSING: u32 = 103;
+pub const IMPORT_WAVER: u32 = 104;
+pub const IMPORT_WORLD_CLOCK: u32 = 105;
+pub const IMPORT_WORLD_CONTROLS: u32 = 106;
+pub const IMPORT_WORLD_EVENTS: u32 = 107;
+pub const IMPORT_WORLD_LOCAL: u32 = 108;
+pub const IMPORT_WORLD_NETWORK: u32 = 109;
+pub const IMPORT_WORLD_STEP: u32 = 110;
+pub const IMPORT_NAMES: [&str; 111] = ["", "aiAwareness", "aiBinding", "aiCombatAgent", "aiControllerDriver", "aiCover", "aiDispatch", "aiFire", "aiFsm", "aiPattern", "aiRange", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "dbAction", "dropRoll", "explode", "explosion", "f2Fired", "f2Foreign", "f2Life", "f2Posed", "f2SeatAction", "f2TargetFacts", "f2TurretDraw", "f2TurretHint", "f2TurretTarget", "f2Variant", "f2WeaponDraw", "f3CharacterRelease", "f3DeathCredit", "f3HeadCredit", "f3HullCredit", "f3PropEffect", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkLifecycle", "networkSeatsWorld", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitSphere", "vehAimPoint", "vehAimPoints", "vehDamaged", "vehDestroyed", "vehEffect", "vehExplosion", "vehRaycastUnits", "waterCrossing", "waver", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1139,6 +1256,223 @@ impl FfTow {
     }
 }
 
+impl F3BlastNotice {
+    /// Emits it as the event f3Blast (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_BLAST, F3BlastNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3BodyNotice {
+    /// Emits it as the event f3Body (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_BODY, F3BodyNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3DamageNotice {
+    /// Emits it as the event f3Damage (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_DAMAGE, F3DamageNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3DeathNotice {
+    /// Emits it as the event f3Death (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_DEATH, F3DeathNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3DispenserNotice {
+    /// Emits it as the event f3Dispenser (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_DISPENSER, F3DispenserNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3EffectNotice {
+    /// Emits it as the event f3Effect (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_EFFECT, F3EffectNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3HeldNotice {
+    /// Emits it as the event f3Held (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_HELD, F3HeldNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3HullNotice {
+    /// Emits it as the event f3Hull (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_HULL, F3HullNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3HullBirth {
+    /// Emits it as the event f3HullBirth (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_HULL_BIRTH, F3HullBirth::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ItemNotice {
+    /// Emits it as the event f3Item (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_ITEM, F3ItemNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ItemRetired {
+    /// Emits it as the event f3ItemRetired (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_ITEM_RETIRED, F3ItemRetired::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3LifeStreams {
+    /// Emits it as the event f3LifeStreams (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_LIFE_STREAMS, F3LifeStreams::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3OrdnanceNotice {
+    /// Emits it as the event f3Ordnance (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_ORDNANCE, F3OrdnanceNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3OwnerCreated {
+    /// Emits it as the event f3OwnerCreated (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_OWNER_CREATED, F3OwnerCreated::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl PickupArgs {
+    /// Emits it as the event f3Pickup (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_PICKUP, PickupArgs::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3PowerupEffect {
+    /// Emits it as the event f3PowerupEffect (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_POWERUP_EFFECT, F3PowerupEffect::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3Presentation {
+    /// Emits it as the event f3Presentation (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_PRESENTATION, F3Presentation::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3PropDamage {
+    /// Emits it as the event f3PropDamage (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_PROP_DAMAGE, F3PropDamage::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ReconContextState {
+    /// Emits it as the event f3ReconContext (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_RECON_CONTEXT, F3ReconContextState::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ReconContextCreated {
+    /// Emits it as the event f3ReconContextCreated (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_RECON_CONTEXT_CREATED, F3ReconContextCreated::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ReconDroidState {
+    /// Emits it as the event f3ReconDroid (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_RECON_DROID, F3ReconDroidState::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ReconDroidCreated {
+    /// Emits it as the event f3ReconDroidCreated (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_RECON_DROID_CREATED, F3ReconDroidCreated::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ReconRetired {
+    /// Emits it as the event f3ReconRetired (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_RECON_RETIRED, F3ReconRetired::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ReconShot {
+    /// Emits it as the event f3ReconShot (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_RECON_SHOT, F3ReconShot::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3RemovedNotice {
+    /// Emits it as the event f3Removed (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_REMOVED, F3RemovedNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3SeatNotice {
+    /// Emits it as the event f3Seat (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_SEAT, F3SeatNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ShieldNotice {
+    /// Emits it as the event f3Shield (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_SHIELD, F3ShieldNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3ShotNotice {
+    /// Emits it as the event f3Shot (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_SHOT, F3ShotNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl UnitSplash {
+    /// Emits it as the event f3Splash (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_SPLASH, UnitSplash::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F2TurretEvent {
+    /// Emits it as the event f3Turret (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_TURRET, F2TurretEvent::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F3UnitBirth {
+    /// Emits it as the event f3UnitBirth (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_UNIT_BIRTH, F3UnitBirth::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "bfe")]
 extern "C" {
@@ -1170,32 +1504,6 @@ extern "C" {
     fn bfe_import_bounce();
     fn bfe_import_cast();
     fn bfe_import_cast_moving();
-    fn bfe_import_combat_admit();
-    fn bfe_import_combat_arc_targets();
-    fn bfe_import_combat_blown_apart();
-    fn bfe_import_combat_cast();
-    fn bfe_import_combat_damaged();
-    fn bfe_import_combat_died();
-    fn bfe_import_combat_dispense();
-    fn bfe_import_combat_draw();
-    fn bfe_import_combat_fire_round();
-    fn bfe_import_combat_fired();
-    fn bfe_import_combat_gun_at();
-    fn bfe_import_combat_hurt_arc();
-    fn bfe_import_combat_lightning();
-    fn bfe_import_combat_lock_key();
-    fn bfe_import_combat_lock_on();
-    fn bfe_import_combat_lock_pick();
-    fn bfe_import_combat_melee_strike();
-    fn bfe_import_combat_next_gun();
-    fn bfe_import_combat_present();
-    fn bfe_import_combat_remote_enter();
-    fn bfe_import_combat_remote_kill();
-    fn bfe_import_combat_remote_launch();
-    fn bfe_import_combat_remote_of();
-    fn bfe_import_combat_repair();
-    fn bfe_import_combat_respawn();
-    fn bfe_import_combat_shield_hit();
     fn bfe_import_db_action();
     fn bfe_import_drop_roll();
     fn bfe_import_explode();
@@ -1207,9 +1515,15 @@ extern "C" {
     fn bfe_import_f2_seat_action();
     fn bfe_import_f2_target_facts();
     fn bfe_import_f2_turret_draw();
+    fn bfe_import_f2_turret_hint();
     fn bfe_import_f2_turret_target();
     fn bfe_import_f2_variant();
     fn bfe_import_f2_weapon_draw();
+    fn bfe_import_f3_character_release();
+    fn bfe_import_f3_death_credit();
+    fn bfe_import_f3_head_credit();
+    fn bfe_import_f3_hull_credit();
+    fn bfe_import_f3_prop_effect();
     fn bfe_import_fat_query();
     fn bfe_import_give();
     fn bfe_import_gone();
@@ -1256,14 +1570,7 @@ extern "C" {
     fn bfe_import_traps_action();
     fn bfe_import_traps_query();
     fn bfe_import_unit_aim();
-    fn bfe_import_unit_body_event();
-    fn bfe_import_unit_combat();
-    fn bfe_import_unit_damage();
-    fn bfe_import_unit_remote_step();
-    fn bfe_import_unit_removed();
-    fn bfe_import_unit_sample_muzzles();
     fn bfe_import_unit_sphere();
-    fn bfe_import_unit_splash();
     fn bfe_import_veh_aim_point();
     fn bfe_import_veh_aim_points();
     fn bfe_import_veh_damaged();
@@ -1273,7 +1580,6 @@ extern "C" {
     fn bfe_import_veh_raycast_units();
     fn bfe_import_water_crossing();
     fn bfe_import_waver();
-    fn bfe_import_weapon_action();
     fn bfe_import_world_clock();
     fn bfe_import_world_controls();
     fn bfe_import_world_events();
@@ -1783,461 +2089,6 @@ pub fn import_cast_moving_in(context: &crate::abi::context::Context, args: &Cast
     Ok(reply.read(CastAnswer::take))
 }
 
-/// Asks JavaScript (the import combatAdmit): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_admit(args: &CbWeapon) -> CbAdmit {
-    crate::store::calls::import_out(CbWeapon::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_admit() };
-    crate::store::calls::import_in(|row, heap| CbAdmit::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_admit_in(context: &crate::abi::context::Context, args: &CbWeapon) -> Result<CbAdmit, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbWeapon::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_ADMIT, args)?;
-    Ok(reply.read(CbAdmit::take))
-}
-
-/// Asks JavaScript (the import combatArcTargets): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_arc_targets(args: &CbUnit) -> CbArcTargets {
-    crate::store::calls::import_out(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_arc_targets() };
-    crate::store::calls::import_in(|row, heap| CbArcTargets::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_arc_targets_in(context: &crate::abi::context::Context, args: &CbUnit) -> Result<CbArcTargets, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_ARC_TARGETS, args)?;
-    Ok(reply.read(CbArcTargets::take))
-}
-
-/// Asks JavaScript (the import combatBlownApart): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_blown_apart(args: &CbHealth) -> () {
-    crate::store::calls::import_out(CbHealth::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_blown_apart() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_blown_apart_in(context: &crate::abi::context::Context, args: &CbHealth) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbHealth::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_BLOWN_APART, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatCast): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_cast(args: &CbRay) -> CbHit {
-    crate::store::calls::import_out(CbRay::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_cast() };
-    crate::store::calls::import_in(|row, heap| CbHit::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_cast_in(context: &crate::abi::context::Context, args: &CbRay) -> Result<CbHit, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbRay::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_CAST, args)?;
-    Ok(reply.read(CbHit::take))
-}
-
-/// Asks JavaScript (the import combatDamaged): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_damaged(args: &CbDamaged) -> () {
-    crate::store::calls::import_out(CbDamaged::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_damaged() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_damaged_in(context: &crate::abi::context::Context, args: &CbDamaged) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbDamaged::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_DAMAGED, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatDied): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_died(args: &CbUnit) -> () {
-    crate::store::calls::import_out(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_died() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_died_in(context: &crate::abi::context::Context, args: &CbUnit) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_DIED, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatDispense): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_dispense(args: &CbDispense) -> CbFlag {
-    crate::store::calls::import_out(CbDispense::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_dispense() };
-    crate::store::calls::import_in(|row, heap| CbFlag::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_dispense_in(context: &crate::abi::context::Context, args: &CbDispense) -> Result<CbFlag, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbDispense::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_DISPENSE, args)?;
-    Ok(reply.read(CbFlag::take))
-}
-
-/// Asks JavaScript (the import combatDraw): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_draw(args: &CbDraw) -> CbNumber {
-    crate::store::calls::import_out(CbDraw::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_draw() };
-    crate::store::calls::import_in(|row, heap| CbNumber::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_draw_in(context: &crate::abi::context::Context, args: &CbDraw) -> Result<CbNumber, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbDraw::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_DRAW, args)?;
-    Ok(reply.read(CbNumber::take))
-}
-
-/// Asks JavaScript (the import combatFireRound): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_fire_round(args: &CbFire) -> () {
-    crate::store::calls::import_out(CbFire::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_fire_round() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_fire_round_in(context: &crate::abi::context::Context, args: &CbFire) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbFire::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_FIRE_ROUND, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatFired): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_fired(args: &CbShot) -> () {
-    crate::store::calls::import_out(CbShot::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_fired() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_fired_in(context: &crate::abi::context::Context, args: &CbShot) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbShot::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_FIRED, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatGunAt): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_gun_at(args: &CbGunAt) -> CbPoint {
-    crate::store::calls::import_out(CbGunAt::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_gun_at() };
-    crate::store::calls::import_in(|row, heap| CbPoint::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_gun_at_in(context: &crate::abi::context::Context, args: &CbGunAt) -> Result<CbPoint, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbGunAt::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_GUN_AT, args)?;
-    Ok(reply.read(CbPoint::take))
-}
-
-/// Asks JavaScript (the import combatHurtArc): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_hurt_arc(args: &CbHurtArc) -> () {
-    crate::store::calls::import_out(CbHurtArc::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_hurt_arc() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_hurt_arc_in(context: &crate::abi::context::Context, args: &CbHurtArc) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbHurtArc::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_HURT_ARC, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatLightning): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_lightning(args: &CbText) -> CbFlag {
-    crate::store::calls::import_out(CbText::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_lightning() };
-    crate::store::calls::import_in(|row, heap| CbFlag::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_lightning_in(context: &crate::abi::context::Context, args: &CbText) -> Result<CbFlag, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbText::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_LIGHTNING, args)?;
-    Ok(reply.read(CbFlag::take))
-}
-
-/// Asks JavaScript (the import combatLockKey): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_lock_key(args: &CbLockKey) -> CbText {
-    crate::store::calls::import_out(CbLockKey::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_lock_key() };
-    crate::store::calls::import_in(|row, heap| CbText::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_lock_key_in(context: &crate::abi::context::Context, args: &CbLockKey) -> Result<CbText, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbLockKey::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_LOCK_KEY, args)?;
-    Ok(reply.read(CbText::take))
-}
-
-/// Asks JavaScript (the import combatLockOn): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_lock_on(args: &CbLockOn) -> CbTarget {
-    crate::store::calls::import_out(CbLockOn::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_lock_on() };
-    crate::store::calls::import_in(|row, heap| CbTarget::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_lock_on_in(context: &crate::abi::context::Context, args: &CbLockOn) -> Result<CbTarget, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbLockOn::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_LOCK_ON, args)?;
-    Ok(reply.read(CbTarget::take))
-}
-
-/// Asks JavaScript (the import combatLockPick): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_lock_pick(args: &CbLockPick) -> CbPick {
-    crate::store::calls::import_out(CbLockPick::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_lock_pick() };
-    crate::store::calls::import_in(|row, heap| CbPick::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_lock_pick_in(context: &crate::abi::context::Context, args: &CbLockPick) -> Result<CbPick, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbLockPick::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_LOCK_PICK, args)?;
-    Ok(reply.read(CbPick::take))
-}
-
-/// Asks JavaScript (the import combatMeleeStrike): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_melee_strike(args: &CbUnit) -> () {
-    crate::store::calls::import_out(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_melee_strike() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_melee_strike_in(context: &crate::abi::context::Context, args: &CbUnit) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_MELEE_STRIKE, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatNextGun): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_next_gun(args: &CbUnit) -> CbGun {
-    crate::store::calls::import_out(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_next_gun() };
-    crate::store::calls::import_in(|row, heap| CbGun::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_next_gun_in(context: &crate::abi::context::Context, args: &CbUnit) -> Result<CbGun, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_NEXT_GUN, args)?;
-    Ok(reply.read(CbGun::take))
-}
-
-/// Asks JavaScript (the import combatPresent): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_present(args: &CbPresent) -> () {
-    crate::store::calls::import_out(CbPresent::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_present() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_present_in(context: &crate::abi::context::Context, args: &CbPresent) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbPresent::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_PRESENT, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatRemoteEnter): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_remote_enter(args: &CbDroidCall) -> () {
-    crate::store::calls::import_out(CbDroidCall::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_remote_enter() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_remote_enter_in(context: &crate::abi::context::Context, args: &CbDroidCall) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbDroidCall::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_REMOTE_ENTER, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatRemoteKill): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_remote_kill(args: &CbDroidCall) -> () {
-    crate::store::calls::import_out(CbDroidCall::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_remote_kill() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_remote_kill_in(context: &crate::abi::context::Context, args: &CbDroidCall) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbDroidCall::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_REMOTE_KILL, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatRemoteLaunch): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_remote_launch(args: &CbLaunch) -> () {
-    crate::store::calls::import_out(CbLaunch::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_remote_launch() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_remote_launch_in(context: &crate::abi::context::Context, args: &CbLaunch) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbLaunch::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_REMOTE_LAUNCH, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatRemoteOf): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_remote_of(args: &CbWeapon) -> CbDroid {
-    crate::store::calls::import_out(CbWeapon::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_remote_of() };
-    crate::store::calls::import_in(|row, heap| CbDroid::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_remote_of_in(context: &crate::abi::context::Context, args: &CbWeapon) -> Result<CbDroid, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbWeapon::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_REMOTE_OF, args)?;
-    Ok(reply.read(CbDroid::take))
-}
-
-/// Asks JavaScript (the import combatRepair): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_repair(args: &CbRepair) -> CbFlag {
-    crate::store::calls::import_out(CbRepair::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_repair() };
-    crate::store::calls::import_in(|row, heap| CbFlag::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_repair_in(context: &crate::abi::context::Context, args: &CbRepair) -> Result<CbFlag, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbRepair::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_REPAIR, args)?;
-    Ok(reply.read(CbFlag::take))
-}
-
-/// Asks JavaScript (the import combatRespawn): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_respawn(args: &CbUnit) -> () {
-    crate::store::calls::import_out(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_respawn() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_respawn_in(context: &crate::abi::context::Context, args: &CbUnit) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbUnit::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_RESPAWN, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import combatShieldHit): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_combat_shield_hit(args: &CbShield) -> () {
-    crate::store::calls::import_out(CbShield::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_combat_shield_hit() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_combat_shield_hit_in(context: &crate::abi::context::Context, args: &CbShield) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(CbShield::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_COMBAT_SHIELD_HIT, args)?;
-    Ok(())
-}
-
 /// Asks JavaScript (the import dbAction): its arguments go out in the import block,
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
@@ -2430,6 +2281,24 @@ pub fn import_f2_turret_draw_in(context: &crate::abi::context::Context, args: &F
     Ok(reply.read(VehNumber::take))
 }
 
+/// Asks JavaScript (the import f2TurretHint): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_f2_turret_hint(args: &F2TurretHintQuery) -> F2TurretHint {
+    crate::store::calls::import_out(F2TurretHintQuery::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_f2_turret_hint() };
+    crate::store::calls::import_in(|row, heap| F2TurretHint::take(row, heap))
+}
+
+/// Calls the explicitly owned native host; no context borrow spans dispatch.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub fn import_f2_turret_hint_in(context: &crate::abi::context::Context, args: &F2TurretHintQuery) -> Result<F2TurretHint, crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(F2TurretHintQuery::WORDS, |row, heap| args.put(row, heap));
+    let reply = context.call_import(IMPORT_F2_TURRET_HINT, args)?;
+    Ok(reply.read(F2TurretHint::take))
+}
+
 /// Asks JavaScript (the import f2TurretTarget): its arguments go out in the import block,
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
@@ -2481,6 +2350,92 @@ pub fn import_f2_weapon_draw_in(context: &crate::abi::context::Context, args: &F
     let args = crate::abi::context::Record::new(FfDraw::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F2_WEAPON_DRAW, args)?;
     Ok(reply.read(VehNumber::take))
+}
+
+/// Asks JavaScript (the import f3CharacterRelease): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_f3_character_release(args: &F3CharacterRelease) -> () {
+    crate::store::calls::import_out(F3CharacterRelease::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_f3_character_release() };
+}
+
+/// Calls the explicitly owned native host; no context borrow spans dispatch.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub fn import_f3_character_release_in(context: &crate::abi::context::Context, args: &F3CharacterRelease) -> Result<(), crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(F3CharacterRelease::WORDS, |row, heap| args.put(row, heap));
+    let reply = context.call_import(IMPORT_F3_CHARACTER_RELEASE, args)?;
+    Ok(())
+}
+
+/// Asks JavaScript (the import f3DeathCredit): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_f3_death_credit(args: &F3DeathCredit) -> F3DeathAnswer {
+    crate::store::calls::import_out(F3DeathCredit::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_f3_death_credit() };
+    crate::store::calls::import_in(|row, heap| F3DeathAnswer::take(row, heap))
+}
+
+/// Calls the explicitly owned native host; no context borrow spans dispatch.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub fn import_f3_death_credit_in(context: &crate::abi::context::Context, args: &F3DeathCredit) -> Result<F3DeathAnswer, crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(F3DeathCredit::WORDS, |row, heap| args.put(row, heap));
+    let reply = context.call_import(IMPORT_F3_DEATH_CREDIT, args)?;
+    Ok(reply.read(F3DeathAnswer::take))
+}
+
+/// Asks JavaScript (the import f3HeadCredit): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_f3_head_credit(args: &F3HeadCredit) -> () {
+    crate::store::calls::import_out(F3HeadCredit::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_f3_head_credit() };
+}
+
+/// Calls the explicitly owned native host; no context borrow spans dispatch.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub fn import_f3_head_credit_in(context: &crate::abi::context::Context, args: &F3HeadCredit) -> Result<(), crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(F3HeadCredit::WORDS, |row, heap| args.put(row, heap));
+    let reply = context.call_import(IMPORT_F3_HEAD_CREDIT, args)?;
+    Ok(())
+}
+
+/// Asks JavaScript (the import f3HullCredit): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_f3_hull_credit(args: &F3HullCredit) -> () {
+    crate::store::calls::import_out(F3HullCredit::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_f3_hull_credit() };
+}
+
+/// Calls the explicitly owned native host; no context borrow spans dispatch.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub fn import_f3_hull_credit_in(context: &crate::abi::context::Context, args: &F3HullCredit) -> Result<(), crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(F3HullCredit::WORDS, |row, heap| args.put(row, heap));
+    let reply = context.call_import(IMPORT_F3_HULL_CREDIT, args)?;
+    Ok(())
+}
+
+/// Asks JavaScript (the import f3PropEffect): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_f3_prop_effect(args: &F3PropEffect) -> () {
+    crate::store::calls::import_out(F3PropEffect::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_f3_prop_effect() };
+}
+
+/// Calls the explicitly owned native host; no context borrow spans dispatch.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub fn import_f3_prop_effect_in(context: &crate::abi::context::Context, args: &F3PropEffect) -> Result<(), crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(F3PropEffect::WORDS, |row, heap| args.put(row, heap));
+    let reply = context.call_import(IMPORT_F3_PROP_EFFECT, args)?;
+    Ok(())
 }
 
 /// Asks JavaScript (the import fatQuery): its arguments go out in the import block,
@@ -3303,110 +3258,6 @@ pub fn import_unit_aim_in(context: &crate::abi::context::Context, args: &UnitAim
     Ok(reply.read(UnitAimAnswer::take))
 }
 
-/// Asks JavaScript (the import unitBodyEvent): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_unit_body_event(args: &UnitBodyEvent) -> () {
-    crate::store::calls::import_out(UnitBodyEvent::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_body_event() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_unit_body_event_in(context: &crate::abi::context::Context, args: &UnitBodyEvent) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(UnitBodyEvent::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_UNIT_BODY_EVENT, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import unitCombat): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_unit_combat(args: &UnitCombatArgs) -> UnitsCombatView {
-    crate::store::calls::import_out(UnitCombatArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_combat() };
-    crate::store::calls::import_in(|row, heap| UnitsCombatView::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_unit_combat_in(context: &crate::abi::context::Context, args: &UnitCombatArgs) -> Result<UnitsCombatView, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(UnitCombatArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_UNIT_COMBAT, args)?;
-    Ok(reply.read(UnitsCombatView::take))
-}
-
-/// Asks JavaScript (the import unitDamage): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_unit_damage(args: &UnitDamageArgs) -> UnitsCombatView {
-    crate::store::calls::import_out(UnitDamageArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_damage() };
-    crate::store::calls::import_in(|row, heap| UnitsCombatView::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_unit_damage_in(context: &crate::abi::context::Context, args: &UnitDamageArgs) -> Result<UnitsCombatView, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(UnitDamageArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_UNIT_DAMAGE, args)?;
-    Ok(reply.read(UnitsCombatView::take))
-}
-
-/// Asks JavaScript (the import unitRemoteStep): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_unit_remote_step(args: &UnitRemoteStep) -> () {
-    crate::store::calls::import_out(UnitRemoteStep::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_remote_step() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_unit_remote_step_in(context: &crate::abi::context::Context, args: &UnitRemoteStep) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(UnitRemoteStep::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_UNIT_REMOTE_STEP, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import unitRemoved): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_unit_removed(args: &UnitRef) -> () {
-    crate::store::calls::import_out(UnitRef::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_removed() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_unit_removed_in(context: &crate::abi::context::Context, args: &UnitRef) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(UnitRef::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_UNIT_REMOVED, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import unitSampleMuzzles): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_unit_sample_muzzles(args: &UnitStep) -> () {
-    crate::store::calls::import_out(UnitStep::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_sample_muzzles() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_unit_sample_muzzles_in(context: &crate::abi::context::Context, args: &UnitStep) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(UnitStep::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_UNIT_SAMPLE_MUZZLES, args)?;
-    Ok(())
-}
-
 /// Asks JavaScript (the import unitSphere): its arguments go out in the import block,
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
@@ -3423,23 +3274,6 @@ pub fn import_unit_sphere_in(context: &crate::abi::context::Context, args: &Unit
     let args = crate::abi::context::Record::new(UnitArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_UNIT_SPHERE, args)?;
     Ok(reply.read(SphereAnswer::take))
-}
-
-/// Asks JavaScript (the import unitSplash): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_unit_splash(args: &UnitSplash) -> () {
-    crate::store::calls::import_out(UnitSplash::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_splash() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_unit_splash_in(context: &crate::abi::context::Context, args: &UnitSplash) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(UnitSplash::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_UNIT_SPLASH, args)?;
-    Ok(())
 }
 
 /// Asks JavaScript (the import vehAimPoint): its arguments go out in the import block,
@@ -3606,24 +3440,6 @@ pub fn import_waver_in(context: &crate::abi::context::Context, args: &NoArgs) ->
     let args = crate::abi::context::Record::new(NoArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WAVER, args)?;
     Ok(reply.read(NumberAnswer::take))
-}
-
-/// Asks JavaScript (the import weaponAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_weapon_action(args: &WpAction) -> WpReply {
-    crate::store::calls::import_out(WpAction::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_weapon_action() };
-    crate::store::calls::import_in(|row, heap| WpReply::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_weapon_action_in(context: &crate::abi::context::Context, args: &WpAction) -> Result<WpReply, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(WpAction::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_WEAPON_ACTION, args)?;
-    Ok(reply.read(WpReply::take))
 }
 
 /// Asks JavaScript (the import worldClock): its arguments go out in the import block,

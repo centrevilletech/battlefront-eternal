@@ -92,6 +92,7 @@ export class PropsSim {
     if (attacker !== undefined || Object.hasOwn(b, "lastAttacker")) b.lastAttacker = attacker;
     if (b.aiTarget && state.targetGeneration !== null) b.aiTarget.generation = state.targetGeneration;
     b.f2Seats?.turretLife(b);
+    b.f3Facts?.invalidate();
   }
   syncStation(b, station) {
     this.syncState(b, station.building);

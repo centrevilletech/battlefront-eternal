@@ -19,13 +19,13 @@ pub enum Kind { #[default] Building, Turret, Objective }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Identity { #[default] Undefined, Null, Object(usize) }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Model {
     pub sphere: Option<[f64; 4]>,
     pub bounds: Option<[Vector3; 2]>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Settings {
     pub kind: Kind,
     pub max_health: f64,
@@ -41,7 +41,7 @@ pub struct Settings {
     pub models: [Option<Model>; 3],
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Building {
     pub state: State,
     pub health: f64,

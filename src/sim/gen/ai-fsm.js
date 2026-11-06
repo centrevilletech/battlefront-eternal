@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiFsmOp_NAMES = ["exit","enter","tick","runaway"];
 export const AiFsmOp_INDEX = new Map(AiFsmOp_NAMES.map((name, i) => [name, i]));
+export const AiFsmOp_VALUE = Object.freeze({"exit":0,"enter":1,"tick":2,"runaway":3});
 
 export class AiFsmArgsMirror {
   constructor() {

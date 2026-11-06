@@ -51,6 +51,10 @@ pub struct Broad {
     moving: Vec<u64>,
     unfiled: Vec<u64>,
     bits: Vec<u64>,
+    // Rebuilding after membership or fixed geometry changes reuses its index
+    // storage. The first cast of an owned phase must not allocate this scratch.
+    ranges: Vec<Option<(usize, usize, usize, usize)>>,
+    fill: Vec<u32>,
 }
 
 #[inline(always)]
@@ -59,12 +63,21 @@ fn finite(b: &[f64; 6]) -> bool {
 }
 
 impl Broad {
+    /// Moving hull births leave the fixed grid unchanged. Size their place
+    /// bits and range rows cold, before the first cast can meet the new hull.
+    pub fn reserve_bodies(&mut self, count: usize) {
+        let words = count.div_ceil(64);
+        self.moving.reserve(words.saturating_sub(self.moving.len()));
+        self.unfiled.reserve(words.saturating_sub(self.unfiled.len()));
+        self.bits.reserve(words.saturating_sub(self.bits.len()));
+        self.ranges.reserve(count.saturating_sub(self.ranges.len()));
+    }
     fn make(&mut self, bodies: &[Body], w: &World) {
         let n = w.order.len();
         let words = n.div_ceil(64);
-        self.moving = vec![0; words];
-        self.unfiled = vec![0; words];
-        self.bits = vec![0; words];
+        self.moving.resize(words,0); self.moving.fill(0);
+        self.unfiled.resize(words,0); self.unfiled.fill(0);
+        self.bits.resize(words,0); self.bits.fill(0);
         let (mut min_x, mut min_z, mut max_x, mut max_z) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
         for (place, &slot) in w.order.iter().enumerate() {
             let body = &bodies[slot as usize];
@@ -82,27 +95,29 @@ impl Broad {
         self.nx = (((max_x + MARGIN - self.min_x) / self.size).floor() as usize + 1).max(1);
         self.nz = (((max_z + MARGIN - self.min_z) / self.size).floor() as usize + 1).max(1);
         let cells = self.nx * self.nz;
-        self.start = vec![0; cells + 1];
-        let fixed = |place: usize| -> Option<(usize, usize, usize, usize)> {
+        self.start.resize(cells + 1,0); self.start.fill(0);
+        self.ranges.clear();
+        for place in 0..n {
             let body = &bodies[w.order[place] as usize];
-            if body.moving || !finite(&body.bounds) { return None; }
-            let b = &body.bounds;
-            Some((self.cell_x(b[0] - MARGIN), self.cell_x(b[3] + MARGIN), self.cell_z(b[2] - MARGIN), self.cell_z(b[5] + MARGIN)))
-        };
-        let ranges: Vec<_> = (0..n).map(fixed).collect();
-        for &(x0, x1, z0, z1) in ranges.iter().flatten() {
+            let range = if body.moving || !finite(&body.bounds) { None } else {
+                let b = &body.bounds;
+                Some((self.cell_x(b[0] - MARGIN), self.cell_x(b[3] + MARGIN), self.cell_z(b[2] - MARGIN), self.cell_z(b[5] + MARGIN)))
+            };
+            self.ranges.push(range);
+        }
+        for &(x0, x1, z0, z1) in self.ranges.iter().flatten() {
             for z in z0..=z1 { for x in x0..=x1 { self.start[z * self.nx + x + 1] += 1; } }
         }
         for c in 0..cells { self.start[c + 1] += self.start[c]; }
-        let mut fill = self.start[..cells].to_vec();
-        self.cells = vec![0; self.start[cells] as usize];
-        for (place, range) in ranges.iter().enumerate() {
+        self.fill.clear(); self.fill.extend_from_slice(&self.start[..cells]);
+        self.cells.resize(self.start[cells] as usize,0);
+        for (place, range) in self.ranges.iter().enumerate() {
             let Some((x0, x1, z0, z1)) = *range else { continue };
             for z in z0..=z1 {
                 for x in x0..=x1 {
                     let c = z * self.nx + x;
-                    self.cells[fill[c] as usize] = place as u32;
-                    fill[c] += 1;
+                    self.cells[self.fill[c] as usize] = place as u32;
+                    self.fill[c] += 1;
                 }
             }
         }
@@ -117,6 +132,20 @@ impl Broad {
 /// world_candidates_for's list for a cast reaching `far` along the ray: the
 /// same bodies in the same order, less fixed bodies wholly clear of its
 /// segment (see above). Into CANDIDATES; returns how many.
+/// Prepare the cast index when the world installs its body membership. This
+/// computes only broadphase filing, never a ray result or a Unit's lazy shapes.
+pub fn prepare(s: &mut State, world: usize) {
+    let capacity = s.worlds[world].order.len() + s.worlds[world].prepared.len();
+    s.worlds[world].broad.reserve_bodies(capacity);
+    let key = Some((s.worlds[world].version, s.fixed_version));
+    if s.worlds[world].broad.made_for != key {
+        let mut broad = std::mem::take(&mut s.worlds[world].broad);
+        broad.make(&s.bodies, &s.worlds[world]);
+        broad.made_for = key;
+        s.worlds[world].broad = broad;
+    }
+}
+
 pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, ignore: i64, static_only: bool, moving_only: bool) -> usize {
     world_candidates_near_into(s, world, ray, far, ignore, static_only, moving_only, unsafe { &mut *addr_of_mut!(CANDIDATES) })
 }
@@ -139,13 +168,7 @@ pub fn world_candidates_near_into(s: &mut State, world: usize, ray: &Ray, far: f
     if seg.iter().any(|v| !v.is_finite()) {
         return crate::collision::world_candidates_into(s, world, ray, ignore, static_only, moving_only, out);
     }
-    let key = Some((s.worlds[world].version, s.fixed_version));
-    if s.worlds[world].broad.made_for != key {
-        let mut broad = std::mem::take(&mut s.worlds[world].broad);
-        broad.make(&s.bodies, &s.worlds[world]);
-        broad.made_for = key;
-        s.worlds[world].broad = broad;
-    }
+    prepare(s,world);
     let (cells, clear) = {
         let g = &s.worlds[world].broad;
         let x0 = ((seg[0] - g.min_x) / g.size).floor();
@@ -227,7 +250,7 @@ mod tests {
         }
         let mut order: Vec<u32> = (0..150).collect();
         order.reverse();
-        s.worlds.push(World { tree: 0, terrain: None, grid: None, order, version: 1, statics: None, broad: Default::default() });
+        s.worlds.push(World { tree: 0, terrain: None, grid: None, order, prepared: Vec::new(), version: 1, statics: None, broad: Default::default() });
         let mut kept = 0;
         for i in 0..20000 {
             let far = [0.3, 1.0, 4.0, 30.0, 150.0, 900.0][i % 6] * (0.5 + random(&mut seed));

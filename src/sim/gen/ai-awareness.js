@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiAwarenessOp_NAMES = ["alive","motion","weapon","active","mute","query","recipient","notify","livingStart","livingNext","clear","protectQuery","protectRecipient","protectAppend","dangerRow","dangerDraw","dangerTime","dangerFirst","dangerLast","dangerQuery","dangerRecipient","dangerSkill","dangerSkillCompare","dangerAdd","dangerWarn","dangerHasNotify","dangerNotify","dangerWrite","shotStart","shotSource","shotRelation","shotHuman","damageStart","damageRelation","damagePacket","alertSeat","alertSeatController","alertOwn","alertCanNotify","alertBody","alertLeases","alertLease","alertCrew","alertNotify","hazardStart","responseUnit","responseWeapon","hazardAccept","responseKind","responseDangerRegion","hazardPoint","responseResult","acousticList","acousticStart","acousticNext","acousticAccept","responseSensor","acousticPoint","responseHorizontal","responseMountStart","responseStay","responseReach","responseCanReach","responseShot","responseSource","responsePoint","responseAlertAccept","responseSight","responseDelta","responseArmed","responseDispatch","responseRandom","responseDraw","responsePosition","responseDodge"];
 export const AiAwarenessOp_INDEX = new Map(AiAwarenessOp_NAMES.map((name, i) => [name, i]));
+export const AiAwarenessOp_VALUE = Object.freeze({"alive":0,"motion":1,"weapon":2,"active":3,"mute":4,"query":5,"recipient":6,"notify":7,"livingStart":8,"livingNext":9,"clear":10,"protectQuery":11,"protectRecipient":12,"protectAppend":13,"dangerRow":14,"dangerDraw":15,"dangerTime":16,"dangerFirst":17,"dangerLast":18,"dangerQuery":19,"dangerRecipient":20,"dangerSkill":21,"dangerSkillCompare":22,"dangerAdd":23,"dangerWarn":24,"dangerHasNotify":25,"dangerNotify":26,"dangerWrite":27,"shotStart":28,"shotSource":29,"shotRelation":30,"shotHuman":31,"damageStart":32,"damageRelation":33,"damagePacket":34,"alertSeat":35,"alertSeatController":36,"alertOwn":37,"alertCanNotify":38,"alertBody":39,"alertLeases":40,"alertLease":41,"alertCrew":42,"alertNotify":43,"hazardStart":44,"responseUnit":45,"responseWeapon":46,"hazardAccept":47,"responseKind":48,"responseDangerRegion":49,"hazardPoint":50,"responseResult":51,"acousticList":52,"acousticStart":53,"acousticNext":54,"acousticAccept":55,"responseSensor":56,"acousticPoint":57,"responseHorizontal":58,"responseMountStart":59,"responseStay":60,"responseReach":61,"responseCanReach":62,"responseShot":63,"responseSource":64,"responsePoint":65,"responseAlertAccept":66,"responseSight":67,"responseDelta":68,"responseArmed":69,"responseDispatch":70,"responseRandom":71,"responseDraw":72,"responsePosition":73,"responseDodge":74});
 
 export class AiAwarenessArgsMirror {
   constructor() {
@@ -17,7 +18,7 @@ export class AiAwarenessArgsMirror {
 
 export function syncAiAwarenessArgs(b, f, at, h, m) {
   m.op = AiAwarenessOp_NAMES[f[at + 0]];
-  m.id = f[at + 1];
+  m.id = f[at + 1] >>> 0;
   m.number = f[at + 2];
   m.other = f[at + 3];
   { const a = (m.point ??= new Array(3)); a[0] = f[at + 4]; a[1] = f[at + 5]; a[2] = f[at + 6]; }
@@ -66,8 +67,8 @@ export class AiAwarenessResultMirror {
 export function syncAiAwarenessResult(b, f, at, h, m) {
   m.flag = f[at + 0] !== 0;
   m.number = f[at + 1];
-  { const items = (m.ids ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.values ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.ids ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] >>> 0; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 

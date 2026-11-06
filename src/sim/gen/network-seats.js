@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const NetworkSeatsOp_NAMES = ["rider","seatCount","candidate","copyAim","move","aim","clearSticks","direction","scales","nextLook","control","lookRead","lookWrite","clamp","copyLook","flight","binding","bindingCode","down","take","axis","button","curve","driveAxis","space"];
 export const NetworkSeatsOp_INDEX = new Map(NetworkSeatsOp_NAMES.map((name, i) => [name, i]));
+export const NetworkSeatsOp_VALUE = Object.freeze({"rider":0,"seatCount":1,"candidate":2,"copyAim":3,"move":4,"aim":5,"clearSticks":6,"direction":7,"scales":8,"nextLook":9,"control":10,"lookRead":11,"lookWrite":12,"clamp":13,"copyLook":14,"flight":15,"binding":16,"bindingCode":17,"down":18,"take":19,"axis":20,"button":21,"curve":22,"driveAxis":23,"space":24});
 
 export class NetworkSeatsCommandMirror {
   constructor() {
@@ -13,7 +14,7 @@ export class NetworkSeatsCommandMirror {
 }
 
 export function syncNetworkSeatsCommand(b, f, at, h, m) {
-  m.context = f[at + 0];
+  m.context = f[at + 0] >>> 0;
   m.cycle = f[at + 1] !== 0;
   return m;
 }
@@ -48,9 +49,9 @@ export class NetworkSeatsQueryMirror {
 }
 
 export function syncNetworkSeatsQuery(b, f, at, h, m) {
-  m.context = f[at + 0];
+  m.context = f[at + 0] >>> 0;
   m.op = NetworkSeatsOp_NAMES[f[at + 1]];
-  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -87,7 +88,7 @@ export class NetworkSeatsReplyMirror {
 
 export function syncNetworkSeatsReply(b, f, at, h, m) {
   m.ok = f[at + 0] !== 0;
-  { const items = (m.values ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 

@@ -19,7 +19,7 @@
 //!   regions (game.js inDeathRegion over src/regions.js inRegion).
 
 use crate::gen::{F2BodyHeader, F2BodyToggle, F2BodyPlaced};
-use super::{BodyId, Ground, Hit, Polygon};
+use super::{BodyId, Ground, Hit};
 use crate::collision::spheres::{self, box_apply_matrix4, Bounds, GatherCache, Gathered, Probes, Pushed};
 use crate::collision::{self, broad, candidate, State, MAX_BODIES, MISS, TERRAIN};
 use bfe_content::regions::BuiltRegion;
@@ -57,6 +57,27 @@ impl Default for GroundCache {
     }
 }
 
+// Vehicles and infantry can own one coordinated phase. Their enabled bytes
+// must then be the same storage: a hull death disables its body before the
+// next instant round, and a prop show changes what a later hull cast meets.
+struct BodyFlags {
+    owned: Vec<u8>,
+    shared: *mut u8,
+}
+impl std::ops::Deref for BodyFlags {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        if self.shared.is_null() { &self.owned }
+        else { unsafe { std::slice::from_raw_parts(self.shared, MAX_BODIES) } }
+    }
+}
+impl std::ops::DerefMut for BodyFlags {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        if self.shared.is_null() { &mut self.owned }
+        else { unsafe { std::slice::from_raw_parts_mut(self.shared, MAX_BODIES) } }
+    }
+}
+
 /// The hulls' view of the module's collision world.
 pub struct Collision {
     /// The kernel's world (collision.js rayWorld) and the vehicle-only
@@ -65,7 +86,7 @@ pub struct Collision {
     pub blockers: Option<usize>,
     /// Each body's enabled flag by its place in the world's order: written
     /// by JavaScript (`flags_ptr`), changed by the hulls.
-    flags: Vec<u8>,
+    flags: BodyFlags,
     /// Each kernel slot's place in the world's order (-1: not in it), for
     /// the order's version `places_for`.
     place_of: Vec<i32>,
@@ -84,7 +105,6 @@ pub struct Collision {
     marks: Vec<u8>,
     gathered: Gathered,
     prepared: Option<u64>,
-    polygons: Vec<Polygon>,
     near: Vec<u32>,
     points: Vec<[f64; 3]>,
 }
@@ -127,7 +147,7 @@ impl Collision {
         Collision {
             world,
             blockers,
-            flags: vec![0; MAX_BODIES],
+            flags: BodyFlags { owned:vec![0; MAX_BODIES], shared:std::ptr::null_mut() },
             place_of: Vec::new(),
             places_for: None,
             kernel_of: Vec::new(),
@@ -139,7 +159,6 @@ impl Collision {
             marks: Vec::new(),
             gathered: Gathered::new(),
             prepared: None,
-            polygons: Vec::new(),
             near: Vec::new(),
             points: Vec::new(),
         }
@@ -149,6 +168,10 @@ impl Collision {
     pub fn flags_ptr(&mut self) -> *mut u8 {
         self.flags.as_mut_ptr()
     }
+    /// Bind the battle's fixed enabled-body reservation at construction.
+    /// The caller keeps MAX_BODIES bytes alive until this Collision is dropped.
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) unsafe fn share_flags(&mut self, flags: *mut u8) { self.flags.shared = flags; }
 
     /// Body `body` (the store's number) is kernel slot `kernel`.
     pub fn name_body(&mut self, body: u32, kernel: u32) {
@@ -192,7 +215,7 @@ impl Collision {
         for c in self.colliders.iter().flatten() {
             self.points.reserve(c.walls.len().saturating_sub(self.points.len()));
             for &id in c.walls.iter().chain(&c.springs) {
-                if id >= 0 { spheres::caches()[id as usize].reserve(statics,blockers,w.order.len()); }
+                if id >= 0 { spheres::caches()[id as usize].reserve(statics,blockers,w.order.len() + w.prepared.len()); }
             }
         }
     }
@@ -358,23 +381,14 @@ impl Collision {
     /// The polygons near a hover's spring `index` (CollisionWorld.gather
     /// through the spring's cache, with the barriers: rayGather), into
     /// `out`. None: the hull's body is not one this knows.
-    pub fn spring_polygons(&mut self, s: &mut State, body: BodyId, index: usize, center: &Vector3, radius: f64, out: &mut Vec<Polygon>) -> Option<()> {
+    pub fn spring_polygons(&mut self, s: &mut State, body: BodyId, index: usize, center: &Vector3, radius: f64) -> Option<&[spheres::Polygon]> {
         let id = *self.collider(body)?.springs.get(index).unwrap_or(&-1);
         let cache = if id >= 0 { Some(unsafe { &mut *spheres::caches().as_mut_ptr().add(id as usize) }) } else { None };
         let n = s.worlds[self.world].order.len();
-        let count = spheres::gather(s, self.world, [center.x, center.y, center.z], radius, self.blockers, cache, -1, &self.flags[..n], &mut self.gathered);
-        while out.len() > count { self.polygons.push(out.pop().unwrap()); }
-        for (k, p) in self.gathered.list().iter().enumerate() {
-            if k == out.len() {
-                out.push(self.polygons.pop().unwrap_or_default());
-            }
-            let o = &mut out[k];
-            o.id = p.id;
-            o.moving = p.moving;
-            o.triangles.clear();
-            o.triangles.extend(p.tris.iter().map(|t| [Vector3::new(t.a[0], t.a[1], t.a[2]), Vector3::new(t.b[0], t.b[1], t.b[2]), Vector3::new(t.c[0], t.c[1], t.c[2])]));
-        }
-        Some(())
+        spheres::gather(s, self.world, [center.x, center.y, center.z], radius, self.blockers, cache, -1, &self.flags[..n], &mut self.gathered);
+        // CollisionWorld.gather already retains every triangle. A second
+        // owned copy grows on first contact with each new part of the map.
+        Some(self.gathered.list())
     }
 
     /// CollisionWorld.moveBody(body, matrix): its matrix, inverse and bounds,

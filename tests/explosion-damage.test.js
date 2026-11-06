@@ -3,13 +3,12 @@ import { rustItems } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { Soldier } from '../src/soldier.js';
-import { PlayerCombat } from '../src/combat.js';
+
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles } from '../src/vehicles.js';
 import { LiveObjects } from '../src/props.js';
 import { RemoteDroids } from '../src/remote.js';
-import { blastDistance, blastDamage, blastBlocked, healthScale } from '../src/ordnance.js';
+import { blastDistance, blastDamage, healthScale } from "../src/ordnance.js";
 
 // One area damage rule for everything a blast reaches (src/ordnance.js,
 // "What an explosion does"), as the 2004 game's ExplosionClass::Explode
@@ -33,58 +32,6 @@ function world(wall = null, height = 5) {
   }
   return new CollisionWorld(new Float32Array(positions), new Uint32Array(indices), new Uint32Array(polygons));
 }
-function soldier(w = world(), posture = 'stand') {
-  const s = new Soldier(w, {});
-  s.spawn(0, 0, 0, 0);
-  s.posture = posture;
-  const combat = Object.create(PlayerCombat.prototype);
-  Object.assign(combat, {
-    soldier: s, def: { base: 'soldier' }, chunks: 0, random: () => 1, scale: 'PersonScale', health: 300, maxHealth: 300, dead: false, deathTime: 0, zoomed: false,
-    collision: w, hit: { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() }, worldPoint: new THREE.Vector3(), from: new THREE.Vector3(),
-    shake: { amount: 0, left: 0, length: 0 }, hud: null, player: false, blowApart: false, lastAttacker: null,
-    onDamaged() {}, onDeath() {}, onBlowApart() {}, updateHeld() {}, animator: { die() {} },
-  });
-  return combat;
-}
-
-test('a rocket bursting 2 m from a soldier does the original game\'s damage, by stance', () => {
-  // On the ground 2 m from his feet, 0.2 m up. Standing: the sphere's
-  // centre 1.0 m up, radius 1.4626; 2.154 m away less 0.731 is 1.423 m,
-  // 0.462 of the way from 2 m in to 0.75: 148 damage (85 before, with a
-  // centre 0.9 m up and 0.45 off).
-  const expected = { stand: [1, 1.4626], crouch: [0.75, 1.1023], prone: [0.35, 1.622] };
-  for (const [posture, [middle, radius]] of Object.entries(expected)) {
-    const combat = soldier(world(), posture);
-    combat.explode(ROCKET, new THREE.Vector3(2, 0.2, 0), null, 1);
-    const d = Math.hypot(2, middle - 0.2) - radius / 2;
-    near(300 - combat.health, 320 * (2 - d) / 1.25, 1e-6);
-  }
-  const standing = soldier();
-  standing.explode(ROCKET, new THREE.Vector3(2, 0.2, 0), null, 1);
-  near(300 - standing.health, 147.8, 0.1);
-});
-
-test('terrain shields a soldier only below his sight point; a vehicle never shields', () => {
-  // A wall 0.7 m high halfway: the line to his sight point, 1.4 m up, clears
-  // it (the old line to his centre, 0.9 m up, did not); 1.2 m high, it
-  // shields him.
-  const blast = { Damage: 320, DamageRadiusInner: 4.5, DamageRadiusOuter: 6.5 };
-  const low = soldier(world(1.5, 0.7));
-  low.explode(blast, new THREE.Vector3(3, 0.1, 0), null, 1);
-  assert.equal(low.health, 0);
-  const high = soldier(world(1.5, 1.2));
-  high.explode(blast, new THREE.Vector3(3, 0.1, 0), null, 1);
-  assert.equal(high.health, 300);
-  // A hull (a moving body) between them shields nothing.
-  const w = world();
-  const box = new THREE.BoxGeometry(1, 4, 4).translate(1.5, 2, 0);
-  const shape = w.createBodyShape(box.attributes.position.array, box.index.array, new Uint32Array(box.index.count / 3));
-  w.addMovingBody(shape, new THREE.Matrix4());
-  assert.equal(blastBlocked(w, new THREE.Vector3(3, 0.1, 0), new THREE.Vector3(0, 1.4, 0)), false);
-  const behind = soldier(w);
-  behind.explode(blast, new THREE.Vector3(3, 0.1, 0), null, 1);
-  assert.equal(behind.health, 0);
-});
 
 test('the shared helpers: distance less half the radius, damage by health type', () => {
   near(blastDistance(new THREE.Vector3(5, 0, 0), new THREE.Vector3(0, 0, 0), 4), 3);

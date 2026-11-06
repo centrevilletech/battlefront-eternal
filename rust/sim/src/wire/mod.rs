@@ -4,7 +4,6 @@ pub mod codec;
 mod module;
 pub mod records;
 pub mod ring;
-pub mod history;
 pub mod presentation;
 pub mod host;
 pub mod stagger;

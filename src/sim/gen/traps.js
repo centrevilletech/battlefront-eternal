@@ -5,15 +5,19 @@ import { KIND_VEHICLE } from "./kinds.js";
 
 export const TrPhase_NAMES = ["down","reset","armed","swing"];
 export const TrPhase_INDEX = new Map(TrPhase_NAMES.map((name, i) => [name, i]));
+export const TrPhase_VALUE = Object.freeze({"down":0,"reset":1,"armed":2,"swing":3});
 
 export const TrOperation_NAMES = ["setHealth","begin","step","crush","catches","stateRecord"];
 export const TrOperation_INDEX = new Map(TrOperation_NAMES.map((name, i) => [name, i]));
+export const TrOperation_VALUE = Object.freeze({"setHealth":0,"begin":1,"step":2,"crush":3,"catches":4,"stateRecord":5});
 
 export const TrQueryOp_NAMES = ["alive","sphere","side"];
 export const TrQueryOp_INDEX = new Map(TrQueryOp_NAMES.map((name, i) => [name, i]));
+export const TrQueryOp_VALUE = Object.freeze({"alive":0,"sphere":1,"side":2});
 
 export const TrActionOp_NAMES = ["clearAttacker","setHealth","setDying","hideRoot","show","sound","effect"];
 export const TrActionOp_INDEX = new Map(TrActionOp_NAMES.map((name, i) => [name, i]));
+export const TrActionOp_VALUE = Object.freeze({"clearAttacker":0,"setHealth":1,"setDying":2,"hideRoot":3,"show":4,"sound":5,"effect":6});
 
 export class TrStateMirror {
   constructor() {
@@ -185,7 +189,7 @@ export function syncTrInput(b, f, at, h, m) {
   m.phase = TrPhase_NAMES[f[at + 34]];
   { const tag = f[at + 35]; if (tag === 0) { m.started = f[at + 36]; } else m.started = tag === 1 ? null : undefined; }
   { const tag = f[at + 37]; if (tag === 0) { m.vehicle = b.refs[KIND_VEHICLE].at(f[at + 38], f[at + 39]); } else m.vehicle = tag === 1 ? null : undefined; }
-  { const items = (m.vehicles ??= []), start = h + f[at + 40], n = f[at + 41]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_VEHICLE].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const items = (m.vehicles ??= []), start = h + f[at + 40], n = f[at + 41]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_VEHICLE].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   return m;
 }
 

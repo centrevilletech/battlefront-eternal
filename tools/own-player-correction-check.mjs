@@ -24,6 +24,11 @@ for(let tick=1;tick<=180;tick++){
  if(u.combat.arsenal.current(0).clip<beforeClip)fired=true;
 }
 assert.ok(fired,'actual grounded authoritative shot consumes ammunition');assert.ok(u.combat.zoom>1,'actual scoped weapon zoom applied');assert.equal(u.soldier.posture,'crouch');const capturedZoom=u.combat.zoom;
+// Movement replay starts after recoil has settled. The whole-unit native
+// fixtures cover active recoil; this check needs only soldier correction.
+assert.equal(u.combat.kick.rate,0);
+assert.equal(u.combat.kick.hold,0);
+assert.equal(u.combat.kick.offset,0);
 const registry={contentEpoch:1,classes:new Map([[1,className]]),weapons:new Map(u.combat.arsenal.weapons.map((w,i)=>[i+1,w.name])),inputCodes:['KeyW','Mouse0','KeyS','KeyD'],bindingProfiles:new Map([[0,{}]])};
 const target={id:u.id,generation:u.generation,className,soldier:local.soldier,combat:local.combat};
 const copyCombat=()=>{reference.combat.arsenal.selected=[...u.combat.arsenal.selected];reference.combat.zoomStep=u.combat.zoomStep;reference.combat.kick={...u.combat.kick};};
@@ -34,7 +39,7 @@ const wire=encodeEntityPacket({epoch:1,packetId:1,tick:180,records:[record]}),co
 infantryDigest.update(wire);
 for(let tick=1;tick<=180;tick++){
  const input={forward:1,right:.1,turn:0,jump:tick===30,crouch:false,prone:tick===120};
- for(const unit of [reference,target]){unit.soldier.lookRaw(2/unit.combat.zoom,1/unit.combat.zoom,context.view.mouseScale,context.view.invertMouse);unit.soldier.tick(input,1/60);unit.combat.updateKick(1/60);}
+ for(const unit of [reference,target]){unit.soldier.lookRaw(2/unit.combat.zoom,1/unit.combat.zoom,context.view.mouseScale,context.view.invertMouse);unit.soldier.tick(input,1/60);}
  const replayed=captureSoldierCorrection(target.soldier,SOLDIER_REPLAY_SCHEMA);
  assert.deepEqual(replayed,captureSoldierCorrection(reference.soldier,SOLDIER_REPLAY_SCHEMA),`owned infantry replay${tick}`);
  infantryDigest.update(replayed);

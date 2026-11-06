@@ -183,8 +183,8 @@ export function syncVgWeapon(b, f, at, h, m) {
   m.barrel = f[at + 0];
   m.weaponNode = f[at + 1];
   m.fallbackNode = f[at + 2];
-  { const items = (m.aimers ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 10; v = syncVgAimer(b, f, at + 0, h, v ?? new VgAimerMirror()); } items[i] = v; } }
-  { const items = (m.muzzles ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncVgMuzzle(b, f, at + 0, h, v ?? new VgMuzzleMirror()); } items[i] = v; } }
+  { const items = (m.aimers ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 10; v = syncVgAimer(b, f, at + 0, h, v ?? new VgAimerMirror()); } items[i] = v; } }
+  { const items = (m.muzzles ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncVgMuzzle(b, f, at + 0, h, v ?? new VgMuzzleMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -241,7 +241,7 @@ export function syncVgSeat(b, f, at, h, m) {
   m.aiming = f[at + 8] !== 0;
   { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
   m.turret = f[at + 12];
-  { const items = (m.weapons ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncVgWeapon(b, f, at + 0, h, v ?? new VgWeaponMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 13], n = f[at + 14]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncVgWeapon(b, f, at + 0, h, v ?? new VgWeaponMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -306,9 +306,9 @@ export function syncVgState(b, f, at, h, m) {
   { const $v = (m.size ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 7 + i]; }
   { const $q = (m.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 23]; $q._y = f[at + 24]; $q._z = f[at + 25]; $q._w = f[at + 26]; $q._onChangeCallback(); }
-  m.seatIndex = f[at + 27];
-  { const items = (m.seats ??= []), start = h + f[at + 28], n = f[at + 29]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncVgSeat(b, f, at + 0, h, v ?? new VgSeatMirror()); } items[i] = v; } }
-  { const items = (m.nodes ??= []), start = h + f[at + 30], n = f[at + 31]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 45; v = syncVgNode(b, f, at + 0, h, v ?? new VgNodeMirror()); } items[i] = v; } }
+  m.seatIndex = f[at + 27] >>> 0;
+  { const items = (m.seats ??= []), start = h + f[at + 28], n = f[at + 29]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncVgSeat(b, f, at + 0, h, v ?? new VgSeatMirror()); } items[i] = v; } }
+  { const items = (m.nodes ??= []), start = h + f[at + 30], n = f[at + 31]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 45; v = syncVgNode(b, f, at + 0, h, v ?? new VgNodeMirror()); } items[i] = v; } }
   return m;
 }
 

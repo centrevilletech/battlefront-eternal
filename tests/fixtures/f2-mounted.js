@@ -1,3 +1,5 @@
+import {unitOwner} from '../helpers/unit-owner.js';
+import {ClassicRandom,uniformRandom} from '../../src/ai/random.js';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Vehicles, Vehicle } from '../../src/vehicles.js';
@@ -70,13 +72,18 @@ export async function mountedFleet(def, options = {}) {
   }
   crew.networkHuman = Boolean(options.network);
   let draws = 0;
+  const spread=new ClassicRandom(17),observed=new ClassicRandom(17);
   const bridge = new SimBridge(instance, { classes: { Vehicle, Unit: Crew }, tests: ordnanceTests });
   attachOrdnanceSim(o, bridge);
   attachF2(vs, bridge, { killY: -300, deathRegions: [], scripted: [] }, { data, buffer, indexBuffer }, Crew);
+  unitOwner(vs,bridge);
   assert.equal(vs.board(crew, v), true);
-  v.seats[0].weapons[0].state.random = () => ((++draws * 17) % 31) / 31;
+  v.seats[0].weapons[0].state.random = uniformRandom(spread);
   const shots = [], launched = [];
-  o.onLaunch = b => launched.push([b.networkFireChannel, ...b.position.toArray(), ...b.direction.toArray()]);
+  o.onLaunch = (b,context) => {
+    const sample=context?.sample;
+    launched.push([sample?.channel??b.networkFireChannel,...(sample?.position??b.position).toArray(),...(sample?.direction??b.direction).toArray()]);
+  };
   vs.onFired = (h, seat, shot, owner, p, d) => shots.push([seat, shot.yaw, shot.pitch, shot.charge, shot.targetId, shot.targetGeneration, ...p.toArray(), ...d.toArray()]);
-  return { vs, o, v, crew, shots, launched, target: vs.vehicles[1], draws: () => draws };
+  return { vs, o, v, crew, shots, launched, target: vs.vehicles[1], draws: () => {while(observed.state!==spread.state) {observed.uniform();draws++;}return draws;} };
 }

@@ -15,7 +15,6 @@ pub fn step(state: &mut WorldStepState, tick: f64, host: &mut impl Host) {
         let taken = host.call(state, Call::TakeSquad, f64::from(index), false).flag;
         if taken && !state.dead && state.player_command { host.call(state, Call::Squad, f64::from(index), false); }
     }
-    if !state.server { host.call(state, Call::Player, 0.0, false); }
     let count = state.player_ticks + 1.0;
     host.call(state, Call::PlayerCount, count, false);
     host.call(state, Call::Eye, 0.0, false);
@@ -30,35 +29,14 @@ pub fn step(state: &mut WorldStepState, tick: f64, host: &mut impl Host) {
     }
     host.call(state, Call::CameraMatrix, 0.0, false);
     if state.ai { host.call(state, Call::Ai, 0.0, false); }
-    let units = if state.units { Call::NativeUnits } else { Call::HostUnits };
-    host.call(state, units, 0.0, false);
-    // Vehicles includes native hulls, riders and turret crews. Local Driver
-    // and Gunner are page views; no second seat or rig phase runs here.
-    if state.vehicles {
-        host.call(state, Call::Vehicles, 0.0, false);
-    }
-    let remote = state.remote;
-    host.call(state, Call::Remotes, 0.0, remote);
-    if state.network_remotes { host.call(state, Call::NetworkRemotes, 0.0, false); }
-    host.call(state, Call::Muzzles, 0.0, false);
-    if !state.server {
-        let movement = v8math::max(state.forward.abs(), state.right.abs());
-        host.call(state, Call::Combat, movement, false);
-        host.call(state, Call::FlushMuzzles, 0.0, false);
-    }
-    let range = host.call(state, Call::PitchRange, 0.0, false);
-    let pitch = three::clamp(state.aim_pitch, range.value, range.other);
-    host.call(state, Call::SetPitch, pitch, false);
-    host.call(state, Call::Separate, 0.0, false);
+    // Unit.tick, fleet/seat updates, recon finish and separation form one
+    // ownership interval. No JavaScript body or combat callback follows it.
+    host.call(state, Call::NativeUnits, 0.0, false);
     host.call(state, Call::Served, 0.0, false);
     if state.live { host.call(state, Call::Live, 0.0, false); }
     host.call(state, Call::Ordnance, 0.0, false);
     host.call(state, Call::MineTargets, 0.0, false);
     host.call(state, Call::Items, 0.0, false);
-    if state.water && !state.dead && !state.gunner && !state.driver {
-        let water = if state.player_walker { Call::DroidekaWater } else { Call::SoldierWater };
-        host.call(state, water, 0.0, false);
-    }
     host.call(state, Call::Battlefield, 0.0, false);
     host.call(state, Call::Battle, 0.0, false);
     // This computes an authoritative vehicle target even in headless worlds.
@@ -78,14 +56,12 @@ pub fn step(state: &mut WorldStepState, tick: f64, host: &mut impl Host) {
 mod tests {
     use super::*;
     #[derive(Default)]
-    struct PhaseLog { calls: Vec<(Call, f64)>, flip_server: bool }
+    struct PhaseLog { calls: Vec<(Call, f64)> }
     impl Host for PhaseLog {
         fn call(&mut self, state: &mut WorldStepState, op: Call, value: f64, _: bool) -> WorldStepReply {
             self.calls.push((op, value));
             if op == Call::PlayerCount { state.player_ticks = value; }
-            if op == Call::Combat && self.flip_server { state.server = true; }
-            if op == Call::PitchRange { state.aim_pitch = 4.0; }
-            let (value, other) = if op == Call::PitchRange { (-0.5, 0.5) } else { (0.0, 0.0) };
+            let (value, other) = (0.0, 0.0);
             WorldStepReply { state: state.clone(), value, other, flag: false }
         }
     }
@@ -93,19 +69,20 @@ mod tests {
     fn server_steps_keep_the_dormant_player_out_of_body_combat_and_chase_camera() {
         let mut state = WorldStepState { server: true, removed: true, grenade_update: true, ..Default::default() };
         let mut host = PhaseLog::default(); step(&mut state, 60.0, &mut host);
-        assert!(![Call::Player, Call::Combat, Call::FlushMuzzles, Call::Camera].iter().any(|op| host.calls.iter().any(|(seen, _)| seen == op)));
+        assert!(![Call::Camera].iter().any(|op| host.calls.iter().any(|(seen, _)| seen == op)));
         let at = |op| host.calls.iter().position(|(seen, _)| *seen == op).unwrap();
         assert!(at(Call::Battle) < at(Call::Target)); assert!(at(Call::Target) < at(Call::Grenades));
         assert!(at(Call::NextGrenade) < at(Call::SpawnFlush));
         assert!(host.calls.contains(&(Call::ClockAxes, 1.0))); assert_eq!(state.player_ticks, 1.0);
     }
     #[test]
-    fn entered_combat_finishes_and_pitch_uses_post_callback_state() {
-        let mut state = WorldStepState { forward: -0.75, right: 0.25, ..Default::default() };
-        let mut host = PhaseLog { flip_server: true, ..Default::default() };
+    fn one_native_phase_precedes_items_and_battle() {
+        let mut state = WorldStepState::default();
+        let mut host = PhaseLog::default();
         step(&mut state, 1.0, &mut host);
-        assert!(host.calls.contains(&(Call::Combat, 0.75)));
-        assert!(host.calls.iter().any(|(op, _)| *op == Call::FlushMuzzles));
-        assert!(host.calls.contains(&(Call::SetPitch, 0.5)));
+        let at = |op| host.calls.iter().position(|(seen, _)| *seen == op).unwrap();
+        assert_eq!(host.calls.iter().filter(|(op, _)| *op == Call::NativeUnits).count(), 1);
+        assert!(at(Call::NativeUnits) < at(Call::Items));
+        assert!(at(Call::Items) < at(Call::Battle));
     }
 }

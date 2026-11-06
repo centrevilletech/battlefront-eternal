@@ -2,6 +2,7 @@ import { simModule } from '../../src/sim/module.js';
 import { IMPORT_SYMBOLS } from '../../src/sim/gen/imports.js';
 import { SimBridge } from '../../src/sim/runtime.js';
 import { Ordnance } from '../../src/ordnance.js';
+import { KIND_ITEM, KIND_ITEMS } from '../../src/sim/gen/index.js';
 import { Items } from '../../src/items.js';
 import { attachOrdnanceSim, ordnanceTests } from '../../src/ordnance-sim.js';
 import { attachItemsSim } from '../../src/items-sim.js';
@@ -23,6 +24,7 @@ function bridge() {
 export function rustOrdnance(options) {
   const ordnance = new Ordnance(options);
   attachOrdnanceSim(ordnance, bridge());
+  fixtureServices(ordnance);
   const update = ordnance.update.bind(ordnance);
   ordnance.update = (dt, draw = true) => { update(dt); if (draw) ordnance.present(); };
   return ordnance;
@@ -32,5 +34,23 @@ export function rustItems(options) {
   const items = new Items(options);
   const rounds = rustOrdnance({ ...options, texture: () => null });
   attachItemsSim(items, rounds.sim);
+  rounds.sim.nativeServices.afterStep=()=>{
+    items.sim.bridge.sync(KIND_ITEM);
+    items.sim.bridge.sync(KIND_ITEMS,items);
+  };
   return items;
+}
+
+// Isolated F1 goldens supply a small explicit world trait. Battles attach the
+// canonical unit owner instead; this helper is never imported by game code.
+export function fixtureServices(ordnance) {
+  ordnance.sim.nativeServices = {
+    owner(){},ordnance(){},explosion(){},item(){},itemTargets(){},
+    beforeStep(){},afterStep(){},
+    explode(def,position,owner,presentation=def) {
+      const wet=ordnance.presentExplosion(presentation,position);
+      ordnance.onExplode(def,position.clone(),owner,{wet});
+      ordnance.onExplosion(def,position,owner,{wet});
+    },
+  };
 }

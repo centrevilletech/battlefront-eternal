@@ -5,6 +5,7 @@ use super::Ref;
 struct Entry<T> {
     gen: u32,
     value: Option<T>,
+    lent: bool,
 }
 
 /// Entities by slot. A slab is used one of two ways: its own slots
@@ -44,7 +45,12 @@ impl<T> Slab<T> {
     pub fn reserve(&mut self, n: usize) {
         let more = n.saturating_sub(self.entries.len());
         self.entries.reserve(more);
-        self.free.reserve(more);
+        // Late construction can reserve after some rows are already live.
+        // Every live slot may retire together, even when entries need no room.
+        self.free.reserve(n.saturating_sub(self.free.len()));
+        // A phase can create and retire an instant projectile before its next
+        // export. Reserve the last-state list with the live slots as well.
+        self.retired.reserve(n.saturating_sub(self.retired.len()));
     }
 
     /// An entity in the slot freed last, or a new slot.
@@ -56,7 +62,7 @@ impl<T> Slab<T> {
             return Ref::new(slot, e.gen);
         }
         let slot = self.entries.len() as u32;
-        self.entries.push(Entry { gen: 1, value: Some(value) });
+        self.entries.push(Entry { gen: 1, value: Some(value), lent: false });
         Ref::new(slot, 1)
     }
 
@@ -65,10 +71,14 @@ impl<T> Slab<T> {
     pub fn insert_at(&mut self, slot: u32, gen: u32, value: T) -> Ref<T> {
         let i = slot as usize;
         while self.entries.len() <= i {
-            self.entries.push(Entry { gen: 0, value: None });
+            self.entries.push(Entry { gen: 0, value: None, lent: false });
         }
         let e = &mut self.entries[i];
         assert!(e.value.is_none(), "slot {slot} is taken");
+        // A numbered owner can reuse a removed slot directly. Consume its
+        // free entry too, or a later insert could overwrite the live entity.
+        // Preserve every other free slot's last-freed order.
+        if let Some(at) = self.free.iter().position(|&free| free == slot) { self.free.remove(at); }
         e.gen = gen;
         e.value = Some(value);
         self.live += 1;
@@ -84,6 +94,34 @@ impl<T> Slab<T> {
         self.free.push(r.slot);
         self.live -= 1;
         value
+    }
+
+    /// An owning phase lends a row without retiring its identity or changing
+    /// free-slot order. No default entity is built or dropped in its place.
+    /// Callbacks restore the row before any observer needs its actual state.
+    pub fn lend(&mut self, r: Ref<T>) -> Option<T> {
+        let entry = self.entries.get_mut(r.slot as usize)?;
+        if entry.gen != r.gen { return None; }
+        let value = entry.value.take()?;
+        entry.lent = true;
+        Some(value)
+    }
+
+    /// Return exactly that loan. An occupied or recycled slot cannot receive
+    /// the old body, even if an outer command retained its numeric index.
+    pub fn restore(&mut self, r: Ref<T>, value: T) -> Result<(), T> {
+        let Some(entry) = self.entries.get_mut(r.slot as usize) else { return Err(value); };
+        if entry.gen != r.gen || !entry.lent || entry.value.is_some() { return Err(value); }
+        entry.value = Some(value);
+        entry.lent = false;
+        Ok(())
+    }
+
+    /// Qualified identity stays available while the owner holds the row.
+    /// Reading its data still requires restoration, rather than a placeholder.
+    pub fn reference(&self, slot: u32) -> Option<Ref<T>> {
+        let entry = self.entries.get(slot as usize)?;
+        (entry.value.is_some() || entry.lent).then_some(Ref::new(slot, entry.gen))
     }
 
     /// Removes an entity, keeping its last state for the next export
@@ -107,7 +145,7 @@ impl<T> Slab<T> {
         if e.gen == r.gen { e.value.as_mut() } else { None }
     }
 
-    pub fn contains(&self, r: Ref<T>) -> bool { self.get(r).is_some() }
+    pub fn contains(&self, r: Ref<T>) -> bool { self.reference(r.slot) == Some(r) }
 
     /// The entity in a slot, whatever its generation, with its reference.
     pub fn at(&self, slot: u32) -> Option<(Ref<T>, &T)> {
@@ -143,11 +181,11 @@ impl<T> Slab<T> {
         let i = r.slot as usize;
         while self.entries.len() <= i {
             self.free.push(self.entries.len() as u32);
-            self.entries.push(Entry { gen: 0, value: None });
+            self.entries.push(Entry { gen: 0, value: None, lent: false });
         }
         if self.entries[i].gen != r.gen || self.entries[i].value.is_none() {
             if self.entries[i].value.is_some() { self.live -= 1; } else if let Some(at) = self.free.iter().position(|&s| s == r.slot) { self.free.remove(at); }
-            self.entries[i] = Entry { gen: r.gen, value: Some(T::default()) };
+            self.entries[i] = Entry { gen: r.gen, value: Some(T::default()), lent: false };
             self.live += 1;
         }
         self.entries[i].value.as_mut().unwrap()
@@ -167,7 +205,8 @@ impl<T> Slab<T> {
         self.retired.clear();
         self.free.clear();
         for (i, e) in self.entries.iter_mut().enumerate().rev() {
-            if e.value.take().is_some() { e.gen = e.gen.wrapping_add(1).max(1); }
+            if e.value.take().is_some() || e.lent { e.gen = e.gen.wrapping_add(1).max(1); }
+            e.lent = false;
             self.free.push(i as u32);
         }
         self.free.reverse();
@@ -178,6 +217,28 @@ impl<T> Slab<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_loan_keeps_identity_and_does_not_reuse_or_retire_its_slot() {
+        struct Body(u32);
+        let mut slab=Slab::with_capacity(4);
+        let first=slab.insert(Body(7));
+        let other=slab.insert(Body(8));
+        slab.remove(other);
+        let mut body=slab.lend(first).unwrap();
+        assert!(slab.contains(first));
+        assert_eq!(slab.reference(first.slot),Some(first));
+        assert!(slab.get(first).is_none());
+        assert_eq!(slab.len(),1);
+        assert!(slab.retired.is_empty());
+        let reused=slab.insert(Body(9));
+        assert_eq!(reused.slot,other.slot);
+        body.0=11;
+        assert!(slab.restore(first,body).is_ok());
+        assert_eq!(slab.get(first).unwrap().0,11);
+        assert_eq!(slab.reference(first.slot),Some(first));
+        assert_eq!(slab.len(),2);
+    }
 
     #[test]
     fn stale_references_miss_and_freed_slots_come_back_last_first() {
@@ -237,5 +298,18 @@ mod tests {
         assert_eq!(s.at(3).map(|(_, v)| *v), None);
         assert_eq!(s.slots(), 8);
         assert_eq!(s.len(), 1);
+    }
+
+    #[test]
+    fn numbered_reuse_consumes_the_free_entry_and_keeps_other_free_order() {
+        let mut s = Slab::new();
+        let a = s.insert(1);let b = s.insert(2);let c = s.insert(3);
+        s.remove(a);s.remove(b);s.remove(c);
+        let reused = s.insert_at(b.slot,b.gen + 1,20);
+        let next = s.insert(30);let last = s.insert(10);
+        assert_eq!(next.slot,c.slot);
+        assert_eq!(last.slot,a.slot);
+        assert_eq!(s.get(reused),Some(&20));
+        assert_eq!(s.len(),3);
     }
 }

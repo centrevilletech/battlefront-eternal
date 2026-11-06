@@ -22,6 +22,18 @@ pub fn arr(v: &Vector3) -> [f64; 3] {
 }
 
 impl HitShape {
+    /// riderHitShapes output in the canonical unit shape layout (rider-pose.js).
+    pub fn set_rider(&mut self, shape: &crate::rig::rider::HitShape) {
+        use crate::rig::rider::{ShapeKind, ShapePart as RiderPart};
+        self.r#type = match shape.kind { ShapeKind::Sphere => ShapeType::Sphere, ShapeKind::Capsule => ShapeType::Capsule };
+        self.part = match shape.part { RiderPart::Head => ShapePart::Head, RiderPart::Body => ShapePart::Body };
+        self.center = arr(&shape.center);
+        self.radius = shape.radius;
+        self.half_size = arr(&shape.half_size);
+        self.half = if shape.half_is_size { Half::Vec3(self.half_size) } else { Half::F64(shape.half) };
+        self.yaw = shape.yaw;
+    }
+
     /// `half` as a number (a cylinder's half height; a sphere's 0).
     pub fn half_number(&self) -> f64 {
         match self.half {
@@ -201,8 +213,7 @@ pub fn segment_cylinder(origin: &Vector3, dir: &Vector3, far: f64, center: &Vect
 /// segmentBox (registry.js): the entry distance into a box turned by `yaw`
 /// about the vertical, or None.
 pub fn segment_box(origin: &Vector3, dir: &Vector3, far: f64, center: &Vector3, half: &Vector3, yaw: f64) -> Option<f64> {
-    let sin = v8math::sin(yaw);
-    let cos = v8math::cos(yaw);
+    let (sin,cos)=v8math::sin_cos(yaw);
     // Into the box's frame: its z along (sin yaw, 0, cos yaw), x along (cos yaw, 0, -sin yaw).
     let mut local = Vector3::default();
     local.sub_vectors(origin, center);

@@ -3,7 +3,7 @@
 pub use crate::vehicles::f2_seats as seats;
 pub mod live_seats;
 pub mod firing;
-pub(super) mod allocation;
+pub(crate) mod allocation;
 pub mod riders;
 mod geometry;
 pub use crate::vehicles::f2_delta as delta;
@@ -16,17 +16,18 @@ static mut IO: Vec<f64> = Vec::new();
 static mut DESCRIPTOR: [f64; F2Phase::WORDS] = [0.0; F2Phase::WORDS];
 static mut PUBLICATION: Option<crate::vehicles::f2_publication::Publication> = None;
 static mut DESCS: Vec<super::super::spawn::SlotDesc> = Vec::new();
-static mut PAD_CLASSES: Vec<Vec<(f64, usize, StrId)>> = Vec::new();
+static mut PAD_CLASSES: Vec<Vec<(f64, StrId)>> = Vec::new();
 const FLAG_POSES: u32 = 1 << F2PhaseFlag::Poses as u32;
 const FLAG_COSMETIC: u32 = 1 << F2PhaseFlag::Cosmetic as u32;
 const FLAG_FLIGHT: u32 = 1 << F2PhaseFlag::Flight as u32;
 const FLAG_ASSISTS: u32 = 1 << F2PhaseFlag::Assists as u32;
 static mut ACC: f64 = 0.0;
 static mut TIME: f64 = 0.0;
+static mut PENDING: bool = false;
 // Vehicle.load resolves class data once. Working rows keep dynamic solver
 // scratch, while revisions avoid reloading the row just stored by a substep.
 // Spare rows permit synchronous damage hooks without aliasing the outer hull.
-struct HullRow { revision: u64, pool: Vec<Hull>, config: Config, gear: Option<GearClip>, texts: crate::flight::store::FlightTextIds }
+struct HullRow { leg_side: Vec<f64>, revision: u64, pool: Vec<Hull>, flight_class: crate::flight::FlightClass, config: Config, gear: Option<GearClip>, texts: crate::flight::store::FlightTextIds }
 static mut HULL_ROWS: Vec<Option<HullRow>> = Vec::new();
 fn hull_rows() -> &'static mut Vec<Option<HullRow>> { unsafe { &mut *addr_of_mut!(HULL_ROWS) } }
 
@@ -37,16 +38,53 @@ fn register_hull(r: Ref<Vehicle>) {
     let name = String::from_utf16_lossy(s.strings.units(v.name));
     let class = classes().get(&name).expect("registered hull class");
     let (config, gear) = if v.flying { flight_keys(&name) } else { (Config::default(), None) };
+    let flight_class = if v.flying { crate::flight::config::flight_class(&name) } else { crate::flight::FlightClass::default() };
+    let leg_count = poses().get(r.slot as usize).and_then(|p|p.as_ref())
+        .and_then(|p|p.pose.leg_pairs.as_ref()).map_or(0,|legs|legs.at.len());
     let mut pool = Vec::with_capacity(4);
     for _ in 0..4 {
-        let mut hull = Hull::from_store(r,v,class,0,&s.strings);
-        if v.flying { hull.target_scratch.reserve(unsafe { (&*addr_of_mut!(MEMBERS)).len() }); }
+        let mut hull = Hull::from_store(r,v,class,0);
+        hull.leg_side_storage.reserve(leg_count);
+        hull.support_heights.reserve(leg_count);
+        if v.flying { hull.target_scratch.reserve(if crate::units::f3::active() { s.store.units.list.len() } else { unsafe { (&*addr_of_mut!(MEMBERS)).len() } }); }
         pool.push(hull);
     }
     let texts = crate::flight::store::FlightTextIds::new(&mut sim().strings);
     let rows = hull_rows();
     if rows.len() <= r.slot as usize { rows.resize_with(r.slot as usize + 1, || None); }
-    rows[r.slot as usize] = Some(HullRow { revision: 1, pool, config, gear, texts });
+    rows[r.slot as usize] = Some(HullRow { leg_side:Vec::with_capacity(leg_count), revision: 1, pool, flight_class, config, gear, texts });
+    let inputs = unsafe { &mut *addr_of_mut!(FLIGHT_INPUTS) };
+    if inputs.len() <= r.slot as usize { inputs.resize(r.slot as usize + 1,None); }
+    reserve_phase(hull_rows().iter().flatten().count());
+}
+fn reserve_phase(count: usize) {
+    // Vehicles.update keeps these five phase lists between calls. Reserve
+    // them at hull construction too; warming a tick would hide their first
+    // allocation from ordinary scheduler tests.
+    unsafe {
+        let refs = &mut *addr_of_mut!(PHASE_REFS); refs.reserve(count.saturating_sub(refs.len()));
+        let mine = &mut *addr_of_mut!(PHASE_MINE); mine.reserve(count.saturating_sub(mine.len()));
+        let posed = &mut *addr_of_mut!(PHASE_POSED); posed.reserve(count.saturating_sub(posed.len()));
+        let phase_locks = &mut *addr_of_mut!(PHASE_LOCKS); phase_locks.reserve(count.saturating_sub(phase_locks.len()));
+        let locks = &mut *addr_of_mut!(LOCKS);
+        locks.reserve((F2LockHeader::WORDS + count * F2Lock::WORDS).saturating_sub(locks.len()));
+    }
+}
+// Units.add grows the canonical registry at construction. Reserve every
+// flight target buffer there, so a late pilot or a first lock cannot grow it
+// during Vehicles.update. Cache entries reset without changing their storage.
+pub(crate) fn reserve_registry(count: usize) {
+    if !active() { return; }
+    for row in hull_rows().iter_mut().flatten() {
+        for hull in &mut row.pool {
+            if hull.flying { hull.target_scratch.reserve(count); }
+        }
+    }
+    let wanted = unsafe { &mut *addr_of_mut!(AIM_WANTED) };
+    wanted.reserve(count.saturating_sub(wanted.len()));
+    let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) };
+    cache.resize(count,None);
+    live_seats::reserve_riders(count);
 }
 // initFlight uses immutable class/gear handles. GearClip shares its clip by
 // reference count; copying this handle allocates no animation or key table.
@@ -68,9 +106,19 @@ pub fn take_hull(r: Ref<Vehicle>, index: usize) -> Hull {
     let mut hull = row.pool.pop().expect("reserved reentrant hull row");
     hull.index = index;
     if hull.f2_revision.get() != row.revision {
-        let s = sim(); hull.load(s.store.vehicle.get(r).unwrap(), &s.strings); hull.f2_revision.set(row.revision);
+        let s = sim(); hull.load(s.store.vehicle.get(r).unwrap()); hull.f2_revision.set(row.revision);
     }
     hull
+}
+// Hull.to_store keeps the canonical optional leg list absent until the
+// original standOnLegs observation. Its cold buffer survives that absence.
+pub(crate) fn prepare_leg_store(hull: &Hull, vehicle: &mut Vehicle) {
+    let spare = &mut hull_rows()[hull.id.slot as usize].as_mut().unwrap().leg_side;
+    if hull.leg_side.is_some() && vehicle.leg_side.is_none() {
+        vehicle.leg_side = Some(std::mem::take(spare));
+    } else if hull.leg_side.is_none() {
+        if let Some(mut old) = vehicle.leg_side.take() { old.clear(); *spare = old; }
+    }
 }
 pub fn recycle(hull: Hull) { hull_rows()[hull.id.slot as usize].as_mut().unwrap().pool.push(hull); }
 
@@ -85,32 +133,78 @@ fn publication() -> &'static mut crate::vehicles::f2_publication::Publication {
 // Invalidate working copies as well as publication, since the next native
 // substep must see those changes even if a mirror was already published.
 pub fn mark(r: Ref<Vehicle>) {
+    pending();
     if let Some(Some(row)) = hull_rows().get_mut(r.slot as usize) { row.revision += 1; }
     publication().mark(r); geometry::mark(r);
 }
 /// A completed native substep already has the canonical dynamic fields. Keep
 /// that working row current; other spare rows reload only after a real write.
 pub fn stored(hull: &Hull) {
+    pending();
     let row = hull_rows()[hull.id.slot as usize].as_mut().unwrap();
     row.revision += 1; hull.f2_revision.set(row.revision);
     publication().mark(hull.id); geometry::mark(hull.id);
 }
 pub fn mark_changed(r: Ref<Vehicle>) { mark(r); }
+pub(crate) fn pending() { unsafe { *addr_of_mut!(PENDING) = true; } }
+// VehicleTarget queries reuse the same invalidation stamp as working hulls.
+// Physics stores and seat/damage commands already advance it before readers.
+pub(crate) fn revision(r: Ref<Vehicle>) -> u64 {
+    hull_rows()[r.slot as usize].as_ref().expect("registered target hull").revision
+}
+// F3's Unit.onMoved barrier need not republish an untouched fleet. Damage or
+// seat work marks this bit; its next mirror barrier flushes those rows once.
+pub(crate) fn publish_pending() {
+    if active() && unsafe { *addr_of_mut!(PENDING) } { publish(); }
+}
 
 /// Vehicle construction registers its row without rewriting other pads or hulls.
 #[no_mangle]
-pub extern "C" fn f2_register(slot: u32, generation: u32) {
+pub extern "C" fn f2_register(slot: u32, generation: u32, prepared: u32) {
     let r = Ref::new(slot, generation);
     let s = sim();
     let v = s.store.vehicle.get(r).expect("registered F2 hull");
     let pad = v.slot_index as usize;
     let name = v.name;
-    if !s.store.vehicles.vehicles.contains(&r) { s.store.vehicles.vehicles.push(r); }
+    if prepared == 0 && !s.store.vehicles.vehicles.contains(&r) { s.store.vehicles.vehicles.push(r); }
     if !s.store.vehicles.slots[pad].variants.entries.iter().any(|&(n, _)| n == name) {
         s.store.vehicles.slots[pad].variants.entries.push((name, r));
     }
-    publication().register(&s.store, r);
+    let legs = poses().get(slot as usize).and_then(|p|p.as_ref())
+        .and_then(|p|p.pose.leg_pairs.as_ref()).map_or(0,|legs|legs.at.len());
+    publication().register(&s.store, r, legs);
     register_hull(r);
+    let count = hull_rows().iter().flatten().count();
+    let fleet = &mut sim().store.vehicles.vehicles;
+    fleet.reserve(count.saturating_sub(fleet.len()));
+}
+
+// CollisionWorld keeps the active body order separate from cold variant
+// geometry. Triangle and broadphase storage must cover both before a tick.
+#[no_mangle]
+pub extern "C" fn f2_prepare_body(kernel: u32) {
+    let c = collision_world().expect("prepared fleet collision");
+    let state = crate::collision::state();
+    let w = &mut state.worlds[c.world];
+    w.order.retain(|&slot| slot != kernel);
+    assert!(!w.prepared.contains(&kernel));
+    w.prepared.push(kernel);
+    w.order.reserve(w.prepared.len());
+    w.version += 1;
+    crate::collision::broad::prepare(state,c.world);
+    prepare_collision();
+}
+
+// Vehicles.variant becomes a native activation when a prepared pad first
+// chooses this class. Its facade is bound by the structural birth journal.
+fn activate(r: Ref<Vehicle>) {
+    let index = sim().store.vehicles.vehicles.len();
+    sim().store.vehicles.vehicles.push(r);
+    live_seats::activate(r,index);
+    crate::units::f3_hulls::activate(r,index);
+    // Cold publication may have reused a working row. Reload the new target
+    // id before spawn stores its first active life back into the slab.
+    mark(r);
 }
 
 fn desc() -> &'static mut [f64; F2Phase::WORDS] { unsafe { &mut *addr_of_mut!(DESCRIPTOR) } }
@@ -125,9 +219,9 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
     let text = String::from_utf16_lossy(sim().strings.units(StrId(json)));
     let value = bfe_content::json::parse(&text).expect("F2 pad descriptions");
     let ds: Vec<_> = value.as_array().expect("F2 pads").iter().map(super::super::spawn::SlotDesc::of).collect();
-    let names = ds.iter().map(|d| d.classes.iter().enumerate().filter_map(|(i, (key, name))| {
+    let names = ds.iter().map(|d| d.classes.iter().filter_map(|(key, name)| {
         let team = bfe_content::js::string_to_number(key);
-        (bfe_content::js::number_to_string(team) == *key && !name.is_empty()).then(|| (team, i, sim().strings.intern_str(name)))
+        (bfe_content::js::number_to_string(team) == *key && !name.is_empty()).then(|| (team, sim().strings.intern_str(name)))
     }).collect()).collect();
     unsafe {
         *addr_of_mut!(PAD_CLASSES) = names;
@@ -137,10 +231,16 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
         *addr_of_mut!(ACC) = acc;
     }
     io().resize(CAPACITY, 0.0);
+    // An empty fleet can still own stationary crews. Its first phase writes
+    // the lock header even without a hull, so reserve that header here too.
+    reserve_phase(sim().store.vehicles.vehicles.len());
     sim().events.reserve(262144, FfShot::WORDS, 1024);
-    if let Some(c) = collision_world() { c.prepare(crate::collision::state()); }
+    prepare_collision();
     desc()[F2Phase::INPUT] = io().as_mut_ptr() as usize as f64;
     desc()[F2Phase::CAPACITY] = CAPACITY as f64;
+    // Vehicles construction owns the initial complete mirror. Later incoming
+    // damage can then send a sparse delta even before Vehicles.update runs.
+    publish();
     desc().as_ptr()
 }
 
@@ -150,6 +250,9 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
 // can publish recursively, so every block represents this flush rather than
 // an append-only fleet snapshot that a later hook might read again.
 pub fn publish() {
+    // A Unit barrier can read this descriptor again without any fleet write.
+    // Readers consume each publication once, retaining later foreign AI edits.
+    desc()[F2Phase::VERSION] = (desc()[F2Phase::VERSION] as u32).wrapping_add(1) as f64;
     desc()[F2Phase::FIRING] = firing::phase_ptr() as usize as f64;
     desc()[F2Phase::SEATS] = live_seats::publish() as usize as f64;
     let p = publication();
@@ -162,6 +265,7 @@ pub fn publish() {
     desc()[F2Phase::ACC] = unsafe { *addr_of_mut!(ACC) };
     desc()[F2Phase::FLIGHT_ACC] = unsafe { *addr_of_mut!(FLIGHT_ACC) };
     desc()[F2Phase::TIME] = unsafe { *addr_of_mut!(TIME) };
+    unsafe { *addr_of_mut!(PENDING) = false; }
 }
 
 /// Fresh pose output exists only after spawn rendering or the complete phase.
@@ -180,7 +284,9 @@ fn publish_posed() {
 fn spawns(dt: f64) {
     let descs = unsafe { &*addr_of_mut!(DESCS) };
     let header = F2Input::take(io(), &[]);
-    let occupant = header.occupant.as_ref().map(vec);
+    let occupant = if crate::units::f3::active() {
+        crate::units::f3::spawn_occupant()
+    } else { header.occupant.as_ref().map(vec) };
     for (i, d) in descs.iter().enumerate() {
         let slot = &sim().store.vehicles.slots[i];
         let (vehicle, left) = (slot.vehicle, slot.remaining);
@@ -195,8 +301,7 @@ fn spawns(dt: f64) {
             else if d.team.is_some_and(super::super::hull::truthy) { d.team.unwrap() }
             else if d.classes.len() == 1 { bfe_content::js::string_to_number(&d.classes[0].0) } else { 0.0 };
         let names = unsafe { &(&*addr_of_mut!(PAD_CLASSES))[i] };
-        let Some(&(_, class, name_id)) = names.iter().find(|(n, _, _)| *n == team || n.is_nan() && team.is_nan()) else { continue };
-        let name = &d.classes[class].1;
+        let Some(&(_, name_id)) = names.iter().find(|(n, _)| *n == team || n.is_nan() && team.is_nan()) else { continue };
         let find = || sim().store.vehicles.slots[i].variants.entries.iter().find(|(n, _)| *n == name_id).map(|(_, r)| *r);
         let r = match find() {
             Some(r) => r,
@@ -206,6 +311,7 @@ fn spawns(dt: f64) {
                 find().expect("F2 construction must register its handle")
             }
         };
+        if !sim().store.vehicles.vehicles.contains(&r) { activate(r); }
         let v = sim().store.vehicle.get(r).expect("F2 variant");
         let (center, size, radius, flying) = (v.center, v.size, v.radius, v.flying);
         let m = d.matrix;
@@ -225,8 +331,8 @@ fn spawns(dt: f64) {
         let mut hull = if flying { load_flyer(r, index) } else { load(r, index) };
         let mut p = poses()[r.slot as usize].take().expect("F2 retained rig");
         hull.pose = Some(p.pose);
-        let def = unsafe { (*addr_of_mut!(DEFS)).as_ref().unwrap().get(name).unwrap() };
-        hull.spawn(&mut JsWorld { craft: u32::MAX }, team, &m, def, name);
+        let row = hull_rows()[r.slot as usize].as_ref().unwrap();
+        hull.spawn_prepared(&mut JsWorld::new(u32::MAX),team,&m,row.flight_class,row.config);
         p.generation = hull.target_generation;
         p.pose = hull.pose.take().unwrap();
         poses()[r.slot as usize] = Some(p);
@@ -242,14 +348,23 @@ fn spawns(dt: f64) {
         store_flight(&hull);
         // Spawn's render is observable by boarding in the following latch.
         geometry::mark(r);
-        publish_posed();
+        if crate::units::f3::active() {
+            // Vehicle.spawn resets retained mounted rows before latching.
+            // It must not rebuild JS weapons or reenter module exports here.
+            firing::reset_life(r,sim().store.vehicle.get(r).unwrap().target_generation);
+        } else { publish_posed(); }
         recycle(hull);
-        import_f2_life(&VehHull { hull: index as f64 });
+        if !crate::units::f3::active() { import_f2_life(&VehHull { hull: index as f64 }); }
     }
 }
 
+// Vehicles' insertion sequence is independent of slab slot reuse.
+pub(crate) fn hull_reference(index: usize) -> Ref<Vehicle> {
+    sim().store.vehicles.vehicles[index]
+}
+
 pub fn respawn_clock(hull: usize) {
-    let r = hull_refs()[hull];
+    let r = sim().store.vehicles.vehicles[hull];
     let pad = sim().store.vehicle.get(r).unwrap().slot_index as usize;
     publication().pad(pad);
     sim().store.vehicles.slots[pad].remaining = unsafe { (&*addr_of_mut!(DESCS))[pad].respawn_time };
@@ -262,6 +377,7 @@ pub fn respawn_clock(hull: usize) {
 // aim-query scratch for this phase without allocating a new registry vector.
 fn foreign() {
     let h = F2Input::take(io(), &[]);
+    if !crate::units::f3::active() {
     let members = unsafe { &mut *addr_of_mut!(MEMBERS) };
     members.resize(h.member_length as usize, MemberRow { kind: 0, id: 0.0, generation: None, alive: false, team: None, hull: u32::MAX, point: Vector3::default() });
     for i in 0..h.member_count as usize {
@@ -277,11 +393,17 @@ fn foreign() {
     let wanted = unsafe { &mut *addr_of_mut!(AIM_WANTED) };
     if wanted.capacity() < h.member_length as usize { wanted.reserve((h.member_length as usize).saturating_sub(wanted.len())); }
     live_seats::reserve_riders(h.member_length as usize);
-    let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) }; cache.resize(h.member_length as usize, None); cache.fill(None);
+    // FlightWorld caches canonical Unit aim points even when the foreign
+    // member block is empty. Its capacity was reserved at registry creation.
+    let count=if crate::units::f3::active() { sim().store.units.list.len() } else { h.member_length as usize };
+    let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) }; cache.resize(count, None); cache.fill(None);
     let teams = unsafe { &mut *addr_of_mut!(TEAMS) }; teams.clear();
     for i in 0..h.team_count as usize { let t = F2PadTeam::take(&io()[h.teams as usize + i * F2PadTeam::WORDS..], &[]); teams.push(team(if t.has_team { 1.0 } else { 0.0 }, t.team)); }
     let rel = unsafe { &mut *addr_of_mut!(RELATIONS) }; rel.clear();
     rel.extend_from_slice(&io()[h.relations as usize..h.relations as usize + teams.len() * teams.len()]);
+    } else {
+        unsafe { (&mut *addr_of_mut!(AIM_CACHE)).fill(None); }
+    }
     let given = unsafe { &mut *addr_of_mut!(FLIGHT_INPUTS) };
     for i in 0..h.flight_count as usize {
         let a = F2FlightIn::take(&io()[h.flights as usize + i * F2FlightIn::WORDS..], &[]);
@@ -303,36 +425,54 @@ fn foreign() {
 // writeback and the interleaved turret crew phase. Effects cannot move a
 // state-changing hook past a later read in that sequence.
 pub extern "C" fn f2_step(dt: f64, tick: f64) {
+    // Vehicles.writeRiders consumes mounted controls too. Keep this guard
+    // outside the publication guard so its final mirrors include those edges.
+    let _controls = crate::units::f3::control_span(true);
+    let _external = crate::units::f3::external();
+    crate::units::f3::with_services(|services| step(dt, tick, services));
+}
+
+// Vehicles.update lends its authority to hull, mounted and crew work. The
+// outer unit coordinator calls this directly with the borrow it already owns.
+pub(crate) fn step(dt: f64, tick: f64, mut services: Option<crate::units::f3::WorldServices<'_>>) {
     assert!(active(), "F2 must be initialized");
     let dt = three::clamp(dt, 0.0, 0.1);
     unsafe { *addr_of_mut!(TIME) += dt; *addr_of_mut!(CLOCK) = Some(io()[F2Input::CLOCK]); }
     allocation::begin();
-    sim().events.clear();
+    if services.is_none() { sim().events.clear(); }
     live_seats::import_phase_input();
     { let _scope = allocation::enter(allocation::LIFECYCLE); spawns(dt); }
     allocation::stage(allocation::Stage::Foreign);
     foreign();
     allocation::stage(allocation::Stage::Latch);
-    live_seats::latch(unsafe { *addr_of_mut!(TIME) });
+    live_seats::latch(unsafe { *addr_of_mut!(TIME) }, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     let flags = io()[F2Input::FLAGS] as u32 & (FLAG_POSES | FLAG_COSMETIC | FLAG_FLIGHT | FLAG_ASSISTS);
     allocation::stage(allocation::Stage::Hulls);
-    let left = veh_ground(dt, unsafe { *addr_of_mut!(ACC) }, unsafe { *addr_of_mut!(FLIGHT_ACC) }, io()[F2Input::LEVEL], io()[F2Input::CLOCK], flags);
+    let left = ground(dt, unsafe { *addr_of_mut!(ACC) }, unsafe { *addr_of_mut!(FLIGHT_ACC) }, io()[F2Input::LEVEL], io()[F2Input::CLOCK], flags, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     unsafe { *addr_of_mut!(ACC) = left; }
     desc()[F2Phase::TICK] = tick;
     allocation::stage(allocation::Stage::Publish);
     firing::flight_locks();
-    publish_posed();
-    import_f2_posed(&VehNothing {});
+    if services.is_some() {
+        // Vehicle.poseRider samples exposed geometry before mounted fire.
+        // Its later syncCrews body write advances tickCount separately.
+        for i in 0..sim().store.vehicles.vehicles.len() { riders::hull(sim().store.vehicles.vehicles[i], false); }
+    } else {
+        publish_posed();
+        import_f2_posed(&VehNothing {});
+    }
     allocation::stage(allocation::Stage::Fire);
-    firing::step(dt, io()[F2Input::CLOCK]);
+    firing::step(dt, io()[F2Input::CLOCK], services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     // fireCrews changed weapons and cables. Publish those writes before the
     // presentation callback, replacing the already-consumed pose publication.
-    publish();
-    import_f2_foreign(&VehNumber { value: dt });
+    if services.is_none() {
+        publish();
+        import_f2_foreign(&VehNumber { value: dt });
+    }
     allocation::stage(allocation::Stage::Riders);
     for i in 0..sim().store.vehicles.vehicles.len() { riders::hull(sim().store.vehicles.vehicles[i], true); }
     allocation::stage(allocation::Stage::Turrets);
-    live_seats::turret_tick(dt);
+    live_seats::turret_tick(dt, services);
     allocation::stage(allocation::Stage::Publish);
     publish();
     allocation::stage(allocation::Stage::Finish);
@@ -352,10 +492,19 @@ pub extern "C" fn f2_command(slot: u32, generation: u32, life: f64, code: u32, v
     if v.target_generation != life { return 0; }
     if code > 3 || tag > 4 { return 0; }
     let flying = v.flying;
+    let owner = match tag { 0 => OrdnanceOwner::Null, 1 => OrdnanceOwner::Player, 2 => OrdnanceOwner::Unit(Ref::new(owner_slot, owner_gen)), 3 => OrdnanceOwner::Vehicle(Ref::new(owner_slot, owner_gen)), 4 => OrdnanceOwner::OwnerSnapshot(Ref::new(owner_slot, owner_gen)), _ => return 0 };
+    if crate::units::f3::active() && matches!(F2HullOp::from_u8(code as u8).unwrap(), F2HullOp::Damage | F2HullOp::Health) {
+        // Vehicle.damage between phases joins the same native impact service
+        // as an instant round. A recursive crew death cannot call a JS adapter.
+        let _external = crate::units::f3::external();
+        crate::units::f3::with_services(|services| crate::units::f3_hulls::mutate(r, value,
+            (code == F2HullOp::Damage as u32).then_some(owner), services.expect("native world services")));
+        publish();
+        return 1;
+    }
     let index = sim().store.vehicles.vehicles.iter().position(|&x| x == r).expect("F2 ordered hull");
     let mut hull = if flying { load_flyer(r, index) } else { load(r, index) };
-    let owner = match tag { 0 => OrdnanceOwner::Null, 1 => OrdnanceOwner::Player, 2 => OrdnanceOwner::Unit(Ref::new(owner_slot, owner_gen)), 3 => OrdnanceOwner::Vehicle(Ref::new(owner_slot, owner_gen)), 4 => OrdnanceOwner::OwnerSnapshot(Ref::new(owner_slot, owner_gen)), _ => return 0 };
-    let mut world = JsWorld { craft: u32::MAX };
+    let mut world = JsWorld::new(u32::MAX);
     match F2HullOp::from_u8(code as u8).unwrap() {
         F2HullOp::Damage => hull.damage(&mut world, value, owner),
         F2HullOp::Health => hull.set_health(&mut world, value),
@@ -378,9 +527,11 @@ pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 {
     let r = Ref::new(slot, generation);
     let Some(v) = sim().store.vehicle.get(r) else { return 0 };
     let body = v.body.slot;
-    JsWorld { craft: u32::MAX }.enable_body(body, false);
+    JsWorld::new(u32::MAX).enable_body(body, false);
     let v = sim().store.vehicle.get_mut(r).unwrap();
     v.alive = false; v.visible = false;
+    // Commit the old registry target while this generation still resolves.
+    if crate::units::f3::active() { crate::units::f3_hulls::refresh(v.target_id as u32); }
     firing::retire(r);
     live_seats::retire(r);
     if !sim().store.vehicle.retire(r) { return 0; }

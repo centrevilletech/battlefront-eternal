@@ -2,6 +2,7 @@
 // mutable state and foreign supply targets cross during a command.
 export default {
   enums: {
+    F3PropEffectKind: ['publish', 'show', 'destroyed'],
     DbOperation: ['launch', 'update', 'bounce', 'rest', 'clear'],
     DbActionKind: ['add', 'remove', 'cast', 'low', 'play', 'move', 'stop', 'publish', 'out', 'vectors'],
     PbStateName: ['unbuilt', 'built', 'destroyed'],
@@ -21,6 +22,17 @@ export default {
       'boarded', 'unboarded', 'seated', 'unseated', 'placed', 'dropped', 'seatPolicy', 'pose', 'lock', 'weapon', 'fire', 'bind', 'sound', 'fired'],
   },
   records: {
+    // F3 owns traversal and immediate combat effects. F4 still owns ordinary
+    // prop updates, so only changed health/life facts enter the phase block.
+    F3BuildingState: { index:'u32', state:'enum:PbStateName', health:'f64', addHealth:'f64', attacker:'union:Attacker',
+      generation:'f64|null', team:'f64', targetTeam:'f64', gunner:'ref:unit|null', trapMode:'bool', trapState:'rec:TrState' },
+    F3BuildingSetup: { index:'u32', target:'union:RepairTarget', member:'union:Member|null', key:'str', settings:'rec:PbSettings',
+      state:'rec:F3BuildingState', bodies:'list:(ref:body|null)', explosion:'u32|null', damaged:'bool', category:'u32', kind:'f64', trapSphere:'rec:Bounds|null' },
+    // These leaves publish the touched prop and its collision visibility only.
+    // Crew deaths and explosions complete in Rust before their caller resumes.
+    F3PropEffect: { kind:'enum:F3PropEffectKind', state:'rec:F3BuildingState' },
+    F3PropDamage: { index:'u32', amount:'f64', attacker:'union:Attacker', hasDirection:'bool', direction:'vec3',
+      untyped:'f64', typed:'f64', generic:'f64', position:'vec3', team:'f64', generation:'f64|null' },
     DbChunk: { speed: 'f64', omega: 'vec3', still: 'bool', terrainCollisions: 'f64', terrainEffect: 'str|null', trail: 'str|null', smoke: 'str|null' },
     DbSettle: { from: 'quat', to: 'quat', y0: 'f64', y1: 'f64', t: 'f64' },
     DbPiece: { id: 'f64', chunk: 'rec:DbChunk', position: 'vec3', previous: 'vec3', velocity: 'vec3', omega: 'vec3', quaternion: 'quat', hits: 'f64',
@@ -112,7 +124,8 @@ export default {
     PcActionResult: { state: 'rec:PcState|null', lease: 'ref:seatLease|null', control: 'ref:seatUnit|null', hit: 'rec:SeatHit|null',
       flag: 'bool', value: 'f64|undefined', point: 'vec3', shots: 'list:rec:PcShot' },
   },
-  imports: { pbAction: { args: 'PbAction', result: 'PbActionResult' }, paAction: { args: 'PaAction', result: 'PaActionResult' }, pqAction: { args: 'PqAction', result: 'PqActionResult' },
+  events: { f3PropDamage:'F3PropDamage' },
+  imports: { f3PropEffect:{ args:'F3PropEffect' }, pbAction: { args: 'PbAction', result: 'PbActionResult' }, paAction: { args: 'PaAction', result: 'PaActionResult' }, pqAction: { args: 'PqAction', result: 'PqActionResult' },
     dbAction: { args: 'DbAction', result: 'DbActionResult' },
     pcAction: { args: 'PcAction', result: 'PcActionResult' } },
 };

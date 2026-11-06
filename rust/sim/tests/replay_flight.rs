@@ -261,9 +261,10 @@ impl<'f> VehicleWorld for Served<'f> {
         None
     }
 
-    fn spring_polygons(&mut self, _: usize, _: usize, _: &Vector3, _: f64, out: &mut Vec<Polygon>) {
+    fn spring_polygons<'a>(&'a mut self, _: usize, _: usize, _: &Vector3, _: f64, out: &'a mut Vec<Polygon>) -> bfe_sim::vehicles::SpringPolygons<'a> {
         out.clear();
         self.fail("a craft asked for its springs' polygons".into());
+        bfe_sim::vehicles::SpringPolygons::Recorded(out)
     }
 
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4) {
@@ -645,7 +646,7 @@ fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<St
         return ("?", Outcome::Failed(format!("{}: no class {name} in the content", frame.place())));
     };
     let class = classes.entry(name.clone()).or_insert_with(|| HullClass::new(def, stored.turn_rate));
-    let mut hull = Hull::from_store(r, &stored, class, index, &cx.strings);
+    let mut hull = Hull::from_store(r, &stored, class, index);
     hull.body = body_of(before.get("hull").get("body"));
     hull.flight = match Flight::from_store(&stored, &cx.strings, Config::of(def), None) {
         Ok(f) => f,

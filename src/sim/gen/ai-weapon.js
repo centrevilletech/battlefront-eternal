@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiWeaponOp_NAMES = ["coneStart","origin","forward","conePoint","coneFacts","aimer","range","rangePoint","protectionStart","reference","sphere","validationStart","target","lead","targetPoint","spreadStart","sniper","spreadValues","spreadWrite","choiceStart","choiceOrigin","choiceAim","choiceWeapon","choiceUtility","choiceCapacity","choiceRange","choiceSpeed","choiceGrenade","choiceCluster","choiceRoll","choiceWrite","choiceSelected","choiceSwitch","switchStart","switchChannel","switchHasSelect","switchSelect","switchFallbackIndex","switchCurrent","switchCurrentAgain","switchDeselect","switchWrite","setTargetStart","setTargetSelected","setTargetAi","setTargetRelation","setTargetRelationMask","setTargetCategory","setTargetReference","utilityStart","utilityHero","utilityTrap","utilityMask","utilityBound","utilityDamage","utilityBlast","utilityCapacity","utilityHealth","utilityOwner","utilityType","utilityVelocity","utilityAccept","aimState","aimCopy","aimResolve","aimSelected","aimLead","aimOrigin","aimForward","aimWrite"];
 export const AiWeaponOp_INDEX = new Map(AiWeaponOp_NAMES.map((name, i) => [name, i]));
+export const AiWeaponOp_VALUE = Object.freeze({"coneStart":0,"origin":1,"forward":2,"conePoint":3,"coneFacts":4,"aimer":5,"range":6,"rangePoint":7,"protectionStart":8,"reference":9,"sphere":10,"validationStart":11,"target":12,"lead":13,"targetPoint":14,"spreadStart":15,"sniper":16,"spreadValues":17,"spreadWrite":18,"choiceStart":19,"choiceOrigin":20,"choiceAim":21,"choiceWeapon":22,"choiceUtility":23,"choiceCapacity":24,"choiceRange":25,"choiceSpeed":26,"choiceGrenade":27,"choiceCluster":28,"choiceRoll":29,"choiceWrite":30,"choiceSelected":31,"choiceSwitch":32,"switchStart":33,"switchChannel":34,"switchHasSelect":35,"switchSelect":36,"switchFallbackIndex":37,"switchCurrent":38,"switchCurrentAgain":39,"switchDeselect":40,"switchWrite":41,"setTargetStart":42,"setTargetSelected":43,"setTargetAi":44,"setTargetRelation":45,"setTargetRelationMask":46,"setTargetCategory":47,"setTargetReference":48,"utilityStart":49,"utilityHero":50,"utilityTrap":51,"utilityMask":52,"utilityBound":53,"utilityDamage":54,"utilityBlast":55,"utilityCapacity":56,"utilityHealth":57,"utilityOwner":58,"utilityType":59,"utilityVelocity":60,"utilityAccept":61,"aimState":62,"aimCopy":63,"aimResolve":64,"aimSelected":65,"aimLead":66,"aimOrigin":67,"aimForward":68,"aimWrite":69});
 
 export class AiWeaponArgsMirror {
   constructor() {
@@ -16,7 +17,7 @@ export class AiWeaponArgsMirror {
 
 export function syncAiWeaponArgs(b, f, at, h, m) {
   m.op = AiWeaponOp_NAMES[f[at + 0]];
-  m.index = f[at + 1];
+  m.index = f[at + 1] >>> 0;
   m.number = f[at + 2];
   { const a = (m.point ??= new Array(3)); a[0] = f[at + 3]; a[1] = f[at + 4]; a[2] = f[at + 5]; }
   return m;
@@ -59,7 +60,7 @@ export class AiWeaponResultMirror {
 
 export function syncAiWeaponResult(b, f, at, h, m) {
   m.flag = f[at + 0] !== 0;
-  { const items = (m.values ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   { const a = (m.point ??= new Array(3)); a[0] = f[at + 3]; a[1] = f[at + 4]; a[2] = f[at + 5]; }
   return m;
 }

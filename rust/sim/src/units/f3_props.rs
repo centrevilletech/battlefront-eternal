@@ -1,0 +1,537 @@
+//! LiveObjects' combat services (props.js). Building geometry and the existing
+//! lifecycle kernel run natively; only the touched prop's visibility and
+//! foreign callbacks cross synchronously. Ordinary prop updates remain foreign.
+use super::f3::{self, WorldServices};
+use crate::abi::sim;
+use crate::battle::{live, props, traps};
+use crate::combat::impacts::{BlastPacket, HealthScale, HitPacket};
+use crate::gen::*;
+use crate::ordnance::{defs::{ExplosionDef, Field}, world::DefArg};
+use crate::store::{DefId, Ref, StrId};
+use three::Vector3;
+
+// Building's immutable placement and its latest foreign health row travel
+// together. Attribution remains qualified even when the Unit that fired has
+// since returned to its pool; an opaque prop identity alone cannot retain it.
+struct Entry {
+    target: RepairTarget,
+    member: Option<Member>,
+    lock_key: StrId,
+    settings: props::Settings,
+    frame: props::Building,
+    attacker: Attacker,
+    team: f64,
+    target_team: f64,
+    gunner: Option<Ref<Unit>>,
+    bodies: [Option<Ref<Body>>; 3],
+    explosion: Option<DefId>,
+    // Trap.sphere always observes the build pad, including while logs swing.
+    // Its health kernel keeps its own clock fields beside the foreign frame.
+    trap: Option<traps::Trap>,
+    trap_sphere: Option<(Vector3, f64)>,
+}
+// Prepared order and reverse lookups never grow during a phase. Buildings
+// absent from the mixed registry still participate in repair, blast and melee.
+pub(crate) struct Props {
+    entries: Vec<Entry>,
+    extra_melee: Vec<usize>,
+    building_slots: Vec<Option<usize>>,
+    turret_slots: Vec<Option<usize>>,
+    body_slots: Vec<Option<usize>>,
+    member_slots: Vec<Option<usize>>,
+}
+impl Props {
+    pub(crate) fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            extra_melee: Vec::new(),
+            building_slots: Vec::new(),
+            turret_slots: Vec::new(),
+            body_slots: Vec::new(),
+            member_slots: Vec::new(),
+        }
+    }
+    // repairLockKey names the actual pooled object, not the registry target.
+    // A recycled kind slot with another generation cannot inherit that lock.
+    fn index(&self, target: RepairTarget) -> Option<usize> {
+        let (slots, slot) = match target {
+            RepairTarget::Building(r) => (&self.building_slots, r.slot),
+            RepairTarget::Turret(r) => (&self.turret_slots, r.slot),
+            // Hull repair uses the canonical F2 store when its service joins.
+            RepairTarget::Vehicle(r) => return sim().store.vehicles.vehicles.iter().position(|&v| v == r)
+                .map(|i| self.entries.len() + i),
+        };
+        let index = slots.get(slot as usize).copied().flatten()?;
+        (self.entries[index].target == target).then_some(index)
+    }
+}
+// Turret targeting uses its prepared mixed-registry viewer. This lookup
+// follows the prop identity even after a new occupant changes its target team.
+pub(crate) fn member(target: RepairTarget) -> Option<Member> {
+    let props = f3::props();
+    props.index(target).and_then(|index| props.entries.get(index)).and_then(|entry| entry.member)
+}
+
+// TurretTarget.team is a live lease read, unlike foreign objective teams.
+// Resolve the prop once by registry id, then consult the canonical crew row.
+pub(crate) fn member_team(id: u32) -> Option<f64> {
+    let props = f3::props();
+    let index = props.member_slots.get(id as usize).copied().flatten()?;
+    let entry = &props.entries[index];
+    match entry.target {
+        RepairTarget::Turret(turret) => crate::vehicles::module::f2::live_seats::turret_team(turret, entry.team),
+        _ => None,
+    }
+}
+// LiveObjects construction gives each collision look its own body identity.
+// Precompute reverse indices now so struck never searches the building list.
+fn bind(slots: &mut Vec<Option<usize>>, slot: u32, index: usize) {
+    slots.resize(slots.len().max(slot as usize + 1), None);
+    slots[slot as usize] = Some(index);
+}
+fn identity(attacker: Attacker, index: usize) -> props::Identity {
+    // Building's opaque identity names this row's attribution cell. The actual
+    // qualified attacker stays in Entry, including captured launch generations.
+    match attacker {
+        Attacker::Undefined => props::Identity::Undefined,
+        Attacker::Null => props::Identity::Null,
+        _ => props::Identity::Object(index),
+    }
+}
+// Building.state uses the existing generated names at the foreign boundary.
+// Converting these tags does not intern text or allocate a per-target String.
+fn state(name: PbStateName) -> props::State {
+    match name {
+        PbStateName::Built => props::State::Built,
+        PbStateName::Destroyed => props::State::Destroyed,
+        PbStateName::Unbuilt => props::State::Unbuilt,
+    }
+}
+fn state_name(state: props::State) -> PbStateName {
+    match state {
+        props::State::Built => PbStateName::Built,
+        props::State::Destroyed => PbStateName::Destroyed,
+        props::State::Unbuilt => PbStateName::Unbuilt,
+    }
+}
+// Configure Building's existing kernel, not its per-method JS adapter. The
+// settings and three model looks remain immutable through recursive damage.
+#[no_mangle]
+pub extern "C" fn f3_building() {
+    let (row, heap) = sim().calls.args();
+    let input = F3BuildingSetup::take(row, heap);
+    let index = input.index as usize;
+    let all = f3::props();
+    assert_eq!(index, all.entries.len(), "building construction order");
+    let mut settings = crate::battle::props_module::settings(input.settings);
+    settings.has_damaged = input.damaged;
+    let frame = input.state;
+    let bodies: [Option<Ref<Body>>; 3] = input.bodies.try_into().expect("three building bodies");
+    // Built, destroyed and unbuilt collision may each receive a round. The
+    // owner lookup must accept all three while preserving each exact Ref.
+    for body in bodies.into_iter().flatten() { bind(&mut all.body_slots, body.slot, index); }
+    match input.target {
+        RepairTarget::Building(r) => bind(&mut all.building_slots, r.slot, index),
+        RepairTarget::Turret(r) => bind(&mut all.turret_slots, r.slot, index),
+        RepairTarget::Vehicle(_) => panic!("building construction target"),
+    }
+    // heroes.meleeStrike appends only buildings without an AI target after
+    // the mixed registry. Keep that stable suffix without a query-time filter.
+    if input.member.is_none() { all.extra_melee.push(index); }
+    all.entries.push(Entry {
+        target: input.target,
+        member: input.member,
+        lock_key: input.key,
+        settings,
+        frame: props::Building {
+            state: state(frame.state), health: frame.health, add_health: frame.add_health,
+            last_attacker: identity(frame.attacker, index), target_generation: frame.generation,
+        },
+        attacker: frame.attacker,
+        team: frame.team,
+        target_team: frame.target_team,
+        gunner: frame.gunner,
+        bodies,
+        explosion: input.explosion.map(DefId),
+        trap: frame.trap_mode.then(|| frame.trap_state.into()),
+        trap_sphere: input.trap_sphere.map(|b| (v(b.center), b.radius)),
+    });
+    // TurretTarget and ObjectiveTarget already have their mixed registry ids.
+    // Install their geometry from the prepared native model, avoiding a second
+    // JS sphere query for every unchanged building during each world tick.
+    if let Some(member) = input.member {
+        bind(&mut all.member_slots, super::registry::target_id(member), index);
+        let entry = &all.entries[index];
+        let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame.sphere(&entry.settings));
+        let mut position = Vector3::default();
+        position.set_from_matrix_position(&entry.settings.matrix);
+        f3::prepare_prop_target(F3PropFact {
+            id: super::registry::target_id(member), alive: entry.frame.alive(), dead: !entry.frame.alive(),
+            team: entry.target_team, bounds: Bounds { center: a(center), radius }, health: entry.frame.health,
+            category: input.category, kind: input.kind, position: a(position), aim: a(center),
+            life: entry.frame.target_generation.unwrap_or(0.0), body: entry.bodies[0], ..Default::default()
+        });
+    }
+}
+// heroes.meleeStrike acquires every registry member first, then these
+// otherwise-unregistered buildings. The shared targeting kernel still caps
+// the complete sequence at ten and visits those candidates in reverse order.
+pub(crate) fn extra_melee_count() -> usize { f3::props().extra_melee.len() }
+pub(crate) fn extra_melee(index: usize) -> usize { f3::props().extra_melee[index] }
+pub(crate) fn melee_body(index: usize) -> Option<Ref<Body>> { f3::props().entries[index].bodies[0] }
+pub(crate) fn melee_facts(index: usize) -> crate::combat::targeting::Facts {
+    let entry = &f3::props().entries[index];
+    let mut position = Vector3::default();
+    position.set_from_matrix_position(&entry.settings.matrix);
+    // Trap.placePad gives it the pad's position too, not the log rig's root.
+    // Its melee direction must use the same point as its broadphase sphere.
+    if let Some((center, _)) = entry.trap_sphere { position = center; }
+    crate::combat::targeting::Facts {
+        alive: entry.frame.alive(), seated: false, exposed: false,
+        health: entry.frame.health, team: entry.team, category: 4, kind: 0.0, position,
+    }
+}
+pub(crate) fn melee_volume(index: usize) -> crate::combat::targeting::Volume {
+    let entry = &f3::props().entries[index];
+    let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame.sphere(&entry.settings));
+    crate::combat::targeting::Volume { center, radius, hull: None }
+}
+// LiveObjects.update runs outside this phase. Its next changed row replaces
+// only mutable foreign facts; geometry, body names and list order stay put.
+pub(crate) fn changed(frame: F3BuildingState) {
+    let entry = &mut f3::props().entries[frame.index as usize];
+    entry.frame = props::Building {
+        state: state(frame.state), health: frame.health, add_health: frame.add_health,
+        last_attacker: identity(frame.attacker, frame.index as usize), target_generation: frame.generation,
+    };
+    entry.attacker = frame.attacker;
+    entry.team = frame.team;
+    entry.target_team = frame.target_team;
+    entry.gunner = frame.gunner;
+    entry.trap = frame.trap_mode.then(|| frame.trap_state.into());
+    let body = entry.frame;
+    commit(frame.index as usize, &body);
+}
+// The synchronous foreign leaf receives only this touched row. Ordinary prop
+// readers keep their existing object, body and model identities throughout it.
+fn snapshot(index: usize) -> F3BuildingState {
+    let entry = &f3::props().entries[index];
+    F3BuildingState {
+        index: index as u32, state: state_name(entry.frame.state), health: entry.frame.health,
+        add_health: entry.frame.add_health, attacker: entry.attacker, generation: entry.frame.target_generation,
+        team: entry.team, target_team: entry.target_team, gunner: entry.gunner,
+        trap_mode: entry.trap.is_some(), trap_state: entry.trap.as_ref().map_or_else(TrState::default, Into::into),
+    }
+}
+// Building.show changes collision visibility before its next callback. Updating
+// the existing flag bytes here keeps an immediate nested blast off the old BVH.
+fn commit(index: usize, frame: &props::Building) {
+    let entry = &mut f3::props().entries[index];
+    entry.frame = *frame;
+    if frame.last_attacker == props::Identity::Null { entry.attacker = Attacker::Null; }
+    // Death does not advance a turret's target generation; a completed repair
+    // does. Update the registry's health and life at the same write point.
+    let member = entry.member;
+    let (center, radius) = entry.trap_sphere.unwrap_or_else(|| frame.sphere(&entry.settings));
+    let bodies = entry.bodies;
+    let team = entry.target_team;
+    if let RepairTarget::Turret(turret) = entry.target {
+        crate::vehicles::module::f2::live_seats::turret_life(turret, frame.alive(), entry.attacker,
+            frame.target_generation.unwrap_or(0.0), center, radius);
+    }
+    if let Some(member) = member {
+        f3::prop_target(member, frame.alive(), frame.health, a(center), radius, frame.target_generation, team);
+    }
+    let collision = crate::vehicles::module::collision_world().expect("prepared prop collision world");
+    for (look, body) in bodies.into_iter().enumerate() {
+        let Some(kernel) = body.and_then(|body| collision.kernel_slot(body.slot)) else { continue };
+        let world = &crate::collision::state().worlds[f3::collision_world()];
+        if let Some(order) = world.order.iter().position(|&slot| slot as usize == kernel) {
+            unsafe { *crate::movement::movement_flags_ptr().add(order) = u8::from(look == frame.state.index()); }
+        }
+    }
+}
+// Turret.damage reports the untyped amount even when BuildingScale changed
+// health by another amount. A null direction still belongs to a struck packet;
+// it differs from a blast, which supplies no hit packet at all.
+#[derive(Clone, Copy)]
+struct HitInfo {
+    direction: Option<Vector3>,
+    amount: f64,
+    typed: f64,
+    generic: f64,
+}
+struct BuildingWorld<'a> {
+    index: usize,
+    services: WorldServices<'a>,
+    hit: Option<HitInfo>,
+}
+impl BuildingWorld<'_> {
+    fn leaf(&mut self, frame: &props::Building, kind: F3PropEffectKind) {
+        commit(self.index, frame);
+        // Publish native victims and structural owner births before the prop
+        // callback can read them. This leaf cannot enter a simulation adapter.
+        f3::foreign_barrier();
+        import_f3_prop_effect(&F3PropEffect { kind, state: snapshot(self.index) });
+    }
+    // Building.destroyed resumes after any immediate nested explosion. Reload
+    // the live row, rather than overwriting what recursive damage left there.
+    fn reload(&self, frame: &mut props::Building) {
+        *frame = f3::props().entries[self.index].frame;
+    }
+}
+impl props::World for BuildingWorld<'_> {
+    fn show(&mut self, frame: &props::Building) { self.leaf(frame, F3PropEffectKind::Show); }
+    // Building.destroyed kills its occupant before onDestroyed or show. Crew
+    // ownership must join here directly; a JS seat callback would reenter WASM.
+    fn crew_destroyed(&mut self, frame: &mut props::Building) {
+        commit(self.index, frame);
+        if let RepairTarget::Turret(turret) = f3::props().entries[self.index].target {
+            crate::vehicles::module::f2::live_seats::turret_destroyed(turret, self.services.reborrow());
+        }
+        self.reload(frame);
+    }
+    fn destroyed(&mut self, frame: &mut props::Building) {
+        // Building.onDestroyed follows crew death and precedes changing looks.
+        // Headless worlds use this declared F4 leaf for foreign bookkeeping.
+        self.leaf(frame, F3PropEffectKind::Destroyed);
+        self.reload(frame);
+    }
+    fn explode(&mut self, frame: &mut props::Building, position: Vector3) {
+        commit(self.index, frame);
+        if let Some(definition) = f3::props().entries[self.index].explosion {
+            // Game builds these callbacks with a null explosion owner, even
+            // when the building remembers who killed its turret gunner.
+            crate::combat::live::blast(definition, a(position), OrdnanceOwner::Null, Some(self.services.reborrow()));
+        }
+        self.reload(frame);
+    }
+    // Turret.damage notifies after super.damage completes, including its full
+    // destruction chain. Keep that position, target life and attribution for
+    // later journal delivery instead of reading a potentially rebuilt object.
+    fn damaged(&mut self, frame: &mut props::Building, amount: f64, _: props::Identity, _: props::Identity) {
+        commit(self.index, frame);
+        let entry = &f3::props().entries[self.index];
+        let mut position = Vector3::default();
+        position.set_from_matrix_position(&entry.settings.matrix);
+        let (direction, untyped, typed, generic) = self.hit.map_or((None, amount, 1.0, 1.0), |hit| (hit.direction.map(a), hit.amount, hit.typed, hit.generic));
+        // A crew may have boarded or died since the foreign facts arrived.
+        // TurretTarget.team is the lease's team at this exact callback slot.
+        let team = match entry.target {
+            RepairTarget::Turret(turret) => crate::vehicles::module::f2::live_seats::turret_team(turret, entry.team)
+                .unwrap_or(entry.target_team),
+            _ => entry.target_team,
+        };
+        F3PropDamage {
+            index: self.index as u32, amount, attacker: entry.attacker,
+            // Game's damage journal reads the occupied target's team, while
+            // friendly-fire policy above reads the building's authored team.
+            has_direction: direction.is_some(), direction: direction.unwrap_or([0.0; 3]), untyped, typed, generic, position: a(position), team, generation: frame.target_generation,
+        }.emit(&mut sim().events);
+    }
+    fn served(&mut self, _: &props::Station, _: &mut props::Target, _: u8) { unreachable!("foreign station phase"); }
+    fn serve_sound(&mut self, _: &props::Station, _: Option<usize>) { unreachable!("foreign station phase"); }
+}
+// Trap.setHealth shows a newly built pad before clearing sprung and starting
+// its reset clock. Publish that intermediate state at the original show point;
+// the final publication below then carries the completed reset transition.
+impl traps::HealthWorld for BuildingWorld<'_> {
+    fn health_show(&mut self, trap: &mut traps::Trap, built: bool) {
+        let entry = &mut f3::props().entries[self.index];
+        entry.trap = Some(*trap);
+        let mut frame = entry.frame;
+        frame.state = if built { props::State::Built } else { props::State::Unbuilt };
+        frame.health = trap.health;
+        self.leaf(&frame, F3PropEffectKind::Show);
+    }
+}
+// Building.damage and setHealth share the existing lifecycle arithmetic. A
+// stack frame releases the foreign table before a crew death or explosion can
+// recurse; copying these fixed facts allocates neither a table nor a Vec.
+fn mutate(index: usize, amount: f64, attacker: Option<Attacker>, hit: Option<HitInfo>, services: WorldServices<'_>) {
+    let entry = &mut f3::props().entries[index];
+    let mut frame = entry.frame;
+    let mut settings = entry.settings;
+    settings.has_crew = match entry.target {
+        RepairTarget::Turret(turret) => crate::vehicles::module::f2::live_seats::turret_gunner(turret).is_some(),
+        _ => entry.gunner.is_some(),
+    };
+    // Building.damage rejects a dead target before replacing lastAttacker.
+    // A repair has no attacker write, so an old repair lock or credit survives.
+    if let Some(attacker) = attacker {
+        if !frame.alive() || !(amount > 0.0) { return; }
+        entry.attacker = attacker;
+        frame.last_attacker = identity(attacker, index);
+    }
+    let trap = entry.trap;
+    entry.frame = frame;
+    let mut world = BuildingWorld { index, services, hit };
+    if let Some(mut trap) = trap {
+        // Building.damage delegates to Trap.setHealth for this subclass. At
+        // zero health it stays built until the next outside trap phase.
+        let value = if attacker.is_some() { frame.health - amount } else { amount };
+        trap.set_health_with(value, settings.max_health, &mut world);
+        f3::props().entries[index].trap = Some(trap);
+        frame.health = trap.health;
+        frame.state = if trap.built { props::State::Built } else { props::State::Unbuilt };
+    } else if attacker.is_some() {
+        frame.damage(amount, props::Identity::Object(index), props::Identity::Null, &settings, &mut world);
+    } else {
+        frame.set_health(amount, &settings, &mut world);
+    }
+    // Full rebuild changes the turret life after show returns. Publish that
+    // final scalar state too, without resending any other building or Unit.
+    world.leaf(&frame, F3PropEffectKind::Publish);
+}
+struct QueryWorld<'a> {
+    recon: &'a mut crate::recon::Authority,
+    owner: OrdnanceOwner,
+}
+impl live::World for QueryWorld<'_> {
+    // LiveObjects.repairs tests health type and flags before asking for a
+    // sphere. A destroyed objective is never rebuildable; an ordinary wreck is.
+    fn target(&mut self, index: usize) -> live::Target {
+        let buildings = f3::props().entries.len();
+        if index >= buildings {
+            let r = super::f3_hulls::reference(index - buildings);
+            let v = sim().store.vehicle.get(r).expect("repair hull");
+            let mut matrix = three::Matrix4::default(); matrix.elements = v.matrix;
+            return live::Target { alive:v.alive, state:None,
+                health_type:super::f3_hulls::repairable(r).then_some(live::Health::Vehicle),
+                health:v.health, max_health:v.max_health, team:v.team.unwrap_or(0.0),
+                body:Some(v.body.slot as usize), gunner:false, position:Vector3::new(v.position[0],v.position[1],v.position[2]), matrix };
+        }
+        let entry = &f3::props().entries[index];
+        let frame = &entry.frame;
+        let health_type = if entry.settings.kind == props::Kind::Objective && !frame.alive() { None } else {
+            Some(match frame.state { props::State::Built => live::Health::Building,
+                props::State::Destroyed => live::Health::Rebuild, props::State::Unbuilt => live::Health::Build })
+        };
+        let mut position = Vector3::default();
+        position.set_from_matrix_position(&entry.settings.matrix);
+        live::Target {
+            alive: frame.alive(), state: Some(frame.state), health_type, health: frame.health,
+            max_health: entry.settings.max_health, team: entry.team,
+            body: entry.bodies[frame.state.index()].map(|b| b.slot as usize), gunner: entry.gunner.is_some(),
+            position, matrix: entry.settings.matrix,
+        }
+    }
+    // Building.blastSphere prefers a model sphere in every state, whereas
+    // repair bounds use it only on an unbuilt pad. Both keep the unscaled
+    // radius even when the placement matrix scales the model.
+    fn sphere(&mut self, index: usize, blast: bool, _: Vector3) -> (Vector3, f64) {
+        let buildings = f3::props().entries.len();
+        if index >= buildings { return super::f3_hulls::sphere(super::f3_hulls::reference(index - buildings), blast); }
+        let entry = &f3::props().entries[index];
+        if let Some(sphere) = entry.trap_sphere { return sphere; }
+        if blast { entry.frame.blast_sphere(&entry.settings) } else { entry.frame.sphere(&entry.settings) }
+    }
+    // blastBlocked ignores the victim's current collision look. Repair LOS
+    // instead accepts a hit owned by the candidate itself. The native world
+    // ray retains that body identity, including a different collision look.
+    fn cast(&mut self, origin: Vector3, direction: Vector3, far: f64, ignore: Option<usize>, static_only: bool, _: live::Out) -> Option<live::Hit> {
+        let ignored = ignore.and_then(|slot| f3::props().body_slots.get(slot).copied().flatten())
+            .and_then(|i| f3::props().entries[i].bodies.into_iter().flatten().find(|r| Some(r.slot as usize) == ignore));
+        super::native::ordnance_cast(f3::collision_world(), a(origin), a(direction), far, ignored, static_only, false).map(|hit| {
+            let owner = hit.body.and_then(|b| f3::props().body_slots.get(b.slot as usize).copied().flatten()
+                .or_else(|| super::f3_hulls::body_index(b).map(|i| f3::props().entries.len() + i)));
+            live::Hit { distance: hit.distance, owner }
+        })
+    }
+    // Game.teamDamage observes the building's team, not a turret occupant's
+    // team from its AI target. Reevaluate it for each recursively reached row.
+    fn team_scale(&mut self, _: &mut live::Queries, index: usize) -> f64 {
+        let (team, human, _) = crate::combat::live::owner_facts(self.owner);
+        let buildings = f3::props().entries.len();
+        let target_team = if index < buildings { f3::props().entries[index].team }
+            else { sim().store.vehicle.get(super::f3_hulls::reference(index - buildings)).expect("repair hull").team.unwrap_or(0.0) };
+        crate::combat::impacts::team_damage(team, human, target_team, false, f3::friendly_fire())
+    }
+    fn damage(&mut self, queries: &mut live::Queries, index: usize, amount: f64, _: props::Identity, info: Option<live::Damage>) {
+        let buildings = f3::props().entries.len();
+        if index >= buildings {
+            super::f3_hulls::mutate(super::f3_hulls::reference(index - buildings), amount, Some(self.owner), WorldServices { recon:self.recon, queries });
+            return;
+        }
+        let (_, _, attacker) = crate::combat::live::owner_facts(self.owner);
+        let hit = info.map(|i| HitInfo { direction: i.direction, amount: i.amount, typed: i.typed, generic: i.generic.num() });
+        mutate(index, amount, Some(attacker), hit, WorldServices { recon: self.recon, queries });
+    }
+    fn set_health(&mut self, queries: &mut live::Queries, index: usize, value: Field) {
+        let buildings = f3::props().entries.len();
+        if index >= buildings {
+            super::f3_hulls::mutate(super::f3_hulls::reference(index - buildings), value.num(), None, WorldServices { recon:self.recon, queries });
+            return;
+        }
+        mutate(index, value.num(), None, None, WorldServices { recon: self.recon, queries });
+    }
+    fn may_enter(&mut self, _: &mut live::Queries, _: usize) -> bool { unreachable!("native seat admission service"); }
+}
+// LiveObjects.lockOn keeps the old current target first, then construction
+// order. Its strict score comparison preserves equal-distance ties.
+pub(crate) fn lock_on(eye: Vector3, direction: Vector3, definition: &live::Definition, current: Option<RepairTarget>, held: bool, team: f64, services: WorldServices<'_>) -> Option<RepairTarget> {
+    let current = current.and_then(|r| f3::props().index(r));
+    let mut world = QueryWorld { recon: services.recon, owner: OrdnanceOwner::Null };
+    // LiveObjects.lockOn visits buildings before the fleet, keeping a held
+    // current target first even when it comes from the later hull sequence.
+    let count = f3::props().entries.len() + super::f3_hulls::count();
+    let picked = services.queries.lock_on_ordered(0..count, eye, direction, definition, current, held, team, true, &mut world);
+    picked.map(|i| if i < f3::props().entries.len() { f3::props().entries[i].target }
+        else { RepairTarget::Vehicle(super::f3_hulls::reference(i - f3::props().entries.len())) })
+}
+// repairLockKey deliberately omits health state and gameplay generation.
+// Its construction-time string survives damage and rebuilding of that object.
+pub(crate) fn lock_key(target: RepairTarget) -> StrId {
+    if let RepairTarget::Vehicle(r) = target { return super::f3_hulls::lock_key(r); }
+    let index = f3::props().index(target).expect("prepared repair target");
+    f3::props().entries[index].lock_key
+}
+// LiveObjects.repair rechecks eligibility when the tick fires. A preceding
+// repair or nested explosion may have changed the earlier acquisition result.
+pub(crate) fn repair(target: Option<RepairTarget>, definition: &live::Definition, team: f64, services: WorldServices<'_>) -> bool {
+    let target = target.and_then(|r| f3::props().index(r));
+    let mut world = QueryWorld { recon: services.recon, owner: OrdnanceOwner::Null };
+    services.queries.repair(target, definition, team, &mut world)
+}
+// LiveObjects.blast reads the live construction sequence after every nested
+// death. Only the fixed numeric BuildingScale fields are needed by this layer.
+pub(crate) fn blast(packet: BlastPacket, position: Vector3, owner: OrdnanceOwner, services: WorldServices<'_>) {
+    let definition = ExplosionDef {
+        damage: Field::Num(packet.hit.damage), damage_radius_inner: Field::Num(packet.inner),
+        damage_radius_outer: Field::Num(packet.outer), scales: packet.hit.scales.map(Field::Num),
+    };
+    let mut world = QueryWorld { recon: services.recon, owner };
+    let mut index = 0;
+    while index < f3::props().entries.len() {
+        let target = index;
+        services.queries.blast(&[target], &definition, position, props::Identity::Null, true, true, &mut world);
+        index += 1;
+    }
+}
+// Game.onHit visits props before hulls. A body with no building owner is a
+// no-op here; the coordinator's F2 service still receives the same body next.
+pub(crate) fn struck(body: Ref<Body>, packet: HitPacket, owner: OrdnanceOwner, direction: Option<Vector3>, services: WorldServices<'_>) {
+    let Some(index) = f3::props().body_slots.get(body.slot as usize).copied().flatten() else { return };
+    if !f3::props().entries[index].bodies.contains(&Some(body)) { return; }
+    let (team, human, attacker) = crate::combat::live::owner_facts(owner);
+    let scale = crate::combat::impacts::team_damage(team, human, f3::props().entries[index].team, false, f3::friendly_fire());
+    let typed = packet.scales[HealthScale::Building as usize];
+    let hit = Some(HitInfo { direction, amount: packet.damage * scale, typed, generic: packet.shield });
+    mutate(index, packet.damage * typed * scale, Some(attacker), hit, services);
+}
+// OrdnanceWorld.hit uses a following beam's current damage override while
+// retaining its immutable health and shield factors from the prepared class.
+pub(crate) fn hit_policy(definition: DefArg) -> HitPacket {
+    let (definition, damage) = match definition {
+        DefArg::Ordnance(definition) => (definition, None),
+        DefArg::Beam(r) => {
+            let beam = sim().store.beam.get(r).expect("live beam hit");
+            (beam.def, beam.damage)
+        }
+    };
+    let mut packet = f3::hit_policy(definition);
+    if let Some(damage) = damage { packet.damage = damage; }
+    packet
+}
+fn a(value: Vector3) -> [f64; 3] { [value.x, value.y, value.z] }
+fn v(value: [f64; 3]) -> Vector3 { Vector3::new(value[0], value[1], value[2]) }

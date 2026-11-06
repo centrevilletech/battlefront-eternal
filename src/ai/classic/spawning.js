@@ -542,10 +542,10 @@ export class ClassicSpawning {
     return r && typeof r[team] === "number" ? r[team] : this.teams[team].tickets;
   }
 
-  spendTicket(team) {
+  spendTicket(team, spend = this.battle?.spend) {
     const r = this.battle?.reinforcements;
     if (r && typeof r[team] === "number") {
-      if (this.battle.spend) this.battle.spend(team);
+      if (spend) spend.call(this.battle, team);
       else r[team] = Math.max(r[team] - 1, 0);
     } else {
       this.teams[team].tickets--;
@@ -688,7 +688,7 @@ export class ClassicSpawning {
   // A Character's unit died: it prepares again in 4 s; a bot draws a fresh
   // objective and forgets its post; the team's living count drops (heroes
   // aren't counted) and it spends a reinforcement if it has any.
-  onDeath(character) {
+  onDeath(character, tickets = this) {
     const team = this.teams[character.team];
     character.spawn.timer = RESPAWN_DELAY;
     if (!character.human) {
@@ -697,7 +697,7 @@ export class ClassicSpawning {
     }
     character.unit = null;
     if (!character.hero) team.living--;
-    if (this.tickets(character.team) > 0) this.spendTicket(character.team);
+    if (tickets.tickets(character.team) > 0) tickets.spendTicket(character.team);
   }
 
   // The human chose (on the spawn screen): a class from the team's roster (by

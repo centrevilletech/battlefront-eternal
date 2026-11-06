@@ -1,11 +1,10 @@
+import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
-import { Droideka } from '../src/droideka.js';
 import { SoldierAnimator } from './helpers/presentation.js';
-import { PlayerCombat } from '../src/combat.js';
 import { FirstPersonView } from './helpers/presentation.js';
 import { Clip, loadClips } from '../src/anim.js';
 
@@ -20,95 +19,6 @@ function actor(names = ['DummyRoot']) {
   });
   return { root, bones, byName: Object.fromEntries(bones.map(b => [b.name, b])) };
 }
-
-const floor = {
-  gather: () => [],
-  cast(from, direction, reach, hit) {
-    if (direction.y >= 0) return null;
-    const distance = -from.y / direction.y;
-    if (distance < 0 || distance > reach) return null;
-    hit.distance = distance;
-    hit.point.copy(from).addScaledVector(direction, distance);
-    hit.normal.set(0, 1, 0);
-    hit.terrain = true;
-    return hit;
-  },
-};
-
-function droideka() {
-  return new Droideka(floor, { BallRollingFriction: 50, BallAcceleration: 100 }, new Map(), actor());
-}
-
-function aimState() {
-  return Object.fromEntries(['aimDir', 'left', 'up', 'origin', 'pivot', 'from', 'target', 'shotDir'].map(k => [k, new THREE.Vector3()]));
-}
-
-test('droideka aim is independent of world origin and stays ahead of both barrels', () => {
-  const d = droideka();
-  let ray;
-  d.world = { cast(from) { ray = from.clone(); return null; } };
-  for (const yaw of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
-    d.position.set(1200, 60, -1900);
-    d.aimYaw = yaw;
-    const c = aimState();
-    const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-    c.camera = { position: d.position.clone().add(new THREE.Vector3(0, 2.3, 0)).addScaledVector(forward, -4.5) };
-    d.aim(c);
-    assert.ok(Math.abs(ray.clone().sub(c.origin).dot(forward)) < 1e-8);
-    assert.ok(c.shotDir.dot(forward) > 0.999);
-  }
-});
-
-test('turn-only droideka input pivots correctly without propulsion', () => {
-  const d = droideka();
-  d.enter(12);
-  for (let i = 0; i < 60; i++) d.tick({ right: 1 }, 1 / 60);
-  assert.ok(d.aimYaw < -1.9, 'right input must turn right, matching soldier controls');
-  assert.equal(d.spin, 0);
-  assert.ok(Math.hypot(d.position.x, d.position.z) < 1e-8);
-  assert.ok(Math.abs(d.position.y) < 1e-8, 'the final physics position must be resolved onto ground');
-});
-
-test('a target behind a droideka muzzle cannot reverse its emitted bolt', () => {
-  const c = Object.create(PlayerCombat.prototype);
-  let emitted;
-  Object.assign(c, aimState(), {
-    soldier: { nextGun: out => out.set(0, 1, 2), posture: 'stand' },
-    fireDir: new THREE.Vector3(), side: new THREE.Vector3(), gunPoint: new THREE.Vector3(),
-    held: new Map(), kick: { offset: 0 },
-    animator: { weaponAction() {}, fire() {} }, flash() {},
-    ordnance: { fire(def, from, direction) { emitted = direction.clone(); } },
-  });
-  c.aimDir.set(0, 0, 1);
-  c.shotDir.set(0, 0, 1);
-  c.target.set(0, 1, 1);
-  c.fire({ weapon: { def: { ordnance: { base: 'bolt' } }, bank: 'bdroid' }, yaw: 0, pitch: 0 });
-  assert.ok(emitted.z > 0.99);
-});
-
-test('rolling steering follows heading, retains top speed, and brakes without throttle', () => {
-  const d = droideka();
-  d.enter(12);
-  for (let i = 0; i < 60; i++) d.tick({ forward: 1 }, 1 / 60);
-  assert.ok(Math.abs(d.velocity.length() - 13) < 1e-6);
-  d.tick({ forward: 1, right: 1 }, 1 / 60);
-  assert.ok(d.velocity.x < 0);
-  const before = d.aimYaw;
-  for (let i = 0; i < 60; i++) d.tick({ right: 1 }, 1 / 60);
-  assert.equal(d.spin, 0);
-  assert.ok(d.aimYaw < before - 1.9);
-});
-
-test('rolling final positions and speeds are stable across physics rates', () => {
-  const runs = [30, 60, 120].map(hz => {
-    const d = droideka();
-    d.enter(12);
-    for (let i = 0; i < hz * 2; i++) d.tick({ forward: 1 }, 1 / hz);
-    assert.ok(Math.abs(d.position.y) < 1e-8);
-    return d.position.z;
-  });
-  assert.ok(Math.max(...runs) - Math.min(...runs) < 0.2);
-});
 
 function clip(name, travel = 1) {
   const data = new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, travel]);
@@ -135,22 +45,6 @@ test('roll fits recovery into physics duration and returns to a finite moving ga
   assert.notEqual(a.gait, 'idle', 'residual roll velocity must not force the idle pose');
   assert.ok(Number.isFinite(a.time));
   assert.ok(a.actor.root.quaternion.toArray().every(Number.isFinite));
-});
-
-test('grenade action survives the bank switch in the real combat update', () => {
-  const source=animator().host.source;const a={bank:'rifle',events:[],fire(){},setBank(bank){this.bank=bank;this.events.push(['bank',bank]);},weaponAction(action,bank,posture){this.events.push(['action',action,bank,posture]);},endWeaponAction(){}};
-  const primary = { def: {}, bank: 'rifle' };
-  const grenade = { def: {}, bank: 'grenade', thrown: true, charge: 1, busy: false };
-  const c = Object.create(PlayerCombat.prototype);
-  Object.assign(c, {
-    soldier: { posture: 'stand', air: null, dive: 0, lock: 0 }, animator: a,
-    arsenal: { weapons: [primary, grenade], current: ch => ch ? grenade : primary, update() { grenade.busy = true; return []; } },
-    held: new Map(), seen: new Map(),
-    aim() {}, updateGlow() {}, updateKick() {}, updateFlashes() {},
-  });
-  c.update(1 / 60, { take: () => false, held: () => false }, 0);
-  assert.equal(a.bank, 'grenade');
-  assert.equal(source.weaponClip('shoot3','grenade','stand').name,'human_grenade_stand_shoot3');assert.ok(a.events.findIndex(e=>e[0]==='bank')<a.events.findIndex(e=>e[0]==='action'));
 });
 
 test('first-person grenade starts windup before release',()=>{

@@ -48,13 +48,8 @@
 //                 lines carry its number ("2:1 ..." is the second's tick 1).
 //                 --twice is --battles 2.
 //
-// --combat rust runs a world's combats on the simulation's module
-// (?combat=rust, src/combat-sim.js); its fingerprints must match the
-// default's. --units rust runs the step's loop over the units there too
-// (?units=rust, src/units-sim.js), with combat or without; it brings the
-// ray kernel, as the soldiers move through the module's collision world.
-// Its fingerprints must match the default's.
-// Collision, soldier movement, rounds and items always use Rust.
+// Unit bodies, combat, collision, soldier movement, rounds and items
+// always use their native owners. Frozen output supplies the reference.
 //
 // --plugin FILE (any number of times) loads a module that watches the
 // battle (the simulation capture of tools/sim-capture.mjs): it is imported
@@ -74,16 +69,10 @@ const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('se
 const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
 const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = argv.includes('--twice') ? 2 : Number(opt('battles', 1));
 const unit = opt('unit', null), mount = Number(opt('mount', -1));
-// --combat rust: a world's combats on the module (?combat=rust, src/combat-sim.js).
-const combat = opt('combat', 'js');
 const aiSim = opt('ai-sim', 'js');
 if (!['rust', 'js'].includes(aiSim)) throw Error(`--ai-sim ${aiSim}: rust or js`);
 const battleRules = opt('battle', 'js');
 if (!['rust', 'js'].includes(battleRules)) throw Error(`--battle ${battleRules}: rust or js`);
-if (!['rust', 'js'].includes(combat)) throw Error(`--combat ${combat}: rust or js`);
-// --units rust: the units' phase on the module (?units=rust, src/units-sim.js).
-const units = opt('units', 'js');
-if (!['rust', 'js'].includes(units)) throw Error(`--units ${units}: rust or js`);
 const nativeRandom = opt('random', 'seeded') === 'native';
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
@@ -106,8 +95,8 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}&battle=${battleRules}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${combat === 'rust' ? '&combat=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, combat, units, battle: battleRules, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}&battle=${battleRules}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, battle: battleRules, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 
@@ -125,7 +114,7 @@ async function battle(index) {
   // Collision, movement, rounds and items are required on the battle instance.
   if (!game.collision.rays || !game.collision.movement || !game.ordnance.sim || !game.items.sim) throw Error('required simulation kernels did not attach');
   if (!game.vehicles?.f2) throw Error('required vehicle phase did not attach');
-  if ((units === 'rust') !== Boolean(game.unitsSim)) throw Error('unit owner did not match the requested switch');
+  if (!game.unitsSim) throw Error('native unit owner did not attach');
   let sent = [];
   const server = await createLocalServer(game, { name: 'Player', send: (channel, payload) => sent.push([channel, payload]) });
   server.welcome();

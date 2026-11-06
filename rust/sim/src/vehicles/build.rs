@@ -451,7 +451,7 @@ pub fn build(src: &HullSource, index: usize, id: crate::store::Ref<crate::gen::V
         legs.retain(|l| l.calf.is_some() || l.thigh.is_some());
     }
     let has_legs = def.get("fx").and_then(|f| f.get("legs")).is_some_and(|l| l.truthy());
-    let pose = HullPose {
+    let mut pose = HullPose {
         work: Default::default(),
         clips: super::pose::walk_clips(template),
         leg_pairs: super::pose::leg_pairs(def),
@@ -466,6 +466,7 @@ pub fn build(src: &HullSource, index: usize, id: crate::store::Ref<crate::gen::V
         wheel_bones,
         seats: seat_poses,
     };
+    pose.prepare_work(flying);
     let hull = Hull {
         index,
         id,

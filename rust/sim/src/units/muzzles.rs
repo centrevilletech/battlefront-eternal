@@ -3,7 +3,7 @@
 //! the native unit replay. The drawn skeleton remains independent.
 
 use super::droideka::{self, DroidekaParts};
-use crate::gen::{Droideka, Unit, UnitBody};
+use crate::gen::{Unit, UnitBody};
 use crate::pose::Pose;
 use crate::rig::droideka::{DroidekaAnimator, DroidekaRig};
 use crate::store::word_u32;
@@ -11,14 +11,9 @@ use std::ptr::addr_of_mut;
 use three::{EulerOrder, Quaternion, TransformNode, TransformTree, Vector3};
 
 const ORDERS: [EulerOrder; 6] = [EulerOrder::XYZ, EulerOrder::YXZ, EulerOrder::ZXY, EulerOrder::ZYX, EulerOrder::YZX, EulerOrder::XZY];
-const NODE_WORDS: usize = 49;
 
-struct Muzzles {
+pub(crate) struct Muzzles {
     parts: DroidekaParts,
-    count: usize,
-    version: u32,
-    output: Vec<f64>,
-    point: [f64; 8],
 }
 
 static mut RIGS: Vec<Option<Muzzles>> = Vec::new();
@@ -92,23 +87,21 @@ pub fn attach(id: u32, mut parts: DroidekaParts, words: &[f64]) {
     parts.rig = Some(Box::new(DroidekaRig { tree, root: 0, bones: (1..=n as u32).collect(), barrels, animator }));
     let list = rigs();
     if list.len() <= id as usize { list.resize_with(id as usize + 1, || None); }
-    list[id as usize] = Some(Muzzles { parts, count: next as usize, version: 1, output: Vec::new(), point: [0.0; 8] });
+    list[id as usize] = Some(Muzzles { parts });
 }
 
 pub fn sample(id: u32, unit: &mut Unit, dt: f64) -> bool {
     let Some(m) = rigs().get_mut(id as usize).and_then(Option::as_mut) else { return false };
     droideka::sample_muzzles(unit, dt, &mut m.parts);
-    m.version = m.version.wrapping_add(1);
     true
 }
 
-/// Outer None means the host still owns this body's rig. Inner None is a
-/// native rig with no gun at the requested selection.
+/// The outer result distinguishes a missing prepared rig from a valid
+/// selection with no barrel. The native combat owner requires the rig.
 pub fn next_gun(id: u32, unit: &mut Unit) -> Option<Option<Vector3>> {
     let m = rigs().get_mut(id as usize)?.as_mut()?;
     let UnitBody::Droideka(d) = &mut unit.soldier else { return None };
     let point = d.next_gun(m.parts.rig.as_mut().unwrap());
-    m.version = m.version.wrapping_add(1);
     Some(point)
 }
 
@@ -119,52 +112,21 @@ pub fn gun_at(id: u32, selected: (f64, f64)) -> Option<Option<Vector3>> {
         (Some(i), Some(b)) => m.parts.rig.as_mut().unwrap().gun_at(i, b),
         _ => None,
     };
-    m.version = m.version.wrapping_add(1);
     Some(point)
 }
 
-/// Physical gun queries made by a JavaScript combat. Only nextGun's
-/// counter is an input; neither query reads a potentially stale store row.
-#[no_mangle]
-pub extern "C" fn units_muzzle_query(id: u32, next: u32, index: f64, barrel: f64) -> *const f64 {
-    let m = rigs()[id as usize].as_mut().expect("an attached gun rig");
-    let rig = m.parts.rig.as_mut().unwrap();
-    let mut d = Droideka { gun: index, ..Droideka::default() };
-    let p = if next != 0 { d.next_gun(rig) } else { rig.gun_at(word_u32(index) as usize, word_u32(barrel) as usize) };
-    let out = &mut m.point;
-    out[0] = p.is_some() as u8 as f64;
-    if let Some(p) = p { out[1] = p.x; out[2] = p.y; out[3] = p.z; }
-    out[4] = d.gun;
-    out[5] = d.last_gun.is_some() as u8 as f64;
-    if let Some(g) = d.last_gun { out[6] = g.index; out[7] = g.barrel; }
-    m.version = m.version.wrapping_add(1);
-    out.as_ptr()
-}
 
-/// Mirror transforms only when native posing or a gun query changed them.
-/// This does no imports and never retains a pointer supplied by the host.
-#[no_mangle]
-pub extern "C" fn units_muzzle_out(id: u32, version: f64) -> *const f64 {
-    let Some(m) = rigs().get_mut(id as usize).and_then(Option::as_mut) else { return std::ptr::null() };
-    if version == m.version as f64 { return std::ptr::null() }
-    let rig = m.parts.rig.as_mut().unwrap();
-    let out = &mut m.output;
-    out.clear();
-    out.extend([m.version as f64, m.count as f64, NODE_WORDS as f64]);
-    for id in 0..m.count {
-        let node = rig.tree.node_mut(id as u32);
-        let e = node.rotation();
-        out.extend([node.position.x, node.position.y, node.position.z,
-            node.quaternion.x, node.quaternion.y, node.quaternion.z, node.quaternion.w,
-            node.scale.x, node.scale.y, node.scale.z, e.x, e.y, e.z,
-            ORDERS.iter().position(|&o| o == e.order).unwrap() as f64]);
-        out.extend(node.matrix.elements);
-        out.extend(node.matrix_world.elements);
-        out.extend([node.matrix_auto_update as u8 as f64, node.matrix_world_auto_update as u8 as f64, node.matrix_world_needs_update as u8 as f64]);
-    }
-    let pose = &rig.animator.pose;
-    out.extend(pose.q.iter().map(|&v| v as f64));
-    out.extend(pose.t.iter().map(|&v| v as f64));
-    out.extend(pose.w.iter().map(|&v| v as f64));
-    out.as_ptr()
+// UnitFactory cold construction transfers its private rig at activation.
+// No drawn skeleton or barrel query participates in the native birth.
+pub(crate) fn take(id: u32) -> Option<Muzzles> {
+    rigs().get_mut(id as usize).and_then(Option::take)
+}
+pub(crate) fn install(id: u32, rig: Option<Muzzles>) {
+    let rows = rigs();
+    assert!((id as usize) < rows.len(), "reserved native muzzle slots");
+    rows[id as usize] = rig;
+}
+pub(crate) fn reserve(count: usize) {
+    let rows = rigs();
+    rows.resize_with(count.max(rows.len()), || None);
 }

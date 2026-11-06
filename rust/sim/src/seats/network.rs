@@ -194,7 +194,7 @@ impl<W: SeatWorld + ?Sized> CycleAccess for NativeCycle<'_, W> {
     type Lease = Ref<SeatLease>;
     type Hull = usize;
     fn rider(&mut self, unit: u32) -> Result<Option<(usize, Self::Lease, f64)>, Self::Error> {
-        let Some(u) = self.st.unit.get(super::unit_ref(unit)) else { return Ok(None) };
+        let Some(u) = self.st.unit.get(super::unit_ref(self.st, unit)) else { return Ok(None) };
         if u.network_human != Some(true) { return Ok(None); }
         let Some(r) = u.seat else { return Ok(None) };
         let lease = self.st.seat_lease.get(r).unwrap();

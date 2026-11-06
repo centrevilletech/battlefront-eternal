@@ -44,7 +44,7 @@ mod trig;
 pub use explog::{cbrt, exp, expm1, log, log10, log1p, log2, pow_legacy};
 pub use pow::{glibc_pow, pow};
 pub use inv::{acos, acosh, asin, asinh, atan, atan2, atanh, cosh, sinh, tanh};
-pub use trig::{cos, sin, tan};
+pub use trig::{cos, sin, sin_cos, tan};
 
 /// The NaN V8's fdlibm returns where it returns
 /// `std::numeric_limits<double>::signaling_NaN()`.
@@ -514,4 +514,24 @@ mod tests {
         assert_eq!(scalbn(1.0, 1024), f64::INFINITY);
         assert_eq!(scalbn(-1.0, 1023), -8.98846567431158e307);
     }
+    #[test]
+    fn paired_trig_preserves_scalar_bits() {
+        // Include quadrant edges and signed zero, then span ordinary and
+        // large finite inputs with deterministic raw floating-point values.
+        let check = |x: f64| {
+            let (s,c)=sin_cos(x);
+            if x.is_finite() {
+                assert_eq!(s.to_bits(),sin(x).to_bits(),"sin({x})");
+                assert_eq!(c.to_bits(),cos(x).to_bits(),"cos({x})");
+            } else {assert!(s.is_nan() && c.is_nan());}
+        };
+        for x in [0.,-0.,1.,-1.,std::f64::consts::PI,std::f64::consts::FRAC_PI_2,
+            std::f64::consts::FRAC_PI_4,1e20,-1e20,f64::INFINITY,f64::NAN] {check(x);}
+        let mut state=19u64;
+        for _ in 0..65536 {
+            state=state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            check(f64::from_bits(state));
+        }
+    }
+
 }

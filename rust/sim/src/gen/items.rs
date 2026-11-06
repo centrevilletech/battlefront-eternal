@@ -38,6 +38,330 @@ impl ItemOwner {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3ItemClass {
+    pub def: DefId,
+    pub base: u32,
+    pub pool: f64,
+    pub mine: bool,
+    pub life: f64,
+    pub health: f64,
+    pub model: ModelAnswer,
+    pub health_gain: [f64; 5],
+    pub ammo_gain: [f64; 5],
+}
+
+impl F3ItemClass {
+    pub const WORDS: usize = 22;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 22] = (&mut row[..22]).try_into().unwrap();
+        row[0] = self.def.0 as f64;
+        row[1] = self.base as f64;
+        row[2] = self.pool;
+        row[3] = if self.mine { 1.0 } else { 0.0 };
+        row[4] = self.life;
+        row[5] = self.health;
+        self.model.put(&mut row[6..], heap);
+        row[12..12 + 5].copy_from_slice(&self.health_gain);
+        row[17..17 + 5].copy_from_slice(&self.ammo_gain);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 22] = (&row[..22]).try_into().unwrap();
+        Self {
+            def: DefId(word_u32(row[0])),
+            base: word_u32(row[1]),
+            pool: row[2],
+            mine: row[3] != 0.0,
+            life: row[4],
+            health: row[5],
+            model: ModelAnswer::take(&row[6..], heap),
+            health_gain: { let mut a = [0.0; 5]; a.copy_from_slice(&row[12..12 + 5]); a },
+            ammo_gain: { let mut a = [0.0; 5]; a.copy_from_slice(&row[17..17 + 5]); a },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3ItemTarget {
+    pub unit: Option<Ref<Unit>>,
+    pub hull: Option<Ref<Vehicle>>,
+    pub life: f64,
+}
+
+impl F3ItemTarget {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        match &self.unit { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } }
+        match &self.hull { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v).slot as f64; row[3 + 1 + 1] = (*v).gen as f64; } None => { row[3] = 1.0; row[3 + 1..3 + 3].fill(0.0); } }
+        row[6] = self.life;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            unit: if row[0] == 0.0 { Some(Ref::new(word_u32(row[0 + 1]), word_u32(row[0 + 1 + 1]))) } else { None },
+            hull: if row[3] == 0.0 { Some(Ref::new(word_u32(row[3 + 1]), word_u32(row[3 + 1 + 1]))) } else { None },
+            life: row[6],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3PowerupEffect {
+    pub name: StrId,
+    pub position: Vec3,
+}
+
+impl F3PowerupEffect {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.name.0 as f64;
+        row[1..1 + 3].copy_from_slice(&self.position);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            name: StrId(word_u32(row[0])),
+            position: [row[1], row[1 + 1], row[1 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3DispenserBinding {
+    pub key: F3UnitKey,
+    pub weapon: DefId,
+    pub level: u32,
+    pub name: StrId,
+    pub owned_key: StrId,
+}
+
+impl F3DispenserBinding {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.weapon.0 as f64;
+        row[4] = self.level as f64;
+        row[5] = self.name.0 as f64;
+        row[6] = self.owned_key.0 as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            weapon: DefId(word_u32(row[3])),
+            level: word_u32(row[4]),
+            name: StrId(word_u32(row[5])),
+            owned_key: StrId(word_u32(row[6])),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3UnitItems {
+    pub class: DefId,
+    pub explosion: Option<u32>,
+    pub drops: Vec<DropEntry>,
+    pub add_health: f64,
+    pub health_effect: StrId,
+    pub ammo_effect: StrId,
+}
+
+impl F3UnitItems {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = self.class.0 as f64;
+        match &self.explosion { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v) as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 2].fill(0.0); } }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.drops.len() as f64; heap.resize(at + self.drops.len() * 4, 0.0); for (i, e) in self.drops.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
+        row[5] = self.add_health;
+        row[6] = self.health_effect.0 as f64;
+        row[7] = self.ammo_effect.0 as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            class: DefId(word_u32(row[0])),
+            explosion: if row[1] == 0.0 { Some(word_u32(row[1 + 1])) } else { None },
+            drops: { let (at, n) = (word_u32(row[3]) as usize, word_u32(row[3 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(DropEntry::take(&row[0..], heap)); } out },
+            add_health: row[5],
+            health_effect: StrId(word_u32(row[6])),
+            ammo_effect: StrId(word_u32(row[7])),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3ItemState {
+    pub def: DefId,
+    pub mine: bool,
+    pub position: Vec3,
+    pub previous: Vec3,
+    pub velocity: Vec3,
+    pub yaw: f64,
+    pub up: Vec3,
+    pub landed: bool,
+    pub sinking: bool,
+    pub radius: f64,
+    pub center: Option<Vec3>,
+    pub turn: Option<Quat>,
+    pub owner: ItemOwner,
+    pub team: f64,
+    pub age: f64,
+    pub life: f64,
+    pub health: f64,
+    pub gone: Option<bool>,
+}
+
+impl F3ItemState {
+    pub const WORDS: usize = 36;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 36] = (&mut row[..36]).try_into().unwrap();
+        row[0] = self.def.0 as f64;
+        row[1] = if self.mine { 1.0 } else { 0.0 };
+        row[2..2 + 3].copy_from_slice(&self.position);
+        row[5..5 + 3].copy_from_slice(&self.previous);
+        row[8..8 + 3].copy_from_slice(&self.velocity);
+        row[11] = self.yaw;
+        row[12..12 + 3].copy_from_slice(&self.up);
+        row[15] = if self.landed { 1.0 } else { 0.0 };
+        row[16] = if self.sinking { 1.0 } else { 0.0 };
+        row[17] = self.radius;
+        match &self.center { Some(v) => { row[18] = 0.0; row[18 + 1..18 + 1 + 3].copy_from_slice(&(*v)); } None => { row[18] = 1.0; row[18 + 1..18 + 4].fill(0.0); } }
+        match &self.turn { Some(v) => { row[22] = 0.0; row[22 + 1..22 + 1 + 4].copy_from_slice(&(*v)); } None => { row[22] = 1.0; row[22 + 1..22 + 5].fill(0.0); } }
+        self.owner.put(&mut row[27..27 + 3], heap);
+        row[30] = self.team;
+        row[31] = self.age;
+        row[32] = self.life;
+        row[33] = self.health;
+        match &self.gone { Some(v) => { row[34] = 0.0; row[34 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[34] = 2.0; row[34 + 1..34 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 36] = (&row[..36]).try_into().unwrap();
+        Self {
+            def: DefId(word_u32(row[0])),
+            mine: row[1] != 0.0,
+            position: [row[2], row[2 + 1], row[2 + 2]],
+            previous: [row[5], row[5 + 1], row[5 + 2]],
+            velocity: [row[8], row[8 + 1], row[8 + 2]],
+            yaw: row[11],
+            up: [row[12], row[12 + 1], row[12 + 2]],
+            landed: row[15] != 0.0,
+            sinking: row[16] != 0.0,
+            radius: row[17],
+            center: if row[18] == 0.0 { Some([row[18 + 1], row[18 + 1 + 1], row[18 + 1 + 2]]) } else { None },
+            turn: if row[22] == 0.0 { Some([row[22 + 1], row[22 + 1 + 1], row[22 + 1 + 2], row[22 + 1 + 3]]) } else { None },
+            owner: ItemOwner::take(&row[27..27 + 3], heap),
+            team: row[30],
+            age: row[31],
+            life: row[32],
+            health: row[33],
+            gone: if row[34] == 0.0 { Some(row[34 + 1] != 0.0) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3ItemNotice {
+    pub item: Ref<Item>,
+    pub state: F3ItemState,
+    pub made: bool,
+}
+
+impl F3ItemNotice {
+    pub const WORDS: usize = 39;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 39] = (&mut row[..39]).try_into().unwrap();
+        row[0] = self.item.slot as f64; row[0 + 1] = self.item.gen as f64;
+        self.state.put(&mut row[2..], heap);
+        row[38] = if self.made { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 39] = (&row[..39]).try_into().unwrap();
+        Self {
+            item: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+            state: F3ItemState::take(&row[2..], heap),
+            made: row[38] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3ItemRetired {
+    pub slot: u32,
+    pub generation: u32,
+}
+
+impl F3ItemRetired {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.slot as f64;
+        row[1] = self.generation as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            slot: word_u32(row[0]),
+            generation: word_u32(row[1]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3DispenserNotice {
+    pub key: StrId,
+    pub removed: bool,
+    pub items: Vec<Ref<Item>>,
+}
+
+impl F3DispenserNotice {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.key.0 as f64;
+        row[1] = if self.removed { 1.0 } else { 0.0 };
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.items.len() as f64; heap.resize(at + self.items.len() * 2, 0.0); for (i, e) in self.items.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            key: StrId(word_u32(row[0])),
+            removed: row[1] != 0.0,
+            items: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ItemCastArgs {
     pub origin: Vec3,
     pub direction: Vec3,

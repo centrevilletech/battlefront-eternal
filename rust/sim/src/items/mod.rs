@@ -48,22 +48,36 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     /// items.js spawn: a new item, unless the world has no room for its
     /// kind (counted over the list, the gone not yet filtered included).
     pub fn spawn(&mut self, def: DefId, position: Vec3, velocity: Vec3, yaw: f64, owner: ItemOwner, team: f64) -> Option<Ref<Item>> {
-        let base = self.item_def(def).base.clone();
-        let live = {
-            let defs: *const crate::ordnance::defs::Defs = self.defs();
-            let s = self.s();
-            // SAFETY: the definitions are read only; the store is not.
-            let defs = unsafe { &*defs };
-            s.items.items.iter().filter(|&&r| s.item.get(r).is_some_and(|i| defs.item(i.def).base == base)).count()
-        };
-        let pool = self.defs().pool(&base);
-        if live as f64 >= pool {
-            return None;
-        }
-        let model = self.w.item_model(def);
-        let (mine, life, health) = {
+        let prepared = self.w.prepared_item(def);
+        let (model,mine,life,health) = if let Some(info) = prepared {
+            let mut live = 0;
+            let mut index = 0;
+            while index < self.s().items.items.len() {
+                let other = {
+                    let store = self.s();
+                    store.item.get(store.items.items[index]).map(|item| item.def)
+                };
+                index += 1;
+                if let Some(other) = other {
+                    if self.w.prepared_item(other).expect("prepared item class").base == info.base { live += 1; }
+                }
+            }
+            // Gone items count until Items.update filters the live list.
+            if live as f64 >= info.pool { return None; }
+            (info.model,info.mine,info.life,info.health)
+        } else {
+            let base = self.item_def(def).base.clone();
+            let live = {
+                let defs: *const crate::ordnance::defs::Defs = self.defs();
+                let store = self.s();
+                // Definitions remain immutable while the store is scanned.
+                let defs = unsafe { &*defs };
+                store.items.items.iter().filter(|&&r| store.item.get(r).is_some_and(|i| defs.item(i.def).base == base)).count()
+            };
+            if live as f64 >= self.defs().pool(&base) { return None; }
+            let model = self.w.item_model(def);
             let d = self.item_def(def);
-            (d.base.is("mine"), d.life_span.or_nullish(f64::INFINITY), d.max_health.or_nullish(f64::INFINITY))
+            (model,d.base.is("mine"),d.life_span.or_nullish(f64::INFINITY),d.max_health.or_nullish(f64::INFINITY))
         };
         let item = Item {
             def,
@@ -88,6 +102,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         let r = self.s().item.insert(item);
         self.place(r);
         self.s().items.items.push(r);
+        self.w.item_changed(r,true);
         Some(r)
     }
 
@@ -112,6 +127,32 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
         self.s().items.owned.set(key, list);
         item
+    }
+
+    /// Items.dispense with a lifecycle-prepared identity key and retained
+    /// buffers. Keep the old canonical list visible until recursive effects
+    /// finish; filter-then-set is observable when the oldest mine explodes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispense_prepared(&mut self, key: crate::store::StrId, work: &mut Vec<Ref<Item>>, spare: &mut Vec<Ref<Item>>,
+        most: f64, def: DefId, position: Vec3, velocity: Vec3, yaw: f64, owner: ItemOwner, team: f64) -> Option<Ref<Item>> {
+        work.clear();
+        {
+            let store = self.s();
+            if let Some(list) = store.items.owned.get(key) {
+                for &item in list { if store.item.get(item).is_some_and(|i| i.gone != Some(true)) { work.push(item); } }
+            }
+        }
+        if most > 0.0 && work.len() as f64 >= most { self.destroy(work.remove(0)); }
+        let made = self.spawn(def,position,velocity,yaw,owner,team);
+        if let Some(item) = made { work.push(item); }
+        // Empty native entries retain their Vec as a tombstone. Re-adding
+        // that logical key moves it to the end, as a deleted JS Map key does.
+        let inactive = !self.w.dispenser_active(key);
+        let old = if inactive { self.s().items.owned.remove(key) } else { None };
+        let replaced = self.s().items.owned.replace(key,std::mem::take(work));
+        *work = match old.or(replaced) { Some(buffer) => buffer, None => std::mem::take(spare) };
+        self.w.dispenser_changed(key,false);
+        made
     }
 
     /// items.js dropFor: a soldier's drop at death, one roll down the
@@ -154,6 +195,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     /// items.js remove.
     fn remove_item(&mut self, r: Ref<Item>) {
         self.item(r).gone = Some(true);
+        self.w.item_changed(r,false);
     }
 
     /// items.js expire: the end of an item's LifeSpan (a time bomb goes off).
@@ -181,6 +223,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             }
             i.health -= amount;
         }
+        self.w.item_changed(r,false);
         if self.item(r).health <= 0.0 {
             self.destroy(r);
         }
@@ -200,9 +243,10 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             if gone == Some(true) || !mine || !landed || !health.is_finite() {
                 continue;
             }
-            let damage = {
+            let distance = blast_distance(position,center,radius);
+            let damage = if let Some(damage) = self.w.item_blast_damage(explosion,def,distance) { damage } else {
                 let health_type = &self.item_def(def).health_type;
-                self.defs().explosion(explosion).damage_at(blast_distance(position, center, radius), health_type)
+                self.defs().explosion(explosion).damage_at(distance,health_type)
             };
             if !(damage > 0.0) || self.w.blocked(position, center) {
                 continue;
@@ -212,6 +256,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
                 i.health -= damage;
                 i.health <= 0.0
             };
+            self.w.item_changed(r,false);
             if dead {
                 self.destroy(r);
             }
@@ -257,20 +302,35 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
                 self.offer(r, targets);
             }
         }
-        let s = self.s();
-        let list = std::mem::take(&mut s.items.items);
-        for r in list {
-            if s.item.get(r).is_some_and(|i| i.gone != Some(true)) {
-                s.items.items.push(r);
-            } else {
-                s.item.retire(r);
-            }
+        let owned = self.w.owned_item_frames();
+        let mut read = 0;
+        let mut write = 0;
+        while read < self.s().items.items.len() {
+            let item = self.s().items.items[read];read += 1;
+            if self.s().item.get(item).is_some_and(|i| i.gone != Some(true)) {
+                self.s().items.items[write] = item;write += 1;
+                self.w.item_changed(item,false);
+            } else if owned {
+                // The terminal snapshot already went to the event stream;
+                // no retired Vec needs to retain a second copy of this row.
+                self.w.item_retired(item);
+                self.s().item.remove(item);
+            } else { self.s().item.retire(item); }
         }
-        let item = &s.item;
-        s.items.owned.entries.retain_mut(|(_, list)| {
-            list.retain(|&r| item.get(r).is_some_and(|i| i.gone != Some(true)));
-            !list.is_empty()
-        });
+        self.s().items.items.truncate(write);
+        let mut index = 0;
+        while index < self.s().items.owned.entries.len() {
+            let (key,changed,empty) = {
+                let store = self.s();
+                let (key,list) = &mut store.items.owned.entries[index];
+                let before = list.len();
+                list.retain(|&r| store.item.get(r).is_some_and(|i| i.gone != Some(true)));
+                (*key,before != list.len(),list.is_empty())
+            };
+            if changed || owned && empty { self.w.dispenser_changed(key,empty); }
+            if empty && (!owned || !self.w.retain_empty_dispenser(key)) { self.s().items.owned.entries.remove(index); }
+            else { index += 1; }
+        }
     }
 
     /// items.js fly: gravity in two half steps around the move.

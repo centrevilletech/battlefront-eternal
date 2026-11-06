@@ -32,7 +32,7 @@ pub fn release_tow<W: VehicleWorld>(source: &mut Hull, has_def: bool, reason: &s
     }
     source.tow_target = -1.0;
     source.tow_winding = 0.0;
-    source.tow_leg.clear();
+    source.tow_leg = None;
     if has_def && reason != "destroyed" {
         w.tow_released(source.index, reason);
     }

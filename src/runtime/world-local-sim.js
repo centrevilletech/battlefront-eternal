@@ -18,5 +18,5 @@ export function localPorts(bridge) {
       host.publish(out);
     } finally { contexts.pop(); }
   }
-  return { player: (host, dt) => run('player', host, dt), battleTail: (host, dt) => run('tail', host, dt) };
+  return { battleTail: (host, dt) => run('tail', host, dt) };
 }

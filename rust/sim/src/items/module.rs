@@ -62,12 +62,15 @@ pub extern "C" fn items_args_words(which: u32) -> u32 {
 }
 
 /// Runs `f` on a context over the instance's store, definitions and world.
-fn with_cx<T>(f: impl FnOnce(&mut Cx<'_, JsWorld>) -> T) -> T {
-    let (store, strings) = parts();
-    let mut world = JsWorld::new(store, strings);
-    // SAFETY: the ordnance module's note.
-    let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
-    f(&mut cx)
+fn with_cx<T>(f: impl FnOnce(&mut Cx<'_, JsWorld<'_>>) -> T) -> T {
+    let _owned_boundary = crate::units::f3::external();
+    crate::units::f3::with_services(|recon| {
+        let (store, strings) = parts();
+        let mut world = JsWorld::with_services(store, strings,recon);
+        // SAFETY: the ordnance module's note.
+        let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
+        f(&mut cx)
+    })
 }
 
 /// items.js update: every item's tick, `targets` the number of targets the
@@ -76,6 +79,7 @@ fn with_cx<T>(f: impl FnOnce(&mut Cx<'_, JsWorld>) -> T) -> T {
 /// were retired; 0: none, and the lists are as they were).
 #[no_mangle]
 pub extern "C" fn items_update(dt: f64, targets: u32) -> u32 {
+    if crate::units::f3::active() { crate::units::f3_items::targets(targets); }
     with_cx(|cx| {
         cx.items_update(dt, targets as usize);
         let s = cx.s();
@@ -98,15 +102,20 @@ pub extern "C" fn items_spawn() -> *const f64 {
 /// items.js dispense (DispenseArgs); the answer as items_spawn's.
 #[no_mangle]
 pub extern "C" fn items_dispense() -> *const f64 {
-    let (a, weapon) = {
+    let a = {
         let s = sim();
-        let a = {
-            let (row, heap) = s.calls.args();
-            DispenseArgs::take(row, heap)
-        };
-        let weapon = String::from_utf16_lossy(s.strings.units(a.weapon));
-        (a, weapon)
+        let (row, heap) = s.calls.args();
+        DispenseArgs::take(row, heap)
     };
+    if crate::units::f3::active() {
+        let ItemOwner::Unit(owner) = a.owner else { panic!("prepared owned dispenser source") };
+        let life = sim().store.unit.get(owner).expect("dispenser owner").generation;
+        let mut frame = crate::units::f3::items().take_name(owner.slot,life,a.weapon);
+        let made = with_cx(|cx| cx.dispense_prepared(frame.key,&mut frame.work,&mut frame.spare,a.max_items,a.def,a.position,a.velocity,a.yaw,a.owner,a.team));
+        crate::units::f3::items().restore(frame);
+        return answer(made);
+    }
+    let weapon = String::from_utf16_lossy(sim().strings.units(a.weapon));
     let made = with_cx(|cx| cx.dispense(&weapon, a.max_items, a.def, a.position, a.velocity, a.yaw, a.owner, a.team));
     answer(made)
 }

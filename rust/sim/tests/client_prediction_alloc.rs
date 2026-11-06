@@ -97,7 +97,7 @@ fn empty_collision() -> State {
     collision.trees.push(Tree { roots: Vec::new(), positions: 0, index: Vec::new(),
         indexed: true, indirect: Vec::new(), polygons: Vec::new() });
     collision.sets.push(bfe_sim::collision::spheres::FixedSet { tree: 0, bounds: Vec::new(), polygons: Vec::new(), offset: 0.0 });
-    collision.worlds.push(World { tree: 0, terrain: None, grid: None, order: Vec::new(),
+    collision.worlds.push(World { tree: 0, terrain: None, grid: None, order: Vec::new(), prepared: Vec::new(),
         version: 0, statics: Some(0), broad: Default::default() });
     collision
 }
@@ -291,7 +291,7 @@ fn hull_session(walking: bool, flying: bool) -> (ClientPrediction, State, Vec<f6
         {"at":[0,0.8,-1],"radius":1.4,"length":0.5,"factors":[1,1,2,1,0,1]}]}"#
     } else { "{}" }).unwrap();
     let class = HullClass::new(&definition, row.turn_rate);
-    let mut hull = Hull::from_store(Ref::new(0, 0), &row, &class, 0, &strings);
+    let mut hull = Hull::from_store(Ref::new(0, 0), &row, &class, 0);
     hull.pose = Some(HullPose { work: Default::default(), rig: HullRig::new(&HullDesc::default()),
         visual: Vector3::default(), age: 0.0, hover_phase: 0.0, walk_phase: 0.0, walk_blend: 0.0,
         has_pose: false, legs: walking, wheel_bones: Vec::new(), seats: vec![SeatPose::default()], clips: None, leg_pairs: None });

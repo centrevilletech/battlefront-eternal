@@ -1,84 +1,25 @@
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
-import { DROIDEKA_COLLISION, collisionRule, contactDamage } from "./collision-damage.js";
+import { DROIDEKA_COLLISION, collisionRule } from "./collision-damage.js";
 import { Pose } from "./anim.js";
 import { barrelTips } from "./muzzles.js";
 
-// The droideka (cis_inf_droideka, ODF class walkerdroid), as the 2004
-// game runs it. It stands in for a soldier: the same
-// fields the rest of the game reads, and its own animator.
-//
-// Modes, each a clip from its own bank played at AnimationSpeed (2x): idle,
-// turning, dying, the four walking steps, folding, the ball, and unfolding.
-// Clips don't loop; when one ends the next mode comes from the original game's
-// table for what the droideka wants (stop, forward, backward, turn, die,
-// roll up), the leftover time running on into it. Walking backward plays the
-// steps in reverse.
-//
-// Deployed it walks only by its clips: each frame it moves by the change in
-// DummyRoot's forward travel, along the aim heading (about 2.3 m/s;
-// MaxSpeed is never used). Turning (MaxTurnSpeed, the strafe keys turning
-// too) swings the body while the legs stay put, up to TurnThreshold behind,
-// when a turn clip brings them round 30 degrees. The legs' lag shows as
-// DummyRoot turned by it and the spine twisted back a third of it each.
-//
-// The use key folds it into a ball (if there is room it unfolds again).
-// Rolling keeps the original top speed, with direct steering at any throttle,
-// acceleration only from movement input, and braking when input is released.
-// Each movement step ends in collision resolution; there is no unchecked
-// second integration after the collision pass.
-//
-// Its shield (the secondary weapon) starts full and down; each press of the
-// secondary trigger raises or lowers it. Up, it drains at AddShield a second
-// and takes all damage first (by the attack's ShieldScale), the rest going
-// to health; down it refills at AddShieldOff. It drops at 0 and while rolled.
-// Its twin blasters fire from hp_gun_1 and hp_gun_2 in turn, at the point
-// under the crosshair, from an eye at EyePointOffset; nothing fires while it
-// folds, rolls, or unfolds. Dying, it plays death01 with a blast at one of
-// its nodes every 0.4 s, then goes up in its ExplosionName and its pieces;
-// rolled, it goes up at once. Its five pieces all hang from dummyroot and are
-// modelled in the standing pose: the classic pieces (debris.js) rebuild a
-// standing droideka there, while Enhanced (destruction.js) carries each on
-// the bone whose part of the body it covers.
+// Droideka construction and page rig presentation. The native unit owner
+// advances deployed root motion, rolling, collisions, shields and weapons.
+// Clip/mode helpers remain for the spawn preview and drawn death poses.
 
-const GRAVITY = 9.8;
 const UP = new THREE.Vector3(0, 1, 0);
 const DOWN = new THREE.Vector3(0, -1, 0);
 const CLIPS = [
   "idle", "turnl", "turnr", "death01", null, "idle_to_leftfoot", null,
   "walk_leftfoot_rightfoot", "walk_rightfoot_leftfoot", "leftfoot_to_idle", "rightfoot_to_idle", "fold", "roll", "unfold",
 ];
-// Next mode by [mode][action]; actions: 0 stop, 1 stop (in reverse), 2
-// forward, 3 backward, 4 turn left, 5 turn right, 6 die, 7 roll up.
-const NEXT = [
-  [0, 0, 5, 9, 1, 2, 3, 11],
-  [0, 0, 5, 9, 0, 0, 3, 11],
-  [0, 0, 5, 10, 0, 0, 3, 11],
-  [4, 4, 4, 4, 4, 4, 4, 11],
-  [4, 4, 4, 4, 4, 4, 4, 11],
-  [9, 0, 7, 10, 9, 9, 3, 11],
-  [10, 0, 8, 9, 10, 10, 3, 11],
-  [10, 5, 8, 8, 10, 10, 3, 11],
-  [9, 7, 7, 7, 9, 9, 3, 11],
-  [0, 5, 5, 8, 1, 2, 3, 11],
-  [0, 7, 5, 7, 1, 2, 3, 11],
-  [12, 12, 12, 12, 12, 12, 4, 12],
-  [13, 13, 12, 12, 12, 12, 4, 12],
-  [0, 0, 0, 0, 0, 0, 4, 0],
-];
 const FOLD = 11;
 const BALL = 12;
 const UNFOLD = 13;
 const DEATH = 3;
 const DEAD = 4;
-const TURN_STEP = Math.PI / 6; // a turn clip brings the legs round 30 degrees
-const LEG_EASE = 3.2; // 1/s, the legs' lag dying away outside idle and turns
 const BALL_CENTER = 0.65; // m, the ball's centre above the origin (BallRadius)
-const BODY_RADIUS = 1.0; // m, p_base's radius, deployed
-const GROUND = 0.7; // normal.y above which a deployed contact is ground
-const BALL_GROUND = 0.6;
-const TRACTION = 0.65; // preserve the original 13 m/s cap with one physics step
-const HEADROOM = 1.5; // m of clearance the unfold test wants on an axis
 
 // Whether a droideka (or its record, or its presented state) has gone up:
 // dead, its death clip played out (or dead rolled, at once). Its final blast
@@ -92,8 +33,6 @@ export class Droideka {
     this.world = world;
     // Set later (collision, water, firing), undefined till then as before:
     // here so every droideka keeps one shape (Unit's constructor).
-    this.gatherCaches = undefined;
-    this.waterRule = undefined;
     this.waterClock = undefined;
     this.lastGun = undefined;
     this.def = def;
@@ -131,7 +70,6 @@ export class Droideka {
     this.roll = 0; // the ball's turn about its axle, for drawing
     this.lean = 0;
     this.dead = false;
-    this.onDeathBlast = () => {}; // a blast during the death clip
     this.onExploded = () => {}; // the end of the death clip
     this.onShieldHit = () => {}; // actual absorbed damage, with optional world source
     this.shield = null;
@@ -148,8 +86,7 @@ export class Droideka {
     // Landing too hard hurts (src/collision-damage.js), as a soldier's does.
     this.collisionRule = collisionRule(def, DROIDEKA_COLLISION);
     this.collisionDamage = 0;
-    this.v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-    this.closest = new THREE.Vector3();
+    this.spawnOrigin = new THREE.Vector3();
     this.rootIndex = actor.bones.findIndex((bone) => bone.name.toLowerCase() === "dummyroot");
     this.animator = new DroidekaAnimator(this, actor, clips);
   }
@@ -215,42 +152,6 @@ export class Droideka {
     }
   }
 
-  toggleShield() {
-    const shield = this.shield;
-    if (!shield || this.rolled || this.dead) return;
-    shield.on = !shield.on && shield.value > 0;
-  }
-
-  // Damage on the shield first: returns what is left for health. amount is
-  // the health damage, onShield what the same attack does to a shield.
-  absorb(amount, onShield = amount, source = null, kind = null) {
-    const shield = this.shield;
-    if (!shield?.on || !(onShield > 0)) return amount;
-    const taken = Math.min(shield.value, onShield);
-    shield.value -= taken;
-    if (taken > 0) this.onShieldHit(taken, source, kind);
-    if (shield.value <= 0) shield.on = false;
-    return amount * (1 - taken / onShield);
-  }
-
-  // The next gun's muzzle, in turn.
-  nextGun(out) {
-    if (!this.guns.length) return null;
-    const index = this.gun % this.guns.length;
-    const barrel = Math.floor(this.gun / this.guns.length) % (this.gunBarrels?.[index]?.length || 1);
-    this.lastGun = { index, barrel };
-    this.gun = (this.gun + 1) % (this.guns.length * 2);
-    return this.gunAt(out, this.lastGun);
-  }
-
-  gunAt(out, selected = this.lastGun) {
-    const bone = this.physicalBarrels?.[selected?.index]?.[selected?.barrel]
-      || this.gunBarrels?.[selected?.index]?.[selected?.barrel] || this.guns[selected?.index];
-    if (!bone) return null;
-    bone.updateWorldMatrix(true, false);
-    return out.setFromMatrixPosition(bone.matrixWorld);
-  }
-
   sampleMuzzles(dt) {
     if (!this.muzzleActor) return;
     this.muzzleActor.root.position.copy(this.position);
@@ -259,7 +160,7 @@ export class Droideka {
   }
 
   // The session selects a barrel; presentation reads its visible muzzle.
-  // nextGun is the authoritative world's physical rig and shared cursor.
+  // The native world owns the physical rig and advances the shared cursor.
   visualGunAt(out, selected = this.lastGun) {
     const bone = this.gunBarrels?.[selected?.index]?.[selected?.barrel] || this.guns[selected?.index];
     if (!bone) return null;
@@ -273,41 +174,13 @@ export class Droideka {
     return out.set(feet.x, feet.y + (this.rolled ? 1.0 : this.eyeHeight), feet.z);
   }
 
-  // The aim for PlayerCombat: from the eye along the aim, converging on the
-  // point under the crosshair (from the camera brought level with the eye in
-  // third person), up to 512 m.
-  aim(combat) {
-    const yaw = this.aimYaw;
-    const p = this.aimPitch;
-    const forward = combat.aimDir.set(Math.sin(yaw) * Math.cos(p), Math.sin(p), Math.cos(yaw) * Math.cos(p));
-    combat.left.set(Math.cos(yaw), 0, -Math.sin(yaw));
-    combat.up.crossVectors(forward, combat.left);
-    this.eye(this.position, combat.origin);
-    combat.pivot.copy(combat.origin);
-    // A bot (no camera) fires along its aimer's direction.
-    if (!combat.camera) {
-      combat.shotDir.copy(combat.aimOverride || forward).normalize();
-      combat.target.copy(combat.origin).addScaledVector(combat.shotDir, 512);
-      return;
-    }
-    const from = combat.from.copy(combat.origin);
-    if (!combat.firstPerson) {
-      const camera = combat.camera.position;
-      const behind = from.subVectors(camera, combat.origin).dot(forward);
-      from.copy(camera).addScaledVector(forward, -behind);
-    }
-    const hit = this.world.cast(from, forward, 512, this.hit);
-    combat.target.copy(from).addScaledVector(forward, hit ? hit.distance : 512);
-    combat.shotDir.subVectors(combat.target, combat.origin).normalize();
-  }
-
   pitchRange() {
     return this.pitchLimits;
   }
 
   spawn(x, y, z, yaw) {
     this.position.set(x, y, z);
-    const from = this.v[0].set(x, y + 1.5, z);
+    const from = this.spawnOrigin.set(x, y + 1.5, z);
     const hit = this.world.cast(from, DOWN, 50, this.hit);
     if (hit) this.position.y = hit.point.y;
     this.velocity.set(0, 0, 0);
@@ -358,266 +231,6 @@ export class Droideka {
     if (mode === BALL) this.spin = 0;
     if (mode === DEATH) this.blastClock = 0;
     if (mode === DEAD && was !== DEAD) this.onExploded();
-  }
-
-  // The action the droideka wants now.
-  want(move, dead) {
-    if (dead) return 6;
-    if (Math.abs(move) < 1e-3) return this.reverse ? 1 : 0;
-    return move > 0 ? 2 : 3;
-  }
-
-  // input: forward, right, turn in [-1, 1]; use is a press (fold or unfold).
-  tick(input, dt) {
-    this.previous.copy(this.position);
-    this.stateTime += dt;
-    this.collisionDamage = 0;
-    const dead = this.dead;
-    const move = dead ? 0 : input.forward || 0;
-    const strafe = dead ? 0 : input.right || 0;
-    // The strafe keys turn it, and the mouse.
-    let turn = dead ? 0 : THREE.MathUtils.clamp((input.turn || 0) + strafe, -1, 1);
-    const mouseTurn = dead ? 0 : this.lookX * (this.maxTurn / 2048);
-    // A controller's pitch stick turns at MaxPitchSpeed (a bot's; the
-    // player pitches with the mouse).
-    const stickPitch = dead ? 0 : (input.pitch || 0) * (this.def.MaxPitchSpeed ?? 0.5) * dt;
-    const mousePitch = dead ? 0 : this.lookY * (this.maxTurn / 2048) + stickPitch;
-    this.lookX = 0;
-    this.lookY = 0;
-    if (this.mode === FOLD) turn = 0;
-
-    // Fold, or unfold where there is room.
-    if (input.use && !dead) {
-      if (this.mode === BALL) {
-        if (this.roomToStand()) this.enter(NEXT[BALL][0]);
-      } else if (this.mode < FOLD && this.mode !== DEATH && this.mode !== DEAD) this.enter(NEXT[this.mode][7]);
-    }
-    if (dead && this.mode !== DEATH && this.mode !== DEAD) this.enter(NEXT[this.mode][6]);
-
-    this.aimPitch = THREE.MathUtils.clamp(this.aimPitch + mousePitch, this.pitchLimits[0], this.pitchLimits[1]);
-    // The shield drains while up and refills while down.
-    const shield = this.shield;
-    if (shield) {
-      shield.value = THREE.MathUtils.clamp(shield.value + (shield.on ? shield.drain : shield.refill) * dt, 0, shield.max);
-      if (shield.value <= 0 || this.rolled) shield.on = false;
-    }
-    if (this.mode === BALL) this.ballMove(dt, move, turn, mouseTurn);
-    else this.walkMove(dt, move, turn, mouseTurn);
-
-    // Resolve every displacement, including gravity, before exposing position.
-    this.integrate(dt);
-    this.collide(dt);
-    this.settled.copy(this.position);
-
-    // Dying: blasts at its nodes every 0.4 s, then it explodes.
-    if (this.mode === DEATH) {
-      this.blastClock -= dt;
-      if (this.blastClock <= 0) {
-        this.blastClock += 0.4;
-        this.onDeathBlast();
-      }
-    }
-  }
-
-  integrate(dt) {
-    this.velocity.y -= GRAVITY * dt;
-    if (this.mode === BALL) this.position.addScaledVector(this.velocity, dt);
-    else this.position.y += this.velocity.y * dt;
-  }
-
-  // Deployed: the clips walk it, and the body turns over its legs.
-  walkMove(dt, move, turn, mouseTurn) {
-    const rate = this.maxTurn;
-    const a = turn * rate * dt + mouseTurn;
-    this.aimYaw -= a;
-    this.legs += a;
-    const moving = 5 * Math.abs(move) > Math.abs(turn);
-    if (this.mode === 0 && moving) this.enter(NEXT[0][move > 0 ? 2 : 3]);
-    else if (this.mode === 0 && (turn || mouseTurn) && Math.abs(Math.sin(this.legs / 6)) > Math.sin(this.turnThreshold / 6)) {
-      // The legs left behind on the left: the right turn brings them round.
-      this.enter(NEXT[0][this.legs > 0 ? 5 : 4]);
-    }
-    if (this.mode > 2 && this.mode !== DEATH && this.mode !== DEAD) this.legs *= Math.exp(-LEG_EASE * dt);
-    // Walking backward plays the steps in reverse; a change of sign turns
-    // the clip round where it is.
-    if (this.mode >= 5 && this.mode <= 10 && moving) this.reverse = move < 0;
-    this.advance(dt, move, moving);
-  }
-
-  // Runs the mode's clip, moving by its root travel, and on to the next
-  // mode at its end.
-  advance(dt, move, moving) {
-    let left = dt;
-    let walked = 0;
-    // Its walking speed, for those who read a velocity (the camera's bob,
-    // the arms).
-    const heading = this.aimYaw;
-    const report = () => {
-      const speed = dt > 0 ? walked / dt : 0;
-      this.velocity.x = Math.sin(heading) * speed;
-      this.velocity.z = Math.cos(heading) * speed;
-    };
-    for (let guard = 0; guard < 4 && left > 0; guard++) {
-      const mode = this.mode;
-      const clip = this.clip(mode);
-      const length = this.length(mode);
-      if (!clip || mode === BALL || mode === DEAD) break;
-      const step = left * (this.reverse && mode >= 5 && mode <= 10 ? -1 : 1);
-      const from = this.time;
-      let to = from + step;
-      let over = 0;
-      if (to > length) {
-        over = to - length;
-        to = length;
-      } else if (to < 0) {
-        over = -to;
-        to = 0;
-      }
-      // Root travel follows the aim immediately; leg lag remains visual.
-      if (mode >= 5 && mode <= 10) {
-        const travel = this.travel(clip, to) - this.travel(clip, from);
-        const heading = this.aimYaw;
-        this.position.x += Math.sin(heading) * travel;
-        this.position.z += Math.cos(heading) * travel;
-        walked += travel;
-      }
-      if (mode === 1 || mode === 2) {
-        // The turn clip brings the legs round toward the body.
-        const share = (to - from) / Math.max(length, 1e-3);
-        this.legs -= Math.sign(this.legs) * Math.min(Math.abs(this.legs), TURN_STEP * Math.abs(share));
-      }
-      this.time = to;
-      left = over;
-      if (over <= 0 && to > 0 && to < length) {
-        report();
-        return;
-      }
-      if (mode === DEATH && to >= length) {
-        this.enter(DEAD);
-        return;
-      }
-      this.enter(NEXT[mode][this.want(moving ? move : 0, this.dead)], 0);
-    }
-    report();
-  }
-
-  // DummyRoot's forward travel at a time on the mode's clock.
-  travel(clip, t) {
-    if (this.rootIndex < 0) return 0;
-    const k = clip.tracks.indexOf(this.rootIndex);
-    if (k < 0) return 0;
-    const frames = clip.frames;
-    const f = Math.min(Math.max(t * this.speed * clip.fps, 0), frames - 1);
-    const i0 = Math.floor(f);
-    const i1 = Math.min(i0 + 1, frames - 1);
-    const d = clip.data;
-    const z0 = d[(k * frames + i0) * 7 + 6];
-    const z1 = d[(k * frames + i1) * 7 + 6];
-    return z0 + (z1 - z0) * (f - i0);
-  }
-
-  // The ball: spin, turn, and the lean into a turn.
-  ballMove(dt, move, turn, mouseTurn) {
-    const d = this.def;
-    const rate = d.BallTurnSpeed ?? 2;
-    this.aimYaw -= turn * rate * dt + mouseTurn;
-    const targetLean = THREE.MathUtils.degToRad(d.BallMaxLean ?? 10) * turn * Math.abs(this.spin / this.maxSpin);
-    this.lean += (targetLean - this.lean) * (1 - Math.exp(-12 * dt));
-    if (Math.abs(move) > 1e-3) {
-      this.spin = THREE.MathUtils.clamp(this.spin + (d.BallAcceleration ?? 100) * move * dt, -this.maxSpin, this.maxSpin);
-    } else if (this.grounded) {
-      this.spin -= Math.sign(this.spin) * Math.min(Math.abs(this.spin), (d.BallRollingFriction ?? 50) * dt);
-    }
-    if (this.grounded) {
-      this.velocity.x = Math.sin(this.aimYaw) * TRACTION * this.spin;
-      this.velocity.z = Math.cos(this.aimYaw) * TRACTION * this.spin;
-    }
-    this.roll += this.spin * dt;
-  }
-
-  // Against the buildings and terrain: deployed, its base stands on what
-  // faces up and slides off what doesn't; rolled, its ball slides along walls and
-  // takes traction where the ground is flat enough.
-  collide(dt) {
-    const ball = this.mode === BALL;
-    // Nearby-triangle caches for the base and the ball (collision.js).
-    if (this.world.gatherCache) this.gatherCaches ??= [this.world.gatherCache(), this.world.gatherCache()];
-    const r = ball ? this.ballRadius : BODY_RADIUS;
-    const [c, n, forward, right] = this.v;
-    let grounded = false;
-    for (let pass = 0; pass < 4; pass++) {
-      c.set(this.position.x, this.position.y + r, this.position.z);
-      let best = Infinity;
-      let moving = false;
-      for (const polygon of this.world.gather(c, r, false, this.gatherCaches?.[ball ? 1 : 0])) {
-        for (const tri of polygon.triangles) {
-          tri.closestPointToPoint(c, this.closest);
-          const distance = this.closest.distanceTo(c);
-          if (distance < r && distance < best && distance > 1e-5) {
-            best = distance;
-            moving = Boolean(polygon.moving);
-            n.subVectors(c, this.closest).divideScalar(distance);
-          }
-        }
-      }
-      let depth = best < Infinity ? r - best : 0;
-      let wall = depth > 0;
-      // The terrain is a height field under the centre.
-      const ground = this.world.cast(c, DOWN, r + 0.05, this.hit);
-      if (ground && ground.terrain && r - ground.distance > depth) {
-        depth = r - ground.distance;
-        n.copy(ground.normal);
-        wall = false;
-        moving = false;
-      }
-      if (depth <= 0) break;
-      if (wall && Math.abs(n.y) < 0.3) this.avoidance.add(n);
-      if (n.y > (ball ? this.maxBallSlope : GROUND)) {
-        grounded = true;
-        // Coming down on it too fast hurts (src/collision-damage.js). Only
-        // what it stands on: the port's rolling ball is driven into a wall
-        // again every tick, where the original game's bounces off it once.
-        if (!moving) {
-          const facing = n.x * Math.sin(this.aimYaw) + n.z * Math.cos(this.aimYaw);
-          this.collisionDamage += contactDamage(this.collisionRule, this.velocity.dot(n), n.y, facing);
-        }
-      }
-      if (ball) {
-        if (n.y <= BALL_GROUND) this.position.addScaledVector(n, depth);
-        else this.position.y += depth / n.y;
-        const into = this.velocity.dot(n);
-        if (into < 0) this.velocity.addScaledVector(n, -into);
-        if (n.y > this.maxBallSlope) {
-          right.set(Math.cos(this.aimYaw), 0, -Math.sin(this.aimYaw));
-          forward.crossVectors(right, n).normalize();
-          this.velocity.copy(forward).multiplyScalar(TRACTION * this.spin);
-        }
-      } else if (n.y > GROUND) {
-        this.position.y += depth / n.y;
-        if (this.velocity.y < 0) this.velocity.y = 0;
-      } else {
-        const flat = Math.hypot(n.x, n.z);
-        if (flat > 1e-4) {
-          this.position.x += (n.x / flat) * depth;
-          this.position.z += (n.z / flat) * depth;
-        }
-      }
-    }
-    this.grounded = grounded;
-  }
-
-  // Room to unfold: headroom straight up, and on each of four axes at 1.5 m
-  // up at least one side clear for 1.5 m.
-  roomToStand() {
-    const from = this.v[0].set(this.position.x, this.position.y + 1.5, this.position.z);
-    const dir = this.v[1];
-    if (this.world.cast(this.v[2].set(this.position.x, this.position.y + 0.7, this.position.z), UP, 1.1 * 2.2, this.hit)) return false;
-    for (const [x, z] of [[1, 0], [0, 1], [0.707, 0.707], [0.707, -0.707]]) {
-      const plus = !this.world.cast(from, dir.set(x, 0, z), HEADROOM, this.hit);
-      const minus = !this.world.cast(from, dir.set(-x, 0, -z), HEADROOM, this.hit);
-      if (!plus && !minus) return false;
-    }
-    return true;
   }
 }
 

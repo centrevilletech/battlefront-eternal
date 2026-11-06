@@ -59,7 +59,9 @@ export function createNetworkStepHost({ game, players, hitHistory, roster, remot
         case 'trace': traceHuman({ stage: 'decision', tick: value, choice, spawned: context.spawned, team: p.team,
           unit: { id: p.unit.id, generation: p.unit.generation, className: p.unit.className, alive: p.unit.alive, deadTime: p.unit.deadTime }, phase: p.spawn.phase }); break;
         case 'unit': context.u = p.unit; break;
-        case 'deadTime': u.deadTime = value; break;
+        case 'deadTime':
+          u.f3.deadTime(u,value);
+          break;
         case 'autoSpawn': spawn(p, p.className, p.spawn.post); break;
         case 'deadPhase': p.spawn.phase = ['unspawned', 'awaiting', 'dying'][value]; p.spawn.deadTime = u.deadTime; break;
         case 'controls': controls(p, u, command, value); break;

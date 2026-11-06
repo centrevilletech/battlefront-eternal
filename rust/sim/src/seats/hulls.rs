@@ -186,7 +186,7 @@ impl Hulls {
 
     /// Vehicles.seatOf (2189): the seat a unit holds in one of these hulls.
     pub fn seat_of(&self, st: &Store, unit: u32) -> Option<Ref<SeatLease>> {
-        let r = st.unit.get(unit_ref(unit))?.seat?;
+        let r = st.unit.get(unit_ref(st, unit))?.seat?;
         let lease = st.seat_lease.get(r)?;
         (!lease.released && lease.vehicle.is_some_and(|v| self.hulls.iter().any(|h| h.vehicle == v))).then_some(r)
     }
@@ -194,7 +194,7 @@ impl Hulls {
     /// Vehicles.eligibleSeat (2198): the seat a bot or a network human
     /// would take by the shared rules, or -1.
     pub fn eligible_seat<W: SeatWorld + ?Sized>(&mut self, st: &Store, w: &mut W, unit: u32, hull: usize, seat_index: i32) -> i32 {
-        let Some(u) = st.unit.get(unit_ref(unit)) else { return -1 };
+        let Some(u) = st.unit.get(unit_ref(st, unit)) else { return -1 };
         if u.human && !network_human(u) {
             return -1;
         }
@@ -221,9 +221,9 @@ impl Hulls {
         let vref = side.vehicle;
         let role = seat_role(&side.weapons, index);
         let hover = side.hover;
-        let u = st.unit.get(unit_ref(unit)).expect("the unit");
+        let u = st.unit.get(unit_ref(st, unit)).expect("the unit");
         let network = network_human(u);
-        let lease = new_lease(Some((unit, u.generation)), false, u.team, Some(vref), None, index as f64, role, self.time, self.ticks);
+        let lease = new_lease(Some((unit_ref(st, unit), u.generation)), false, u.team, Some(vref), None, index as f64, role, self.time, self.ticks);
         let r = w.hull_lease(st, lease);
         st.seats.leases.push(r);
         self.made.push(r);
@@ -244,13 +244,13 @@ impl Hulls {
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         let mut combat = self.facts(unit).combat;
-        let u = st.unit.get_mut(unit_ref(unit)).expect("the unit");
+        let u = st.unit.get_mut(unit_ref(st, unit)).expect("the unit");
         u.seat = Some(r);
         seat_body(u, &mut combat);
         self.facts(unit).combat = combat;
         w.seated(unit);
         st.vehicle.get_mut(vref).unwrap().sleeping = Some(false);
-        w.sync_rider(r, st.unit.get_mut(unit_ref(unit)).unwrap());
+        w.sync_rider(r, st.unit.get_mut(unit_ref(st, unit)).unwrap());
         lease_views(st, vref);
         let holder = Holder::Hull(self.hulls[hull].index);
         foreign!(self, st, w, w.boarded(unit, holder, index));
@@ -293,11 +293,11 @@ impl Hulls {
         }
         let airborne = in_flight(v, side);
         // `unit?.soldier`: every unit has a body.
-        let has_body = unit.and_then(|u| st.unit.get(unit_ref(u))).is_some();
+        let has_body = unit.and_then(|u| st.unit.get(unit_ref(st, u))).is_some();
         let fall = if how.reason == Reason::Killed && has_body { w.rider_drop(Holder::Hull(self.hulls[hull].index), index, unit.unwrap()) } else { None };
         let mut spot: Option<Vector3> = None;
         let mut yaw = 0.0;
-        let alive = unit.and_then(|u| st.unit.get(unit_ref(u))).is_some_and(|u| u.alive && !u.dead);
+        let alive = unit.and_then(|u| st.unit.get(unit_ref(st, u))).is_some_and(|u| u.alive && !u.dead);
         if how.placement && !human && has_body && alive {
             let v = st.vehicle.get(vref).expect("the hull");
             let side = &self.hulls[hull];
@@ -341,7 +341,7 @@ impl Hulls {
         }
         if let Some(id) = unit {
             let mut combat = self.facts(id).combat;
-            let u = st.unit.get_mut(unit_ref(id)).expect("the lease's unit");
+            let u = st.unit.get_mut(unit_ref(st, id)).expect("the lease's unit");
             if u.seat == Some(r) {
                 u.seat = None;
                 unseat_body(u, &mut combat);
@@ -355,14 +355,16 @@ impl Hulls {
         }
         if let Some(fall) = fall {
             let mount = if self.hulls[hull].animal { Some(st.vehicle.get(vref).unwrap().body) } else { None };
-            drop_body(st.unit.get_mut(unit_ref(unit.unwrap())).unwrap(), &fall, mount);
+            drop_body(st.unit.get_mut(unit_ref(st, unit.unwrap())).unwrap(), &fall, mount);
             w.dropped(unit.unwrap(), &fall);
         }
         let promote = match how.reason {
             Reason::Killed => how.promote.unwrap_or(true),
             Reason::Exit => match how.promote {
                 Some(p) => p,
-                None => w.controller_state(unit) != Some(5.0),
+                // Controller state is a foreign AI read too. Expose the
+                // post-exit Store before it can publish owned Unit mirrors.
+                None => foreign!(self, st, w, w.controller_state(unit)) != Some(5.0),
             },
             _ => false,
         };
@@ -370,7 +372,7 @@ impl Hulls {
             self.promote(st, w, hull, index);
         }
         if let Some(spot) = spot {
-            let u = st.unit.get_mut(unit_ref(unit.unwrap())).unwrap();
+            let u = st.unit.get_mut(unit_ref(st, unit.unwrap())).unwrap();
             place_on_foot(w, u, &spot, yaw, airborne && person);
             w.placed(unit.unwrap(), yaw);
         }

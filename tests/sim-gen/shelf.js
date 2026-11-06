@@ -5,6 +5,7 @@ import { KIND_PERSON, KIND_THING } from "./kinds.js";
 
 export const Colour_NAMES = ["red","green","blue"];
 export const Colour_INDEX = new Map(Colour_NAMES.map((name, i) => [name, i]));
+export const Colour_VALUE = Object.freeze({"red":0,"green":1,"blue":2});
 
 export function variantOfHolder(b, x) {
   if (x === null) return 0;
@@ -217,7 +218,7 @@ export function syncSpot(b, f, at, h, m) {
   m.mark = Colour_NAMES[f[at + 9]];
   { const tag = f[at + 10]; if (tag === 0) { m.near = b.refs[KIND_PERSON].at(f[at + 11], f[at + 12]); } else m.near = tag === 1 ? null : undefined; }
   m.keeper = b.refs[KIND_PERSON].at(f[at + 13], f[at + 14]);
-  { const items = (m.kept ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.kept ??= []), start = h + f[at + 15], n = f[at + 16]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
@@ -269,7 +270,7 @@ export class AskMirror {
 export function syncAsk(b, f, at, h, m) {
   m.n = f[at + 0];
   { const tag = f[at + 1]; if (tag === 0) { m.who = b.refs[KIND_PERSON].at(f[at + 2], f[at + 3]); } else m.who = tag === 1 ? null : undefined; }
-  { const items = (m.things ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.things ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const tag = f[at + 6]; if (tag === 0) { m.spot = syncSpot(b, f, at + 7, h, m.spot ?? new SpotMirror()); } else m.spot = tag === 1 ? null : undefined; }
   return m;
 }
@@ -310,7 +311,7 @@ export class LegsMirror {
 
 export function syncLegs(b, f, at, h, m) {
   m.stride = f[at + 0];
-  { const items = (m.side ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.side ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -343,7 +344,7 @@ export class WheelsMirror {
 }
 
 export function syncWheels(b, f, at, h, m) {
-  m.count = f[at + 0];
+  m.count = f[at + 0] >>> 0;
   { const $v = (m.grip ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   return m;
 }
@@ -430,43 +431,43 @@ export const SHELF_EXPORT_STRIDE = 40, SHELF_IMPORT_STRIDE = 40, SHELF_FULL_STRI
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncShelf(b, f, at, h, m) {
-  { const items = (m.things ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  { const map = (m.byName ??= new Map()), start = h + f[at + 4], n = f[at + 5]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } map.set(b.strings.at(f[e]), v); } }
+  { const items = (m.things ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const map = (m.byName ??= new Map()), start = h + f[at + 4], n = f[at + 5]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.weights ??= new Map()), start = h + f[at + 6], n = f[at + 7]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = f[at + 1]; } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.spots ??= new Map()), start = h + f[at + 8], n = f[at + 9]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 18; let v; { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.owners ??= new Map()), start = h + f[at + 10], n = f[at + 11]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; v = b.refs[KIND_PERSON].at(f[at + 1], f[at + 2]); } map.set(b.strings.at(f[e]), v); } }
   { const tag = f[at + 12]; if (tag === 0) { { const map = (m.names ??= new Map()), start = h + f[at + 13], n = f[at + 14]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.names = tag === 1 ? null : undefined; }
   { const o = (m.byTeam ??= {}), start = h + f[at + 15], n = f[at + 16]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
-  { const o = (m.rules ??= {}), start = h + f[at + 17], n = f[at + 18]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } o[key] = v; } }
+  { const o = (m.rules ??= {}), start = h + f[at + 17], n = f[at + 18]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } o[key] = v; } }
   { const o = (m.labels ??= {}), start = h + f[at + 19], n = f[at + 20]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const tag = f[at + 1]; if (tag === 0) { v = b.strings.at(f[at + 2]); } else v = tag === 1 ? null : undefined; } } o[key] = v; } }
   { const map = (m.counts ??= new Map()), start = h + f[at + 21], n = f[at + 22]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(f[start + i * 2], key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(f[start + kept * 2], key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = map.get(key); { const at = e; v = f[at + 1]; } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const map = (m.spotsAt ??= new Map()), start = h + f[at + 23], n = f[at + 24]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(f[start + i * 18], key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(f[start + kept * 18], key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 18, key = f[e]; let v = map.get(key); { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const map = (m.tally ??= new Map()), start = h + f[at + 25], n = f[at + 26]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_THING].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_THING].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_THING].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2]; } if (i >= kept) map.delete(key); map.set(key, v); } }
-  { const map = (m.queues ??= new Map()), start = h + f[at + 27], n = f[at + 28]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(syncWho(b, f, start + i * 5, h, undefined), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(syncWho(b, f, start + kept * 5, h, undefined), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 5, key = syncWho(b, f, e, h, undefined); let v = map.get(key); { const at = e; { const items = (v ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } if (i >= kept) map.delete(key); map.set(key, v); } }
+  { const map = (m.queues ??= new Map()), start = h + f[at + 27], n = f[at + 28]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(syncWho(b, f, start + i * 5, h, undefined), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(syncWho(b, f, start + kept * 5, h, undefined), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 5, key = syncWho(b, f, e, h, undefined); let v = map.get(key); { const at = e; { const items = (v ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const $a = (m.times ??= new Float64Array(5)); for (let i = 0; i < 5; i++) $a[i] = f[at + 29 + i]; }
   { const $a = (m.slots ??= new Int32Array(4)); for (let i = 0; i < 4; i++) $a[i] = f[at + 34 + i]; }
-  { const items = (m.ring ??= []), start = h + f[at + 38], n = f[at + 39]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_THING].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const items = (m.ring ??= []), start = h + f[at + 38], n = f[at + 39]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_THING].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   return m;
 }
 
 // A full row into object `m`.
 export function syncFullShelf(b, f, at, h, m) {
-  { const items = (m.things ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  { const map = (m.byName ??= new Map()), start = h + f[at + 4], n = f[at + 5]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } map.set(b.strings.at(f[e]), v); } }
+  { const items = (m.things ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const map = (m.byName ??= new Map()), start = h + f[at + 4], n = f[at + 5]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.weights ??= new Map()), start = h + f[at + 6], n = f[at + 7]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = f[at + 1]; } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.spots ??= new Map()), start = h + f[at + 8], n = f[at + 9]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 18; let v; { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.owners ??= new Map()), start = h + f[at + 10], n = f[at + 11]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; v = b.refs[KIND_PERSON].at(f[at + 1], f[at + 2]); } map.set(b.strings.at(f[e]), v); } }
   { const tag = f[at + 12]; if (tag === 0) { { const map = (m.names ??= new Map()), start = h + f[at + 13], n = f[at + 14]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.names = tag === 1 ? null : undefined; }
   { const o = (m.byTeam ??= {}), start = h + f[at + 15], n = f[at + 16]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
-  { const o = (m.rules ??= {}), start = h + f[at + 17], n = f[at + 18]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } o[key] = v; } }
+  { const o = (m.rules ??= {}), start = h + f[at + 17], n = f[at + 18]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } o[key] = v; } }
   { const o = (m.labels ??= {}), start = h + f[at + 19], n = f[at + 20]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const tag = f[at + 1]; if (tag === 0) { v = b.strings.at(f[at + 2]); } else v = tag === 1 ? null : undefined; } } o[key] = v; } }
   { const map = (m.counts ??= new Map()), start = h + f[at + 21], n = f[at + 22]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(f[start + i * 2], key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(f[start + kept * 2], key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = map.get(key); { const at = e; v = f[at + 1]; } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const map = (m.spotsAt ??= new Map()), start = h + f[at + 23], n = f[at + 24]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(f[start + i * 18], key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(f[start + kept * 18], key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 18, key = f[e]; let v = map.get(key); { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const map = (m.tally ??= new Map()), start = h + f[at + 25], n = f[at + 26]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_THING].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_THING].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_THING].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2]; } if (i >= kept) map.delete(key); map.set(key, v); } }
-  { const map = (m.queues ??= new Map()), start = h + f[at + 27], n = f[at + 28]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(syncWho(b, f, start + i * 5, h, undefined), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(syncWho(b, f, start + kept * 5, h, undefined), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 5, key = syncWho(b, f, e, h, undefined); let v = map.get(key); { const at = e; { const items = (v ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } if (i >= kept) map.delete(key); map.set(key, v); } }
+  { const map = (m.queues ??= new Map()), start = h + f[at + 27], n = f[at + 28]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(syncWho(b, f, start + i * 5, h, undefined), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(syncWho(b, f, start + kept * 5, h, undefined), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 5, key = syncWho(b, f, e, h, undefined); let v = map.get(key); { const at = e; { const items = (v ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const $a = (m.times ??= new Float64Array(5)); for (let i = 0; i < 5; i++) $a[i] = f[at + 29 + i]; }
   { const $a = (m.slots ??= new Int32Array(4)); for (let i = 0; i < 4; i++) $a[i] = f[at + 34 + i]; }
-  { const items = (m.ring ??= []), start = h + f[at + 38], n = f[at + 39]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_THING].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const items = (m.ring ??= []), start = h + f[at + 38], n = f[at + 39]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_THING].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   return m;
 }
 
@@ -621,9 +622,9 @@ export const THING_EXPORT_STRIDE = 96, THING_IMPORT_STRIDE = 99, THING_FULL_STRI
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncThing(b, f, at, h, m) {
-  m.count = f[at + 2];
-  m.size = f[at + 3];
-  m.small = f[at + 4];
+  m.count = f[at + 2] | 0;
+  m.size = f[at + 3] >>> 0;
+  m.small = f[at + 4] >>> 0;
   m.light = f[at + 5];
   m.mass = f[at + 6];
   m.on = f[at + 7] !== 0;
@@ -639,27 +640,27 @@ export function syncThing(b, f, at, h, m) {
   m.friends = b.set(KIND_PERSON, f, h + f[at + 44], f[at + 45], m.friends ?? new Set());
   { const tag = f[at + 46]; if (tag === 0) { m.next = b.refs[KIND_THING].at(f[at + 47], f[at + 48]); } else m.next = tag === 1 ? null : undefined; }
   { const tag = f[at + 49]; if (tag === 0) { { const map = (m.tags ??= new Map()), start = h + f[at + 50], n = f[at + 51]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.tags = tag === 1 ? null : undefined; }
-  { const items = (m.marks ??= []), start = h + f[at + 52], n = f[at + 53]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.probes ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
-  { const items = (m.flags ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
-  { const items = (m.spots ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
-  { const items = (m.holders ??= []), start = h + f[at + 60], n = f[at + 61]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
+  { const items = (m.marks ??= []), start = h + f[at + 52], n = f[at + 53]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.probes ??= []), start = h + f[at + 54], n = f[at + 55]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
+  { const items = (m.flags ??= []), start = h + f[at + 56], n = f[at + 57]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.spots ??= []), start = h + f[at + 58], n = f[at + 59]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
+  { const items = (m.holders ??= []), start = h + f[at + 60], n = f[at + 61]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 62 + i]; }
-  { const items = (m.shapes ??= []), start = h + f[at + 78], n = f[at + 79]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
+  { const items = (m.shapes ??= []), start = h + f[at + 78], n = f[at + 79]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
   { const tag = f[at + 80]; if (tag === 0) { m.hitSet = m.shapes[f[at + 81]]; } else m.hitSet = tag === 1 ? null : undefined; }
   m.body = syncBody(b, f, at + 82, h, m.body);
   { const tag = f[at + 87]; if (tag === 0) { { const $a = (m.gains ??= new Float32Array(2)); for (let i = 0; i < 2; i++) $a[i] = f[at + 88 + i]; } } else m.gains = tag === 1 ? null : undefined; }
-  { const items = (m.maybe ??= []), start = h + f[at + 90], n = f[at + 91]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
-  { const map = (m.seenBy ??= new Map()), start = h + f[at + 92], n = f[at + 93]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_PERSON].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_PERSON].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_PERSON].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2]; } if (i >= kept) map.delete(key); map.set(key, v); } }
+  { const items = (m.maybe ??= []), start = h + f[at + 90], n = f[at + 91]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const map = (m.seenBy ??= new Map()), start = h + f[at + 92], n = f[at + 93]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_PERSON].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_PERSON].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_PERSON].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2] >>> 0; } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const o = (m.marked ??= {}), start = h + f[at + 94], n = f[at + 95]; for (const key in o) { let i = 0; while (i < n && f[start + i * 19] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 19, key = f[e]; let v = o[key]; { const at = e; { const tag = f[at + 1]; if (tag === 0) { v = syncSpot(b, f, at + 2, h, v ?? new SpotMirror()); } else v = tag === 1 ? null : undefined; } } o[key] = v; } }
   return m;
 }
 
 // A full row into object `m`.
 export function syncFullThing(b, f, at, h, m) {
-  m.count = f[at + 2];
-  m.size = f[at + 3];
-  m.small = f[at + 4];
+  m.count = f[at + 2] | 0;
+  m.size = f[at + 3] >>> 0;
+  m.small = f[at + 4] >>> 0;
   m.light = f[at + 5];
   m.mass = f[at + 6];
   m.on = f[at + 7] !== 0;
@@ -677,19 +678,19 @@ export function syncFullThing(b, f, at, h, m) {
   { const tag = f[at + 49]; if (tag === 0) { { const map = (m.tags ??= new Map()), start = h + f[at + 50], n = f[at + 51]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.tags = tag === 1 ? null : undefined; }
   m.hidden = f[at + 52];
   (m.box ??= {}).size = f[at + 53];
-  { const items = (m.marks ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.probes ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
-  { const items = (m.flags ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
-  { const items = (m.spots ??= []), start = h + f[at + 60], n = f[at + 61]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
-  { const items = (m.holders ??= []), start = h + f[at + 62], n = f[at + 63]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
+  { const items = (m.marks ??= []), start = h + f[at + 54], n = f[at + 55]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.probes ??= []), start = h + f[at + 56], n = f[at + 57]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
+  { const items = (m.flags ??= []), start = h + f[at + 58], n = f[at + 59]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.spots ??= []), start = h + f[at + 60], n = f[at + 61]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
+  { const items = (m.holders ??= []), start = h + f[at + 62], n = f[at + 63]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 64 + i]; }
   ((m.boxes ??= [])[0] ??= {}).size = f[at + 80];
-  { const items = (m.shapes ??= []), start = h + f[at + 81], n = f[at + 82]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
+  { const items = (m.shapes ??= []), start = h + f[at + 81], n = f[at + 82]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
   { const tag = f[at + 83]; if (tag === 0) { m.hitSet = m.shapes[f[at + 84]]; } else m.hitSet = tag === 1 ? null : undefined; }
   m.body = syncBody(b, f, at + 85, h, m.body);
   { const tag = f[at + 90]; if (tag === 0) { { const $a = (m.gains ??= new Float32Array(2)); for (let i = 0; i < 2; i++) $a[i] = f[at + 91 + i]; } } else m.gains = tag === 1 ? null : undefined; }
-  { const items = (m.maybe ??= []), start = h + f[at + 93], n = f[at + 94]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
-  { const map = (m.seenBy ??= new Map()), start = h + f[at + 95], n = f[at + 96]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_PERSON].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_PERSON].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_PERSON].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2]; } if (i >= kept) map.delete(key); map.set(key, v); } }
+  { const items = (m.maybe ??= []), start = h + f[at + 93], n = f[at + 94]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const map = (m.seenBy ??= new Map()), start = h + f[at + 95], n = f[at + 96]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_PERSON].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_PERSON].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_PERSON].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2] >>> 0; } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const o = (m.marked ??= {}), start = h + f[at + 97], n = f[at + 98]; for (const key in o) { let i = 0; while (i < n && f[start + i * 19] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 19, key = f[e]; let v = o[key]; { const at = e; { const tag = f[at + 1]; if (tag === 0) { v = syncSpot(b, f, at + 2, h, v ?? new SpotMirror()); } else v = tag === 1 ? null : undefined; } } o[key] = v; } }
   return m;
 }

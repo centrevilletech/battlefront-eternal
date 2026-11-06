@@ -1,3 +1,4 @@
+import {BlockHeaderLayout as BLOCK} from './sim/gen/boundary.js';
 // One whole ground/flight phase. Ordinary ticks import foreign inputs only.
 import * as THREE from 'three';
 import { VehicleContent } from './vehicle-content.js';
@@ -6,8 +7,9 @@ import { F2Seats } from './f2-seats.js';
 import { F2Firing } from './f2-firing.js';
 import { F2Riders } from './f2-riders.js';
 import { Weapon } from './weapons.js';
+import { Vehicle } from './vehicles.js';
 import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
-import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, F2PhaseFlag_INDEX, F2BodyHeaderLayout as BODY_HEADER, F2BodyToggleLayout as TOGGLE, F2BodyPlacedLayout as PLACED, F2PhaseLayout as PHASE, F2PoseMirror, F2PoseSeatMirror, F2AimerMirror, syncF2Pose, F2InputLayout, F2FlightInLayout, F2FlightInMirror, putF2FlightIn, F2MemberLayout, F2PadTeamLayout, F2InputMirror, F2MemberMirror, putF2Input, putF2Member, putF2PadTeam } from './sim/gen/f2.js';
+import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, F2PhaseFlag_INDEX, F2BodyHeaderLayout as BODY_HEADER, F2BodyToggleLayout as TOGGLE, F2BodyPlacedLayout as PLACED, F2PhaseLayout as PHASE, F2PoseMirror, F2PoseSeatMirror, F2AimerMirror, syncF2Pose, F2InputLayout, F2FlightInLayout, F2FlightInMirror, F2PadTeamLayout, putF2FlightIn, F2InputMirror, putF2Input, putF2PadTeam } from './sim/gen/f2.js';
 import { MirrorPool } from './sim/runtime.js';
 import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, VEHICLE_KEYS } from './sim/gen/index.js';
 import { json, classKeys, giveMapRules, pullPose, flightKeys } from './vehicle-phase-data.js';
@@ -16,7 +18,6 @@ import { ordnanceTests } from './ordnance-sim.js';
 import { F2MirrorCheck } from './f2-contract.js';
 const MISS = { found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: -1 };
 const NO_INPUT = {};
-const EMPTY_UNITS = [];
 const OWNED_FIELDS = VEHICLE_KEYS;
 const FLAG_POSES = 1 << F2PhaseFlag_INDEX.get('poses'), FLAG_COSMETIC = 1 << F2PhaseFlag_INDEX.get('cosmetic');
 const FLAG_FLIGHT = 1 << F2PhaseFlag_INDEX.get('flight'), FLAG_ASSISTS = 1 << F2PhaseFlag_INDEX.get('assists');
@@ -69,15 +70,19 @@ class F2 extends VehicleContent {
     this.world = vehicles.world;
     this.unitClass = unitClass; this.debug = debug;
     this.detector = new F2MirrorCheck();
+    this.lastVersion = -1;
+    // A coordinated unit owner supplies the shared crossing census. Native
+    // fleet fixtures can still run this phase independently without one.
+    this.counters = null;
     this.mirrorRows = new WeakMap(); this.syncedRows = []; this.syncedCount = 0; this.syncStamp = 0;
     this.lifeScratch = new F2HullLifeMirror(); this.padScratch = new F2PadMirror();
     this.ownerScratch = new Float64Array(3);
-    this.classes = new Set(); this.teams = []; this.teamCount = 0;
+    this.prepared = [];
+    this.classes = new Set();
     this.flightIn = new F2FlightInMirror(); this.flightScratch = new Float64Array(F2FlightInLayout.words); this.flightCache = new WeakMap();
-    this.inputHeader = new F2InputMirror(); this.memberRow = new F2MemberMirror();
-    this.memberCache = new Float64Array(8192 * F2MemberLayout.words); this.memberCache.fill(NaN);
-    this.memberScratch = new Float64Array(F2MemberLayout.words); this.memberLength = 0; this.padTeam = { hasTeam: false, team: 0 };
-    this.padPosts = vehicles.slots.map(slot => slot.desc.post ? vehicles.posts?.posts.find(p => p.desc.name.toLowerCase() === slot.desc.post) : null); this.memberPoint = new THREE.Vector3(); this.aimPoints = [];
+    this.inputHeader = new F2InputMirror();
+    this.padTeam = {hasTeam:false,team:0};
+    this.padPosts = vehicles.slots.map(slot => slot.desc.post ? vehicles.posts?.posts.find(p => p.desc.name.toLowerCase() === slot.desc.post) : null); this.aimPoints = [];
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
     giveMapRules(bridge, vehicles.water, map);
     this.posing = this.pack(pack);
@@ -137,6 +142,7 @@ class F2 extends VehicleContent {
     this.capacity = bridge.f[this.descriptor + PHASE.capacity];
     bridge.reserve(16 * 1024 * 1024);
     this.bodyFlags();
+    this.sync();
   }
 
   // Vehicle constructor data and pullPose initialize retained native rows.
@@ -150,10 +156,11 @@ class F2 extends VehicleContent {
       this.x.veh_class(b.strings.id(v.name), b.strings.id(json(classKeys(v.def))), v.turnRate);
     }
     b.writeSome(KIND_VEHICLE, [v]);
-    this.x.f2_register(v.simSlot, v.simGen);
     const values = pullPose(v), at = this.input(values.length);
     b.f.set(values, at);
     if (!this.x.veh_pull(slot, v.aiTarget.generation, values.length)) throw Error('F2 could not retain a vehicle rig');
+    // Registration sizes working leg buffers from this retained class rig.
+    this.x.f2_register(v.simSlot, v.simGen, v.f2Prepared ? 1 : 0);
     const flightCache = new Float64Array(F2FlightInLayout.words); flightCache.fill(NaN); this.flightCache.set(v, flightCache);
     // Mirror readers keep the usual objects and shared arrays. Their encoded
     // rows are retained separately, so native output can omit unchanged words
@@ -168,6 +175,32 @@ class F2 extends VehicleContent {
     this.seats.adopt(v);
     this.firing.adopt(v);
     this.record(v);
+    this.onPrepared?.(v);
+  }
+
+  // Vehicles.variant resolves every possible pad class during loading, while
+  // the active fleet, registry and collision order keep their original shape.
+  // The native spawn later chooses when each retained facade becomes visible.
+  prepareVariants() {
+    const vs = this.vehicles, c = this.collision;
+    for (const pad of vs.slots) {
+      const seen = new Set(pad.variants.keys());
+      for (const name of Object.values(pad.desc.classes)) {
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        const serial = c.bodySerial;
+        const v = new Vehicle(vs,pad,name);
+        v.f2Prepared = true; v.aiTarget.id = 0;
+        c.removeBody(v.body); c.bodySerial = serial;
+        c.rayBodies();
+        this.adopt(v); this.collider(v);
+        this.x.f2_prepare_body(v.body.raySlot);
+        this.prepared.push(v);
+      }
+    }
+    // Consume cold publications while the private facades are already bound.
+    // No constructor, rig pull or body naming is needed by their first spawn.
+    this.sync();
   }
 
   // A hook sees already-published canonical state and sends only commands back.
@@ -186,32 +219,41 @@ class F2 extends VehicleContent {
   // where gameplay listeners need current state. There is no per-hull export
   // loop or rig update on this path.
   step(dt, tick) {
-    const b = this.bridge, vs = this.vehicles;
-    if (this.debug) this.check();
-    this.bodyFlags();
-    this.foreignIn(true);
-    this.seats.prepare();
+    const vs = this.vehicles, owned = vs.f3;
+    this.prepareStep();
+    // A standalone fleet entry can still kill an owned crew. Join the same
+    // outer command boundary used by incoming hull damage, including RNG.
+    owned.beforeCommand(null, 2, 0);
+    try { this.x.f2_step(dt, tick); }
+    finally { owned.afterCommand(); }
+    this.commitForeign();
+    this.finishStep();
+  }
 
-    const memory = b.memory.buffer;
+  // The unit coordinator prepares fleet foreign inputs before its one native
+  // entry. Register changed mounted RNG callbacks before publishing the shared
+  // generator states, then retain the exact input batch for cache commitment.
+  prepareStep() {
+    if (this.debug) this.check();
+    this.foreignIn(true);
+    this.preparedWords = this.seats.prepare();
+    this.preparedWords += this.inputHeader.end;
+    this.phaseMemory = this.bridge.memory.buffer;
     this.firing.drainedWords = 0;
-    this.x.f2_step(dt, tick);
-    if (this.debug && b.memory.buffer !== memory) throw Error('F2 memory grew during the phase');
-    this.sync();
+  }
+  // Vehicles.update's presentation alpha follows the final canonical clock.
+  // Sync has already consumed the fleet delta when either outer entry gets here.
+  finishStep() {
+    const vs = this.vehicles;
+    if (this.debug && this.bridge.memory.buffer !== this.phaseMemory) throw Error('F2 memory grew during the phase');
     vs.tickAlpha = Math.max(0, vs.acc / (1 / 120)); vs.presented = false;
     if (this.debug) this.check();
   }
 
-  // Units.relation uses null as a distinct team key and preserves insertion
-  // order. Keep the backing array and an active count: truncating it to zero
-  // would allocate storage again when the next tick fills it.
-  addTeam(team) {
-    for (let i = 0; i < this.teamCount; i++) if (Object.is(this.teams[i], team)) return;
-    this.teams[this.teamCount++] = team;
-  }
-  // units.all is still foreign until AI moves. Keep its stable rows and
-  // import only changed facts; native hull rows are never input snapshots.
+  // Vehicles.update imports only pad ownership, flight keys and weapon policy.
+  // Registry order, relations and body geometry already belong to native units.
   foreignIn(phaseStart = false) {
-    const vs = this.vehicles, b = this.bridge, refs = b.refs, p = this.memberPoint;
+    const vs = this.vehicles, b = this.bridge;
     b.views(); const f = b.f, base = this.inputBase, h = this.inputHeader;
     if (phaseStart) {
       h.clock = vs.clock(); h.level = vs.water?.level ?? 0;
@@ -225,45 +267,8 @@ class F2 extends VehicleContent {
       putF2PadTeam(b, row, f, at, null); at += F2PadTeamLayout.words;
     }
     h.occupant = vs.spawnOccupant;
-    // Registry order matters for first-equal target selection. Cache numeric
-    // rows by position, including generation and whether a team is present.
-    // Hull entries keep handles; only foreign objects provide copied aim points.
-    const all = vs.units?.all?.() ?? EMPTY_UNITS;
-    h.memberLength = all.length; h.members = at - base; h.memberCount = 0;
-    for (let i = 0; i < all.length; i++) {
-      const t = all[i], hull = t.vehicle ?? null, current = hull && this.pool.objects[hull.simSlot] === hull;
-      // Units and current hull targets have native query paths. A retired hull
-      // still referenced by the registry becomes a foreign entry, rather than
-      // being retargeted through the slot now occupied by its replacement.
-      const kind = t instanceof this.unitClass ? 0 : current ? (hull.aiTarget === t ? 1 : 3) : 2;
-      if (kind === 2) { if (t.aimPoint) t.aimPoint(p); else p.copy(t.position); }
-      const row = this.memberRow;
-      row.index = i; row.kind = kind; row.id = t.id; row.generation = t.generation ?? NaN;
-      row.alive = Boolean(t.alive); row.hasTeam = t.team != null; row.team = t.team ?? 0;
-      row.hull = hull ? refs[KIND_VEHICLE].slotOf(hull) : -1;
-      row.point.set(kind === 2 ? p.x : 0, kind === 2 ? p.y : 0, kind === 2 ? p.z : 0);
-      putF2Member(b, row, this.memberScratch, 0, null);
-      let changed = i >= this.memberLength;
-      const offset = i * F2MemberLayout.words;
-      for (let j = 0; j < F2MemberLayout.words; j++) {
-        const old = this.memberCache[offset + j], next = this.memberScratch[j];
-        if (old === next ? old === 0 && 1 / old !== 1 / next : old === old || next === next) changed = true;
-      }
-      if (changed) {
-        for (let j = 0; j < F2MemberLayout.words; j++) { f[at + j] = this.memberScratch[j];  }
-        at += F2MemberLayout.words; h.memberCount++;
-      }
-    }
-    // Relations are small mission data. Read each pair in the registry's team
-    // order, including the fallback for worlds without a relation callback.
-    // These values do not grant JS ownership of hull or lease state.
-    const teams = this.teams; this.teamCount = 0;
-    for (let i = 0; i < all.length; i++) this.addTeam(all[i].team ?? null);
-    for (let i = 0; i < vs.vehicles.length; i++) this.addTeam(vs.vehicles[i].team ?? null);
-    h.teams = at - base; h.teamCount = this.teamCount;
-    for (let i = 0; i < this.teamCount; i++) { const row = this.padTeam; row.hasTeam = teams[i] !== null; row.team = teams[i] ?? 0; putF2PadTeam(b, row, f, at, null); at += F2PadTeamLayout.words; }
-    h.relations = at - base;
-    for (let i = 0; i < this.teamCount; i++) for (let j = 0; j < this.teamCount; j++) f[at++] = vs.units?.relation?.(teams[i], teams[j]) ?? (teams[i] === teams[j] ? 1 : -1);
+    h.memberLength = h.memberCount = h.teamCount = 0;
+    h.members = h.teams = h.relations = at - base;
     // Only network pilot keys remain foreign. Bot controls are frozen from
     // canonical leases inside the phase, after exits and promotion. Retain each
     // network row and send changes, including the transition back to no pilot.
@@ -297,11 +302,6 @@ class F2 extends VehicleContent {
   // callbacks in the same phase. Copy only the submitted changed records.
   commitForeign() {
     const b = this.bridge; b.views(); const f = b.f, base = this.inputBase, h = this.inputHeader;
-    for (let i = 0; i < h.memberCount; i++) {
-      const at = base + h.members + i * F2MemberLayout.words, offset = f[at + F2MemberLayout.index] * F2MemberLayout.words;
-      for (let j = 0; j < F2MemberLayout.words; j++) this.memberCache[offset + j] = f[at + j];
-    }
-    this.memberLength = h.memberLength;
     for (let i = 0; i < h.flightCount; i++) {
       const at = base + h.flights + i * F2FlightInLayout.words, v = this.pool.objects[f[at + F2FlightInLayout.hull]];
       const cache = this.flightCache.get(v);
@@ -327,14 +327,20 @@ class F2 extends VehicleContent {
     const b = this.bridge; b.views();
     if (this.descriptor === undefined) return;
     const d = this.descriptor;
+    const version = b.f[d + PHASE.version];
+    if (this.counters) this.counters.outputFields++;
+    if (this.lastVersion === version) return;
+    this.lastVersion = version;
+    if (this.counters) this.counters.outputFields += PHASE.words - 1;
     this.seats.syncLeases();
     this.syncedCount = 0; this.syncStamp++;
     let base = (b.f[d + PHASE.hulls] / 8) | 0;
+    if (this.counters) this.counters.outputBlock(b.f,base);
     if (base) {
-      const f = b.f, k = KIND_TABLE[KIND_VEHICLE], rows = f[base] | 0, stride = f[base + 1] | 0, h = base + (f[base + 2] | 0);
+      const f = b.f, k = KIND_TABLE[KIND_VEHICLE], rows = f[base] | 0, stride = f[base + BLOCK.stride] | 0, h = base + (f[base + BLOCK.heap] | 0);
       for (let i = 0; i < rows; i++) {
-        const at = base + 5 + i * stride;
-        const v = i < f[base + 4] ? this.pool.retire(f[at] >>> 0, f[at + 1] >>> 0) : this.pool.at(f[at] >>> 0, f[at + 1] >>> 0);
+        const at = base + BLOCK.words + i * stride;
+        const v = i < f[base + BLOCK.retired] ? this.pool.retire(f[at] >>> 0, f[at + 1] >>> 0) : this.pool.at(f[at] >>> 0, f[at + 1] >>> 0);
         this.synced(v);
         applyDelta(f, at, h, v.f2HullWords);
         k.sync(b, v.f2HullWords, 5, v.f2HullWords[2] | 0, v);
@@ -342,10 +348,11 @@ class F2 extends VehicleContent {
 
     }
     base = (b.f[d + PHASE.pads] / 8) | 0;
+    if (this.counters) this.counters.outputBlock(b.f,base);
     if (base) {
-      const f = b.f, rows = f[base] | 0, stride = f[base + 1] | 0, h = base + (f[base + 2] | 0);
+      const f = b.f, rows = f[base] | 0, stride = f[base + BLOCK.stride] | 0, h = base + (f[base + BLOCK.heap] | 0);
       for (let i = 0; i < rows; i++) {
-        const pad = syncF2Pad(b, f, base + 5 + i * stride, h, this.padScratch);
+        const pad = syncF2Pad(b, f, base + BLOCK.words + i * stride, h, this.padScratch);
         const slot = this.vehicles.slots[pad.index]; slot.remaining = pad.remaining; slot.vehicle = pad.vehicle;
       }
 
@@ -354,10 +361,11 @@ class F2 extends VehicleContent {
     // Vehicle and target object, but changes generation, visibility and fixed
     // flight configuration. These records are omitted during ordinary motion.
     base = (b.f[d + PHASE.lives] / 8) | 0;
+    if (this.counters) this.counters.outputBlock(b.f,base);
     if (base) {
-      const f = b.f, rows = f[base] | 0, stride = f[base + 1] | 0, h = base + (f[base + 2] | 0);
+      const f = b.f, rows = f[base] | 0, stride = f[base + BLOCK.stride] | 0, h = base + (f[base + BLOCK.heap] | 0);
       for (let i = 0; i < rows; i++) {
-        const life = syncF2HullLife(b, f, base + 5 + i * stride, h, this.lifeScratch), v = life.vehicle;
+        const life = syncF2HullLife(b, f, base + BLOCK.words + i * stride, h, this.lifeScratch), v = life.vehicle;
         const changed = v.aiTarget.generation !== life.generation;
         v.aiTarget.generation = life.generation; v.root.visible = life.visible;
         if (v.flying && changed) {
@@ -373,6 +381,7 @@ class F2 extends VehicleContent {
     // poseOut retains only world-readable seat and animation scalars. The
     // skeleton and all rig transforms stay with the native phase.
     let o = (b.f[d + PHASE.poses] / 8) | 0;
+    if (this.counters) this.counters.outputBlock(b.f,o);
     if (o) {
       const n = b.f[o] | 0, stride = b.f[o + 1] | 0, heap = o + (b.f[o + 2] | 0);
       for (let i = 0; i < n; i++) {
@@ -416,17 +425,24 @@ class F2 extends VehicleContent {
     const index = this.vehicles.vehicles.indexOf(v);
     if (index >= 0) this.vehicles.vehicles.splice(index, 1);
     for (const slot of this.vehicles.slots) for (const [name, variant] of slot.variants) if (variant === v) slot.variants.delete(name);
+    // Retirement is outside the owning phase. Prepare its replacement now,
+    // so the later pad spawn never needs a constructor or rig import.
+    this.prepareVariants();
   }
 
   // Vehicle.damage, setHealth, wake and attribution are immediate writes.
   // The native command validates both lifetimes and publishes before returning;
   // a hook can therefore inspect another command's result in the same tick.
   command(v, code, value = 0, attacker = null) {
-    this.bodyFlags();
+    const owned = this.vehicles.f3;
     const owner = this.ownerScratch;
     putOrdnanceOwner(this.bridge, attacker, owner, 0, null);
-    if (!this.x.f2_command(v.simSlot, v.simGen, v.aiTarget.generation, code, value, owner[0], owner[1], owner[2])) throw Error('stale F2 command');
-    this.sync();
+    owned.beforeCommand(attacker, this.x.f2_command.length, 1);
+    try {
+      if (!this.x.f2_command(v.simSlot, v.simGen, v.aiTarget.generation, code, value, owner[0], owner[1], owner[2])) throw Error('stale F2 command');
+    } finally {
+      owned.afterCommand();
+    }
   }
 
   // Debug snapshots describe ownership, not the import format. Constructor
@@ -515,6 +531,7 @@ class F2 extends VehicleContent {
     const f = this.bridge.f, bodies = this.collision.rays.bodies;
     let o = (ptr / 8) | 0;
     const toggled = f[o + BODY_HEADER.toggled], placed = f[o + BODY_HEADER.placed];
+    if (this.counters) this.counters.outputFields += BODY_HEADER.words + toggled * TOGGLE.words + placed * PLACED.words;
 
     o += BODY_HEADER.words;
     for (let i = 0; i < toggled; i++, o += TOGGLE.words) bodies[f[o + TOGGLE.kernel]].enabled = f[o + TOGGLE.enabled] !== 0;

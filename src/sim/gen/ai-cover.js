@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiCoverOp_NAMES = ["scoreStart","forward","rangeWeapon","rangeValues","lower","finish","findStart","query","random","time","draw","available","score","helperTime","helperCapture","helperState","helperStateValue","helperHint","helperReserveInit","helperRenewPrepare","helperReserveHeld","helperRenew","helperRequest","helperFlush","helperGoto","helperFreeze","helperDelay","helperInt","helperAdd","helperMaskStart","helperMask","helperMaskDraw","helperPostureDraw","helperField","helperScore","helperRelease","helperFind","helperArrived","helperSideMask","helperSideForward","helperSidePosition","helperGotoPoint"];
 export const AiCoverOp_INDEX = new Map(AiCoverOp_NAMES.map((name, i) => [name, i]));
+export const AiCoverOp_VALUE = Object.freeze({"scoreStart":0,"forward":1,"rangeWeapon":2,"rangeValues":3,"lower":4,"finish":5,"findStart":6,"query":7,"random":8,"time":9,"draw":10,"available":11,"score":12,"helperTime":13,"helperCapture":14,"helperState":15,"helperStateValue":16,"helperHint":17,"helperReserveInit":18,"helperRenewPrepare":19,"helperReserveHeld":20,"helperRenew":21,"helperRequest":22,"helperFlush":23,"helperGoto":24,"helperFreeze":25,"helperDelay":26,"helperInt":27,"helperAdd":28,"helperMaskStart":29,"helperMask":30,"helperMaskDraw":31,"helperPostureDraw":32,"helperField":33,"helperScore":34,"helperRelease":35,"helperFind":36,"helperArrived":37,"helperSideMask":38,"helperSideForward":39,"helperSidePosition":40,"helperGotoPoint":41});
 
 export class AiCoverArgsMirror {
   constructor() {
@@ -17,7 +18,7 @@ export class AiCoverArgsMirror {
 
 export function syncAiCoverArgs(b, f, at, h, m) {
   m.op = AiCoverOp_NAMES[f[at + 0]];
-  m.id = f[at + 1];
+  m.id = f[at + 1] >>> 0;
   m.number = f[at + 2];
   m.other = f[at + 3];
   { const a = (m.point ??= new Array(3)); a[0] = f[at + 4]; a[1] = f[at + 5]; a[2] = f[at + 6]; }
@@ -66,8 +67,8 @@ export class AiCoverResultMirror {
 export function syncAiCoverResult(b, f, at, h, m) {
   m.flag = f[at + 0] !== 0;
   m.number = f[at + 1];
-  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.ids ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.ids ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] >>> 0; } items[i] = v; } }
   return m;
 }
 

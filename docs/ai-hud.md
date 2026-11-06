@@ -152,7 +152,11 @@ health/stat/hit/message clocks, prompt selection, objective capture and frame
 ordering. `rust/bfe-render/tests/hud_frame.rs` counts allocations across complete
 non-empty update/build cycles, including death, layer and overlay frames.
 
-`tools/hud-corpus/capture.mjs` replaces the former JS-model browser probe with
-fixed-tick frozen-reference captures of the Rust-owned battle HUD. Its fixture
-commands exercise UI presentation; authoritative combat and capture-credit rules
-remain covered by their simulation phase tests. See [Battle HUD](hud.md).
+Native damage and death notices are covered by `tests/f3-ordnance.test.js`,
+`tests/f3-blasts.test.js` and `tests/network-entity-combat.test.js`. Those
+fixtures exercise the owning unit/combat phase and feedback decoder without
+installed game files.
+
+`tools/hud-corpus/capture.mjs` supplies fixed-tick frozen-reference captures of
+Rust-owned battle HUD presentation. Authoritative combat and capture-credit
+rules remain covered by their simulation phase tests. See [Battle HUD](hud.md).

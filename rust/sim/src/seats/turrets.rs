@@ -533,7 +533,7 @@ impl Crews {
 
     /// TurretSeats.seatOf (820).
     pub fn seat_of(&self, st: &Store, unit: u32) -> Option<Ref<SeatLease>> {
-        let r = st.unit.get(unit_ref(unit))?.seat?;
+        let r = st.unit.get(unit_ref(st, unit))?.seat?;
         let lease = st.seat_lease.get(r)?;
         (lease.turret.is_some() && st.turret_seats.leases.contains(&r)).then_some(r)
     }
@@ -541,7 +541,7 @@ impl Crews {
     /// TurretSeats.canMan (828): a living soldier (not a droideka) on foot,
     /// a bot or a network human, a built turret nobody mans.
     pub fn can_man(&self, st: &Store, unit: u32, turret: usize) -> bool {
-        let Some(u) = st.unit.get(unit_ref(unit)) else { return false };
+        let Some(u) = st.unit.get(unit_ref(st, unit)) else { return false };
         let t = &self.turrets[turret];
         let no_enter = self.riders.get(&unit).map_or(0.0, |f| f.no_enter);
         u.alive && !u.dead && (!u.human || network_human(u)) && u.seat.is_none() && !u.walker && no_enter == 0.0 && t.alive && t.gunner.is_none() && t.lease.is_none()
@@ -550,7 +550,7 @@ impl Crews {
     /// TurretSeats.man (834): a bot or a network human takes the turret (a
     /// person takes a bot's over: the bot is set down beside it first).
     pub fn man<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, w: &mut W, unit: u32, turret: usize) -> bool {
-        let network = st.unit.get(unit_ref(unit)).is_some_and(network_human);
+        let network = st.unit.get(unit_ref(st, unit)).is_some_and(network_human);
         if network {
             if let Some(r) = self.turrets[turret].lease {
                 let lease = st.seat_lease.get(r).unwrap();
@@ -562,9 +562,9 @@ impl Crews {
         if !self.can_man(st, unit, turret) {
             return false;
         }
-        let u = st.unit.get(unit_ref(unit)).unwrap();
+        let u = st.unit.get(unit_ref(st, unit)).unwrap();
         let tref = self.turrets[turret].turret;
-        let lease = new_lease(Some((unit, u.generation)), false, u.team, None, Some(tref), 0.0, SeatRole::Gunner, st.turret_seats.time, st.turret_seats.ticks);
+        let lease = new_lease(Some((unit_ref(st, unit), u.generation)), false, u.team, None, Some(tref), 0.0, SeatRole::Gunner, st.turret_seats.time, st.turret_seats.ticks);
         let r = foreign!(self, st, w, w.crew_lease(st, lease));
         st.seats.leases.push(r);
         self.made.push(r);
@@ -580,7 +580,7 @@ impl Crews {
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         let mut combat = self.facts(unit).combat;
-        let u = st.unit.get_mut(unit_ref(unit)).unwrap();
+        let u = st.unit.get_mut(unit_ref(st, unit)).unwrap();
         u.seat = Some(r);
         seat_body(u, &mut combat);
         self.facts(unit).combat = combat;
@@ -618,7 +618,7 @@ impl Crews {
         let turret = self.turret_of(lease.turret.expect("a turret's lease"));
         let unit = lease.unit.map(|u| u.slot);
         let died = how.kill || how.reason == Reason::Killed;
-        let has_body = unit.and_then(|u| st.unit.get(unit_ref(u))).is_some();
+        let has_body = unit.and_then(|u| st.unit.get(unit_ref(st, u))).is_some();
         let holder = Holder::Turret(self.turrets[turret].index);
         let fall = if died && has_body { foreign!(self, st, w, w.rider_drop(holder, 0, unit.unwrap())) } else { None };
         let mut yaw: Option<f64> = None;
@@ -643,7 +643,7 @@ impl Crews {
         }
         if let Some(id) = unit {
             let mut combat = self.facts(id).combat;
-            let u = st.unit.get_mut(unit_ref(id)).unwrap();
+            let u = st.unit.get_mut(unit_ref(st, id)).unwrap();
             if u.seat == Some(r) {
                 u.seat = None;
                 unseat_body(u, &mut combat);
@@ -652,7 +652,7 @@ impl Crews {
                 self.facts(id).combat = combat;
                 foreign!(self, st, w, w.unseated(id, aim_yaw));
                 if let Some(yaw) = yaw {
-                    place_on_foot(w, st.unit.get_mut(unit_ref(id)).unwrap(), &spot.position, yaw, false);
+                    place_on_foot(w, st.unit.get_mut(unit_ref(st, id)).unwrap(), &spot.position, yaw, false);
                     foreign!(self, st, w, w.placed(id, yaw));
                 }
             } else {
@@ -660,12 +660,12 @@ impl Crews {
             }
         }
         if let Some(fall) = fall {
-            drop_body(st.unit.get_mut(unit_ref(unit.unwrap())).unwrap(), &fall, None);
+            drop_body(st.unit.get_mut(unit_ref(st, unit.unwrap())).unwrap(), &fall, None);
             foreign!(self, st, w, w.dropped(unit.unwrap(), &fall));
         }
         if how.kill {
             if let Some(id) = unit {
-                let u = st.unit.get(unit_ref(id)).unwrap();
+                let u = st.unit.get(unit_ref(st, id)).unwrap();
                 if u.alive && !u.combat.dead {
                     foreign!(self, st, w, w.kill(st, super::Seating::Crews(self), id, how.attacker));
                 }
@@ -732,7 +732,7 @@ impl Crews {
         let lease = st.seat_lease.get(r).unwrap();
         let turret = self.turret_of(lease.turret.unwrap());
         let unit = lease.unit.map(|u| u.slot);
-        let person = unit.and_then(|u| st.unit.get(unit_ref(u))).is_some_and(network_human);
+        let person = unit.and_then(|u| st.unit.get(unit_ref(st, u))).is_some_and(network_human);
         let (turn, pitch, aiming, aim) = (lease.input.turn, lease.input.pitch, lease.input.aiming, lease.input.aim);
         let facts = unit.and_then(|u| self.riders.get(&u)).copied().unwrap_or_default();
         let zoom = if person { if super::truthy(facts.combat.zoom) { facts.combat.zoom } else { 1.0 } } else { 1.0 };
@@ -804,7 +804,7 @@ impl Crews {
         let point = t.seat_point();
         let yaw = t.seat_yaw();
         let pitch = t.pitch;
-        let u = st.unit.get_mut(unit_ref(unit)).unwrap();
+        let u = st.unit.get_mut(unit_ref(st, unit)).unwrap();
         if let Some(s) = super::bodies::soldier_mut(u) {
             let p = super::a3(&point);
             s.position = p;

@@ -6,9 +6,11 @@ import { PostEventMirror, PsMobileEventMirror, exportPostEvent, exportPsMobileEv
 
 export const BpQueryOp_NAMES = ["members","buildingAttacker","vehicleAttacker","victims","draw"];
 export const BpQueryOp_INDEX = new Map(BpQueryOp_NAMES.map((name, i) => [name, i]));
+export const BpQueryOp_VALUE = Object.freeze({"members":0,"buildingAttacker":1,"vehicleAttacker":2,"victims":3,"draw":4});
 
 export const BpActionOp_NAMES = ["post","mobile","kill","effect","over"];
 export const BpActionOp_INDEX = new Map(BpActionOp_NAMES.map((name, i) => [name, i]));
+export const BpActionOp_VALUE = Object.freeze({"post":0,"mobile":1,"kill":2,"effect":3,"over":4});
 
 export class BpInputMirror {
   constructor() {
@@ -211,8 +213,8 @@ export class BpQueryResultMirror {
 }
 
 export function syncBpQueryResult(b, f, at, h, m) {
-  { const items = (m.members ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncBpMember(b, f, at + 0, h, v ?? new BpMemberMirror()); } items[i] = v; } }
-  { const items = (m.hulls ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncBpHull(b, f, at + 0, h, v ?? new BpHullMirror()); } items[i] = v; } }
+  { const items = (m.members ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncBpMember(b, f, at + 0, h, v ?? new BpMemberMirror()); } items[i] = v; } }
+  { const items = (m.hulls ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncBpHull(b, f, at + 0, h, v ?? new BpHullMirror()); } items[i] = v; } }
   { const tag = f[at + 4]; if (tag === 0) { m.character = b.refs[KIND_CHARACTER].at(f[at + 5], f[at + 6]); } else m.character = tag === 1 ? null : undefined; }
   m.number = f[at + 7];
   return m;

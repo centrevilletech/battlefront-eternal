@@ -1,4 +1,4 @@
-import { prepareHullFixture } from './helpers/hull-prediction.js';
+import { prepareAuthorityFixture } from './helpers/hull-prediction.js';
 import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,6 +57,10 @@ test('mounted weapon heat, salvo eligibility and next barrel resume from exact s
 test('passenger baseline preserves nullable look overrides and preview follows shared driver aim', () => {
   const source = passenger(), client = passenger();
   Object.assign(source.seat, { aimYaw: .12, pitch: .04, lookYaw: .14, lookPitch: .05 });
+  // Both codec endpoints use their final native registry identity. Preparing
+  // only the source midway through the test would replace its temporary id.
+  prepareAuthorityFixture(source.v.system);
+  prepareAuthorityFixture(client.v.system);
   const payload = captureMountedControl(source.unit);
   assert.equal(payload.length, 44);
   restoreMountedControl(client.unit, payload);
@@ -64,7 +68,6 @@ test('passenger baseline preserves nullable look overrides and preview follows s
   const page = new VehicleDriver({}); page.vehicle = client.v;
   const commands = [{ look: [[12, 8]], mouseScale: .5, invertMouse: false },
     { look: [[-4, 20]], mouseScale: .25, invertMouse: true }];
-  prepareHullFixture(source.v.system);
   for (const command of commands) {
     for (const [dx, dy] of command.look) driver.look(dx, dy, command.mouseScale, command.invertMouse);
     source.v.system.f2.seats.network(source.v,source.v.seatIndex,null,{look:[]});

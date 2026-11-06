@@ -1,3 +1,4 @@
+import {BlockHeaderLayout as BLOCK} from './sim/gen/boundary.js';
 // The rounds in flight on the simulation's module (rust/sim/src/ordnance):
 // once a battle's world hands them over (attachOrdnanceSim), Rust owns the
 // bolts, beams, grenades and rounds and flies them, and the Ordnance's
@@ -17,7 +18,7 @@ import { IMPORT_TABLE, KIND_BEAM, KIND_BOLT, KIND_GRENADE, KIND_ORDNANCE, KIND_R
 import { DefTable } from "./sim/runtime.js";
 
 // A block's header words (rust/sim/src/store/block.rs).
-const HEADER = 5;
+const HEADER = BLOCK.words;
 const TYPES = ["round", "grenade", "beam"];
 // The kinds of round Rust owns, in the order their mirrors are refreshed
 // (each kind before the lists that name it).
@@ -57,6 +58,13 @@ export class OrdnanceSim {
     // the bridge's own table, which the rows' definition words index).
     this.ordnanceDefs = bridge.defs.ordnance;
     this.sent = 0;
+    // Fleet content loads before the unit owner binds live world services.
+    // These cold observers collect no state; binding replays prepared classes.
+    // Entering flight before binding is an error, never a second authority.
+    this.nativeServices = {ordnance(){},explosion(){},item(){},
+      owner(){throw Error('unit world services are not bound');},
+      beforeStep(){throw Error('unit world services are not bound');},
+      afterStep(){throw Error('unit world services are not bound');}};
     this.water = false;
     this.explosions = new DefTable("explosion");
     this.fireArgs = { words: this.x.ord_args_words(0), put: putFireArgs };
@@ -99,9 +107,13 @@ export class OrdnanceSim {
     a.channel = channel;
     a.targetId = targetId ?? undefined;
     a.targetGeneration = targetGeneration ?? undefined;
+    this.nativeServices.owner(a.owner);
     this.bridge.callArgs(this.fireArgs, a);
     a.owner = a.visual = a.ignoreBody = a.emitter = a.origin = a.direction = null;
-    const shot = this.answered(this.x.ord_fire());
+    this.nativeServices.beforeStep();
+    let shot;
+    try { shot = this.answered(this.x.ord_fire()); }
+    finally { this.nativeServices.afterStep(); }
     this.bridge.sync(KIND_ORDNANCE, this.ordnance);
     return shot;
   }
@@ -121,7 +133,14 @@ export class OrdnanceSim {
   // ordnance.js update (a world's): the rounds' flight, then every mirror.
   update(dt) {
     this.waterKnown();
-    this.refresh(this.x.ord_update(dt));
+    this.nativeServices.beforeStep();
+    let kinds;
+    try { kinds = this.x.ord_update(dt); }
+    finally { this.nativeServices.afterStep(); }
+    // Ordnance.update delivers impacts while the launched object still has
+    // its identity. Retiring mirrors first would make a queued impact resolve
+    // a new object and lose CombatCapture's launch-to-terminal association.
+    this.refresh(kinds);
   }
 
   // Whether the battle has water, told to the module when it changes (a
@@ -150,7 +169,7 @@ export class OrdnanceSim {
     b.views();
     const f = b.f, base = ptr / 8, at = base + HEADER, kind = f[at];
     if (!kind) return undefined;
-    return this.mirror(kind, f, at + 1, base + f[base + 2]);
+    return this.mirror(kind, f, at + 1, base + f[base + BLOCK.heap]);
   }
 
   // The mirror of the round whose row is at `at` (heap from `h`), made
@@ -163,10 +182,10 @@ export class OrdnanceSim {
 
   // The round an import hands over: its row after the import's own words.
   handed(name, kind) {
-    const b = this.bridge, ptr = this.x.sim_import_args();
+    const b = this.bridge;
     b.views();
-    const f = b.f, base = ptr / 8;
-    return this.mirror(kind, f, base + HEADER + this.rowAt[name], base + f[base + 2]);
+    const f = b.f, base = b.exchange;
+    return this.mirror(kind, f, base + HEADER + this.rowAt[name], base + f[base + BLOCK.heap]);
   }
 
   // An ordnance class's index, given to the module the first time.
@@ -180,6 +199,9 @@ export class OrdnanceSim {
     const def = this.ordnanceDefs.at(id);
     this.writeFields(def, ORDNANCE_FIELDS);
     this.x.ord_def(id);
+    // Whole-phase owners can prepare native hit policy when a definition
+    // enters F1. This construction seam never runs from a projectile tick.
+    this.nativeServices.ordnance(id, def);
   }
 
   explosionId(def) {
@@ -188,6 +210,7 @@ export class OrdnanceSim {
     id = this.explosions.register(def);
     this.writeFields(def, EXPLOSION_FIELDS);
     this.x.ord_explosion(id);
+    this.nativeServices.explosion(id, def);
     return id;
   }
 

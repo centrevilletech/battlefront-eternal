@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { Writer, readRecords, MAGIC, RECORD, Handle, Omitted, FunctionName } from '../tools/sim-capture/format.mjs';
 import { EDITS, edit } from '../tools/sim-capture/hooks.mjs';
-import { PHASES } from '../tools/sim-capture/phases.mjs';
+import { PHASES, LIVE_PHASES } from '../tools/sim-capture/phases.mjs';
 
 // The simulation capture (tools/sim-capture.mjs) records a battle's phases
 // for the Rust replays (rust/sim-replay): its format must give back every
@@ -158,7 +158,7 @@ test('every capture marker still finds the one statement it wraps', () => {
   // Each phase is marked in and out once, in the order phases.mjs lists.
   const marks = Object.entries(EDITS).flatMap(([file, edits]) => [...edit(fs.readFileSync(`${root}${file.slice(1)}`, 'utf8'), edits, file)
     .matchAll(/__bfePhase\?\.(enter|exit)\("([a-zA-Z]+)"\)/g)].map((m) => `${m[1]} ${m[2]}`));
-  for (const phase of PHASES) {
+  for (const phase of LIVE_PHASES) {
     assert.equal(marks.filter((m) => m === `enter ${phase.name}`).length, 1, `enter ${phase.name}`);
     assert.equal(marks.filter((m) => m === `exit ${phase.name}`).length, 1, `exit ${phase.name}`);
   }

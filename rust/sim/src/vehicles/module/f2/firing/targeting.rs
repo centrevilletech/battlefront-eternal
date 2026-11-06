@@ -29,15 +29,22 @@ pub fn allowed(relations: u32, categories: u32, relation: f64, category: u32) ->
 /// seatLockTarget does. Direction has been normalized at the caller's slot.
 pub fn pick_view(query: &mut impl LockQuery, view: LockView, origin: &Vector3, direction: &Vector3) -> Option<LockTarget> {
     if view.range <= 0.0 || direction.length_sq() == 0.0 { return None; }
-    let n = unsafe { (&*addr_of_mut!(MEMBERS)).len() };
+    let owned = crate::units::f3::active();
+    let n = if owned { crate::units::f3_fleet::count() } else { unsafe { (&*addr_of_mut!(MEMBERS)).len() } };
     for pass in 0..2 {
         if pass == 0 && !view.complete { continue; }
         let cone = v8math::max(0.0, if pass == 0 { view.off } else { view.on }) * std::f64::consts::PI / 180.0;
         let mut best = None; let mut best_angle = f64::INFINITY; let mut best_distance = f64::INFINITY;
         for i in 0..n {
             if pass == 0 {
-                let m = unsafe { (&*addr_of_mut!(MEMBERS))[i] };
-                if m.id != view.id || m.generation.unwrap_or(0.0) != view.generation { continue; }
+                let (id, generation) = if owned {
+                    let key = crate::units::f3_fleet::key(i);
+                    (crate::units::registry::target_id(key) as f64, crate::units::f3_fleet::life(key))
+                } else {
+                    let m = unsafe { (&*addr_of_mut!(MEMBERS))[i] };
+                    (m.id, m.generation.unwrap_or(0.0))
+                };
+                if id != view.id || generation != view.generation { continue; }
             }
             let mut f = query.facts(i,false,false);
             if !f.eligible || !allowed(view.relations,view.categories,f.relation,f.category) { continue; }

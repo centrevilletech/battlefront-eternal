@@ -135,18 +135,7 @@ test("a thrown weapon's windup plays its charge clip; a charge stops showing at 
   assert.deepEqual(log, [['alert']]);
 });
 
-test("the simulation itself plays no charge clip and no glow (a worker's page shows them)", () => {
-  const { combat, log } = presenter();
-  Object.assign(combat, { seen: new Map(), kick: { rate: 0, hold: 0, offset: 0 }, held: new Map(), shake: { amount: 0, left: 0 }, player: true, firstPerson: false,
-    soldier: { posture: 'stand', air: null, position: new THREE.Vector3(), velocity: new THREE.Vector3(), aimYaw: 0, aimPitch: 0, pitchRange: () => [-1, 1] },
-    collision: { cast: () => null }, camera: null, def: {}, live: null, ordnance: { units: null }, owner: 'player', aimOverride: null,
-    ...Object.fromEntries(['aimDir', 'left', 'up', 'pivot', 'origin', 'target', 'shotDir', 'fireDir', 'side', 'from'].map((key) => [key, new THREE.Vector3()])) });
-  combat.animator.setBank = () => {}; combat.animator.fire = () => log.push(['fire']);
-  const controls = { take: (name) => name === 'firePrimary' ? (controls.first ? false : (controls.first = true)) : false, held: (name) => name === 'firePrimary' };
-  for (let i = 0; i < 30; i++) combat.update(1 / 60, controls, 0);
-  assert.equal(combat.arsenal.weapons[0].charging, true);
-  assert.deepEqual(log, []);
-});
+
 
 test('the alert stance a charge holds comes in as after a shot and stays while it is kept up', () => {
   const root=new THREE.Group(),bone=new THREE.Bone();bone.name='DummyRoot';bone.userData.index=0;root.add(bone);

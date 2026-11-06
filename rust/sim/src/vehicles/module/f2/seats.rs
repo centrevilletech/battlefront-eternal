@@ -67,14 +67,22 @@ impl Seats {
         for side in &self.hulls.hulls[..self.hulls.hulls.len() - 1] {
             capacity += st.vehicle.get(side.vehicle).expect("registered hull").seats.len();
         }
-        self.hulls.pending_exits.reserve(capacity);
-        self.hulls.pending_deaths.reserve(capacity);
-        self.hulls.latched.reserve(capacity);
-        self.changed.hulls.reserve(self.hulls.hulls.len());
-        let occupants = capacity + self.crews.turrets.len();
-        self.changed.leases.reserve(occupants);
-        self.changed.units.reserve(occupants);
-        self.retired.reserve(occupants);
+        self.reserve_hulls(self.hulls.hulls.len(), capacity);
+    }
+
+    // Vehicles.variant can prepare class facts before the pad chooses a team.
+    // Reserve the eventual active topology without inserting those hulls into
+    // the crew iteration order. Activation later moves only its retained side.
+    pub fn reserve_hulls(&mut self, count: usize, seats: usize) {
+        self.hulls.hulls.reserve(count.saturating_sub(self.hulls.hulls.len()));
+        self.hulls.pending_exits.reserve(seats.saturating_sub(self.hulls.pending_exits.len()));
+        self.hulls.pending_deaths.reserve(seats.saturating_sub(self.hulls.pending_deaths.len()));
+        self.hulls.latched.reserve(seats.saturating_sub(self.hulls.latched.len()));
+        self.changed.hulls.reserve(count.saturating_sub(self.changed.hulls.len()));
+        let occupants = seats + self.crews.turrets.len();
+        self.changed.leases.reserve(occupants.saturating_sub(self.changed.leases.len()));
+        self.changed.units.reserve(occupants.saturating_sub(self.changed.units.len()));
+        self.retired.reserve(occupants.saturating_sub(self.retired.len()));
         self.hulls.controls.reserve(occupants.saturating_sub(self.hulls.controls.len()));
         self.crews.controls.reserve(occupants.saturating_sub(self.crews.controls.len()));
     }

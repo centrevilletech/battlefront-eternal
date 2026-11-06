@@ -295,6 +295,16 @@ test('two types of one name, or a type named after a comparison, are refused', (
   assert.throws(() => buildModel(schema({ unions: { U: ['null', 'Float64Array(2)'] } })), /cannot be a union's variant/);
 });
 
+test('immutable identity fields use the ordinary generated slab without a live owner list', () => {
+  const schema = snapshot => [{ file:'x', schema:{ kinds:{ snapshot } } }];
+  const model = buildModel(schema({ identity:true, fields:{ life:'f64' } }));
+  const kind = model.kinds.get('snapshot');
+  assert.equal(kind.stored, true);
+  assert.equal(kind.key, null);
+  assert.equal(kind.home, null);
+  assert.throws(() => buildModel(schema({ fields:{ life:'f64' } })), /needs a home list/);
+  assert.throws(() => buildModel(schema({ identity:true, key:'id', fields:{ life:'f64' } })), /identity fields have no key/);
+});
 
 test('direct publication names only mutable scalar or vector fields', () => {
   const model = fields => buildModel([{ file: 'publication', schema: { records: { Pose: fields } } }]);

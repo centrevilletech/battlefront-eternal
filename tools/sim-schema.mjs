@@ -187,7 +187,7 @@ function parseField(name, spec, where) {
 }
 
 export function buildModel(files) {
-  const model = { enums: new Map(), unions: new Map(), records: new Map(), kinds: new Map(), commands: new Map(), events: new Map(), imports: new Map(), files: files.map((f) => f.file) };
+  const model = { constants:new Map(), enums: new Map(), unions: new Map(), records: new Map(), kinds: new Map(), commands: new Map(), events: new Map(), imports: new Map(), files: files.map((f) => f.file) };
   const names = new Map(); // Rust type name -> where
   // Every generated file imports the comparisons of src/sim/compare.js, and
   // a type's own comparison is same<Name>: no type takes one of their names.
@@ -198,7 +198,7 @@ export function buildModel(files) {
     names.set(rust, where);
   };
   for (const { file, schema } of files) {
-    for (const k of Object.keys(schema)) if (!['enums', 'unions', 'records', 'kinds', 'commands', 'events', 'imports'].includes(k)) fail(file, `unknown section "${k}"`);
+    for (const k of Object.keys(schema)) if (!['constants', 'enums', 'unions', 'records', 'kinds', 'commands', 'events', 'imports'].includes(k)) fail(file, `unknown section "${k}"`);
     // A command (JavaScript writing into Rust's state), an event (Rust telling
     // JavaScript) and an import (Rust asking JavaScript): each names records
     // for its arguments, result or payload; a command names the Rust function
@@ -220,6 +220,11 @@ export function buildModel(files) {
       if (model.imports.has(name)) fail(where, 'declared twice');
       if (!spec || typeof spec.args !== 'string') fail(where, 'an import is { args: Record, result: Record or null }');
       model.imports.set(name, { name, file, args: spec.args, result: spec.result ?? null, borrow: spec.borrow === true, where });
+    }
+    for (const [name,value] of Object.entries(schema.constants || {})) {
+      if (!/^[A-Z][A-Z0-9_]*$/.test(name) || !Number.isInteger(value) || value<0 || value>0xffffffff) fail(file,'a constant is a named u32');
+      if (model.constants.has(name)) fail(file,`duplicate constant ${name}`);
+      model.constants.set(name,{name,value,file});
     }
     for (const [name, values] of Object.entries(schema.enums || {})) {
       const where = `${file} enum ${name}`;
@@ -253,8 +258,11 @@ export function buildModel(files) {
       // tells them apart by it). `$layout` exports its flat row size for
       // phase boundaries; `$publish` lists mutable fields to assign directly
       // from a generated mirror. Every other key is a field.
-      const { $class = null, $layout = false, $publish = [], $view = false, ...plain } = fields;
+      const { $class = null, $layout = false, $publish = [], $refresh = [], $delta = [], $view = false, $parts = [], ...plain } = fields;
       if (!Array.isArray($publish) || new Set($publish).size !== $publish.length || $publish.some(name => !(name in plain))) fail(where, '$publish names distinct fields of this record');
+      for (const [name, list] of [['$refresh', $refresh], ['$delta', $delta], ['$parts', $parts]]) {
+        if (!Array.isArray(list) || new Set(list).size !== list.length || list.some(key => !(key in plain))) fail(where, `${name} names distinct fields of this record`);
+      }
       const parsed = Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`));
       // Publication may copy a vector or assign a scalar. A nested row, table
       // or reference requires ownership rules; silently aliasing it is unsafe.
@@ -262,18 +270,19 @@ export function buildModel(files) {
       if ($view && parsed.some(f => !['f64', 'f32', 'u32', 'i32', 'u8', 'bool', 'str', 'enum', 'vec3', 'quat', 'mat4'].includes(f.type.base))) fail(where, '$view supports flat scalar and math fields');
       const publishTypes = new Set(['f64', 'f32', 'i32', 'u32', 'u8', 'bool', 'enum', 'vec3']);
       for (const field of parsed) if ($publish.includes(field.name) && (!publishTypes.has(field.type.base) || field.type.base === 'vec3' && optional(field.type))) fail(where, '$publish supports scalar and vec3 fields; vectors cannot be optional');
-      model.records.set(name, { name, file, layout: $layout, publish: $publish, view: $view, classes: [$class ?? []].flat(), fields: parsed });
+
+      model.records.set(name, { name, file, layout: $layout, publish: $publish, refresh: $refresh, delta: $delta, view: $view, parts: $parts, classes: [$class ?? []].flat(), fields: parsed });
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {
       const where = `${file} kind ${name}`;
-      for (const k of Object.keys(spec)) if (!['singleton', 'key', 'home', 'fields', 'skip', 'class', 'doc'].includes(k)) fail(where, `unknown kind option "${k}"`);
+      for (const k of Object.keys(spec)) if (!['singleton', 'key', 'home', 'identity', 'fields', 'skip', 'class', 'doc'].includes(k)) fail(where, `unknown kind option "${k}"`);
       let kind = model.kinds.get(name);
       if (!kind) {
         kind = { name, rust: pascal(name), singleton: false, key: null, home: null, classes: [], fields: [], skip: new Map(), file: null, facets: [] };
         model.kinds.set(name, kind);
       }
       kind.facets.push(file);
-      for (const opt of ['singleton', 'key', 'home']) {
+      for (const opt of ['singleton', 'key', 'home', 'identity']) {
         if (spec[opt] === undefined) continue;
         if (kind[`${opt}Set`] && JSON.stringify(kind[opt]) !== JSON.stringify(spec[opt])) fail(where, `${opt} differs from another declaration`);
         kind[opt] = spec[opt];
@@ -310,6 +319,10 @@ export function buildModel(files) {
     // struct): its name is no other type's.
     claim(k.rust, where);
     if (k.key !== null && typeof k.key !== 'string') fail(where, 'key names the numeric field that identifies an object');
+    // Immutable launch attribution has ordinary object identity but no live
+    // owner list. It uses the same slab and Identity references as other kinds.
+    if (k.identity !== undefined && k.identity !== true) fail(where, 'identity must be true');
+    if (k.identity && (!k.stored || k.singleton || k.key || k.home)) fail(where, 'identity fields have no key, home or singleton');
     if (k.singleton && (k.key || k.home)) fail(where, 'a singleton has no key or home');
     if (k.home) {
       const [system, list] = k.home.split('.');
@@ -318,7 +331,7 @@ export function buildModel(files) {
       if (!owner?.singleton || field?.type.base !== 'list' || field.type.of !== k.name) fail(where, `home ${k.home} is not a singleton's list of ${k.name}`);
       k.homeKind = owner;
       k.homeField = field;
-    } else if (k.stored && !k.singleton && !k.key) fail(where, 'an entity kind with fields needs a home list or a key');
+    } else if (k.stored && !k.singleton && !k.key && !k.identity) fail(where, 'an entity kind with fields needs a home list, a key or identity');
     for (const f of k.skip.keys()) if (k.fields.some((x) => x.name === f)) fail(where, `${f} is both a field and skipped`);
   }
   // Every name a type uses must exist.
@@ -601,7 +614,11 @@ const sameLayout = (a, b) => a.stride === b.stride && a.fields.length === b.fiel
 function rustRecord(model, rec) {
   let at = 0;
   const placed = rec.fields.map((f) => { const p = { field: f, at }; at += words(model, f.type); return p; });
-  return [...rustStruct(model, rec.name, rec.fields), `impl ${rec.name} {`, `    pub const WORDS: usize = ${at};`, ...(rec.layout ? placed.map(p => `    pub const ${upper(p.field.name)}: usize = ${p.at};`) : []), ...(rec.layout ? placed.filter(p => p.field.type.base === 'list').map(p => `    pub fn ${snake(p.field.name)}_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[${p.at}] as usize; let length = row[${p.at + 1}] as usize; heap[start..start + length * ${words(model, p.field.type.value)}].chunks_exact(${words(model, p.field.type.value)}) }`) : []), '', ...rustRows(model, placed, at, 'put', 'take', false), '}', ''];
+  return [...rustStruct(model, rec.name, rec.fields), `impl ${rec.name} {`, `    pub const WORDS: usize = ${at};`, ...(rec.layout ? placed.map(p => `    pub const ${upper(p.field.name)}: usize = ${p.at};`) : []), ...(rec.layout ? placed.filter(p => p.field.type.base === 'list').map(p => `    pub fn ${snake(p.field.name)}_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[${p.at}] as usize; let length = row[${p.at + 1}] as usize; heap[start..start + length * ${words(model, p.field.type.value)}].chunks_exact(${words(model, p.field.type.value)}) }`) : []), '' , ...placed.filter(p=>rec.parts.includes(p.field.name)).flatMap(p=>[
+    '    /// Update one fixed field in a retained encoding; other words stay consumed.',
+    `    pub fn put_${snake(p.field.name)}(&self, row: &mut [f64], heap: &mut Vec<f64>) {`,
+    `        ${rustPutField(model,p.field.type,`self.${snake(p.field.name)}`,p.at)}`, '    }', '',
+  ]), ...rustRows(model, placed, at, 'put', 'take', false), '}', ''];
 }
 
 function rustEnum(e) {
@@ -663,6 +680,7 @@ function rustKind(model, k) {
 
 function rustFile(model, file) {
   const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/${file}.mjs; do not edit.`, '#![allow(clippy::all, unused_braces, unused_parens, unused_variables)]', '', 'use super::*;', ''];
+  for (const c of model.constants.values()) if(c.file===file) lines.push(`pub const ${c.name}:u32=${c.value};`);
   for (const e of model.enums.values()) if (e.file === file) lines.push(...rustEnum(e));
   for (const u of model.unions.values()) if (u.file === file) lines.push(...rustUnion(model, u));
   for (const r of model.records.values()) if (r.file === file) lines.push(...rustRecord(model, r));
@@ -1025,7 +1043,11 @@ const jsSet = (f, o = 'm') => {
 // when it holds none.
 function jsSync(model, t, target, k) {
   switch (t.base) {
-    case 'f64': case 'f32': case 'i32': case 'u32': case 'u8': return `${target} = f[at + ${k}];`;
+    case 'f64': case 'f32': return `${target} = f[at + ${k}];`;
+    // Integer words retain integer feedback at descriptor/handle call sites.
+    // The wire uses f64 slots, but its declared integer range is unchanged.
+    case 'i32': return `${target} = f[at + ${k}] | 0;`;
+    case 'u32': case 'u8': return `${target} = f[at + ${k}] >>> 0;`;
     case 'index': return `${target} = ${target.replace(/\.[A-Za-z_$][\w$]*$/, '')}.${t.of}[f[at + ${k}]];`;
     case 'bool': return `${target} = f[at + ${k}] !== 0;`;
     // Scalar stores avoid boxing float arguments at Vector3.set and
@@ -1045,7 +1067,7 @@ function jsSync(model, t, target, k) {
     case 'list': {
       // Each item read into the one the array holds there (Vector3s and records kept), or a new one.
       const w = words(model, t.value);
-      return `{ const items = (${target} ??= []), start = h + f[at + ${k}], n = f[at + ${k + 1}]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * ${w}; ${jsSyncField(model, t.value, 'v', 0)} } items[i] = v; } }`;
+      return `{ const items = (${target} ??= []), start = h + f[at + ${k}], n = f[at + ${k + 1}]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * ${w}; ${jsSyncField(model, t.value, 'v', 0)} } items[i] = v; } }`;
     }
     case 'set': return `${target} = b.set(${kindConst(t.of)}, f, h + f[at + ${k}], f[at + ${k + 1}], ${target} ?? new Set());`;
     case 'map': {
@@ -1285,9 +1307,82 @@ function jsExportFn(model, name, fields, kind = null) {
 
 function jsSyncFn(model, name, placed, target = 'm') {
   const lines = [`export function ${name}(b, f, at, h, m) {`];
-  for (const { field, at } of placed) lines.push(`  ${jsSyncField(model, field.type, jsSet(field, target), at)}`);
-  lines.push('  return m;', '}', '');
-  return lines;
+  for (const { field, at } of placed) {
+    lines.push(`  ${jsSyncField(model, field.type, jsSet(field, target), at)}`);
+  }
+  lines.push('  return m;', '}', '');return lines;
+}
+
+// A phase can refresh descriptor cursors without decoding immutable widths.
+// Sparse roots skip an unchanged field as a group; nested heap spans still
+// participate, so an unchanged list header cannot conceal a weapon timer.
+function jsDeltaHeapTests(model, t, k) {
+  const value = bare(t), start = k + (optional(t) ? 1 : 0);
+  if (value.base === 'list') return [`deltaChanged(d, h + f[at + ${start}], f[at + ${start + 1}] * ${words(model, value.value)}, base)`];
+  if (value.base !== 'rec') return [];
+  const tests = [];
+  let offset = start;
+  for (const field of model.records.get(value.of).fields) {
+    tests.push(...jsDeltaHeapTests(model, field.type, offset));
+    offset += words(model, field.type);
+  }
+  return tests;
+}
+function jsDeltaTest(model, t, k) {
+  return '(' + [`deltaChanged(d, at + ${k}, ${words(model, t)}, base)`, ...jsDeltaHeapTests(model, t, k)].join(' || ') + ')';
+}
+function jsDeltaRoot(model, rec, placed) {
+  const deferred = rec.fields.some(field => rec.parts.includes(field.name) && ['list','vec3'].includes(field.type.base));
+  const lines = [`export function sync${rec.name}Delta(b, f, at, h, m, d, force = false, base = 0${deferred ? ', deferred = false' : ''}) {`];
+  const readField = ({field,at}, indent) => {
+    const target = jsSet(field), type = field.type;
+    // Inline readers share the root mask, including absolute heap positions.
+    const nested = type.base === 'rec' && model.records.get(type.of).delta.length;
+    let read = nested ? `${target} = sync${type.of}Delta(b, f, at + ${at}, h, ${target}, d, force, base);` : jsSyncField(model, type, target, at);
+    // Optional motion rows retain their existing body. On a presence edge
+    // decode the complete child once; ordinary ticks use its scalar mask.
+    if (nested && optional(type)) {
+      read = `{ const tag = f[at + ${at}]; if (tag === 0) { const fresh = !${target} || deltaChanged(d, at + ${at}, 1, base); ${target} = sync${type.of}Delta(b, f, at + ${at + 1}, h, ${target} ?? new ${type.of}Mirror(), d, force || fresh, base); } else ${target} = tag === 1 ? null : undefined; }`;
+    }
+    // A changed weapon timer does not justify decoding the other weapons.
+    // Children retain the root's mask and absolute heap-word positions.
+    if (type.base === 'list' && !optional(type) && type.value.base === 'rec' &&
+        model.records.get(type.value.of).delta.length) {
+      const child = type.value.of, width = words(model, type.value);
+      read = `{ const items = (${target} ??= []), start = h + f[at + ${at}], n = f[at + ${at + 1}]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { const at = start + i * ${width}; if (force || ${jsDeltaTest(model, type.value, 0)}) items[i] = sync${child}Delta(b, f, at, h, items[i] ?? new ${child}Mirror(), d, force, base); } }`;
+    }
+    const gate = deferred && rec.parts.includes(field.name) && ['list','vec3'].includes(type.base) ? '!deferred && ' : '';
+    return rec.delta.includes(field.name) ? `${indent}if (${gate}(force || ${jsDeltaTest(model, field.type, at)})) { ${read} }` : `${indent}${read}`;
+  };
+  // Fully masked scalar records can dispatch changed words directly. Weapon
+  // clocks normally change only a few fields; scanning every field's mask
+  // costs more than applying that short set. Complex values keep one group
+  // reader so quaternion callbacks and nested identity retain their behavior.
+  const scalar = p => ['f64','f32','i32','u32','u8','bool','enum'].includes(p.field.type.base);
+  if (rec.delta.length === placed.length && placed.some(scalar)) {
+    // A retained list may be observed later, directly from the same native
+    // row. Force still initializes every non-deferred field on structural birth.
+    if (deferred) {
+      lines.push('  if (force) {');
+      for (const p of placed) lines.push(readField(p, '    '));
+      lines.push('    return m;', '  }');
+    } else lines.push(`  if (force) return sync${rec.name}(b, f, at, h, m);`);
+    lines.push(`  const origin = at - base, end = origin + ${recordWords(model, rec.name)}, first = origin >>> 5, last = (end - 1) >>> 5;`,
+      '  for (let word = first; word <= last; word++) {',
+      '    let bits = d[word] >>> 0;',
+      '    if (word === first) bits &= 0xffffffff << (origin & 31);',
+      '    if (word === last && (end & 31)) bits &= 0xffffffff >>> (32 - (end & 31));',
+      '    while (bits) {',
+      '      const bit = 31 - Math.clz32(bits & -bits);',
+      '      switch ((word << 5) + bit - origin) {');
+    for (const p of placed.filter(scalar)) {
+      for (let k = 0; k < words(model, p.field.type); k++) lines.push(`        case ${p.at + k}:`);
+      lines.push(`          { ${jsSyncField(model, p.field.type, jsSet(p.field), p.at)} break; }`);
+    }
+    lines.push('      }', '      bits &= bits - 1;', '    }', '  }');
+    for (const p of placed.filter(p => !scalar(p))) lines.push(readField(p,'  '));
+  } else for (const p of placed) lines.push(readField(p,'  '));
+  lines.push('  return m;', '}', '');return lines;
 }
 
 function jsPutFn(model, name, placed, split = false) {
@@ -1331,10 +1426,20 @@ function jsRecord(model, rec) {
   let at = 0;
   const placed = rec.fields.map((f) => { const p = { field: f, at }; at += words(model, f.type); return p; });
   return [
-    ...(rec.layout ? [`export const ${rec.name}Layout = Object.freeze({ words: ${at}, ${placed.flatMap(p => p.field.type.base === 'list' ? [`${p.field.name}: ${p.at}`, `${p.field.name}Length: ${p.at + 1}`] : [`${p.field.name}: ${p.at}`]).join(', ')} });`, `export const ${upper(rec.name)}_WORDS = ${rec.name}Layout.words;`, `export const ${upper(rec.name)}_OFFSETS = ${rec.name}Layout;`, ''] : []),
+    ...(rec.layout ? [`export const ${rec.name}Layout = Object.freeze({ words: ${at}, ${placed.flatMap(p => p.field.type.base === 'list' ? [`${p.field.name}: ${p.at}`, `${p.field.name}Length: ${p.at + 1}`] : [`${p.field.name}: ${p.at}`]).concat(placed.filter(p => rec.parts.includes(p.field.name)).map(p => `${p.field.name}Words: ${words(model,p.field.type)}`)).join(', ')} });`, `export const ${upper(rec.name)}_WORDS = ${rec.name}Layout.words;`, `export const ${upper(rec.name)}_OFFSETS = ${rec.name}Layout;`, ''] : []),
     ...jsMirror(model, `${rec.name}Mirror`, rec.fields, false),
+
     ...jsSyncFn(model, `sync${rec.name}`, placed),
+    ...(rec.delta.length ? jsDeltaRoot(model, rec, placed) : []),
+    ...(rec.refresh.length ? [
+      `export const ${upper(rec.name)}_REFRESH_WORDS = ${placed.filter(p => rec.refresh.includes(p.field.name)).reduce((n,p) => n + words(model,p.field.type),0)};`,
+      ...jsSyncFn(model, `refresh${rec.name}`, placed.filter(p => rec.refresh.includes(p.field.name))),
+    ] : []),
     ...jsPutFn(model, `put${rec.name}`, placed, rec.view),
+    // Partial commands use the same placed fields as the native writer.
+    // Operations need not serialize unused siblings just to share a row.
+    ...rec.parts.flatMap(name => jsPutFn(model, `put${rec.name}_${name}`,
+      placed.filter(p => p.field.name === name))),
     ...(rec.view ? jsFlatView(model, rec, placed, at) : []),
     // Publication is a schema-owned whitelist: preserve live object identity
     // and avoid a string-key loop on every predicted body and weapon.
@@ -1462,6 +1567,7 @@ function jsFile(model, file) {
   const codes = new Set();
   // The comparisons only some types need.
   const compare = new Set(['sameArray', 'sameEach', 'sameList', 'sameMap', 'sameQuat', 'sameVec']);
+  if ([...model.records.values()].some(r => r.file === file && r.delta.length)) compare.add('deltaChanged');
   let t0Field = null;
   const need = (t0) => {
     if (t0.base === 'obj') compare.add('sameObject');
@@ -1474,7 +1580,7 @@ function jsFile(model, file) {
     const t = container(t0) ? t0.value : t0;
     if (t.base === 'enum') { const e = model.enums.get(t.of); use(jsEnum(e), e.file); use(jsEnumIndex(e), e.file); }
     if (t.base === 'union') { const u = model.unions.get(t.of); for (const p of ['sync', 'put', 'export', 'same']) use(`${p}${u.name}`, u.file); }
-    if (t.base === 'rec') { const r = model.records.get(t.of); for (const p of ['sync', 'put', 'same', 'export']) use(`${p}${r.name}`, r.file); use(`${r.name}Mirror`, r.file); }
+    if (t.base === 'rec') { const r = model.records.get(t.of); for (const p of ['sync', 'put', 'same', 'export']) use(`${p}${r.name}`, r.file); use(`${r.name}Mirror`, r.file); if (r.delta.length) use(`sync${r.name}Delta`, r.file); }
     if (['ref', 'set'].includes(t.base) || (t0.base === 'list' && t.base === 'ref')) codes.add(kindConst(t.of));
     if (t0.base === 'list' && t.base === 'ref' && model.kinds.get(t.of).homeField === t0Field) use(`export${model.kinds.get(t.of).rust}`, model.kinds.get(t.of).file);
   };
@@ -1488,9 +1594,10 @@ function jsFile(model, file) {
   if (codes.size) lines.push(`import { ${[...codes].sort().join(', ')} } from "./kinds.js";`);
   for (const [from, names] of [...uses].sort()) lines.push(`import { ${[...names].sort().join(', ')} } from "./${from}.js";`);
   lines.push('');
+  for(const c of model.constants.values()) if(c.file===file) lines.push(`export const ${c.name} = ${c.value};`);
   for (const e of model.enums.values()) {
     if (e.file !== file) continue;
-    lines.push(`export const ${jsEnum(e)} = ${JSON.stringify(e.values)};`, `export const ${jsEnumIndex(e)} = new Map(${jsEnum(e)}.map((name, i) => [name, i]));`, '');
+    lines.push(`export const ${jsEnum(e)} = ${JSON.stringify(e.values)};`, `export const ${jsEnumIndex(e)} = new Map(${jsEnum(e)}.map((name, i) => [name, i]));`, `export const ${e.name}_VALUE = Object.freeze(${JSON.stringify(Object.fromEntries(e.values.map((name,i)=>[name,i])))});`, '');
   }
   for (const u of model.unions.values()) if (u.file === file) lines.push(...jsUnion(model, u));
   for (const r of model.records.values()) if (r.file === file) lines.push(...jsRecord(model, r));

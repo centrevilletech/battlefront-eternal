@@ -5,51 +5,67 @@ import { KIND_BUILDING, KIND_CHARACTER, KIND_CONTROLLER, KIND_MOBILE_POST, KIND_
 
 export const PostChange_NAMES = ["captured","neutralized","lost"];
 export const PostChange_INDEX = new Map(PostChange_NAMES.map((name, i) => [name, i]));
+export const PostChange_VALUE = Object.freeze({"captured":0,"neutralized":1,"lost":2});
 
 export const RegionType_NAMES = ["sphere","box","cylinder"];
 export const RegionType_INDEX = new Map(RegionType_NAMES.map((name, i) => [name, i]));
+export const RegionType_VALUE = Object.freeze({"sphere":0,"box":1,"cylinder":2});
 
 export const HumanPhase_NAMES = ["unspawned","alive","dying","awaiting"];
 export const HumanPhase_INDEX = new Map(HumanPhase_NAMES.map((name, i) => [name, i]));
+export const HumanPhase_VALUE = Object.freeze({"unspawned":0,"alive":1,"dying":2,"awaiting":3});
 
 export const HsOperation_NAMES = ["update","apply","phase","realize","died","spawned","teamChanged","state","authority"];
 export const HsOperation_INDEX = new Map(HsOperation_NAMES.map((name, i) => [name, i]));
+export const HsOperation_VALUE = Object.freeze({"update":0,"apply":1,"phase":2,"realize":3,"died":4,"spawned":5,"teamChanged":6,"state":7,"authority":8});
 
 export const HsQueryOp_NAMES = ["team","dead","over","roster","classic","characterSpawn","canSpawn"];
 export const HsQueryOp_INDEX = new Map(HsQueryOp_NAMES.map((name, i) => [name, i]));
+export const HsQueryOp_VALUE = Object.freeze({"team":0,"dead":1,"over":2,"roster":3,"classic":4,"characterSpawn":5,"canSpawn":6});
 
 export const HsActionOp_NAMES = ["setTeam","spawn","ready","kill","cancel","rejected"];
 export const HsActionOp_INDEX = new Map(HsActionOp_NAMES.map((name, i) => [name, i]));
+export const HsActionOp_VALUE = Object.freeze({"setTeam":0,"spawn":1,"ready":2,"kill":3,"cancel":4,"rejected":5});
 
 export const HsEventKind_NAMES = ["awaitingSpawn","spawned","teamChanged","playerDied"];
 export const HsEventKind_INDEX = new Map(HsEventKind_NAMES.map((name, i) => [name, i]));
+export const HsEventKind_VALUE = Object.freeze({"awaitingSpawn":0,"spawned":1,"teamChanged":2,"playerDied":3});
 
 export const HsCommandKind_NAMES = ["team","spawn","suicide","cancel"];
 export const HsCommandKind_INDEX = new Map(HsCommandKind_NAMES.map((name, i) => [name, i]));
+export const HsCommandKind_VALUE = Object.freeze({"team":0,"spawn":1,"suicide":2,"cancel":3});
 
 export const BrOperation_NAMES = ["update","spend","credit","headshot","vehicleDestroyed","point","postDestroyed","score","updateTeam","updateLocals"];
 export const BrOperation_INDEX = new Map(BrOperation_NAMES.map((name, i) => [name, i]));
+export const BrOperation_VALUE = Object.freeze({"update":0,"spend":1,"credit":2,"headshot":3,"vehicleDestroyed":4,"point":5,"postDestroyed":6,"score":7,"updateTeam":8,"updateLocals":9});
 
 export const BrQueryOp_NAMES = ["relation","unitAlive","observe","living","owned","statsActive"];
 export const BrQueryOp_INDEX = new Map(BrQueryOp_NAMES.map((name, i) => [name, i]));
+export const BrQueryOp_VALUE = Object.freeze({"relation":0,"unitAlive":1,"observe":2,"living":3,"owned":4,"statsActive":5});
 
 export const PsOperation_NAMES = ["update","all","owned","at","mobileEvents","refreshAll","refresh","postUpdate","destroy","contains","remaining"];
 export const PsOperation_INDEX = new Map(PsOperation_NAMES.map((name, i) => [name, i]));
+export const PsOperation_VALUE = Object.freeze({"update":0,"all":1,"owned":2,"at":3,"mobileEvents":4,"refreshAll":5,"refresh":6,"postUpdate":7,"destroy":8,"contains":9,"remaining":10});
 
 export const PsQueryOp_NAMES = ["captureTeam","buildingAlive","pad","vehiclePosition","classSpawnWorld"];
 export const PsQueryOp_INDEX = new Map(PsQueryOp_NAMES.map((name, i) => [name, i]));
+export const PsQueryOp_VALUE = Object.freeze({"captureTeam":0,"buildingAlive":1,"pad":2,"vehiclePosition":3,"classSpawnWorld":4});
 
 export const PsMobileEventKind_NAMES = ["lost","owner"];
 export const PsMobileEventKind_INDEX = new Map(PsMobileEventKind_NAMES.map((name, i) => [name, i]));
+export const PsMobileEventKind_VALUE = Object.freeze({"lost":0,"owner":1});
 
 export const SpOperation_NAMES = ["update","clock","updateCharacters","updateCharacter","awaitingHuman","setClass","activate","pickClass","prepare","choosePost","reserve","release","changePost","tickets","spendTicket","waiting","spawn","onDeath","onHumanReady","switchTeam","padQuotas","queueOf"];
 export const SpOperation_INDEX = new Map(SpOperation_NAMES.map((name, i) => [name, i]));
+export const SpOperation_VALUE = Object.freeze({"update":0,"clock":1,"updateCharacters":2,"updateCharacter":3,"awaitingHuman":4,"setClass":5,"activate":6,"pickClass":7,"prepare":8,"choosePost":9,"reserve":10,"release":11,"changePost":12,"tickets":13,"spendTicket":14,"waiting":15,"spawn":16,"onDeath":17,"onHumanReady":18,"switchTeam":19,"padQuotas":20,"queueOf":21});
 
 export const SpQueryOp_NAMES = ["draw","health","heroName","spawnGoal"];
 export const SpQueryOp_INDEX = new Map(SpQueryOp_NAMES.map((name, i) => [name, i]));
+export const SpQueryOp_VALUE = Object.freeze({"draw":0,"health":1,"heroName":2,"spawnGoal":3});
 
 export const SpActionOp_NAMES = ["spawnUnit","forceKill","requestObjective","republish"];
 export const SpActionOp_INDEX = new Map(SpActionOp_NAMES.map((name, i) => [name, i]));
+export const SpActionOp_VALUE = Object.freeze({"spawnUnit":0,"forceKill":1,"requestObjective":2,"republish":3});
 
 export function variantOfPostRef(b, x) {
   if (x === null) return 0;
@@ -574,7 +590,7 @@ export class HsInputMirror {
 export function syncHsInput(b, f, at, h, m) {
   m.op = HsOperation_NAMES[f[at + 0]];
   m.dt = f[at + 1];
-  { const items = (m.commands ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
+  { const items = (m.commands ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
   { const tag = f[at + 4]; if (tag === 0) { m.className = b.strings.at(f[at + 5]); } else m.className = tag === 1 ? null : undefined; }
   { const tag = f[at + 6]; if (tag === 0) { m.post = b.strings.at(f[at + 7]); } else m.post = tag === 1 ? null : undefined; }
   m.team = f[at + 8];
@@ -630,7 +646,7 @@ export class HsResultMirror {
 }
 
 export function syncHsResult(b, f, at, h, m) {
-  { const items = (m.events ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncHsEvent(b, f, at + 0, h, v ?? new HsEventMirror()); } items[i] = v; } }
+  { const items = (m.events ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncHsEvent(b, f, at + 0, h, v ?? new HsEventMirror()); } items[i] = v; } }
   { const tag = f[at + 2]; if (tag === 0) { m.view = syncHsState(b, f, at + 3, h, m.view ?? new HsStateMirror()); } else m.view = tag === 1 ? null : undefined; }
   return m;
 }
@@ -709,7 +725,7 @@ export class HsQueryResultMirror {
 export function syncHsQueryResult(b, f, at, h, m) {
   m.number = f[at + 0];
   m.flag = f[at + 1] !== 0;
-  { const items = (m.roster ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  { const items = (m.roster ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
   m.present = f[at + 4] !== 0;
   m.hasUnit = f[at + 5] !== 0;
   m.timer = f[at + 6];
@@ -763,7 +779,7 @@ export class HsActionArgsMirror {
 export function syncHsActionArgs(b, f, at, h, m) {
   m.op = HsActionOp_NAMES[f[at + 0]];
   m.state = syncHsOwned(b, f, at + 1, h, m.state ?? new HsOwnedMirror());
-  { const items = (m.events ??= []), start = h + f[at + 18], n = f[at + 19]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncHsEvent(b, f, at + 0, h, v ?? new HsEventMirror()); } items[i] = v; } }
+  { const items = (m.events ??= []), start = h + f[at + 18], n = f[at + 19]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncHsEvent(b, f, at + 0, h, v ?? new HsEventMirror()); } items[i] = v; } }
   m.team = f[at + 20];
   { const tag = f[at + 21]; if (tag === 0) { m.className = b.strings.at(f[at + 22]); } else m.className = tag === 1 ? null : undefined; }
   { const tag = f[at + 23]; if (tag === 0) { m.post = b.strings.at(f[at + 24]); } else m.post = tag === 1 ? null : undefined; }
@@ -1071,7 +1087,7 @@ export function syncBrQueryResult(b, f, at, h, m) {
   m.number = f[at + 0];
   { const tag = f[at + 1]; if (tag === 0) { m.optionalNumber = f[at + 2]; } else m.optionalNumber = tag === 1 ? null : undefined; }
   m.flag = f[at + 3] !== 0;
-  { const items = (m.values ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   { const tag = f[at + 6]; if (tag === 0) { m.seen = syncBrSeen(b, f, at + 7, h, m.seen ?? new BrSeenMirror()); } else m.seen = tag === 1 ? null : undefined; }
   return m;
 }
@@ -1159,7 +1175,7 @@ export function syncPsInput(b, f, at, h, m) {
   { const tag = f[at + 3]; if (tag === 0) { m.post = b.refs[KIND_POST].at(f[at + 4], f[at + 5]); } else m.post = tag === 1 ? null : undefined; }
   { const tag = f[at + 6]; if (tag === 0) { m.mobile = b.refs[KIND_MOBILE_POST].at(f[at + 7], f[at + 8]); } else m.mobile = tag === 1 ? null : undefined; }
   { const a = (m.position ??= new Array(3)); a[0] = f[at + 9]; a[1] = f[at + 10]; a[2] = f[at + 11]; }
-  { const items = (m.soldiers ??= []), start = h + f[at + 12], n = f[at + 13]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncPsCapturer(b, f, at + 0, h, v ?? new PsCapturerMirror()); } items[i] = v; } }
+  { const items = (m.soldiers ??= []), start = h + f[at + 12], n = f[at + 13]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncPsCapturer(b, f, at + 0, h, v ?? new PsCapturerMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -1304,9 +1320,9 @@ export class PsResultMirror {
 }
 
 export function syncPsResult(b, f, at, h, m) {
-  { const items = (m.list ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncSpawnPost(b, f, at + 0, h, v); } items[i] = v; } }
+  { const items = (m.list ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncSpawnPost(b, f, at + 0, h, v); } items[i] = v; } }
   { const tag = f[at + 2]; if (tag === 0) { m.post = b.refs[KIND_POST].at(f[at + 3], f[at + 4]); } else m.post = tag === 1 ? null : undefined; }
-  { const items = (m.mobileEvents ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncPsMobileEvent(b, f, at + 0, h, v ?? new PsMobileEventMirror()); } items[i] = v; } }
+  { const items = (m.mobileEvents ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncPsMobileEvent(b, f, at + 0, h, v ?? new PsMobileEventMirror()); } items[i] = v; } }
   { const tag = f[at + 7]; if (tag === 0) { m.change = syncPsChange(b, f, at + 8, h, m.change ?? new PsChangeMirror()); } else m.change = tag === 1 ? null : undefined; }
   m.number = f[at + 15];
   m.flag = f[at + 16] !== 0;
@@ -1356,10 +1372,10 @@ export class PsClassMirror {
 }
 
 export function syncPsClass(b, f, at, h, m) {
-  { const tag = f[at + 0]; if (tag === 0) { { const items = (m.atk ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.atk = tag === 1 ? null : undefined; }
-  { const tag = f[at + 3]; if (tag === 0) { { const items = (m.def ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.def = tag === 1 ? null : undefined; }
+  { const tag = f[at + 0]; if (tag === 0) { { const items = (m.atk ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.atk = tag === 1 ? null : undefined; }
+  { const tag = f[at + 3]; if (tag === 0) { { const items = (m.def ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.def = tag === 1 ? null : undefined; }
   { const tag = f[at + 6]; if (tag === 0) { m.valueBleed = f[at + 7]; } else m.valueBleed = tag === 1 ? null : undefined; }
-  { const items = (m.points ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  { const items = (m.points ??= []), start = h + f[at + 8], n = f[at + 9]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
   return m;
 }
 
@@ -1492,7 +1508,7 @@ export class PsPadMirror {
 }
 
 export function syncPsPad(b, f, at, h, m) {
-  { const items = (m.variants ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 25; v = syncPsHull(b, f, at + 0, h, v ?? new PsHullMirror()); } items[i] = v; } }
+  { const items = (m.variants ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 25; v = syncPsHull(b, f, at + 0, h, v ?? new PsHullMirror()); } items[i] = v; } }
   { const tag = f[at + 2]; if (tag === 0) { m.vehicle = syncPsHull(b, f, at + 3, h, m.vehicle ?? new PsHullMirror()); } else m.vehicle = tag === 1 ? null : undefined; }
   return m;
 }
@@ -1535,7 +1551,7 @@ export function syncPsQueryArgs(b, f, at, h, m) {
   { const tag = f[at + 2]; if (tag === 0) { m.building = b.refs[KIND_BUILDING].at(f[at + 3], f[at + 4]); } else m.building = tag === 1 ? null : undefined; }
   { const tag = f[at + 5]; if (tag === 0) { m.vehicle = b.refs[KIND_VEHICLE].at(f[at + 6], f[at + 7]); } else m.vehicle = tag === 1 ? null : undefined; }
   { const tag = f[at + 8]; if (tag === 0) { m.post = b.refs[KIND_MOBILE_POST].at(f[at + 9], f[at + 10]); } else m.post = tag === 1 ? null : undefined; }
-  { const items = (m.points ??= []), start = h + f[at + 11], n = f[at + 12]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  { const items = (m.points ??= []), start = h + f[at + 11], n = f[at + 12]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
   return m;
 }
 
@@ -1587,7 +1603,7 @@ export function syncPsQueryResult(b, f, at, h, m) {
   m.flag = f[at + 1] !== 0;
   { const a = (m.position ??= new Array(3)); a[0] = f[at + 2]; a[1] = f[at + 3]; a[2] = f[at + 4]; }
   { const tag = f[at + 5]; if (tag === 0) { m.pad = syncPsPad(b, f, at + 6, h, m.pad ?? new PsPadMirror()); } else m.pad = tag === 1 ? null : undefined; }
-  { const items = (m.points ??= []), start = h + f[at + 34], n = f[at + 35]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  { const items = (m.points ??= []), start = h + f[at + 34], n = f[at + 35]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
   return m;
 }
 
@@ -1921,7 +1937,7 @@ export class TeamDescMirror {
 export function syncTeamDesc(b, f, at, h, m) {
   { const tag = f[at + 0]; if (tag === 0) { m.units = f[at + 1]; } else m.units = tag === 1 ? null : undefined; }
   { const tag = f[at + 2]; if (tag === 0) { m.reinforcements = f[at + 3]; } else m.reinforcements = tag === 1 ? null : undefined; }
-  { const tag = f[at + 4]; if (tag === 0) { { const items = (m.bleed ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } else m.bleed = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { { const items = (m.bleed ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } else m.bleed = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -1960,7 +1976,7 @@ export class KillRingMirror {
 }
 
 export function syncKillRing(b, f, at, h, m) {
-  { const items = (m.killers ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_CHARACTER].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const items = (m.killers ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_CHARACTER].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   { const $a = (m.times ??= new Float64Array(100)); for (let i = 0; i < 100; i++) $a[i] = f[at + 2 + i]; }
   { const $a = (m.slots ??= new Int32Array(100)); for (let i = 0; i < 100; i++) $a[i] = f[at + 102 + i]; }
   m.head = f[at + 202];
@@ -2108,9 +2124,9 @@ export function syncStatSlot(b, f, at, h, m) {
   m.campBest = f[at + 11];
   m.escapes = f[at + 12];
   { const map = (m.victims ??= new Map()), start = h + f[at + 13], n = f[at + 14]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_CHARACTER].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_CHARACTER].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_CHARACTER].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2]; } if (i >= kept) map.delete(key); map.set(key, v); } }
-  { const items = (m.classes ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncTimeEntry(b, f, at + 0, h, v ?? new TimeEntryMirror()); } items[i] = v; } }
-  { const items = (m.weapons ??= []), start = h + f[at + 17], n = f[at + 18]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncTimeEntry(b, f, at + 0, h, v ?? new TimeEntryMirror()); } items[i] = v; } }
-  { const items = (m.vehicles ??= []), start = h + f[at + 19], n = f[at + 20]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncTimeEntry(b, f, at + 0, h, v ?? new TimeEntryMirror()); } items[i] = v; } }
+  { const items = (m.classes ??= []), start = h + f[at + 15], n = f[at + 16]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncTimeEntry(b, f, at + 0, h, v ?? new TimeEntryMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 17], n = f[at + 18]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncTimeEntry(b, f, at + 0, h, v ?? new TimeEntryMirror()); } items[i] = v; } }
+  { const items = (m.vehicles ??= []), start = h + f[at + 19], n = f[at + 20]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncTimeEntry(b, f, at + 0, h, v ?? new TimeEntryMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -2229,7 +2245,7 @@ export class RecordMirror {
 }
 
 export function syncRecord(b, f, at, h, m) {
-  { const items = (m.slots ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 21; v = syncStatSlot(b, f, at + 0, h, v ?? new StatSlotMirror()); } items[i] = v; } }
+  { const items = (m.slots ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 21; v = syncStatSlot(b, f, at + 0, h, v ?? new StatSlotMirror()); } items[i] = v; } }
   { const tag = f[at + 2]; if (tag === 0) { m.anchor = syncAnchor(b, f, at + 3, h, m.anchor ?? new AnchorMirror()); } else m.anchor = tag === 1 ? null : undefined; }
   m.health = f[at + 6];
   m.low = f[at + 7] !== 0;
@@ -2323,9 +2339,9 @@ export class RegionDescMirror {
 
 export function syncRegionDesc(b, f, at, h, m) {
   m.type = RegionType_NAMES[f[at + 0]];
-  { const tag = f[at + 1]; if (tag === 0) { { const items = (m.matrix ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.matrix = tag === 1 ? null : undefined; }
-  { const tag = f[at + 4]; if (tag === 0) { { const items = (m.center ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.center = tag === 1 ? null : undefined; }
-  { const items = (m.size ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const tag = f[at + 1]; if (tag === 0) { { const items = (m.matrix ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.matrix = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { { const items = (m.center ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.center = tag === 1 ? null : undefined; }
+  { const items = (m.size ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -2414,7 +2430,7 @@ export class SpawnPathMirror {
 
 export function syncSpawnPath(b, f, at, h, m) {
   m.present = f[at + 0] !== 0;
-  { const items = (m.points ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  { const items = (m.points ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
   return m;
 }
 
@@ -2455,7 +2471,7 @@ export function syncPostAi(b, f, at, h, m) {
   { const tag = f[at + 4]; if (tag === 0) { m.allyPath = syncSpawnPath(b, f, at + 5, h, m.allyPath ?? new SpawnPathMirror()); } else m.allyPath = tag === 1 ? null : undefined; }
   m.allyCount = f[at + 8];
   m.classSpawnPoints = f[at + 9];
-  { const items = (m.classSpawnWorld ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  { const items = (m.classSpawnWorld ??= []), start = h + f[at + 10], n = f[at + 11]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
   m.yaw = f[at + 12];
   return m;
 }
@@ -2597,10 +2613,10 @@ export class MobileAiMirror {
 }
 
 export function syncMobileAi(b, f, at, h, m) {
-  { const items = (m.atk ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.def ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.atk ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.def ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.valueBleed = f[at + 4];
-  { const items = (m.points ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  { const items = (m.points ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
   m.classSpawnPoints = f[at + 7];
   return m;
 }
@@ -2743,13 +2759,13 @@ export function syncSpawnTeam(b, f, at, h, m) {
   m.faction = f[at + 3];
   m.unitCount = f[at + 4];
   m.tickets = f[at + 5];
-  { const items = (m.classes ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncSpawnClass(b, f, at + 0, h, v ?? new SpawnClassMirror()); } items[i] = v; } }
+  { const items = (m.classes ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncSpawnClass(b, f, at + 0, h, v ?? new SpawnClassMirror()); } items[i] = v; } }
   m.heroCount = f[at + 8];
   { const tag = f[at + 9]; if (tag === 0) { m.heroClass = b.strings.at(f[at + 10]); } else m.heroClass = tag === 1 ? null : undefined; }
   m.bonus = f[at + 11];
   m.aggressiveness = f[at + 12];
   { const $a = (m.relations ??= new Int8Array(8)); for (let i = 0; i < 8; i++) $a[i] = f[at + 13 + i]; }
-  { const items = (m.characters ??= []), start = h + f[at + 21], n = f[at + 22]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.characters ??= []), start = h + f[at + 21], n = f[at + 22]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.living = f[at + 23];
   m.capacity = f[at + 24];
   return m;
@@ -2846,7 +2862,7 @@ export function syncBattle(b, f, at, h, m) {
   m.foe = f[at + 3];
   { const o = (m.reinforcements ??= {}), start = h + f[at + 4], n = f[at + 5]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
   { const o = (m.start ??= {}), start = h + f[at + 6], n = f[at + 7]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
-  { const items = (m.teamIds ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.teamIds ??= []), start = h + f[at + 8], n = f[at + 9]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   { const o = (m.noPost ??= {}), start = h + f[at + 10], n = f[at + 11]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
   { const o = (m.bleed ??= {}), start = h + f[at + 12], n = f[at + 13]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
   { const tag = f[at + 14]; if (tag === 0) { m.victoryClock = f[at + 15]; } else m.victoryClock = tag === 1 ? null : undefined; }
@@ -2858,9 +2874,9 @@ export function syncBattle(b, f, at, h, m) {
   m.gameOver = f[at + 23] !== 0;
   m.finished = f[at + 24] !== 0;
   m.stats = syncBattleStats(b, f, at + 25, h, m.stats ?? new BattleStatsMirror());
-  { const o = (m.bleedRules ??= {}), start = h + f[at + 230], n = f[at + 231]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } o[key] = v; } }
+  { const o = (m.bleedRules ??= {}), start = h + f[at + 230], n = f[at + 231]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } o[key] = v; } }
   { const o = (m.bleedClock ??= {}), start = h + f[at + 232], n = f[at + 233]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
-  { const items = (m.characters ??= []), start = h + f[at + 234], n = f[at + 235]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.characters ??= []), start = h + f[at + 234], n = f[at + 235]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
@@ -2871,7 +2887,7 @@ export function syncFullBattle(b, f, at, h, m) {
   { const o = (m.teams ??= {}), start = h + f[at + 4], n = f[at + 5]; for (const key in o) { let i = 0; while (i < n && f[start + i * 8] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 8, key = f[e]; let v = o[key]; { const at = e; v = syncTeamDesc(b, f, at + 1, h, v ?? new TeamDescMirror()); } o[key] = v; } }
   { const o = (m.reinforcements ??= {}), start = h + f[at + 6], n = f[at + 7]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
   { const o = (m.start ??= {}), start = h + f[at + 8], n = f[at + 9]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
-  { const items = (m.teamIds ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.teamIds ??= []), start = h + f[at + 10], n = f[at + 11]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   { const o = (m.noPost ??= {}), start = h + f[at + 12], n = f[at + 13]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
   { const o = (m.bleed ??= {}), start = h + f[at + 14], n = f[at + 15]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
   { const tag = f[at + 16]; if (tag === 0) { m.victoryClock = f[at + 17]; } else m.victoryClock = tag === 1 ? null : undefined; }
@@ -2883,9 +2899,9 @@ export function syncFullBattle(b, f, at, h, m) {
   m.gameOver = f[at + 25] !== 0;
   m.finished = f[at + 26] !== 0;
   m.stats = syncBattleStats(b, f, at + 27, h, m.stats ?? new BattleStatsMirror());
-  { const o = (m.bleedRules ??= {}), start = h + f[at + 232], n = f[at + 233]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } o[key] = v; } }
+  { const o = (m.bleedRules ??= {}), start = h + f[at + 232], n = f[at + 233]; for (const key in o) { let i = 0; while (i < n && f[start + i * 3] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = f[e]; let v = o[key]; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const a = (v ??= new Array(2)); a[0] = f[at + 0]; a[1] = f[at + 1]; } } items[i] = v; } } } o[key] = v; } }
   { const o = (m.bleedClock ??= {}), start = h + f[at + 234], n = f[at + 235]; for (const key in o) { let i = 0; while (i < n && f[start + i * 2] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 2, key = f[e]; let v = o[key]; { const at = e; v = f[at + 1]; } o[key] = v; } }
-  { const items = (m.characters ??= []), start = h + f[at + 236], n = f[at + 237]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.characters ??= []), start = h + f[at + 236], n = f[at + 237]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
@@ -3262,17 +3278,17 @@ export const COMMAND_POSTS_EXPORT_STRIDE = 7, COMMAND_POSTS_IMPORT_STRIDE = 7, C
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncCommandPosts(b, f, at, h, m) {
-  { const items = (m.posts ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_POST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.posts ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_POST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.time = f[at + 4];
-  { const items = (m.events ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncPostEvent(b, f, at + 0, h, v ?? new PostEventMirror()); } items[i] = v; } }
+  { const items = (m.events ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncPostEvent(b, f, at + 0, h, v ?? new PostEventMirror()); } items[i] = v; } }
   return m;
 }
 
 // A full row into object `m`.
 export function syncFullCommandPosts(b, f, at, h, m) {
-  { const items = (m.posts ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_POST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.posts ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_POST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.time = f[at + 4];
-  { const items = (m.events ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncPostEvent(b, f, at + 0, h, v ?? new PostEventMirror()); } items[i] = v; } }
+  { const items = (m.events ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncPostEvent(b, f, at + 0, h, v ?? new PostEventMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -3617,13 +3633,13 @@ export const MOBILE_POSTS_EXPORT_STRIDE = 4, MOBILE_POSTS_IMPORT_STRIDE = 4, MOB
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncMobilePosts(b, f, at, h, m) {
-  { const items = (m.posts ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_MOBILE_POST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.posts ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_MOBILE_POST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
 // A full row into object `m`.
 export function syncFullMobilePosts(b, f, at, h, m) {
-  { const items = (m.posts ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_MOBILE_POST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.posts ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_MOBILE_POST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
@@ -3861,7 +3877,7 @@ export const SPAWNING_EXPORT_STRIDE = 19, SPAWNING_IMPORT_STRIDE = 19, SPAWNING_
 export function syncSpawning(b, f, at, h, m) {
   m.heroes = f[at + 2] !== 0;
   m.demo = f[at + 3] !== 0;
-  { const items = (m.teams ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 25; v = syncSpawnTeam(b, f, at + 0, h, v ?? new SpawnTeamMirror()); } items[i] = v; } }
+  { const items = (m.teams ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 25; v = syncSpawnTeam(b, f, at + 0, h, v ?? new SpawnTeamMirror()); } items[i] = v; } }
   m.A = f[at + 6];
   m.B = f[at + 7];
   m.Q = f[at + 8];
@@ -3870,7 +3886,7 @@ export function syncSpawning(b, f, at, h, m) {
   m.stagger = f[at + 11];
   m.released = f[at + 12];
   m.localsCap = f[at + 13];
-  { const items = (m.characters ??= []), start = h + f[at + 14], n = f[at + 15]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.characters ??= []), start = h + f[at + 14], n = f[at + 15]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const map = (m.queues ??= new Map()), start = h + f[at + 16], n = f[at + 17]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(syncSpawnPost(b, f, start + i * 7, h, undefined), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(syncSpawnPost(b, f, start + kept * 7, h, undefined), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 7, key = syncSpawnPost(b, f, e, h, undefined); let v = map.get(key); { const at = e; { const a = (v ??= new Array(4)); a[0] = f[at + 3]; a[1] = f[at + 4]; a[2] = f[at + 5]; a[3] = f[at + 6]; } } if (i >= kept) map.delete(key); map.set(key, v); } }
   m.started = f[at + 18] !== 0;
   return m;
@@ -3880,7 +3896,7 @@ export function syncSpawning(b, f, at, h, m) {
 export function syncFullSpawning(b, f, at, h, m) {
   m.heroes = f[at + 2] !== 0;
   m.demo = f[at + 3] !== 0;
-  { const items = (m.teams ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 25; v = syncSpawnTeam(b, f, at + 0, h, v ?? new SpawnTeamMirror()); } items[i] = v; } }
+  { const items = (m.teams ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 25; v = syncSpawnTeam(b, f, at + 0, h, v ?? new SpawnTeamMirror()); } items[i] = v; } }
   m.A = f[at + 6];
   m.B = f[at + 7];
   m.Q = f[at + 8];
@@ -3889,7 +3905,7 @@ export function syncFullSpawning(b, f, at, h, m) {
   m.stagger = f[at + 11];
   m.released = f[at + 12];
   m.localsCap = f[at + 13];
-  { const items = (m.characters ??= []), start = h + f[at + 14], n = f[at + 15]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.characters ??= []), start = h + f[at + 14], n = f[at + 15]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const map = (m.queues ??= new Map()), start = h + f[at + 16], n = f[at + 17]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(syncSpawnPost(b, f, start + i * 7, h, undefined), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(syncSpawnPost(b, f, start + kept * 7, h, undefined), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 7, key = syncSpawnPost(b, f, e, h, undefined); let v = map.get(key); { const at = e; { const a = (v ??= new Array(4)); a[0] = f[at + 3]; a[1] = f[at + 4]; a[2] = f[at + 5]; a[3] = f[at + 6]; } } if (i >= kept) map.delete(key); map.set(key, v); } }
   m.started = f[at + 18] !== 0;
   return m;

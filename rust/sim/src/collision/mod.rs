@@ -139,6 +139,9 @@ pub struct World {
     pub grid: Option<usize>,
     /// The world's bodies in its list's order, by slot.
     pub order: Vec<u32>,
+    /// Cold geometry reservations. These bodies do not participate in queries
+    /// until their original spawn slot appends them to the active order.
+    pub prepared: Vec<u32>,
     /// Bumped whenever `order` is set (gather caches keep their bodies until
     /// it changes, as collision.js's do with bodiesVersion).
     pub version: u64,
@@ -172,10 +175,6 @@ pub fn state() -> &'static mut State {
 
 pub(crate) fn io() -> &'static mut [f64; IO_LEN] {
     unsafe { &mut *addr_of_mut!(IO) }
-}
-
-pub(crate) fn enabled(c: usize) -> bool {
-    unsafe { (*addr_of_mut!(ENABLED))[c] != 0 }
 }
 
 pub(crate) fn candidate(c: usize) -> usize {
@@ -567,6 +566,15 @@ fn transform_ray(ray: &Ray, e: &[f64; 16]) -> Ray {
     Ray { ox: o[0], oy: o[1], oz: o[2], dx: d[0], dy: d[1], dz: d[2] }
 }
 
+/// heroes.meleeStrike casts each target's own BVH with near zero and far two.
+/// The moving body's inverse normalizes direction just like Ray.applyMatrix4;
+/// its returned distance remains local, matching the original melee loop.
+pub fn body_raycast(s: &State, slot: usize, ray: &Ray, far: f64) -> Option<Hit> {
+    let body = &s.bodies[slot];
+    let local = if body.moving { transform_ray(ray, &body.inverse) } else { *ray };
+    tree_raycast(s, body.tree, &local, 0.0, far)
+}
+
 /// The world's bodies a cast must try, in its order: those not ignored, not
 /// left out (a moving one in a static-only cast; a fixed one in castMoving's)
 /// and whose bounds the ray meets. Each one's place in the order goes in
@@ -784,7 +792,7 @@ pub extern "C" fn body_set(slot: u32) {
 #[no_mangle]
 pub extern "C" fn world_new(tree: u32, terrain: i32, grid: i32) -> u32 {
     let s = state();
-    s.worlds.push(World { tree: tree as usize, terrain: (terrain >= 0).then_some(terrain as usize), grid: (grid >= 0).then_some(grid as usize), order: Vec::new(), version: 0, statics: None, broad: Default::default() });
+    s.worlds.push(World { tree: tree as usize, terrain: (terrain >= 0).then_some(terrain as usize), grid: (grid >= 0).then_some(grid as usize), order: Vec::new(), prepared: Vec::new(), version: 0, statics: None, broad: Default::default() });
     (s.worlds.len() - 1) as u32
 }
 

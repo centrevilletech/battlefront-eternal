@@ -78,16 +78,14 @@ function atst(level) {
   const data = JSON.parse(fs.readFileSync(pack));
   const g = new THREE.PlaneGeometry(4000, 4000).rotateX(-Math.PI / 2);
   const collision = new CollisionWorld(g.attributes.position.array, g.index.array, new Uint32Array(g.index.count / 3));
-  const destroyed = [];
   const system = new Vehicles({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), collision, water: pool(level),
     data: { ...data, blockers: null, spawns: [{ name: 'test', matrix: new THREE.Matrix4().makeTranslation(-20, 0, 0).toArray(), team: 1, post: '', classes: { 1: 'imp_walk_atst' } }] },
     buffer: bin('models.bin'), indexBuffer: bin('models_index.bin'), animationBuffer: bin('animations.bin'),
-    texture: () => null, effects: { play() { return null; } }, ordnance: { explosion() {}, fire() { return null; }, lights: { flash() {} } },
-    onDestroyed: (v) => destroyed.push(v) });
+    texture: () => null, effects: { play() { return null; } }, ordnance: { explosion() {}, fire() { return null; }, lights: { flash() {} } } });
   const v = system.vehicles[0];
   registerHullFixture(system, { data: system.data, buffer: bin('models.bin'), indexBuffer: bin('models_index.bin'), animationBuffer: bin('animations.bin') });
   // Occupied walkers keep updating at rest, just as the driven fixture did.
-  return { system, v, destroyed };
+  return { system, v };
 }
 
 test('an AT-ST wades in on the bed; water over its sphere wears it down, shallower water does not', { skip: !has('imp_walk_atst', 'kas2') }, () => {
@@ -99,8 +97,7 @@ test('an AT-ST wades in on the bed; water over its sphere wears it down, shallow
   assert.equal(v.health, v.maxHealth);
   system.dispose();
   // Deep: 7 m. After a second it loses 10 an update until it is destroyed.
-  let destroyed;
-  ({ system, v, destroyed } = atst(7));
+  ({ system, v } = atst(7));
   for (let t = 0; t < 60; t++) stepPrediction(system, 1 / 60, v);
   assert.ok(v.position.y < 0.6, `under the water at ${v.position.y}`);
   assert.ok(v.health > v.maxHealth - 15, `health ${v.health} after a second`);
@@ -108,6 +105,8 @@ test('an AT-ST wades in on the bed; water over its sphere wears it down, shallow
   assert.ok(Math.abs(v.maxHealth - v.health - 600) <= 20, `lost ${v.maxHealth - v.health} in the second second`);
   for (let t = 0; t < 60 * 20 && v.alive; t++) stepPrediction(system, 1 / 60, v);
   assert.equal(v.alive, false);
-  assert.equal(destroyed.length, 1);
+  // Native death releases the crew synchronously. The old onDestroyed
+  // callback was achievement bookkeeping, not a page prediction event.
+  assert.equal(v.driver, null);
   system.dispose();
 });

@@ -20,7 +20,7 @@
 //! Vector3 three numbers; a field that can be null or undefined takes a
 //! word for its tag first (as in the capture format).
 
-pub const HEADER: usize = 5;
+pub const HEADER: usize = crate::gen::BlockHeader::WORDS;
 
 #[derive(Default)]
 pub struct Block {
@@ -33,30 +33,30 @@ impl Block {
     pub fn begin(&mut self, rows: usize, stride: usize) {
         self.words.clear();
         self.words.resize(HEADER + rows * stride, 0.0);
-        self.words[0] = rows as f64;
-        self.words[1] = stride as f64;
+        self.words[crate::gen::BlockHeader::ROWS] = rows as f64;
+        self.words[crate::gen::BlockHeader::STRIDE] = stride as f64;
         self.heap.clear();
     }
 
     /// How many of the rows (the first) are retired entities'.
-    pub fn set_retired(&mut self, n: usize) { self.words[4] = n as f64; }
+    pub fn set_retired(&mut self, n: usize) { self.words[crate::gen::BlockHeader::RETIRED] = n as f64; }
 
     /// A row's words and the heap, to fill.
     #[inline]
     pub fn row(&mut self, i: usize) -> (&mut [f64], &mut Vec<f64>) {
-        let stride = self.words[1] as usize;
+        let stride = self.words[crate::gen::BlockHeader::STRIDE] as usize;
         let at = HEADER + i * stride;
         (&mut self.words[at..at + stride], &mut self.heap)
     }
 
     /// Puts the heap after the rows; the block is ready to be read.
     pub fn finish(&mut self) {
-        let rows = self.words[0] as usize;
-        let stride = self.words[1] as usize;
+        let rows = self.words[crate::gen::BlockHeader::ROWS] as usize;
+        let stride = self.words[crate::gen::BlockHeader::STRIDE] as usize;
         let start = HEADER + rows * stride;
         self.words.truncate(start);
-        self.words[2] = start as f64;
-        self.words[3] = self.heap.len() as f64;
+        self.words[crate::gen::BlockHeader::HEAP] = start as f64;
+        self.words[crate::gen::BlockHeader::HEAP_WORDS] = self.heap.len() as f64;
         self.words.extend_from_slice(&self.heap);
     }
 
@@ -66,24 +66,24 @@ impl Block {
     pub fn room(&mut self, rows: usize, stride: usize, heap: usize) -> *mut f64 {
         self.words.clear();
         self.words.resize(HEADER + rows * stride + heap, 0.0);
-        self.words[0] = rows as f64;
-        self.words[1] = stride as f64;
-        self.words[2] = (HEADER + rows * stride) as f64;
-        self.words[3] = heap as f64;
-        self.words[4] = 0.0;
+        self.words[crate::gen::BlockHeader::ROWS] = rows as f64;
+        self.words[crate::gen::BlockHeader::STRIDE] = stride as f64;
+        self.words[crate::gen::BlockHeader::HEAP] = (HEADER + rows * stride) as f64;
+        self.words[crate::gen::BlockHeader::HEAP_WORDS] = heap as f64;
+        self.words[crate::gen::BlockHeader::RETIRED] = 0.0;
         self.words.as_mut_ptr()
     }
 
-    pub fn rows(&self) -> usize { self.words[0] as usize }
-    pub fn stride(&self) -> usize { self.words[1] as usize }
+    pub fn rows(&self) -> usize { self.words[crate::gen::BlockHeader::ROWS] as usize }
+    pub fn stride(&self) -> usize { self.words[crate::gen::BlockHeader::STRIDE] as usize }
 
     /// A row JavaScript wrote, and the heap.
     #[inline]
     pub fn read(&self, i: usize) -> (&[f64], &[f64]) {
-        let stride = self.words[1] as usize;
+        let stride = self.words[crate::gen::BlockHeader::STRIDE] as usize;
         let at = HEADER + i * stride;
-        let heap = self.words[2] as usize;
-        (&self.words[at..at + stride], &self.words[heap..heap + self.words[3] as usize])
+        let heap = self.words[crate::gen::BlockHeader::HEAP] as usize;
+        (&self.words[at..at + stride], &self.words[heap..heap + self.words[crate::gen::BlockHeader::HEAP_WORDS] as usize])
     }
 
     pub fn ptr(&self) -> *const f64 { self.words.as_ptr() }

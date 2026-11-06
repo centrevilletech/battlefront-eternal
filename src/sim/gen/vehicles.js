@@ -611,7 +611,7 @@ export class VehMembersMirror {
 }
 
 export function syncVehMembers(b, f, at, h, m) {
-  { const items = (m.indices ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.indices ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -644,7 +644,7 @@ export class VehPointsMirror {
 }
 
 export function syncVehPoints(b, f, at, h, m) {
-  { const items = (m.points ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
+  { const items = (m.points ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
   return m;
 }
 
@@ -714,16 +714,16 @@ export const VEHICLES_EXPORT_STRIDE = 10, VEHICLES_IMPORT_STRIDE = 10, VEHICLES_
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncVehicles(b, f, at, h, m) {
-  { const items = (m.vehicles ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  { const items = (m.slots ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSpawnSlot(b, f, at + 0, h, v ?? new SpawnSlotMirror()); } items[i] = v; } }
+  { const items = (m.vehicles ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.slots ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSpawnSlot(b, f, at + 0, h, v ?? new SpawnSlotMirror()); } items[i] = v; } }
   { const tag = f[at + 6]; if (tag === 0) { { const $v = (m.spawnOccupant ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; } } else m.spawnOccupant = tag === 1 ? null : undefined; }
   return m;
 }
 
 // A full row into object `m`.
 export function syncFullVehicles(b, f, at, h, m) {
-  { const items = (m.vehicles ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  { const items = (m.slots ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSpawnSlot(b, f, at + 0, h, v ?? new SpawnSlotMirror()); } items[i] = v; } }
+  { const items = (m.vehicles ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.slots ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSpawnSlot(b, f, at + 0, h, v ?? new SpawnSlotMirror()); } items[i] = v; } }
   { const tag = f[at + 6]; if (tag === 0) { { const $v = (m.spawnOccupant ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; } } else m.spawnOccupant = tag === 1 ? null : undefined; }
   return m;
 }

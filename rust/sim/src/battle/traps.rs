@@ -37,7 +37,7 @@ pub struct Settings {
     pub effect_at: [f64; 3],
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Trap {
     pub built: bool,
     pub health: f64,
@@ -72,6 +72,15 @@ pub trait World {
     fn effect(&mut self, trap: &mut Trap, name: StrId, at: [f64; 3]);
 }
 
+// Trap.setHealth only changes visibility; it never crushes a hull or emits
+// a sound. Combat can share that arithmetic without entering the trap phase.
+pub trait HealthWorld {
+    fn health_show(&mut self, trap: &mut Trap, built: bool);
+}
+impl<W: World> HealthWorld for W {
+    fn health_show(&mut self, trap: &mut Trap, built: bool) { self.show(trap, built); }
+}
+
 fn text(value: Option<StrId>, strings: &dyn Text) -> Option<StrId> {
     value.filter(|&name| strings.nonempty(name))
 }
@@ -84,7 +93,13 @@ impl Trap {
     }
 
     pub fn set_health(&mut self, value: f64, settings: &Settings, world: &mut impl World) {
-        self.health = v8math::max(0.0, v8math::min(settings.max_health, value));
+        self.set_health_with(value, settings.max_health, world);
+    }
+
+    // Trap.setHealth retains built at zero health, marking it sprung for the
+    // later world step. Rebuilding starts Reset with no tick assigned yet.
+    pub fn set_health_with(&mut self, value: f64, max_health: f64, world: &mut impl HealthWorld) {
+        self.health = v8math::max(0.0, v8math::min(max_health, value));
         // V8's Math.min/max return this canonical NaN for clamp. Keep
         // its bits when health is read back through a typed-array view.
         if self.health.is_nan() { self.health = f64::from_bits(0xfff8_0000_0000_0000); }
@@ -92,10 +107,10 @@ impl Trap {
             if !(self.health > 0.0) { self.sprung = true; }
             return;
         }
-        if self.health >= settings.max_health {
+        if self.health >= max_health {
             self.built = true;
-            world.show(self, true);
-            self.health = settings.max_health;
+            world.health_show(self, true);
+            self.health = max_health;
             self.sprung = false;
             self.begin(Phase::Reset, None);
         }

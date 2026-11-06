@@ -1,3 +1,4 @@
+import './native-anim.js';
 import * as THREE from 'three';
 import { CollisionWorld } from '../../src/collision.js';
 import { Soldier } from '../../src/soldier.js';
@@ -51,7 +52,8 @@ export function createPredictionActor(scenario, course, content = null) {
     soldier.waterClock = 3.25;
   } else soldier = new Soldier(course.world, content?.definition || scenario.definition || {});
   soldier.spawn(...(scenario.spawn || [0, 0, 0, 0]));
-  if (kind === 'droideka') soldier.nextGun(new THREE.Vector3());
+  // The world's first shot leaves the shared barrel cursor on its second step.
+  if (kind === 'droideka' && soldier.guns.length) { soldier.lastGun = { index: 0, barrel: 0 }; soldier.gun = 1; }
   soldier.getupTime = content?.getupTime ?? .9; soldier.diveTime = content?.diveTime ?? .6; soldier.maxFlyHeight = content?.maxFlyHeight ?? 14;
   if (scenario.patch) for (const [key, value] of Object.entries(scenario.patch)) {
     if (soldier[key]?.isVector3) soldier[key].fromArray(value); else soldier[key] = value;

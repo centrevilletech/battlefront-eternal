@@ -158,6 +158,16 @@ pub fn drop(unit: Ref<Unit>) -> Option<Vector3> {
     rows().get(unit.slot as usize).and_then(Option::as_ref).and_then(|r| r.out.drop.as_ref()).map(vec)
 }
 
+/// SeatLease.riderShapes reads the already completed native rider sample.
+/// Copying it does not sample a newer pose or advance Unit.spheresTick.
+pub(crate) fn shapes(unit: Ref<Unit>, life: f64, out: &mut [crate::gen::HitShape]) -> usize {
+    let Some(row) = rows().get(unit.slot as usize).and_then(Option::as_ref) else { return 0 };
+    if row.out.unit != unit || row.life != life { return 0; }
+    let count = row.out.shapes.len();
+    for (source, target) in row.shapes[..count].iter().zip(out) { target.set_rider(source); }
+    count
+}
+
 /// Publish only samples whose numeric values changed. A stationary nine-pose
 /// rider keeps its shape cache while tickCount continues its normal cadence.
 pub fn publish() -> *const f64 {

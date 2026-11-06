@@ -1,3 +1,4 @@
+import {BlockHeaderLayout as BLOCK} from './sim/gen/boundary.js';
 // Vehicles.syncCrews publishes bodies from Rust. Lazy hit-shape readers copy
 // retained world samples here; they never sample a hull's JavaScript rig.
 import { AnimKernel } from './anim-kernel.js';
@@ -58,9 +59,10 @@ export class F2Riders {
   sync(ptr) {
     if (!ptr) return;
     const b = this.bridge, f = b.f, base = (ptr / 8) | 0;
-    const count = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
+    if (this.phase.counters) this.phase.counters.outputBlock(f,base);
+    const count = f[base] | 0, stride = f[base + BLOCK.stride] | 0, heap = base + (f[base + BLOCK.heap] | 0);
     for (let i = 0; i < count; i++) {
-      const at = base + 5 + i * stride, unit = b.refs[KIND_UNIT].at(f[at], f[at + 1]);
+      const at = base + BLOCK.words + i * stride, unit = b.refs[KIND_UNIT].at(f[at], f[at + 1]);
       syncF2RiderOut(b, f, at, heap, this.rows.get(unit));
     }
 

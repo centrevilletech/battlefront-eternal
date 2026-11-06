@@ -8,14 +8,11 @@ import fs from 'node:fs';
 import { Arsenal, Weapon, seededRandom, spreadSeed } from '../src/weapons.js';
 import { PlayerCombat } from '../src/combat.js';
 import { prepareMelee } from '../src/heroes.js';
-import { readWeaponInput, seedPresses } from '../src/combat-weapon-input.js';
-import { networkShotFor } from '../src/runtime/network-shot-aim.js';
 import { PredictionArsenal } from '../src/runtime/prediction-arsenal.js';
 import { createClientPrediction } from '../src/runtime/client-prediction.js';
 import { loadSim } from '../src/sim/module.js';
 import { loadRayKernel } from '../src/ray-kernel.js';
 import { actorCourse, createPredictionActor } from './fixtures/client-actors.js';
-import { CommandControls } from '../src/runtime/commands.js';
 
 const DEG = Math.PI / 180;
 // The retail class as the extractor exports it (SIDE/imp.lvl).
@@ -91,19 +88,9 @@ test('the same press draws the same salvo on the authority and in prediction', (
 
 test('the authority seeds a press from its trigger edge and the Rust page session from its own press id', async () => {
   const owner = { id: 6, generation: 2, networkShots: [{ id: 41, button: 0, pressed: true, aimYaw: 0, aimPitch: 0 }] };
-  const controls = new CommandControls();
-  controls.down = new Set(['Mouse0']);
-  controls.queued.add('firePrimary');
-  const input = seedPresses(readWeaponInput(controls), owner, [0, 1].map((channel) => networkShotFor(owner, channel)?.id));
-  assert.equal(input.primary.seed, spreadSeed(owner, 0, 41));
-  assert.equal(input.secondary.seed, undefined, 'no press, no seed');
-  // A held trigger without a press takes no seed.
-  const held = new CommandControls();
-  held.down = new Set(['Mouse0']);
-  assert.equal(seedPresses(readWeaponInput(held), owner, [41, null]).primary.seed, undefined);
-  // A bot has no trigger edges: its weapons keep the AI generator.
-  assert.equal(seedPresses(readWeaponInput(controls), { id: 7, generation: 1 }, [null, null]).primary.seed, undefined);
-
+  // This is a page prediction fixture. Native authority press seeding and
+  // consumption run through the complete F3 phase in f3-ordnance fixtures.
+  const input = {primary:press(spreadSeed(owner,0,41)),secondary:{held:false,pressed:false}};
   // The authority's salvo, fired through Arsenal.update as PlayerCombat does.
   const authority = new Arsenal([blastCannon()], { player: true });
   const fired = authority.update(1 / 60, input, aim);

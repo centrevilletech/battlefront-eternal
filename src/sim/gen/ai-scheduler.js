@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiScheduleOp_NAMES = ["config","notify","humans","broadcast","controllers","controller","processed","rebuild","lodSkip","service","plannerIdle","navService","losService","phase","dropLos","scan","clearCandidate","lodDisabled","identity","velocity","cameras","position","writeLod","inputAt","executeInput","budgets","visible","inputState","inputCarry","writeInput","markSkip","intent","consume","exitPending","exit","aim","navControl","navInput","posture","jet","applyJet","analogs","fallback","applyFallback","kind","droideka","dodge","applyDodge","postureInfo","crouch","prone","droidekaInfo","use"];
 export const AiScheduleOp_INDEX = new Map(AiScheduleOp_NAMES.map((name, i) => [name, i]));
+export const AiScheduleOp_VALUE = Object.freeze({"config":0,"notify":1,"humans":2,"broadcast":3,"controllers":4,"controller":5,"processed":6,"rebuild":7,"lodSkip":8,"service":9,"plannerIdle":10,"navService":11,"losService":12,"phase":13,"dropLos":14,"scan":15,"clearCandidate":16,"lodDisabled":17,"identity":18,"velocity":19,"cameras":20,"position":21,"writeLod":22,"inputAt":23,"executeInput":24,"budgets":25,"visible":26,"inputState":27,"inputCarry":28,"writeInput":29,"markSkip":30,"intent":31,"consume":32,"exitPending":33,"exit":34,"aim":35,"navControl":36,"navInput":37,"posture":38,"jet":39,"applyJet":40,"analogs":41,"fallback":42,"applyFallback":43,"kind":44,"droideka":45,"dodge":46,"applyDodge":47,"postureInfo":48,"crouch":49,"prone":50,"droidekaInfo":51,"use":52});
 
 export class AiScheduleArgsMirror {
   constructor() {
@@ -16,7 +17,7 @@ export class AiScheduleArgsMirror {
 
 export function syncAiScheduleArgs(b, f, at, h, m) {
   m.op = AiScheduleOp_NAMES[f[at + 0]];
-  m.id = f[at + 1];
+  m.id = f[at + 1] >>> 0;
   m.number = f[at + 2];
   m.phase = f[at + 3];
   return m;
@@ -60,7 +61,7 @@ export class AiScheduleResultMirror {
 export function syncAiScheduleResult(b, f, at, h, m) {
   m.number = f[at + 0];
   m.flag = f[at + 1] !== 0;
-  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 

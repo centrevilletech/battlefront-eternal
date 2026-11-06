@@ -78,11 +78,12 @@ export function createNetworkLifecycleBridge(bridge) {
       case 'emit': game.simEvents.emit('spawn', { target: game.units.ref(unit), team: p.team, position: unit.position, className, post: c.post.name }); break;
       case 'unspawnUnit': c.unit = p.unit; break;
       case 'unspawnFlags':
-        unit.alive = false; unit.dead = unit.combat.dead = unit.soldier.dead = true;
-        unit.removed = true; unit.targetable = false;
+        unit.f3.unspawn(unit);
         break;
       case 'invisible': unit.actor.root.visible = false; break;
-      case 'unspawnTime': unit.deadTime = value; unit.combat.deathTime = 0; break;
+      case 'unspawnTime':
+        // unspawn has already published both canonical death clocks.
+        break;
       case 'livingRemove': game.ai.spawning.teams[p.team].living--; break;
       case 'unspawnStatus':
         p.spawn.phase = 'unspawned'; p.spawn.spawnedOnce = false; p.spawn.post = null; p.spawn.deadTime = unit.deadTime;

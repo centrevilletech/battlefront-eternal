@@ -504,6 +504,29 @@ pub fn cos(x: f64) -> f64 {
     }
 }
 
+/// Paired `Math.sin` and `Math.cos`, with their original kernel arithmetic.
+/// Body facing and aim bases need both values. Reduce the same angle once,
+/// then apply exactly the scalar functions' quadrant and sign decisions.
+/// This shares no rounded result between their independent polynomials.
+pub fn sin_cos(x: f64) -> (f64, f64) {
+    let ix = (hi(x) as i32) & 0x7FFF_FFFF;
+    if ix <= 0x3FE9_21FB {
+        (kernel_sin(x, 0.0, 0), kernel_cos(x, 0.0))
+    } else if ix >= 0x7FF0_0000 {
+        (x - x, x - x)
+    } else {
+        let mut y = [0.0f64; 2];
+        let n = rem_pio2(x, &mut y);
+        let (s, c) = (kernel_sin(y[0], y[1], 1), kernel_cos(y[0], y[1]));
+        match n & 3 {
+            0 => (s, c),
+            1 => (c, -s),
+            2 => (-s, -c),
+            _ => (-c, s),
+        }
+    }
+}
+
 /// `Math.tan`.
 pub fn tan(x: f64) -> f64 {
     let ix = (hi(x) as i32) & 0x7FFF_FFFF;

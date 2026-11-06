@@ -122,13 +122,13 @@ test('omitting overwritten Soldier scratch preserves continuation including zoom
  const world=plane(),a=unit(world),b=unit(world);
  for(let tick=1;tick<=210;tick++){
   a.soldier.lookRaw(2/a.combat.zoom,1/a.combat.zoom,view.mouseScale,view.invertMouse);
-  const input={forward:1,right:.2,turn:0,jump:tick===70,crouch:tick===170,prone:false};a.soldier.tick(input,1/60);a.combat.updateKick(1/60);
+  const input={forward:1,right:.2,turn:0,jump:tick===70,crouch:tick===170,prone:false};a.soldier.tick(input,1/60);
   if(tick===90){
    // Dirty every scratch vector before restore, proving replay does not rely on
    // convenient zero initialization for the fields omitted from schema4.
    for(const value of Object.values(b.soldier))if(value?.isVector3)value.set(55,-33,22);
    applyOwnPlayer({unit:b,epoch:3,registry,record:capture(a,{tick})});
-  }else if(tick>90){b.soldier.lookRaw(2/b.combat.zoom,1/b.combat.zoom,view.mouseScale,view.invertMouse);b.soldier.tick(input,1/60);b.combat.updateKick(1/60);}
+  }else if(tick>90){b.soldier.lookRaw(2/b.combat.zoom,1/b.combat.zoom,view.mouseScale,view.invertMouse);b.soldier.tick(input,1/60);}
   if(tick>=90)assert.deepEqual(captureSoldierCorrection(b.soldier,SOLDIER_REPLAY_SCHEMA),captureSoldierCorrection(a.soldier,SOLDIER_REPLAY_SCHEMA),`tick${tick}`);
  }
 });
@@ -161,13 +161,13 @@ test('ground pilot envelope restores body and rejects wrong lease without mutati
 });
 
 test('worst recon own envelope includes full infantry/gamepad/strike replay in one datagram',async()=>{
- const {RemoteDroids}=await import('../src/remote.js'),{NetworkRemoteWorld,reconRandom}=await import('../src/runtime/network-remote-world.js'),{Scene,Vector3}=await import('three');
+ const {RemoteDroids}=await import('../src/remote.js'),{reconRandom}=await import('../src/runtime/recon-random.js'),{Scene,Vector3}=await import('three');
  const create=()=>new RemoteDroids({scene:new Scene(),camera:null,collision:{cast:()=>null,gather:()=>[]},lights:{flash(){}},model:()=>null,fire(){},explode(){}});
  const source=unit(),target=unit();source.alive=true;source.team=target.team=1;
  const loadout=[...defs,{...defs[0],class:'spare-rifle'},{...defs[1],class:'spare-grenade'}].map(def=>({ShotDelay:.2,InitialSalvoDelay:0,ReloadTime:1,HeatPerShot:.2,HeatRecoverRate:.1,...def}));
  source.combat.arsenal=new Arsenal(loadout,{random:()=>.5});target.combat.arsenal=new Arsenal(loadout,{random:()=>.5});
  for(const weapon of source.combat.arsenal.weapons)weapon.update(1/60,true,{held:true,pressed:true},false,{stick:0,posture:'stand',zoomed:false});
- const world=new NetworkRemoteWorld(create(),{randomFor:key=>reconRandom(37,key)});source.combat.remotes=world.attach(1,source);target.combat.remotes=create().createContext(target,{random:reconRandom(1,2)});
+ source.combat.remotes=create().createContext(source,{random:reconRandom(37,1)});source.combat.remotes.identityFor=()=>({id:0,generation:1});target.combat.remotes=create().createContext(target,{random:reconRandom(1,2)});
  const def={base:'droid',weapons:[{base:'cannon',class:'gun',channel:0,RoundsPerClip:0,ShotDelay:.2,ReloadTime:1,ordnance:{}},{base:'destruct',class:'strike',channel:1,RoundsPerClip:0,ShotDelay:.2,ReloadTime:1,strike:{},SalvoCount:4,SalvoDelay:.5,AimDistance:10,ScatterDistance:4}],AddHealth:-1};
  const droid=source.combat.remotes.launch({def:{SwitchImmediately:1,droid:def}},new Vector3(1,2,3),new Vector3(4,5,6),.3,1);source.combat.remotes.firstPerson=true;source.combat.remotes.updateCamera(1/60,true,true);source.combat.remotes.strike(droid,droid.arsenal.current(1).def);
  for(const weapon of droid.arsenal.weapons)weapon.update(1/60,true,{held:true,pressed:true},false,{stick:0,posture:'stand',zoomed:false});
@@ -200,7 +200,12 @@ test('own team validates before restoring body or combat state',()=>{
 });
 
 test('pilot full gun heat, salvo and barrel state fits with worst flyer and gamepad context',()=>{
- const a=fixture().v;a.aiTarget={id:20,generation:2};a.resetPresentationHistory();stepPrediction(a.system,1/60,a,{takeoff:true,forward:1});a.resetPresentationHistory();
+ // Keep the VehicleTarget through native construction; the fixed packet id
+ // belongs to this codec fixture after its single authority tick.
+ const a=fixture().v;
+ a.aiTarget.generation=2;a.resetPresentationHistory();
+ stepPrediction(a.system,1/60,a,{takeoff:true,forward:1});
+ a.resetPresentationHistory();a.aiTarget.id=20;
  const b=presentationHull(a),u=unit(),v=unit();u.seat={vehicle:a,index:0};v.seat={vehicle:b,index:0};
  const definition={class:'pilot-gun',base:'cannon',channel:0,RoundsPerClip:25,ammo:2,ShotDelay:.13,SalvoCount:3,ShotsPerSalvo:1,SalvoDelay:.07,HeatPerShot:.2,HeatRecoverRate:.1};
  const weapons=()=>[0,1].map(channel=>({state:new Weapon({...definition,channel},{random:()=>.5}),barrel:0}));
@@ -222,7 +227,10 @@ test('pilot full gun heat, salvo and barrel state fits with worst flyer and game
 });
 
 test('four dirty infantry slots and two actively firing pilot guns fit one correction datagram',()=>{
- const vehicle=fixture().v;vehicle.aiTarget={id:20,generation:2};vehicle.resetPresentationHistory();stepPrediction(vehicle.system,1/60,vehicle,{takeoff:true,forward:1});vehicle.resetPresentationHistory();
+ const vehicle=fixture().v;
+ vehicle.aiTarget.generation=2;vehicle.resetPresentationHistory();
+ stepPrediction(vehicle.system,1/60,vehicle,{takeoff:true,forward:1});
+ vehicle.resetPresentationHistory();vehicle.aiTarget.id=20;
  const source=unit(),target=unit(),loadout=Array.from({length:4},(_,i)=>({...defs[0],class:`slot-${i}`,channel:i%2,ReloadTime:.1,HeatPerShot:.02,HeatRecoverRate:.001,SpreadPerShot:.1,SpreadRecoverRate:.001}));
  source.combat.arsenal=new Arsenal(loadout);target.combat.arsenal=new Arsenal(loadout);source.combat.zoomStep=0;
  const content={...registry,weapons:new Map(loadout.map((d,i)=>[i+1,d.class]))};

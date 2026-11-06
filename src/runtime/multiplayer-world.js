@@ -1,6 +1,6 @@
 import {entitySpawnPosts} from './entity-spawn-posts.js';
 import { blankSeatIntent } from '../seats.js';
-import { HitHistory, MAX_INPUT_LEAD_TICKS, ONLINE_PLAYOUT_MAX_TICKS } from './hit-history.js';
+import { MAX_INPUT_LEAD_TICKS, ONLINE_PLAYOUT_MAX_TICKS } from './network-hit-limits.js';
 import { networkVehicleInput } from './network-vehicle.js';
 import { cycleNetworkSeat } from './network-seat.js';
 import { mountInReach, seatScheme } from '../boarding.js';
@@ -47,14 +47,12 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
   let humanTraceLeft = globalThis.process?.env?.BFE_TRACE_HUMAN === '1' ? 64 : 0;
   const traceHuman = value => { if (humanTraceLeft > 0) { humanTraceLeft--; console.log('network-human-trace', JSON.stringify(value)); } };
   const remoteWorld = game.createNetworkRemotes?.(maxPlayers);
-  const hitHistory = game.ordnance.hitHistory = new HitHistory(game.units);
+  const hitHistory = game.ordnance.hitHistory = game.unitsSim.history;
   // The headless game's original viewpoint is not an extra player. Its body,
   // spawned at load from the URL's side, leaves the world with it: every
   // client is sent its visibility, and would stand it at that spawn point.
-  game.playerUnit.alive = false;
-  game.playerUnit.removed = true;
+  game.unitsSim.parkViewpoint(game.playerUnit);
   game.playerUnit.undraw();
-  game.combat.dead = true;
   game.humanSpawn.auto = null;
   game.humanSpawn.pending = null;
   game.humanSpawn.spawnedOnce = true;
@@ -72,7 +70,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
   // hull's sticks and a flown recon droid's keys alike; leaving also hands
   // the droid back (removePlayer), but a pause or a gap in his input does not.
   function stopInput(p) {
-    if (game.worldSim?.networkStop) return game.worldSim.networkStop(p);
+    if (game.worldSim?.networkStop) return game.worldSim.networkStop(game,p);
     p.mailbox.clear();p.controls.clear();p.fire.clear();p.actions.clear();
     const unit=p.unit;if(!unit)return;
     Object.assign(unit.intent,blankSeatIntent(),{flight:{}});
@@ -196,7 +194,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         if (!existing.disconnectedAt) throw new Error('player already joined');
         existing.disconnectedAt = null; existing.mailbox = inputMailbox(); existing.controls = commandControls(); existing.fire = fireCommands(); existing.reliableFire = reliableFire; existing.lastInputAt = performance.now(); existing.inputsStale=false;
         existing.actions = inputActions(); existing.separateActions = separateActions;
-        if (existing.unit) existing.unit.generation++;
+        if (existing.unit) existing.unit.f3.advanceLife(existing.unit);
         return this.player(id);
       }
       if (players.size >= maxPlayers) throw new Error('server full');
@@ -204,6 +202,9 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
       className ||= game.spawnPort.roster(team)[0]?.className;
       if (!className || !game.spawnPort.roster(team).some(x => x.className === className)) throw new Error('invalid player class');
       await game.factory.prepare(className);
+      // Admission is outside the unit phase. Reserve the new connection's
+      // potential cold body before its native lifecycle can acquire it.
+      game.unitsSim.construction.prepare(className,1);
       const character = spectator ? new Character(-1,team,true) : roster.reserve(team,id,name);
       if (spectator) character.name = String(name).slice(0,32);
       character.hero = false;

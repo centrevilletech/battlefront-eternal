@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { uniformRandom } from "../random.js";
 import { ANGLE, dot32, isCannon, isLauncher, leadPoint, lengthSq32, lookupCos, normalizeOrX } from "./aim.js";
 
 // How a Classic bot uses its weapons, following the 2004 game: what it
@@ -1049,6 +1050,7 @@ export function prepareSpread(controller, unit, weapon) {
 // 2004 game draws them from the same generator as AI decisions). The
 // player's weapons keep Math.random.
 export function useClassicRandom(arsenal, random) {
-  const draw = () => random.uniform();
+  const draw = uniformRandom(random);
+  if (arsenal?.setRandom) { arsenal.setRandom(draw); return; }
   for (const weapon of arsenal?.weapons || []) weapon.random = draw;
 }

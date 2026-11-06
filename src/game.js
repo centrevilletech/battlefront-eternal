@@ -20,7 +20,7 @@ import { transportPosts } from './flight/spawn.js';
 import { FLIGHT_CLASSES } from './flight/config.js';
 import { flightBindings } from './flight/controls.js';
 import { keyName } from './menus/hotkeys.js';
-import { leaveKilled, mountInReach, personLease, seatInput, seatScheme } from './boarding.js';
+import { seatScheme } from "./boarding.js";
 import { FlightDebug } from './flight/debug.js';
 import { lockedUnit, hasMissileLock, targetingWeapon } from "./weapon-targeting.js";
 import { createChat } from "./chat.js";
@@ -35,7 +35,7 @@ import { RemoteDroids, BODY_RADIUS as DROID_RADIUS } from "./remote.js";
 import { BLAST_BODY } from "./combat.js";
 import { CameraShake } from "./camera-shake.js";
 import { resolveOrdnanceOwner } from "./ordnance-owner.js";
-import { NetworkRemoteWorld, reconRandom } from "./runtime/network-remote-world.js";
+import { reconRandom } from "./runtime/recon-random.js";
 import { Lightning } from "./lightning.js";
 import { lighting } from "./materials.js";
 import { DeathCamera, SoldierCamera, deadFov } from "./camera.js";
@@ -59,7 +59,7 @@ import { BATTLE_SIZES, Settings, WORLD_SETTINGS } from "./settings.js";
 import { contentLabels } from "./battle-stats.js";
 import { Battle } from "./battle.js";
 import { makeHit } from "./collision.js";
-import { takeImpacts } from "./collision-damage.js";
+
 import { Battlefield, LeavingWarning, loadBoundary } from "./battlefield.js";
 import { Units } from "./registry.js";
 import { SimEvents } from "./sim-events.js";
@@ -73,7 +73,7 @@ import { CommandHistory, CommandControls, queueHumanCommand, stillCommand } from
 import { InputLead, advanceInputClock, CorrectionSmoother } from "./runtime/reconcile.js";
 import { HeadlessGraphics, HeadlessHud, HeadlessAudio, HeadlessControls } from "./runtime/headless-ports.js";
 import { WaterState } from "./runtime/water-state.js";
-import { droidekaWaterDepth, waterDamageRule, waterDamageStep } from "./vehicle-water.js";
+
 import { spawnPlacedItems } from "./placed-items.js";
 import { FixedClock } from "./runtime/fixed-clock.js";
 import { PlayoutClock } from "./runtime/playout.js";
@@ -118,24 +118,23 @@ async function attachSimStore(instance, ordnance, items) {
   return bridge;
 }
 
-// A world's units' phase on the battle's instance of the module, through the
-// store's one bridge (src/units-sim.js).
-async function attachUnitsPhase(instance, game) {
-  const [{ attachUnitsSim }, { Soldier }, { Droideka }, { Building, Turret }] = await Promise.all([
-    import("./units-sim.js"), import("./soldier.js"), import("./droideka.js"), import("./props.js")]);
-  const sim = attachUnitsSim(instance, { Unit, Vehicle, Soldier, Droideka, Building, Turret }, game);
-  sim.bridge.reserve(4 << 20);
-  return sim;
+// The persistent owner shares the battle instance and mixed target classes.
+// A target subclass must be registered before a generated union sees it.
+async function attachOwnedUnits(instance, game) {
+  const [{attachF3},{Soldier},{Droideka},{Building,Turret},{VehicleTarget,TurretTarget},{ObjectiveTarget}] = await Promise.all([
+    import('./f3-sim.js'),import('./soldier.js'),import('./droideka.js'),import('./props.js'),
+    import('./seats.js'),import('./objectives.js'),
+  ]);
+  return attachF3(instance,{Unit,Vehicle,Soldier,Droideka,Building,Turret,VehicleTarget,TurretTarget,ObjectiveTarget},game);
 }
 
-// A world's combats on the battle's instance of the module, through the
-// store's one bridge (src/combat-sim.js).
-async function attachCombatPhase(instance) {
-  const [{ attachCombatSim }, { Soldier }, { Droideka }, { Building, Turret }] = await Promise.all([
-    import("./combat-sim.js"), import("./soldier.js"), import("./droideka.js"), import("./props.js")]);
-  const sim = attachCombatSim(instance, { Unit, Vehicle, Soldier, Droideka, Building, Turret });
-  sim.bridge.reserve(4 << 20);
-  return sim;
+// The owning unit phase uses content-only combat construction. Live
+// commands bind when UnitFactory finishes each body; exports stay intact.
+async function attachOwnedCombat(instance) {
+  const [{attachF3Combat},{Soldier},{Droideka},{Building,Turret}] = await Promise.all([
+    import('./f3-combat.js'),import('./soldier.js'),import('./droideka.js'),import('./props.js'),
+  ]);
+  return attachF3Combat(instance,{Unit,Vehicle,Soldier,Droideka,Building,Turret});
 }
 
 export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null } = {}) {
@@ -190,7 +189,6 @@ const KILL_Y = -110;
 const BODY_MIDDLE = 1.048; // m above the feet
 const BODY_RADIUS = 1.278; // m
 
-
 async function start() {
   // In the live display loop, catch-up after a hitch is bounded by measured
   // tick cost (35 ms of ticks per frame) and 8 ticks of kept debt. A PC that
@@ -211,10 +209,10 @@ async function start() {
     if (key === "frameLimit" || key === "dynamicResolution" || key === "renderScale") configurePacing();
   });
   const streams = new RandomStreams(SEED);
-  const gameplayRandom = () => streams.get("gameplay").uniform();
+  const gameplayRandom = streams.draw("gameplay");
   // The seats' and turrets' weapons (src/seats.js seatWeaponPolicy): a
   // network gunner's spread, and a bot's until its seat controller binds.
-  const seatRandom = () => streams.get("seat-weapons").uniform();
+  const seatRandom = streams.draw("seat-weapons");
   let vehicles = null, driver = null, gunner = null, turretSeats = null, vehicleEffects = null;
   let humanReticleTarget = null;
   // A correction drained: the reticle's target is worked out once, after the
@@ -442,28 +440,7 @@ async function start() {
   const foliage = !headless && world.foliage ? new Foliage(scene, world.foliage, { texture: mapTexture, nearEnd: () => lighting.fade.value.y, drawer: graphics.rust.byName.foliage }) : null;
   // The terrain's water, where the map has some.
   const water = world.water ? (headless ? new WaterState(world.water) : new Water({ data: world.water, texture: mapTexture, graphics, weather: world.weather })) : null;
-  const waterContact = {};
-  // A droideka in deep water (the walkerdroid's own rule, src/vehicle-water.js).
-  const droidekaWater = (body, health, dt) => {
-    const rule = body.waterRule ??= waterDamageRule(body.def) || false;
-    const hurt = waterDamageStep(body, dt, water, rule || null, body.position, droidekaWaterDepth(body.def, body.rolled));
-    if (hurt > 0) health.damage(hurt);
-  };
   const groundPositions = new Float32Array(groundBuf);
-  // A world's units on the module (src/units-sim.js), where it asks for
-  // them: ?units=rust, or under Node BFE_UNITS=rust. Off by default until
-  // units and combat move over together. Its soldiers move through the
-  // module's copy of the collision world, so it brings the ray kernel.
-  const wantUnits = headless && (params.get("units") ?? globalThis.process?.env?.BFE_UNITS) === "rust";
-
-  // Remaining page rig sampling uses the required simulation module.
-  // Displayed bodies and first-person poses use the presentation owner;
-  // world rig inputs stay separate from their displayed state.
-  const wantAnim = !headless;
-  // A world's combats on the module (src/combat-sim.js), where it asks for
-  // them: ?combat=rust, or under Node BFE_COMBAT=rust. Off by default until
-  // units and combat move over together.
-  const wantCombat = headless && (params.get("combat") ?? globalThis.process?.env?.BFE_COMBAT) === "rust";
   // Battle phases migrate together behind this opt-in switch. The player's
   // spawn state machine is the first live owner (human-spawn-sim.js).
   const wantBattle = headless && (params.get("battle") ?? globalThis.process?.env?.BFE_BATTLE) === "rust";
@@ -472,7 +449,7 @@ async function start() {
   const simInstance = await loadSimInstance();
   const aiSim = wantAiSim && simInstance ? (await import("./ai-sim.js")).attachAiSim(simInstance) : null;
   const rays = await (await import("./ray-kernel.js")).loadRayKernel(simInstance);
-  const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
+  const anim = await (await import("./anim-kernel.js")).loadAnimKernel(simInstance);
   setAnimKernel(anim);
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
@@ -790,19 +767,6 @@ async function start() {
   // own recon droid and its strike.
   const teamOf = (owner) => (owner && typeof owner === "object" ? owner.team ?? 0 : owner === "player" ? playerTeam : 0);
   const refOf = (owner) => (owner && typeof owner === "object" && "generation" in owner ? units.ref(owner) : null);
-  // Friendly fire, as the original game has it: rounds stop on whatever soldier
-  // they meet, and one rule scales the damage of rounds and blasts alike.
-  // A hit from the soldier's own team (the same team number; allies of
-  // another number take it in full) is scaled by the Friendly Fire option,
-  // on (x1) by default and off (x0, which also spares a soldier his own
-  // blasts); a bot's hit on a human teammate does nothing at all.
-  const isHumanOwner = (owner) => owner === "player" || Boolean(owner?.human);
-  function teamDamage(owner, unit) {
-    const team = teamOf(owner);
-    if (!team || team !== unit.team) return 1;
-    if (!isHumanOwner(owner) && unit.human) return 0;
-    return settings.get("friendlyFire") === false ? 0 : 1;
-  }
   const remoteBlasts = new Map();
   for (const side of Object.values(sides)) for (const unit of Object.values(side.units || {})) {
     for (const weapon of unit.weapons || []) {
@@ -819,26 +783,7 @@ async function start() {
     lights,
     texture: anyTexture,
     model: flyingModel,
-    onExplode: (explosion, position, owner) => {
-      const remoteScale = remoteBlasts.get(explosion.class);
-      if (remoteScale) hooks.presented("remoteBlast", position.clone(), remoteScale);
-      for (const unit of units.all()) {
-        // The living take its damage, push and shake; a body still lying
-        // on the field (dead, not yet removed) is thrown by it too. Of the
-        // seated, only a turret's shown gunner is hurt (SeatLease.blastable).
-        if (!unit.soldier || unit.removed || !(unit.alive || unit.dead) || unit.seat && !unit.seat.blastable || (unit.human && driver?.active)) continue;
-        unit.combat.explode(explosion, position, owner, teamDamage(owner, unit));
-      }
-      simEvents.emit("explosion", { position, team: teamOf(owner), source: refOf(owner), radius: explosion.DamageRadiusOuter || 0 });
-      // Hulls and buildings take the same friendly fire factor soldiers do.
-      const teamScale = (target) => teamDamage(owner, target);
-      vehicles?.blast(explosion, position, owner, teamScale);
-      items?.blast(explosion, position);
-      live?.blast(explosion, position, owner, teamScale);
-      combat?.remotes?.blast(explosion, position);
-      networkRemotes?.blast(explosion, position);
-    },
-    onHit: (body, def, owner, direction) => { const teamScale = (target) => teamDamage(owner, target); live?.struck(body, def, owner, teamScale, direction); vehicles?.struck(body, def, owner, teamScale); },
+
   });
   // The render camera, for the Enhanced sniper look (sniper-trace.js) to tell
   // the shooter's own eye view from a shot it watches.
@@ -877,10 +822,10 @@ async function start() {
       effects.play(droidBlasts[Math.floor(Math.random() * droidBlasts.length)], bone.getWorldPosition(new THREE.Vector3()));
     }
   }
-  const hooks = { presented(kind,unit,amount=0,source=null,hitKind=null) {
+  const hooks = { presented(kind,unit,amount=0,source=null,hitKind=null,sample=null) {
     presentEvent(kind,unit,amount,source,hitKind);
     if(kind!=='died')simEvents.emit('presentation',{event:{kind,
-      ...(kind==='remoteBlast'?{position:unit.toArray()}:{ownerId:unit.id,ownerGeneration:unit.generation}),
+      ...(kind==='remoteBlast'?{position:unit.toArray()}:{ownerId:sample?.slot??unit.id,ownerGeneration:sample?.life??unit.generation}),
       amount,source:source?.toArray?.()??null,hitKind}});
   } };
   function presentEffect(name,position) {
@@ -901,9 +846,11 @@ async function start() {
   });
   // The world hands rounds and items to Rust before any is made.
   const simBridge = headless ? await attachSimStore(simInstance, ordnance, items) : null;
+  // The dormant viewpoint shares native combat with factory soldiers. It
+  // receives its Unit owner after the registry assigns that object's id.
+  const combatSim = headless ? await attachOwnedCombat(simInstance) : null;
   // The map's placed power-ups lie where the world put them from the start
   // (src/placed-items.js); the world alone makes them, a page shows records.
-  if (headless) spawnPlacedItems(items, propsDef?.items);
   ordnance.water = water;
   // The player's bodies (src/player-body.js): the class played first, from
   // what was fetched above, and any other the first time he takes it. The
@@ -911,7 +858,7 @@ async function start() {
   // lives, and wireBody() connects them to the rest of the game.
   const bodies = new PlayerBodies({
     unitsLoaded,
-    sides, get factory() { return factory; }, json, bin, headless, graphics, scene, collision, animMeta, animBuf,
+    sides, get factory() { return factory; }, combatSim: headless ? combatSim : null, json, bin, headless, graphics, scene, collision, animMeta, animBuf,
     maxFlyHeight: world.mission?.maxFlyHeight ?? 200, ordnance, lights, weaponModels, glowModel, anyTexture, hud, effects,
     settings, water, mapName: MAP, camera, simulationCamera, fpAnims, fpAnimBuf,
     jetEffect: (name, sideName) => (sideName === SIDE ? sideFx : otherSides[sideName]?.fx)?.effects?.[name] || effectsDef.effects[name] || [],
@@ -929,58 +876,53 @@ async function start() {
   combat = body.combat;
   // The player's body is a unit like any other; main.js steps it.
   const playerUnit = units.add(new Unit({ side: SIDE, className: UNIT, def: soldierDef, actor, soldier, animator, combat, presentation, walker, human: true }));
+  combat.owner = playerUnit;
+  combat.attach?.();
   playerUnit.team = playerTeam;
   playerUnit.removed = false;
-  // Rounds meet soldiers: damage by the soldier's health type, three times
-  // on the head (the class HitLocation default), credited to whoever fired;
-  // the player's HUD shows where it came from. A body lying dead stops a
-  // round and takes nothing.
-  const hitFrom = new THREE.Vector3();
   ordnance.units = units;
   ordnance.canHit = null;
-  ordnance.onHitUnit = (unit, def, point, owner, part, direction) => {
-    if (unit.combat.dead) return;
-    const scale = teamDamage(owner, unit) * (part === "head" ? 3 : 1);
-    if (part === "head") presentEffect("headshot", point);
-    if (scale <= 0) return;
-    // A head hit counts for whoever had hurt him last before it (the
-    // original's damage record, read before this hit lands).
-    if (part === "head") battle.headshot((unit.combat.lastAttacker === "player" ? playerUnit : unit.combat.lastAttacker)?.character ?? null);
-    const amount = (def.Damage || 0) * scale;
-    // The AI hears a round's hit as coming from 30 units back along it.
-    const from = direction ? point.clone().addScaledVector(direction, -30) : null;
-    const info = { amount, typed: def[unit.combat.scale] ?? 1, generic: def.ShieldScale ?? 1, known: Boolean(from), point: from };
-    unit.combat.damage(amount * info.typed, amount * info.generic, point, owner, info);
-    if (unit.human && amount > 0) {
-      hitFrom.subVectors(point, soldier.position);
-      const yaw = soldier.aimYaw;
-      hud.damageFrom(Math.atan2(-hitFrom.x * Math.cos(yaw) + hitFrom.z * Math.sin(yaw), hitFrom.x * Math.sin(yaw) + hitFrom.z * Math.cos(yaw)));
-    }
-  };
+
   // A grenade's first touch of anything, for the bots' danger warnings.
-  ordnance.onGrenadeContact = (g) => {
+  ordnance.onGrenadeContact = (g, sample = null) => {
     g.contactTime = simTime;
-    simEvents.emit("grenade", { position: g.position, team: teamOf(g.owner), source: refOf(g.owner), def: g.def.class || null });
+    simEvents.emit("grenade", { position: sample?.position ?? g.position, team: sample?.team ?? teamOf(g.owner),
+      source: sample ? (sample.hasSource ? {unit:g.owner,generation:sample.source.generation} : null) : refOf(g.owner), def: (sample?.def ?? g.def).class || null });
   };
   // What a unit does, for the journal.
   const aimFrom = new THREE.Vector3();
   function instrument(unit) {
     if(!headless){const row=pageUnits.attach(unit.actor,unit.animator,unit.presentation);unit.animator=row.handle;unit.combat.animator=row.handle;}
     unit.combat.random = gameplayRandom;
-    unit.combat.onPresentation = event => simEvents.emit('presentation',{event:{...event,ownerId:unit.id,ownerGeneration:unit.generation}});
-    if (!unit.human) unit.onMoved = (h) => ai?.aim?.(unit, h);
-    unit.combat.onFired = (shot) => {
-      hud.noteShot(unit, shot.weapon);
-      unit.origin(aimFrom);
-      simEvents.emit("shot", { source: units.ref(unit), team: unit.team, position: aimFrom, direction: unit.combat.shotDir, weapon: shot.weapon.name, repair:!!shot.repair, melee:!!shot.meleeStart, swing:shot.swing||0 });
+    unit.combat.onPresentation = (event, sample = null) => {
+      // The owned event mirror is scratch storage. The journal retains value
+      // snapshots, with the same keys as PlayerCombat's original notice.
+      if (sample) {
+        let value;
+        if (sample.effect === 'meleeDeflect') value = {kind:'effect',name:'lightsabre_deflect',position:event.position.toArray()};
+        else if (event.kind === 'weaponAction') value = {kind:event.kind,action:event.action,bank:event.bank,posture:event.posture,prepare:event.prepare};
+        else if (event.kind === 'endWeaponAction') value = {kind:event.kind,action:event.action};
+        else value = {kind:event.kind,name:event.name,from:event.from.toArray(),to:event.to.toArray(),charge:event.charge,
+          ...(event.channel === undefined ? {} : {channel:event.channel})};
+        value.ownerId = sample.key.slot; value.ownerGeneration = sample.key.life;
+        simEvents.emit('presentation',{event:value});
+      } else simEvents.emit('presentation',{event:{...event,ownerId:unit.id,ownerGeneration:unit.generation}});
     };
-    unit.combat.onDamaged = (amount, attacker, info) => {
+    if (!unit.human) unit.onMoved = (h) => ai?.aim?.(unit, h);
+    unit.combat.onFired = (shot, sample = null) => {
+      hud.noteShot(unit, shot.weapon);
+      // An owned phase records the shot before later movement or separation.
+      // Its sampled values are already simulation facts, not rig work for JS.
+      if (!sample) unit.origin(aimFrom);
+      simEvents.emit("shot", { source: sample ? {unit,generation:sample.key.life} : units.ref(unit), team: sample?.team ?? unit.team, position: sample?.position ?? aimFrom, direction: sample?.direction ?? unit.combat.shotDir, weapon: shot.weapon.name, repair:!!shot.repair, melee:!!shot.meleeStart, swing:shot.swing||0 });
+    };
+    unit.combat.onDamaged = (amount, attacker, info, sample = null) => {
       if (amount > 0 && (attacker === "player" || resolveOrdnanceOwner(attacker) === playerUnit)) hud.hit(units.relation(playerTeam, unit.team));
       simEvents.emit("damage", {
-        target: units.ref(unit), team: unit.team, position: unit.position,
+        target: sample ? {unit,generation:sample.key.life} : units.ref(unit), team: sample?.team ?? unit.team, position: sample?.position ?? unit.position,
         amount: info?.amount ?? amount, typed: info?.typed ?? 1, generic: info?.generic ?? 1,
         known: Boolean(info?.known), point: info?.point ?? null, source: info?.source ?? null, health: amount,
-        attacker: refOf(attacker === "player" ? playerUnit : attacker), attackerTeam: teamOf(attacker),
+        attacker: sample ? (sample.hasAttackerRef ? {unit:attacker === "player" ? playerUnit : attacker,generation:sample.attackerRef.generation} : null) : refOf(attacker === "player" ? playerUnit : attacker), attackerTeam: sample?.attackerTeam ?? teamOf(attacker),
       });
     };
   }
@@ -994,7 +936,7 @@ async function start() {
     lights,
     model: flyingModel,
     firePoints: Object.assign({}, ...Object.values(sides).map((s) => s.firePoints), weaponsDef.firePoints || {}),
-    explode: (explosion, position, owner) => ordnance.explosion(explosion, position, owner),
+    explode: (explosion, position, owner) => ordnance.presentExplosion(explosion, position),
     fire: (def, origin, dir, owner) => ordnance.fire(def, origin, dir, owner),
     // Named by the droid's own class and the gun's channel: the arsenal's
     // weapon classes are copies, absent from the matched combat registry.
@@ -1007,25 +949,6 @@ async function start() {
   // Enhanced look (arc-lightning.js) lights its surroundings and shocks the
   // soldiers it strikes, as this page draws them.
   const lightning = headless ? null : new Lightning(scene, anyTexture, { settings, lights, units, collision, effects, viewScene: graphics.viewScene, bubbleOf: (unit) => (unit === playerUnit ? bubble : unit.bubble) });
-  const arcTargets = (owner) => [
-    ...[...units.all()].filter((unit) => unit.soldier && unit.combat && !unit.dead && !unit.removed && unit !== owner && (!unit.seat || unit.seat.exposed) && teamDamage(owner, unit) > 0)
-      .map((unit) => ({ origin: unit.position, center: unit.sphere.center, radius: unit.sphere.radius, hurt: (amount, from = unit.position) => {
-        // From where its arc started: a shield ripples on that side, and the
-        // player's HUD shows where it came from (online, from the damage
-        // event's source).
-        const scaled = amount * teamDamage(owner, unit);
-        if (scaled <= 0) return;
-        unit.combat.damage(scaled, scaled, from, owner, { amount: scaled, typed: 1, generic: 1, known: true, point: owner?.position ?? null });
-        if (unit.human) {
-          hitFrom.subVectors(from, soldier.position);
-          const yaw = soldier.aimYaw;
-          hud.damageFrom(Math.atan2(-hitFrom.x * Math.cos(yaw) + hitFrom.z * Math.sin(yaw), hitFrom.x * Math.sin(yaw) + hitFrom.z * Math.cos(yaw)));
-        }
-      } })),
-    ...items.items.filter((item) => item.mine && !item.gone).map((item) => ({ origin: item.position, hurt: (amount) => items.hurt(item, amount) })),
-    ...remotes.droids.filter((droid) => !droid.dead).map((droid) => ({ origin: droid.position, hurt: (amount) => remotes.hurt(droid, amount) })),
-    ...[...(networkRemotes?.droids() ?? [])].filter(({droid})=>!droid.dead).map(({context,droid})=>({origin:droid.position,hurt:amount=>context.hurt(droid,amount)})),
-  ];
 
   // Spawning. Reinforcements deploy at the team's own command posts (any post
   // with a spawn path when the map has none for the team), at a random point of
@@ -1388,9 +1311,11 @@ async function start() {
   // and a target in the units registry while it stands.
   posts.attachBuildings(live);
   registerObjectives(live, units);
-  function mountedShot(object, seat, shot, owner, position, direction) {
+  function mountedShot(object, seat, shot, owner, position, direction, sample = null) {
     const unit = owner === "player" ? playerUnit : owner;
-    simEvents.emit("shot", { source: refOf(unit), mount: refOf(object.aiTarget), seat, team: teamOf(unit), position, direction, weapon: shot.weapon.name, repair:!!shot.repair, melee:!!shot.meleeStart, swing:shot.swing||0 });
+    simEvents.emit("shot", { source: sample ? sample.hasSource ? {unit,generation:sample.source.generation} : null : refOf(unit),
+      mount: sample ? {unit:object.aiTarget,generation:sample.mount.generation} : refOf(object.aiTarget), seat, team: sample ? sample.team : teamOf(unit),
+      position, direction, weapon: shot.weapon.name, repair:!!shot.repair, melee:!!shot.meleeStart, swing:shot.swing||0 });
     hud.noteShot?.(object.aiTarget ?? unit, shot.weapon.def);
   }
   if (vehicles) {
@@ -1408,81 +1333,104 @@ async function start() {
   // turret's position less 30 along the round's flat heading); a
   // blast's with no known point (the generic wrapper).
   const turretFrom = new THREE.Vector3();
-  for (const turret of live?.turrets || []) turret.onDamaged = (object, amount, attacker, hit = null) => {
+  for (const turret of live?.turrets || []) turret.onDamaged = (object, amount, attacker, hit = null, sample = null) => {
     const d = hit?.direction;
     const from = d ? turretFrom.set(d.x, 0.0001, d.z).normalize().multiplyScalar(-30).add(object.position).clone() : null;
     simEvents.emit("damage", {
-      target: refOf(object.aiTarget), team: object.aiTarget?.team ?? object.team ?? 0, position: object.position,
+      // A later crew exit can change this same target before notice delivery.
+      // Keep the native damage-time life, team and position in the journal.
+      target: sample && object.aiTarget ? {unit:object.aiTarget,generation:sample.generation} : refOf(object.aiTarget),
+      team: sample ? sample.team : object.aiTarget?.team ?? object.team ?? 0,
+      position: sample ? sample.position : object.position,
       amount: hit?.amount ?? amount, typed: hit?.typed ?? 1, generic: hit?.generic ?? 1, known: Boolean(from), point: from, health: amount,
       attacker: refOf(attacker === "player" ? playerUnit : attacker), attackerTeam: teamOf(attacker),
     });
   };
   for (const system of [vehicles, turretSeats]) if (system) {
-    system.onBoard = (unit, object, seat) => simEvents.emit("board", {
-      source: refOf(unit), team: unit.team, position: object.position, target: refOf(object.aiTarget), seat,
+    system.onBoard = (unit, object, seat, sample = null) => simEvents.emit("board", {
+      source: sample ? sample.hasSource ? {unit,generation:sample.source.generation} : null : refOf(unit), team: sample ? sample.team : unit.team,
+      position: sample ? sample.position : object.position,
+      target: sample ? sample.hasTarget ? {unit:object.aiTarget,generation:sample.target.generation} : null : refOf(object.aiTarget), seat,
     });
-    system.onUnboard = (unit, object, seat) => simEvents.emit("unboard", {
-      source: refOf(unit), team: unit.team, position: unit.position, target: refOf(object.aiTarget), seat,
+    system.onUnboard = (unit, object, seat, post, reason, sample = null) => simEvents.emit("unboard", {
+      source: sample ? sample.hasSource ? {unit,generation:sample.source.generation} : null : refOf(unit), team: sample ? sample.team : unit.team,
+      position: sample ? sample.position : unit.position,
+      target: sample ? sample.hasTarget ? {unit:object.aiTarget,generation:sample.target.generation} : null : refOf(object.aiTarget), seat,
     });
   }
 
   // The bots: both sides' classes (sides, above), bodies built ahead, and a
   // brain.
   const unitCenter = new THREE.Vector3();
+  const deathRelation = (a,b) => units.relation(a,b);
+  const deathLocals = team => units.locals(team);
   // The combats of the units it builds on the module, when the world asked.
-  const combatSim = wantCombat && simInstance ? await attachCombatPhase(simInstance) : null;
   factory = new UnitFactory(sides, {
-    graphics, scene, collision, animMeta, animBuf, json, bin, ordnance, lights, weaponModels, headless, arcTargets, lightning, combatSim,
-    flashModel: glowModel("muzzleflash"), anyTexture, effects, settings, items, live, units, destruction,
+    graphics, scene, collision, animMeta, animBuf, json, bin, ordnance, lights, weaponModels, headless, lightning, combatSim,
+    flashModel: glowModel("muzzleflash"), anyTexture, effects, settings, items, live, units, destruction, vehicles,
+    reconFirePoints: remotes.firePoints,
     maxFlyHeight: world.mission?.maxFlyHeight ?? 200,
     onBuilt: instrument,
-    deathBlast: (unit) => hooks.presented("deathBlast", unit),
-    shieldHit: (unit, amount, source, kind) => hooks.presented("shieldHit", unit, amount, source, kind),
-    onDeath: (unit) => {
-      // Killed on a seat, he leaves it at once and falls from where he rode.
-      leaveKilled(unit);
-      // A dead jet trooper no longer jets: the body falls.
-      if (unit.soldier.air === "jet") unit.soldier.setAir("fall");
-      // The Character lets go of the body at once: it can spawn again while
-      // the corpse lingers.
+    // Character tallies are still foreign. Call the JS rule directly so this
+    // synchronous credit leaf cannot enter a legacy battle method adapter.
+    headshotCredit: character => Battle.prototype.headshot.call(battle, character),
+    hullDestroyedCredit: character => Battle.prototype.vehicleDestroyed.call(battle, character),
+    // Unit death has already changed canonical flags, detached its seat and
+    // stopped its jet. This synchronous leaf touches Character records only;
+    // its controller pointer is returned in the generated death reply.
+    deathCredit: (unit,killer) => {
       const character = unit.character;
       if (character) {
         character.diedAt = simTime;
         if (character.unit === unit) character.unit = null;
       }
-      characterDied(character, unit.team);
-      // The last soldier to hurt him is credited, then the death counts
-      // (Battle.credit).
-      const attacker = unit.combat.lastAttacker === "player" ? playerUnit : unit.combat.lastAttacker;
-      const killer = attacker?.character ?? null;
-      battle.credit(character, killer, killer ? units.relation(killer.team, unit.team) : 0);
-      simEvents.emit("death", { target: units.ref(unit), team: unit.team, position: unit.position, attacker: refOf(attacker), attackerTeam: teamOf(attacker) });
-      hud.killMessage({ killer: attacker, victim: unit, relationToViewer: radarRelation(playerTeam, teamOf(attacker), (a, b) => units.relation(a, b), (team) => units.locals(team)) });
-      // The dead may drop a power-up, from the middle of the body.
-      unitCenter.copy(unit.position);
-      unitCenter.y += BODY_MIDDLE;
-      items.dropFor(unit.classDef.drops, sides[unit.side].items, unitCenter, unit.velocity, unit.soldier.aimYaw);
-      // Enhanced: a droid left standing shorts out, then comes apart on screen.
-      hooks.presented("died", unit);
+      characterDied(character,unit.team,true);
+      Battle.prototype.credit.call(battle,character,killer,killer ? units.relation(killer.team,unit.team) : 0);
     },
+    deathNotice: (unit,event) => {
+      const attacker = event.attacker === "player" ? playerUnit : event.attacker;
+      simEvents.emit("death", {
+        target: {unit,generation:event.key.life}, team:event.team, position:event.position,
+        // The journal retains refs; generated notice mirrors are scratch.
+        attacker:event.hasAttackerRef ? {unit:attacker,generation:event.attackerRef.generation} : null,
+        attackerTeam:event.attackerTeam,
+      });
+      hud.killMessage({ killer:attacker, victim:unit, relationToViewer:radarRelation(playerTeam,event.attackerTeam,deathRelation,deathLocals) });
+      hooks.presented("died",unit);
+    },
+    blastPresent: (explosion,event) => {
+      const scale = remoteBlasts.get(explosion.class);
+      if (scale) hooks.presented("remoteBlast",event.position,scale);
+    },
+    blastNotice: (explosion,event) => {
+      simEvents.emit("explosion", {
+        position:event.position,team:event.team,
+        source:event.hasSource ? {unit:event.owner,generation:event.source.generation} : null,
+        radius:event.radius,
+      });
+    },
+    bodyNotice: (unit,health,sample) => hooks.presented("blowApart",unit,health,null,null,sample),
+    deathBlast: (unit,sample) => hooks.presented("deathBlast",unit,0,null,null,sample),
+    shieldHit: (unit, amount, source, kind, sample) => hooks.presented("shieldHit", unit, amount, source, kind, sample),
+
     presentEffect,
-    onBlowApart: (unit, health) => {
-      unit.actor.root.updateMatrixWorld(true);
-      unitCenter.copy(unit.position);
-      unitCenter.y += unit.walker ? 0 : 0.9;
-      if (unit.classDef.explosion) ordnance.explosion(unit.classDef.explosion, unitCenter.clone(), unit, destruction?.explosion(unit.classDef.explosion) ?? unit.classDef.explosion);
-      hooks.presented("blowApart", unit, health);
-      unit.actor.root.visible = false;
-    },
+
   });
-  // The step's loop over the units on the module, when the world asked
-  // (createGame's wantUnits): the module's map rules answer its water and
-  // death regions as inDeathRegion and the water's soldierStep do.
-  unitsSim = wantUnits && simInstance && collision.rays ? await attachUnitsPhase(simInstance, {
-    factory, combatSim, collision, water, presentEffect,
-    map: { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
-    aimReads: () => Boolean(ai?.enhanced),
+  // The native owner retains unit bodies and registry order. A page only
+  // constructs presentation mirrors; its worker advances the battle.
+  const separationScope = {global:false,camera:simulationCamera.position};
+  unitsSim = headless ? await attachOwnedUnits(simInstance, {
+    factory,combatSim,collision,water,presentEffect,separation:separationScope,
+    map:{killY,deathRegions:world.deathRegions,scripted:world.mission?.deathRegions},
   }) : null;
+  if (headless) {
+    unitsSim.random.configure(gameplayRandom,streams.draw('grenade-spin'),gameplayRandom,seatRandom);
+    // Placed items need the same native services as later drops. No tick has
+    // run yet, so deferring construction preserves their initial age and order.
+    spawnPlacedItems(items, propsDef?.items);
+    unitsSim.recon.randomFor = key => reconRandom(SEED,key);
+    unitsSim.recon.onFired = remotes.onFired;
+  }
   destruction?.prepare(Object.values(sides).flatMap((s) => Object.values(s.units)));
   // With the spawn screen, every class the player can take on either team,
   // whatever the bots do: its body, a droideka's clips, its first-person
@@ -1513,8 +1461,9 @@ async function start() {
   // A death costs the team a reinforcement: through the Classic spawn
   // manager when it runs the battle (it keeps the living counts too), else
   // directly.
-  function characterDied(character, team) {
-    if (ai?.died) ai.died(character);
+  function characterDied(character, team, owned = false) {
+    if (ai?.died) ai.died(character,owned);
+    else if (owned) Battle.prototype.spend.call(battle,team);
     else battle.spend(team);
   }
   // A Character into the world as `className` at `point` facing `yaw`. The
@@ -1544,6 +1493,7 @@ async function start() {
     character.className = className;
     unit.spawn(point[0], point[1], point[2], yaw);
     unit.hero = Boolean(character.hero);
+    if (headless) unitsSim.publishMetadata(unit);
     unit.waterContact = {};
     simEvents.emit("spawn", { target: units.ref(unit), team: unit.team, position: unit.position, className, post: post?.name ?? null });
     ai?.spawned?.(character);
@@ -1578,8 +1528,9 @@ async function start() {
     const locals = new Set(fielded.flatMap((team) => classesFor(team).map(([className]) => className)).filter((className) => !armies.has(className)));
     await Promise.all([...armies].map((className) => factory.prepare(className)));
     await Promise.all([...locals].map((className) => factory.prepare(className).catch((error) => console.warn(`${className} won't be fielded: ${error.message}`))));
-    // Bodies for each team's roster, built now so a spawn never stalls.
-    for (const team of fielded) {
+    // The world retains corpse stock for native spawning. Pages construct
+    // their displayed bodies from snapshots before graphics preparation.
+    if (headless) for (const team of fielded) {
       // Half again as many as the roster, so the dead can respawn while
       // their bodies are still on the field.
       for (const [className, count] of classesFor(team)) {
@@ -1759,7 +1710,7 @@ async function start() {
   // A fresh life's loadout draws its spread from a stream of its own, so
   // the world worker and replays shoot alike (the first life's weapons draw
   // from the gameplay stream, as they always have).
-  const playerSpread = () => streams.get("player-weapons").uniform();
+  const playerSpread = streams.draw("player-weapons");
   function revivePlayer() {
     combat.reset();
     for (const weapon of combat.arsenal.weapons) weapon.random = playerSpread;
@@ -1768,14 +1719,7 @@ async function start() {
   }
   // A droid blowing apart: its explosion, and its pieces flying in place of
   // the body.
-  function onBlowApart(health) {
-    actor.root.updateMatrixWorld(true);
-    const center = soldier.position.clone();
-    center.y += walker ? 0 : 0.9;
-    if (soldierDef.explosion) ordnance.explosion(soldierDef.explosion, center, "player", destruction?.explosion(soldierDef.explosion) ?? soldierDef.explosion);
-    hooks.presented("blowApart", playerUnit, health);
-    actor.root.visible = false;
-  }
+
   hud.wake();
   // Whom the death camera turns to: whoever killed him, unless he did it
   // himself (his own rounds, his droid's, his grenade's). Like the
@@ -1830,33 +1774,7 @@ async function start() {
     deathView.killed = Boolean(deathKiller);
     deathView.blame(deathKiller, battle.characters, vehicles?.vehicles);
   }
-  function onDeath() {
-    startDeathCamera();
-    // Killed on a seat, he leaves it where he rode, his death under way.
-    if (!leaveKilled(playerUnit)) driver?.release();
-    // Dead, he no longer jets (the original's dead state): the body falls.
-    if (soldier.air === "jet") soldier.setAir("fall");
-    playerUnit.alive = false;
-    playerUnit.dead = true;
-    const character = battle.human;
-    if (character) character.diedAt = simTime;
-    const attacker = combat.lastAttacker === "player" ? playerUnit : combat.lastAttacker;
-    const killer = attacker?.character ?? null;
-    battle.credit(character, killer, killer ? units.relation(attacker.team, playerTeam) : 0);
-    hud.killMessage({ killer: attacker, victim: playerUnit, relationToViewer: radarRelation(playerTeam, teamOf(attacker), (a, b) => units.relation(a, b), (team) => units.locals(team)) });
-    characterDied(battle.human, playerTeam);
-    simEvents.emit("death", { target: units.ref(playerUnit), team: playerTeam, position: soldier.position, attacker: refOf(combat.lastAttacker), attackerTeam: teamOf(combat.lastAttacker) });
-    // Control comes back from a droid; it flies on, unpiloted.
-    remotes.exit();
-    // The dead may drop a power-up, from the middle of the body.
-    if (!gunner.active) {
-      const center = soldier.position.clone();
-      center.y += BODY_MIDDLE;
-      items.dropFor(soldierDef.drops, sideItems, center, soldier.velocity, soldier.aimYaw);
-    }
-    hooks.presented("died", playerUnit);
-    humanSpawn.died();
-  }
+
   // The player, to the items: power-ups he can take (and, for mines, what
   // side he's on), in whichever body he has.
   const bodyMiddle = new THREE.Vector3();
@@ -1892,9 +1810,10 @@ async function start() {
   ];
 
   remotes.aimCamera = simulationCamera;
+  if (headless) unitsSim.items.bindTarget(itemTargets[0],playerUnit);
   for (const system of [ordnance, items, remotes]) system.random = gameplayRandom;
   // A thrown grenade's tumble (its orientation travels in projectile records).
-  ordnance.spinRandom = () => streams.get("grenade-spin").uniform();
+  ordnance.spinRandom = streams.draw("grenade-spin");
 
   // The body he plays, connected to the rest of the game: the Unit and his
   // team, what his weapons reach (mines and power-ups, droids, lightning,
@@ -1916,15 +1835,13 @@ async function start() {
     combat.items = items;
     combat.remotes = remotes;
     remotes.owner = playerUnit;
-    combat.lightning = lightning;
-    combat.arcTargets = arcTargets;
+
     combat.live = live;
     combat.vehicles = vehicles;
     combat.effects = effects;
     combat.view = firstPersonView;
     combat.onRespawn = onRespawn;
-    combat.onBlowApart = onBlowApart;
-    combat.onDeath = onDeath;
+
     instrument(playerUnit);
     combat.random = gameplayRandom;
     for (const weapon of combat.arsenal.weapons) weapon.random = gameplayRandom;
@@ -1936,8 +1853,6 @@ async function start() {
     // A droideka: its shield's hits on its bubble, and its death in blasts.
     if (walker) {
       soldier.onShieldHit = (amount, source, kind) => hooks.presented("shieldHit", playerUnit, amount, source, kind);
-      soldier.onDeathBlast = () => hooks.presented("deathBlast", playerUnit);
-      soldier.onExploded = () => combat.onBlowApart(0);
     }
   }
   wireBody();
@@ -1978,7 +1893,7 @@ async function start() {
     if (driver) Object.assign(driver, { soldier, combat, actor, animator, clips, presentation });
     gunner.combat = combat;
     gunner.animator = animator;
-    for (const key of Object.keys(waterContact)) delete waterContact[key];
+    playerUnit.waterContact = undefined;
     wireBody();
     setPerspective(firstPerson);
     audio.retarget({ soldier, combat, actor, unit: next.className, def: soldierDef });
@@ -2109,10 +2024,7 @@ async function start() {
   // The native driver chooses phase order and branches. These ports retain
   // object identity and the presentation or not-yet-owned phase boundaries.
   const stepSquads = [["squadMoveOut", 0, "moveout"], ["squadHold", 2, "hold"], ["squadFollow", 3, "follow"], ["squadAtEase", 1, "atease"]];
-  function samplePlayerMuzzles(dt) {
-    if (unitsSim) unitsSim.sampleMuzzles(playerUnit, dt);
-    else soldier.sampleMuzzles?.(dt);
-  }
+
   const worldStepHost = {
     state: () => ({ water: Boolean(water), remote: Boolean(remotes.active), walker, dead: combat.dead, server: Boolean(game.serverWorld),
       deathCamera: Boolean(deathView.active), driver: Boolean(driver?.active), gunner: Boolean(gunner.active), vehicles: Boolean(vehicles),
@@ -2151,8 +2063,9 @@ async function start() {
         case 'takeSquad': return { flag: tickControls.take(stepSquads[value][0]) };
         case 'squad': ai.playerCommand(stepSquads[value][1]); hud.squadCommand(stepSquads[value][2]); break;
         case 'takeUse': return { flag: tickControls.take('use') };
-        case 'player': stepPlayer(dt); break;
-        case 'playerCount': playerUnit.tickCount = value; break;
+        case 'playerCount':
+          unitsSim.sync();
+          break;
         case 'eye': combat.eye(soldier.position, simulationEye); simulationZoom = 1; break;
         case 'deathCamera': deathView.update(dt, playerUnit.removed ? null : soldier.position, killerEyes()); deathView.apply(simulationCamera); break;
         case 'remoteCamera': remotes.updateCamera(dt, firstPerson, true); break;
@@ -2162,34 +2075,18 @@ async function start() {
         case 'camera': simulationView.update(dt, soldier.position, soldier.aimYaw, soldier.aimPitch,
           soldier.air ? 'stand' : soldier.posture, combat.zoom, flag, flag ? simulationEye : null); break;
         case 'cameraMatrix': simulationCamera.updateMatrixWorld(); break;
-        case 'ai': ai.update(dt); break;
-        case 'nativeUnits': unitsSim.phase(dt); break;
-        case 'hostUnits':
-          for (const unit of factory?.built || []) {
-            unit.tick(dt);
-            if (water && unit.alive && !unit.seat && !unit.held && !unit.walker) {
-              unit.waterContact ??= {};
-              const hurt = water.soldierStep(dt, unit.waterContact, unit.position, unit.combat.pivot, unit.combat.origin, unit.velocity,
-                at => presentEffect('watersplash_md', at));
-              unit.combat.gunUnderwater = Boolean(unit.waterContact.gunUnder);
-              if (hurt) unit.combat.damage(hurt);
-            }
-            if (water && unit.alive && !unit.seat && !unit.held && unit.walker) droidekaWater(unit.soldier, unit.combat, dt);
-            if (unit.alive && !unit.held && inDeathRegion(unit.position)) unit.combat.damage(Infinity);
-          }
+        case 'ai':
+          // Authority sensors share foreign facts for this AI update. Page
+          // prediction has no unit authority or foreign prop input span.
+          if (headless) unitsSim.registry.beginReads();
+          try { ai.update(dt); }
+          finally { if (headless) unitsSim.registry.endReads(); }
           break;
-        case 'vehicles': {
-          vehicles.spawnOccupant = combat.dead ? null : soldier.position;
-          vehicles.update(dt); break;
-        }
-        case 'remotes': remotes.update(dt, flag ? droidInput : null, tickControls); break;
-        case 'networkRemotes': networkRemotes.finish(tick, dt); break;
-        case 'muzzles': samplePlayerMuzzles(dt); break;
-        case 'combat': combat.update(dt, tickControls, value); break;
-        case 'flushMuzzles': combat.flushMuzzles(); break;
-        case 'pitchRange': { const [low, high] = soldier.pitchRange(); return { value: low, other: high }; }
-        case 'setPitch': soldier.aimPitch = value; break;
-        case 'separate': separateSoldiers(); break;
+        case 'nativeUnits':
+          // One owner advances bodies, combat, fleet and recon before
+          // separation. The dormant viewpoint only supplies its scope.
+          unitsSim.phase(dt, tick);
+          break;
         case 'served':
           served.length = 0;
           if (!combat.dead && !driver?.active) served.push(supplied);
@@ -2205,11 +2102,6 @@ async function start() {
           if (vehicles) for (const v of vehicles.vehicles) if (v.alive) mineTargets.push(v.itemTarget);
           break;
         case 'items': items.update(dt, mineTargets); break;
-        case 'droidekaWater': droidekaWater(soldier, combat, dt); break;
-        case 'soldierWater': {
-          const hurt = water.soldierStep(dt, waterContact, soldier.position, combat.pivot, combat.origin, soldier.velocity, at => presentEffect('watersplash_md', at));
-          combat.gunUnderwater = Boolean(waterContact.gunUnder); if (hurt) combat.damage(hurt); break;
-        }
         case 'battlefield': battlefield.update(dt, battle.characters); break;
         case 'battle': updateBattle(dt); break;
         case 'target': updateTargetHud(dt); break;
@@ -2227,216 +2119,7 @@ async function start() {
     },
   };
   function step(dt, tick, recordedCommand = null) {
-    if (game.worldSim) return game.worldSim.step(worldStepHost, dt, tick, recordedCommand);
-    runtimeProfile?.step(dt);
-    const command = recordedCommand || controls.command(tick, commandHistory.epoch, playerUnit.generation);
-    activeCommand = command;
-    tickHuman = command.human || null;
-    // The press this tick's rounds answer, by its id (WorkerHost.edges): the
-    // page that showed them at once draws the world's copies only once.
-    playerUnit.networkShots = command.fire?.filter(edge=>edge.pressed) ?? [];
-    playerUnit.networkShot = null;
-    if (typeof command.firstPerson === "boolean" && command.firstPerson !== firstPerson) setPerspective(command.firstPerson);
-    if (Number.isFinite(command.aspect) && command.aspect > 0 && simulationCamera.aspect !== command.aspect) {
-      simulationCamera.aspect = command.aspect;
-      simulationView.applyFov(command.aspect);
-    }
-    commandHistory.put(command);
-    if (!worldControls.accept(command)) throw new Error("stale world command");
-    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; vehicles.f2.retune(name, key, value); }
-    const fs = command.flightSettings || {};
-    if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
-    const yawBeforeLook = soldier.aimYaw;
-    for (const [dx, dy] of command.look) applyLook(dx, dy);
-    tickLookYaw = soldier.aimYaw - yawBeforeLook;
-    // The view has already previewed these raw counts. Do not interpolate
-    // them backwards after the tick acknowledges them; only movement/keyboard
-    // turns belong in the presentation's previous-to-current yaw interval.
-    presentation.previousYaw += soldier.aimYaw - yawBeforeLook;
-    previewYaw = previewPitch = 0;
-    const tickControls = worldControls;
-    water?.step(dt);
-    simTime = tick / 60;
-    simEvents.time = simTime;
-    input.forward = tickControls.axis("forward");
-    input.right = tickControls.axis("right");
-    input.turn = tickControls.axis("turn");
-    droidInput.forward = input.forward;
-    droidInput.right = input.right;
-    droidInput.turn = input.turn;
-    for (const [action, kind, label] of [["squadMoveOut", 0, "moveout"], ["squadHold", 2, "hold"], ["squadFollow", 3, "follow"], ["squadAtEase", 1, "atease"]]) {
-      if (tickControls.take(action) && !combat.dead && ai?.playerCommand) {
-        ai.playerCommand(kind); hud.squadCommand(label);
-      }
-    }
-
-    if (!game.serverWorld) stepPlayer(dt);
-    playerUnit.tickCount += 1;
-
-    combat.eye(soldier.position, simulationEye);
-    // Dead, the view is never his own eyes. The death camera follows the
-    // body while it lies in the world, and the killer.
-    const eyes = combat.usesEyeView && !combat.dead;
-    simulationZoom = 1;
-    if (deathView.active) {
-      deathView.update(dt, playerUnit.removed ? null : soldier.position, killerEyes());
-      deathView.apply(simulationCamera);
-    } else if (remotes.active) remotes.updateCamera(dt, firstPerson, true);
-    else if (driver?.active) driver.aimView.update(driver.vehicle, dt, firstPerson);
-    else if (gunner.active) gunner.updateCamera(dt, 1, firstPerson, true);
-    else {
-      simulationZoom = combat.zoom;
-      // A server world's own player has no body (createMultiplayerWorld):
-      // nothing reads his chase camera there (the AI watches the players'
-      // views, src/runtime/network-views.js), and its five wall rays a tick
-      // are left out.
-      if (!(game.serverWorld && playerUnit.removed)) simulationView.update(dt, soldier.position, soldier.aimYaw, soldier.aimPitch,
-        soldier.air ? "stand" : soldier.posture, combat.zoom, eyes, eyes ? simulationEye : null);
-    }
-    simulationCamera.updateMatrixWorld();
-    ai?.update(dt);
-    // The units' loop below runs on the module where the world asked
-    // (src/units-sim.js), to the same effect.
-    if (unitsSim) unitsSim.phase(dt);
-    else for (const unit of factory?.built || []) {
-      unit.tick(dt);
-      if (water && unit.alive && !unit.seat && !unit.held && !unit.walker) {
-        unit.waterContact ??= {};
-        const hurt = water.soldierStep(dt, unit.waterContact, unit.position, unit.combat.pivot, unit.combat.origin, unit.velocity,
-          (at) => presentEffect("watersplash_md", at));
-        unit.combat.gunUnderwater = Boolean(unit.waterContact.gunUnder);
-        if (hurt) unit.combat.damage(hurt);
-      }
-      // A droideka doesn't drown: deep water wears it down (src/vehicle-water.js).
-      if (water && unit.alive && !unit.seat && !unit.held && unit.walker) droidekaWater(unit.soldier, unit.combat, dt);
-      // One a creature holds is no longer among the soldiers a region
-      // tests (the 2004 game moves him to the riders' list). The region
-      // kills (with an empty damage record) and deletes
-      // nothing: the body lies where it falls as any other does, which is
-      // what sets off Cloud City's carbon-freeze forklift at the bottom of
-      // its pit (docs/live-objects.md "Animated props").
-      if (unit.alive && !unit.held && inDeathRegion(unit.position)) unit.combat.damage(Infinity);
-    }
-    // Seats latch once per simulation step, after their controllers write
-    // intent. This preserves trigger/exit edges at every physics rate.
-    if (vehicles) {
-      vehicles.spawnOccupant = combat.dead ? null : soldier.position;
-      // His keys for the seat he holds now (src/boarding.js seatInput), as a
-      // network human's are read for his.
-      vehicles.update(dt);
-
-    }
-
-
-    remotes.update(dt, remotes.active ? droidInput : null, tickControls);
-    networkRemotes?.finish(tick, dt);
-    samplePlayerMuzzles(dt);
-    if (!game.serverWorld) {
-      combat.update(dt, tickControls, Math.max(Math.abs(input.forward), Math.abs(input.right)));
-      combat.flushMuzzles();
-    }
-    const [low, high] = soldier.pitchRange();
-    soldier.aimPitch = THREE.MathUtils.clamp(soldier.aimPitch, low, high);
-    separateSoldiers();
-    served.length = 0;
-    if (!combat.dead && !driver?.active) served.push(supplied);
-    for (const unit of factory?.built || []) if (unit.alive && !unit.seat && !unit.held) served.push(unit.supply);
-    live?.update(dt, served, tick);
-    ordnance.update(dt, false);
-    bodyMiddle.set(soldier.position.x, soldier.position.y + BODY_MIDDLE, soldier.position.z);
-    mineTargets.length = 0;
-    if (!combat.dead && !gunner.active && !driver?.active) mineTargets.push(...itemTargets);
-    for (const unit of factory?.built || []) if (unit.alive && !unit.seat && !unit.held) mineTargets.push(unit.itemTarget);
-    if (vehicles) for (const v of vehicles.vehicles) if (v.alive) mineTargets.push(v.itemTarget);
-    items.update(dt, mineTargets);
-    if (water && !combat.dead && !gunner.active && !driver?.active && playerUnit.walker) droidekaWater(soldier, combat, dt);
-    else if (water && !combat.dead && !gunner.active && !driver?.active) {
-      const hurt = water.soldierStep(dt, waterContact, soldier.position, combat.pivot, combat.origin, soldier.velocity,
-        at => presentEffect("watersplash_md", at));
-      combat.gunUnderwater = Boolean(waterContact.gunUnder);
-      if (hurt) combat.damage(hurt);
-    }
-    // Ten seconds outside the battlefield kills (src/battlefield.js).
-    battlefield.update(dt, battle.characters);
-    updateBattle(dt);
-    updateTargetHud(dt);
-    // Each live grenade warns the soldiers near it, after its first touch
-    // and the difficulty's delay (the Classic AI's danger notifier).
-    if (ai?.grenadeUpdate) {
-      for (const g of ordnance.grenades) if (!g.gone) ai.grenadeUpdate(g, g.owner === "player" ? playerUnit : g.owner);
-    }
-    // The spawn screen hears what this tick did to the player.
-    humanSpawn.flush();
-    if (vehicles?.f2?.debug) vehicles.f2.check();
-  }
-
-  // Soldiers push each other apart, as the original game's collision pass does
-  // for soldiers, droids, and droidekas within 60 m of the camera: each
-  // body's main_body is an upright cylinder for its posture, and an overlap
-  // moves each along the contact by the other's share of their volumes.
-  // Only side contacts are resolved here; one soldier standing on another's
-  // head is not (provisional). Positions move; the next collision pass
-  // keeps them out of the walls.
-  const MAIN_BODY = { stand: [0.57, 1.65, 0.9], crouch: [0.45, 1.45, 0.65], prone: [0.8, 0.45, 0.25] };
-  // A multiplayer world has no single simulation camera to scope the push
-  // to (each player's view is his own): createMultiplayerWorld sets this so
-  // the server separates every pair, everywhere, deterministically.
-  const separationScope = { global: false };
-  const WALKER_BODY = [1, 2, 1];
-  // The pushers, and their cylinders and places in flat arrays: every pair
-  // is visited each tick. Their x and z there move with each push, as their
-  // positions do (both are written).
-  const pushers = [];
-  let push = null;
-  function separateSoldiers() {
-    if (game.worldSim) return game.worldSim.separate(units.all(), { player: playerUnit,
-      playerOut: Boolean(driver?.active || gunner.active || combat.dead), global: separationScope.global, camera: simulationCamera.position });
-    pushers.length = 0;
-    for (const unit of units.all()) {
-      if (unit.seat || unit.held || !unit.soldier || unit.removed || !(unit.alive || unit.dead)) continue;
-      if (unit === playerUnit && (driver?.active || gunner.active || combat.dead)) continue;
-      if (!separationScope.global && unit.position.distanceToSquared(simulationCamera.position) > 60 * 60) continue;
-      pushers.push(unit);
-    }
-    const n = pushers.length;
-    if (!push || push.r.length < n) {
-      const size = Math.max(64, n * 2);
-      push = { r: new Float64Array(size), bottom: new Float64Array(size), top: new Float64Array(size), volume: new Float64Array(size), x: new Float64Array(size), z: new Float64Array(size) };
-    }
-    const { r: rs, bottom, top, volume, x: xs, z: zs } = push;
-    for (let i = 0; i < n; i++) {
-      const unit = pushers[i], p = unit.position;
-      const body = unit.walker ? WALKER_BODY : MAIN_BODY[unit.hitPosture] || MAIN_BODY.stand;
-      const r = body[0], h = body[1], y = body[2];
-      rs[i] = r; bottom[i] = p.y + y - h / 2; top[i] = p.y + y + h / 2; volume[i] = Math.PI * r * r * h;
-      xs[i] = p.x; zs[i] = p.z;
-    }
-    for (let i = 0; i < n; i++) {
-      for (let k = i + 1; k < n; k++) {
-        if (top[i] <= bottom[k] || top[k] <= bottom[i]) continue;
-        let dx = xs[i] - xs[k];
-        let dz = zs[i] - zs[k];
-        const reach = rs[i] + rs[k];
-        const d2 = dx * dx + dz * dz;
-        if (d2 >= reach * reach) continue;
-        const a = pushers[i], b = pushers[k];
-        let d = Math.sqrt(d2);
-        if (d < 1e-4) {
-          dx = Math.sin(a.id);
-          dz = Math.cos(a.id);
-          d = 1;
-        }
-        const depth = reach - Math.sqrt(d2);
-        const share = depth / (volume[i] + volume[k]);
-        const pa = a.position, pb = b.position;
-        pa.x = xs[i] += (dx / d) * share * volume[k];
-        pa.z = zs[i] += (dz / d) * share * volume[k];
-        pb.x = xs[k] -= (dx / d) * share * volume[i];
-        pb.z = zs[k] -= (dz / d) * share * volume[i];
-        a.tickCount += 1;
-        b.tickCount += 1;
-      }
-    }
+    return game.worldSim.step(worldStepHost, dt, tick, recordedCommand);
   }
 
   const localWorldHost = {
@@ -2449,11 +2132,6 @@ async function start() {
     },
     call(op, dt) {
       switch (op) {
-        case 'jump': case 'crouch': case 'prone': case 'use': return worldControls.take(op);
-        case 'tick': tickPlayerBody(dt); break;
-        case 'impacts': takeImpacts(playerUnit); break;
-        case 'deathRegion': return inDeathRegion(soldier.position);
-        case 'kill': combat.damage(Infinity); break;
         case 'battle': if (game.battlePhaseSim) game.battlePhaseSim.update(dt); else updateBattleRules(dt); break;
         case 'ready': ai.humanReady(battle.human, { className: UNIT, post: spawnPosts()[spawnIndex] }); break;
         case 'spawn': humanSpawn.update(dt, tickHuman); break;
@@ -2464,51 +2142,11 @@ async function start() {
     },
   };
 
-  function tickPlayerBody(dt) {
-    if (unitsSim) unitsSim.bodyTick(playerUnit, input, dt);
-    else soldier.tick(input, dt);
-  }
-
-  function stepPlayer(dt) {
-    if (game.worldSim) return game.worldSim.player(localWorldHost, dt);
-    input.jump = worldControls.take("jump");
-    input.crouch = worldControls.take("crouch");
-    input.prone = worldControls.take("prone");
-    // A droideka folds and unfolds on the use key.
-    input.use = walker && worldControls.take("use");
-    // Dead, or flying a droid, the soldier takes no input.
-    if (combat.dead || remotes.active) {
-      input.forward = input.right = input.turn = 0;
-      input.jump = input.crouch = input.prone = input.use = false;
-    }
-    // Manning a turret, the soldier stays at its seat.
-    if (gunner.active || driver?.active) return;
-    // With no body in the world (before his first spawn, or once his body is
-    // gone) there is nothing to move.
-    // Held by a creature (src/props.js), he goes where it takes him.
-    if (playerUnit.removed || playerUnit.held) return;
-    tickPlayerBody(dt);
-    // Landing too hard hurts him as it does a bot (src/collision-damage.js).
-    takeImpacts(playerUnit);
-    // A death region kills him, as it does a bot; his body lies where it
-    // falls for the usual 4 s, then goes, and he spawns again.
-    if (!combat.dead && inDeathRegion(soldier.position)) combat.damage(Infinity);
-  }
-
   // Command posts, the victory timer, and the HUD. A team that holds no post
   // while none are neutral has 20 s before it loses.
   const capturers = [];
   function updateBattle(dt) {
-    if (game.worldSim) return game.worldSim.battleTail(localWorldHost, dt);
-    if (game.battlePhaseSim) game.battlePhaseSim.update(dt);
-    else updateBattleRules(dt);
-    // The local spawn screen, corpse and HUD follow the authoritative
-    // battle phase, including any respawn it completed this tick.
-    if (!game.serverWorld && policy.auto && ai?.humanReady && battle.human && !combat.dead) ai.humanReady(battle.human, { className: UNIT, post: spawnPosts()[spawnIndex] });
-    if (!game.serverWorld) humanSpawn.update(dt, tickHuman);
-    tickHuman = null;
-    if (combat.dead && !playerUnit.removed && combat.deathTime >= CORPSE_LINGER) removeCorpse();
-    presentBattle(dt);
+    return game.worldSim.battleTail(localWorldHost, dt);
   }
 
   function updateBattleRules(dt) {
@@ -3695,15 +3333,18 @@ async function start() {
     // The store on the battle's instance of the module, when the rounds are
     // there (src/ordnance-sim.js); null when they are JavaScript's.
     simBridge,
-    // The units' phase on the module, when the world asked for it
-    // (src/units-sim.js); null when the units tick in JavaScript.
+    // The headless battle owns native units; pages only read mirrors.
     get unitsSim() { return unitsSim; },
     debris,
     destruction,
     items,
     remotes,
     createNetworkRemotes(capacity) {
-      return networkRemotes ??= new NetworkRemoteWorld(remotes, {capacity, randomFor:key=>reconRandom(SEED,key)});
+      if (!networkRemotes) {
+        unitsSim.recon.configure(capacity);
+        networkRemotes = unitsSim.recon;
+      }
+      return networkRemotes;
     },
     get networkRemotes() { return networkRemotes; },
     separationScope,
@@ -3767,7 +3408,7 @@ async function start() {
     playerUnit,
     randomState: () => ({ ai: random.seed, game: randomB?.seed ?? null, streams: Object.fromEntries([...streams.streams].map(([name, value]) => [name, value.seed])) }),
     // A draw function of the world's named stream (src/ai/random.js RandomStreams).
-    randomStream: (name) => () => streams.get(name).uniform(),
+    randomStream: (name) => streams.draw(name),
     get ai() {
       return ai;
     },
@@ -3880,9 +3521,27 @@ async function start() {
   }) : null;
   game.inputSim = game.battleSim ? (await import("./runtime/input-sim.js")).createInputSim(simInstance) : null;
   game.inputSim?.controls(worldControls);
-  game.worldSim = game.inputSim ? (await import("./runtime/world-sim.js")).createWorldSim(simInstance) : null;
-  game.worldSim?.clock(worldClock);
-  game.worldSim?.events(simEvents);
+  game.worldSim = (await import("./runtime/world-sim.js")).createWorldSim(simInstance);
+  game.worldSim.clock(worldClock);
+  game.worldSim.events(simEvents);
+  // Initial viewpoint placement is outside the factory and precedes the
+  // ownership handoff. It never joins built order or the reusable corpse pool.
+  if (headless) {
+    unitsSim.adopt(playerUnit,true); unitsSim.registerViewpoint(playerUnit);
+    // UnitFactory's warm corpse pools cover the roster. Inactive construction
+    // stock covers a class's first hero or a later connection without adding
+    // hidden members to the registry's observable insertion sequence.
+    unitsSim.construction.reserve(units.nextId + 512);
+    const stock = new Map();
+    for (const team of Object.keys(teams).map(Number)) for (const [name,count] of classesFor(team)) {
+      stock.set(name,(stock.get(name) || 0) + Math.ceil(count * 1.5));
+    }
+    for (const side of Object.values(sides)) for (const name of Object.keys(side.units)) {
+      // A new wave can overlap the complete previous corpse roster. Stock
+      // stays outside registry order until those actual cold acquisitions.
+      if (factory.prepared(name)) unitsSim.construction.prepare(name,Math.max(2,stock.get(name) || 0));
+    }
+  }
   game.aiSim = aiSim;
   const predictionSession = headless ? null
     : (await import('./runtime/client-prediction.js')).createClientPrediction(simInstance, collision);

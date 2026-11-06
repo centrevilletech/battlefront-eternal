@@ -61,11 +61,28 @@ export class CombatCapture {
   // otherwise reach every client as an impact with no bolt to draw. The
   // decoded view goes with it, so publication need not decode it again.
   emit(record){if(this.native)return this.native.emit(this,record,decodeCombat);const tick=this.tick();if(this.prunedTick!==tick){for(const [id,event]of this.pending)if(event.expiresTick<tick)this.pending.delete(id);this.prunedTick=tick;}const key=record.schema===2&&this.pending.get(record.id)?.record.schema===1?-record.id:record.id;if(!this.pending.has(key)&&this.pending.size>=this.maxRecords)throw Error('combat capture capacity exceeded');const view=decodeCombat(record);this.pending.set(key,{record,view,expiresTick:view.expiryTick,retention:[3,4,5,PRESENTATION_SCHEMA].includes(record.schema)?'cosmetic':'projectile'});}
-  launch(bolt,{tick:sampleTick}={}){
+  launch(bolt,{tick:sampleTick,sample=null}={}){
     if(this.nextId>0xffffffff)throw Error('combat identity exhausted');
-    const tick=this.tick(),launchTick=sampleTick??tick,state={launchTick,executionTick:tick,id:this.nextId++,generation:this.generation,expiryTick:Math.ceil(launchTick+bolt.life*60)+120,definitionId:this.definitionId(bolt.def),ownerId:bolt.networkFireUnit,ownerGeneration:bolt.networkFireGeneration,fireId:bolt.networkFireId,channel:bolt.networkFireChannel??0};
+    // Native notices carry the original launch values even when catch-up has
+    // already retired this same pooled mirror. Identity still belongs to bolt.
+    const view=sample??bolt;
+    const tick=this.tick(),launchTick=sampleTick??tick;
+    const state={
+      launchTick,executionTick:tick,id:this.nextId++,generation:this.generation,
+      expiryTick:Math.ceil(launchTick+view.life*60)+120,
+      definitionId:this.definitionId(view.def),
+      ownerId:sample?sample.ownerId:bolt.networkFireUnit,
+      ownerGeneration:sample?sample.ownerGeneration:bolt.networkFireGeneration,
+      fireId:sample?sample.fireId:bolt.networkFireId,
+      channel:sample?sample.channel:bolt.networkFireChannel??0,
+    };
     this.projectiles.set(bolt,state);
-    this.emit(combatRecord({...state,tick,schema:1,position:vector(bolt.position),direction:vector(bolt.direction),offset:bolt.offset?vector(bolt.offset):[0,0,0],speed:bolt.speed,life:bolt.life,merge:bolt.merge,native:this.native}));
+    this.emit(combatRecord({
+      ...state,tick,schema:1,
+      position:vector(view.position),direction:vector(view.direction),
+      offset:view.offset?vector(view.offset):[0,0,0],
+      speed:view.speed,life:view.life,merge:view.merge,native:this.native,
+    }));
   }
   impact(bolt,hit){const dynamic=this.dynamic?.active.get(bolt),state=this.projectiles.get(bolt)??dynamic;if(!state)return;this.projectiles.delete(bolt);if(dynamic)dynamic.terminal=true;this.emit(combatRecord({...state,executionTick:state.executionTick??state.launchTick,expiryTick:state.expiryTick??this.tick()+18,tick:this.tick(),schema:2,position:vector(hit.point),direction:vector(hit.normal),surface:hit.surface,native:this.native}));}
   explosion(definition,position,{wet=false}={}){if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(explosionRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),definitionId:this.definitionId(definition),position:vector(position),wet,native:this.native}));}
@@ -211,13 +228,13 @@ export class CombatPresentation {
 function reach(bolt,point){if(bolt.speed>0)bolt.life=Math.min(bolt.life,Math.max(0,(point[0]-bolt.position.x)*bolt.direction.x+(point[1]-bolt.position.y)*bolt.direction.y+(point[2]-bolt.position.z)*bolt.direction.z)/bolt.speed);}
 
 export function attachCombatCapture(game,capture){
-  const ordnance=game.ordnance,launch=ordnance.onLaunch,impact=ordnance.onImpact,explode=ordnance.onExplode,projectile=ordnance.onProjectile;
+  const ordnance=game.ordnance,launch=ordnance.onLaunch,impact=ordnance.onImpact,explode=ordnance.onExplosion,projectile=ordnance.onProjectile;
   capture.dynamic=new ProjectileCapture(capture,ordnance);
   const observe=fn=>{try{fn();}catch(error){capture.fault(error);}};
   const onLaunch=(bolt,context)=>{launch?.(bolt,context);observe(()=>capture.launch(bolt,context));},onImpact=(bolt,hit)=>{impact?.(bolt,hit);observe(()=>capture.impact(bolt,hit));};
   const onExplode=(definition,position,owner,context)=>{explode?.(definition,position,owner,context);observe(()=>capture.explosion(definition,position,context));};
-  const onProjectile=(p,type)=>{projectile?.(p,type);observe(()=>capture.dynamic.launch(p,type));};
-  ordnance.onProjectile=onProjectile;ordnance.onLaunch=onLaunch;ordnance.onImpact=onImpact;ordnance.onExplode=onExplode;
+  const onProjectile=(p,type,sample)=>{projectile?.(p,type,sample);observe(()=>capture.dynamic.launch(p,type,sample));};
+  ordnance.onProjectile=onProjectile;ordnance.onLaunch=onLaunch;ordnance.onImpact=onImpact;ordnance.onExplosion=onExplode;
   const unlisten=game.simEvents.listen(event=>observe(()=>capture.event(event)));
-  return()=>{if(ordnance.onLaunch===onLaunch)ordnance.onLaunch=launch;if(ordnance.onImpact===onImpact)ordnance.onImpact=impact;if(ordnance.onExplode===onExplode)ordnance.onExplode=explode;if(ordnance.onProjectile===onProjectile)ordnance.onProjectile=projectile;capture.dynamic=null;unlisten();};
+  return()=>{if(ordnance.onLaunch===onLaunch)ordnance.onLaunch=launch;if(ordnance.onImpact===onImpact)ordnance.onImpact=impact;if(ordnance.onExplosion===onExplode)ordnance.onExplosion=explode;if(ordnance.onProjectile===onProjectile)ordnance.onProjectile=projectile;capture.dynamic=null;unlisten();};
 }

@@ -1,6 +1,6 @@
 import { blankSeatIntent } from '../seats.js';
 import { mountInReach, seatScheme } from '../boarding.js';
-import { ONLINE_PLAYOUT_MAX_TICKS } from './hit-history.js';
+import { ONLINE_PLAYOUT_MAX_TICKS } from './network-hit-limits.js';
 import { cycleNetworkSeat } from './network-seat.js';
 import { networkVehicleInput } from './network-vehicle.js';
 
@@ -143,6 +143,6 @@ export function networkControlPorts(bridge) {
   }
   return {
     networkControls(game, p, u, command, tick) { run({ game, p, u, command }, 0, tick); },
-    networkStop(p) { run({ p }, 1, 0); },
+    networkStop(game,p) { run({ game,p }, 1, 0); },
   };
 }

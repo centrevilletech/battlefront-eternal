@@ -1,6 +1,7 @@
 import { stepPrediction } from './helpers/hull-prediction.js';
 import * as THREE from 'three';
 import { fixture } from './flight-fixture.js';
+import { Soldier } from '../src/soldier.js';
 import { VehicleCamera } from '../src/vehicles.js';
 import { FixedClock } from '../src/runtime/fixed-clock.js';
 import { navigateMissile } from '../src/flight/targeting.js';
@@ -24,7 +25,43 @@ export function flightAcceptance(render=()=>{}) {
 
  check(10,'ceiling and boundaries recover smoothly',()=>{const states=[];for(const kind of ['ceiling','edge','space']){const f=launch();f.v.position.set(120,120,0);f.system.flightEnvironment=kind==='ceiling'?{ceiling:100}:{space:kind==='space',ceiling:1000,bounds:{min:[-100,-100,-100],max:[100,100,100]}};const q=f.v.quaternion.clone();run(f,1);assert(f.v.flightWarning,'no warning');assert(q.angleTo(f.v.quaternion)<.1,'snap');run(f,90);states.push({kind,position:f.v.position.toArray()});assert(f.v.position.x<120||f.v.position.y<100,'no recovery');}return states;});
  check(11,'landing at speed from any height; space lands in its zones',()=>{const records=[];for(const type of ['ground','pad','hangar','high']){const f=launch();if(type==='pad'||type==='hangar')f.system.flightEnvironment={space:type==='hangar',landingZones:[{min:[-500,-1,-500],max:[500,40,500],floorY:0}]};if(type==='high')f.v.position.y=120;run(f,1,{takeoff:true});assert(f.v.flightState==='Landing','no descent at speed '+type);let ticks=0;for(;ticks<3600&&f.v.flightState==='Landing';ticks++)run(f,1);assert(f.v.flightState==='Landed','did not settle '+type);assert(f.v.health===f.v.maxHealth,'hurt landing '+type);records.push({type,seconds:ticks/60});}const f=launch();f.v.position.y=500;f.system.flightEnvironment={space:true};run(f,1,{takeoff:true});assert(f.v.flightState==='Flying'&&f.v.flightWarning==='No landing zone','space zone refusal');return records;});
- check(12,'Q lock, dwell, LOS hysteresis, missile evasion at 250m',()=>{const f=launch();f.v.position.set(0,500,0);f.system.flightEnvironment={space:true};const target={id:999,alive:true,generation:1,team:2,position:new THREE.Vector3(0,500,300),velocity:new THREE.Vector3()};f.system.units={all:()=>[target],byId:id=>id===999?target:null,relation:()=>-1};updateFlightTarget(f.v,1/60,true);for(let i=0;i<61;i++)updateFlightTarget(f.v,1/60);assert(f.v.flightLockState==='Locked','no dwell lock');wall(f,0,500,100,30,30,1);for(let i=0;i<10;i++)updateFlightTarget(f.v,1/60);assert(f.v.flightLockId===999,'no LOS grace');for(let i=0;i<10;i++)updateFlightTarget(f.v,1/60);assert(f.v.flightLockId===-1,'LOS never broke');const trials=[];for(const maneuver of ['none','barrel','immelmann']){let evaded=0;for(let trial=0;trial<5;trial++){const f=launch();f.v.position.set(0,500,0);f.system.flightEnvironment={space:true};const r={position:new THREE.Vector3(trial*2-4,500,250),velocity:new THREE.Vector3(0,0,-180),targetId:1};let min=Infinity;for(let i=0;i<240;i++){const tick=trial*2;run(f,1,{forward:1,immelmann:maneuver==='immelmann'&&i===tick,trick:maneuver==='barrel'&&i===tick,right:maneuver==='barrel'&&i>=tick&&i<tick+8?1:0,rollLock:maneuver!=='barrel'});if(r.targetId>=0)navigateMissile(r,f.v,1/60);r.position.addScaledVector(r.velocity,1/60);min=Math.min(min,r.position.distanceTo(f.v.position));}if(min>6)evaded++;}assert(maneuver==='none'?evaded===0:evaded>=4,'evasion unreliable: '+maneuver);trials.push({maneuver,evaded,trials:5});}return trials;});
+ check(12,'Q lock, dwell, LOS hysteresis, missile evasion at 250m',()=>{
+  const f=launch();
+  f.v.position.set(0,500,0);f.system.flightEnvironment={space:true};
+  // Flight targeting reads the native mixed registry. Adopt a real body at
+  // the target position instead of replacing its already-owned JS reader.
+  const soldier=new Soldier(f.c,{});soldier.spawn(0,500,300,0);
+  const target={alive:true,generation:1,team:2,soldier};
+  f.system.fixtureOwner.adopt(target);
+  updateFlightTarget(f.v,1/60,true);
+  for(let i=0;i<61;i++)updateFlightTarget(f.v,1/60);
+  assert(f.v.flightLockState==='Locked','no dwell lock');
+  wall(f,0,500,100,30,30,1);
+  for(let i=0;i<10;i++)updateFlightTarget(f.v,1/60);
+  assert(f.v.flightLockId===target.id,'no LOS grace');
+  for(let i=0;i<10;i++)updateFlightTarget(f.v,1/60);
+  assert(f.v.flightLockId===-1,'LOS never broke');
+  const trials=[];
+  for(const maneuver of ['none','barrel','immelmann']){
+   let evaded=0;
+   for(let trial=0;trial<5;trial++){
+    const f=launch();f.v.position.set(0,500,0);f.system.flightEnvironment={space:true};
+    const r={position:new THREE.Vector3(trial*2-4,500,250),velocity:new THREE.Vector3(0,0,-180),targetId:1};
+    let min=Infinity;
+    for(let i=0;i<240;i++){
+     const tick=trial*2;
+     run(f,1,{forward:1,immelmann:maneuver==='immelmann'&&i===tick,trick:maneuver==='barrel'&&i===tick,right:maneuver==='barrel'&&i>=tick&&i<tick+8?1:0,rollLock:maneuver!=='barrel'});
+     if(r.targetId>=0)navigateMissile(r,f.v,1/60);
+     r.position.addScaledVector(r.velocity,1/60);
+     min=Math.min(min,r.position.distanceTo(f.v.position));
+    }
+    if(min>6)evaded++;
+   }
+   assert(maneuver==='none'?evaded===0:evaded>=4,'evasion unreliable: '+maneuver);
+   trials.push({maneuver,evaded,trials:5});
+  }
+  return trials;
+ });
  check(13,'cockpit blend and chase wall clearance',()=>{const f=launch(),cam=new THREE.PerspectiveCamera(70,1.6,.1,5000),view=new VehicleCamera(cam,f.c);f.v.present(1);view.update(f.v,1/60,false);const from=cam.position.clone();view.update(f.v,1/60,true);assert(cam.position.distanceTo(from)<2,'hard cut');for(let i=0;i<20;i++)view.update(f.v,1/60,true);assert(cam.near===.03,'near plane');wall(f,0,8,f.v.position.z-5,100,40,.1);for(let i=0;i<30;i++)view.update(f.v,1/60,false);assert(cam.position.z>f.v.position.z-5,'camera in wall');render(f,cam);return {near:cam.near,position:cam.position.toArray()};});
  check(14,'30/60/144fps simulation parity',()=>{const states=[];for(const hz of [30,60,144]){const f=fixture(),clock=new FixedClock();for(let i=0;i<hz*4;i++)clock.advance(1/hz,(dt,tick)=>stepPrediction(f.system, dt,f.v,{takeoff:tick===1,stickX:tick>100?.3:0}));states.push([...f.v.position.toArray(),...f.v.quaternion.toArray(),f.v.power]);}assert(JSON.stringify(states[0])===JSON.stringify(states[1])&&JSON.stringify(states[1])===JSON.stringify(states[2]),'fps divergence');return states[0];});
  return results;

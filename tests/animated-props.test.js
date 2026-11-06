@@ -1,3 +1,5 @@
+import {f3World} from './fixtures/f3-world.js';
+import './fixtures/native-anim.js';
 // Animated props and doors, as the original game's animated prop runs them
 // (src/props.js AnimatedProp): idle clips, proximity triggers, the eased
 // pose, the trapdoor's collision (solid shut, gone while it opens), and a
@@ -169,12 +171,27 @@ function victim(x, y = 0, z = 0) {
   return unit;
 }
 
-test('a tentacle seizes the first living soldier at its node, holds him there, and swallows him at the end', () => {
+// The creature owns animation; held-body placement and death use real native
+// Unit commands. Its page replica below remains an independent drawing body.
+async function ownedVictim(x,y=0,z=0) {
+  const world=await f3World({victim:{class:'victim',base:'soldier',MaxHealth:300,weapons:[]}}, {
+    prepareUnit(unit) {
+      const prepared=body();
+      unit.actor.root.add(prepared.bones[0]);unit.actor.bones.push(...prepared.bones);
+      unit.animator.clips=prepared.clips;
+    },
+  });
+  const unit=world.spawn('victim',x,z);unit.spawn(x,y,z,0);
+  unit.combat.onDamaged=(amount,attacker)=>{unit.combat.amount=amount;unit.combat.attacker=attacker;};
+  return unit;
+}
+
+test('a tentacle seizes the first living soldier at its node, holds him there, and swallows him at the end', async () => {
   const sounds = [];
   const unlisten = listenSounds((type, ...args) => sounds.push([type, ...args]));
   try {
     const { p, r } = creature();
-    const man = victim(0, 0, 0.5);
+    const man = await ownedVictim(0, 0, 0.5);
     let tick = 1;
     // He stands within the hotspot's 5 m: the grab plays, and he is within
     // 1.5 m of hp_active (at the origin at first).
@@ -223,13 +240,13 @@ test('a grab takes no one past its window, no body, and no one seated', () => {
   assert.equal(q.victim, null, 'a seated soldier is not on foot');
 });
 
-test('a page following the world draws the creature and whom it holds where the world has them', () => {
+test('a page following the world draws the creature and whom it holds where the world has them', async () => {
   const { p: world } = creature();
   const { p: page, r: pageRig } = creature();
-  const man = victim(0, 0, 0.5);
+  const man = await ownedVictim(0, 0, 0.5);
   const units = { byId: (id) => (id === man.id ? man : null) };
   let tick = 1;
-  const pageMan = victim(0, 0, 0.5);
+  const pageMan = victim(0, 0, 0.5); pageMan.generation=man.generation;
   const pageUnits = { byId: (id) => (id === man.id ? pageMan : null) };
   for (; tick < 100; tick++) {
     world.step(DT, [], [man], tick);
@@ -262,18 +279,18 @@ test("a creature's state travels as a world record, at once when it acts", async
   const { WorldFieldStagger } = await import('../src/runtime/snapshot-records.js');
   const { p: world } = creature();
   const { p: page } = creature();
-  const man = victim(0, 0, 0.5);
-  const pageMan = victim(0, 0, 0.5);
+  const man = await ownedVictim(0, 0, 0.5);
+  const pageMan = victim(0, 0, 0.5); pageMan.generation=man.generation;
   const worldGame = { live: { animated: [world], buildings: [] } };
   const pageGame = { live: { animated: [page], buildings: [] }, units: { byId: (id) => (id === man.id ? pageMan : null) } };
   const stagger = new WorldFieldStagger();
   const text = new TextDecoder();
   let sent = null, changes = 0;
   // Far off; at the hotspot (the grab, out of the arm's reach); then at the arm.
-  man.position.set(0, 0, 20);
+  man.spawn(0,0,20,0);
   for (let tick = 1; tick < 120; tick++) {
-    if (tick === 10) man.position.set(0, 0, 5);
-    if (tick === 30) man.position.set(0.5, 0, 0.5);
+    if (tick === 10) { man.spawn(0,0,5,0);pageMan.generation=man.generation; }
+    if (tick === 30) { man.spawn(0.5,0,0.5,0);pageMan.generation=man.generation; }
     world.step(DT, [], [man], tick);
     const records = captureWorldPresentation(worldGame, tick, 1).filter((r) => r.schema === CREATURE_STATE_SCHEMA);
     assert.equal(records.length, 1);

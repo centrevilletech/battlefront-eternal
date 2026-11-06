@@ -155,7 +155,7 @@ export class PlayerBodies {
     c.scene.add(actor.root);
     actor.root.visible = false;
     const presentation = new (c.headless ? HeadlessSoldierPresentation : SoldierPresentation)(soldier);
-    const combat = new PlayerCombat({
+    const combatOptions = {
       soldier, def, actor, animator,
       collision: c.collision,
       camera: c.simulationCamera,
@@ -167,7 +167,9 @@ export class PlayerBodies {
       texture: c.anyTexture,
       hud: c.hud,
       caster: (object) => c.graphics.caster(object),
-    });
+      player:true,
+    };
+    const combat = c.combatSim ? c.combatSim.make(combatOptions) : new PlayerCombat(combatOptions);
     combat.hudCamera = c.camera;
     combat.deferMuzzles = walker;
     // A droideka: its guns and shield, its bubble, and the dust it raises

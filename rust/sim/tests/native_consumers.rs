@@ -22,7 +22,7 @@ fn event_input(op: WorldEventOperation) -> WorldEventInput {
 }
 fn local_input() -> WorldLocalInput {
     WorldLocalInput {
-        op: WorldLocalOperation::Player,
+        op: WorldLocalOperation::Tail,
         dt: 1.0 / 60.0,
         ..Default::default()
     }

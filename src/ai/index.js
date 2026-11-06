@@ -10,7 +10,7 @@
 // tools/zero_ai_classes.py). A map without them still plays; the AI says what
 // it is missing in the console.
 
-import { Character } from "../battle.js";
+import { Battle, Character } from "../battle.js";
 import { selectAIMission } from "../mission.js";
 import { ClassicRandom } from "./random.js";
 import { createClassicAI, loadClassicModules } from "./classic/index.js";
@@ -161,6 +161,13 @@ export async function createAI(mode, world, options) {
   for (const character of world.spawning.characters) classic.attach(character);
   const combat = classic.ai.combat;
   const spawning = world.spawning;
+  // Game's owned-unit death leaf keeps population and ticket updates in JS
+  // until those records move. Call the rules directly even when their older
+  // method adapters are installed; population and tickets use no nested export.
+  const deathTickets = {
+    tickets: team => ClassicSpawning.prototype.tickets.call(spawning,team),
+    spendTicket: team => ClassicSpawning.prototype.spendTicket.call(spawning,team,Battle.prototype.spend),
+  };
   return {
     mode,
     enhanced,
@@ -188,9 +195,10 @@ export async function createAI(mode, world, options) {
     spawned(character) {
       classic.spawned(character);
     },
-    died(character) {
+    died(character, owned = false) {
       if (!character) return;
-      spawning.onDeath(character);
+      if (owned) ClassicSpawning.prototype.onDeath.call(spawning,character,deathTickets);
+      else spawning.onDeath(character);
       classic.died(character);
     },
     beforeBattle(dt) {

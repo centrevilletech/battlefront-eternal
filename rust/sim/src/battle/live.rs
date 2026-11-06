@@ -13,7 +13,7 @@ pub struct Target {
     pub alive: bool, pub state: Option<State>, pub health_type: Option<Health>, pub health: f64, pub max_health: f64, pub team: f64,
     pub body: Option<usize>, pub gunner: bool, pub position: Vector3, pub matrix: Matrix4,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Definition {
     pub repair: [Field; 4],
     pub target_vehicle: Field, pub target_neutral: Field, pub target_enemy: Field, pub target_friendly: Field,
@@ -55,7 +55,9 @@ impl Queries {
             let target = world.target(index); if !target.alive { continue; }
             let (center, radius) = world.sphere(index, true, self.center); self.center = center;
             let distance = crate::ordnance::blast_distance([position.x, position.y, position.z], [center.x, center.y, center.z], radius);
-            let damage = def.damage_at(distance, &Field::Str("building".into()));
+            // LiveObjects.blast always asks for BuildingScale. Resolve that
+            // fixed slot directly; health_scale's text conversion is unnecessary.
+            let damage = def.damage.or(0.0) * def.share(distance) * def.scales[4].or_nullish(1.0);
             if !(damage > 0.0) { continue; }
             let mut sight = center; sight.sub(&position); let span = sight.length();
             if collision && !(span < 1e-3) {
@@ -68,7 +70,7 @@ impl Queries {
     }
     pub fn struck(&mut self, building: Option<usize>, def: &Definition, owner: Identity, team_scale: bool, direction: Option<Vector3>, world: &mut impl World) {
         let Some(index) = building else { return };
-        let typed = def.explosion.health_scale(&Field::Str("building".into()));
+        let typed = def.explosion.scales[4].or_nullish(1.0);
         let team = if team_scale { world.team_scale(self, index) } else { 1.0 };
         let amount = def.explosion.damage.or(0.0);
         world.damage(self, index, amount * typed * team, owner, Some(Damage { direction, amount: amount * team, typed,
@@ -100,11 +102,17 @@ impl Queries {
     }
     #[allow(clippy::too_many_arguments)]
     pub fn lock_on(&mut self, candidates: &[usize], eye: Vector3, direction: Vector3, def: &Definition, current: Option<usize>, held: bool, team: f64, collision: bool, world: &mut impl World) -> Option<usize> {
+        self.lock_on_ordered(candidates.iter().copied(), eye, direction, def, current, held, team, collision, world)
+    }
+    // The owned world has contiguous construction indices. Accept that order
+    // directly instead of allocating a second list for every repair query.
+    #[allow(clippy::too_many_arguments)]
+    pub fn lock_on_ordered(&mut self, candidates: impl Iterator<Item = usize>, eye: Vector3, direction: Vector3, def: &Definition, current: Option<usize>, held: bool, team: f64, collision: bool, world: &mut impl World) -> Option<usize> {
         let mut best = None; let mut score = f64::INFINITY;
         if let Some(index) = current {
             if let Some(s) = self.score(index, if held { 0.7854 } else { 0.0 }, eye, direction, def, team, collision, world) { best = Some(index); score = s; }
         }
-        for &index in candidates {
+        for index in candidates {
             if Some(index) == current { continue; }
             if let Some(s) = self.score(index, 0.0, eye, direction, def, team, collision, world) { if s < score { best = Some(index); score = s; } }
         }

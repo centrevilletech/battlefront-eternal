@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 // Fall damage (src/collision-damage.js): the 2004 game's collision
 // damage, threshold T0 + T1 (n.up) + T2 (n.forward) on the speed into a
 // surface, damage S x (speed - threshold)^2, for soldiers (10 3 0, 1 0 0)
@@ -8,8 +9,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Soldier } from '../src/soldier.js';
-import { Droideka } from '../src/droideka.js';
-import { SOLDIER_COLLISION, DROIDEKA_COLLISION, collisionRule, contactDamage, outOfWorld, takeImpacts } from '../src/collision-damage.js';
+
+import { SOLDIER_COLLISION, DROIDEKA_COLLISION, collisionRule } from '../src/collision-damage.js';
 
 const near = (a, b, eps, message = '') => assert.ok(Math.abs(a - b) <= eps, `${message} ${a} vs ${b}`);
 const TICK = 1 / 60;
@@ -51,20 +52,6 @@ test('the class keys: CollisionThreshold and CollisionScale over the defaults, a
   assert.deepEqual(collisionRule({ CollisionScale: '1.0 -0.5 0' }).scale, [1, -0.5, 0]);
 });
 
-test('the damage of a contact: nothing up to the threshold, the square of the excess past it', () => {
-  const rule = collisionRule({});
-  // Level ground: threshold 10 + 3 = 13 m/s.
-  assert.equal(contactDamage(rule, -13, 1, 0), 0);
-  assert.equal(contactDamage(rule, -12, 1, 0), 0);
-  near(contactDamage(rule, -20, 1, 0), 49, 1e-9);
-  // A wall: 10 m/s.
-  near(contactDamage(rule, -12, 0, 0), 4, 1e-9);
-  // Moving away from it, or along it, never hurts.
-  assert.equal(contactDamage(rule, 0, 1, 0), 0);
-  assert.equal(contactDamage(rule, 30, 1, 0), 0);
-  assert.equal(contactDamage(collisionRule({ CollisionScale: [0, 0, 0] }), -60, 1, 0), 0);
-});
-
 test('a trooper dropped onto level ground: unhurt to about 4.7 m, (v - 13)^2 beyond, dead from about 26 m', () => {
   for (const terrain of [false, true]) {
     const world = floor({ terrain });
@@ -95,65 +82,5 @@ test('landing on a moving body does no damage; the port has no velocity exchange
   near(y, 3, 0.05, 'stood on the hull, 3 m up');
 });
 
-test('a droideka coming down too hard: past 10 m/s on level ground', () => {
-  const world = {
-    gather: () => [],
-    cast(from, direction, reach, hit) {
-      if (direction.y >= 0) return null;
-      const distance = -from.y / direction.y;
-      if (distance < 0 || distance > reach) return null;
-      hit.distance = distance; hit.point.copy(from).addScaledVector(direction, distance); hit.normal.set(0, 1, 0); hit.terrain = true;
-      return hit;
-    },
-  };
-  const actor = { root: new THREE.Group(), bones: [Object.assign(new THREE.Bone(), { name: 'DummyRoot' })] };
-  for (const [h, unhurt] of [[4, true], [20, false]]) {
-    const d = new Droideka(world, {}, new Map(), actor);
-    assert.deepEqual(d.collisionRule, { threshold: [7.5, 2.5, 0], scale: [1, 0, 0] });
-    d.position.set(0, h, 0); d.velocity.set(0, 0, 0); d.grounded = false;
-    let damage = 0, impact = 0;
-    for (let t = 0; t < 600; t++) {
-      const before = d.velocity.y;
-      d.tick({ forward: 0, right: 0, turn: 0 }, TICK);
-      damage += d.collisionDamage;
-      if (d.collisionDamage > 0 || d.grounded && !impact) impact = -(before - 9.8 * TICK);
-      if (d.grounded) break;
-    }
-    if (unhurt) assert.equal(damage, 0, `${h} m`);
-    else near(damage, (impact - 10) ** 2, 1e-6, `${h} m`);
-  }
-});
 
-test('the soldier\'s world bounds: falling past 60 m/s, or 1000 m out, or 500 m up or down', () => {
-  const at = (x, y, z) => new THREE.Vector3(x, y, z);
-  assert.equal(outOfWorld(at(0, 0, 0), at(0, -59.9, 0)), false);
-  assert.equal(outOfWorld(at(0, 0, 0), at(0, -60.1, 0)), true);
-  assert.equal(outOfWorld(at(1000.5, 0, 0), at(0, 0, 0)), true);
-  assert.equal(outOfWorld(at(0, 0, -1000.5), at(0, 0, 0)), true);
-  assert.equal(outOfWorld(at(0, 500.5, 0), at(0, 0, 0)), true);
-  assert.equal(outOfWorld(at(0, -500.5, 0), at(0, 0, 0)), true);
-  assert.equal(outOfWorld(at(999, 499, -999), at(30, 59, 30)), false);
-});
 
-test('a body takes what its contacts did after its step: health, then the bounds kill; never on a seat or dead', () => {
-  const unit = (fields = {}) => {
-    const taken = [];
-    return {
-      taken, removed: false, seat: null, walker: false,
-      soldier: { collisionDamage: 0, position: new THREE.Vector3(), velocity: new THREE.Vector3() },
-      combat: { dead: false, damage(amount) { taken.push(amount); if (amount === Infinity) this.dead = true; } },
-      ...fields,
-    };
-  };
-  const hurt = unit(); hurt.soldier.collisionDamage = 49; takeImpacts(hurt);
-  assert.deepEqual(hurt.taken, [49]);
-  const falling = unit(); falling.soldier.velocity.y = -61; takeImpacts(falling);
-  assert.deepEqual(falling.taken, [Infinity]);
-  const droideka = unit({ walker: true }); droideka.soldier.velocity.y = -61; takeImpacts(droideka);
-  assert.deepEqual(droideka.taken, []);
-  const seated = unit({ seat: {} }); seated.soldier.collisionDamage = 49; takeImpacts(seated);
-  assert.deepEqual(seated.taken, []);
-  const dead = unit(); dead.combat.dead = true; dead.soldier.collisionDamage = 49; takeImpacts(dead);
-  assert.deepEqual(dead.taken, []);
-  assert.deepEqual(SOLDIER_COLLISION, { threshold: [10, 3, 0], scale: [1, 0, 0] });
-});

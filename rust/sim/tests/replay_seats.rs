@@ -18,7 +18,7 @@ use bfe_sim::seats::turrets::{CrewWorld, Crews, Let, Shot, TurretDesc, TurretRig
 use bfe_sim::seats::lease::{control_key, SeatControl, SeatIntent};
 use bfe_sim::seats::{Attacker, Hit, Holder, Reason, SeatWorld, Seating};
 use bfe_sim::store::Ref;
-use bfe_sim::units::world::{CastHit, GatherPolygon, UnitsWorld};
+use bfe_sim::units::world::{CastHit, UnitsWorld};
 use bfe_sim::vehicles::replay::body_of;
 use sim_replay::{check_num, check_vec3, diff, replay_corpus, Arena, Call, Corpus, Frame, Log, Mismatch, Outcome, Value, V};
 use std::collections::BTreeMap;
@@ -168,7 +168,8 @@ impl UnitsWorld for SpawnCasts<'_, '_, '_> {
         }
         Some(CastHit { point: vec3(r.get("point")), normal: vec3(r.get("normal")), distance: r.get("distance").num(), terrain: r.get("terrain").truthy() })
     }
-    fn gather(&mut self, _id: u32, _c: &Vector3, _r: f64, _cache: usize, _out: &mut Vec<GatherPolygon>) {
+    fn visit_gathered(&mut self, _: u32, _: &Vector3, _: f64, _: usize,
+        _: &mut dyn FnMut(bool, &[Vector3; 3])) {
         unreachable!("a spawn gathers nothing")
     }
     fn seat_exposed(&mut self, _id: u32, _unit: &Unit) -> bool {

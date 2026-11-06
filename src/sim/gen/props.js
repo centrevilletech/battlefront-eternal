@@ -2,56 +2,354 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET, KIND_UNIT, KIND_VEHICLE } from "./kinds.js";
-import { exportAttacker, putAttacker, sameAttacker, syncAttacker } from "./combat.js";
+import { exportAttacker, exportRepairTarget, putAttacker, putRepairTarget, sameAttacker, sameRepairTarget, syncAttacker, syncRepairTarget } from "./combat.js";
 import { SeatAiControlMirror, SeatHitMirror, SeatReason_INDEX, SeatReason_NAMES, SeatRole_INDEX, SeatRole_NAMES, exportSeatAiControl, exportSeatHit, putSeatAiControl, putSeatHit, sameSeatAiControl, sameSeatHit, syncSeatAiControl, syncSeatHit } from "./seats.js";
+import { TrStateMirror, exportTrState, putTrState, sameTrState, syncTrState } from "./traps.js";
+import { BoundsMirror, exportBounds, exportMember, putBounds, putMember, sameBounds, sameMember, syncBounds, syncMember } from "./units.js";
+
+export const F3PropEffectKind_NAMES = ["publish","show","destroyed"];
+export const F3PropEffectKind_INDEX = new Map(F3PropEffectKind_NAMES.map((name, i) => [name, i]));
+export const F3PropEffectKind_VALUE = Object.freeze({"publish":0,"show":1,"destroyed":2});
 
 export const DbOperation_NAMES = ["launch","update","bounce","rest","clear"];
 export const DbOperation_INDEX = new Map(DbOperation_NAMES.map((name, i) => [name, i]));
+export const DbOperation_VALUE = Object.freeze({"launch":0,"update":1,"bounce":2,"rest":3,"clear":4});
 
 export const DbActionKind_NAMES = ["add","remove","cast","low","play","move","stop","publish","out","vectors"];
 export const DbActionKind_INDEX = new Map(DbActionKind_NAMES.map((name, i) => [name, i]));
+export const DbActionKind_VALUE = Object.freeze({"add":0,"remove":1,"cast":2,"low":3,"play":4,"move":5,"stop":6,"publish":7,"out":8,"vectors":9});
 
 export const PbStateName_NAMES = ["unbuilt","built","destroyed"];
 export const PbStateName_INDEX = new Map(PbStateName_NAMES.map((name, i) => [name, i]));
+export const PbStateName_VALUE = Object.freeze({"unbuilt":0,"built":1,"destroyed":2});
 
 export const PbKind_NAMES = ["building","turret","objective"];
 export const PbKind_INDEX = new Map(PbKind_NAMES.map((name, i) => [name, i]));
+export const PbKind_VALUE = Object.freeze({"building":0,"turret":1,"objective":2});
 
 export const PbMode_NAMES = ["waiting","active"];
 export const PbMode_INDEX = new Map(PbMode_NAMES.map((name, i) => [name, i]));
+export const PbMode_VALUE = Object.freeze({"waiting":0,"active":1});
 
 export const PbOperation_NAMES = ["setHealth","damage","regenerate","update","serve","sphere","blastSphere","built","destroyed"];
 export const PbOperation_INDEX = new Map(PbOperation_NAMES.map((name, i) => [name, i]));
+export const PbOperation_VALUE = Object.freeze({"setHealth":0,"damage":1,"regenerate":2,"update":3,"serve":4,"sphere":5,"blastSphere":6,"built":7,"destroyed":8});
 
 export const PbActionKind_NAMES = ["show","crewDestroyed","destroyed","explode","damaged","targetChanged","served","serveSound"];
 export const PbActionKind_INDEX = new Map(PbActionKind_NAMES.map((name, i) => [name, i]));
+export const PbActionKind_VALUE = Object.freeze({"show":0,"crewDestroyed":1,"destroyed":2,"explode":3,"damaged":4,"targetChanged":5,"served":6,"serveSound":7});
 
 export const PaOperation_NAMES = ["step","state"];
 export const PaOperation_INDEX = new Map(PaOperation_NAMES.map((name, i) => [name, i]));
+export const PaOperation_VALUE = Object.freeze({"step":0,"state":1});
 
 export const PaActionKind_NAMES = ["sound","letGo","damage","remove","rider"];
 export const PaActionKind_INDEX = new Map(PaActionKind_NAMES.map((name, i) => [name, i]));
+export const PaActionKind_VALUE = Object.freeze({"sound":0,"letGo":1,"damage":2,"remove":3,"rider":4});
 
 export const PqValueKind_NAMES = ["undefined","null","boolean","number","string"];
 export const PqValueKind_INDEX = new Map(PqValueKind_NAMES.map((name, i) => [name, i]));
+export const PqValueKind_VALUE = Object.freeze({"undefined":0,"null":1,"boolean":2,"number":3,"string":4});
 
 export const PqHealth_NAMES = ["building","vehicle","rebuild","build"];
 export const PqHealth_INDEX = new Map(PqHealth_NAMES.map((name, i) => [name, i]));
+export const PqHealth_VALUE = Object.freeze({"building":0,"vehicle":1,"rebuild":2,"build":3});
 
 export const PqOperation_NAMES = ["blast","struck","repairs","repair","lockOn","enterable"];
 export const PqOperation_INDEX = new Map(PqOperation_NAMES.map((name, i) => [name, i]));
+export const PqOperation_VALUE = Object.freeze({"blast":0,"struck":1,"repairs":2,"repair":3,"lockOn":4,"enterable":5});
 
 export const PqActionKind_NAMES = ["target","sphere","cast","teamScale","damage","setHealth","may"];
 export const PqActionKind_INDEX = new Map(PqActionKind_NAMES.map((name, i) => [name, i]));
+export const PqActionKind_VALUE = Object.freeze({"target":0,"sphere":1,"cast":2,"teamScale":3,"damage":4,"setHealth":5,"may":6});
 
 export const PtOperation_NAMES = ["steer","holdYaw","viewDirection","present","gunWant","aimGun","pose","muzzle","fireDirection","eyePoint","aimOrigin","seatPoint","seatTurn","seatYaw"];
 export const PtOperation_INDEX = new Map(PtOperation_NAMES.map((name, i) => [name, i]));
+export const PtOperation_VALUE = Object.freeze({"steer":0,"holdYaw":1,"viewDirection":2,"present":3,"gunWant":4,"aimGun":5,"pose":6,"muzzle":7,"fireDirection":8,"eyePoint":9,"aimOrigin":10,"seatPoint":11,"seatTurn":12,"seatYaw":13});
 
 export const PcOperation_NAMES = ["seatOf","canMan","man","requestExit","leave","vacate","destroyed","update","drive","pose"];
 export const PcOperation_INDEX = new Map(PcOperation_NAMES.map((name, i) => [name, i]));
+export const PcOperation_VALUE = Object.freeze({"seatOf":0,"canMan":1,"man":2,"requestExit":3,"leave":4,"vacate":5,"destroyed":6,"update":7,"drive":8,"pose":9});
 
 export const PcActionKind_NAMES = ["publish","resume","makeLease","cast","overlaps","raycast","standUp","kill","riderDrop","controllerState","controllable","boarded","unboarded","seated","unseated","placed","dropped","seatPolicy","pose","lock","weapon","fire","bind","sound","fired"];
 export const PcActionKind_INDEX = new Map(PcActionKind_NAMES.map((name, i) => [name, i]));
+export const PcActionKind_VALUE = Object.freeze({"publish":0,"resume":1,"makeLease":2,"cast":3,"overlaps":4,"raycast":5,"standUp":6,"kill":7,"riderDrop":8,"controllerState":9,"controllable":10,"boarded":11,"unboarded":12,"seated":13,"unseated":14,"placed":15,"dropped":16,"seatPolicy":17,"pose":18,"lock":19,"weapon":20,"fire":21,"bind":22,"sound":23,"fired":24});
+
+export class F3BuildingStateMirror {
+  constructor() {
+    this.index = 0;
+    this.state = "unbuilt";
+    this.health = NaN;
+    this.addHealth = NaN;
+    this.attacker = null;
+    this.generation = null;
+    this.team = NaN;
+    this.targetTeam = NaN;
+    this.gunner = null;
+    this.trapMode = false;
+    this.trapState = new TrStateMirror();
+  }
+}
+
+export function syncF3BuildingState(b, f, at, h, m) {
+  m.index = f[at + 0] >>> 0;
+  m.state = PbStateName_NAMES[f[at + 1]];
+  m.health = f[at + 2];
+  m.addHealth = f[at + 3];
+  m.attacker = syncAttacker(b, f, at + 4, h, m.attacker);
+  { const tag = f[at + 7]; if (tag === 0) { m.generation = f[at + 8]; } else m.generation = tag === 1 ? null : undefined; }
+  m.team = f[at + 9];
+  m.targetTeam = f[at + 10];
+  { const tag = f[at + 11]; if (tag === 0) { m.gunner = b.refs[KIND_UNIT].at(f[at + 12], f[at + 13]); } else m.gunner = tag === 1 ? null : undefined; }
+  m.trapMode = f[at + 14] !== 0;
+  m.trapState = syncTrState(b, f, at + 15, h, m.trapState ?? new TrStateMirror());
+  return m;
+}
+
+export function putF3BuildingState(b, o, f, at, heap) {
+  f[at + 0] = o.index;
+  f[at + 1] = PbStateName_INDEX.get(o.state);
+  f[at + 2] = o.health;
+  f[at + 3] = o.addHealth;
+  putAttacker(b, o.attacker, f, at + 4, heap);
+  { const $x = o.generation; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
+  f[at + 9] = o.team;
+  f[at + 10] = o.targetTeam;
+  { const $x = o.gunner; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; f[at + 13] = 0; } else { f[at + 11] = 0; b.refs[KIND_UNIT].put($x, f, at + 12); } }
+  f[at + 14] = o.trapMode ? 1 : 0;
+  putTrState(b, o.trapState, f, at + 15, heap);
+}
+
+export function sameF3BuildingState(a, b) {
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.state, b.state)) return ".state";
+  if (!Object.is(a.health, b.health)) return ".health";
+  if (!Object.is(a.addHealth, b.addHealth)) return ".addHealth";
+  if (!sameAttacker(a.attacker, b.attacker)) return ".attacker";
+  { const p = a.generation, q = b.generation; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".generation"; } else { if (!Object.is(p, q)) return ".generation"; } }
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.targetTeam, b.targetTeam)) return ".targetTeam";
+  { const p = a.gunner, q = b.gunner; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".gunner"; } else { if (!Object.is(p, q)) return ".gunner"; } }
+  if (!Object.is(a.trapMode, b.trapMode)) return ".trapMode";
+  { const d = sameTrState(a.trapState, b.trapState); if (d) return ".trapState" + d; }
+  return null;
+}
+
+export function exportF3BuildingState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.index = o.index;
+  v.state = o.state;
+  v.health = o.health;
+  v.addHealth = o.addHealth;
+  v.attacker = exportAttacker(o.attacker, cx);
+  v.generation = o.generation;
+  v.team = o.team;
+  v.targetTeam = o.targetTeam;
+  v.gunner = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.gunner);
+  v.trapMode = o.trapMode;
+  v.trapState = exportTrState(o.trapState, cx);
+  return v;
+}
+
+export class F3BuildingSetupMirror {
+  constructor() {
+    this.index = 0;
+    this.target = null;
+    this.member = null;
+    this.key = '';
+    this.settings = new PbSettingsMirror();
+    this.state = new F3BuildingStateMirror();
+    this.bodies = [];
+    this.explosion = null;
+    this.damaged = false;
+    this.category = 0;
+    this.kind = NaN;
+    this.trapSphere = null;
+  }
+}
+
+export function syncF3BuildingSetup(b, f, at, h, m) {
+  m.index = f[at + 0] >>> 0;
+  m.target = syncRepairTarget(b, f, at + 1, h, m.target);
+  { const tag = f[at + 4]; if (tag === 0) { m.member = syncMember(b, f, at + 5, h, m.member); } else m.member = tag === 1 ? null : undefined; }
+  m.key = b.strings.at(f[at + 8]);
+  m.settings = syncPbSettings(b, f, at + 9, h, m.settings ?? new PbSettingsMirror());
+  m.state = syncF3BuildingState(b, f, at + 35, h, m.state ?? new F3BuildingStateMirror());
+  { const items = (m.bodies ??= []), start = h + f[at + 59], n = f[at + 60]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_BODY].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const tag = f[at + 61]; if (tag === 0) { m.explosion = f[at + 62] >>> 0; } else m.explosion = tag === 1 ? null : undefined; }
+  m.damaged = f[at + 63] !== 0;
+  m.category = f[at + 64] >>> 0;
+  m.kind = f[at + 65];
+  { const tag = f[at + 66]; if (tag === 0) { m.trapSphere = syncBounds(b, f, at + 67, h, m.trapSphere ?? new BoundsMirror()); } else m.trapSphere = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putF3BuildingSetup(b, o, f, at, heap) {
+  f[at + 0] = o.index;
+  putRepairTarget(b, o.target, f, at + 1, heap);
+  { const $x = o.member; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; f[at + 6] = 0; f[at + 7] = 0; } else { f[at + 4] = 0; putMember(b, $x, f, at + 5, heap); } }
+  f[at + 8] = b.strings.id(o.key);
+  putPbSettings(b, o.settings, f, at + 9, heap);
+  putF3BuildingState(b, o.state, f, at + 35, heap);
+  heap.items(o.bodies, f, at + 59, 3, (f, at, v) => { { const $x = v; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; } else { f[at + 0] = 0; b.refs[KIND_BODY].put($x, f, at + 1); } } });
+  { const $x = o.explosion; if ($x === null || $x === undefined) { f[at + 61] = $x === null ? 1 : 2; f[at + 62] = 0; } else { f[at + 61] = 0; f[at + 62] = $x; } }
+  f[at + 63] = o.damaged ? 1 : 0;
+  f[at + 64] = o.category;
+  f[at + 65] = o.kind;
+  { const $x = o.trapSphere; if ($x === null || $x === undefined) { f[at + 66] = $x === null ? 1 : 2; f[at + 67] = 0; f[at + 68] = 0; f[at + 69] = 0; f[at + 70] = 0; } else { f[at + 66] = 0; putBounds(b, $x, f, at + 67, heap); } }
+}
+
+export function sameF3BuildingSetup(a, b) {
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!sameRepairTarget(a.target, b.target)) return ".target";
+  { const p = a.member, q = b.member; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".member"; } else { if (!sameMember(p, q)) return ".member"; } }
+  if (!Object.is(a.key, b.key)) return ".key";
+  { const d = samePbSettings(a.settings, b.settings); if (d) return ".settings" + d; }
+  { const d = sameF3BuildingState(a.state, b.state); if (d) return ".state" + d; }
+  if (!sameEach(a.bodies, b.bodies, (x, y) => (x === null || x === undefined || y === null || y === undefined ? x === y : Object.is(x, y)))) return ".bodies";
+  { const p = a.explosion, q = b.explosion; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".explosion"; } else { if (!Object.is(p, q)) return ".explosion"; } }
+  if (!Object.is(a.damaged, b.damaged)) return ".damaged";
+  if (!Object.is(a.category, b.category)) return ".category";
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  { const p = a.trapSphere, q = b.trapSphere; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".trapSphere"; } else { { const d = sameBounds(p, q); if (d) return ".trapSphere" + d; } } }
+  return null;
+}
+
+export function exportF3BuildingSetup(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.index = o.index;
+  v.target = exportRepairTarget(o.target, cx);
+  v.member = ((x) => (x === null || x === undefined ? x : exportMember(x, cx)))(o.member);
+  v.key = o.key;
+  v.settings = exportPbSettings(o.settings, cx);
+  v.state = exportF3BuildingState(o.state, cx);
+  v.bodies = o.bodies.map((x) => (x === null || x === undefined ? x : cx.ref("body", x)));
+  v.explosion = o.explosion;
+  v.damaged = o.damaged;
+  v.category = o.category;
+  v.kind = o.kind;
+  v.trapSphere = ((x) => (x === null || x === undefined ? x : exportBounds(x, cx)))(o.trapSphere);
+  return v;
+}
+
+export class F3PropEffectMirror {
+  constructor() {
+    this.kind = "publish";
+    this.state = new F3BuildingStateMirror();
+  }
+}
+
+export function syncF3PropEffect(b, f, at, h, m) {
+  m.kind = F3PropEffectKind_NAMES[f[at + 0]];
+  m.state = syncF3BuildingState(b, f, at + 1, h, m.state ?? new F3BuildingStateMirror());
+  return m;
+}
+
+export function putF3PropEffect(b, o, f, at, heap) {
+  f[at + 0] = F3PropEffectKind_INDEX.get(o.kind);
+  putF3BuildingState(b, o.state, f, at + 1, heap);
+}
+
+export function sameF3PropEffect(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  { const d = sameF3BuildingState(a.state, b.state); if (d) return ".state" + d; }
+  return null;
+}
+
+export function exportF3PropEffect(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.state = exportF3BuildingState(o.state, cx);
+  return v;
+}
+
+export class F3PropDamageMirror {
+  constructor() {
+    this.index = 0;
+    this.amount = NaN;
+    this.attacker = null;
+    this.hasDirection = false;
+    this.direction = new THREE.Vector3();
+    this.untyped = NaN;
+    this.typed = NaN;
+    this.generic = NaN;
+    this.position = new THREE.Vector3();
+    this.team = NaN;
+    this.generation = null;
+  }
+}
+
+export function syncF3PropDamage(b, f, at, h, m) {
+  m.index = f[at + 0] >>> 0;
+  m.amount = f[at + 1];
+  m.attacker = syncAttacker(b, f, at + 2, h, m.attacker);
+  m.hasDirection = f[at + 5] !== 0;
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
+  m.untyped = f[at + 9];
+  m.typed = f[at + 10];
+  m.generic = f[at + 11];
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 12]; $v.y = f[at + 13]; $v.z = f[at + 14]; }
+  m.team = f[at + 15];
+  { const tag = f[at + 16]; if (tag === 0) { m.generation = f[at + 17]; } else m.generation = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putF3PropDamage(b, o, f, at, heap) {
+  f[at + 0] = o.index;
+  f[at + 1] = o.amount;
+  putAttacker(b, o.attacker, f, at + 2, heap);
+  f[at + 5] = o.hasDirection ? 1 : 0;
+  { const $v = o.direction; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
+  f[at + 9] = o.untyped;
+  f[at + 10] = o.typed;
+  f[at + 11] = o.generic;
+  { const $v = o.position; f[at + 12] = $v.x; f[at + 13] = $v.y; f[at + 14] = $v.z; }
+  f[at + 15] = o.team;
+  { const $x = o.generation; if ($x === null || $x === undefined) { f[at + 16] = $x === null ? 1 : 2; f[at + 17] = 0; } else { f[at + 16] = 0; f[at + 17] = $x; } }
+}
+
+export function sameF3PropDamage(a, b) {
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  if (!sameAttacker(a.attacker, b.attacker)) return ".attacker";
+  if (!Object.is(a.hasDirection, b.hasDirection)) return ".hasDirection";
+  if (!sameVec(a.direction, b.direction)) return ".direction";
+  if (!Object.is(a.untyped, b.untyped)) return ".untyped";
+  if (!Object.is(a.typed, b.typed)) return ".typed";
+  if (!Object.is(a.generic, b.generic)) return ".generic";
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.generation, q = b.generation; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".generation"; } else { if (!Object.is(p, q)) return ".generation"; } }
+  return null;
+}
+
+export function exportF3PropDamage(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.index = o.index;
+  v.amount = o.amount;
+  v.attacker = exportAttacker(o.attacker, cx);
+  v.hasDirection = o.hasDirection;
+  v.direction = o.direction.clone();
+  v.untyped = o.untyped;
+  v.typed = o.typed;
+  v.generic = o.generic;
+  v.position = o.position.clone();
+  v.team = o.team;
+  v.generation = o.generation;
+  return v;
+}
 
 export class DbChunkMirror {
   constructor() {
@@ -285,7 +583,7 @@ export class DbStateMirror {
 }
 
 export function syncDbState(b, f, at, h, m) {
-  { const items = (m.pieces ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 55; v = syncDbPiece(b, f, at + 0, h, v ?? new DbPieceMirror()); } items[i] = v; } }
+  { const items = (m.pieces ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 55; v = syncDbPiece(b, f, at + 0, h, v ?? new DbPieceMirror()); } items[i] = v; } }
   { const $v = (m.ray ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
   { const $v = (m.start ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   { const $v = (m.out ??= new THREE.Vector3()); $v.x = f[at + 8]; $v.y = f[at + 9]; $v.z = f[at + 10]; }
@@ -683,7 +981,7 @@ export function syncPbSettings(b, f, at, h, m) {
   m.hasUnbuilt = f[at + 6] !== 0;
   m.hasExplosion = f[at + 7] !== 0;
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 8 + i]; }
-  { const items = (m.models ??= []), start = h + f[at + 24], n = f[at + 25]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 14; { const tag = f[at + 0]; if (tag === 0) { v = syncPbModel(b, f, at + 1, h, v ?? new PbModelMirror()); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const items = (m.models ??= []), start = h + f[at + 24], n = f[at + 25]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 14; { const tag = f[at + 0]; if (tag === 0) { v = syncPbModel(b, f, at + 1, h, v ?? new PbModelMirror()); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   return m;
 }
 
@@ -739,7 +1037,7 @@ export class PbConfigurationMirror {
 }
 
 export function syncPbConfiguration(b, f, at, h, m) {
-  { const items = (m.buildings ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 26; v = syncPbSettings(b, f, at + 0, h, v ?? new PbSettingsMirror()); } items[i] = v; } }
+  { const items = (m.buildings ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 26; v = syncPbSettings(b, f, at + 0, h, v ?? new PbSettingsMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -941,7 +1239,7 @@ export function syncPbTarget(b, f, at, h, m) {
   m.radius = f[at + 7];
   m.health = f[at + 8];
   m.maxHealth = f[at + 9];
-  { const items = (m.weapons ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncPbWeapon(b, f, at + 0, h, v ?? new PbWeaponMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 10], n = f[at + 11]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncPbWeapon(b, f, at + 0, h, v ?? new PbWeaponMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -1075,9 +1373,9 @@ export function syncPbInput(b, f, at, h, m) {
   m.value = f[at + 35];
   m.attacker = syncPbIdentity(b, f, at + 36, h, m.attacker ?? new PbIdentityMirror());
   m.hit = syncPbIdentity(b, f, at + 38, h, m.hit ?? new PbIdentityMirror());
-  { const items = (m.targets ??= []), start = h + f[at + 40], n = f[at + 41]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 12; v = syncPbTarget(b, f, at + 0, h, v ?? new PbTargetMirror()); } items[i] = v; } }
-  { const items = (m.soldiers ??= []), start = h + f[at + 42], n = f[at + 43]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.vehicles ??= []), start = h + f[at + 44], n = f[at + 45]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.targets ??= []), start = h + f[at + 40], n = f[at + 41]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 12; v = syncPbTarget(b, f, at + 0, h, v ?? new PbTargetMirror()); } items[i] = v; } }
+  { const items = (m.soldiers ??= []), start = h + f[at + 42], n = f[at + 43]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.vehicles ??= []), start = h + f[at + 44], n = f[at + 45]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -1148,7 +1446,7 @@ export class PbResultMirror {
 export function syncPbResult(b, f, at, h, m) {
   m.state = syncPbState(b, f, at + 0, h, m.state ?? new PbStateMirror());
   { const tag = f[at + 7]; if (tag === 0) { m.station = syncPbStation(b, f, at + 8, h, m.station ?? new PbStationMirror()); } else m.station = tag === 1 ? null : undefined; }
-  { const items = (m.targets ??= []), start = h + f[at + 21], n = f[at + 22]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 12; v = syncPbTarget(b, f, at + 0, h, v ?? new PbTargetMirror()); } items[i] = v; } }
+  { const items = (m.targets ??= []), start = h + f[at + 21], n = f[at + 22]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 12; v = syncPbTarget(b, f, at + 0, h, v ?? new PbTargetMirror()); } items[i] = v; } }
   m.number = f[at + 23];
   { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 24]; $v.y = f[at + 25]; $v.z = f[at + 26]; }
   return m;
@@ -1311,8 +1609,8 @@ export function syncPaClip(b, f, at, h, m) {
   m.frames = f[at + 0];
   m.fps = f[at + 1];
   m.rootMotion = f[at + 2] !== 0;
-  { const items = (m.tracks ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.data ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.tracks ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.data ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -1498,18 +1796,18 @@ export class PaSettingsMirror {
 
 export function syncPaSettings(b, f, at, h, m) {
   m.door = f[at + 0] !== 0;
-  { const items = (m.clips ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 8; { const tag = f[at + 0]; if (tag === 0) { v = syncPaClip(b, f, at + 1, h, v ?? new PaClipMirror()); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const items = (m.clips ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 8; { const tag = f[at + 0]; if (tag === 0) { v = syncPaClip(b, f, at + 1, h, v ?? new PaClipMirror()); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   { const tag = f[at + 3]; if (tag === 0) { m.doorClip = syncPaClip(b, f, at + 4, h, m.doorClip ?? new PaClipMirror()); } else m.doorClip = tag === 1 ? null : undefined; }
   m.doorDuration = f[at + 11];
   m.idleDelay = f[at + 12];
-  { const items = (m.openSlots ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
-  { const items = (m.triggers ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 8; v = syncPaTrigger(b, f, at + 0, h, v ?? new PaTriggerMirror()); } items[i] = v; } }
-  { const items = (m.grabs ??= []), start = h + f[at + 17], n = f[at + 18]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncPaGrab(b, f, at + 0, h, v ?? new PaGrabMirror()); } items[i] = v; } }
+  { const items = (m.openSlots ??= []), start = h + f[at + 13], n = f[at + 14]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.triggers ??= []), start = h + f[at + 15], n = f[at + 16]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 8; v = syncPaTrigger(b, f, at + 0, h, v ?? new PaTriggerMirror()); } items[i] = v; } }
+  { const items = (m.grabs ??= []), start = h + f[at + 17], n = f[at + 18]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncPaGrab(b, f, at + 0, h, v ?? new PaGrabMirror()); } items[i] = v; } }
   { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 19]; $v.y = f[at + 20]; $v.z = f[at + 21]; }
   { const tag = f[at + 22]; if (tag === 0) { m.killSound = b.strings.at(f[at + 23]); } else m.killSound = tag === 1 ? null : undefined; }
   { const e = (m.root ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 24 + i]; }
-  { const items = (m.parents ??= []), start = h + f[at + 40], n = f[at + 41]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.bind ??= []), start = h + f[at + 42], n = f[at + 43]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncPaBind(b, f, at + 0, h, v ?? new PaBindMirror()); } items[i] = v; } }
+  { const items = (m.parents ??= []), start = h + f[at + 40], n = f[at + 41]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.bind ??= []), start = h + f[at + 42], n = f[at + 43]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncPaBind(b, f, at + 0, h, v ?? new PaBindMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -1574,7 +1872,7 @@ export class PaConfigurationMirror {
 }
 
 export function syncPaConfiguration(b, f, at, h, m) {
-  { const items = (m.props ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 44; v = syncPaSettings(b, f, at + 0, h, v ?? new PaSettingsMirror()); } items[i] = v; } }
+  { const items = (m.props ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 44; v = syncPaSettings(b, f, at + 0, h, v ?? new PaSettingsMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -1607,9 +1905,9 @@ export class PaPoseMirror {
 
 export function syncPaPose(b, f, at, h, m) {
   m.root = f[at + 0];
-  { const items = (m.q ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.t ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.w ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.q ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.t ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.w ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -1761,11 +2059,11 @@ export function syncPaState(b, f, at, h, m) {
   { const tag = f[at + 8]; if (tag === 0) { m.victim = syncPaVictim(b, f, at + 9, h, m.victim ?? new PaVictimMirror()); } else m.victim = tag === 1 ? null : undefined; }
   m.openness = f[at + 13];
   { const tag = f[at + 14]; if (tag === 0) { m.bodyEnabled = f[at + 15] !== 0; } else m.bodyEnabled = tag === 1 ? null : undefined; }
-  { const items = (m.standQ ??= []), start = h + f[at + 16], n = f[at + 17]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.standT ??= []), start = h + f[at + 18], n = f[at + 19]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.standQ ??= []), start = h + f[at + 16], n = f[at + 17]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.standT ??= []), start = h + f[at + 18], n = f[at + 19]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   { const tag = f[at + 20]; if (tag === 0) { m.pose = syncPaPose(b, f, at + 21, h, m.pose ?? new PaPoseMirror()); } else m.pose = tag === 1 ? null : undefined; }
   { const e = (m.rootWorld ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 28 + i]; }
-  { const items = (m.bones ??= []), start = h + f[at + 44], n = f[at + 45]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 26; v = syncPaBone(b, f, at + 0, h, v ?? new PaBoneMirror()); } items[i] = v; } }
+  { const items = (m.bones ??= []), start = h + f[at + 44], n = f[at + 45]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 26; v = syncPaBone(b, f, at + 0, h, v ?? new PaBoneMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -1930,7 +2228,7 @@ export function syncPaBody(b, f, at, h, m) {
   { const tag = f[at + 50]; if (tag === 0) { m.tickCount = f[at + 51]; } else m.tickCount = tag === 1 ? null : undefined; }
   m.letGo = f[at + 52] !== 0;
   m.remove = f[at + 53] !== 0;
-  { const items = (m.riderClips ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.riderClips ??= []), start = h + f[at + 54], n = f[at + 55]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
   return m;
 }
 
@@ -2030,9 +2328,9 @@ export class PaInputMirror {
 export function syncPaInput(b, f, at, h, m) {
   m.op = PaOperation_NAMES[f[at + 0]];
   m.state = syncPaState(b, f, at + 1, h, m.state ?? new PaStateMirror());
-  { const items = (m.bodies ??= []), start = h + f[at + 47], n = f[at + 48]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 56; v = syncPaBody(b, f, at + 0, h, v ?? new PaBodyMirror()); } items[i] = v; } }
-  { const items = (m.order ??= []), start = h + f[at + 49], n = f[at + 50]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.positions ??= []), start = h + f[at + 51], n = f[at + 52]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
+  { const items = (m.bodies ??= []), start = h + f[at + 47], n = f[at + 48]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 56; v = syncPaBody(b, f, at + 0, h, v ?? new PaBodyMirror()); } items[i] = v; } }
+  { const items = (m.order ??= []), start = h + f[at + 49], n = f[at + 50]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.positions ??= []), start = h + f[at + 51], n = f[at + 52]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
   m.dt = f[at + 53];
   m.tick = f[at + 54];
   return m;
@@ -2084,8 +2382,8 @@ export class PaResultMirror {
 
 export function syncPaResult(b, f, at, h, m) {
   m.state = syncPaState(b, f, at + 0, h, m.state ?? new PaStateMirror());
-  { const items = (m.bodies ??= []), start = h + f[at + 46], n = f[at + 47]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 56; v = syncPaBody(b, f, at + 0, h, v ?? new PaBodyMirror()); } items[i] = v; } }
-  { const items = (m.record ??= []), start = h + f[at + 48], n = f[at + 49]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.bodies ??= []), start = h + f[at + 46], n = f[at + 47]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 56; v = syncPaBody(b, f, at + 0, h, v ?? new PaBodyMirror()); } items[i] = v; } }
+  { const items = (m.record ??= []), start = h + f[at + 48], n = f[at + 49]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -2273,7 +2571,7 @@ export class PqDefinitionMirror {
 }
 
 export function syncPqDefinition(b, f, at, h, m) {
-  { const items = (m.repair ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncPqValue(b, f, at + 0, h, v ?? new PqValueMirror()); } items[i] = v; } }
+  { const items = (m.repair ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncPqValue(b, f, at + 0, h, v ?? new PqValueMirror()); } items[i] = v; } }
   m.targetVehicle = syncPqValue(b, f, at + 2, h, m.targetVehicle ?? new PqValueMirror());
   m.targetNeutral = syncPqValue(b, f, at + 5, h, m.targetNeutral ?? new PqValueMirror());
   m.targetEnemy = syncPqValue(b, f, at + 8, h, m.targetEnemy ?? new PqValueMirror());
@@ -2284,7 +2582,7 @@ export function syncPqDefinition(b, f, at, h, m) {
   m.damage = syncPqValue(b, f, at + 23, h, m.damage ?? new PqValueMirror());
   m.inner = syncPqValue(b, f, at + 26, h, m.inner ?? new PqValueMirror());
   m.outer = syncPqValue(b, f, at + 29, h, m.outer ?? new PqValueMirror());
-  { const items = (m.scales ??= []), start = h + f[at + 32], n = f[at + 33]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncPqValue(b, f, at + 0, h, v ?? new PqValueMirror()); } items[i] = v; } }
+  { const items = (m.scales ??= []), start = h + f[at + 32], n = f[at + 33]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncPqValue(b, f, at + 0, h, v ?? new PqValueMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -2517,9 +2815,9 @@ export function syncPqInput(b, f, at, h, m) {
   m.op = PqOperation_NAMES[f[at + 0]];
   m.state = syncPqState(b, f, at + 1, h, m.state ?? new PqStateMirror());
   m.definition = syncPqDefinition(b, f, at + 7, h, m.definition ?? new PqDefinitionMirror());
-  { const items = (m.buildings ??= []), start = h + f[at + 41], n = f[at + 42]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.vehicles ??= []), start = h + f[at + 43], n = f[at + 44]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.turrets ??= []), start = h + f[at + 45], n = f[at + 46]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.buildings ??= []), start = h + f[at + 41], n = f[at + 42]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.vehicles ??= []), start = h + f[at + 43], n = f[at + 44]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.turrets ??= []), start = h + f[at + 45], n = f[at + 46]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.one = f[at + 47];
   m.building = f[at + 48] !== 0;
   m.owner = syncPbIdentity(b, f, at + 49, h, m.owner ?? new PbIdentityMirror());
@@ -2854,11 +3152,11 @@ export function syncPtSettings(b, f, at, h, m) {
   { const tag = f[at + 52]; if (tag === 0) { { const $q = (m.drumParentTurn ??= new THREE.Quaternion()); $q._x = f[at + 53]; $q._y = f[at + 54]; $q._z = f[at + 55]; $q._w = f[at + 56]; $q._onChangeCallback(); } } else m.drumParentTurn = tag === 1 ? null : undefined; }
   { const tag = f[at + 57]; if (tag === 0) { { const $q = (m.gunBind ??= new THREE.Quaternion()); $q._x = f[at + 58]; $q._y = f[at + 59]; $q._z = f[at + 60]; $q._w = f[at + 61]; $q._onChangeCallback(); } } else m.gunBind = tag === 1 ? null : undefined; }
   { const e = (m.root ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 62 + i]; }
-  { const items = (m.parents ??= []), start = h + f[at + 78], n = f[at + 79]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.parents ??= []), start = h + f[at + 78], n = f[at + 79]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   { const tag = f[at + 80]; if (tag === 0) { m.drum = f[at + 81]; } else m.drum = tag === 1 ? null : undefined; }
   { const tag = f[at + 82]; if (tag === 0) { m.gun = f[at + 83]; } else m.gun = tag === 1 ? null : undefined; }
   { const tag = f[at + 84]; if (tag === 0) { m.seat = f[at + 85]; } else m.seat = tag === 1 ? null : undefined; }
-  { const items = (m.firePoints ??= []), start = h + f[at + 86], n = f[at + 87]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.firePoints ??= []), start = h + f[at + 86], n = f[at + 87]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -2968,7 +3266,7 @@ export class PtConfigurationMirror {
 }
 
 export function syncPtConfiguration(b, f, at, h, m) {
-  { const items = (m.turrets ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 88; v = syncPtSettings(b, f, at + 0, h, v ?? new PtSettingsMirror()); } items[i] = v; } }
+  { const items = (m.turrets ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 88; v = syncPtSettings(b, f, at + 0, h, v ?? new PtSettingsMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -3015,7 +3313,7 @@ export function syncPtState(b, f, at, h, m) {
   m.gunPitch = f[at + 6];
   m.barrel = f[at + 7];
   { const e = (m.rootWorld ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 8 + i]; }
-  { const items = (m.bones ??= []), start = h + f[at + 24], n = f[at + 25]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 26; v = syncPaBone(b, f, at + 0, h, v ?? new PaBoneMirror()); } items[i] = v; } }
+  { const items = (m.bones ??= []), start = h + f[at + 24], n = f[at + 25]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 26; v = syncPaBone(b, f, at + 0, h, v ?? new PaBoneMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -3393,14 +3691,14 @@ export class PcStateMirror {
 export function syncPcState(b, f, at, h, m) {
   m.time = f[at + 0];
   m.ticks = f[at + 1];
-  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  { const items = (m.rows ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  { const items = (m.units ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_UNIT].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  { const items = (m.turrets ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 49; v = syncPcTurret(b, f, at + 0, h, v ?? new PcTurretMirror()); } items[i] = v; } }
-  { const items = (m.riders ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncPcRider(b, f, at + 0, h, v ?? new PcRiderMirror()); } items[i] = v; } }
-  { const items = (m.controls ??= []), start = h + f[at + 12], n = f[at + 13]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 29; v = syncSeatAiControl(b, f, at + 0, h, v ?? new SeatAiControlMirror()); } items[i] = v; } }
+  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.rows ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.units ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_UNIT].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.turrets ??= []), start = h + f[at + 8], n = f[at + 9]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 49; v = syncPcTurret(b, f, at + 0, h, v ?? new PcTurretMirror()); } items[i] = v; } }
+  { const items = (m.riders ??= []), start = h + f[at + 10], n = f[at + 11]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncPcRider(b, f, at + 0, h, v ?? new PcRiderMirror()); } items[i] = v; } }
+  { const items = (m.controls ??= []), start = h + f[at + 12], n = f[at + 13]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 29; v = syncSeatAiControl(b, f, at + 0, h, v ?? new SeatAiControlMirror()); } items[i] = v; } }
   m.collide = f[at + 14] !== 0;
-  { const items = (m.latched ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_UNIT].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.latched ??= []), start = h + f[at + 15], n = f[at + 16]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_UNIT].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
@@ -3820,7 +4118,7 @@ export function syncPcActionResult(b, f, at, h, m) {
   m.flag = f[at + 37] !== 0;
   { const tag = f[at + 38]; if (tag === 0) { m.value = f[at + 39]; } else m.value = tag === 1 ? null : undefined; }
   { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 40]; $v.y = f[at + 41]; $v.z = f[at + 42]; }
-  { const items = (m.shots ??= []), start = h + f[at + 43], n = f[at + 44]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncPcShot(b, f, at + 0, h, v ?? new PcShotMirror()); } items[i] = v; } }
+  { const items = (m.shots ??= []), start = h + f[at + 43], n = f[at + 44]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncPcShot(b, f, at + 0, h, v ?? new PcShotMirror()); } items[i] = v; } }
   return m;
 }
 

@@ -150,6 +150,40 @@ pub struct PoseWork {
     leg_bones: Option<Vec<Vec<usize>>>,
 }
 
+impl HullPose {
+    /// Vehicle construction resolves applyPose/liftLegs membership before a
+    /// first tick or a respawn can request it. Keep samplers with the rig,
+    /// including a flying hull whose takeoff clip starts only on another life.
+    pub(crate) fn prepare_work(&mut self, flying: bool) {
+        let count = self.rig.bones.len();
+        if self.has_pose && self.work.walk.is_none() {
+            self.work.walk = Some(Pose::new(count, self.rig.pose_root.unwrap_or(-1)));
+        }
+        if flying && self.work.gear.is_none() {
+            self.work.gear = Some(Pose::new(count, -1));
+        }
+        let Some(legs) = self.leg_pairs.as_ref() else { return };
+        let Some(clips) = self.clips.as_ref() else { return };
+        if clips.lift_left.is_none() || clips.lift_right.is_none() { return; }
+        if self.work.lift.is_none() {
+            self.work.lift = Some(Pose::new(count, self.rig.pose_root.unwrap_or(-1)));
+        }
+        if self.work.leg_bones.is_none() {
+            // liftLegs walks descendants in authored bone order. Compiling
+            // that membership here preserves its order without live names.
+            self.work.leg_bones = Some(legs.names.iter().map(|pair| {
+                let mut under = Vec::new();
+                for name in pair {
+                    if let Some(node) = self.rig.by_name.get(name).map(|i| self.rig.bones[i]) {
+                        self.rig.tree.traverse(node, &mut |bone| under.push(bone));
+                    }
+                }
+                (0..count).filter(|&i| under.contains(&self.rig.bones[i])).collect()
+            }).collect());
+        }
+    }
+}
+
 /// `aimVector(yaw, pitch, out)`: a direction from a yaw (positive to the
 /// left, +X) and an up-positive pitch.
 pub fn aim_vector(yaw: f64, pitch: f64) -> Vector3 {
@@ -617,7 +651,9 @@ impl Hull {
         let mut q = Quaternion::default();
         q.set_from_euler(&three::Euler::new(r.x, r.y, r.z, EulerOrder::YXZ));
         if self.leg_side.is_none() {
-            self.leg_side = Some(vec![0.0; legs.at.len()]);
+            let mut sides = std::mem::take(&mut self.leg_side_storage);
+            sides.resize(legs.at.len(), 0.0);
+            self.leg_side = Some(sides);
         }
         let enabled = w.body_enabled(self.body);
         w.enable_body(self.body, false);

@@ -198,7 +198,7 @@ fn corners(t: &[Vector3; 3]) -> ([f64; 3], [f64; 3], [f64; 3]) {
 pub fn hover_contacts<W: VehicleWorld>(v: &mut Hull, w: &mut W) -> [f64; SPRINGS] {
     let h = v.hover_class.take().expect("a hover's class");
     let mut compressions = [0.0; SPRINGS];
-    let mut polygons = std::mem::take(&mut v.spring_polygons);
+    let mut scratch = std::mem::take(&mut v.spring_polygons);
     // The module's scratch normal: set before every read below.
     let mut normal = Vector3::default();
     for (i, spring) in h.springs.iter().enumerate() {
@@ -219,19 +219,19 @@ pub fn hover_contacts<W: VehicleWorld>(v: &mut Hull, w: &mut W) -> [f64; SPRINGS
         }
         // The polygons near it, searched again from where each contact
         // leaves it (the gather's list holds until its next call).
-        w.spring_polygons(v.index, i, &center, r, &mut polygons);
+        let polygons = w.spring_polygons(v.index, i, &center, r, &mut scratch);
         let mut used: [usize; 3] = [usize::MAX; 3];
         let mut used_count = 0;
         for _pass in 0..3 {
             let mut best = r;
             let mut polygon: Option<usize> = None;
             let mut nearest = Vector3::default();
-            for (k, p) in polygons.iter().enumerate() {
-                if p.moving || used[..used_count].contains(&k) {
+            for k in 0..polygons.len() {
+                if polygons.moving(k) || used[..used_count].contains(&k) {
                     continue;
                 }
-                for tri in &p.triangles {
-                    let (a, b, c) = corners(tri);
+                for triangle in 0..polygons.triangles(k) {
+                    let (a, b, c) = corners(&polygons.triangle(k, triangle));
                     let ray = closest_point_to_point(a, b, c, [center.x, center.y, center.z]);
                     let ray = Vector3::new(ray[0], ray[1], ray[2]);
                     let d = ray.distance_to(&center);
@@ -277,7 +277,7 @@ pub fn hover_contacts<W: VehicleWorld>(v: &mut Hull, w: &mut W) -> [f64; SPRINGS
         }
         compressions[i] = compression;
     }
-    v.spring_polygons = polygons;
+    v.spring_polygons = scratch;
     v.hover_class = Some(h);
     compressions
 }

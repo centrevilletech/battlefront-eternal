@@ -1,5 +1,6 @@
 // Synthetic page hulls keep prediction coverage independent of imported maps.
 // The same command stream covers held keys, late commands and life changes.
+import './native-anim.js';
 import * as THREE from 'three';
 import { CollisionWorld } from '../../tools/collision-fixture.mjs';
 import { Vehicle, Vehicles } from '../../src/vehicles.js';

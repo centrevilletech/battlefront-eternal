@@ -1,8 +1,8 @@
+import { nativeCombat } from './fixtures/native-combat.js';
 import { KIND_GRENADE } from '../src/sim/gen/index.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {Scene,Vector3} from 'three';
-import {Ordnance} from '../src/ordnance.js';
 import {CombatCapture,CombatPresentation,decodeCombat} from '../src/runtime/network-entity-combat.js';
 import {encodeEntityPacket,decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
 import {PredictedShots} from '../src/runtime/predicted-shots.js';
@@ -196,18 +196,17 @@ test('multi-pellet volley draws every bolt but emits its muzzle presentation onc
  assert.equal(f.presentation.records.size,3);assert.equal(flashes,1);
 });
 
-test('shared Ordnance impact and shared Combat.damage produce feedback without replaying client damage',async()=>{
- const {PlayerCombat}=await import('../src/combat.js');const {presentFeedback}=await import('../src/runtime/network-combat-feedback.js');
- const f=fixture(),attacker={id:7,generation:2,team:1},target={id:8,generation:3,team:2,classDef:{}};let died=0,hits=0,kills=0;
- const combat=Object.create(PlayerCombat.prototype);target.combat=combat;
- Object.assign(combat,{soldier:{air:null},health:10,dead:false,chunks:0,animator:{die(){died++;}},updateHeld(){},onDamaged(amount,source){f.capture.event({kind:'damage',target:{unit:target,generation:3},attacker:{unit:source,generation:2},team:2,attackerTeam:1,position:[0,0,1]});},onDeath(){f.capture.event({kind:'death',target:{unit:target,generation:3},attacker:{unit:attacker,generation:2},team:2,attackerTeam:1,position:[0,0,1]});}});
- f.authority.world.raycastUnits=()=>({unit:target,point:new Vector3(0,0,1),normal:new Vector3(0,0,-1),part:'body'});
- f.authority.onHitUnit=(unit,def,point,owner)=>unit.combat.damage(20,20,point,owner);
- const bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),attacker);f.capture.drain();f.setTick(11);f.authority.update(1/60);
- assert.equal(combat.health,0);assert.equal(died,1);
- f.presentation.onFeedback=event=>presentFeedback({playerUnit:attacker,units:{byId:id=>id===7?attacker:target,relation:()=>-1},hud:{hit(){hits++;},killMessage(){kills++;}}},event);
- for(const {record}of f.capture.drain())f.presentation.receive(transfer(record),{epoch:1,tick:11});
- assert.equal(hits,1);assert.equal(kills,1);assert.equal(combat.health,0);assert.equal(died,1);
+test('native damage notices produce feedback without replaying client damage',async()=>{
+ const {presentFeedback}=await import('../src/runtime/network-combat-feedback.js');
+ const f=fixture(),native=await nativeCombat({health:10}),target=native.unit;
+ const attacker=native.world.factory.build('body');let died=0,hits=0,kills=0;
+ target.combat.onDamaged=(amount,source)=>f.capture.event({kind:'damage',target:{unit:target,generation:target.generation},attacker:{unit:source,generation:source.generation},team:2,attackerTeam:1,position:[0,0,1]});
+ native.world.factory.context.deathNotice=()=>{died++;f.capture.event({kind:'death',target:{unit:target,generation:target.generation},attacker:{unit:attacker,generation:attacker.generation},team:2,attackerTeam:1,position:[0,0,1]});};
+ target.combat.damage(20,20,new Vector3(0,0,1),attacker);
+ assert.equal(target.combat.health,0);assert.equal(died,1);
+ f.presentation.onFeedback=event=>presentFeedback({playerUnit:attacker,units:{byId:id=>id===attacker.id?attacker:target,relation:()=>-1},hud:{hit(){hits++;},killMessage(){kills++;}}},event);
+ for(const {record}of f.capture.drain())f.presentation.receive(transfer(record),{epoch:1,tick:10});
+ assert.equal(hits,1);assert.equal(kills,1);assert.equal(target.combat.health,0);assert.equal(died,1);
 });
 
 test('shared projectile presentation changes visuals without advancing weapons or recoil',async()=>{
@@ -276,7 +275,8 @@ test('damage feedback snapshots the actual source and shares single-player HUD o
  const {presentFeedback}=await import('../src/runtime/network-combat-feedback.js');
  const f=fixture(),events=new SimEvents(),target={id:8,generation:3,team:2,position:new Vector3(100,0,100),soldier:{aimYaw:0}},angles=[];
  events.listen(event=>f.capture.event(event));
- const combat=Object.create(PlayerCombat.prototype);Object.assign(combat,{soldier:{},health:100,dead:false,player:false,onDamaged(amount,attacker,info){events.emit('damage',{target:{unit:target,generation:3},team:2,position:new Vector3(0,0,0),source:info.source});}});
+ const {combat}=await nativeCombat({health:100});
+ combat.onDamaged=(amount,attacker,info)=>events.emit('damage',{target:{unit:target,generation:3},team:2,position:new Vector3(0,0,0),source:info.source});
  const source=new Vector3(1,0,0);combat.damage(1,1,source,null);source.set(-10,0,0);
  const record=transfer(f.capture.drain()[0].record),decoded=decodeCombat(record);assert.deepEqual(decoded.source,[1,0,0]);
  const game={playerUnit:target,units:{byId:id=>id===8?target:null},hud:{damageFrom:angle=>angles.push(angle)}};

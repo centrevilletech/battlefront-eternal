@@ -346,7 +346,7 @@ pub enum Mount {
 /// may board, else the turret he faces (a person may take a bot's over).
 /// `hulls`: the battle's hulls; `crews`: its turret crews.
 pub fn mount_in_reach<W: SeatWorld + ?Sized>(w: &mut W, st: &Store, hulls: &super::hulls::Hulls, crews: &super::turrets::Crews, unit: u32, person: bool) -> Option<Mount> {
-    let u = st.unit.get(super::unit_ref(unit))?;
+    let u = st.unit.get(super::unit_ref(st, unit))?;
     let no_enter = hulls.riders.get(&unit).or_else(|| crews.riders.get(&unit)).map_or(0.0, |f| f.no_enter);
     if !can_board(u, person, no_enter) {
         return None;
@@ -385,7 +385,7 @@ fn math_cos(x: f64) -> f64 {
 /// exit); a turret's gunner the same. Whether he held a seat. (The page's
 /// own player leaves through his VehicleDriver or Gunner, not here.)
 pub fn leave_killed<W: super::turrets::CrewWorld + ?Sized>(hulls: &mut super::hulls::Hulls, crews: &mut super::turrets::Crews, st: &mut Store, w: &mut W, unit: u32) -> bool {
-    let Some(r) = st.unit.get(super::unit_ref(unit)).and_then(|u| u.seat) else { return false };
+    let Some(r) = st.unit.get(super::unit_ref(st, unit)).and_then(|u| u.seat) else { return false };
     let lease = st.seat_lease.get(r).unwrap();
     if lease.released {
         return false;

@@ -39,7 +39,6 @@ const CENSUS = {
     'src/player-body.js': { page: 2 }, // the spawn screen's preview fidgets
     'src/props.js': { page: 3 }, // build holograms' flicker, the power droids' idle turn (LiveObjects.present)
     'src/sniper-trace.js': { page: 10 },
-    'src/units.js': { page: 2 }, // a droideka's death blast with no game hook
     'src/vehicle-effects.js': { page: 1 },
   },
   'performance.now': {
@@ -75,11 +74,8 @@ const LEGACY_STREAMS = {
   'weapon-spread': 'none in a world (bots\' weapons have the AI\'s generator, network players\' the network-weapons stream, seats and turrets the seat-weapons stream); a page\'s weapons with no generator',
   'grenade-spin': 'none in a world (Ordnance.spinRandom is the grenade-spin stream)',
   'missile-waver': 'none in a world (Ordnance.random is the gameplay stream)',
-  'arc-link': 'none in a world (PlayerCombat.random is the gameplay stream)',
-  'blow-apart': 'none in a world (PlayerCombat.random is the gameplay stream)',
   'item-drop': 'none in a world (Items.random is the gameplay stream)',
   'recon-strike': 'none in a world (each recon context has its own stream)',
-  'melee-swing': 'none in a world (a network player\'s melee weapon draws the network-weapons stream)',
   'kill-region': 'none in a world (objectiveDestroyed passes the gameplay stream)',
   'spawn-post': 'none in a world step (the spawn screen\'s pick of a default post)',
 };

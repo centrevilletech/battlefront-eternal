@@ -49,7 +49,11 @@ const UNDEFINED: Js = Js::Undefined;
 
 impl JsObj {
     pub fn get(&self, key: &str) -> &Js {
-        self.fields.iter().find(|(k, _)| &**k == key).map(|(_, v)| v).unwrap_or(&UNDEFINED)
+        self.fields
+            .iter()
+            .find(|(k, _)| &**k == key)
+            .map(|(_, v)| v)
+            .unwrap_or(&UNDEFINED)
     }
 
     /// `{ ...self, ...over }`: self's properties in order, each that `over`
@@ -301,33 +305,146 @@ const KEYS: [&str; 55] = [
     "LockOnRange",
 ];
 
-/// A weapon class at one level: its object and the fields combat reads.
+/// PlayerCombat.arc's immutable emitter fields. Resolve names and numeric
+/// defaults during content loading, rather than a keyed lookup for every link.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Level {
-    pub obj: Rc<JsObj>,
-    vals: Vec<Js>,
-    pub cosmetic_round: bool,
-    pub(crate) melee_swings: Vec<MeleeSwing>,
+pub struct ArcDef {
+    pub length: f64,
+    pub sine: f64,
+    pub name: Option<Rc<str>>,
+    pub damage: f64,
+    pub max_damage: f64,
+    pub first_radius: f64,
+    pub max_targets: f64,
+    pub threshold: f64,
+    pub jump: f64,
+    pub drop: f64,
+}
+impl ArcDef {
+    fn read(def: &Js) -> Self {
+        Self {
+            length: def.get("ConeLength").nn(10.0),
+            sine: v8math::sin(((def.get("ConeAngle").nn(60.0) / 2.0) * std::f64::consts::PI) / 180.0),
+            name: match def.get("LightningEffect") {
+                Js::Str(s) => Some(s.clone()),
+                _ => None,
+            },
+            damage: def.get("Damage").nn(0.0),
+            max_damage: def.get("MaxDamage").nn(0.0),
+            first_radius: def.get("FirstRadius").num(),
+            max_targets: def.get("MaxTargets").nn(5.0),
+            threshold: def.get("DamageThreshold").nn(0.0),
+            jump: def.get("MaxJumpDistance").nn(10.0),
+            drop: def.get("DamageDropPerTarget").nn(0.0),
+        }
+    }
+}
+
+/// One prepared swing's length and hit time (heroes.js meleeSwings).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Swing {
+    pub duration: f64,
+    pub hit: f64,
+}
+
+/// meleeSwings (heroes.js) takes at most three authored swings. Convert the
+/// two numeric fields once: updating a held blade never rebuilds a class table.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeleeSwings {
+    entries: [Swing; 3],
+    count: usize,
+}
+impl MeleeSwings {
+    fn read(def: &Js) -> Self {
+        let mut result = Self {
+            entries: [Swing { duration: 1.0, hit: 0.5 }; 3],
+            count: def.len().min(3).max(1),
+        };
+        for i in 0..def.len().min(3) {
+            result.entries[i] = Swing {
+                duration: def.at(i).get("duration").num(),
+                hit: def.at(i).get("hit").num(),
+            };
+        }
+        result
+    }
+    pub fn entries(&self) -> &[Swing] {
+        &self.entries[..self.count]
+    }
+}
+
+/// A weapon class at one level: its object and prepared fields combat reads.
+#[derive(Clone, Debug, PartialEq)]
+pub enum WeaponBase { Other, Shield, Launcher, Grenade, Dispenser, Remote, Melee, Repair }
+impl WeaponBase {
+    fn read(value:&Js) -> Self {
+        match value.str() {
+            Some("shield")=>Self::Shield,Some("launcher")=>Self::Launcher,
+            Some("grenade")=>Self::Grenade,Some("dispenser")=>Self::Dispenser,
+            Some("remote")=>Self::Remote,Some("melee")=>Self::Melee,
+            Some("repair")=>Self::Repair,_=>Self::Other,
+        }
+    }
+    pub fn thrown(&self) -> bool {matches!(self,Self::Grenade|Self::Dispenser|Self::Remote)}
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct MeleeSwing { pub duration: Js, pub hit: Js }
+pub struct Level {
+    pub obj: Rc<JsObj>,
+    pub kind: WeaponBase,
+    pub missile: bool,
+    pub emitter: bool,
+    pub arc: ArcDef,
+    pub bank: Rc<str>,
+    pub swings: MeleeSwings,
+    pub can_deflect: bool,
+    // LiveObjects locks use authored flags, including undefined's distinction
+    // from numeric zero. Prepare them here rather than reading keys per unit.
+    pub repair: crate::battle::live::Definition,
+    vals: Vec<Js>,
+    pub cosmetic_round: bool,
+    // givePowerup excludes dispensers which themselves make power-ups.
+    // Resolve this nested content property once, outside the pickup loop.
+    pub powerup_dispenser: bool,
+}
 
 impl Level {
     pub fn new(obj: Rc<JsObj>) -> Level {
+        let kind=WeaponBase::read(obj.get("base"));
         let vals = KEYS.iter().map(|k| obj.get(k).clone()).collect();
-        // PredictedShots.fire admits these ordnance classes before selecting a
-        // droideka barrel. Resolve the content once, outside the replay loop.
         let ordnance = obj.get("ordnance");
+        // PredictedShots.fire admits these classes before choosing a barrel.
         let cosmetic_round = ordnance.truthy() && !matches!(ordnance.get("base").str(), Some("sticky" | "grenade" | "emitterordnance"));
-        // heroes.js meleeSwings: retain immutable durations/hit times once.
-        let source = obj.get("swings");
-        let melee_swings = if source.len() > 0 {
-            (0..source.len().min(3)).map(|i| MeleeSwing {
-                duration: source.at(i).get("duration").clone(), hit: source.at(i).get("hit").clone(),
-            }).collect()
-        } else { vec![MeleeSwing { duration: Js::Num(1.0), hit: Js::Num(0.5) }] };
-        Level { obj, vals, cosmetic_round, melee_swings }
+        let powerup_dispenser = obj.get("base").is_str("dispenser") && obj.get("item").get("base").is_str("powerupitem");
+        let missile = ordnance.get("base").is_str("missile");
+        let emitter = ordnance.get("base").is_str("emitterordnance");
+        let arc = ArcDef::read(ordnance);
+        let swings = MeleeSwings::read(obj.get("swings"));
+        let deflect = obj.get("CanDeflect").num();
+        let repair = repair_definition(&obj);
+        let value = obj.get("AnimationBank");
+        let bank = if !value.truthy() {
+            Rc::from("rifle")
+        } else {
+            match value {
+                Js::Str(s) => s.clone(),
+                other => Rc::from(format!("{}", other.num())),
+            }
+        };
+        Level {
+            obj,
+            kind,
+            vals,
+            missile,
+            emitter,
+            arc,
+            bank,
+            swings,
+            can_deflect: deflect != 0.0 && !deflect.is_nan(),
+            repair,
+            cosmetic_round,
+            powerup_dispenser,
+        }
     }
 
     #[inline]
@@ -338,6 +455,35 @@ impl Level {
     /// Any other field, by name.
     pub fn field(&self, key: &str) -> &Js {
         self.obj.get(key)
+    }
+}
+
+// LiveObjects.repairs reads four amounts and rejects only explicit zero target
+// flags. This runs at content load, preserving primitives without cloning or
+// searching definition strings while a repair tool acquires its next target.
+fn repair_definition(obj: &JsObj) -> crate::battle::live::Definition {
+    use crate::ordnance::defs::{ExplosionDef, Field};
+    fn field(value: &Js) -> Field {
+        match value {
+            Js::Undefined => Field::Undefined,
+            Js::Null => Field::Null,
+            Js::Bool(b) => Field::Bool(*b),
+            Js::Num(n) => Field::Num(*n),
+            Js::Str(s) => Field::Str(s.to_string()),
+            _ => Field::Object,
+        }
+    }
+    crate::battle::live::Definition {
+        repair: ["BuildingHealth", "VehicleHealth", "BuildingRebuild", "BuildingBuild"]
+            .map(|name| field(obj.get(name))),
+        target_vehicle: field(obj.get("TargetVehicle")),
+        target_neutral: field(obj.get("TargetNeutral")),
+        target_enemy: field(obj.get("TargetEnemy")),
+        target_friendly: field(obj.get("TargetFriendly")),
+        range: field(obj.get("LockOnRange")),
+        angle: field(obj.get("LockOnAngle")),
+        shield_scale: field(obj.get("ShieldScale")),
+        explosion: ExplosionDef::read(|name| field(obj.get(name))),
     }
 }
 
@@ -388,6 +534,8 @@ impl WeaponDefs {
     }
 
     pub fn class(&self, id: DefId) -> &WeaponClass {
-        self.classes[id.0 as usize].as_ref().expect("a weapon class the battle registered")
+        self.classes[id.0 as usize]
+            .as_ref()
+            .expect("a weapon class the battle registered")
     }
 }

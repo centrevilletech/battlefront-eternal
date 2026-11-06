@@ -23,6 +23,18 @@
 // have been taken, `seen` is aligned with the arsenal's weapons and the
 // rounds a droideka's guns owe are plain records.
 export default {
+  enums: {
+    F3CombatField:['health','zoomStep','dead','deathTime','blowApart','mounted','gunUnderwater','team','player','deferMuzzles','random','remotes'],
+    F3WeaponField:['reserve','kick','clip','heat','floor','random','spreadScale','yawSpreadOverride','clearYawSpread'],
+    CbShotKind:['round','repair','meleeStart'],
+    F3OptionalState: ['absent', 'null', 'value'],
+    F3PresentKind: ['weaponAction', 'endWeaponAction', 'lightning'],
+    F3WeaponAction: ['reload', 'shoot', 'shoot2', 'shoot3'],
+    F3Effect: ['headshot', 'meleeHit', 'meleeDeflect'],
+    F3BlastStage: ['present', 'event', 'finished'],
+    F3BodyEvent: ['deathBlast', 'blowApart', 'respawn'],
+    F3HullEvent: ['damaged', 'explosionEffect'],
+  },
   unions: {
     // Who hurt him last (PlayerCombat.lastAttacker): nobody yet
     // (undefined), nothing (null: a fall, the water, a death region), or
@@ -33,10 +45,92 @@ export default {
     // What a repair tool's lock is on (src/props.js lockOn): one of the live
     // props' buildings (a turret among them), or a hull (live.vehicleTargets
     // is the battle's hulls).
-    RepairTarget: ['ref:building', 'ref:turret', 'ref:vehicle'],
+    // Turret extends Building in JS. Classify the subclass before its base,
+    // so native repair and crew services resolve the same stationary gun.
+    RepairTarget: ['ref:turret', 'ref:building', 'ref:vehicle'],
   },
 
   records: {
+    // A bound ClassicRandom is shared with the AI at phase/aimer boundaries.
+    // Lazy named streams carry their first native use order without inserting
+    // them into the JavaScript world's observed stream map during preparation.
+    F3RandomEpoch: { $layout:true, revision:'u32' },
+    F3RandomState: { state: 'u32', present: 'bool', sequence: 'u32' },
+    F3RandomGlobals: { gameplay: 'u32', spin: 'u32', drop: 'u32', seat: 'u32' },
+    F3Presentation: { key: 'rec:F3UnitKey', kind: 'enum:F3PresentKind', action: 'enum:F3WeaponAction|null',
+      bank: 'str', posture: 'enum:Posture|null', prepare: 'bool', name: 'str', from: 'vec3', to: 'vec3', charge: 'f64', channel: 'f64|undefined' },
+    F3ShieldNotice: { key: 'rec:F3UnitKey', taken: 'f64', left: 'f64', sourcePresent: 'bool', source: 'vec3', explosion: 'bool' },
+    F3EffectNotice: { key: 'rec:F3UnitKey', effect: 'enum:F3Effect', position: 'vec3' },
+    F3LifeRef: { id: 'f64', generation: 'f64' },
+    // Character tallies remain a narrow synchronous foreign operation. The
+    // native hit chooses the previous attacker's Character before damage.
+    F3HeadCredit: { character: 'ref:character' },
+    F3HullCredit: { character: 'ref:character' },
+    // Hull geometry and class policy load once. Physics and health continue
+    // to live in the fleet's generated vehicle row, including pooled lives.
+    F3HullSetup: { hull:'ref:vehicle', member:'union:Member|null', health:'u32', category:'u32', kind:'f64', key:'str',
+      blastCenter:'vec3', blastRadius:'f64', explosion:'u32|null', finalExplosion:'u32|null' },
+    // Vehicles.variant binds a cold facade only when its original spawn is reached.
+    F3HullBirth: { hull:'ref:vehicle', memberId:'u32', index:'u32', bodySerial:'u32' },
+    F3HullNotice: { hull:'ref:vehicle', event:'enum:F3HullEvent', life:'f64', amount:'f64', attacker:'union:OrdnanceOwner',
+      position:'vec3', team:'f64', attackerRef:'rec:F3LifeRef', hasAttackerRef:'bool', attackerTeam:'f64' },
+    // Game.onDeath keeps Character population and credit foreign. Return the
+    // controller pointer after AI detachment instead of entering a setter.
+    F3DeathCredit: { key:'rec:F3UnitKey', unit:'ref:unit', killer:'ref:character|null', relation:'f64' },
+    F3DeathAnswer: { controller:'ref:controller|null' },
+    F3DeathNotice: { key:'rec:F3UnitKey', attacker:'union:Attacker', attackerRef:'rec:F3LifeRef', hasAttackerRef:'bool',
+      attackerTeam:'f64', position:'vec3', team:'f64' },
+    F3BlastNotice: { stage:'enum:F3BlastStage', explosion:'u32', position:'vec3', owner:'union:OrdnanceOwner',
+      source:'rec:F3LifeRef', hasSource:'bool', team:'f64', radius:'f64', wet:'bool' },
+    F3BlastCall: { explosion:'u32', position:'vec3', owner:'union:OrdnanceOwner' },
+    F3BodyNotice: { key:'rec:F3UnitKey', event:'enum:F3BodyEvent', health:'f64' },
+    F3DamageInfo: { explosion: 'bool', amount: 'f64|undefined', typed: 'f64|undefined', generic: 'f64|undefined', known: 'bool|undefined', pointState: 'enum:F3OptionalState', point: 'vec3', sourcePresent: 'bool', source: 'vec3' },
+    F3ShotNotice: { key: 'rec:F3UnitKey', shot: 'rec:CbShot', position: 'vec3', direction: 'vec3', team: 'f64' },
+    F3DamageNotice: { key: 'rec:F3UnitKey', amount: 'f64', attacker: 'union:Attacker', attackerRef: 'rec:F3LifeRef', hasAttackerRef: 'bool', attackerTeam: 'f64', info: 'rec:F3DamageInfo', position: 'vec3', team: 'f64' },
+    // F1's class table carries only flight fields. Hit/blast policy is
+    // prepared separately from the full authored damage definition.
+    F3HitPolicy: { ordnance: 'def:ordnance', damage: 'f64', person: 'f64', animal: 'f64', droid: 'f64', vehicle: 'f64', building: 'f64', shield: 'f64' },
+    F3BlastBinding: { explosion: 'u32', combat: 'u32' },
+    F3ImpactRules: { friendlyFire: 'bool' },
+    // CombatWorld.fireRound and dispense use numeric F1 handles prepared once
+    // for each weapon level, including ordnance merged by charge levels.
+    F3LockRule: { range: 'f64', onAngle: 'f64', offAngle: 'f64', relationMask: 'u32', categoryMask: 'u32' },
+    F3WeaponService: { ordnance: 'def:ordnance|null', item: 'def:item|null', channel: 'f64', lock: 'rec:F3LockRule',
+      bank: 'str', lightning: 'str', hasLightning: 'bool' },
+    // Commands carry the unit handle and its gameplay life, plus an arsenal
+    // index. They cannot target a weapon of a replacement life.
+    F3WeaponSettings: {
+      key: 'rec:F3UnitKey', weapon: 'u32', stream: 'u32', spreadScale: 'f64', sniperScale: 'f64',
+      yawSpreadOverride: 'f64|null', floor: 'f64',
+    },
+    F3Selection: { key: 'rec:F3UnitKey', weapon: 'u32' },
+    // Weapon.captureState: most clocks are unchanged on an inactive weapon.
+    // The retained reader visits only changed weapons and changed fields.
+    F3WeaponView: { $layout:true,
+      $delta:['thrown','repair','level','admitShot','deployed','firing','timer','bottomless','perShot','clip','reserve',
+        'heat','overheated','floor','kick','spreadScale','sniperScale','yawSpreadOverride','wait','reloadLeft','throwTime',
+        'released','hidden','charging','held','charge','limit','pattern','salvosLeft','salvoWait','salvoSeed','salvoCount',
+        'lockTargetId','lockGeneration','lockElapsed','lockComplete','melee'],
+      thrown:'bool', repair:'bool',
+      level: 'f64', admitShot: {type: 'bool', js: 'admits'}, deployed: 'bool', firing: 'bool', timer: 'f64',
+      bottomless: 'bool', perShot: 'f64', clip: 'f64', reserve: 'f64', heat: 'f64', overheated: 'bool', floor: 'f64', kick: 'f64',
+      spreadScale: 'f64', sniperScale: 'f64', yawSpreadOverride: 'f64|null',
+      wait: 'f64', reloadLeft: 'f64', throwTime: 'f64', released: 'bool', hidden: 'bool',
+      charging: 'bool', held: 'f64', charge: 'f64', limit: 'f64', pattern: 'f64', salvosLeft: 'f64', salvoWait: 'f64',
+      salvoSeed: 'f64|null', salvoCount: 'f64', lockTargetId: 'f64', lockGeneration: 'f64', lockElapsed: 'f64', lockComplete: 'bool',
+      melee: 'rec:Melee|null',
+    },
+    // PlayerCombat.update owns its notification latches and deferred muzzle
+    // queue natively. Only fields read by foreign gameplay cross this view.
+    F3CombatView: { $layout:true, $parts:['weapons','origin','target','aimDir','shotDir','left','up','pivot'],  $delta:['health','dead','deathTime','lastAttacker','repairTarget','repairLock','blowApart','zoomStep','kick',
+      'mounted','gunUnderwater','origin','target','aimDir','shotDir','left','up','pivot','selected','weapons'],
+      health: 'f64', dead: 'bool', deathTime: 'f64', lastAttacker: 'union:Attacker',
+      repairTarget: 'union:RepairTarget|null', repairLock: 'str', blowApart: 'bool', zoomStep: 'f64', kick: 'rec:Kick',
+      mounted: 'bool|undefined', gunUnderwater: 'bool',
+      origin: 'vec3', target: 'vec3', aimDir: 'vec3', shotDir: 'vec3', left: 'vec3', up: 'vec3', pivot: 'vec3',
+      selected: {type: 'f64x2', js: 'arsenal.selected', mirror: false}, weapons: {type: 'list:rec:F3WeaponView', js: 'arsenal.weapons', mirror: false},
+    },
+
     // A melee weapon's swing (src/heroes.js MeleeSwing, captureState): the
     // time into it, which of its swings, and whether one is under way.
     Melee: { time: 'f64', index: 'f64', active: 'bool' },
@@ -169,134 +263,33 @@ export default {
       pivot: 'vec3',
     },
 
-    // ---- Combat on the simulation's module (src/combat-sim.js, rust/sim/
+    // ---- Combat on the simulation's module (src/f3-combat.js, rust/sim/
     // src/combat/module.rs). A unit is named by its id, a weapon by its
     // place in his arsenal.
     // A trigger edge a network player's press carries (unit.networkShot,
     // unit.networkShots), its numbers possibly absent.
     CbEdge: { button: 'f64', id: 'f64|undefined', late: 'f64|undefined', aimYaw: 'f64|undefined', aimPitch: 'f64|undefined' },
-    // What the battle's JavaScript keeps of a weapon that its update reads:
-    // whether it has a generator, and the AI's spread settings.
-    CbWeaponIn: { random: 'bool', spreadScale: 'f64', yawSpreadOverride: 'f64|null' },
-    // What a combat command reads of the unit while units are the
-    // JavaScript's (his life, intent, controls, body and trigger edges), and
-    // the combat's fields the battle's JavaScript keeps (what it sets on the
-    // combat: whether he mans a gun or flies a droid, his team, his aimer's
-    // direction, whether his gun is under water, the generators).
-    CbIn: {
-      unit: 'f64',
-      generation: 'f64',
-      classDef: 'def:unitClass',
-      networkHuman: 'bool|undefined',
-      seated: 'bool',
-      remotesActive: 'bool|undefined',
-      intent: 'rec:Intent',
-      controls: 'rec:Controls',
-      soldier: 'union:UnitBody',
-      edges: 'list:rec:CbEdge|null',
-      edge: 'rec:CbEdge|null',
-      aimOverride: 'vec3|null|undefined',
-      mounted: 'bool|undefined',
-      gunUnderwater: 'bool',
-      team: 'f64',
-      player: 'bool',
-      deferMuzzles: 'bool',
-      random: 'bool',
-      hasRemotes: 'bool',
-      weapons: 'list:rec:CbWeaponIn',
-    },
-    // A hurt and a blast as their commands take them (PlayerCombat.damage,
-    // explode): an explosion is its index in src/combat-sim.js's table.
-    CbDamageIn: { in: 'rec:CbIn', amount: 'f64', onShield: 'f64', source: 'vec3|null', attacker: 'union:Attacker', explosion: 'bool' },
-    CbExplodeIn: { in: 'rec:CbIn', explosion: 'f64', position: 'vec3', owner: 'union:Attacker', scale: 'f64' },
-    // What a command wrote into the unit: the presses and intent flags it
-    // took, his aim's pitch (the kick), a blast's push on a soldier and a
-    // droideka's shield.
-    CbOut: {
-      pressed0: 'bool', pressed1: 'bool', reload: 'bool', nextPrimary: 'bool', previousPrimary: 'bool', nextSecondary: 'bool', zoom: 'bool',
-      aimPitch: 'f64', velocity: 'vec3', air: 'enum:Air|null', stateTime: 'f64', grounded: 'bool', shieldOn: 'bool', shieldValue: 'f64',
-    },
-
-    // The calls combat makes into the battle (rust/sim/src/combat/world.rs
-    // CombatWorld), one record each way, answered by src/combat-sim.js with
-    // the same objects src/combat-world.js hands the battle.
-    CbUnit: { unit: 'f64' },
-    CbNumber: { value: 'f64' },
-    CbFlag: { value: 'bool' },
-    CbText: { value: 'str' },
-    CbRay: { unit: 'f64', origin: 'vec3', direction: 'vec3', far: 'f64', staticOnly: 'bool' },
-    CbHit: { found: 'bool', distance: 'f64', point: 'vec3', normal: 'vec3' },
-    CbWeapon: { unit: 'f64', weapon: 'f64' },
-    // A draw: weapon -1 for the combat's own generator; legacy: Math.random's
-    // stream for a weapon or combat without one.
-    CbDraw: { unit: 'f64', weapon: 'f64', legacy: 'bool' },
-    // weapon.admitShot's answer: 0 yes, 1 no, 2 a token.
-    CbAdmit: { kind: 'f64', token: 'f64' },
-    CbDroid: { found: 'bool', droid: 'f64' },
-    CbDroidCall: { unit: 'f64', droid: 'f64' },
-    CbLaunch: { unit: 'f64', weapon: 'f64', origin: 'vec3', velocity: 'vec3', yaw: 'f64', team: 'f64', admission: 'f64|undefined' },
-    // (A weapon's level and lock as they are now, which its mirror may not
-    // have yet.)
-    CbLockOn: { unit: 'f64', eye: 'vec3', dir: 'vec3', weapon: 'f64', level: 'f64', current: 'union:RepairTarget|null', held: 'bool', team: 'f64' },
-    CbTarget: { target: 'union:RepairTarget|null' },
-    CbLockKey: { unit: 'f64', target: 'union:RepairTarget|null' },
-    CbRepair: { unit: 'f64', weapon: 'f64', target: 'union:RepairTarget|null', team: 'f64' },
-    CbLockPick: { unit: 'f64', weapon: 'f64', level: 'f64', lockComplete: 'bool', lockTargetId: 'f64', lockGeneration: 'f64', origin: 'vec3', dir: 'vec3' },
-    // What a launcher's lock picks: 0 nothing to look with, 1 nothing in
-    // reach, 2 a unit.
-    CbPick: { pick: 'f64', id: 'f64', generation: 'f64', alive: 'bool' },
     // A shot (weapons.js): kind 0 a round, 1 a repair tick, 2 a swing's start.
-    CbShot: { unit: 'f64', weapon: 'f64', kind: 'f64', yaw: 'f64', pitch: 'f64', charge: 'f64', targetId: 'f64', targetGeneration: 'f64', admission: 'f64|undefined', swing: 'f64' },
-    // fromOrigin: the round leaves his gun origin (combat.origin), not a gun of
-    // a droideka's.
-    CbFire: { shot: 'rec:CbShot', from: 'vec3', fromOrigin: 'bool', dir: 'vec3', bind: 'bool', selected: 'bool', selectedIndex: 'f64', selectedBarrel: 'f64' },
-    CbDispense: { unit: 'f64', weapon: 'f64', most: 'f64', origin: 'vec3', velocity: 'vec3', yaw: 'f64', team: 'f64' },
-    CbArcTarget: { origin: 'vec3', center: 'vec3|null', radius: 'f64|null' },
-    CbArcTargets: { targets: 'list:rec:CbArcTarget' },
-    CbHurtArc: { unit: 'f64', index: 'f64', amount: 'f64', from: 'vec3' },
-    // A hurt's hook (onDamaged): what combat made of the hurt (explosion:
-    // its own info, a blast's) or the caller's info, kept by src/combat-sim.js.
-    CbDamaged: { unit: 'f64', amount: 'f64', attacker: 'union:Attacker', explosion: 'bool', infoAmount: 'f64', typed: 'f64', generic: 'f64' },
-    CbHealth: { unit: 'f64', health: 'f64' },
-    // kind 0 weaponAction, 1 endWeaponAction, 2 lightning.
-    CbPresent: { unit: 'f64', kind: 'f64', action: 'str|null', bank: 'str', posture: 'str|null', prepare: 'bool', name: 'str', from: 'vec3', to: 'vec3', charge: 'f64', channel: 'f64|null' },
-    // A droideka's next gun (nextGun): its muzzle, and the counter and the
-    // gun it moved on to (its body's own state).
-    CbGun: { found: 'bool', point: 'vec3', gun: 'f64', hasLast: 'bool', lastIndex: 'f64', lastBarrel: 'f64' },
-    CbGunAt: { unit: 'f64', index: 'f64', barrel: 'f64' },
-    CbPoint: { found: 'bool', point: 'vec3' },
-    // A droideka's shield took a hit: its value after it, which its hook
-    // finds there (the shield goes down after the hook).
-    CbShield: { unit: 'f64', taken: 'f64', left: 'f64', explosion: 'bool' },
+    CbShot: { unit: 'f64', weapon: 'f64', kind: 'enum:CbShotKind', yaw: 'f64', pitch: 'f64', charge: 'f64', targetId: 'f64', targetGeneration: 'f64', admission: 'f64|undefined', swing: 'f64' },
+  },
+
+  events: {
+    f3Shot: 'F3ShotNotice',
+    f3Damage: 'F3DamageNotice',
+    f3Presentation: 'F3Presentation',
+    f3Shield: 'F3ShieldNotice',
+    f3Effect: 'F3EffectNotice',
+    f3Death: 'F3DeathNotice',
+    f3Blast: 'F3BlastNotice',
+    f3Body: 'F3BodyNotice',
+    f3Hull: 'F3HullNotice',
+    f3HullBirth: 'F3HullBirth',
   },
 
   imports: {
-    combatCast: { args: 'CbRay', result: 'CbHit' },
-    combatDraw: { args: 'CbDraw', result: 'CbNumber' },
-    combatAdmit: { args: 'CbWeapon', result: 'CbAdmit' },
-    combatRemoteOf: { args: 'CbWeapon', result: 'CbDroid' },
-    combatRemoteEnter: { args: 'CbDroidCall', result: null },
-    combatRemoteKill: { args: 'CbDroidCall', result: null },
-    combatRemoteLaunch: { args: 'CbLaunch', result: null },
-    combatLockOn: { args: 'CbLockOn', result: 'CbTarget' },
-    combatLockKey: { args: 'CbLockKey', result: 'CbText' },
-    combatRepair: { args: 'CbRepair', result: 'CbFlag' },
-    combatLockPick: { args: 'CbLockPick', result: 'CbPick' },
-    combatFireRound: { args: 'CbFire', result: null },
-    combatDispense: { args: 'CbDispense', result: 'CbFlag' },
-    combatMeleeStrike: { args: 'CbUnit', result: null },
-    combatArcTargets: { args: 'CbUnit', result: 'CbArcTargets' },
-    combatHurtArc: { args: 'CbHurtArc', result: null },
-    combatLightning: { args: 'CbText', result: 'CbFlag' },
-    combatFired: { args: 'CbShot', result: null },
-    combatDamaged: { args: 'CbDamaged', result: null },
-    combatDied: { args: 'CbUnit', result: null },
-    combatBlownApart: { args: 'CbHealth', result: null },
-    combatRespawn: { args: 'CbUnit', result: null },
-    combatPresent: { args: 'CbPresent', result: null },
-    combatNextGun: { args: 'CbUnit', result: 'CbGun' },
-    combatGunAt: { args: 'CbGunAt', result: 'CbPoint' },
-    combatShieldHit: { args: 'CbShield', result: null },
+    f3HeadCredit: { args: 'F3HeadCredit', result: null },
+    f3HullCredit: { args: 'F3HullCredit', result: null },
+    f3DeathCredit: { args:'F3DeathCredit', result:'F3DeathAnswer' },
   },
 
   kinds: {

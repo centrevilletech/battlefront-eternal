@@ -15,9 +15,9 @@ export class EchoMirror {
 export function syncEcho(b, f, at, h, m) {
   m.value = f[at + 0];
   { const $v = (m.at ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
-  m.count = f[at + 4];
+  m.count = f[at + 4] >>> 0;
   { const tag = f[at + 5]; if (tag === 0) { m.note = b.strings.at(f[at + 6]); } else m.note = tag === 1 ? null : undefined; }
-  m.events = f[at + 7];
+  m.events = f[at + 7] >>> 0;
   return m;
 }
 
@@ -59,8 +59,8 @@ export class FillMirror {
 }
 
 export function syncFill(b, f, at, h, m) {
-  m.kind = f[at + 0];
-  m.count = f[at + 1];
+  m.kind = f[at + 0] >>> 0;
+  m.count = f[at + 1] >>> 0;
   return m;
 }
 

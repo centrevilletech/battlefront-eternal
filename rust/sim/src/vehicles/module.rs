@@ -1,11 +1,12 @@
-//! Native hull scheduling for the required F2 world phase. Vehicle.tick's
-//! ground substeps, flight and retained posing share canonical store rows.
-//! Collision, water, death regions and clocks are native; foreign unit
-//! targeting, damage and effects retain their synchronous hook positions.
+//! Vehicles.update owns hull physics, retained rigs and collision placements.
+//! F2 keeps mutable hulls in the generated fleet slab and lends reserved working
+//! rows to the solvers. Native unit/combat services share that same fleet rather
+//! than importing bodies or recreating collision queries during a tick.
 //!
-//! Working hulls and pose storage are reused. No mutable store borrow crosses
-//! a foreign hook: publish the touched rows first, then resume from canonical
-//! state so nested damage or boarding cannot be overwritten by outer scratch.
+//! Vehicle.damage commits before crew death, Character credit and immediate
+//! explosions. The current hull is reloaded after recursive work, so a nested
+//! blast cannot be lost when the outer movement step resumes. The combined
+//! world span passes its existing service borrow through these hooks.
 
 pub mod f2;
 
@@ -101,6 +102,12 @@ pub(crate) fn collision_world() -> Option<&'static mut Collision> {
 
 pub(crate) fn map() -> Option<&'static mut MapRules> {
     unsafe { (*addr_of_mut!(MAP)).as_mut() }
+}
+
+// navigateMissile and the hull phase share FLIGHT_CLASSES' live tunings.
+// Copy its numeric row; F1 does not create or cache a second tuning table.
+pub(crate) fn flight_tuning(class: FlightClass) -> Tuning {
+    unsafe { (*addr_of_mut!(TUNINGS)).get_or_insert_with(Tunings::default) }.of(class)
 }
 
 fn input() -> &'static mut Vec<f64> {
@@ -201,7 +208,20 @@ pub extern "C" fn veh_collider(walls: u32, springs: u32) {
         springs: v[F2ColliderHeader::WORDS + w..F2ColliderHeader::WORDS + w + n].iter().map(|&x| x as i64).collect(),
     };
     c.add_collider(header.body, collider);
-    if f2::active() { c.prepare(crate::collision::state()); }
+    if f2::active() { prepare_collision(); }
+}
+
+// CollisionWorld construction reserves the largest changed-body publication.
+// A phase can disable every hull or move every body before its next mirror
+// barrier; first damage must not grow this output reservation.
+pub(crate) fn prepare_collision() {
+    let Some(c) = collision_world() else { return };
+    let state = crate::collision::state();
+    c.prepare(state);
+    let words = F2BodyHeader::WORDS + (state.worlds[c.world].order.len() + state.worlds[c.world].prepared.len())
+        * (F2BodyToggle::WORDS + F2BodyPlaced::WORDS);
+    let changes = unsafe { &mut *addr_of_mut!(CHANGES) };
+    changes.reserve(words.saturating_sub(changes.len()));
 }
 
 /// The flags and places the hulls changed since the last call, for
@@ -275,8 +295,9 @@ fn new_pose(name: &str) -> Option<(HullPose, Vec<f64>)> {
 #[no_mangle]
 pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32) -> u32 {
     let s = sim();
-    let r = s.store.vehicles.vehicles.iter().copied().find(|r| r.slot == slot);
-    let Some(r) = r else { return 0 };
+    // Vehicle construction may prepare a private pad variant before it
+    // joins fleet order. The slab already owns its generation-qualified row.
+    let Some((r, _)) = s.store.vehicle.at(slot) else { return 0 };
     let name = String::from_utf16_lossy(s.strings.units(s.store.vehicle.get(r).expect("a hull the store holds").name));
     let all = poses();
     if all.len() <= slot as usize {
@@ -480,7 +501,7 @@ pub(crate) fn prediction_hull(r: Ref<Vehicle>) -> Option<crate::client::hulls::S
     let v = s.store.vehicle.get(r)?;
     let name = String::from_utf16_lossy(s.strings.units(v.name));
     let class = classes().get(&name)?;
-    let mut hull = Hull::from_store(r, v, class, 0, &s.strings);
+    let mut hull = Hull::from_store(r, v, class, 0);
     let (config, gear) = if f2::active() { f2::flight_keys_for(r) } else { flight_keys(&name) };
     hull.flight = Flight::from_store(v, &s.strings, config, gear).ok()?;
     hull.pose = Some(poses().get(r.slot as usize)?.as_ref()?.pose.clone());
@@ -498,7 +519,7 @@ fn load_flyer(r: Ref<Vehicle>, index: usize) -> Hull {
 }
 
 /// A craft's flight from the store.
-fn read_flight(hull: &mut Hull) {
+pub(crate) fn read_flight(hull: &mut Hull) {
     let s = sim();
     let v = s.store.vehicle.get(hull.id).expect("a hull the store holds");
     let (config, gear) = if f2::active() { f2::flight_keys_for(hull.id) } else {
@@ -508,7 +529,7 @@ fn read_flight(hull: &mut Hull) {
 }
 
 /// A hull back into the store, a craft's flight with it.
-fn store_hull(hull: &Hull) {
+pub(crate) fn store_hull(hull: &Hull) {
     store(hull);
     if hull.flying {
         if f2::active() { f2::store_flight(hull); } else {
@@ -524,11 +545,6 @@ fn idle_input() -> FlightInput {
     FlightInput { forward: 0.0, right: 0.0, turn: 0.0, ..FlightInput::default() }
 }
 
-/// The battle's hulls, in its list's order.
-fn hull_refs() -> Vec<Ref<Vehicle>> {
-    sim().store.vehicles.vehicles.clone()
-}
-
 /// Hull `index` (its store handle `r`) as the phase works on it.
 fn load(r: Ref<Vehicle>, index: usize) -> Hull {
     if f2::active() { return f2::take_hull(r, index); }
@@ -536,13 +552,14 @@ fn load(r: Ref<Vehicle>, index: usize) -> Hull {
     let v = s.store.vehicle.get(r).expect("a hull the store holds");
     let name = String::from_utf16_lossy(s.strings.units(v.name));
     let class = classes().get(&name).unwrap_or_else(|| panic!("hull class {name}: not given to the phase"));
-    Hull::from_store(r, v, class, index, &s.strings)
+    Hull::from_store(r, v, class, index)
 }
 
 /// A hull back into the store.
 fn store(hull: &Hull) {
     let s = sim();
     let v = s.store.vehicle.get_mut(hull.id).expect("a hull the store holds");
+    if f2::active() { f2::prepare_leg_store(hull,v); }
     hull.to_store(v, &mut s.strings);
     if f2::active() { f2::stored(hull); }
 }
@@ -574,6 +591,13 @@ fn recycle_hull(hull: Hull) { if f2::active() { f2::recycle(hull); } }
 /// `clock`: the clock barrels kick back on.
 #[no_mangle]
 pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64, flags: u32) -> f64 {
+    ground(dt, acc, flight_acc, level, clock, flags, None)
+}
+
+// Vehicles.update reuses its caller's authority through substeps and wreck
+// explosions. A coordinated world span must not reacquire that authority.
+pub(crate) fn ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64, flags: u32,
+    services: Option<crate::units::f3::WorldServices<'_>>) -> f64 {
     let (poses_on, cosmetic, flight_on, assists) = (flags & 1, flags & 2, flags & 4, flags & 8);
     if let Some(m) = map() {
         m.level = level;
@@ -581,7 +605,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
     unsafe { *addr_of_mut!(CLOCK) = Some(clock) };
     let mut refs = unsafe { std::mem::take(&mut *addr_of_mut!(PHASE_REFS)) };
     refs.clear(); refs.extend_from_slice(&sim().store.vehicles.vehicles);
-    let mut world = JsWorld { craft: u32::MAX };
+    let mut world = JsWorld::with_services(u32::MAX, services);
     let locks = unsafe { &mut *addr_of_mut!(LOCKS) };
     locks.clear();
     locks.resize(F2LockHeader::WORDS,0.0);
@@ -741,11 +765,21 @@ fn body_of(hull: usize) -> BodyId {
 /// where it holds them (native.rs), the imports for the rest. `craft`: the
 /// craft whose flight steps now (its store slot), for its registry entry.
 
-pub struct JsWorld {
+pub struct JsWorld<'a> {
     craft: u32,
+    hull: Option<Ref<Vehicle>>,
+    services: Option<crate::units::f3::WorldServices<'a>>,
+}
+impl<'a> JsWorld<'a> {
+    // Native spatial readers need no mutable world authority. Damage-capable
+    // callers lend the existing borrow explicitly instead of acquiring one here.
+    pub fn new(craft: u32) -> Self { Self::with_services(craft, None) }
+    pub(crate) fn with_services(craft: u32, services: Option<crate::units::f3::WorldServices<'a>>) -> Self {
+        Self { craft, hull: None, services }
+    }
 }
 
-impl VehicleWorld for JsWorld {
+impl VehicleWorld for JsWorld<'_> {
     // VehiclesWorld's spatial queries share the battle's native kernel. No
     // query round-trip can interleave a stale JavaScript collider mirror.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> {
@@ -763,10 +797,10 @@ impl VehicleWorld for JsWorld {
         collision_world().expect("the vehicle collision world").ground(crate::collision::state(), x, z, top)
     }
 
-    fn spring_polygons(&mut self, hull: usize, index: usize, center: &Vector3, radius: f64, out: &mut Vec<Polygon>) {
+    fn spring_polygons<'a>(&'a mut self, hull: usize, index: usize, center: &Vector3, radius: f64, _out: &'a mut Vec<Polygon>) -> super::SpringPolygons<'a> {
         let _allocation = f2::allocation::nested(f2::allocation::Stage::Polygons);
-        collision_world().expect("the vehicle collision world")
-            .spring_polygons(crate::collision::state(), body_of(hull), index, center, radius, out).expect("a hull spring");
+        super::SpringPolygons::Native(collision_world().expect("the vehicle collision world")
+            .spring_polygons(crate::collision::state(), body_of(hull), index, center, radius).expect("a hull spring"))
     }
 
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4) {
@@ -797,15 +831,36 @@ impl VehicleWorld for JsWorld {
     }
 
     fn damaged(&mut self, hull: usize, amount: f64, attacker: &OrdnanceOwner) {
+        if let Some(services) = &mut self.services {
+            use crate::vehicles::damage::HullDamageWorld;
+            crate::units::f3_hulls::DamageWorld {
+                services: services.reborrow(), hull: f2::hull_reference(hull),
+            }.damaged_hull(hull, amount, attacker);
+            return;
+        }
         if f2::active() { f2::publish(); }
         import_veh_damaged(&VehDamaged { hull: hull as f64, amount, attacker: *attacker });
     }
 
     fn destroyed_crew(&mut self, hull: usize) {
+        if let Some(services) = &mut self.services {
+            use crate::vehicles::damage::HullDamageWorld;
+            crate::units::f3_hulls::DamageWorld {
+                services: services.reborrow(), hull: f2::hull_reference(hull),
+            }.destroy_hull_crew(hull);
+            return;
+        }
         f2::live_seats::destroyed(hull);
     }
 
     fn destroyed(&mut self, hull: usize) {
+        if let Some(services) = &mut self.services {
+            use crate::vehicles::damage::HullDamageWorld;
+            crate::units::f3_hulls::DamageWorld {
+                services: services.reborrow(), hull: f2::hull_reference(hull),
+            }.destroyed_hull(hull);
+            return;
+        }
         if f2::active() { f2::publish(); }
         import_veh_destroyed(&VehHull { hull: hull as f64 });
     }
@@ -815,20 +870,44 @@ impl VehicleWorld for JsWorld {
     }
 
     fn release_crew(&mut self, hull: usize) {
+        if let Some(services) = &mut self.services {
+            use crate::vehicles::damage::HullDamageWorld;
+            crate::units::f3_hulls::DamageWorld {
+                services: services.reborrow(), hull: f2::hull_reference(hull),
+            }.release_hull_crew(hull);
+            return;
+        }
         f2::live_seats::release(hull);
     }
 
     fn explosion(&mut self, hull: usize, final_explosion: bool, position: &Vector3) {
+        if let Some(services) = &mut self.services {
+            use crate::vehicles::damage::HullDamageWorld;
+            crate::units::f3_hulls::DamageWorld {
+                services: services.reborrow(), hull: f2::hull_reference(hull),
+            }.explode_hull(hull, final_explosion, position);
+            return;
+        }
         if f2::active() { f2::publish(); }
         import_veh_explosion(&VehBlast { hull: hull as f64, r#final: final_explosion, position: v3(position) });
     }
 
     fn effect(&mut self, name: &str, position: &Vector3) {
+        if let Some(services) = &mut self.services {
+            use crate::vehicles::damage::HullDamageWorld;
+            crate::units::f3_hulls::DamageWorld {
+                services: services.reborrow(), hull: self.hull.expect("committed wreck"),
+            }.hull_effect(name, position);
+            return;
+        }
         let name = sim().strings.intern_str(name);
         import_veh_effect(&VehEffect { name, position: v3(position) });
     }
 
     fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<f64> {
+        if crate::units::f3::active() {
+            return crate::units::f3_fleet::raycast(origin, direction, far, None);
+        }
         let h = import_veh_raycast_units(&VehRay { origin: v3(origin), direction: v3(direction), far, ignore: -1.0 });
         h.found.then_some(h.distance)
     }
@@ -843,6 +922,7 @@ impl VehicleWorld for JsWorld {
     }
 
     fn current(&mut self, hull: &Hull) {
+        self.hull = Some(hull.id);
         // Vehicle.setHealth may enter native crew work before its next hook.
         // Publish at the actual foreign call so no unread block is replaced.
         store_hull(hull);
@@ -851,7 +931,7 @@ impl VehicleWorld for JsWorld {
     fn reload(&mut self, hull: &mut Hull) {
         let s = sim();
         let v = s.store.vehicle.get(hull.id).expect("a hull the store holds");
-        hull.load(v, &s.strings);
+        hull.load(v);
         if hull.flying {
             read_flight(hull);
         }
@@ -871,20 +951,22 @@ fn hull_point(slot: u32) -> Option<(bool, BodyId, Vector3)> {
     Some((v.alive, v.body.slot, point))
 }
 
-impl FlightWorld for JsWorld {
+impl FlightWorld for JsWorld<'_> {
     fn environment(&mut self) -> &Environment {
         unsafe { (*addr_of_mut!(FLIGHT_ENV)).as_ref() }.expect("the flight environment (veh_flight_env)")
     }
 
     fn tuning(&mut self, class: FlightClass) -> Tuning {
-        unsafe { (*addr_of_mut!(TUNINGS)).get_or_insert_with(Tunings::default) }.of(class)
+        flight_tuning(class)
     }
 
     fn member_count(&mut self) -> usize {
+        if crate::units::f3::active() { return crate::units::f3_fleet::count(); }
         unsafe { (&*addr_of_mut!(MEMBERS)).len() }
     }
 
     fn member(&mut self, i: usize) -> Member {
+        if crate::units::f3::active() { return crate::units::f3_fleet::flight(i, self.craft); }
         let m = unsafe { (&*addr_of_mut!(MEMBERS))[i] };
         match m.kind {
             MEMBER_UNIT => Member { id: m.id, generation: m.generation, alive: m.alive, team: m.team, own: false, unit: true, body: None, point: Vector3::default() },
@@ -901,6 +983,7 @@ impl FlightWorld for JsWorld {
     }
 
     fn relation(&mut self, a: Team, b: Team) -> f64 {
+        if crate::units::f3::active() { return crate::units::f3::relation(a.unwrap_or(0.0),b.unwrap_or(0.0)); }
         let teams = unsafe { &*addr_of_mut!(TEAMS) };
         let same = |x: &Team, y: &Team| match (x, y) {
             (None, None) => true,
@@ -914,6 +997,16 @@ impl FlightWorld for JsWorld {
     }
 
     fn aim_point(&mut self, i: usize) -> Vector3 {
+        if crate::units::f3::active() {
+            let member = crate::units::f3_fleet::key(i);
+            if matches!(member, crate::gen::Member::Unit(_)) {
+                if let Some(Some(point)) = unsafe { (&*addr_of_mut!(AIM_CACHE)).get(i) } { return *point; }
+                let point = crate::units::f3_fleet::aim(member);
+                unsafe { (&mut *addr_of_mut!(AIM_CACHE))[i] = Some(point); }
+                return point;
+            }
+            return crate::units::f3_fleet::aim(member);
+        }
         let m = unsafe { (&*addr_of_mut!(MEMBERS))[i] };
         match m.kind {
             MEMBER_UNIT => {
@@ -932,6 +1025,14 @@ impl FlightWorld for JsWorld {
     }
 
     fn prefetch_aim_points(&mut self, members: &[usize]) {
+        if crate::units::f3::active() {
+            // Flight targeting observes each requested Unit once this phase.
+            // Preserve the original bulk request order and retained aim cache.
+            for &index in members {
+                if matches!(crate::units::f3_fleet::key(index), crate::gen::Member::Unit(_)) { self.aim_point(index); }
+            }
+            return;
+        }
         let rows = unsafe { &*addr_of_mut!(MEMBERS) };
         let cache = unsafe { &*addr_of_mut!(AIM_CACHE) };
         let mut args = VehMembers { indices: unsafe { std::mem::take(&mut *addr_of_mut!(AIM_WANTED)) } };

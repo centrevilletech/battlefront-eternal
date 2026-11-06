@@ -26,6 +26,7 @@ export function mountFixture({ classes = ['tank'], slots = 1, authority = false,
     camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } } });
   const v = system.variant(system.slots[0], classes[0]);
   v.spawn(1);
+  if(authority)system.fixtureRegistryStart=40;
   if (authority) nativeVehicles(system, { data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0) });
   return { collision, system, v };
 }

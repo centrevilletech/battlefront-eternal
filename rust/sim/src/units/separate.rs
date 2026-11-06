@@ -32,13 +32,35 @@ pub struct Scope {
 /// JavaScript's flat arrays; their x and z move with each push).
 #[derive(Default)]
 pub struct Pushers {
-    ids: Vec<u32>,
+    ids: Vec<crate::store::Ref<Unit>>,
     r: Vec<f64>,
     bottom: Vec<f64>,
     top: Vec<f64>,
     volume: Vec<f64>,
     x: Vec<f64>,
     z: Vec<f64>,
+    // A body can be pushed by several later pairs. Publish it once while
+    // retaining every individual tickCount increment used by lazy shapes.
+    moved: Vec<bool>,
+}
+
+impl Pushers {
+    /// UnitFactory.build reserves scratch before bodies enter the phase.
+    /// Clearing and resizing these arrays then reuses construction storage.
+    pub fn reserve(&mut self, capacity: usize) {
+        self.ids.reserve(capacity.saturating_sub(self.ids.len()));
+        for values in [&mut self.r, &mut self.bottom, &mut self.top,
+            &mut self.volume, &mut self.x, &mut self.z] {
+            values.reserve(capacity.saturating_sub(values.len()));
+        }
+        self.moved.reserve(capacity.saturating_sub(self.moved.len()));
+    }
+
+    /// separateSoldiers changes only contacting pairs, including corpses.
+    /// Untouched passive bodies need no mirror publication at this boundary.
+    pub fn changed(&self) -> impl Iterator<Item = crate::store::Ref<Unit>> + '_ {
+        self.ids.iter().zip(&self.moved).filter_map(|(&id, &moved)| moved.then_some(id))
+    }
 }
 
 /// separateSoldiers() over the registry's members in its order.
@@ -56,15 +78,17 @@ pub fn separate(registry: &Units, units: &mut Slab<Unit>, scope: &Scope, p: &mut
         if !scope.global && unit.position().distance_to_squared(&scope.camera) > 60.0 * 60.0 {
             continue;
         }
-        p.ids.push(r.slot);
+        p.ids.push(r);
     }
     let n = p.ids.len();
+    p.moved.clear();
+    p.moved.resize(n, false);
     for v in [&mut p.r, &mut p.bottom, &mut p.top, &mut p.volume, &mut p.x, &mut p.z] {
         v.clear();
         v.resize(n, 0.0);
     }
     for i in 0..n {
-        let unit = units.get(crate::store::Ref::new(p.ids[i], 0)).unwrap();
+        let unit = units.get(p.ids[i]).unwrap();
         let pos = unit.position();
         let body = if unit.walker {
             WALKER_BODY
@@ -98,8 +122,7 @@ pub fn separate(registry: &Units, units: &mut Slab<Unit>, scope: &Scope, p: &mut
             let (a, b) = (p.ids[i], p.ids[k]);
             let mut d = d2.sqrt();
             if d < 1e-4 {
-                dx = v8math::sin(a as f64);
-                dz = v8math::cos(a as f64);
+                (dx,dz) = v8math::sin_cos(a.slot as f64);
                 d = 1.0;
             }
             let depth = reach - d2.sqrt();
@@ -108,9 +131,11 @@ pub fn separate(registry: &Units, units: &mut Slab<Unit>, scope: &Scope, p: &mut
             p.z[i] += (dz / d) * share * p.volume[k];
             p.x[k] -= (dx / d) * share * p.volume[i];
             p.z[k] -= (dz / d) * share * p.volume[i];
+            p.moved[i] = true;
+            p.moved[k] = true;
             let (ax, az, bx, bz) = (p.x[i], p.z[i], p.x[k], p.z[k]);
             for (id, x, z) in [(a, ax, az), (b, bx, bz)] {
-                let unit = units.get_mut(crate::store::Ref::new(id, 0)).unwrap();
+                let unit = units.get_mut(id).unwrap();
                 match &mut unit.soldier {
                     UnitBody::Soldier(s) => {
                         s.position[0] = x;

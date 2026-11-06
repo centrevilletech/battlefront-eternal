@@ -204,6 +204,23 @@ pub fn new_mover(world: usize, class: impl FnOnce(&mut Mover)) -> u32 {
     (ms.list.len() - 1) as u32
 }
 
+/// Soldier's collision scratch is shared across sequential movers, while each
+/// mover retains its own candidate caches. This allocates no physics samples
+/// and leaves lastGround and every gather's invalidation stamp untouched.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn reserve_mover(id: u32, polygons: usize, triangles: usize, candidates: usize) {
+    let ms = movers();
+    ms.gathered.reserve(polygons, triangles);
+    for cache in &mut ms.caches[id as usize] { cache.reserve(candidates, candidates, candidates); }
+}
+
+// Soldier.touchPolygons shares geometry-keyed triangle storage across movers.
+// Body membership is cold; prepare actual polygon sizes before contact.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn prepare_world_gathers(world: usize) {
+    movers().gathered.prepare_dense(crate::collision::state(),world,16);
+}
+
 /// Mover `id`, whose state a caller loads before `advance` and reads after.
 pub fn mover(id: u32) -> &'static mut Mover {
     &mut movers().list[id as usize]

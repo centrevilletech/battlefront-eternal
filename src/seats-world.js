@@ -92,7 +92,7 @@ export class SeatsWorld {
     this.system.onMove?.(unit, holder, index);
   }
 
-  fired(holder, seat, shot, owner, muzzle, direction) {
-    this.system.onFired?.(holder, seat, shot, owner, muzzle, direction);
+  fired(holder, seat, shot, owner, muzzle, direction, sample = null) {
+    this.system.onFired?.(holder, seat, shot, owner, muzzle, direction, sample);
   }
 }

@@ -17,7 +17,7 @@ use crate::pose::Clip;
 use crate::units::{
     droideka::{self, DroidekaDef, DroidekaParts, ModeClips},
     shapes::{Bounds, HitShape},
-    world::{CastHit, GatherPolygon, UnitsWorld},
+    world::{CastHit, UnitsWorld},
 };
 use std::{ptr::addr_of_mut, rc::Rc};
 use three::Vector3;
@@ -537,23 +537,12 @@ impl UnitsWorld for ActorWorld<'_> {
             terrain: code == TERRAIN,
         })
     }
-    fn gather(
-        &mut self,
-        _: u32,
-        _: &Vector3,
-        _: f64,
-        _: usize,
-        _: &mut Vec<GatherPolygon>,
-    ) {
-        unreachable!("prediction visits retained gather triangles")
-    }
     fn visit_gathered(
         &mut self,
         _: u32,
         c: &Vector3,
         radius: f64,
         cache: usize,
-        _: &mut Vec<GatherPolygon>,
         visit: &mut dyn FnMut(bool, &[Vector3; 3]),
     ) {
         spheres::gather(

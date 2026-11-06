@@ -65,3 +65,31 @@ export function sameTyped(a, b, n) {
   if (!a || !b || a.constructor !== b.constructor) return false;
   return sameArray(a, b, n);
 }
+
+// A phase mask addresses its retained encoded row, including heap spans.
+// Check a whole record in word-sized chunks before decoding its fields.
+export function deltaChanged(mask, at, count, base = 0) {
+  if (!count) return false;
+  at = (at - base) | 0;
+  const end = (at + count - 1) | 0, first = at >>> 5, last = end >>> 5;
+  const left = 0xffffffff << (at & 31), right = 0xffffffff >>> (31 - (end & 31));
+  // Most generated fields fit in one word. Handle that range directly;
+  // larger records check the two partial ends and whole words between them.
+  if (first === last) return (mask[first] & left & right) !== 0;
+  if (mask[first] & left) return true;
+  for (let i = first + 1; i < last; i++) if (mask[i]) return true;
+  return (mask[last] & right) !== 0;
+}
+
+// A foreign observer temporarily borrows canonical fields in its mirror.
+// Restore those fields even when their final bits equal the consumed baseline.
+export function markDelta(mask, at, count, base = 0) {
+  if (!count) return;
+  at = (at - base) | 0;
+  const end = (at + count - 1) | 0, first = at >>> 5, last = end >>> 5;
+  const left = 0xffffffff << (at & 31), right = 0xffffffff >>> (31 - (end & 31));
+  if (first === last) { mask[first] |= left & right; return; }
+  mask[first] |= left;
+  for (let i = first + 1; i < last; i++) mask[i] = 0xffffffff;
+  mask[last] |= right;
+}

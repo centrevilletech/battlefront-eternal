@@ -22,13 +22,17 @@
 #[allow(clippy::module_inception, clippy::neg_cmp_op_on_partial_ord, clippy::too_many_arguments, clippy::needless_late_init)]
 pub mod combat;
 pub mod defs;
-// The module's combat entry (src/combat-sim.js): its exports and the world
-// its imports give.
+pub mod services;
+pub mod impacts;
+pub mod history;
+pub mod owners;
+pub mod targeting;
+// Native construction and service entry points for the owning unit phase.
 #[cfg(target_arch = "wasm32")]
 #[allow(clippy::too_many_arguments)]
 pub mod module;
 #[cfg(target_arch = "wasm32")]
-pub mod weapon_module;
+pub(crate) mod live;
 #[allow(clippy::neg_cmp_op_on_partial_ord, clippy::too_many_arguments)]
 pub mod weapons;
 pub mod world;

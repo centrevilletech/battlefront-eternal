@@ -211,8 +211,10 @@ pub fn truthy(x: f64) -> bool {
 
 /// A unit's store handle by its registry id (the kind's key).
 #[inline(always)]
-pub fn unit_ref(id: u32) -> Ref<Unit> {
-    Ref::new(id, 0)
+pub fn unit_ref(store: &crate::gen::Store, id: u32) -> Ref<Unit> {
+    // Registry ids survive pooled respawn; retired slab slots can instead
+    // acquire a new generation. Missing ids still produce a failed slab read.
+    store.unit.at(id).map_or(Ref::new(id, 0), |(reference, _)| reference)
 }
 
 pub(crate) fn v3(a: &[f64; 3]) -> Vector3 {

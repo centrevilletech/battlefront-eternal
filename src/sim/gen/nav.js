@@ -60,14 +60,14 @@ export const PATH_PLANNER_EXPORT_STRIDE = 5, PATH_PLANNER_IMPORT_STRIDE = 5, PAT
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncPathPlanner(b, f, at, h, m) {
-  { const items = (m.queue ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_PLANNER_REQUEST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.queue ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_PLANNER_REQUEST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.served = f[at + 4];
   return m;
 }
 
 // A full row into object `m`.
 export function syncFullPathPlanner(b, f, at, h, m) {
-  { const items = (m.queue ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_PLANNER_REQUEST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.queue ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_PLANNER_REQUEST].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.served = f[at + 4];
   return m;
 }
@@ -135,7 +135,7 @@ export function syncPlannerRequest(b, f, at, h, m) {
   { const $v = (m.start ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
   { const $v = (m.end ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
   m.radius = f[at + 12];
-  m.mask = f[at + 13];
+  m.mask = f[at + 13] >>> 0;
   m.priority = f[at + 14];
   m.served = f[at + 15];
   return m;
@@ -148,7 +148,7 @@ export function syncFullPlannerRequest(b, f, at, h, m) {
   { const $v = (m.start ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
   { const $v = (m.end ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
   m.radius = f[at + 12];
-  m.mask = f[at + 13];
+  m.mask = f[at + 13] >>> 0;
   m.priority = f[at + 14];
   m.served = f[at + 15];
   return m;

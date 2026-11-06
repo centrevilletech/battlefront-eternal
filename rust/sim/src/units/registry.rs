@@ -133,7 +133,7 @@ impl Units {
     /// of that unit (and alive).
     pub fn resolve(&self, units: &Slab<Unit>, r: Option<UnitRef>) -> Option<u32> {
         let r = r?;
-        let u = units.get(crate::store::Ref::new(r.unit, 0))?;
+        let u = units.at(r.unit)?.1;
         if u.generation == r.generation && u.alive {
             Some(r.unit)
         } else {
@@ -256,7 +256,7 @@ impl Units {
         world: &mut dyn UnitsWorld,
     ) -> Option<UnitHit> {
         let mut best = far;
-        let mut found: Option<(u32, usize)> = None;
+        let mut found = None;
         for &m in &self.list {
             // Soldiers on foot, and for rounds the riders they can see; the
             // registry's other members have no hit shapes (they are struck
@@ -293,17 +293,17 @@ impl Units {
                 if let Some(t) = segment_shape(origin, direction, best, candidate) {
                     if t < best {
                         best = t;
-                        found = Some((r.slot, i));
+                        found = Some((r, i));
                     }
                 }
             }
         }
-        let (id, i) = found?;
-        let u = units.get(crate::store::Ref::new(id, 0)).unwrap();
+        let (r, i) = found?;
+        let u = units.get(r).unwrap();
         let shape = u.hit_set()[i].clone();
         let mut point = Vector3::default();
         point.copy(origin).add_scaled_vector(direction, best);
         let normal = shape_normal(&point, &shape, direction);
-        Some(UnitHit { unit: id, distance: best, point, normal, part: shape.part })
+        Some(UnitHit { unit: r.slot, distance: best, point, normal, part: shape.part })
     }
 }

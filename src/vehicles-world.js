@@ -113,8 +113,8 @@ export class VehiclesWorld {
     this.vehicles.onDestroyed?.(vehicle);
   }
 
-  fired(vehicle, seat, shot, owner, muzzle, direction) {
-    this.vehicles.onFired?.(vehicle, seat, shot, owner, muzzle, direction);
+  fired(vehicle, seat, shot, owner, muzzle, direction, sample = null) {
+    this.vehicles.onFired?.(vehicle, seat, shot, owner, muzzle, direction, sample);
   }
 
   // Rounds and explosions (src/ordnance.js): an explosion at `position`,

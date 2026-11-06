@@ -65,6 +65,23 @@ export class DefTable {
   }
 }
 
+// A later native generation can arrive before all earlier references have
+// been published. Identity facades and generated mirrors share this small
+// displacement store; an explicit retirement/unlink releases each old row.
+function rememberDisplaced(pool, slot, gen, object) {
+  pool.displaced ??= new Map();
+  let lives = pool.displaced.get(slot);
+  if (!lives) { lives = new Map();pool.displaced.set(slot,lives); }
+  lives.set(gen,object);
+}
+function forgetDisplaced(pool, slot, gen) {
+  const lives = pool.displaced?.get(slot), object = lives?.get(gen);
+  if (!lives) return object;
+  lives.delete(gen);
+  if (!lives.size) pool.displaced.delete(slot);
+  return object;
+}
+
 // The slots of a kind's JavaScript objects, for references Rust holds to
 // a kind JavaScript still owns: a kind with a key uses the object's number
 // (generation 0); any other is given the slot freed last (or a new one) and
@@ -81,7 +98,19 @@ export class Identity {
     this.objects = [];
     this.gens = [];
     this.free = [];
+    this.nextSlot = 0;
   }
+
+  // Reserve native identity storage without allocating logical slots. A
+  // prepared immutable facade also reserves its WeakMap entry, so binding
+  // it at an in-phase mirror barrier only replaces existing scalar values.
+  reserve(count) {
+    const start = this.objects.length;
+    if (count <= start) return;
+    this.objects.length = this.gens.length = count;
+    for (let i = start; i < count; i++) { this.objects[i] = undefined;this.gens[i] = 0; }
+  }
+  prepare(object) { this.ids.set(object,undefined); }
 
   is(value) {
     if (value === null || typeof value !== "object") return false;
@@ -98,7 +127,7 @@ export class Identity {
     }
     let slot = this.ids.get(object);
     if (slot === undefined) {
-      slot = this.free.length ? this.free.pop() : this.objects.length;
+      slot = this.free.length ? this.free.pop() : this.nextSlot++;
       this.ids.set(object, slot);
       this.objects[slot] = object;
       this.gens[slot] = (this.gens[slot] ?? 0) + 1;
@@ -114,11 +143,44 @@ export class Identity {
     this.free.push(slot);
   }
 
+  // Immutable objects can originate in Rust too. A creation notice binds the
+  // ordinary facade before the next event decodes a reference to that slot.
+  // Mutable owned kinds continue to use MirrorPool and its generated sync.
+  bind(slot, gen, object) {
+    if (this.key) throw Error(`${this.name}: keyed identities bind through their key`);
+    if (this.objects[slot] !== undefined && this.objects[slot] !== object) throw Error(`${this.name}: occupied slot ${slot}`);
+    // Native binding consumes a free entry too. Otherwise repeated native
+    // slot reuse accumulates free indices that still name occupied facades.
+    const free = this.free.indexOf(slot);
+    if (free >= 0) this.free.splice(free,1);
+    this.ids.set(object, slot);
+    this.objects[slot] = object;
+    this.gens[slot] = gen;
+    if (this.nextSlot <= slot) this.nextSlot = slot + 1;
+  }
+
+  // A closed native life may remain in an ordered context list until that
+  // context next steps. Preserve reads of its exact generation during that
+  // interval, while stale commands still encode the old qualified key.
+  retain(slot, gen) {
+    const object = this.at(slot,gen);
+    rememberDisplaced(this,slot,gen,object);
+    this.retained ??= new WeakMap();
+    this.retained.set(object,{slot,gen});
+    if (this.objects[slot] === object) {
+      this.ids.delete(object);this.objects[slot] = undefined;
+    }
+    return object;
+  }
+  forget(slot, gen) { return forgetDisplaced(this,slot,gen); }
+
   put(object, f, at) {
     if (object === null || typeof object !== "object") throw Error(`${this.name}: not an object (${object})`);
+    const old = this.retained?.get(object);
+    if (old) { f[at] = old.slot;f[at + 1] = old.gen;return; }
     const slot = this.slotOf(object);
     f[at] = slot;
-    f[at + 1] = this.key ? 0 : this.gens[slot];
+    f[at + 1] = this.key ? (this.gens[slot] ?? 0) : this.gens[slot];
   }
 
   at(slot, gen) {
@@ -127,7 +189,11 @@ export class Identity {
       if (object === undefined || object === null) throw Error(`${this.name}: nothing numbered ${slot}`);
       return object;
     }
-    if (this.gens[slot] !== gen || this.objects[slot] === undefined) throw Error(`${this.name}: slot ${slot} is not of generation ${gen}`);
+    if (this.gens[slot] !== gen || this.objects[slot] === undefined) {
+      const old = this.displaced?.get(slot)?.get(gen);
+      if (old !== undefined) return old;
+      throw Error(`${this.name}: slot ${slot} is not of generation ${gen}`);
+    }
     return this.objects[slot];
   }
 }
@@ -154,10 +220,8 @@ export class MirrorPool {
   retire(slot, gen) {
     const m = this.objects[slot];
     if (m === undefined || m.simGen !== gen) {
-      const old = this.displaced?.get(slot)?.get(gen);
-      if (old === undefined) return new this.Mirror();
-      this.displaced.get(slot).delete(gen);
-      return old;
+      const old = forgetDisplaced(this,slot,gen);
+      return old === undefined ? new this.Mirror() : old;
     }
     if (!this.keyed) this.objects[slot] = undefined;
     return m;
@@ -166,15 +230,12 @@ export class MirrorPool {
   at(slot, gen) {
     let m = this.objects[slot];
     if (m === undefined || (!this.keyed && m.simGen !== gen)) {
+      const old = this.displaced?.get(slot)?.get(gen);
+      if (old !== undefined) return old;
       // A slot's next life met before the last one's retirement was synced
       // (a round fired into the slot a round left in the same phase): the
       // last one's mirror waits for its retired row.
-      if (m !== undefined) {
-        this.displaced ??= new Map();
-        let lives = this.displaced.get(slot);
-        if (!lives) this.displaced.set(slot, lives = new Map());
-        lives.set(m.simGen, m);
-      }
+      if (m !== undefined) rememberDisplaced(this,slot,m.simGen,m);
       m = new this.Mirror();
       m.simSlot = slot;
       m.simGen = gen;
@@ -370,6 +431,8 @@ export class SimBridge extends SimContext {
     // code, made the first time it is served.
     this.handlers = {};
     this.served = [];
+    this.phaseCounters = null;
+    this.beforeImport = null;
     // The import block: where it is (in f64s) and its size.
     this.exchange = this.x.sim_import_args() / 8;
     this.exchangeWords = this.x.sim_import_capacity();
@@ -453,6 +516,32 @@ export class SimBridge extends SimContext {
     return count;
   }
 
+  // The same event format, read directly at an owned phase's publication.
+  // A retained mirror is scratch: handlers copy any values they keep. Offset
+  // lets an aimer consume the prefix before the phase appends more events.
+  // The caller owns the epoch and clearing, so this adds no getter exports.
+  drainFrom(ptr, offset, mirrors, handlers, selected = false, cursor = null) {
+    this.views();
+    const f = this.f, base = ptr / 8, end = base + 1 + f[base];
+    let at = base + 1 + offset;
+    while (at < end) {
+      const event = EVENT_TABLE[f[at]], record = event.record, next = at + 2 + f[at + 1];
+      // Structural birth binding may read only its declared records before
+      // ordinary notifications drain. Skipping others must not decode their
+      // references early or run a gameplay observer inside the native span.
+      if (!selected || handlers[event.name]) {
+        record.sync(this, f, at + 2, at + 2 + record.words, mirrors[event.code]);
+        // Owning consumers acknowledge one record before invoking observers.
+        // A nested command may replace views or append another event batch.
+        if (cursor) cursor.consumeEvent(next - base - 1);
+        handlers[event.name]?.(mirrors[event.code]);
+      }
+      at = next;
+      if (cursor) break;
+    }
+    return at - base - 1;
+  }
+
   // Serves an import the module called: its arguments out of the import
   // block (the same stretch of memory every time: rust/sim/src/store/
   // calls.rs), handlers[name](args), the result written back there. The
@@ -464,9 +553,14 @@ export class SimBridge extends SimContext {
   serve(code) {
     const imp = IMPORT_TABLE[code], handler = this.handlers[imp.name];
     if (!handler) throw Error(`the simulation's module asked for ${imp.name}, which nothing serves`);
+    // An owning phase can bind newly created identities from direct memory
+    // before generated arguments resolve them. This hook never runs gameplay
+    // notifications and does not enter another export on the native stack.
+    this.beforeImport?.(code);
     const args = (this.served[code] ??= new imp.args.Mirror()), base = this.exchange;
     this.views();
-    const f = this.f;
+    const f = this.f, counters = this.phaseCounters;
+    if (counters) { counters.importCalls++; counters.outputFields += f[base] * f[base + 1] + f[base + 3]; }
     const result = handler(imp.args.sync(this, f, base + HEADER, base + f[base + 2], args));
     if (!imp.result) return;
     const record = imp.result, heap = this.heap, words = record.words;
@@ -474,6 +568,7 @@ export class SimBridge extends SimContext {
     heap.clear();
     record.put(this, result, this.rows, 0, heap);
     const hw = heap.words;
+    if (counters) counters.inputFields += HEADER + words + hw.length;
     if (HEADER + words + hw.length > this.exchangeWords) throw Error(`${imp.name}: a result larger than the import block`);
     this.views();
     const g = this.f, at = base + HEADER, rows = this.rows;

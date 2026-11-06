@@ -234,11 +234,16 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
         let (previous, owner, ignore_body, def, struck) = {
             let o = self.round(r);
-            (o.previous, o.owner, o.ignore_body, o.def, o.struck.clone().unwrap_or_default())
+            (o.previous, o.owner, o.ignore_body, o.def, o.struck.take())
         };
         let mid = add_scaled(previous, direction, span * 0.5);
-        let Some(near) = self.w.fat_query(mid, span * 0.5 + FATRAY_RADIUS + 4.0, owner, &struck, ignore_body) else { return };
-        for unit in near {
+        let empty = RefSet::default();
+        let near = self.w.fat_query(mid, span * 0.5 + FATRAY_RADIUS + 4.0, owner, struck.as_ref().unwrap_or(&empty), ignore_body);
+        // Units.query only reads its struck filter. Restore the same set
+        // before a sphere observation or hit can recursively reach this round.
+        self.round(r).struck = struck;
+        let Some(near) = near else { return };
+        for &unit in &near {
             let Some((center, radius)) = self.w.unit_sphere(unit) else { continue };
             let t = clamp(dot(sub(center, previous), direction), 0.0, span);
             let start = add_scaled(previous, direction, t);
@@ -251,6 +256,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             self.s().ordnance.start = start;
             self.w.hit_unit(unit, DefArg::Ordnance(def), Point::Start(start), owner, Nullable::Null, direction);
         }
+        self.w.recycle_fat_query(near);
     }
 
     /// ordnance.js beam: a beam persists for LifeSpan and follows its source.
@@ -525,38 +531,39 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.keep_rounds();
     }
 
-    // The lists' filters (`this.bolts = this.bolts.filter(...)`): the rest
-    // retired.
+    // Ordnance.update filters live lists in order and retires the rest. No
+    // callback runs during this filter, so retain their construction capacity
+    // for the next unit or vehicle shot instead of dropping the old Vec.
     fn keep_beams(&mut self) {
         let s = self.s();
-        let list = std::mem::take(&mut s.ordnance.beams);
-        for r in list {
-            if s.beam.get(r).is_some_and(|b| b.life > 0.0) { s.ordnance.beams.push(r) } else { s.beam.retire(r); }
-        }
+        let slab = &mut s.beam;
+        s.ordnance.beams.retain(|&r| {
+            if slab.get(r).is_some_and(|b| b.life > 0.0) { true } else { slab.retire(r); false }
+        });
     }
 
     fn keep_bolts(&mut self) {
         let s = self.s();
-        let list = std::mem::take(&mut s.ordnance.bolts);
-        for r in list {
-            if s.bolt.get(r).is_some_and(|b| b.life > 0.0) { s.ordnance.bolts.push(r) } else { s.bolt.retire(r); }
-        }
+        let slab = &mut s.bolt;
+        s.ordnance.bolts.retain(|&r| {
+            if slab.get(r).is_some_and(|b| b.life > 0.0) { true } else { slab.retire(r); false }
+        });
     }
 
     fn keep_grenades(&mut self) {
         let s = self.s();
-        let list = std::mem::take(&mut s.ordnance.grenades);
-        for r in list {
-            if s.grenade.get(r).is_some_and(|g| g.gone != Some(true)) { s.ordnance.grenades.push(r) } else { s.grenade.retire(r); }
-        }
+        let slab = &mut s.grenade;
+        s.ordnance.grenades.retain(|&r| {
+            if slab.get(r).is_some_and(|g| g.gone != Some(true)) { true } else { slab.retire(r); false }
+        });
     }
 
     fn keep_rounds(&mut self) {
         let s = self.s();
-        let list = std::mem::take(&mut s.ordnance.rounds);
-        for r in list {
-            if s.round.get(r).is_some_and(|o| o.gone != Some(true)) { s.ordnance.rounds.push(r) } else { s.round.retire(r); }
-        }
+        let slab = &mut s.round;
+        s.ordnance.rounds.retain(|&r| {
+            if slab.get(r).is_some_and(|o| o.gone != Some(true)) { true } else { slab.retire(r); false }
+        });
     }
 
     /// ordnance.js stepRound.

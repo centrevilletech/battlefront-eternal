@@ -16,7 +16,9 @@ for (const posture of ['stand', 'crouch', 'prone']) for (const zoomStep of [1, 2
       collision: { cast: () => null }, arsenal: { current: () => weapon },
       hud: { setVehicle() {}, setPlayer() {}, setSecondBar() {}, setScope() {}, setReticle(y) { reticle = y; } } });
     for (const key of ['origin','pivot','aimDir','left','up','worldPoint','screen','shotDir','target','eyePoint','from']) combat[key] = new THREE.Vector3();
-    combat.aim();
+    // The page observes the published body basis before drawing its scope.
+    combat.aimBasis();
+    combat.shotDir.copy(combat.aimDir);
     const eye = combat.eye(soldier.position, new THREE.Vector3());
     const view = new SoldierCamera(camera, combat.collision, def, { responsive: true });
     assert.equal(combat.usesEyeView, true);

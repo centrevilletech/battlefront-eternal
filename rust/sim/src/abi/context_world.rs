@@ -111,7 +111,6 @@ impl Context {
         self.world_run(
             input.state,
             |state, host| match input.op {
-                WorldLocalOperation::Player => local::player(state, input.dt, host),
                 WorldLocalOperation::Tail => local::tail(state, input.dt, host),
             },
             WorldLocalState::WORDS,

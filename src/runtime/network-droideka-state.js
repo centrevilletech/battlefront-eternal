@@ -11,7 +11,7 @@ function validBarrel(d, selected) {
     Number.isInteger(selected.barrel) && selected.barrel >= 0 && selected.barrel < (d.gunBarrels?.[selected.index]?.length || 1);
 }
 function prerequisite(d) {
-  if (!(d.clips instanceof Map) || typeof d.clip !== 'function' || typeof d.toggleShield !== 'function' ||
+  if (!(d.clips instanceof Map) || typeof d.clip !== 'function' ||
       !d.position?.isVector3 || !d.velocity?.isVector3 || !d.avoidance?.isVector3 || !d.previous?.isVector3 || !d.settled?.isVector3) throw Error('droideka state prerequisite missing');
 }
 

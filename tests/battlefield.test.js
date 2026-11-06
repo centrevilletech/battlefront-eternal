@@ -182,8 +182,7 @@ test('Theed: a trooper left outside the battlefield dies 10 s after he went out'
   // Out past the boundary's first edge, on the ground there (or where it would be).
   const e = game.battlefield.boundary.polygons[0][1];
   const len = Math.hypot(e.nx, e.nz);
-  s.position.set(e.x + (e.nx / len) * 20, s.position.y, e.z + (e.nz / len) * 20);
-  s.settled.copy(s.position); s.previous.copy(s.position); s.velocity.set(0, 0, 0);
+  game.playerUnit.spawn(e.x + (e.nx / len) * 20, s.position.y, e.z + (e.nz / len) * 20, 0);
   assert.equal(game.battlefield.outside(s.position), true);
   let ticks = 0;
   while (!game.combat.dead && ticks < 900) { step(); ticks++; }

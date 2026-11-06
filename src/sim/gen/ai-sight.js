@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiSightOp_NAMES = ["cluster","time","query","relation","kind","clearScratch","hasRequest","pop","candidate","keep","swap","targetPoint","targetOrigin","shooterOrigin","los","record","scanReady","scanClear","scanShared","scanRange","scanOrigin","scanQuery","scanTarget","scanRelation","scanCollision","scanForward","scanAim","scanBounds","scanDispatch","scanPriority","scanInsert","samplePoint"];
 export const AiSightOp_INDEX = new Map(AiSightOp_NAMES.map((name, i) => [name, i]));
+export const AiSightOp_VALUE = Object.freeze({"cluster":0,"time":1,"query":2,"relation":3,"kind":4,"clearScratch":5,"hasRequest":6,"pop":7,"candidate":8,"keep":9,"swap":10,"targetPoint":11,"targetOrigin":12,"shooterOrigin":13,"los":14,"record":15,"scanReady":16,"scanClear":17,"scanShared":18,"scanRange":19,"scanOrigin":20,"scanQuery":21,"scanTarget":22,"scanRelation":23,"scanCollision":24,"scanForward":25,"scanAim":26,"scanBounds":27,"scanDispatch":28,"scanPriority":29,"scanInsert":30,"samplePoint":31});
 
 export class AiSightArgsMirror {
   constructor() {
@@ -16,7 +17,7 @@ export class AiSightArgsMirror {
 
 export function syncAiSightArgs(b, f, at, h, m) {
   m.op = AiSightOp_NAMES[f[at + 0]];
-  m.id = f[at + 1];
+  m.id = f[at + 1] >>> 0;
   { const a = (m.from ??= new Array(3)); a[0] = f[at + 2]; a[1] = f[at + 3]; a[2] = f[at + 4]; }
   { const a = (m.point ??= new Array(3)); a[0] = f[at + 5]; a[1] = f[at + 6]; a[2] = f[at + 7]; }
   return m;
@@ -61,8 +62,8 @@ export class AiSightResultMirror {
 
 export function syncAiSightResult(b, f, at, h, m) {
   m.number = f[at + 0];
-  { const items = (m.ids ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.values ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.ids ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] >>> 0; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.flag = f[at + 5] !== 0;
   { const a = (m.point ??= new Array(3)); a[0] = f[at + 6]; a[1] = f[at + 7]; a[2] = f[at + 8]; }
   return m;

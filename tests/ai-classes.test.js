@@ -8,9 +8,6 @@ import { HintSet } from "../src/ai/classic/nav/hints.js";
 import { ClassicNav } from "../src/ai/classic/nav/index.js";
 import { refOf } from "../src/ai/classic/controller.js";
 import { FireControl, consumeFire, arsenalInput } from "../src/ai/classic/weapons-ai.js";
-import { PlayerCombat } from "../src/combat.js";
-import { LiveObjects } from "../src/props.js";
-import { CombatWorld } from "../src/combat-world.js";
 
 const v = (x = 0, y = 0, z = 0) => new Vector3(x, y, z);
 function unit(x = 0, team = 1, extra = {}) {
@@ -205,28 +202,3 @@ test("mine job drives signed secondary input and consumes real dispenser ammunit
   const w = s.owner.combat.arsenal.weapons[0]; assert.ok(w.clip + w.reserve < 3.01);
 });
 
-test("pilot input fires a real fusion cutter and shared gameplay applies its repair quantity", () => {
-  const def = { base: "repair", class: "cutter", channel: 1, RoundsPerClip: -1, ammo: 1,
-    BuildingHealth: 60, ShotDelay: 0.5, HeatPerShot: 0.06, HeatRecoverRate: 0.16, HeatThreshold: 0.7,
-    TargetEnemy: 0, TargetNeutral: 1, TargetFriendly: 1, ai: { maxRange: 3, extremeRange: 100, implicitRange: false } };
-  const s = setup([def]); s.owner.team = 2; s.controller.perception.fire = new FireControl(); s.owner.intent = { buttons: [0, 0] };
-  const building = { position: v(1), health: 100, maxHealth: 300, healthType: "building", alive: true, team: 2,
-    setHealth(value) { this.health = Math.min(value, this.maxHealth); } };
-  const target = unit(1, 2, { kind: 9, healthType: 4, building });
-  Object.defineProperties(target, { health: { get: () => building.health }, maxHealth: { get: () => building.maxHealth } });
-  const live = Object.create(LiveObjects.prototype); live.playerTeam = 1;
-  const combat = s.owner.combat; combat.live = live; combat.team = 2; combat.repairTarget = building; combat.world = new CombatWorld(combat);
-  const services = new RepairServices(s.ai); s.agent.job = { target: refOf(target), kind: "health" }; services.startRepairService(s.agent);
-  let previous = [0, 0]; let repairs = 0;
-  for (let i = 0; i < 4; i++) {
-    s.controller.fireA = false; services.repairService(s.agent);
-    consumeFire(s.controller, s.owner, s.world);
-    const input = arsenalInput(previous, s.owner.intent); previous = s.owner.intent.buttons.slice();
-    for (const shot of combat.arsenal.update(0.05, input, { blocked: false, repairTarget: building })) {
-      assert.equal(shot.repair, true); PlayerCombat.prototype.repairTick.call(combat, shot.weapon); repairs++;
-    }
-    s.world.time += 0.05;
-  }
-  assert.equal(repairs, 1); assert.equal(building.health, 160);
-  assert.equal(combat.arsenal.weapons[0].channel, 1);
-});

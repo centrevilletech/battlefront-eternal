@@ -34,7 +34,7 @@ if(args.includes('--verify')) {
     trace.attach(this,0);return trace.tick(this,s,input,dt,()=>original.call(this,s,input,dt));
   };
   const side=opt('side','rep'), era=['rep','cis'].includes(side)?'cw':'gcw';
-  const game=await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=1&units=js`);
+  const game=await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=1`);
   assert(game.collision.movement);
   const {createLocalServer}=await import('../src/runtime/local-server.js');
   const server=await createLocalServer(game,{name:'Movement fixture',send(){}});server.welcome();seed=1937;

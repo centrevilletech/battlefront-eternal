@@ -4,7 +4,7 @@
 //! query or triangle copy (src/collision.js rayCast and rayGather).
 
 use super::droideka::{DroidekaDef, DroidekaParts, ModeClips};
-use super::world::{CastHit, GatherPolygon};
+use super::world::CastHit;
 use crate::collision::spheres::{self, GatherCache, Gathered};
 use crate::collision::{self, broad, candidate, MISS, TERRAIN};
 use crate::pose::{self, Clip};
@@ -19,20 +19,24 @@ pub struct DroidekaClass {
 }
 
 impl DroidekaClass {
+    // Droideka.arm needs clips for its hidden gun, without allocating a
+    // temporary body and collision caches solely to borrow that class data.
+    pub fn parts(&self) -> DroidekaParts {
+        DroidekaParts { def: self.def, clips: self.clips.clone(), rig: None }
+    }
+
     /// Five optional class numbers as (present, value), followed by the
     /// fourteen modes' pose-sampler clip ids (-1 for a missing clip).
     pub fn read(row: &[f64]) -> Self {
-        let number = |at: usize| if row[at] != 0.0 { Some(row[at + 1]) } else { None };
-        let def = DroidekaDef {
-            max_pitch_speed: number(0),
-            ball_turn_speed: number(2),
-            ball_max_lean: number(4),
-            ball_acceleration: number(6),
-            ball_rolling_friction: number(8),
+        let input=crate::gen::F3DroidekaClass::take(row,&[]);
+        let def=DroidekaDef {
+            max_pitch_speed:input.max_pitch_speed,ball_turn_speed:input.ball_turn_speed,
+            ball_max_lean:input.ball_max_lean,ball_acceleration:input.ball_acceleration,
+            ball_rolling_friction:input.ball_rolling_friction,
         };
         let poses = pose::state();
         let by_mode = std::array::from_fn(|i| {
-            let id = row[10 + i];
+            let id = input.clips[i];
             if id < 0.0 {
                 return None;
             }
@@ -53,8 +57,20 @@ pub struct DroidekaBody {
 }
 
 impl DroidekaBody {
-    pub fn new(class: &DroidekaClass) -> Self {
-        Self { def: class.def, clips: class.clips.clone(), caches: std::array::from_fn(|_| GatherCache::new(0.75)), gathered: Gathered::new() }
+    pub fn new(class: &DroidekaClass, world: usize) -> Self {
+        // Droideka.touchPolygons borrows these buffers on every collision pass.
+        // Construct the working set now; clear only logical counts in a tick.
+        let mut gathered = Gathered::new();
+        gathered.reserve(256, 16);
+        let caches = std::array::from_fn(|_| {
+            let mut cache = GatherCache::new(0.75);
+            cache.reserve(512, 512, 512);
+            cache
+        });
+        // Dense authored polygons receive their exact immutable capacities
+        // while loading, without observing or invalidating a live gather.
+        gathered.prepare_dense(collision::state(), world, 16);
+        Self { def: class.def, clips: class.clips.clone(), caches, gathered }
     }
 
     /// The body's native tick needs its clips. The gun rig is still posed
@@ -63,15 +79,21 @@ impl DroidekaBody {
         DroidekaParts { def: self.def, clips: self.clips.clone(), rig: None }
     }
 
-    pub fn gather(&mut self, world: usize, center: &Vector3, radius: f64, cache: usize, out: &mut Vec<GatherPolygon>) {
+    // Droideka.touchPolygons consumes the same ordered triangles as page
+    // prediction. Convert one borrowed triangle on the stack, not an entire
+    // gather into a second set of growable vectors at each collision pass.
+    pub fn visit_gathered(&mut self, world: usize, center: &Vector3, radius: f64,
+        cache: usize, visit: &mut dyn FnMut(bool, &[Vector3; 3])) {
         let s = collision::state();
-        spheres::gather(s, world, [center.x, center.y, center.z], radius, None, Some(&mut self.caches[cache]), -1, flags(s.worlds[world].order.len()), &mut self.gathered);
-        out.clear();
-        for p in self.gathered.list() {
-            let triangles = p.tris.iter().map(|t| [v3(t.a), v3(t.b), v3(t.c)]).collect();
-            out.push(GatherPolygon { triangles, moving: p.moving });
+        spheres::gather(s, world, [center.x, center.y, center.z], radius, None,
+            Some(&mut self.caches[cache]), -1, flags(s.worlds[world].order.len()), &mut self.gathered);
+        for polygon in self.gathered.list() {
+            for triangle in &polygon.tris {
+                visit(polygon.moving, &[v3(triangle.a), v3(triangle.b), v3(triangle.c)]);
+            }
         }
     }
+
 }
 
 fn v3(p: [f64; 3]) -> Vector3 {
@@ -85,9 +107,13 @@ fn flags(count: usize) -> &'static [u8] {
 }
 
 pub fn cast(world: usize, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit> {
+    cast_static(world, origin, direction, far, false)
+}
+
+pub fn cast_static(world: usize, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit> {
     let s = collision::state();
     let ray = collision::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
-    let count = broad::world_candidates_near(s, world, &ray, far, -1, false, false);
+    let count = broad::world_candidates_near(s, world, &ray, far, -1, static_only, false);
     let flags = flags(s.worlds[world].order.len());
     let enabled = unsafe { &mut *addr_of_mut!(collision::ENABLED) };
     for (i, flag) in enabled.iter_mut().enumerate().take(count) {
@@ -99,4 +125,23 @@ pub fn cast(world: usize, origin: &Vector3, direction: &Vector3, far: f64) -> Op
     } else {
         Some(CastHit { point: Vector3::new(hit.px, hit.py, hit.pz), normal: Vector3::new(hit.nx, hit.ny, hit.nz), distance: hit.distance, terrain: code == TERRAIN })
     }
+}
+
+/// OrdnanceWorld.cast and castMoving use the same live collision tree as
+/// soldier movement, including the shooter's ignored body and moving mask.
+pub fn ordnance_cast(world: usize, origin: [f64; 3], direction: [f64; 3], far: f64, ignore: Option<crate::store::Ref<crate::gen::Body>>, static_only: bool, moving: bool) -> Option<crate::ordnance::world::Hit> {
+    let ignored = ignore.map_or(-1, |r| crate::vehicles::module::collision_world().and_then(|c| c.kernel_slot(r.slot)).expect("named ignored body") as i64);
+    let s = collision::state();
+    let ray = collision::Ray { ox: origin[0], oy: origin[1], oz: origin[2], dx: direction[0], dy: direction[1], dz: direction[2] };
+    let count = broad::world_candidates_near(s, world, &ray, far, ignored, static_only, moving);
+    let flags = flags(s.worlds[world].order.len());
+    let enabled = unsafe { &mut *addr_of_mut!(collision::ENABLED) };
+    for (i, flag) in enabled.iter_mut().enumerate().take(count) { *flag = flags[candidate(i)]; }
+    // CollisionWorld.castMoving excludes terrain and fixed meshes as well as
+    // fixed body candidates. Bolts already retained their static impact at
+    // launch; treating it as a moving hit would overwrite its terrain surface.
+    let (code, h) = if moving { collision::world_cast_moving_ray(s, world, &ray, far, count) }
+        else { collision::world_cast_ray(s, world, &ray, far, v8math::hypot(direction[0], direction[2]), count) };
+    (code != MISS).then(|| crate::ordnance::world::Hit { distance: h.distance, point: [h.px, h.py, h.pz], normal: [h.nx, h.ny, h.nz],
+        terrain: code == TERRAIN, body: if code >= 0 { Some(super::f3::body_reference(code as usize)) } else { None } })
 }

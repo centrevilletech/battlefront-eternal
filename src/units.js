@@ -4,11 +4,11 @@ import { buildActor } from "./actor.js";
 import { loadClips } from "./anim.js";
 import { SoldierAnimation } from "./animator.js";
 import { PlayerCombat } from "./combat.js";
-import { Droideka, ShieldBubble, goneUp } from "./droideka.js";
+import { Droideka, ShieldBubble } from "./droideka.js";
 import { heatMaterial } from "./destruction-debris.js";
 import { givePowerup } from "./items.js";
 import { ENGINE, Soldier } from "./soldier.js";
-import { takeImpacts } from "./collision-damage.js";
+
 import { SoldierPresentation, HeadlessSoldierPresentation } from "./soldier-presentation.js";
 import { RIDER_SHAPES } from "./rider-pose.js";
 
@@ -26,8 +26,6 @@ import { RIDER_SHAPES } from "./rider-pose.js";
 // same class takes a free body of that class back, its generation bumped so
 // that old references to it go stale.
 
-// A body lies 4 s where it fell, then is gone (the soldier's dead state).
-const DEATH_LINGER = 4;
 const JET_EFFECT_BONE = "bone_ribcage";
 
 // What rounds strike on a soldier, per posture, in its frame (x its left, y
@@ -89,13 +87,6 @@ function boundShapes(shapes, count, bounds) {
   }
   bounds.radius = r;
 }
-
-// The units whose hit shapes JavaScript makes while the units' phase runs
-// on the simulation's module and the battle's code reads it
-// (src/units-sim.js `reading`): they go back into the store after, as made
-// on first asking in a tick is when the JavaScript makes them. Null
-// otherwise.
-export const unitWatch = { touched: null };
 
 // Mines feel a soldier's bounding sphere: its centre above the feet and its
 // size (as main.js has them for the player).
@@ -210,12 +201,10 @@ export class Unit {
     this.tickCount = 0;
     this.jetFlame = null;
     this.bubble = null;
-    this.poseClock = 0; // s of animation not yet applied
     // The page's: the life whose body has gone up, and how long ago
     // ({ generation, t }); the body's own materials while it dissolves.
     this.gone = null;
     this.ownMaterials = null;
-    this.onDeath = () => {};
     this.onRemoved = () => {};
     this.onMoved = () => {};
     // Set later: by the factory (navRadius to itemTarget), a life
@@ -257,7 +246,9 @@ export class Unit {
 
   // The broadphase sphere around the hit spheres, for this tick's pose.
   get sphere() {
-    if (this.spheresTick !== this.tickCount) this.updateSpheres();
+    // The native owner can publish bounds after observing its lazy shapes;
+    // limb arrays need copying only when a reader asks hitShapes explicitly.
+    if (this.spheresTick !== this.tickCount) this.updateSpheres(true);
     return this.bounds;
   }
 
@@ -301,7 +292,6 @@ export class Unit {
   }
 
   updateSpheres() {
-    unitWatch.touched?.push(this);
     const s = this.soldier;
     const p = s.position;
     // A rider shown in the open (SeatLease exposed): rounds meet his posed
@@ -406,7 +396,6 @@ export class Unit {
     this.hero = Boolean(def.hero || def.IsHero);
     this.rootScale = def.CollisionRootScale ?? 1;
     this.spheresTick = -1;
-    this.poseClock = 0;
     this.shadowNear = undefined;
     this.jetFlame?.stop();
     this.jetFlame = null;
@@ -481,57 +470,6 @@ export class Unit {
     this.actor.body.material = this.ownMaterials;
     delete this.actor.body.userData.heated;
     this.ownMaterials = null;
-  }
-
-  // One physics step: the intent through the soldier's own movement, then
-  // its weapons. The player's unit is stepped by main.js instead.
-  tick(h) {
-    if (this.removed) return;
-    this.tickCount += 1;
-    // The occupied control consumes its intent and runs the vehicle physics.
-    // Do not consume its edges or step the hidden soldier a second time.
-    if (this.seat && this.alive) return;
-    // A creature holds him (src/props.js): it moves him, and nothing he
-    // does counts until it lets go; the dead body it carries waits too.
-    if (this.held) return;
-    const intent = this.intent;
-    const s = this.soldier;
-    const input = this.input;
-    const remoteActive = this.combat.remotes?.active;
-    if (this.alive && !remoteActive) {
-      input.forward = intent.forward;
-      input.right = intent.right;
-      input.turn = intent.turn;
-      input.pitch = intent.pitch;
-      input.jump = intent.jump;
-      input.crouch = intent.crouch;
-      input.prone = intent.prone;
-      input.use = intent.use;
-      input.jetDirection = intent.jetDirection;
-    } else {
-      input.forward = input.right = input.turn = input.pitch = 0;
-      input.jump = input.crouch = input.prone = input.use = false;
-    }
-    intent.jump = intent.crouch = intent.prone = false;
-    if (!remoteActive) intent.use = false;
-    this.presentation.beforeStep();
-    s.tick(input, h);
-    // What hitting the ground or a wall too hard did to him, or a fall past
-    // saving (src/collision-damage.js).
-    takeImpacts(this);
-    this.presentation.afterStep();
-    // The aimer runs between moving and firing (a bot's Classic Aimer).
-    if (this.alive) this.onMoved(h);
-    this.combat.aimOverride = this.alive ? intent.aim : null;
-    this.controls.latch();
-    this.remoteStep?.(h, remoteActive ? intent : null, this.controls);
-    s.sampleMuzzles?.(h);
-    this.combat.update(h, this.controls, Math.max(Math.abs(input.forward), Math.abs(input.right)));
-    this.combat.flushMuzzles();
-    if (this.dead) {
-      this.deadTime += h;
-      if (this.deadTime >= DEATH_LINGER) this.remove();
-    }
   }
 
   castShadows(near) {
@@ -615,14 +553,13 @@ export class UnitFactory {
   // context: { graphics, scene, collision, animMeta, animBuf, json, bin,
   //   ordnance, lights, weaponModels, flashModel, anyTexture, effects,
   //   settings, maxFlyHeight, items, live, units (registry), destruction
-  //   (Enhanced droid deaths, or null), onBlowApart(unit, health), onDeath(unit) }
+  //   (Enhanced droid deaths, or null) }
   constructor(sides, context) {
     this.sides = sides;
     this.context = context;
     this.loading = new Map(); // key -> Promise
     this.loaded = new Map(); // key -> resolved data
     this.clipSets = new Map(); // bone names -> clips
-    this.pool = new Map(); // className -> free units
     this.built = [];
   }
 
@@ -703,21 +640,17 @@ export class UnitFactory {
   // A free unit of the class, built if none is free. The class must have
   // been prepared.
   acquire(className) {
-    const free = this.pool.get(className);
-    if (free?.length) return free.pop();
-    return this.build(className);
+    return this.context.unitPhase.acquire(className);
   }
 
   release(unit) {
-    if (!this.pool.has(unit.className)) this.pool.set(unit.className, []);
-    const free = this.pool.get(unit.className);
-    if (!free.includes(unit)) free.push(unit);
+    return this.context.unitPhase.release(unit);
   }
 
   // `page`: a body a page draws and predicts its own player with (a tool's
   // stand-in for one): its combat is the JavaScript's even where the
   // world's combats are on the simulation's module.
-  build(className, { page = false } = {}) {
+  build(className, { page = false, prepared = false } = {}) {
     const c = this.context;
     const sideName = this.sideOf(className);
     if (!sideName) throw new Error(`no side has the class ${className}`);
@@ -739,9 +672,8 @@ export class UnitFactory {
     const unit = new Unit({ side: sideName, className, def, actor, soldier, animator, walker,
       combat: null, presentation: new (c.headless ? HeadlessSoldierPresentation : SoldierPresentation)(soldier) });
     unit.navRadius = Math.fround(0.25 * Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z));
-    // A world's combats on the simulation's module (src/combat-sim.js), where
-    // it asked for them: the same shape, its state the store's.
-    const combat = (c.combatSim && !page ? c.combatSim.make.bind(c.combatSim) : (options) => new PlayerCombat(options))({
+    // Worlds construct native combat facades; pages keep drawn weapon state.
+    const combat = (c.headless && !page ? c.combatSim.make.bind(c.combatSim) : (options) => new PlayerCombat(options))({
       soldier, def, actor, animator,
       collision: c.collision,
       camera: null,
@@ -759,17 +691,8 @@ export class UnitFactory {
     combat.items = c.items;
     combat.live = c.live;
     combat.effects = c.effects;
-    if (c.arcTargets) combat.arcTargets = c.arcTargets;
-    if (c.lightning) combat.lightning = c.lightning;
     combat.deferMuzzles = walker;
     combat.onRespawn = () => {};
-    combat.onDeath = () => {
-      unit.alive = false;
-      unit.dead = true;
-      unit.deadTime = 0;
-      c.onDeath?.(unit);
-    };
-    combat.onBlowApart = (health) => c.onBlowApart?.(unit, health);
     unit.combat = combat;
     // Its shadow, and its guns', through the crowd's one mesh (crowd-shadows.js).
     unit.crowdSlot = c.graphics.crowdShadows?.add(unit) ?? null;
@@ -780,15 +703,6 @@ export class UnitFactory {
       unit.bubble = !c.headless && look ? new ShieldBubble(c.scene, look, c.anyTexture, c.settings) : null;
       // The game's hook flares the bubble (or records it, in a world worker).
       soldier.onShieldHit = (amount, source, kind) => (c.shieldHit ? c.shieldHit(unit, amount, source, kind) : unit.bubble?.hit(source, amount, soldier, kind));
-      const blasts = ["explosion", "med_explosion", "small_explosion"];
-      soldier.onDeathBlast = () => {
-        // The game's hook draws it (or records it, in a world worker).
-        if (c.deathBlast) return c.deathBlast(unit);
-        if (c.destruction?.deathBlast(unit)) return;
-        const bone = actor.bones[Math.floor(Math.random() * actor.bones.length)];
-        c.effects.play(blasts[Math.floor(Math.random() * blasts.length)], bone.getWorldPosition(new THREE.Vector3()));
-      };
-      soldier.onExploded = () => combat.onBlowApart(0);
       // How its body dissolves as it goes up (Unit.dissolve).
       unit.enhancedDeath = () => (c.settings?.get?.("destructionEffects") ?? "enhanced") === "enhanced";
     }
@@ -809,7 +723,7 @@ export class UnitFactory {
       get center() { return center.set(soldier.position.x, soldier.position.y + BODY_MIDDLE, soldier.position.z); },
       radius: BODY_RADIUS,
       velocity: soldier.velocity,
-      relation: (team) => c.units.relation(unit.team, team),
+      relation: (team) => c.units.relation((unit.canonicalTarget ?? unit).team, team),
       give: (item) => {
         const given = givePowerup(item, {
           get health() { return combat.health; },
@@ -821,10 +735,18 @@ export class UnitFactory {
         return given.health || given.ammo;
       },
     };
-    c.units.add(unit);
+    // A correction tool can construct an independent page body beside its
+    // headless authority. It predicts and draws that body, never ticks it as
+    // another world unit or lends its ordinary arsenal to native ownership.
+    if (page && c.headless) return unit;
+    // Cold stock has no registry identity yet. Its temporary slab row is
+    // transferred out before another body uses this same construction slot.
+    if (prepared) unit.id = c.units.nextId;
+    else c.units.add(unit);
     // (A combat on the module is the store's from now on: it has his id.)
     combat.attach?.();
-    this.built.push(unit);
+    if (c.unitPhase) c.unitPhase.adopt(unit);
+    if (!prepared) this.built.push(unit);
     c.onBuilt?.(unit);
     return unit;
   }

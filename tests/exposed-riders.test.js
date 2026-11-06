@@ -16,7 +16,6 @@ import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleDriver } from "../src/vehicles.js";
 import { Units, makeUnitHit, segmentCapsule, strikeable } from '../src/registry.js';
 
-import { HitHistory } from '../src/runtime/hit-history.js';
 import { Unit } from '../src/units.js';
 import { Soldier } from '../src/soldier.js';
 
@@ -158,7 +157,6 @@ test('a rider shown in the open is struck where his body is drawn; sight tests a
   // rounded top ends at the neck, below the head.
   near(shapes[1].center.y - node.y, (1 + 1.3) / 2, 0.03, 'torso from pelvis to neck');
   // The seat's own clip, drawn and hit alike.
-  assert.equal(unit.calls.gunner.at(-1).clip, 'human_ride');
   const from = new THREE.Vector3(-10, head.center.y, head.center.z), dir = new THREE.Vector3(1, 0, 0);
   const hit = world.units.raycast(from, dir, 20, null, makeUnitHit(), null, true);
   same(hit?.unit, unit, 'a round meets him');
@@ -203,8 +201,6 @@ test('a rifle kills a rider in the open as on foot: his hull takes nothing, his 
   near(unit.soldier.position.z - node.z, 0.2, 0.03, 'under the pelvis');
   assert.equal(unit.soldier.velocity.length(), 0);
   assert.equal(unit.soldier.grounded, false);
-  assert.equal(unit.calls.die, 1);
-  assert.equal(unit.calls.gunner.at(-1).clip, null, 'out of the seat pose');
   assert.equal(strikeable(unit), true, 'a corpse still stops rounds');
 });
 
@@ -288,17 +284,6 @@ test('the player killed on an exposed seat leaves it where he rode, his death cl
   same(world.v.seats[0].lease?.unit, bot, 'the bot aboard takes the controls');
 });
 
-test("the server's hit history keeps riders in the open", () => {
-  const world = mount();
-  const unit = seat(world, rider(1));
-  const history = new HitHistory(world.units);
-  history.capture(0);
-  const head = unit.hitShapes()[0].center.clone();
-  const from = new THREE.Vector3(head.x - 10, head.y, head.z), dir = new THREE.Vector3(1, 0, 0);
-  same(history.raycast(0, from, dir, 20, null, makeUnitHit(), null, true)?.unit, unit);
-  assert.equal(history.raycast(0, from, dir, 20, null, makeUnitHit(), null), null, 'only rounds that ask for riders');
-});
-
 // The imported battles (BFE_CONTENT_DIR, or public/): rifle bolts at the
 // riders the 2004 game shows, in the headless world the worker and the
 // server run.
@@ -318,8 +303,9 @@ test('imported riders: speeder bikes, skiffs and a tauntaun die to rifle bolts; 
     let className = null;
     for (const s of Object.values(game.data.sides)) for (const [n, d] of Object.entries(s.units || {})) if (!className && d.base === 'soldier' && !d.hero && !Number(d.NoEnterVehicles ?? 0)) className = n;
     await game.factory.prepare(className);
-    // Native rounds require a registered Unit owner, including for a shot
-    // fired outside a player's normal weapon update. Keep it off the field.
+    game.unitsSim.construction.prepare(className,32);
+    // Native ordnance owns qualified Unit references. Keep a real dormant
+    // body as the attacker; it has a team but does not tick or block a shot.
     const shooter = game.factory.acquire(className);
     shooter.team = shooter.combat.team = 3;
     const checked = new Set();

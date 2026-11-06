@@ -381,13 +381,19 @@ export function vehicleClassView(vehicle) {
 
 // A seat's weapons as the AI's weapon code reads an arsenal: weapons, the
 // selected one per channel (a seat's channel c is its weapon c).
-function seatArsenal(weapons) {
+function seatArsenal(weapons, lease) {
   weapons.forEach((w, i) => { if (w.channel === undefined || w.channel === null) w.channel = i; });
   const channels = [weapons[0] ? [weapons[0]] : [], weapons[1] ? [weapons[1]] : []];
   return {
     weapons,
     channels,
     selected: [0, 0],
+    // Classic attaches its shared generator after the board command returns.
+    // Owned mounted weapons receive that scalar before any later publication.
+    setRandom(draw) {
+      for (let i = 0; i < weapons.length; i++) weapons[i].random = draw;
+      lease.unit.f3.mountedRandom(lease,draw);
+    },
     current(channel = 0) { return channels[channel ?? 0]?.[0] || null; },
     select(weapon) { return weapons.includes(weapon); },
   };
@@ -431,7 +437,7 @@ export class SeatUnit {
     }
     const weapons = lease.vehicle ? lease.vehicle.seats[lease.index].weapons.map((w) => w.state) : lease.turret.weapon ? [lease.turret.weapon] : [];
     const unit = this;
-    const arsenal = seatArsenal(weapons);
+    const arsenal = seatArsenal(weapons,lease);
     this.combat = {
       arsenal,
       mounted: true,

@@ -16,6 +16,7 @@ function accept(t, s, showing = false) {
   if (!showing) t.state = s.built ? 'built' : 'unbuilt';
   t.health = s.health; t.phase = s.phase; t.started = s.started;
   t.time = s.time; t.sprung = s.sprung; t.tick = s.tick; t.crushed = s.crushed;
+  t.f3Facts?.invalidate();
 }
 function settings(t) {
   return { maxHealth: t.maxHealth, reach: t.reach, minRadius: t.minRadius, deathTime: t.deathTime,

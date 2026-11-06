@@ -14,7 +14,7 @@ use crate::gen::{ClientCommand, ClientFrame, ClientHull, ClientHullState, Client
     ClientLook, ClientResult, ClientFlightCommand, ClientFlightHeld as Held, ClientFlightAction as Action, OrdnanceOwner, Vehicle, VehicleWheel};
 use crate::seats::boarding::{LookAccess, LookField, SeatControl, seat_look_with};
 use crate::store::Strings;
-use crate::vehicles::{BodyId, Ground, Hit, Hull, Input, Polygon, VehicleWorld};
+use crate::vehicles::{BodyId, Ground, Hit, Hull, Input, Polygon, SpringPolygons, VehicleWorld};
 use crate::vehicles::native::{Collision, MapRules};
 use three::{Matrix4, Quaternion, Vector3};
 
@@ -137,7 +137,7 @@ impl Session {
         // Flyers retain the old conservative rewind on a new authority tick.
         let after = if continued { self.sequence } else { 0.0 };
         if !continued {
-            self.hull.load(&self.row, &self.strings);
+            self.hull.load(&self.row);
             if self.hull.flying {
                 // Flight::from_store is a fixed stack value; class and gear
                 // handles are retained, and all message texts were interned.
@@ -151,8 +151,15 @@ impl Session {
             }
             // None means first contact has not happened. Preserve that state
             // while keeping a spare backing buffer for the next initialization.
-            if h.has_legs { let sides = self.hull.leg_side.get_or_insert_with(Vec::new); sides.clear(); sides.extend_from_slice(legs); }
-            else if let Some(sides) = self.hull.leg_side.take() { self.hull.leg_side_scratch = sides; }
+            if h.has_legs {
+                if self.hull.leg_side.is_none() { self.hull.leg_side = Some(std::mem::take(&mut self.hull.leg_side_storage)); }
+                let sides = self.hull.leg_side.as_mut().unwrap(); sides.clear(); sides.extend_from_slice(legs);
+            }
+            else if let Some(mut sides) = self.hull.leg_side.take() {
+                // predictVehicle restores absence before first contact. Keep
+                // capacity, but discard old values so resize initializes zeros.
+                sides.clear(); self.hull.leg_side_storage = sides;
+            }
             let pose = self.hull.pose.as_mut().ok_or(INVALID)?;
             pose.walk_phase = h.walk_phase; pose.walk_blend = h.walk_blend;
             self.from_walk = [h.walk_from_phase, h.walk_from_blend];
@@ -450,7 +457,11 @@ impl VehicleWorld for World<'_> {
         self.collision.push_walls(self.state, self.body, p, r, q, own, previous, position, velocity, terrain).expect("prediction collider")
     }
     fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<Ground> { self.collision.ground(self.state, x, z, top) }
-    fn spring_polygons(&mut self, _: usize, index: usize, center: &Vector3, radius: f64, out: &mut Vec<Polygon>) { self.collision.spring_polygons(self.state, self.body, index, center, radius, out).expect("prediction spring"); }
+    // hoverContacts borrows the collision gather until its next query, just
+    // as the authority does. Prediction keeps that scratch in its own view.
+    fn spring_polygons<'a>(&'a mut self, _: usize, index: usize, center: &Vector3, radius: f64, _out: &'a mut Vec<Polygon>) -> SpringPolygons<'a> {
+        SpringPolygons::Native(self.collision.spring_polygons(self.state, self.body, index, center, radius).expect("prediction spring"))
+    }
     // syncBody updates the private hull matrix for its own equations. Its
     // collider must stay at authority for other actors and later page frames.
     fn move_body(&mut self, _: BodyId, _: &Matrix4) {}

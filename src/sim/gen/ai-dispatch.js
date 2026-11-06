@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiDispatchOp_NAMES = ["init","kinds","roleAI","rolePlain","roleName","ownerHero","targetHero","select","aux","action","inBand","pattern","probability","roll","vehicleHook","vehicleDispatch","rangeStart","difficulty","roleStart","skill","numericAction"];
 export const AiDispatchOp_INDEX = new Map(AiDispatchOp_NAMES.map((name, i) => [name, i]));
+export const AiDispatchOp_VALUE = Object.freeze({"init":0,"kinds":1,"roleAI":2,"rolePlain":3,"roleName":4,"ownerHero":5,"targetHero":6,"select":7,"aux":8,"action":9,"inBand":10,"pattern":11,"probability":12,"roll":13,"vehicleHook":14,"vehicleDispatch":15,"rangeStart":16,"difficulty":17,"roleStart":18,"skill":19,"numericAction":20});
 
 export class AiDispatchArgsMirror {
   constructor() {
@@ -51,7 +52,7 @@ export class AiDispatchResultMirror {
 export function syncAiDispatchResult(b, f, at, h, m) {
   m.flag = f[at + 0] !== 0;
   m.number = f[at + 1];
-  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.text = b.strings.at(f[at + 4]);
   return m;
 }

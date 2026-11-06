@@ -40,8 +40,7 @@ const opts = (name) => argv.flatMap((a, i) => (a === `--${name}` ? [argv[i + 1]]
 const out = opt('out', null);
 if (!out) { console.error('usage: node tools/world-hash-matrix.mjs --out DIR [options] (see the top of the file)'); process.exit(2); }
 
-const BUILTIN_VARIANTS = { rust: [],
-  combat: ['--combat', 'rust'], units: ['--units', 'rust'], unitscombat: ['--units', 'rust', '--combat', 'rust'] };
+const BUILTIN_VARIANTS = { rust: [] };
 const custom = Object.fromEntries(opts('variant').map((v) => { const at = v.indexOf('='); return [v.slice(0, at), v.slice(at + 1).split(/\s+/).filter(Boolean)]; }));
 const variantNames = String(opt('variants', 'rust')).split(',').filter(Boolean);
 const variants = variantNames.map((name) => {

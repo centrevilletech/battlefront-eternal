@@ -24,7 +24,7 @@ use crate::gen::{
 };
 use crate::store::Ref;
 use crate::units::shapes::{Bounds, HitShape};
-use crate::units::world::{CastHit, GatherPolygon, UnitsWorld};
+use crate::units::world::{CastHit, UnitsWorld};
 use three::Vector3;
 
 #[cfg(target_arch = "wasm32")]
@@ -254,7 +254,8 @@ impl UnitsWorld for Ground {
     fn cast(&mut self, _: &Vector3, _: &Vector3, _: f64) -> Option<CastHit> {
         unreachable!("the module ground boundary belongs to its collision instance")
     }
-    fn gather(&mut self, _id: u32, _center: &Vector3, _radius: f64, _cache: usize, _out: &mut Vec<GatherPolygon>) {
+    fn visit_gathered(&mut self, _: u32, _: &Vector3, _: f64, _: usize,
+        _: &mut dyn FnMut(bool, &[Vector3; 3])) {
         unreachable!("a spawn gathers nothing")
     }
     fn seat_exposed(&mut self, _id: u32, _unit: &Unit) -> bool {

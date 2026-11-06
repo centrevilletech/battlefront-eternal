@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiPatternOp_NAMES = ["field","initValue","request","flush","priorCapture","random","time","int","add","agent","state","stateValue","stop","roll","action","coverInit","jetEnter","delay","gotoTarget","vehicleEnter","stance","coverExit","jetExit","vehicleExit","vehicleTick","cleanup","range","rangeCompare","findCover","reserve","priorFrom","jetUnit","jetJump","jetBorder","jetFuel","jetReady","jetHints","hintFind","sampleTime","transition","standingUnit","speed","sidestep","stationary","face","helper","arrived","stopHelper","reposition","redirect","flank","coverUpdate","coverDone","restore","fieldTruthy","plus","flying","hintTick","freshTarget","agentArrived","look","meleeStart","directClear","canFollow","follow","gotoMelee","pointRead","pointWrite","uniform","repositionWeapon","repositionRange","repositionBands","rangeDraw","targetPoint","geometryStart","movePoint","captureMove","lowerBand","upperBand","geometryStop","dodge","wasFacing","facingTarget","stepToBand","stepped","bandStart","redirectAction","sideClone","forward","lateralRange","geometryRange","angleValue","directStart","directPosition","pointClear","los","jetObstructed","jetMove","jetRequest","directTime"];
 export const AiPatternOp_INDEX = new Map(AiPatternOp_NAMES.map((name, i) => [name, i]));
+export const AiPatternOp_VALUE = Object.freeze({"field":0,"initValue":1,"request":2,"flush":3,"priorCapture":4,"random":5,"time":6,"int":7,"add":8,"agent":9,"state":10,"stateValue":11,"stop":12,"roll":13,"action":14,"coverInit":15,"jetEnter":16,"delay":17,"gotoTarget":18,"vehicleEnter":19,"stance":20,"coverExit":21,"jetExit":22,"vehicleExit":23,"vehicleTick":24,"cleanup":25,"range":26,"rangeCompare":27,"findCover":28,"reserve":29,"priorFrom":30,"jetUnit":31,"jetJump":32,"jetBorder":33,"jetFuel":34,"jetReady":35,"jetHints":36,"hintFind":37,"sampleTime":38,"transition":39,"standingUnit":40,"speed":41,"sidestep":42,"stationary":43,"face":44,"helper":45,"arrived":46,"stopHelper":47,"reposition":48,"redirect":49,"flank":50,"coverUpdate":51,"coverDone":52,"restore":53,"fieldTruthy":54,"plus":55,"flying":56,"hintTick":57,"freshTarget":58,"agentArrived":59,"look":60,"meleeStart":61,"directClear":62,"canFollow":63,"follow":64,"gotoMelee":65,"pointRead":66,"pointWrite":67,"uniform":68,"repositionWeapon":69,"repositionRange":70,"repositionBands":71,"rangeDraw":72,"targetPoint":73,"geometryStart":74,"movePoint":75,"captureMove":76,"lowerBand":77,"upperBand":78,"geometryStop":79,"dodge":80,"wasFacing":81,"facingTarget":82,"stepToBand":83,"stepped":84,"bandStart":85,"redirectAction":86,"sideClone":87,"forward":88,"lateralRange":89,"geometryRange":90,"angleValue":91,"directStart":92,"directPosition":93,"pointClear":94,"los":95,"jetObstructed":96,"jetMove":97,"jetRequest":98,"directTime":99});
 
 export class AiPatternArgsMirror {
   constructor() {
@@ -17,7 +18,7 @@ export class AiPatternArgsMirror {
 
 export function syncAiPatternArgs(b, f, at, h, m) {
   m.op = AiPatternOp_NAMES[f[at + 0]];
-  m.id = f[at + 1];
+  m.id = f[at + 1] >>> 0;
   m.number = f[at + 2];
   m.other = f[at + 3];
   { const a = (m.point ??= new Array(3)); a[0] = f[at + 4]; a[1] = f[at + 5]; a[2] = f[at + 6]; }
@@ -69,7 +70,7 @@ export function syncAiPatternResult(b, f, at, h, m) {
   m.number = f[at + 1];
   m.other = f[at + 2];
   { const a = (m.point ??= new Array(3)); a[0] = f[at + 3]; a[1] = f[at + 4]; a[2] = f[at + 5]; }
-  { const items = (m.values ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 

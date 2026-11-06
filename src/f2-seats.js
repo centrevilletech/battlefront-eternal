@@ -1,3 +1,8 @@
+import {BlockHeaderLayout as BLOCK} from './sim/gen/boundary.js';
+import {NO_RANDOM_STREAM} from './sim/gen/boundary.js';
+import { F2TurretInputMirror, F2TurretInputLayout, putF2TurretInput } from './sim/gen/f2.js';
+import { F2TurretHintMirror } from './sim/gen/f2.js';
+import { F2SeatIoLayout } from './sim/gen/f2.js';
 // Vehicles' native seat phase. These facades only publish canonical lease and
 // body rows; AI intents remain foreign input, copied once before the latch.
 import * as THREE from 'three';
@@ -6,11 +11,11 @@ import { SeatLease, seatWeaponPolicy } from './seats.js';
 import { Building } from './props.js';
 import { MirrorPool, Heap } from './sim/runtime.js';
 import { makeHit } from './collision.js';
-import { COMMAND_F2_SEAT, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
-import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatRelationLayout, putF2SeatRelation, F2SeatUnitInMirror, F2SeatUnitOutMirror, F2SeatCommandMirror, F2SeatResultMirror,
-  F2SeatSoldierMirror, F2SeatSoldierLayout, putF2SeatSoldier, F2SeatAnswerMirror, F2SeatEffectMirror, F2LatchedMirror,
+import { COMMAND_TABLE, COMMAND_F2_SEAT, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
+import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatRelationLayout, putF2SeatRelation, F2SeatCommandMirror, F2SeatResultMirror,
+  F2SeatAnswerMirror, F2LatchedMirror,
   F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2TurretTargetMirror, syncF2TurretHeader, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
-  syncF2SeatIo, putF2SeatHeader, putF2SeatUnitIn, syncF2SeatUnitOut, syncF2SeatEffect, syncF2Latched, putF2SeatSample } from './sim/gen/f2.js';
+  syncF2SeatIo, putF2SeatHeader, syncF2Latched, putF2SeatSample } from './sim/gen/f2.js';
 import { turretSettings, turretState } from './turret-data.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { hasMissileLock, seatLockTarget } from './weapon-targeting.js';
@@ -81,15 +86,12 @@ export class F2Seats {
     this.phase = phase; this.bridge = phase.bridge; this.x = phase.x; this.vehicles = phase.vehicles;
     this.units = []; this.unitCount = 0; this.seen = []; this.stamp = 0; this.emitterIds = new WeakMap();
     this.leaseRows = new WeakMap();
-    this.pool = new LeasePool(this); this.pool.owner = this; this.pool.released = new Map(); this.mounts = new WeakMap(); this.riderClips = new WeakMap(); this.riderSample = { clip: null, pitch: 0, turn: 0, time: null }; this.bridge.refs[KIND_SEAT_LEASE] = this.pool;
+    this.pool = new LeasePool(this); this.pool.owner = this; this.pool.released = new Map(); this.bridge.refs[KIND_SEAT_LEASE] = this.pool;
     this.emptyHeap = new Heap(); this.header = new F2SeatHeaderMirror(); this.io = new F2SeatIoMirror();
     this.relationTeams = []; this.relationRow = { a: 0, b: 0, value: 0 };
-    this.unitWords = new WeakMap(); this.soldierWords = new WeakMap();
-    this.soldierIn = new F2SeatSoldierMirror(); this.soldierScratch = new Float64Array(F2SeatSoldierLayout.words);
-    this.unitIn = new F2SeatUnitInMirror(); this.unitOut = new F2SeatUnitOutMirror();
     this.controlIn = { seatUnit: null, driven: false, intent: null };
     this.command = new F2SeatCommandMirror(); this.result = new F2SeatResultMirror();
-    this.answer = new F2SeatAnswerMirror(); this.effectRow = new F2SeatEffectMirror(); this.controlRow = new F2LatchedMirror();
+    this.answer = new F2SeatAnswerMirror(); this.controlRow = new F2LatchedMirror();
     this.lookSettings = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
     this.lookSamples = [[0, 0]]; this.networkScales = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
     this.sample = { dx: 0, dy: 0 }; this.drop = new THREE.Vector3(); this.hit = makeHit();
@@ -106,12 +108,24 @@ export class F2Seats {
     this.turretBirthArgs = { words: this.x.f2_turret_words(0), put: putF2TurretBirth };
     this.turretLifeArgs = { words: this.x.f2_turret_words(1), put: putF2TurretLife };
     this.shot = { weapon: null, yaw: 0, pitch: 0, charge: 0, targetId: -1, targetGeneration: -1 };
-    this.targetRow = new F2TurretTargetMirror(); this.targetCategories = new WeakMap(); this.noEnter = new WeakMap();
+    this.turretInput = new F2TurretInputMirror();
+    this.turretScratch = new Float64Array(F2TurretInputLayout.words);
+    this.targetHint = new F2TurretHintMirror();
+    this.targetRow = new F2TurretTargetMirror(); this.targetCategories = new WeakMap();
     this.legacySpread = legacyRandom('weapon-spread');
     const vs = this.vehicles, b = this.bridge;
     b.register({
       f2SeatAction: a => this.action(a),
       f2TurretDraw: a => { const w = this.crews.turrets[a.turret].weapon; this.drawAnswer.value = w.random ? w.random() : this.legacySpread(); return this.drawAnswer; },
+      // seatLockTarget reads the foreign AI controller's hint only. Native
+      // targeting validates life and samples eligibility, shapes and LOS.
+      f2TurretHint: a => {
+        this.vehicles.f3.phase.sync();
+        const target = seatLockTarget(a.lease), row = this.targetHint;
+        row.bot = target !== undefined; row.target = target ?? null;
+        row.life = target?.generation ?? 0;
+        return row;
+      },
       f2TurretTarget: a => this.target(a),
     });
     // These are authoritative writes, not method adapters. The phase itself
@@ -128,17 +142,20 @@ export class F2Seats {
     vs.promote = (v, index) => this.invoke('promote', null, v, null, index).lease;
     vs.destroyedCrew = v => this.invoke('destroyed', null, v).accepted;
   }
-  readIo() { this.bridge.views(); syncF2SeatIo(this.bridge, this.bridge.f, this.ioBase, 0, this.io);  }
+  readIo() {
+    this.bridge.views(); syncF2SeatIo(this.bridge, this.bridge.f, this.ioBase, 0, this.io);
+    if (this.phase.counters) this.phase.counters.outputFields += F2SeatIoLayout.words;
+  }
 
   // Vehicle construction supplies class facts once. Mutable state stays native.
   adopt(v) {
     let facts = this.facts.get(v);
     if (!facts) {
-      facts = { vehicle: v, index: this.vehicles.vehicles.indexOf(v), hover: v.base === 'hover', animal: v.healthType === 'animal', attacker: 0, attackerId: 0,
+      facts = { vehicle: v, index: v.f2Prepared ? 0 : this.vehicles.vehicles.indexOf(v), hover: v.base === 'hover', animal: v.healthType === 'animal', attacker: 0, attackerId: 0,
         turretNodes: v.seats.map(s => Boolean(s.settings?.TurretNodeName)), weapons: v.seats.map(s => s.weapons.length) };
       this.facts.set(v, facts);
     }
-    this.bridge.callArgs(this.hullArgs, facts); this.x.f2_seats_adopt();
+    this.bridge.callArgs(this.hullArgs, facts); this.x.f2_seats_adopt(v.f2Prepared ? 1 : 0);
   }
   // Collect each foreign rider once even when a command touches several seats.
   // Keep the array's storage and use an active count: setting length to zero
@@ -146,8 +163,7 @@ export class F2Seats {
   add(unit) {
     if (!unit?.soldier || unit.walker || this.seen[unit.id] === this.stamp) return;
     this.seen[unit.id] = this.stamp; this.units[this.unitCount++] = unit;
-    if (!this.unitWords.has(unit)) this.unitWords.set(unit, deltaBuffer());
-    if (!this.soldierWords.has(unit)) { const cache = new Float64Array(F2SeatSoldierLayout.words); cache.fill(NaN); this.soldierWords.set(unit, cache); }
+
   }
   addHull(v) { if (v) for (let i = 0; i < v.seats.length; i++) this.add(v.seats[i].lease?.unit); }
 
@@ -163,25 +179,9 @@ export class F2Seats {
     else if (hull?.seats) this.addHull(hull); else this.add(hull?.lease?.unit);
     const b = this.bridge, h = this.header; b.views(); const f = b.f;
     let o = this.io.headerWords;
-    h.units = o; h.unitCount = this.unitCount;
-    // Unit facts and AI intents are copied before latch. A scalar command
-    // imports only its affected riders, so releasing one player cannot overwrite
-    // another occupant's pending body or controls.
-    for (let ui = 0; ui < this.unitCount; ui++) {
-      const unit = this.units[ui];
-      const a = this.unitIn;
-      a.unit = unit; a.generation = unit.generation; a.alive = unit.alive; a.dead = unit.dead;
-      a.human = unit.human; a.networkHuman = unit.networkHuman; a.walker = unit.walker; a.team = unit.team;
-      a.removed = unit.removed; a.hasActor = Boolean(unit.actor); a.tickCount = unit.tickCount;
-      a.intent = unit.intent;
-      let noEnter = this.noEnter.get(unit.classDef);
-      if (noEnter === undefined) { noEnter = Number.parseFloat(unit.classDef?.NoEnterVehicles ?? 0); if (unit.classDef) this.noEnter.set(unit.classDef, noEnter); }
-      a.noEnter = noEnter;
-      a.zoomStep = unit.combat?.zoomStep ?? 0; a.zoom = unit.combat?.zoom ?? 1;
-      a.firstPerson = Boolean(unit.combat?.firstPerson); a.blowApart = Boolean(unit.combat?.blowApart); a.combatDead = Boolean(unit.combat?.dead);
-      a.targetable = unit.targetable; a.mounted = unit.combat?.mounted; a.gunUnderwater = Boolean(unit.combat?.gunUnderwater); a.aimOverride = unit.combat?.aimOverride;
-      putF2SeatUnitIn(b, a, f, this.inputBase + o, this.emptyHeap); o += this.io.unitWords;
-    }
+    h.units = o; h.unitCount = 0;
+    // Native Unit rows already contain body flags and construction facts.
+    // The seat phase reads them after movement instead of importing mirrors.
     // A driven SeatUnit has its own intent rather than the soldier's. Import
     // that source as a separate generated row, and let native latching decide
     // which source owns the current occupancy.
@@ -210,22 +210,28 @@ export class F2Seats {
       const a = this.controlIn; a.seatUnit = c; a.driven = Boolean(c.controller); a.intent = c.intent;
       putSeatAiControl(b, a, f, this.inputBase + o, this.emptyHeap); o += this.io.controlWords; h.controlCount++;
     }
-    // Mounted bodies are native. Import a Soldier only when the foreign
-    // unit phase actually changed it, or when a scalar command needs it now.
     h.soldiers = o; h.soldierCount = 0;
-    for (let ui = 0; ui < this.unitCount; ui++) {
-      const unit = this.units[ui];
-      const a = this.soldierIn; a.unit = unit; a.soldier = unit.soldier;
-      putF2SeatSoldier(b, a, this.soldierScratch, 0, this.emptyHeap);
-      const cache = this.soldierWords.get(unit); let changed = !all;
-      // Compare numeric words without boxing float arguments to Object.is.
-      // This is the same value comparison, including equal NaNs and distinct
-      // signed zeros; it changes no Soldier arithmetic.
-      for (let i = 0; i < cache.length; i++) {
-        const old = cache[i], next = this.soldierScratch[i];
-        if (old === next ? old === 0 && 1 / old !== 1 / next : old === old || next === next) changed = true;
+    // AI may change turret spread or its shared generator between phases.
+    // Publish only changed scalar settings; weapon state is never copied in.
+    h.turrets = o; h.turretCount = 0;
+    if (all && this.crews) {
+      for (let i = 0; i < this.crews.turrets.length; i++) {
+        const turret = this.crews.turrets[i], weapon = turret.weapon;
+        if (!weapon) continue;
+        const row = this.turretInput; row.index = i; row.input.target = -2;
+        this.phase.firing.modifiers(weapon,row.input);
+        putF2TurretInput(b,row,this.turretScratch,0,this.emptyHeap);
+        const cache = this.turretRows.get(turret).input;
+        let changed = false;
+        for (let j = 0; j < cache.length; j++) {
+          const old = cache[j], next = this.turretScratch[j];
+          if (old === next ? old === 0 && 1/old !== 1/next : old === old || next === next) changed = true;
+        }
+        if (changed) {
+          f.set(this.turretScratch,this.inputBase + o); cache.set(this.turretScratch);
+          o += F2TurretInputLayout.words; h.turretCount++;
+        }
       }
-      if (changed) { f.set(this.soldierScratch, this.inputBase + o); o += F2SeatSoldierLayout.words; h.soldierCount++; cache.set(this.soldierScratch); }
     }
     h.looks = o; h.lookCount = 0;
     this.writeHeader(o);
@@ -243,8 +249,8 @@ export class F2Seats {
   // itself remains a synchronous scalar call, with generation-qualified unit,
   // hull and lease identities copied before native code can reenter JS.
   invoke(op, unit = null, hull = null, lease = null, index = 0, options = null, direction = 1, looks = null, scales = null) {
+    const owned = this.vehicles.f3;
     this.phase.riders.ensure(unit, hull);
-    this.phase.bodyFlags();
     const look = op === 'look' || op === 'network' || op === 'resetSticks';
     let o = look ? this.prepare(null, null, false) : this.prepare(unit, hull, false);
     const h = this.header;
@@ -261,8 +267,18 @@ export class F2Seats {
     a.hull = hull?.seats ? hull : null; a.hullLife = hull?.aiTarget?.generation ?? 0; a.lease = lease; a.index = index;
     a.placement = options?.placement ?? true; a.promote = options?.promote; a.post = options?.post ?? null;
     a.safe = options?.policy === 'safe'; a.force = Boolean(options?.force); a.reason = options?.reason ?? 'exit'; a.direction = direction;
-    this.bridge.command(COMMAND_F2_SEAT, a, this.result);
-    this.phase.sync();
+    const command = COMMAND_TABLE[COMMAND_F2_SEAT];
+    owned.beforeCommand(null, command.args.words, command.result.words);
+    try {
+      // A newly boarded human needs no AI import. Bind its published lease
+      // before the generated result decoder resolves that lease reference.
+      const ptr = command.fast(this.bridge,a);
+      this.phase.sync();
+      this.bridge.callResult(command.result,ptr,this.result);
+    }
+    finally {
+      owned.afterCommand();
+    }
     return this.result;
   }
   resetSticks(unit) { return this.invoke('resetSticks', unit, unit.seat?.vehicle, unit.seat).accepted; }
@@ -318,19 +334,16 @@ export class F2Seats {
   // last occupancy while a reused slot receives a complete new initial row.
   syncLeases() {
     this.readIo(); const b = this.bridge, f = b.f, base = (this.io.leases / 8) | 0;
+    if (this.phase.counters) this.phase.counters.outputBlock(f,base);
     if (!base) return;
-    const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0), retired = f[base + 4] | 0;
+    const n = f[base] | 0, stride = f[base + BLOCK.stride] | 0, heap = base + (f[base + BLOCK.heap] | 0), retired = f[base + BLOCK.retired] | 0;
     for (let i = 0; i < n; i++) {
-      const at = base + 5 + i * stride;
+      const at = base + BLOCK.words + i * stride;
       const lease = i < retired ? this.pool.retire(f[at] >>> 0, f[at + 1] >>> 0) : this.pool.create(f[at] >>> 0, f[at + 1] >>> 0);
       applyDelta(f, at, heap, lease.f2Words);
-      KIND_TABLE[KIND_SEAT_LEASE].sync(b, lease.f2Words, 5, lease.f2Words[2] | 0, lease);
+      KIND_TABLE[KIND_SEAT_LEASE].sync(b, lease.f2Words, 5, lease.f2Words[BLOCK.heap] | 0, lease);
       if (this.phase.debug) this.captureLease(lease);
       if (lease.turret && this.crews) {
-        if (!this.riderClips.has(lease)) {
-          const pose = lease.turret.riderSample?.(lease.unit?.animator?.clips, this.riderSample);
-          this.riderClips.set(lease, pose?.clip ?? null);
-        }
         const list = this.crews.leases, index = list.indexOf(lease);
         if (lease.released && index >= 0) list.splice(index, 1);
         else if (!lease.released && index < 0) list.push(lease);
@@ -344,60 +357,19 @@ export class F2Seats {
   syncBodies() {
     const b = this.bridge, f = b.f;
     this.phase.riders.sync(this.io.riders);
-    let base = (this.io.units / 8) | 0;
+    let base = (this.io.controls / 8) | 0;
+    if (this.phase.counters) this.phase.counters.outputBlock(f,base);
     if (base) {
-      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
+      const n = f[base] | 0, stride = f[base + BLOCK.stride] | 0, heap = base + (f[base + BLOCK.heap] | 0);
       for (let i = 0; i < n; i++) {
-        const at = base + 5 + i * stride, unit = b.refs[KIND_UNIT].at(f[at], f[at + 1]), out = this.unitOut;
-        out.soldier = unit.soldier; out.intent = unit.intent;
-        const words = this.unitWords.get(unit); applyDelta(f, at, heap, words);
-        syncF2SeatUnitOut(b, words, 5, words[2] | 0, out);
-        // TurretSeats.vacate may show a hidden gunner on departure. Track
-        // the current holder before clearing its lease, including hulls: an
-        // earlier turret must never show a corpse leaving an enclosed hull.
-        const holder = unit.seat?.turret || unit.seat?.vehicle;
-        if (holder) this.mounts.set(unit, holder);
-        unit.seat = out.seat; unit.targetable = out.targetable; unit.tickCount = out.tickCount;
-        if (unit.combat) { unit.combat.mounted = out.mounted; unit.combat.gunUnderwater = out.gunUnderwater; unit.combat.aimOverride = out.aimOverride; }
-        const a = this.soldierIn; a.unit = unit; a.soldier = unit.soldier;
-        putF2SeatSoldier(b, a, this.soldierWords.get(unit), 0, this.emptyHeap);
-        if (out.riderPosed) this.phase.riders.present(unit);
-      }
-
-    }
-    base = (this.io.controls / 8) | 0;
-    if (base) {
-      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
-      for (let i = 0; i < n; i++) {
-        const row = syncF2Latched(b, f, base + 5 + i * stride, heap, this.controlRow), intent = row.control.intent;
+        const row = syncF2Latched(b, f, base + BLOCK.words + i * stride, heap, this.controlRow), intent = row.control.intent;
         intent.reload = intent.use = intent.exit = intent.jump = intent.crouch = intent.prone = false;
         intent.nextPrimary = intent.previousPrimary = intent.nextSecondary = intent.zoom = false;
       }
 
     }
-    base = (this.io.effects / 8) | 0;
-    if (base) {
-      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
-      for (let i = 0; i < n; i++) this.effect(syncF2SeatEffect(b, f, base + 5 + i * stride, heap, this.effectRow));
-
-    }
     this.syncTurrets();
     this.vehicles.ticks = this.io.ticks;
-  }
-  // Seat transitions call the existing presentation/body hooks in order.
-  // Their position and yaw were computed natively, including safe exits and
-  // Classic fallback placement; JS performs no exit search here.
-  effect(e) {
-    const u = e.unit;
-    if (e.kind === 'seated') { if (u.combat) u.combat.zoomed = false; }
-    else if (e.kind === 'unseated') {
-      if (u.combat) u.combat.zoomed = false;
-      u.animator?.gunner?.(null); u.actor?.root?.rotation?.set?.(0, e.yaw, 0);
-      if (this.mounts.get(u)?.hidesGunner && u.actor?.root && !u.removed && !u.combat?.blowApart) u.actor.root.visible = true;
-    } else if (e.kind === 'placed') {
-      u.presentation?.reset?.(); u.animator?.gunner?.(null); u.animator?.reset?.(e.yaw);
-      if (u.actor?.root) { u.actor.root.visible = true; u.actor.root.rotation?.set?.(0, e.yaw, 0); }
-    } else if (e.kind === 'dropped') { u.presentation?.reset?.(); u.actor?.root?.position?.copy?.(e.point); }
   }
   // lockPick supplies foreign target facts; cone selection and line of sight
   // run natively without constructing per-candidate option objects.
@@ -455,7 +427,8 @@ export class F2Seats {
         channel: w?.def.channel ?? 0, collide: Boolean(crews.collision) };
       if (birth.ordnance) crews.ordnance.sim.defId(birth.ordnance);
       const mirror = new F2TurretOutMirror(); mirror.weapon = weapon;
-      this.turretRows.set(t, { mirror, state, center: point.clone(), radius, generation: t.aiTarget?.generation ?? 0, alive: t.alive, attacker: t.lastAttacker ?? null }); t.f2Pose = mirror; t.f2Seats = this;
+      const input = new Float64Array(F2TurretInputLayout.words); input.fill(NaN);
+      this.turretRows.set(t, { input, mirror, state, center: point.clone(), radius, generation: t.aiTarget?.generation ?? 0, alive: t.alive, attacker: t.lastAttacker ?? null }); t.f2Pose = mirror; t.f2Seats = this;
       b.callArgs(this.turretBirthArgs, birth); this.x.f2_turret_adopt(); this.phase.sync();
     }
     crews.man = (u, t) => this.invoke('man', u, t, null, crews.turrets.indexOf(t)).accepted;
@@ -497,14 +470,16 @@ export class F2Seats {
     const b = this.bridge, f = b.f;
     const ord = this.io.ordnance / 8;
     if (ord && f[ord] && this.crews?.ordnance) {
-      KIND_TABLE[KIND_ORDNANCE].sync(b, f, ord + 5, ord + f[ord + 2], this.crews.ordnance);
+      if (this.phase.counters) this.phase.counters.outputBlock(f,ord);
+      KIND_TABLE[KIND_ORDNANCE].sync(b, f, ord + BLOCK.words, ord + f[ord + BLOCK.heap], this.crews.ordnance);
 
     }
     let base = (this.io.turrets / 8) | 0;
+    if (this.phase.counters) this.phase.counters.outputBlock(f,base);
     if (base) {
-      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
+      const n = f[base] | 0, stride = f[base + BLOCK.stride] | 0, heap = base + (f[base + BLOCK.heap] | 0);
       for (let i = 0; i < n; i++) {
-        const at = base + 5 + i * stride;
+        const at = base + BLOCK.words + i * stride;
         const header = syncF2TurretHeader(b, f, at, heap, this.turretHeader), t = header.turret;
         const out = syncF2TurretOut(b, f, at, heap, this.turretRows.get(t).mirror), state = out.state;
         t.yaw = state.yaw; t.pitch = state.pitch; t.yawVel = state.yawVel; t.pitchVel = state.pitchVel;
@@ -512,42 +487,83 @@ export class F2Seats {
         t.lease = out.lease; t.gunner = out.gunner?.soldier ?? null;
         if (t.weapon && out.weapon) {
           t.weapon.level = out.weapon.level; copyMountedWeapon(t.weapon, out.weapon);
+          // Turret construction can publish before the unit owner binds RNG.
+          // Live entries always have this retained stream reader.
+          if (this.random) {
+            t.weapon.random = this.random.callback(out.randomBinding);
+            t.weapon.f3RandomDraw = t.weapon.random; t.weapon.f3RandomId = out.randomBinding;
+          }
           t.weapon.def = t.weapon.levels[out.weapon.level];
         }
         if (out.posed && out.gunner) {
           const u = out.gunner; u.presentation?.reset?.();
           if (u.actor?.root) { u.actor.root.position.copy(u.soldier.position); u.actor.root.visible = !t.hidesGunner; }
-          u.animator?.gunner?.(this.riderClips.get(out.lease) ?? null, out.samplePitch, out.sampleTurn, out.sampleTime, out.seatTurn);
+
         }
       }
 
     }
     base = (this.io.events / 8) | 0;
     if (base && this.crews) {
-      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0), world = this.crews.world;
+      if (this.phase.counters) this.phase.counters.outputBlock(f,base);
+      const n = f[base] | 0, stride = f[base + BLOCK.stride] | 0, heap = base + (f[base + BLOCK.heap] | 0);
       for (let i = 0; i < n; i++) {
-        const e = syncF2TurretEvent(b, f, base + 5 + i * stride, heap, this.turretEvent), shot = this.shot;
-        shot.weapon = e.turret.weapon; shot.yaw = e.yaw; shot.pitch = e.pitch; shot.charge = e.charge; shot.targetId = e.targetId; shot.targetGeneration = e.targetGeneration;
-        if (e.kind === 'bind') world.bindRound(e.round ?? e.bolt ?? undefined, e.turret, -1, -1, e.barrel);
-        else if (e.kind === 'sound') world.sound('turretFire', e.turret, shot);
-        else world.fired(e.turret, 0, shot, e.owner, e.origin, e.direction);
+        const e = syncF2TurretEvent(b, f, base + BLOCK.words + i * stride, heap, this.turretEvent);
+        this.turretNotice(e);
       }
 
     }
     if (this.crews) { this.crews.ticks = this.io.turretTicks; this.crews.time = this.io.turretTime; }
   }
+  // Game's seat hooks are journal observers. Their sampled life and position
+  // survive a later native death or promotion before this outer delivery.
+  notice(event) {
+    const system = event.turret ? this.crews : this.vehicles;
+    const holder = event.turret ?? event.hull;
+    if (event.kind === 'boarded') system.onBoard?.(event.unit,holder,event.index,event);
+    else if (event.kind === 'unboarded') system.onUnboard?.(event.unit,holder,event.index,event.post,event.reason,event);
+    else system.onMove?.(event.unit,holder,event.index,event);
+  }
+  // TurretSeats.drive records bind, sound and fired in source order. Reuse
+  // its shot scratch when delivering either standalone or shared notices.
+  turretNotice(event) {
+    const shot = this.shot, world = this.crews.world;
+    shot.weapon = event.turret.weapon; shot.yaw = event.yaw; shot.pitch = event.pitch;
+    shot.charge = event.charge; shot.targetId = event.targetId; shot.targetGeneration = event.targetGeneration;
+    if (event.kind === 'bind') world.bindRound(event.round ?? event.bolt ?? undefined,event.turret,-1,-1,event.barrel);
+    else if (event.kind === 'sound') world.sound('turretFire',event.turret,shot);
+    else world.fired(event.turret,0,shot,event.owner,event.origin,event.direction,event.sample);
+  }
   // State-changing seat hooks stay synchronous. Copy import arguments first,
   // since a board, kill or explosion can issue another command and reuse the
   // shared import block before this hook returns its answer.
   action(a) {
+    // Native AI query barriers publish Unit mirrors as well as fleet rows.
+    // Sync both owners before reading a controller, without draining notices.
+    this.vehicles.f3.phase.sync();
     // Read all arguments before a death or board hook can reuse the import row.
     const kind = a.kind, unit = a.unit, holder = a.holder, index = a.index, lease = a.lease, post = a.post, reason = a.reason;
     const flag = a.flag, second = a.second, attacker = a.attacker, effect = a.effect;
     const w = a.turret ? this.crews.world : this.vehicles.seatsWorld, v = a.turret ? this.crews.turrets[holder] : this.vehicles.vehicles[holder];
     const answer = this.answer; answer.control = null; answer.value = undefined; answer.flag = false;
+    answer.bound = false; answer.randomBinding = NO_RANDOM_STREAM;
     if (kind === 'flush') this.phase.sync();
     else if (kind === 'controller') answer.value = w.controllerState(unit);
-    else if (kind === 'control') { this.phase.sync(); answer.control = w.controllable(lease); }
+    else if (kind === 'control') {
+      this.phase.sync();
+      const owned = this.vehicles.f3;
+      owned.phase.random.pull();
+      try {
+        answer.control = w.controllable(lease);
+        const weapon = lease.turret?.weapon ?? lease.vehicle?.seats[lease.index].weapons[0]?.state;
+        answer.bound = true;
+        answer.randomBinding = owned.phase.random.register(weapon?.random);
+      } finally {
+        // Resumed native fire observes every draw and binding made by the
+        // controller constructor, with one shared-state publication.
+        owned.phase.random.push();
+      }
+    }
     else if (kind === 'policy') { this.phase.sync(); if (a.turret) { seatWeaponPolicy(v.weapon, flag, second ? this.crews.seatRandom : null); answer.flag = Boolean(v.weapon?.random); } else { v.setSeatPolicy(index, flag, second ? this.vehicles.seatRandom : null); answer.flag = Boolean(v.seats[index].weapons[0]?.state.random); } }
     else if (kind === 'boarded') { this.phase.sync(); w.boarded(unit, v, index); }
     else if (kind === 'unboarded') { this.phase.sync(); w.unboarded(unit, v, index, post, reason); }

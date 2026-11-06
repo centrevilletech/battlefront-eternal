@@ -25,6 +25,8 @@
 //! (no wasm-bindgen), named as each bridge calls them.
 
 pub mod abi;
+#[cfg(target_arch = "wasm32")]
+mod allocations;
 mod audio_control;
 pub mod ai;
 pub mod battle;
@@ -44,6 +46,7 @@ pub mod movement;
 pub mod ordnance;
 pub mod pose;
 pub mod prediction;
+pub mod recon;
 pub mod rig;
 pub mod seats;
 pub mod store;

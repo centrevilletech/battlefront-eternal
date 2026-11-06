@@ -78,6 +78,7 @@ pub struct Polygon {
 /// pools them): `list()` holds the last gather's, in order.
 pub struct Gathered {
     polygons: Vec<Polygon>,
+    spare_keys: Vec<u64>,
     count: usize,
     grouped: bool,
     index: PolygonIndex,
@@ -87,11 +88,34 @@ pub struct Gathered {
 }
 
 impl Default for Gathered {
-    fn default() -> Self { Gathered { polygons: Vec::new(), count: 0, grouped: false, index: PolygonIndex::new(), spares: Vec::new() } }
+    fn default() -> Self {
+        Gathered { polygons: Vec::new(), spare_keys: Vec::new(), count: 0,
+            grouped: false, index: PolygonIndex::new(), spares: Vec::new() }
+    }
+}
+
+// CollisionWorld assigns a body's public polygon offset when it joins the
+// live list. Its immutable triangle storage instead follows the kernel body
+// slot, so preparing a hull before that birth cannot tie buffers to an old id.
+// Fixed geometry has nonnegative polygon ids; the high bit names body storage.
+fn body_polygon_key(body: usize, polygon: u32) -> u64 {
+    (1 << 63) | ((body as u64) << 32) | polygon as u64
 }
 
 impl Gathered {
     pub fn new() -> Self { Self::default() }
+
+    /// CollisionWorld's pooled polygon records, prepared while loading a body.
+    /// Reserve storage only: no cache is observed, filled or invalidated here.
+    pub fn reserve(&mut self, polygons: usize, triangles: usize) {
+        self.polygons.reserve(polygons.saturating_sub(self.polygons.len()));
+        while self.polygons.len() < polygons { self.polygons.push(Polygon::default()); }
+        self.spare_keys.resize(self.polygons.len(),0);
+        for polygon in &mut self.polygons {
+            polygon.tris.reserve(triangles.saturating_sub(polygon.tris.len()));
+        }
+        while 2 * polygons > self.index.mask + 1 { self.index.grow(); }
+    }
     pub fn list(&self) -> &[Polygon] { &self.polygons[..self.count] }
     pub fn list_mut(&mut self) -> &mut [Polygon] { &mut self.polygons[..self.count] }
 
@@ -99,30 +123,46 @@ impl Gathered {
     /// Keep buffers per polygon id; their total capacity is linear in triangles,
     /// rather than reserving the largest polygon for every possible query slot.
     pub fn prepare(&mut self, s: &State, world: usize, blockers: Option<usize>) {
+        self.prepare_geometry(s,world,blockers,0);
+        self.polygons.resize_with(self.spares.len(),Polygon::default);
+        self.spare_keys.resize(self.polygons.len(),0);
+        self.index.reserve(self.spares.len());
+    }
+
+    /// Soldier.touchPolygons uses a small pooled query footprint. Only dense
+    /// polygons need dedicated triangle buffers; ordinary ones reuse the slot's
+    /// prepared minimum. Avoid duplicating every map triangle in this scratch.
+    pub fn prepare_dense(&mut self, s: &State, world: usize, minimum: usize) {
+        self.prepare_geometry(s,world,None,minimum);
+    }
+
+    fn prepare_geometry(&mut self, s: &State, world: usize, blockers: Option<usize>, minimum: usize) {
         self.clear();
         let mut counts = std::collections::BTreeMap::<u64, usize>::new();
-        let mut add = |ids: &[u32], offset: f64| {
-            for &id in ids { *counts.entry((id as f64 + offset).to_bits()).or_default() += 1; }
+        let mut add = |ids: &[u32], offset: f64, body: Option<usize>| {
+            for &id in ids {
+                let key = body.map_or_else(|| (id as f64 + offset).to_bits(), |body| body_polygon_key(body,id));
+                *counts.entry(key).or_default() += 1;
+            }
         };
-        if let Some(set) = s.worlds[world].statics { let set = &s.sets[set]; add(&set.polygons,set.offset); }
-        if let Some(set) = blockers { let set = &s.sets[set]; add(&set.polygons,set.offset); }
-        for &slot in &s.worlds[world].order {
-            let body = &s.bodies[slot as usize]; add(&s.trees[body.tree].polygons,body.offset);
+        if let Some(set) = s.worlds[world].statics { let set = &s.sets[set]; add(&set.polygons,set.offset,None); }
+        if let Some(set) = blockers { let set = &s.sets[set]; add(&set.polygons,set.offset,None); }
+        for &slot in s.worlds[world].order.iter().chain(&s.worlds[world].prepared) {
+            let body = &s.bodies[slot as usize]; add(&s.trees[body.tree].polygons,body.offset,Some(slot as usize));
         }
         for (id,n) in counts {
+            if n <= minimum { continue; }
             match self.spares.binary_search_by_key(&id, |row| row.0) {
                 Ok(i) => { let v = &mut self.spares[i].1; v.reserve(n.saturating_sub(v.len())); }
                 Err(i) => self.spares.insert(i,(id,Vec::with_capacity(n))),
             }
         }
-        self.polygons.resize_with(self.spares.len(),Polygon::default);
-        self.index.reserve(self.spares.len());
     }
     pub fn capacity(&self) -> usize { self.polygons.len() }
     fn clear(&mut self) {
         if !self.spares.is_empty() {
-            for p in &mut self.polygons[..self.count] {
-                if let Ok(i) = self.spares.binary_search_by_key(&p.id.to_bits(), |row| row.0) {
+            for (at,p) in self.polygons[..self.count].iter_mut().enumerate() {
+                if let Ok(i) = self.spares.binary_search_by_key(&self.spare_keys[at], |row| row.0) {
                     std::mem::swap(&mut p.tris,&mut self.spares[i].1);
                 }
             }
@@ -138,6 +178,11 @@ impl Gathered {
     /// one at the end of the list the first time. Ids in a list are unique,
     /// so how it is found does not change which it is.
     fn polygon(&mut self, id: f64, moving: bool) -> &mut Polygon {
+        self.polygon_key(id,moving,id.to_bits())
+    }
+    // collision.js still groups and visits by the original numeric id.
+    // Only reuse of a triangle Vec uses the private retained-geometry key.
+    fn polygon_key(&mut self, id: f64, moving: bool, key: u64) -> &mut Polygon {
         let n = self.count;
         if self.grouped {
             if let Some(at) = self.index.get(id) { return &mut self.polygons[at]; }
@@ -151,10 +196,11 @@ impl Gathered {
             }
         }
         if n == self.polygons.len() { self.polygons.push(Polygon::default()); }
+        if n == self.spare_keys.len() { self.spare_keys.push(key); } else { self.spare_keys[n] = key; }
         self.count += 1;
         if self.grouped { self.index.set(id, n); }
         let p = &mut self.polygons[n];
-        if let Ok(i) = self.spares.binary_search_by_key(&id.to_bits(), |row| row.0) {
+        if let Ok(i) = self.spares.binary_search_by_key(&key, |row| row.0) {
             std::mem::swap(&mut p.tris,&mut self.spares[i].1);
         }
         p.id = id;
@@ -403,15 +449,15 @@ pub fn sphere_bounds(center: [f64; 3], radius: f64) -> Bounds {
 /// collision.js gatherFrom(bvh, polygonOf, offset) with gatherQuery: each
 /// triangle of the tree whose bounds meet `bounds`, filed under its polygon
 /// (moved by `matrix`, a moving body's, when there is one).
-fn gather_tree(s: &State, tree: usize, polygons: &[u32], offset: f64, matrix: Option<&[f64; 16]>, set: u32, bounds: &Bounds, out: &mut Gathered) {
+fn gather_tree(s: &State, tree: usize, polygons: &[u32], offset: f64, matrix: Option<&[f64; 16]>, set: u32, body: Option<usize>, bounds: &Bounds, out: &mut Gathered) {
     let t = &s.trees[tree];
     match &s.positions[t.positions] {
-        Corners::F32(p) => gather_walk(t, p.as_slice(), polygons, offset, matrix, set, bounds, out),
-        Corners::F64(p) => gather_walk(t, p.as_slice(), polygons, offset, matrix, set, bounds, out),
+        Corners::F32(p) => gather_walk(t, p.as_slice(), polygons, offset, matrix, set, body, bounds, out),
+        Corners::F64(p) => gather_walk(t, p.as_slice(), polygons, offset, matrix, set, body, bounds, out),
     }
 }
 
-fn gather_walk<P: Corner + ?Sized>(t: &Tree, p: &P, polygons: &[u32], offset: f64, matrix: Option<&[f64; 16]>, set: u32, bounds: &Bounds, out: &mut Gathered) {
+fn gather_walk<P: Corner + ?Sized>(t: &Tree, p: &P, polygons: &[u32], offset: f64, matrix: Option<&[f64; 16]>, set: u32, body: Option<usize>, bounds: &Bounds, out: &mut Gathered) {
     shapecast(t, &mut |node| box_intersects(node, bounds), &mut |index| {
         let (a, b, c) = corners(t, p, index);
         let tri_bounds = [
@@ -423,7 +469,9 @@ fn gather_walk<P: Corner + ?Sized>(t: &Tree, p: &P, polygons: &[u32], offset: f6
             Some(m) => Tri { a: apply_matrix4(m, a), b: apply_matrix4(m, b), c: apply_matrix4(m, c), set, index: index as u32 },
             None => Tri { a, b, c, set, index: index as u32 },
         };
-        out.polygon(polygons[index] as f64 + offset, matrix.is_some()).tris.push(tri);
+        let id = polygons[index] as f64 + offset;
+        let key = body.map_or_else(|| id.to_bits(), |body| body_polygon_key(body,polygons[index]));
+        out.polygon_key(id,matrix.is_some(),key).tris.push(tri);
         false
     });
 }
@@ -522,10 +570,10 @@ pub fn gather_fixed(s: &State, world: usize, center: [f64; 3], radius: f64, bloc
         Some(cache) => gather_cached(s, statics, blockers, cache, &bounds, out),
         None => {
             let f = &s.sets[statics];
-            gather_tree(s, f.tree, &f.polygons, f.offset, None, statics as u32, &bounds, out);
+            gather_tree(s, f.tree, &f.polygons, f.offset, None, statics as u32, None, &bounds, out);
             if let Some(b) = blockers {
                 let f = &s.sets[b];
-                gather_tree(s, f.tree, &f.polygons, f.offset, None, b as u32, &bounds, out);
+                gather_tree(s, f.tree, &f.polygons, f.offset, None, b as u32, None, &bounds, out);
             }
         }
     }
@@ -540,9 +588,9 @@ pub fn gather_body(s: &State, slot: usize, bounds: &Bounds, out: &mut Gathered) 
     let tree = &s.trees[body.tree];
     if body.moving {
         let local = box_apply_matrix4(bounds, &body.inverse);
-        gather_tree(s, body.tree, &tree.polygons, body.offset, Some(&body.matrix), NO_SET, &local, out);
+        gather_tree(s, body.tree, &tree.polygons, body.offset, Some(&body.matrix), NO_SET, Some(slot), &local, out);
     } else {
-        gather_tree(s, body.tree, &tree.polygons, body.offset, None, NO_SET, bounds, out);
+        gather_tree(s, body.tree, &tree.polygons, body.offset, None, NO_SET, Some(slot), bounds, out);
     }
 }
 
@@ -1116,6 +1164,25 @@ mod tests {
                 assert_eq!(p.id, ((i as u32) * 7919 % 211) as f64 + round as f64 * 1e6);
                 assert_eq!(p.tris.len(), 1);
             }
+        }
+    }
+
+    #[test]
+    fn body_triangle_storage_survives_assignment_of_its_live_polygon_offset() {
+        let key = body_polygon_key(3,7);
+        let mut gathered = Gathered::new();
+        gathered.reserve(1,0);
+        gathered.spares.push((key,Vec::with_capacity(3)));
+        let storage = gathered.spares[0].1.as_ptr();
+        // A prepared hull gets its public offset when it joins world.order.
+        // Both observations keep the exact public id and the same storage.
+        for offset in [0.0,16777216.0,33554432.0] {
+            gathered.clear();
+            let polygon = gathered.polygon_key(offset + 7.0,true,key);
+            polygon.tris.push(Tri { a:[0.0;3],b:[1.0,0.0,0.0],c:[0.0,0.0,1.0],set:NO_SET,index:0 });
+            assert_eq!(polygon.id,offset + 7.0);
+            assert_eq!(polygon.tris.as_ptr(),storage);
+            assert_eq!(gathered.list().len(),1);
         }
     }
 }

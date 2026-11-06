@@ -50,9 +50,9 @@ pub fn idle_input() -> SeatInput {
 /// `new SeatLease({ unit, human, team, vehicle, turret, index, role, time,
 /// tick })` (seats.js:87): `unit` with the generation it is granted to.
 #[allow(clippy::too_many_arguments)]
-pub fn new_lease(unit: Option<(u32, f64)>, human: bool, team: f64, vehicle: Option<Ref<Vehicle>>, turret: Option<Ref<Turret>>, index: f64, role: SeatRole, time: f64, tick: f64) -> SeatLease {
+pub fn new_lease(unit: Option<(Ref<Unit>, f64)>, human: bool, team: f64, vehicle: Option<Ref<Vehicle>>, turret: Option<Ref<Turret>>, index: f64, role: SeatRole, time: f64, tick: f64) -> SeatLease {
     SeatLease {
-        unit: unit.map(|(id, _)| Ref::new(id, 0)),
+        unit: unit.map(|(reference, _)| reference),
         generation: unit.map_or(0.0, |(_, generation)| generation),
         human,
         team,

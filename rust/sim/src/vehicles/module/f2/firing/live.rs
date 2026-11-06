@@ -1,6 +1,7 @@
 //! Persistent storage and the native calls used by Vehicle.fireSeat.
 use super::*;
 use crate::abi::sim;
+use crate::units::f3::{self, WorldServices};
 use crate::combat::defs::{K, WeaponClass};
 use crate::combat::weapons::{Admission, Shot, ShotKind, WeaponDraws, LockTarget};
 use crate::gen::*;
@@ -27,6 +28,7 @@ struct Mounted {
     input: FfWeaponInput,
     shots: Vec<Shot>,
     dirty: bool,
+    random_binding: u32,
 }
 // Vehicle.fireSeat borrows the retained pose for geometry only. Physics and
 // leases stay in their canonical slabs; this scratch Hull must never be stored
@@ -96,7 +98,7 @@ pub extern "C" fn f2_firing_adopt() {
             let keys = WeaponGeometry { weapon_node: node(birth.weapon_node), fallback_node: node(birth.fallback_node),
                 direction_nodes: birth.direction_nodes.iter().map(|&n| node(n)).collect(), outside_limits: birth.outside.clone() };
             let lock_angles = class.levels.iter().map(|d| { let on = d.field("LockOnAngle").or(0.0); [on, d.field("LockOffAngle").or(on)] }).collect();
-            let r = state().weapons.insert(Mounted { lock_angles, state: birth.state.clone(), birth, class: Some(class), missile_lock, keys, input: FfWeaponInput::default(), shots: Vec::with_capacity(32), dirty: true });
+            let r = state().weapons.insert(Mounted { lock_angles, state: birth.state.clone(), birth, class: Some(class), missile_lock, keys, input: FfWeaponInput::default(), shots: Vec::with_capacity(32), dirty: true, random_binding: u32::MAX });
             refs.push(r);
         }
         craft.seats.push(refs);
@@ -134,6 +136,29 @@ fn reset_weapons(r: Ref<Vehicle>) {
         }
     }
 }
+// Vehicle.spawn constructs fresh Weapon state for this gameplay life. Keep
+// its native class, geometry and work buffers; only the scalar birth state
+// resets. The previous phase's foreign modifiers cannot enter the new life.
+pub(crate) fn reset_life(r: Ref<Vehicle>, life: f64) {
+    let st = state();
+    let craft = st.crafts[r.slot as usize].as_mut().expect("prepared mounted hull");
+    craft.life = life; craft.consumed.fill(false);
+    for seat in &craft.seats { for &reference in seat {
+        let weapon = st.weapons.get_mut(reference).unwrap();
+        weapon.state.clone_from(&weapon.birth.state);
+        weapon.random_binding = u32::MAX;
+        weapon.shots.clear(); weapon.dirty = true;
+        weapon.input = FfWeaponInput {
+            channel: weapon.birth.channel, target: -2, has_random: weapon.state.random,
+            random_binding: u32::MAX, floor: weapon.state.floor,
+            spread_scale: weapon.state.spread_scale, sniper_scale: weapon.state.sniper_scale,
+            yaw_spread_override: weapon.state.yaw_spread_override,
+        };
+    } }
+    for emitter in st.emitters.iter_mut().flatten() {
+        if emitter.hull == r { emitter.life = life; }
+    }
+}
 // Vehicle retirement releases both ends of cable ownership. It cannot leave
 // an anchor attached to a different vehicle that later occupies the same slot,
 // even when a release occurs inside reciprocal explosion damage.
@@ -154,7 +179,7 @@ fn rebuild_publication() {
             let mut weapons = Vec::new();
             for &r in s {
                 let w = st.weapons.get(r).unwrap();
-                weapons.push(FfWeaponOut { state: w.state.clone(), barrel: 0.0, kicks: vec![None; w.birth.muzzles.len()] });
+                weapons.push(FfWeaponOut { state: w.state.clone(), random_binding:w.random_binding, barrel: 0.0, kicks: vec![None; w.birth.muzzles.len()] });
             }
             seats.push(FfSeatOut { consumed: c.consumed[i], weapons });
         }
@@ -179,12 +204,14 @@ pub fn inputs(data: &[f64]) -> usize {
     for _ in 0..header.count {
         let a = FfWeaponChange::take(&data[o..], &[]); o += FfWeaponChange::WORDS;
         let c = st.crafts[a.hull.slot as usize].as_ref().unwrap();
+        if c.id != a.hull || c.life != a.life { continue; }
         let wr = c.seats[a.seat as usize][a.weapon as usize];
         st.weapons.get_mut(wr).unwrap().input = a.input;
     }
     for c in st.crafts.iter().flatten() { for seat in &c.seats { for &wr in seat {
         let w = st.weapons.get_mut(wr).unwrap();
-        w.birth.channel = w.input.channel; w.state.random = w.input.has_random;
+        w.state.random = w.input.has_random;
+        if f3::active() { w.random_binding = w.input.random_binding; }
         w.state.floor = w.input.floor;
         if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
         w.state.spread_scale = w.input.spread_scale; w.state.sniper_scale = w.input.sniper_scale;
@@ -203,6 +230,24 @@ pub fn policy(r: Ref<Vehicle>, seat: usize, player: bool, random: bool) {
         w.state.floor = if player { -d.get(K::SpreadThreshold).or(0.0) } else { 0.0 };
         if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
         w.state.spread_scale = 1.0; w.state.sniper_scale = 0.0; w.state.yaw_spread_override = None; w.state.random = random; w.dirty = true;
+        if f3::active() {
+            w.random_binding = if random { f3::seat_binding() } else { u32::MAX };
+            w.input.random_binding = w.random_binding; w.input.has_random = random;
+            w.input.floor = w.state.floor; w.input.spread_scale = 1.0;
+            w.input.sniper_scale = 0.0; w.input.yaw_spread_override = None;
+        }
+    }
+}
+
+// ClassicCombatBinding.attachController changes every weapon on that seat
+// to its shared AI generator before later native fire can consume a draw.
+pub(crate) fn bind_random(hull: Ref<Vehicle>, seat: usize, binding: u32) {
+    let craft = state().crafts[hull.slot as usize].as_ref().unwrap();
+    for &reference in &craft.seats[seat] {
+        let weapon = state().weapons.get_mut(reference).unwrap();
+        weapon.random_binding = binding; weapon.state.random = binding != u32::MAX;
+        weapon.input.random_binding = binding; weapon.input.has_random = weapon.state.random;
+        weapon.dirty = true;
     }
 }
 
@@ -228,11 +273,12 @@ fn publish_for(only: Option<Ref<Vehicle>>) -> *const f64 {
         let c = st.crafts[row.hull.slot as usize].as_ref().unwrap();
         let changed = c.seats.iter().any(|s| s.iter().any(|&r| st.weapons.get(r).unwrap().dirty));
         if !changed { continue; }
+        row.life = c.life;
         for (i, seat) in row.seats.iter_mut().enumerate() {
             seat.consumed = c.consumed[i];
             for (j, out) in seat.weapons.iter_mut().enumerate() {
                 let w = st.weapons.get_mut(c.seats[i][j]).unwrap();
-                out.state.clone_from(&w.state); w.dirty = false;
+                out.state.clone_from(&w.state); out.random_binding = w.random_binding; w.dirty = false;
                 if let Some(p) = poses()[c.id.slot as usize].as_ref() {
                     let wp = &p.pose.seats[i].weapons[j]; out.barrel = wp.barrel;
                     for (k, kick) in out.kicks.iter_mut().enumerate() { *kick = wp.muzzles[k].kick_at; }
@@ -264,9 +310,12 @@ pub fn phase_ptr() -> *const f64 {
 // Weapon.update chooses draws in the same order as its JS implementation.
 // Seed/admission hooks remain no-ops for mounted weapons, matching the original
 // Vehicle.fireSeat path rather than the infantry prediction path.
-struct Draws { hull: Ref<Vehicle>, seat: u32, weapon: u32 }
+struct Draws { hull: Ref<Vehicle>, seat: u32, weapon: u32, binding:u32 }
 impl WeaponDraws for Draws {
-    fn draw(&mut self, _: u32) -> f64 { import_f2_weapon_draw(&FfDraw { hull: self.hull, seat: self.seat, weapon: self.weapon }).value }
+    fn draw(&mut self, _: u32) -> f64 {
+        if f3::active() { return f3::random_binding(self.binding); }
+        import_f2_weapon_draw(&FfDraw { hull: self.hull, seat: self.seat, weapon: self.weapon }).value
+    }
     fn legacy(&mut self, i: u32) -> f64 { self.draw(i) }
     fn seeded(&mut self, _: f64, _: f64) {}
     fn admit(&mut self, _: u32) -> Admission { Admission::Yes }
@@ -337,13 +386,23 @@ impl LockQuery for HullQuery {
     fn clear(&mut self, origin: &Vector3, sight: &mut Vector3, length: f64, body: Option<u32>) -> bool {
         if length < 1e-6 { return true; }
         let ignore = sim().store.vehicle.get(self.0).unwrap().body.slot;
-        !JsWorld { craft: self.0.slot }.cast(origin,sight.divide_scalar(length),length,Some(ignore)).is_some_and(|h| h.body != body || h.body.is_none())
+        !JsWorld::new(self.0.slot).cast(origin,sight.divide_scalar(length),length,Some(ignore)).is_some_and(|h| h.body != body || h.body.is_none())
     }
 }
 
-fn member(i: usize) -> MemberRow { unsafe { (&*addr_of_mut!(MEMBERS))[i] } }
+fn member(i: usize) -> MemberRow {
+    if f3::active() {
+        let facts = crate::units::f3_fleet::flight(i, u32::MAX);
+        let hull = crate::units::f3_hulls::for_member(crate::units::f3_fleet::key(i));
+        return MemberRow { kind: if facts.unit { 0 } else if hull.is_some() { 1 } else { 2 },
+            id: facts.id, generation: facts.generation, alive: facts.alive, team: facts.team,
+            hull: hull.map_or(u32::MAX, |r| r.slot), point: facts.point };
+    }
+    unsafe { (&*addr_of_mut!(MEMBERS))[i] }
+}
 fn target_key(i: usize, alive: bool) -> LockTarget { let m = member(i); LockTarget { id: m.id, generation: m.generation.unwrap_or(0.0), alive } }
 fn target_facts(r: Ref<Vehicle>, i: usize, shapes: bool, aim: bool) -> FfTargetFacts {
+    if f3::active() { return crate::units::f3_fleet::hull_target(r, i, shapes, aim); }
     import_f2_target_facts(&FfTargetQuery { index: i as u32, viewer: r, shapes, aim })
 }
 
@@ -374,7 +433,7 @@ pub fn flight_locks() {
 // Vehicle.fireCrews takes hulls, seats and channels in that order. A network
 // human uses the crew path too; only the world's dormant local driver is skipped.
 // Cable updates remain after every hull has had its firing opportunity.
-pub fn step(dt: f64, clock: f64) {
+pub(crate) fn step(dt: f64, clock: f64, mut services: Option<WorldServices<'_>>) {
     let n = sim().store.vehicles.vehicles.len();
     for i in 0..n {
         let r = sim().store.vehicles.vehicles[i];
@@ -388,20 +447,20 @@ pub fn step(dt: f64, clock: f64) {
             let count = state().crafts[r.slot as usize].as_ref().unwrap().seats[seat].len();
             if count == 0 { continue; }
             state().crafts[r.slot as usize].as_mut().unwrap().consumed[seat] = true;
-            for weapon in 0..count { fire_seat(r, seat, weapon, dt, clock); }
+            for weapon in 0..count { fire_seat(r, seat, weapon, dt, clock, services.as_mut().map(WorldServices::reborrow)); }
             if let Some(lr) = sim().store.vehicle.get(r).unwrap().seats[seat].lease {
                 let l = sim().store.seat_lease.get_mut(lr).unwrap();
                 if l.input.reload { l.input.reload = false; super::super::live_seats::changed_lease(lr); }
             }
         }
     }
-    update_tethers();
+    update_tethers(services);
 }
 
 // Vehicle.fireSeat reads the just-latched canonical edges. Consume each press
 // before weapon execution, retaining reload until every weapon on the seat has
 // updated. A synchronous shot death cannot give those edges to a replacement.
-fn fire_seat(r: Ref<Vehicle>, seat: usize, weapon: usize, dt: f64, clock: f64) {
+fn fire_seat(r: Ref<Vehicle>, seat: usize, weapon: usize, dt: f64, clock: f64, mut services: Option<WorldServices<'_>>) {
     let wr = state().crafts[r.slot as usize].as_ref().unwrap().seats[seat][weapon];
     // RNG and fired hooks can reenter the simulation. Take only the weapon's
     // mutable working state and reusable shot buffer, leaving no reference into
@@ -428,12 +487,12 @@ fn fire_seat(r: Ref<Vehicle>, seat: usize, weapon: usize, dt: f64, clock: f64) {
     }
     let suppressed = tow && sim().store.vehicle.get(r).unwrap().tow_target >= 0.0;
     update_mounted(&mut w, weapon as u32, &class, dt, !suppressed && (held || pressed), !suppressed && pressed, reload,
-        &mut Draws { hull: r, seat: seat as u32, weapon: weapon as u32 }, &mut shots);
+        &mut Draws { hull: r, seat: seat as u32, weapon: weapon as u32, binding:state().weapons.get(wr).unwrap().random_binding }, &mut shots);
     { let m = state().weapons.get_mut(wr).unwrap(); m.state = w; m.input = input; m.class = Some(class); m.dirty = true; }
     for shot in &shots {
         if !sim().store.vehicle.get(r).is_some_and(|v| v.alive) { break; }
         if let ShotKind::Round { yaw, pitch, charge, target_id, target_generation, .. } = shot.kind {
-            emit(r, seat, weapon, wr, yaw, pitch, charge, target_id, target_generation, clock);
+            emit(r, seat, weapon, wr, yaw, pitch, charge, target_id, target_generation, clock, services.as_mut().map(WorldServices::reborrow));
         }
     }
     if let Some(m) = state().weapons.get_mut(wr) { m.shots = shots; }
@@ -445,7 +504,7 @@ fn fire_seat(r: Ref<Vehicle>, seat: usize, weapon: usize, dt: f64, clock: f64) {
 // Vehicle.emitShot consumes the muzzle/barrel before the limits test. Preserve
 // that ordering, then apply spread and any flyer assist. Tow launches share the
 // same geometry but do not create an ordinary projectile.
-fn emit(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, yaw: f64, pitch: f64, charge: f64, mut target_id: f64, mut target_generation: f64, clock: f64) {
+fn emit(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, yaw: f64, pitch: f64, charge: f64, mut target_id: f64, mut target_generation: f64, clock: f64, services: Option<WorldServices<'_>>) {
     let h = geometry(r);
     let keys = &state().weapons.get(wr).unwrap().keys;
     let mut muzzle = Vector3::default();
@@ -471,23 +530,33 @@ fn emit(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, yaw: f64,
     let (owner, body, life, class, config) = {
         let v = sim().store.vehicle.get(r).unwrap();
         let owner = match v.seat_leases[seat].unit { crate::store::Nullable::Value(u) => OrdnanceOwner::Unit(u), _ => OrdnanceOwner::Vehicle(r) };
-        (owner, v.body, v.target_generation, v.flight_class, crate::flight::FlightWorld::tuning(&mut JsWorld { craft: r.slot }, v.flight_class.unwrap_or_default()))
+        (owner, v.body, v.target_generation, v.flight_class, crate::flight::FlightWorld::tuning(&mut JsWorld::new(r.slot), v.flight_class.unwrap_or_default()))
     };
     let (ordnance, channel, emitter) = {
-        let b = &state().weapons.get(wr).unwrap().birth;
-        (b.ordnance, b.channel, m.emitter.map_or(b.emitter, |i| b.muzzles[i].emitter))
+        let weapon = state().weapons.get(wr).unwrap();
+        let b = &weapon.birth;
+        (b.ordnance, weapon.input.channel, m.emitter.map_or(b.emitter, |i| b.muzzles[i].emitter))
     };
     if tow { launch_tow(r, seat, weapon, wr, &muzzle, &direction); }
     else if let Some(def) = ordnance {
         fire_round(def, v3(&muzzle), v3(&direction), owner, Some(body), emitter, channel, target_id, target_generation,
-            flying.then_some((state().class_names[class.unwrap_or_default() as usize], config.missile_lifetime, config.missile_speed)));
+            flying.then_some((state().class_names[class.unwrap_or_default() as usize], config.missile_lifetime, config.missile_speed)), services);
     }
-    // Copy the shot's values for ordered visuals, then call the gameplay fired
-    // listener synchronously. Delaying that listener until all crews have fired
-    // would change AI reactions and nested damage seen by later weapons.
-    let event = FfShot { state: state().weapons.get(wr).unwrap().state.clone(), hull: r, life, seat: seat as u32, weapon: weapon as u32, owner, yaw, pitch, charge, target_id, target_generation, origin: v3(&muzzle), direction: v3(&direction) };
+    // Vehicle.emitShot captures its weapon state and muzzle before another
+    // barrel advances. Game's fired observer is a journal/presentation notice;
+    // owned worlds drain it in the shared stream after native work returns.
+    let sample = if f3::active() {
+        crate::units::f3_fleet::mounted_sample(owner,crate::units::f3_hulls::member(r))
+    } else { F3MountedSample::default() };
+    let event = FfShot {
+        state: state().weapons.get(wr).unwrap().state.clone(), hull: r, life,
+        seat: seat as u32, weapon: weapon as u32, owner, yaw, pitch, charge,
+        target_id, target_generation, origin: v3(&muzzle), direction: v3(&direction), sample,
+    };
     event.emit(&mut sim().events);
-    import_f2_fired(&FfFired { shot: event, events: sim().events.ptr() as usize as u32 });
+    if !f3::active() {
+        import_f2_fired(&FfFired { shot: event, events: sim().events.ptr() as usize as u32 });
+    }
 }
 
 /// Shared Ordnance.fire seam for hulls and stationary crews. Beam emitters
@@ -496,11 +565,11 @@ fn emit(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, yaw: f64,
 // Both stationary crews and hull weapons execute Ordnance.fire natively.
 // The ordnance scope records its own execution allocations separately from
 // steady F2 scratch; the total allocator counter still includes them.
-pub fn fire_round(def: crate::store::DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, body: Option<Ref<Body>>,
-    emitter: BeamSource, channel: f64, target: f64, generation: f64, flight: Option<(StrId, f64, f64)>) -> Option<crate::ordnance::world::Shot> {
+pub(crate) fn fire_round(def: crate::store::DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, body: Option<Ref<Body>>,
+    emitter: BeamSource, channel: f64, target: f64, generation: f64, flight: Option<(StrId, f64, f64)>, services: Option<WorldServices<'_>>) -> Option<crate::ordnance::world::Shot> {
     let _scope = crate::vehicles::module::f2::allocation::enter(crate::vehicles::module::f2::allocation::ORDNANCE);
     let (store, strings) = crate::ordnance::module::parts();
-    let mut world = crate::ordnance::module::JsWorld::new(store, strings);
+    let mut world = crate::ordnance::module::JsWorld::with_services(store, strings, services);
     let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
     let round = cx.fire_round(def, origin, direction, owner, None, body, emitter, channel, Some(target), Some(generation));
     if let Some((class, lifetime, speed)) = flight { if let Some(crate::ordnance::world::Shot::Round(r)) = round {
@@ -517,7 +586,7 @@ fn assist(r: Ref<Vehicle>, origin: &Vector3, direction: &mut Vector3) {
     let v = sim().store.vehicle.get(r).unwrap();
     let id = v.flight_assist_id.unwrap_or(-1.0);
     let class = v.flight_class.unwrap_or_default();
-    let mut world = JsWorld { craft: r.slot };
+    let mut world = JsWorld::new(r.slot);
     if !world.environment().assists || id < 0.0 { return; }
     let Some(i) = world.member_by_id(id) else { return };
     let facts = target_facts(r, i, false, true);
@@ -591,7 +660,7 @@ fn tow_aim(r: Ref<Vehicle>, seat: usize, wr: Ref<Mounted>, muzzle: &Vector3) -> 
     let h = geometry(r); let origin = h.seat_eye(seat); let direction = h.bot_aim(seat); keep_geometry(r);
     let range = state().weapons.get(wr).unwrap().birth.range;
     let body = sim().store.vehicle.get(r).unwrap().body.slot;
-    let hit = JsWorld { craft: r.slot }.cast(&origin, &direction, range, Some(body));
+    let hit = JsWorld::new(r.slot).cast(&origin, &direction, range, Some(body));
     let target = hit.and_then(|h| hit_hull(h.body)).filter(|&t| command_walker(t, r, false)).or_else(|| nearest_walker(r, range))?;
     let mut p = leg_near(target, muzzle)?; p.sub(muzzle).normalize(); Some(p)
 }
@@ -604,14 +673,14 @@ fn tow_aim(r: Ref<Vehicle>, seat: usize, wr: Ref<Mounted>, muzzle: &Vector3) -> 
 fn launch_tow(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, origin: &Vector3, direction: &Vector3) -> bool {
     let range = state().weapons.get(wr).unwrap().birth.range;
     let body = sim().store.vehicle.get(r).unwrap().body.slot;
-    let Some(hit) = JsWorld { craft: r.slot }.cast(origin, direction, range, Some(body)) else { return false };
+    let Some(hit) = JsWorld::new(r.slot).cast(origin, direction, range, Some(body)) else { return false };
     let Some(target) = hit_hull(hit.body).filter(|&t| command_walker(t, r, true)) else { return false };
     let mut leg = leg_hit(target, &hit.point);
     if leg.is_none() {
         if let Some(mut p) = leg_near(target, origin) {
             p.sub(origin); let far = p.length();
             if far > 1e-3 {
-                let hit = JsWorld { craft: r.slot }.cast(origin, p.divide_scalar(far), v8math::min(range, far + 2.0), Some(body));
+                let hit = JsWorld::new(r.slot).cast(origin, p.divide_scalar(far), v8math::min(range, far + 2.0), Some(body));
                 if let Some(hit) = hit.filter(|h| hit_hull(h.body) == Some(target)) { leg = leg_hit(target, &hit.point); }
             }
         }
@@ -654,7 +723,7 @@ fn release(r: Ref<Vehicle>, reason: StrId) {
 // Vehicles.updateTethers follows the existing cable list order. Opposite
 // turns unwind the accumulated angle, and a trip damages the walker before
 // reciprocal explosion callbacks can inspect or destroy the towing craft.
-fn update_tethers() {
+fn update_tethers(mut services: Option<WorldServices<'_>>) {
     let n = state().cables.len();
     for i in 0..n {
         let (r, target, life, target_life, seat, length) = {
@@ -682,8 +751,14 @@ fn update_tethers() {
         if trip {
             let owner = match s.seat_leases[seat].unit { crate::store::Nullable::Value(u) => OrdnanceOwner::Unit(u), _ => OrdnanceOwner::Vehicle(r) };
             release(r, state().tripped);
-            let (tag, slot, gen) = match owner { OrdnanceOwner::Unit(u) => (2, u.slot, u.gen), _ => (3, r.slot, r.gen) };
-            super::super::f2_command(target.slot, target.gen, target_life, 0, f64::INFINITY, tag, slot, gen);
+            if let Some(services) = &mut services {
+                // Vehicles.updateTethers finishes the tripped walker's crew
+                // deaths and blast before continuing the next retained cable.
+                crate::units::f3_hulls::mutate(target, f64::INFINITY, Some(owner), services.reborrow());
+            } else {
+                let (tag, slot, gen) = match owner { OrdnanceOwner::Unit(u) => (2, u.slot, u.gen), _ => (3, r.slot, r.gen) };
+                super::super::f2_command(target.slot, target.gen, target_life, 0, f64::INFINITY, tag, slot, gen);
+            }
         }
     }
 }
@@ -749,18 +824,24 @@ pub extern "C" fn f2_firing_supply() -> *const f64 {
     let mut changed = false;
     let current = sim().store.vehicle.get(a.hull).is_some_and(|v| v.target_generation == a.life);
     if current {
-        let c = state().crafts[a.hull.slot as usize].as_ref().unwrap();
-        for s in &c.seats { for &r in s {
-            let m = state().weapons.get_mut(r).unwrap();
-            let w = &mut m.state; let d = w.level(m.class.as_ref().unwrap());
-            let ammo = d.get(K::Ammo).num();
-            if w.bottomless || !(ammo > 0.0) { continue; }
-            let loaded = if w.clip >= w.per_shot - 1e-6 { 1.0 } else { 0.0 };
-            let next = three::clamp(w.reserve + a.amount, 0.0, ammo - loaded);
-            if v8math::abs(next - w.reserve) > 0.0001 { w.reserve = next; m.dirty = true; changed = true; }
-        }}
+        changed = supply(a.hull,a.amount,false);
     }
     let result = FfSupplyResult { changed, output: publish_for(Some(a.hull)) as usize as u32 };
     state().supply_result.result(FfSupplyResult::WORDS, |row, heap| result.put(row, heap));
     state().supply_result.block.ptr()
+}
+
+// givePowerup uses the same canonical mounted ammunition as Station.serve.
+// The caller owns publication; no nested export or second hull copy is needed.
+pub(crate) fn supply(hull: Ref<Vehicle>, amount: f64, powerup: bool) -> bool {
+    let c = state().crafts[hull.slot as usize].as_ref().expect("prepared supply hull");
+    let mut changed = false;
+    for seat in &c.seats { for &r in seat {
+        let m = state().weapons.get_mut(r).unwrap();
+        let level = m.state.level(m.class.as_ref().unwrap());
+        if crate::combat::weapons::supply(&mut m.state,level,amount,powerup) {
+            m.dirty = true; changed = true;
+        }
+    }}
+    changed
 }

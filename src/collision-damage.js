@@ -29,9 +29,6 @@
 
 export const SOLDIER_COLLISION = Object.freeze({ threshold: [10, 3, 0], scale: [1, 0, 0] });
 export const DROIDEKA_COLLISION = Object.freeze({ threshold: [7.5, 2.5, 0], scale: [1, 0, 0] });
-export const FALL_KILL_SPEED = 60; // m/s down
-const WORLD_HALF = 1000; // m, x and z
-const WORLD_HEIGHT = 500; // m, up and down
 
 // A class's two triples: what its ODF sets over the defaults, as the
 // original game reads "%f %f %f" into fields that keep their defaults.
@@ -44,33 +41,3 @@ export function collisionRule(def, defaults = SOLDIER_COLLISION) {
   return { threshold: triple(def?.CollisionThreshold, defaults.threshold), scale: triple(def?.CollisionScale, defaults.scale) };
 }
 
-// The damage of one contact. into: the velocity along n (negative moving
-// into it); up and forward: n's components along the body's up and facing.
-export function contactDamage(rule, into, up, forward) {
-  if (!(into < 0)) return 0;
-  const [t0, t1, t2] = rule.threshold;
-  const threshold = t0 + t1 * up + t2 * forward;
-  if (!(-threshold > into)) return 0;
-  const [s0, s1, s2] = rule.scale;
-  const excess = into + threshold;
-  const damage = (s0 + s1 * up + s2 * forward) * excess * excess;
-  return damage > 0 ? damage : 0;
-}
-
-// A soldier past the world's bounds, or falling too fast to live.
-export function outOfWorld(position, velocity) {
-  return velocity.y < -FALL_KILL_SPEED || position.y < -WORLD_HEIGHT || position.y > WORLD_HEIGHT
-    || Math.abs(position.x) > WORLD_HALF || Math.abs(position.z) > WORLD_HALF;
-}
-
-// After a body's physics step (the player's, a bot's, a network human's):
-// what its contacts did to it, and the world bounds for a soldier. On a
-// seat the body doesn't move by itself.
-export function takeImpacts(unit) {
-  const body = unit?.soldier;
-  const combat = unit?.combat;
-  if (!body || !combat || combat.dead || unit.removed || unit.seat) return;
-  const damage = body.collisionDamage;
-  if (damage > 0) combat.damage(damage);
-  if (!combat.dead && !unit.walker && body.position && body.velocity && outOfWorld(body.position, body.velocity)) combat.damage(Infinity);
-}

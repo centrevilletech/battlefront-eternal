@@ -3,7 +3,12 @@ import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { KIND_VEHICLE } from "./kinds.js";
 import { WeaponMirror, exportWeapon, putWeapon, sameWeapon, syncWeapon } from "./combat.js";
+import { F3MountedSampleMirror, exportF3MountedSample, putF3MountedSample, sameF3MountedSample, syncF3MountedSample } from "./f2.js";
 import { exportBeamSource, exportOrdnanceOwner, putBeamSource, putOrdnanceOwner, sameBeamSource, sameOrdnanceOwner, syncBeamSource, syncOrdnanceOwner } from "./ordnance.js";
+
+export const FfPhaseLayout = Object.freeze({ words: 3, weapons: 0, cables: 1, events: 2 });
+export const FF_PHASE_WORDS = FfPhaseLayout.words;
+export const FF_PHASE_OFFSETS = FfPhaseLayout;
 
 export class FfPhaseMirror {
   constructor() {
@@ -14,9 +19,9 @@ export class FfPhaseMirror {
 }
 
 export function syncFfPhase(b, f, at, h, m) {
-  m.weapons = f[at + 0];
-  m.cables = f[at + 1];
-  m.events = f[at + 2];
+  m.weapons = f[at + 0] >>> 0;
+  m.cables = f[at + 1] >>> 0;
+  m.events = f[at + 2] >>> 0;
   return m;
 }
 
@@ -53,7 +58,7 @@ export class FfSupplyResultMirror {
 
 export function syncFfSupplyResult(b, f, at, h, m) {
   m.changed = f[at + 0] !== 0;
-  m.output = f[at + 1];
+  m.output = f[at + 1] >>> 0;
   return m;
 }
 
@@ -128,7 +133,7 @@ export class FfInputsMirror {
 }
 
 export function syncFfInputs(b, f, at, h, m) {
-  m.count = f[at + 0];
+  m.count = f[at + 0] >>> 0;
   return m;
 }
 
@@ -150,13 +155,14 @@ export function exportFfInputs(o, cx) {
   return v;
 }
 
-export const FfWeaponChangeLayout = Object.freeze({ words: 12, hull: 0, seat: 2, weapon: 3, input: 4 });
+export const FfWeaponChangeLayout = Object.freeze({ words: 14, hull: 0, life: 2, seat: 3, weapon: 4, input: 5 });
 export const FF_WEAPON_CHANGE_WORDS = FfWeaponChangeLayout.words;
 export const FF_WEAPON_CHANGE_OFFSETS = FfWeaponChangeLayout;
 
 export class FfWeaponChangeMirror {
   constructor() {
     this.hull = null;
+    this.life = NaN;
     this.seat = 0;
     this.weapon = 0;
     this.input = new FfWeaponInputMirror();
@@ -165,21 +171,24 @@ export class FfWeaponChangeMirror {
 
 export function syncFfWeaponChange(b, f, at, h, m) {
   m.hull = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
-  m.seat = f[at + 2];
-  m.weapon = f[at + 3];
-  m.input = syncFfWeaponInput(b, f, at + 4, h, m.input ?? new FfWeaponInputMirror());
+  m.life = f[at + 2];
+  m.seat = f[at + 3] >>> 0;
+  m.weapon = f[at + 4] >>> 0;
+  m.input = syncFfWeaponInput(b, f, at + 5, h, m.input ?? new FfWeaponInputMirror());
   return m;
 }
 
 export function putFfWeaponChange(b, o, f, at, heap) {
   b.refs[KIND_VEHICLE].put(o.hull, f, at + 0);
-  f[at + 2] = o.seat;
-  f[at + 3] = o.weapon;
-  putFfWeaponInput(b, o.input, f, at + 4, heap);
+  f[at + 2] = o.life;
+  f[at + 3] = o.seat;
+  f[at + 4] = o.weapon;
+  putFfWeaponInput(b, o.input, f, at + 5, heap);
 }
 
 export function sameFfWeaponChange(a, b) {
   if (!Object.is(a.hull, b.hull)) return ".hull";
+  if (!Object.is(a.life, b.life)) return ".life";
   if (!Object.is(a.seat, b.seat)) return ".seat";
   if (!Object.is(a.weapon, b.weapon)) return ".weapon";
   { const d = sameFfWeaponInput(a.input, b.input); if (d) return ".input" + d; }
@@ -192,13 +201,14 @@ export function exportFfWeaponChange(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.hull = cx.ref("vehicle", o.hull);
+  v.life = o.life;
   v.seat = o.seat;
   v.weapon = o.weapon;
   v.input = exportFfWeaponInput(o.input, cx);
   return v;
 }
 
-export const FfWeaponInputLayout = Object.freeze({ words: 8, channel: 0, target: 1, hasRandom: 2, floor: 3, spreadScale: 4, sniperScale: 5, yawSpreadOverride: 6 });
+export const FfWeaponInputLayout = Object.freeze({ words: 9, channel: 0, target: 1, hasRandom: 2, randomBinding: 3, floor: 4, spreadScale: 5, sniperScale: 6, yawSpreadOverride: 7 });
 export const FF_WEAPON_INPUT_WORDS = FfWeaponInputLayout.words;
 export const FF_WEAPON_INPUT_OFFSETS = FfWeaponInputLayout;
 
@@ -207,6 +217,7 @@ export class FfWeaponInputMirror {
     this.channel = NaN;
     this.target = 0;
     this.hasRandom = false;
+    this.randomBinding = 0;
     this.floor = NaN;
     this.spreadScale = NaN;
     this.sniperScale = NaN;
@@ -216,12 +227,13 @@ export class FfWeaponInputMirror {
 
 export function syncFfWeaponInput(b, f, at, h, m) {
   m.channel = f[at + 0];
-  m.target = f[at + 1];
+  m.target = f[at + 1] | 0;
   m.hasRandom = f[at + 2] !== 0;
-  m.floor = f[at + 3];
-  m.spreadScale = f[at + 4];
-  m.sniperScale = f[at + 5];
-  { const tag = f[at + 6]; if (tag === 0) { m.yawSpreadOverride = f[at + 7]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
+  m.randomBinding = f[at + 3] >>> 0;
+  m.floor = f[at + 4];
+  m.spreadScale = f[at + 5];
+  m.sniperScale = f[at + 6];
+  { const tag = f[at + 7]; if (tag === 0) { m.yawSpreadOverride = f[at + 8]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -229,16 +241,18 @@ export function putFfWeaponInput(b, o, f, at, heap) {
   f[at + 0] = o.channel;
   f[at + 1] = o.target;
   f[at + 2] = o.hasRandom ? 1 : 0;
-  f[at + 3] = o.floor;
-  f[at + 4] = o.spreadScale;
-  f[at + 5] = o.sniperScale;
-  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = $x; } }
+  f[at + 3] = o.randomBinding;
+  f[at + 4] = o.floor;
+  f[at + 5] = o.spreadScale;
+  f[at + 6] = o.sniperScale;
+  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
 }
 
 export function sameFfWeaponInput(a, b) {
   if (!Object.is(a.channel, b.channel)) return ".channel";
   if (!Object.is(a.target, b.target)) return ".target";
   if (!Object.is(a.hasRandom, b.hasRandom)) return ".hasRandom";
+  if (!Object.is(a.randomBinding, b.randomBinding)) return ".randomBinding";
   if (!Object.is(a.floor, b.floor)) return ".floor";
   if (!Object.is(a.spreadScale, b.spreadScale)) return ".spreadScale";
   if (!Object.is(a.sniperScale, b.sniperScale)) return ".sniperScale";
@@ -254,6 +268,7 @@ export function exportFfWeaponInput(o, cx) {
   v.channel = o.channel;
   v.target = o.target;
   v.hasRandom = o.hasRandom;
+  v.randomBinding = o.randomBinding;
   v.floor = o.floor;
   v.spreadScale = o.spreadScale;
   v.sniperScale = o.sniperScale;
@@ -328,16 +343,16 @@ export function syncFfWeaponBirth(b, f, at, h, m) {
   m.range = f[at + 45];
   m.cableLength = f[at + 46];
   m.channel = f[at + 47];
-  m.relationMask = f[at + 48];
-  m.categoryMask = f[at + 49];
+  m.relationMask = f[at + 48] >>> 0;
+  m.categoryMask = f[at + 49] >>> 0;
   m.weaponNode = f[at + 50];
   m.fallbackNode = f[at + 51];
-  { const items = (m.directionNodes ??= []), start = h + f[at + 52], n = f[at + 53]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.outside ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.directionNodes ??= []), start = h + f[at + 52], n = f[at + 53]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.outside ??= []), start = h + f[at + 54], n = f[at + 55]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.emitter = syncBeamSource(b, f, at + 56, h, m.emitter);
   m.emitterNode = f[at + 59];
   m.emitterAimer = f[at + 60];
-  { const items = (m.muzzles ??= []), start = h + f[at + 61], n = f[at + 62]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncFfMuzzle(b, f, at + 0, h, v ?? new FfMuzzleMirror()); } items[i] = v; } }
+  { const items = (m.muzzles ??= []), start = h + f[at + 61], n = f[at + 62]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncFfMuzzle(b, f, at + 0, h, v ?? new FfMuzzleMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -411,7 +426,7 @@ export class FfSeatBirthMirror {
 }
 
 export function syncFfSeatBirth(b, f, at, h, m) {
-  { const items = (m.weapons ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 63; v = syncFfWeaponBirth(b, f, at + 0, h, v ?? new FfWeaponBirthMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 63; v = syncFfWeaponBirth(b, f, at + 0, h, v ?? new FfWeaponBirthMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -493,8 +508,8 @@ export function syncFfBirth(b, f, at, h, m) {
   m.life = f[at + 2];
   m.commandWalker = f[at + 3] !== 0;
   m.legTop = f[at + 4];
-  { const items = (m.legs ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncFfLeg(b, f, at + 0, h, v ?? new FfLegMirror()); } items[i] = v; } }
-  { const items = (m.seats ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncFfSeatBirth(b, f, at + 0, h, v ?? new FfSeatBirthMirror()); } items[i] = v; } }
+  { const items = (m.legs ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncFfLeg(b, f, at + 0, h, v ?? new FfLegMirror()); } items[i] = v; } }
+  { const items = (m.seats ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncFfSeatBirth(b, f, at + 0, h, v ?? new FfSeatBirthMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -534,6 +549,7 @@ export function exportFfBirth(o, cx) {
 export class FfWeaponOutMirror {
   constructor() {
     this.state = new WeaponMirror();
+    this.randomBinding = 0;
     this.barrel = NaN;
     this.kicks = [];
   }
@@ -541,19 +557,22 @@ export class FfWeaponOutMirror {
 
 export function syncFfWeaponOut(b, f, at, h, m) {
   m.state = syncWeapon(b, f, at + 0, h, m.state ?? new WeaponMirror());
-  m.barrel = f[at + 42];
-  { const items = (m.kicks ??= []), start = h + f[at + 43], n = f[at + 44]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  m.randomBinding = f[at + 42] >>> 0;
+  m.barrel = f[at + 43];
+  { const items = (m.kicks ??= []), start = h + f[at + 44], n = f[at + 45]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   return m;
 }
 
 export function putFfWeaponOut(b, o, f, at, heap) {
   putWeapon(b, o.state, f, at + 0, heap);
-  f[at + 42] = o.barrel;
-  heap.items(o.kicks, f, at + 43, 2, (f, at, v) => { { const $x = v; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = $x; } } });
+  f[at + 42] = o.randomBinding;
+  f[at + 43] = o.barrel;
+  heap.items(o.kicks, f, at + 44, 2, (f, at, v) => { { const $x = v; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = $x; } } });
 }
 
 export function sameFfWeaponOut(a, b) {
   { const d = sameWeapon(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.randomBinding, b.randomBinding)) return ".randomBinding";
   if (!Object.is(a.barrel, b.barrel)) return ".barrel";
   if (!sameEach(a.kicks, b.kicks, (x, y) => (x === null || x === undefined || y === null || y === undefined ? x === y : Object.is(x, y)))) return ".kicks";
   return null;
@@ -565,6 +584,7 @@ export function exportFfWeaponOut(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.state = exportWeapon(o.state, cx);
+  v.randomBinding = o.randomBinding;
   v.barrel = o.barrel;
   v.kicks = o.kicks.map((x) => x);
   return v;
@@ -579,13 +599,13 @@ export class FfSeatOutMirror {
 
 export function syncFfSeatOut(b, f, at, h, m) {
   m.consumed = f[at + 0] !== 0;
-  { const items = (m.weapons ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 45; v = syncFfWeaponOut(b, f, at + 0, h, v ?? new FfWeaponOutMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 46; v = syncFfWeaponOut(b, f, at + 0, h, v ?? new FfWeaponOutMirror()); } items[i] = v; } }
   return m;
 }
 
 export function putFfSeatOut(b, o, f, at, heap) {
   f[at + 0] = o.consumed ? 1 : 0;
-  heap.items(o.weapons, f, at + 1, 45, (f, at, v) => { putFfWeaponOut(b, v, f, at + 0, heap); });
+  heap.items(o.weapons, f, at + 1, 46, (f, at, v) => { putFfWeaponOut(b, v, f, at + 0, heap); });
 }
 
 export function sameFfSeatOut(a, b) {
@@ -615,7 +635,7 @@ export class FfHullOutMirror {
 export function syncFfHullOut(b, f, at, h, m) {
   m.hull = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
   m.life = f[at + 2];
-  { const items = (m.seats ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncFfSeatOut(b, f, at + 0, h, v ?? new FfSeatOutMirror()); } items[i] = v; } }
+  { const items = (m.seats ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncFfSeatOut(b, f, at + 0, h, v ?? new FfSeatOutMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -658,8 +678,8 @@ export class FfCableOutMirror {
 export function syncFfCableOut(b, f, at, h, m) {
   m.source = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
   m.target = b.refs[KIND_VEHICLE].at(f[at + 2], f[at + 3]);
-  m.seat = f[at + 4];
-  m.weapon = f[at + 5];
+  m.seat = f[at + 4] >>> 0;
+  m.weapon = f[at + 5] >>> 0;
   m.length = f[at + 6];
   { const $v = (m.start ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
   { const $v = (m.end ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
@@ -712,8 +732,8 @@ export class FfDrawMirror {
 
 export function syncFfDraw(b, f, at, h, m) {
   m.hull = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
-  m.seat = f[at + 2];
-  m.weapon = f[at + 3];
+  m.seat = f[at + 2] >>> 0;
+  m.weapon = f[at + 3] >>> 0;
   return m;
 }
 
@@ -751,7 +771,7 @@ export class FfTargetQueryMirror {
 }
 
 export function syncFfTargetQuery(b, f, at, h, m) {
-  m.index = f[at + 0];
+  m.index = f[at + 0] >>> 0;
   m.viewer = b.refs[KIND_VEHICLE].at(f[at + 1], f[at + 2]);
   m.shapes = f[at + 3] !== 0;
   m.aim = f[at + 4] !== 0;
@@ -802,7 +822,7 @@ export function syncFfTargetFacts(b, f, at, h, m) {
   m.alive = f[at + 0] !== 0;
   m.eligible = f[at + 1] !== 0;
   m.relation = f[at + 2];
-  m.category = f[at + 3];
+  m.category = f[at + 3] >>> 0;
   { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   m.radius = f[at + 7];
   { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 8]; $v.y = f[at + 9]; $v.z = f[at + 10]; }
@@ -864,14 +884,15 @@ export class FfShotMirror {
     this.targetGeneration = NaN;
     this.origin = new THREE.Vector3();
     this.direction = new THREE.Vector3();
+    this.sample = new F3MountedSampleMirror();
   }
 }
 
 export function syncFfShot(b, f, at, h, m) {
   m.hull = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
   m.life = f[at + 2];
-  m.seat = f[at + 3];
-  m.weapon = f[at + 4];
+  m.seat = f[at + 3] >>> 0;
+  m.weapon = f[at + 4] >>> 0;
   m.state = syncWeapon(b, f, at + 5, h, m.state ?? new WeaponMirror());
   m.owner = syncOrdnanceOwner(b, f, at + 47, h, m.owner);
   m.yaw = f[at + 50];
@@ -881,6 +902,7 @@ export function syncFfShot(b, f, at, h, m) {
   m.targetGeneration = f[at + 54];
   { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 55]; $v.y = f[at + 56]; $v.z = f[at + 57]; }
   { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 58]; $v.y = f[at + 59]; $v.z = f[at + 60]; }
+  m.sample = syncF3MountedSample(b, f, at + 61, h, m.sample ?? new F3MountedSampleMirror());
   return m;
 }
 
@@ -898,6 +920,7 @@ export function putFfShot(b, o, f, at, heap) {
   f[at + 54] = o.targetGeneration;
   { const $v = o.origin; f[at + 55] = $v.x; f[at + 56] = $v.y; f[at + 57] = $v.z; }
   { const $v = o.direction; f[at + 58] = $v.x; f[at + 59] = $v.y; f[at + 60] = $v.z; }
+  putF3MountedSample(b, o.sample, f, at + 61, heap);
 }
 
 export function sameFfShot(a, b) {
@@ -914,6 +937,7 @@ export function sameFfShot(a, b) {
   if (!Object.is(a.targetGeneration, b.targetGeneration)) return ".targetGeneration";
   if (!sameVec(a.origin, b.origin)) return ".origin";
   if (!sameVec(a.direction, b.direction)) return ".direction";
+  { const d = sameF3MountedSample(a.sample, b.sample); if (d) return ".sample" + d; }
   return null;
 }
 
@@ -935,6 +959,7 @@ export function exportFfShot(o, cx) {
   v.targetGeneration = o.targetGeneration;
   v.origin = o.origin.clone();
   v.direction = o.direction.clone();
+  v.sample = exportF3MountedSample(o.sample, cx);
   return v;
 }
 
@@ -947,13 +972,13 @@ export class FfFiredMirror {
 
 export function syncFfFired(b, f, at, h, m) {
   m.shot = syncFfShot(b, f, at + 0, h, m.shot ?? new FfShotMirror());
-  m.events = f[at + 61];
+  m.events = f[at + 67] >>> 0;
   return m;
 }
 
 export function putFfFired(b, o, f, at, heap) {
   putFfShot(b, o.shot, f, at + 0, heap);
-  f[at + 61] = o.events;
+  f[at + 67] = o.events;
 }
 
 export function sameFfFired(a, b) {
@@ -985,8 +1010,8 @@ export class FfTowMirror {
 export function syncFfTow(b, f, at, h, m) {
   m.source = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
   m.life = f[at + 2];
-  m.seat = f[at + 3];
-  m.weapon = f[at + 4];
+  m.seat = f[at + 3] >>> 0;
+  m.weapon = f[at + 4] >>> 0;
   m.reason = b.strings.at(f[at + 5]);
   return m;
 }

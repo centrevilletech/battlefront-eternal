@@ -1292,12 +1292,7 @@ export class AnimatedProp {
   // PlayerCombat.mounted). since: the world tick.
   seize(unit, grab, tick) {
     this.victim = { unit, generation: unit.generation, grab, since: tick };
-    unit.held = { prop: this, grab, since: tick };
-    if (unit.combat) unit.combat.mounted = true;
-    const s = unit.soldier;
-    s.velocity.set(0, 0, 0);
-    if (s.air) s.air = null;
-    s.dive = 0;
+    unit.f3.seize(unit,this,grab,tick);
   }
 
   // At the action's end the one it holds dies, no one credited, and his
@@ -1323,16 +1318,11 @@ export class AnimatedProp {
       this.victim = null;
       return;
     }
-    const frame = this.heldFrame(unit, (tick - victim.since) * TICK, heldScratch.frame);
-    if (!frame) return;
-    const s = unit.soldier;
-    s.position.setFromMatrixPosition(frame);
-    s.previous?.copy(s.position);
-    s.settled?.copy(s.position);
-    s.velocity.set(0, 0, 0);
-    (unit.held.frame ||= new THREE.Matrix4()).copy(frame);
-    unit.held.time = (tick - victim.since) * TICK;
-    unit.tickCount = (unit.tickCount || 0) + 1;
+    // The creature's node is foreign until its phase moves. Rust composes
+    // the held root, owns the body and keeps the lazy shape clock unchanged.
+    if (!victim.grab.node) return;
+    this.rig.root.updateMatrixWorld(true);
+    unit.f3.carryHeld(unit,victim.grab.node.matrixWorld,(tick - victim.since) * TICK);
   }
 
   // The frame a held soldier is drawn in (his actor's root) at `time`

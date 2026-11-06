@@ -9,6 +9,7 @@
 //! flight (`fly`) is the flight package's and not here.
 
 use super::{hover, walker, BodyId, VehicleWorld};
+use super::damage::HullDamageWorld;
 use crate::gen::OrdnanceOwner;
 use crate::rig::math;
 use three::{clamp, Euler, EulerOrder, Matrix4, Quaternion, Vector3};
@@ -226,9 +227,8 @@ pub struct Hull {
     pub support_normal: Vector3,
     /// A walker's legs' sides (standOnLegs), once it has stood on them.
     pub leg_side: Option<Vec<f64>>,
-    /// A private correction can omit leg history repeatedly. Preserve its
-    /// capacity while retaining None's first-contact initialization semantics.
-    pub leg_side_scratch: Vec<f64>,
+    /// Retain capacity while legSide is still absent from the gameplay row.
+    pub leg_side_storage: Vec<f64>,
     pub seat_index: usize,
     /// Whether the page's player drives it (VehicleDriver; never in a world).
     pub driver: bool,
@@ -247,7 +247,7 @@ pub struct Hull {
     /// walker's frame, the leg's name, the angle round it, the winding.
     pub tow_target: f64,
     pub tow_local: Vector3,
-    pub tow_leg: String,
+    pub tow_leg: Option<crate::store::StrId>,
     pub tow_angle: f64,
     pub tow_winding: f64,
     /// What its dying and its final blast read of its class.
@@ -493,17 +493,17 @@ impl Hull {
     }
 
     /// vehicles.js damage: `attacker` (Null: nobody) is credited.
-    pub fn damage<W: VehicleWorld>(&mut self, w: &mut W, amount: f64, attacker: OrdnanceOwner) {
-        if !w.damage_allowed() { return; }
+    pub fn damage<W: HullDamageWorld>(&mut self, w: &mut W, amount: f64, attacker: OrdnanceOwner) {
+        if !w.accepts_damage() { return; }
         if !self.alive || !(amount > 0.0) {
             return;
         }
         if attacker != OrdnanceOwner::Null {
             self.last_attacker = attacker;
         }
-        w.current(self);
-        w.damaged(self.index, amount, &attacker);
-        w.reload(self);
+        w.commit_hull(self);
+        w.damaged_hull(self.index, amount, &attacker);
+        w.resume_hull(self);
         self.set_health(w, self.health - amount);
     }
 
@@ -521,7 +521,7 @@ impl Hull {
 
     /// vehicles.js dyingTick: a destroyed walker's death animation plays
     /// out; once it has, its final blast goes off and it is gone.
-    pub fn dying_tick<W: VehicleWorld>(&mut self, w: &mut W, dt: f64) {
+    pub fn dying_tick<W: HullDamageWorld>(&mut self, w: &mut W, dt: f64) {
         if !(self.dying > 0.0) {
             return;
         }
@@ -537,13 +537,13 @@ impl Hull {
         let mut at = Vector3::new(o[0], o[1], o[2]);
         apply_axis_angle(&mut at, &UP, self.yaw);
         at.add(&self.position);
-        w.current(self);
-        w.explosion(self.index, true, &at);
-        w.reload(self);
+        w.commit_hull(self);
+        w.explode_hull(self.index, true, &at);
+        w.resume_hull(self);
     }
 
     /// vehicles.js setHealth: down to 0, the hull is destroyed.
-    pub fn set_health<W: VehicleWorld>(&mut self, w: &mut W, value: f64) {
+    pub fn set_health<W: HullDamageWorld>(&mut self, w: &mut W, value: f64) {
         if !self.alive {
             return;
         }
@@ -551,7 +551,7 @@ impl Hull {
         if self.health > 0.0 {
             return;
         }
-        w.enable_body(self.body, false);
+        w.set_damage_body(self.body, false);
         self.alive = false;
         // A walker with a death animation plays it out before it is gone.
         self.dying = self.dying_span;
@@ -560,21 +560,21 @@ impl Hull {
             self.flight.state = Some(crate::flight::FlightState::Destroyed);
         }
         // Its pad's respawn clock starts.
-        w.respawn_clock(self.index);
-        w.current(self);
-        w.destroyed_crew(self.index);
-        w.reload(self);
-        w.current(self);
-        w.destroyed(self.index);
-        w.reload(self);
+        w.start_respawn(self.index);
+        w.commit_hull(self);
+        w.destroy_hull_crew(self.index);
+        w.resume_hull(self);
+        w.commit_hull(self);
+        w.destroyed_hull(self.index);
+        w.resume_hull(self);
         // Its own tow cable lets go with it (releaseTow 'destroyed': no sound).
         if self.tow_target >= 0.0 {
             self.tow_target = -1.0;
             self.tow_winding = 0.0;
-            self.tow_leg.clear();
+            self.tow_leg = None;
         }
         self.driver = false;
-        w.release_crew(self.index);
+        w.release_hull_crew(self.index);
         for seat in &mut self.seats {
             seat.lease = None;
         }
@@ -589,11 +589,11 @@ impl Hull {
             None => self.position,
         };
         if self.has_explosion {
-            w.current(self);
-            w.explosion(self.index, false, &at);
-            w.reload(self);
+            w.commit_hull(self);
+            w.explode_hull(self.index, false, &at);
+            w.resume_hull(self);
         } else if !self.creature {
-            w.effect("explosion", &at);
+            w.hull_effect("explosion", &at);
         }
     }
 }

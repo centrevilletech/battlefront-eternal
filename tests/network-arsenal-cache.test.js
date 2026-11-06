@@ -27,7 +27,7 @@ test('repeated arsenal captures stay byte-stable and track every mutation', () =
   assert.deepEqual(captureArsenalWeapon(gun), first);
 
   const bladeFirst = captureArsenalWeapon(blade);
-  blade.update(1 / 60, true, { pressed: true, held: true });
+  blade.update(1 / 60, true, { pressed: true, held: true }, false, {stick:0,posture:'stand',zoomed:false});
   const swung = captureArsenalWeapon(blade);
   assert.notDeepEqual(swung, bladeFirst, 'melee timeline changes must reach the checkpoint');
   assert.deepEqual(validateArsenalWeapon(blade, swung).melee, blade.melee.captureState());

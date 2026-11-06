@@ -5,6 +5,7 @@ import { initFlight } from '../src/flight/model.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import {Soldier} from '../src/soldier.js';
 import { makeHit } from '../src/collision.js';
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
@@ -81,7 +82,7 @@ test('straight rockets also hit vehicles entering their flight segment',()=>{
 
 
 test('destruction is idempotent, respawn waits, neutral CP suppresses it, capture changes faction',()=>{
-  const {system,v,post}=fixture(true);let destroyed=0;system.onDestroyed=()=>destroyed++;
+  const {system,v,post}=fixture(true);let destroyed=0;system.onDamaged=body=>{if(!body.alive)destroyed++;};
   v.damage(2000);v.damage(2000);
   assert.equal(destroyed,1);assert.equal(v.body.enabled,false);
   system.update(.1);for(let i=0;i<60;i++)system.update(1/60);assert.equal(v.alive,false);
@@ -95,9 +96,11 @@ test('destruction is idempotent, respawn waits, neutral CP suppresses it, captur
 
 test('occupied pads delay respawn instead of overlapping a soldier',()=>{
   const {system,v}=fixture(true);v.damage(Infinity);
-  system.spawnOccupant=new THREE.Vector3(0,0,0);system.update(.1);for(let i=0;i<180;i++)system.update(1/60);
+  system.f3;
+  const blocker=system.fixtureOwner.adopt({alive:true,dead:false,removed:false,generation:1,team:1,soldier:new Soldier(system.collision,{})});
+  system.fixtureOwner.phase.registerViewpoint(blocker);blocker.spawn(0,0,0,0);system.update(.1);for(let i=0;i<180;i++)system.update(1/60);
   assert.equal(v.alive,false);
-  system.spawnOccupant.set(50,0,50);system.update(.1);for(let i=0;i<60;i++)system.update(1/60);
+  blocker.spawn(50,0,50,0);system.update(.1);for(let i=0;i<60;i++)system.update(1/60);
   assert.equal(v.alive,true);
 });
 

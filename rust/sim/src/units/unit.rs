@@ -169,7 +169,8 @@ impl Unit {
                     let [_, y, z] = DROIDEKA_ORD_AT;
                     ord.r#type = ShapeType::Cylinder;
                     ord.part = ShapePart::Body;
-                    ord.center = [p[0] + v8math::sin(s.aim_yaw) * z, p[1] + y, p[2] + v8math::cos(s.aim_yaw) * z];
+                    let (sin,cos)=v8math::sin_cos(s.aim_yaw);
+                    ord.center = [p[0] + sin * z, p[1] + y, p[2] + cos * z];
                     ord.radius = DROIDEKA_ORD_RADIUS;
                     ord.half = Half::F64(DROIDEKA_ORD_HALF);
                     ord.yaw = s.aim_yaw;
@@ -180,8 +181,7 @@ impl Unit {
             }
             UnitBody::Soldier(s) => {
                 let p = s.position;
-                let sin = v8math::sin(s.aim_yaw);
-                let cos = v8math::cos(s.aim_yaw);
+                let (sin,cos)=v8math::sin_cos(s.aim_yaw);
                 let parts = soldier_shapes(posture, self.root_scale);
                 for (i, part) in parts.iter().enumerate() {
                     let shape = &mut self.shapes[i];
@@ -290,17 +290,12 @@ impl Unit {
         }
     }
 
-    /// spawn(x, y, z, yaw) (units.js:375): into the world at (x, y, z)
-    /// facing yaw, fresh, a life later.
-    pub fn spawn(&mut self, id: u32, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
-        self.seat = None;
-        self.let_go();
-        self.targetable = Some(true);
-        self.combat.mounted = Some(false);
-        self.generation += 1.0;
+    /// Soldier.spawn and Droideka.spawn reset only a body's placement. The
+    /// local server uses this after assigning a life; it must not reset combat,
+    /// advance generation or invalidate tickCount's existing lazy shapes.
+    pub fn spawn_body(&mut self, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
         match &mut self.soldier {
             UnitBody::Soldier(s) => {
-                s.dead = Some(false);
                 s.spawn(x, y, z, yaw, world);
             }
             UnitBody::Droideka(d) => {
@@ -330,6 +325,18 @@ impl Unit {
                 }
             }
         }
+    }
+
+    /// spawn(x, y, z, yaw) (units.js:375): into the world at (x, y, z)
+    /// facing yaw, fresh, a life later.
+    pub fn spawn(&mut self, id: u32, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
+        self.seat = None;
+        self.let_go();
+        self.targetable = Some(true);
+        self.combat.mounted = Some(false);
+        self.generation += 1.0;
+        if let UnitBody::Soldier(s) = &mut self.soldier { s.dead = Some(false); }
+        self.spawn_body(x,y,z,yaw,world);
         world.combat_reset(id, self);
         // (presentation.reset, the drawn animator's reset and the root's
         // place are the page's.)
@@ -397,7 +404,9 @@ impl Unit {
     /// forward(out) (units.js:287) on foot: the aim direction, unit length.
     pub fn forward_on_foot(&self) -> Vector3 {
         let (yaw, pitch) = (self.aim_yaw(), self.aim_pitch());
-        Vector3 { x: v8math::sin(yaw) * v8math::cos(pitch), y: v8math::sin(pitch), z: v8math::cos(yaw) * v8math::cos(pitch) }
+        let (sy,cy)=v8math::sin_cos(yaw);
+        let (sp,cp)=v8math::sin_cos(pitch);
+        Vector3 { x: sy * cp, y: sp, z: cy * cp }
     }
 }
 

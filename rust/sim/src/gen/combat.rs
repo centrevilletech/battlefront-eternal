@@ -3,6 +3,246 @@
 
 use super::*;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3CombatField {
+    #[default] Health = 0,
+    ZoomStep = 1,
+    Dead = 2,
+    DeathTime = 3,
+    BlowApart = 4,
+    Mounted = 5,
+    GunUnderwater = 6,
+    Team = 7,
+    Player = 8,
+    DeferMuzzles = 9,
+    Random = 10,
+    Remotes = 11,
+}
+
+impl F3CombatField {
+    pub const NAMES: [&'static str; 12] = ["health", "zoomStep", "dead", "deathTime", "blowApart", "mounted", "gunUnderwater", "team", "player", "deferMuzzles", "random", "remotes"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3CombatField::Health),
+            1 => Some(F3CombatField::ZoomStep),
+            2 => Some(F3CombatField::Dead),
+            3 => Some(F3CombatField::DeathTime),
+            4 => Some(F3CombatField::BlowApart),
+            5 => Some(F3CombatField::Mounted),
+            6 => Some(F3CombatField::GunUnderwater),
+            7 => Some(F3CombatField::Team),
+            8 => Some(F3CombatField::Player),
+            9 => Some(F3CombatField::DeferMuzzles),
+            10 => Some(F3CombatField::Random),
+            11 => Some(F3CombatField::Remotes),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3WeaponField {
+    #[default] Reserve = 0,
+    Kick = 1,
+    Clip = 2,
+    Heat = 3,
+    Floor = 4,
+    Random = 5,
+    SpreadScale = 6,
+    YawSpreadOverride = 7,
+    ClearYawSpread = 8,
+}
+
+impl F3WeaponField {
+    pub const NAMES: [&'static str; 9] = ["reserve", "kick", "clip", "heat", "floor", "random", "spreadScale", "yawSpreadOverride", "clearYawSpread"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3WeaponField::Reserve),
+            1 => Some(F3WeaponField::Kick),
+            2 => Some(F3WeaponField::Clip),
+            3 => Some(F3WeaponField::Heat),
+            4 => Some(F3WeaponField::Floor),
+            5 => Some(F3WeaponField::Random),
+            6 => Some(F3WeaponField::SpreadScale),
+            7 => Some(F3WeaponField::YawSpreadOverride),
+            8 => Some(F3WeaponField::ClearYawSpread),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum CbShotKind {
+    #[default] Round = 0,
+    Repair = 1,
+    MeleeStart = 2,
+}
+
+impl CbShotKind {
+    pub const NAMES: [&'static str; 3] = ["round", "repair", "meleeStart"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(CbShotKind::Round),
+            1 => Some(CbShotKind::Repair),
+            2 => Some(CbShotKind::MeleeStart),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3OptionalState {
+    #[default] Absent = 0,
+    Null = 1,
+    Value = 2,
+}
+
+impl F3OptionalState {
+    pub const NAMES: [&'static str; 3] = ["absent", "null", "value"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3OptionalState::Absent),
+            1 => Some(F3OptionalState::Null),
+            2 => Some(F3OptionalState::Value),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3PresentKind {
+    #[default] WeaponAction = 0,
+    EndWeaponAction = 1,
+    Lightning = 2,
+}
+
+impl F3PresentKind {
+    pub const NAMES: [&'static str; 3] = ["weaponAction", "endWeaponAction", "lightning"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3PresentKind::WeaponAction),
+            1 => Some(F3PresentKind::EndWeaponAction),
+            2 => Some(F3PresentKind::Lightning),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3WeaponAction {
+    #[default] Reload = 0,
+    Shoot = 1,
+    Shoot2 = 2,
+    Shoot3 = 3,
+}
+
+impl F3WeaponAction {
+    pub const NAMES: [&'static str; 4] = ["reload", "shoot", "shoot2", "shoot3"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3WeaponAction::Reload),
+            1 => Some(F3WeaponAction::Shoot),
+            2 => Some(F3WeaponAction::Shoot2),
+            3 => Some(F3WeaponAction::Shoot3),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3Effect {
+    #[default] Headshot = 0,
+    MeleeHit = 1,
+    MeleeDeflect = 2,
+}
+
+impl F3Effect {
+    pub const NAMES: [&'static str; 3] = ["headshot", "meleeHit", "meleeDeflect"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3Effect::Headshot),
+            1 => Some(F3Effect::MeleeHit),
+            2 => Some(F3Effect::MeleeDeflect),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3BlastStage {
+    #[default] Present = 0,
+    Event = 1,
+    Finished = 2,
+}
+
+impl F3BlastStage {
+    pub const NAMES: [&'static str; 3] = ["present", "event", "finished"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3BlastStage::Present),
+            1 => Some(F3BlastStage::Event),
+            2 => Some(F3BlastStage::Finished),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3BodyEvent {
+    #[default] DeathBlast = 0,
+    BlowApart = 1,
+    Respawn = 2,
+}
+
+impl F3BodyEvent {
+    pub const NAMES: [&'static str; 3] = ["deathBlast", "blowApart", "respawn"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3BodyEvent::DeathBlast),
+            1 => Some(F3BodyEvent::BlowApart),
+            2 => Some(F3BodyEvent::Respawn),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3HullEvent {
+    #[default] Damaged = 0,
+    ExplosionEffect = 1,
+}
+
+impl F3HullEvent {
+    pub const NAMES: [&'static str; 2] = ["damaged", "explosionEffect"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3HullEvent::Damaged),
+            1 => Some(F3HullEvent::ExplosionEffect),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Attacker {
     Undefined,
@@ -51,13 +291,13 @@ impl Attacker {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RepairTarget {
-    Building(Ref<Building>),
     Turret(Ref<Turret>),
+    Building(Ref<Building>),
     Vehicle(Ref<Vehicle>),
 }
 
 impl Default for RepairTarget {
-    fn default() -> Self { RepairTarget::Building(Ref::new(0, 0)) }
+    fn default() -> Self { RepairTarget::Turret(Ref::new(0, 0)) }
 }
 
 impl RepairTarget {
@@ -67,20 +307,1274 @@ impl RepairTarget {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         row[1..3].fill(0.0);
         match self {
-            RepairTarget::Building(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-            RepairTarget::Turret(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            RepairTarget::Turret(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            RepairTarget::Building(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             RepairTarget::Vehicle(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
         }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
         match word_u32(row[0]) {
-            0 => RepairTarget::Building(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            1 => RepairTarget::Turret(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            0 => RepairTarget::Turret(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            1 => RepairTarget::Building(Ref::new(word_u32(row[1]), word_u32(row[2]))),
             2 => RepairTarget::Vehicle(Ref::new(word_u32(row[1]), word_u32(row[2]))),
             _ => RepairTarget::default(),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3RandomEpoch {
+    pub revision: u32,
+}
+
+impl F3RandomEpoch {
+    pub const WORDS: usize = 1;
+    pub const REVISION: usize = 0;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = self.revision as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            revision: word_u32(row[0]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3RandomState {
+    pub state: u32,
+    pub present: bool,
+    pub sequence: u32,
+}
+
+impl F3RandomState {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.state as f64;
+        row[1] = if self.present { 1.0 } else { 0.0 };
+        row[2] = self.sequence as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            state: word_u32(row[0]),
+            present: row[1] != 0.0,
+            sequence: word_u32(row[2]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3RandomGlobals {
+    pub gameplay: u32,
+    pub spin: u32,
+    pub drop: u32,
+    pub seat: u32,
+}
+
+impl F3RandomGlobals {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.gameplay as f64;
+        row[1] = self.spin as f64;
+        row[2] = self.drop as f64;
+        row[3] = self.seat as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            gameplay: word_u32(row[0]),
+            spin: word_u32(row[1]),
+            drop: word_u32(row[2]),
+            seat: word_u32(row[3]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3Presentation {
+    pub key: F3UnitKey,
+    pub kind: F3PresentKind,
+    pub action: Option<F3WeaponAction>,
+    pub bank: StrId,
+    pub posture: Option<Posture>,
+    pub prepare: bool,
+    pub name: StrId,
+    pub from: Vec3,
+    pub to: Vec3,
+    pub charge: f64,
+    pub channel: Option<f64>,
+}
+
+impl F3Presentation {
+    pub const WORDS: usize = 20;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 20] = (&mut row[..20]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.kind as u8 as f64;
+        match &self.action { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v) as u8 as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 2].fill(0.0); } }
+        row[6] = self.bank.0 as f64;
+        match &self.posture { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v) as u8 as f64; } None => { row[7] = 1.0; row[7 + 1..7 + 2].fill(0.0); } }
+        row[9] = if self.prepare { 1.0 } else { 0.0 };
+        row[10] = self.name.0 as f64;
+        row[11..11 + 3].copy_from_slice(&self.from);
+        row[14..14 + 3].copy_from_slice(&self.to);
+        row[17] = self.charge;
+        match &self.channel { Some(v) => { row[18] = 0.0; row[18 + 1] = (*v); } None => { row[18] = 2.0; row[18 + 1..18 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 20] = (&row[..20]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            kind: F3PresentKind::from_u8(word_u32(row[3]) as u8).unwrap_or_default(),
+            action: if row[4] == 0.0 { Some(F3WeaponAction::from_u8(word_u32(row[4 + 1]) as u8).unwrap_or_default()) } else { None },
+            bank: StrId(word_u32(row[6])),
+            posture: if row[7] == 0.0 { Some(Posture::from_u8(word_u32(row[7 + 1]) as u8).unwrap_or_default()) } else { None },
+            prepare: row[9] != 0.0,
+            name: StrId(word_u32(row[10])),
+            from: [row[11], row[11 + 1], row[11 + 2]],
+            to: [row[14], row[14 + 1], row[14 + 2]],
+            charge: row[17],
+            channel: if row[18] == 0.0 { Some(row[18 + 1]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3ShieldNotice {
+    pub key: F3UnitKey,
+    pub taken: f64,
+    pub left: f64,
+    pub source_present: bool,
+    pub source: Vec3,
+    pub explosion: bool,
+}
+
+impl F3ShieldNotice {
+    pub const WORDS: usize = 10;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.taken;
+        row[4] = self.left;
+        row[5] = if self.source_present { 1.0 } else { 0.0 };
+        row[6..6 + 3].copy_from_slice(&self.source);
+        row[9] = if self.explosion { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            taken: row[3],
+            left: row[4],
+            source_present: row[5] != 0.0,
+            source: [row[6], row[6 + 1], row[6 + 2]],
+            explosion: row[9] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3EffectNotice {
+    pub key: F3UnitKey,
+    pub effect: F3Effect,
+    pub position: Vec3,
+}
+
+impl F3EffectNotice {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.effect as u8 as f64;
+        row[4..4 + 3].copy_from_slice(&self.position);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            effect: F3Effect::from_u8(word_u32(row[3]) as u8).unwrap_or_default(),
+            position: [row[4], row[4 + 1], row[4 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3LifeRef {
+    pub id: f64,
+    pub generation: f64,
+}
+
+impl F3LifeRef {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.id;
+        row[1] = self.generation;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            id: row[0],
+            generation: row[1],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3HeadCredit {
+    pub character: Ref<Character>,
+}
+
+impl F3HeadCredit {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.character.slot as f64; row[0 + 1] = self.character.gen as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            character: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3HullCredit {
+    pub character: Ref<Character>,
+}
+
+impl F3HullCredit {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.character.slot as f64; row[0 + 1] = self.character.gen as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            character: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3HullSetup {
+    pub hull: Ref<Vehicle>,
+    pub member: Option<Member>,
+    pub health: u32,
+    pub category: u32,
+    pub kind: f64,
+    pub key: StrId,
+    pub blast_center: Vec3,
+    pub blast_radius: f64,
+    pub explosion: Option<u32>,
+    pub final_explosion: Option<u32>,
+}
+
+impl F3HullSetup {
+    pub const WORDS: usize = 18;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
+        row[0] = self.hull.slot as f64; row[0 + 1] = self.hull.gen as f64;
+        match &self.member { Some(v) => { row[2] = 0.0; (*v).put(&mut row[2 + 1..2 + 1 + 3], heap); } None => { row[2] = 1.0; row[2 + 1..2 + 4].fill(0.0); } }
+        row[6] = self.health as f64;
+        row[7] = self.category as f64;
+        row[8] = self.kind;
+        row[9] = self.key.0 as f64;
+        row[10..10 + 3].copy_from_slice(&self.blast_center);
+        row[13] = self.blast_radius;
+        match &self.explosion { Some(v) => { row[14] = 0.0; row[14 + 1] = (*v) as f64; } None => { row[14] = 1.0; row[14 + 1..14 + 2].fill(0.0); } }
+        match &self.final_explosion { Some(v) => { row[16] = 0.0; row[16 + 1] = (*v) as f64; } None => { row[16] = 1.0; row[16 + 1..16 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
+        Self {
+            hull: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+            member: if row[2] == 0.0 { Some(Member::take(&row[2 + 1..2 + 1 + 3], heap)) } else { None },
+            health: word_u32(row[6]),
+            category: word_u32(row[7]),
+            kind: row[8],
+            key: StrId(word_u32(row[9])),
+            blast_center: [row[10], row[10 + 1], row[10 + 2]],
+            blast_radius: row[13],
+            explosion: if row[14] == 0.0 { Some(word_u32(row[14 + 1])) } else { None },
+            final_explosion: if row[16] == 0.0 { Some(word_u32(row[16 + 1])) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3HullBirth {
+    pub hull: Ref<Vehicle>,
+    pub member_id: u32,
+    pub index: u32,
+    pub body_serial: u32,
+}
+
+impl F3HullBirth {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = self.hull.slot as f64; row[0 + 1] = self.hull.gen as f64;
+        row[2] = self.member_id as f64;
+        row[3] = self.index as f64;
+        row[4] = self.body_serial as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            hull: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+            member_id: word_u32(row[2]),
+            index: word_u32(row[3]),
+            body_serial: word_u32(row[4]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3HullNotice {
+    pub hull: Ref<Vehicle>,
+    pub event: F3HullEvent,
+    pub life: f64,
+    pub amount: f64,
+    pub attacker: OrdnanceOwner,
+    pub position: Vec3,
+    pub team: f64,
+    pub attacker_ref: F3LifeRef,
+    pub has_attacker_ref: bool,
+    pub attacker_team: f64,
+}
+
+impl F3HullNotice {
+    pub const WORDS: usize = 16;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
+        row[0] = self.hull.slot as f64; row[0 + 1] = self.hull.gen as f64;
+        row[2] = self.event as u8 as f64;
+        row[3] = self.life;
+        row[4] = self.amount;
+        self.attacker.put(&mut row[5..5 + 3], heap);
+        row[8..8 + 3].copy_from_slice(&self.position);
+        row[11] = self.team;
+        self.attacker_ref.put(&mut row[12..], heap);
+        row[14] = if self.has_attacker_ref { 1.0 } else { 0.0 };
+        row[15] = self.attacker_team;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 16] = (&row[..16]).try_into().unwrap();
+        Self {
+            hull: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+            event: F3HullEvent::from_u8(word_u32(row[2]) as u8).unwrap_or_default(),
+            life: row[3],
+            amount: row[4],
+            attacker: OrdnanceOwner::take(&row[5..5 + 3], heap),
+            position: [row[8], row[8 + 1], row[8 + 2]],
+            team: row[11],
+            attacker_ref: F3LifeRef::take(&row[12..], heap),
+            has_attacker_ref: row[14] != 0.0,
+            attacker_team: row[15],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3DeathCredit {
+    pub key: F3UnitKey,
+    pub unit: Ref<Unit>,
+    pub killer: Option<Ref<Character>>,
+    pub relation: f64,
+}
+
+impl F3DeathCredit {
+    pub const WORDS: usize = 9;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.unit.slot as f64; row[3 + 1] = self.unit.gen as f64;
+        match &self.killer { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v).slot as f64; row[5 + 1 + 1] = (*v).gen as f64; } None => { row[5] = 1.0; row[5 + 1..5 + 3].fill(0.0); } }
+        row[8] = self.relation;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            unit: Ref::new(word_u32(row[3]), word_u32(row[3 + 1])),
+            killer: if row[5] == 0.0 { Some(Ref::new(word_u32(row[5 + 1]), word_u32(row[5 + 1 + 1]))) } else { None },
+            relation: row[8],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3DeathAnswer {
+    pub controller: Option<Ref<Controller>>,
+}
+
+impl F3DeathAnswer {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        match &self.controller { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            controller: if row[0] == 0.0 { Some(Ref::new(word_u32(row[0 + 1]), word_u32(row[0 + 1 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3DeathNotice {
+    pub key: F3UnitKey,
+    pub attacker: Attacker,
+    pub attacker_ref: F3LifeRef,
+    pub has_attacker_ref: bool,
+    pub attacker_team: f64,
+    pub position: Vec3,
+    pub team: f64,
+}
+
+impl F3DeathNotice {
+    pub const WORDS: usize = 14;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        self.attacker.put(&mut row[3..3 + 3], heap);
+        self.attacker_ref.put(&mut row[6..], heap);
+        row[8] = if self.has_attacker_ref { 1.0 } else { 0.0 };
+        row[9] = self.attacker_team;
+        row[10..10 + 3].copy_from_slice(&self.position);
+        row[13] = self.team;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            attacker: Attacker::take(&row[3..3 + 3], heap),
+            attacker_ref: F3LifeRef::take(&row[6..], heap),
+            has_attacker_ref: row[8] != 0.0,
+            attacker_team: row[9],
+            position: [row[10], row[10 + 1], row[10 + 2]],
+            team: row[13],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3BlastNotice {
+    pub stage: F3BlastStage,
+    pub explosion: u32,
+    pub position: Vec3,
+    pub owner: OrdnanceOwner,
+    pub source: F3LifeRef,
+    pub has_source: bool,
+    pub team: f64,
+    pub radius: f64,
+    pub wet: bool,
+}
+
+impl F3BlastNotice {
+    pub const WORDS: usize = 14;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
+        row[0] = self.stage as u8 as f64;
+        row[1] = self.explosion as f64;
+        row[2..2 + 3].copy_from_slice(&self.position);
+        self.owner.put(&mut row[5..5 + 3], heap);
+        self.source.put(&mut row[8..], heap);
+        row[10] = if self.has_source { 1.0 } else { 0.0 };
+        row[11] = self.team;
+        row[12] = self.radius;
+        row[13] = if self.wet { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
+        Self {
+            stage: F3BlastStage::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            explosion: word_u32(row[1]),
+            position: [row[2], row[2 + 1], row[2 + 2]],
+            owner: OrdnanceOwner::take(&row[5..5 + 3], heap),
+            source: F3LifeRef::take(&row[8..], heap),
+            has_source: row[10] != 0.0,
+            team: row[11],
+            radius: row[12],
+            wet: row[13] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3BlastCall {
+    pub explosion: u32,
+    pub position: Vec3,
+    pub owner: OrdnanceOwner,
+}
+
+impl F3BlastCall {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        row[0] = self.explosion as f64;
+        row[1..1 + 3].copy_from_slice(&self.position);
+        self.owner.put(&mut row[4..4 + 3], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            explosion: word_u32(row[0]),
+            position: [row[1], row[1 + 1], row[1 + 2]],
+            owner: OrdnanceOwner::take(&row[4..4 + 3], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3BodyNotice {
+    pub key: F3UnitKey,
+    pub event: F3BodyEvent,
+    pub health: f64,
+}
+
+impl F3BodyNotice {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.event as u8 as f64;
+        row[4] = self.health;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            event: F3BodyEvent::from_u8(word_u32(row[3]) as u8).unwrap_or_default(),
+            health: row[4],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3DamageInfo {
+    pub explosion: bool,
+    pub amount: Option<f64>,
+    pub typed: Option<f64>,
+    pub generic: Option<f64>,
+    pub known: Option<bool>,
+    pub point_state: F3OptionalState,
+    pub point: Vec3,
+    pub source_present: bool,
+    pub source: Vec3,
+}
+
+impl F3DamageInfo {
+    pub const WORDS: usize = 17;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 17] = (&mut row[..17]).try_into().unwrap();
+        row[0] = if self.explosion { 1.0 } else { 0.0 };
+        match &self.amount { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v); } None => { row[1] = 2.0; row[1 + 1..1 + 2].fill(0.0); } }
+        match &self.typed { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v); } None => { row[3] = 2.0; row[3 + 1..3 + 2].fill(0.0); } }
+        match &self.generic { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v); } None => { row[5] = 2.0; row[5 + 1..5 + 2].fill(0.0); } }
+        match &self.known { Some(v) => { row[7] = 0.0; row[7 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[7] = 2.0; row[7 + 1..7 + 2].fill(0.0); } }
+        row[9] = self.point_state as u8 as f64;
+        row[10..10 + 3].copy_from_slice(&self.point);
+        row[13] = if self.source_present { 1.0 } else { 0.0 };
+        row[14..14 + 3].copy_from_slice(&self.source);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 17] = (&row[..17]).try_into().unwrap();
+        Self {
+            explosion: row[0] != 0.0,
+            amount: if row[1] == 0.0 { Some(row[1 + 1]) } else { None },
+            typed: if row[3] == 0.0 { Some(row[3 + 1]) } else { None },
+            generic: if row[5] == 0.0 { Some(row[5 + 1]) } else { None },
+            known: if row[7] == 0.0 { Some(row[7 + 1] != 0.0) } else { None },
+            point_state: F3OptionalState::from_u8(word_u32(row[9]) as u8).unwrap_or_default(),
+            point: [row[10], row[10 + 1], row[10 + 2]],
+            source_present: row[13] != 0.0,
+            source: [row[14], row[14 + 1], row[14 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3ShotNotice {
+    pub key: F3UnitKey,
+    pub shot: CbShot,
+    pub position: Vec3,
+    pub direction: Vec3,
+    pub team: f64,
+}
+
+impl F3ShotNotice {
+    pub const WORDS: usize = 21;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 21] = (&mut row[..21]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        self.shot.put(&mut row[3..], heap);
+        row[14..14 + 3].copy_from_slice(&self.position);
+        row[17..17 + 3].copy_from_slice(&self.direction);
+        row[20] = self.team;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 21] = (&row[..21]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            shot: CbShot::take(&row[3..], heap),
+            position: [row[14], row[14 + 1], row[14 + 2]],
+            direction: [row[17], row[17 + 1], row[17 + 2]],
+            team: row[20],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3DamageNotice {
+    pub key: F3UnitKey,
+    pub amount: f64,
+    pub attacker: Attacker,
+    pub attacker_ref: F3LifeRef,
+    pub has_attacker_ref: bool,
+    pub attacker_team: f64,
+    pub info: F3DamageInfo,
+    pub position: Vec3,
+    pub team: f64,
+}
+
+impl F3DamageNotice {
+    pub const WORDS: usize = 32;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 32] = (&mut row[..32]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.amount;
+        self.attacker.put(&mut row[4..4 + 3], heap);
+        self.attacker_ref.put(&mut row[7..], heap);
+        row[9] = if self.has_attacker_ref { 1.0 } else { 0.0 };
+        row[10] = self.attacker_team;
+        self.info.put(&mut row[11..], heap);
+        row[28..28 + 3].copy_from_slice(&self.position);
+        row[31] = self.team;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 32] = (&row[..32]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            amount: row[3],
+            attacker: Attacker::take(&row[4..4 + 3], heap),
+            attacker_ref: F3LifeRef::take(&row[7..], heap),
+            has_attacker_ref: row[9] != 0.0,
+            attacker_team: row[10],
+            info: F3DamageInfo::take(&row[11..], heap),
+            position: [row[28], row[28 + 1], row[28 + 2]],
+            team: row[31],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3HitPolicy {
+    pub ordnance: DefId,
+    pub damage: f64,
+    pub person: f64,
+    pub animal: f64,
+    pub droid: f64,
+    pub vehicle: f64,
+    pub building: f64,
+    pub shield: f64,
+}
+
+impl F3HitPolicy {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = self.ordnance.0 as f64;
+        row[1] = self.damage;
+        row[2] = self.person;
+        row[3] = self.animal;
+        row[4] = self.droid;
+        row[5] = self.vehicle;
+        row[6] = self.building;
+        row[7] = self.shield;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            ordnance: DefId(word_u32(row[0])),
+            damage: row[1],
+            person: row[2],
+            animal: row[3],
+            droid: row[4],
+            vehicle: row[5],
+            building: row[6],
+            shield: row[7],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3BlastBinding {
+    pub explosion: u32,
+    pub combat: u32,
+}
+
+impl F3BlastBinding {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.explosion as f64;
+        row[1] = self.combat as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            explosion: word_u32(row[0]),
+            combat: word_u32(row[1]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3ImpactRules {
+    pub friendly_fire: bool,
+}
+
+impl F3ImpactRules {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = if self.friendly_fire { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            friendly_fire: row[0] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3LockRule {
+    pub range: f64,
+    pub on_angle: f64,
+    pub off_angle: f64,
+    pub relation_mask: u32,
+    pub category_mask: u32,
+}
+
+impl F3LockRule {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = self.range;
+        row[1] = self.on_angle;
+        row[2] = self.off_angle;
+        row[3] = self.relation_mask as f64;
+        row[4] = self.category_mask as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            range: row[0],
+            on_angle: row[1],
+            off_angle: row[2],
+            relation_mask: word_u32(row[3]),
+            category_mask: word_u32(row[4]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3WeaponService {
+    pub ordnance: Option<DefId>,
+    pub item: Option<DefId>,
+    pub channel: f64,
+    pub lock: F3LockRule,
+    pub bank: StrId,
+    pub lightning: StrId,
+    pub has_lightning: bool,
+}
+
+impl F3WeaponService {
+    pub const WORDS: usize = 13;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 13] = (&mut row[..13]).try_into().unwrap();
+        match &self.ordnance { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).0 as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 2].fill(0.0); } }
+        match &self.item { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v).0 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
+        row[4] = self.channel;
+        self.lock.put(&mut row[5..], heap);
+        row[10] = self.bank.0 as f64;
+        row[11] = self.lightning.0 as f64;
+        row[12] = if self.has_lightning { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 13] = (&row[..13]).try_into().unwrap();
+        Self {
+            ordnance: if row[0] == 0.0 { Some(DefId(word_u32(row[0 + 1]))) } else { None },
+            item: if row[2] == 0.0 { Some(DefId(word_u32(row[2 + 1]))) } else { None },
+            channel: row[4],
+            lock: F3LockRule::take(&row[5..], heap),
+            bank: StrId(word_u32(row[10])),
+            lightning: StrId(word_u32(row[11])),
+            has_lightning: row[12] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3WeaponSettings {
+    pub key: F3UnitKey,
+    pub weapon: u32,
+    pub stream: u32,
+    pub spread_scale: f64,
+    pub sniper_scale: f64,
+    pub yaw_spread_override: Option<f64>,
+    pub floor: f64,
+}
+
+impl F3WeaponSettings {
+    pub const WORDS: usize = 10;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.weapon as f64;
+        row[4] = self.stream as f64;
+        row[5] = self.spread_scale;
+        row[6] = self.sniper_scale;
+        match &self.yaw_spread_override { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v); } None => { row[7] = 1.0; row[7 + 1..7 + 2].fill(0.0); } }
+        row[9] = self.floor;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            weapon: word_u32(row[3]),
+            stream: word_u32(row[4]),
+            spread_scale: row[5],
+            sniper_scale: row[6],
+            yaw_spread_override: if row[7] == 0.0 { Some(row[7 + 1]) } else { None },
+            floor: row[9],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3Selection {
+    pub key: F3UnitKey,
+    pub weapon: u32,
+}
+
+impl F3Selection {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.weapon as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            key: F3UnitKey::take(&row[0..], heap),
+            weapon: word_u32(row[3]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3WeaponView {
+    pub thrown: bool,
+    pub repair: bool,
+    pub level: f64,
+    pub admit_shot: bool,
+    pub deployed: bool,
+    pub firing: bool,
+    pub timer: f64,
+    pub bottomless: bool,
+    pub per_shot: f64,
+    pub clip: f64,
+    pub reserve: f64,
+    pub heat: f64,
+    pub overheated: bool,
+    pub floor: f64,
+    pub kick: f64,
+    pub spread_scale: f64,
+    pub sniper_scale: f64,
+    pub yaw_spread_override: Option<f64>,
+    pub wait: f64,
+    pub reload_left: f64,
+    pub throw_time: f64,
+    pub released: bool,
+    pub hidden: bool,
+    pub charging: bool,
+    pub held: f64,
+    pub charge: f64,
+    pub limit: f64,
+    pub pattern: f64,
+    pub salvos_left: f64,
+    pub salvo_wait: f64,
+    pub salvo_seed: Option<f64>,
+    pub salvo_count: f64,
+    pub lock_target_id: f64,
+    pub lock_generation: f64,
+    pub lock_elapsed: f64,
+    pub lock_complete: bool,
+    pub melee: Option<Melee>,
+}
+
+impl F3WeaponView {
+    pub const WORDS: usize = 42;
+    pub const THROWN: usize = 0;
+    pub const REPAIR: usize = 1;
+    pub const LEVEL: usize = 2;
+    pub const ADMIT_SHOT: usize = 3;
+    pub const DEPLOYED: usize = 4;
+    pub const FIRING: usize = 5;
+    pub const TIMER: usize = 6;
+    pub const BOTTOMLESS: usize = 7;
+    pub const PER_SHOT: usize = 8;
+    pub const CLIP: usize = 9;
+    pub const RESERVE: usize = 10;
+    pub const HEAT: usize = 11;
+    pub const OVERHEATED: usize = 12;
+    pub const FLOOR: usize = 13;
+    pub const KICK: usize = 14;
+    pub const SPREAD_SCALE: usize = 15;
+    pub const SNIPER_SCALE: usize = 16;
+    pub const YAW_SPREAD_OVERRIDE: usize = 17;
+    pub const WAIT: usize = 19;
+    pub const RELOAD_LEFT: usize = 20;
+    pub const THROW_TIME: usize = 21;
+    pub const RELEASED: usize = 22;
+    pub const HIDDEN: usize = 23;
+    pub const CHARGING: usize = 24;
+    pub const HELD: usize = 25;
+    pub const CHARGE: usize = 26;
+    pub const LIMIT: usize = 27;
+    pub const PATTERN: usize = 28;
+    pub const SALVOS_LEFT: usize = 29;
+    pub const SALVO_WAIT: usize = 30;
+    pub const SALVO_SEED: usize = 31;
+    pub const SALVO_COUNT: usize = 33;
+    pub const LOCK_TARGET_ID: usize = 34;
+    pub const LOCK_GENERATION: usize = 35;
+    pub const LOCK_ELAPSED: usize = 36;
+    pub const LOCK_COMPLETE: usize = 37;
+    pub const MELEE: usize = 38;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 42] = (&mut row[..42]).try_into().unwrap();
+        row[0] = if self.thrown { 1.0 } else { 0.0 };
+        row[1] = if self.repair { 1.0 } else { 0.0 };
+        row[2] = self.level;
+        row[3] = if self.admit_shot { 1.0 } else { 0.0 };
+        row[4] = if self.deployed { 1.0 } else { 0.0 };
+        row[5] = if self.firing { 1.0 } else { 0.0 };
+        row[6] = self.timer;
+        row[7] = if self.bottomless { 1.0 } else { 0.0 };
+        row[8] = self.per_shot;
+        row[9] = self.clip;
+        row[10] = self.reserve;
+        row[11] = self.heat;
+        row[12] = if self.overheated { 1.0 } else { 0.0 };
+        row[13] = self.floor;
+        row[14] = self.kick;
+        row[15] = self.spread_scale;
+        row[16] = self.sniper_scale;
+        match &self.yaw_spread_override { Some(v) => { row[17] = 0.0; row[17 + 1] = (*v); } None => { row[17] = 1.0; row[17 + 1..17 + 2].fill(0.0); } }
+        row[19] = self.wait;
+        row[20] = self.reload_left;
+        row[21] = self.throw_time;
+        row[22] = if self.released { 1.0 } else { 0.0 };
+        row[23] = if self.hidden { 1.0 } else { 0.0 };
+        row[24] = if self.charging { 1.0 } else { 0.0 };
+        row[25] = self.held;
+        row[26] = self.charge;
+        row[27] = self.limit;
+        row[28] = self.pattern;
+        row[29] = self.salvos_left;
+        row[30] = self.salvo_wait;
+        match &self.salvo_seed { Some(v) => { row[31] = 0.0; row[31 + 1] = (*v); } None => { row[31] = 1.0; row[31 + 1..31 + 2].fill(0.0); } }
+        row[33] = self.salvo_count;
+        row[34] = self.lock_target_id;
+        row[35] = self.lock_generation;
+        row[36] = self.lock_elapsed;
+        row[37] = if self.lock_complete { 1.0 } else { 0.0 };
+        match &self.melee { Some(v) => { row[38] = 0.0; v.put(&mut row[38 + 1..], heap); } None => { row[38] = 1.0; row[38 + 1..38 + 4].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 42] = (&row[..42]).try_into().unwrap();
+        Self {
+            thrown: row[0] != 0.0,
+            repair: row[1] != 0.0,
+            level: row[2],
+            admit_shot: row[3] != 0.0,
+            deployed: row[4] != 0.0,
+            firing: row[5] != 0.0,
+            timer: row[6],
+            bottomless: row[7] != 0.0,
+            per_shot: row[8],
+            clip: row[9],
+            reserve: row[10],
+            heat: row[11],
+            overheated: row[12] != 0.0,
+            floor: row[13],
+            kick: row[14],
+            spread_scale: row[15],
+            sniper_scale: row[16],
+            yaw_spread_override: if row[17] == 0.0 { Some(row[17 + 1]) } else { None },
+            wait: row[19],
+            reload_left: row[20],
+            throw_time: row[21],
+            released: row[22] != 0.0,
+            hidden: row[23] != 0.0,
+            charging: row[24] != 0.0,
+            held: row[25],
+            charge: row[26],
+            limit: row[27],
+            pattern: row[28],
+            salvos_left: row[29],
+            salvo_wait: row[30],
+            salvo_seed: if row[31] == 0.0 { Some(row[31 + 1]) } else { None },
+            salvo_count: row[33],
+            lock_target_id: row[34],
+            lock_generation: row[35],
+            lock_elapsed: row[36],
+            lock_complete: row[37] != 0.0,
+            melee: if row[38] == 0.0 { Some(Melee::take(&row[38 + 1..], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3CombatView {
+    pub health: f64,
+    pub dead: bool,
+    pub death_time: f64,
+    pub last_attacker: Attacker,
+    pub repair_target: Option<RepairTarget>,
+    pub repair_lock: StrId,
+    pub blow_apart: bool,
+    pub zoom_step: f64,
+    pub kick: Kick,
+    pub mounted: Option<bool>,
+    pub gun_underwater: bool,
+    pub origin: Vec3,
+    pub target: Vec3,
+    pub aim_dir: Vec3,
+    pub shot_dir: Vec3,
+    pub left: Vec3,
+    pub up: Vec3,
+    pub pivot: Vec3,
+    pub selected: [f64; 2],
+    pub weapons: Vec<F3WeaponView>,
+}
+
+impl F3CombatView {
+    pub const WORDS: usize = 44;
+    pub const HEALTH: usize = 0;
+    pub const DEAD: usize = 1;
+    pub const DEATH_TIME: usize = 2;
+    pub const LAST_ATTACKER: usize = 3;
+    pub const REPAIR_TARGET: usize = 6;
+    pub const REPAIR_LOCK: usize = 10;
+    pub const BLOW_APART: usize = 11;
+    pub const ZOOM_STEP: usize = 12;
+    pub const KICK: usize = 13;
+    pub const MOUNTED: usize = 16;
+    pub const GUN_UNDERWATER: usize = 18;
+    pub const ORIGIN: usize = 19;
+    pub const TARGET: usize = 22;
+    pub const AIM_DIR: usize = 25;
+    pub const SHOT_DIR: usize = 28;
+    pub const LEFT: usize = 31;
+    pub const UP: usize = 34;
+    pub const PIVOT: usize = 37;
+    pub const SELECTED: usize = 40;
+    pub const WEAPONS: usize = 42;
+    pub fn weapons_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[42] as usize; let length = row[43] as usize; heap[start..start + length * 42].chunks_exact(42) }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_origin(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[19..19 + 3].copy_from_slice(&self.origin);
+    }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_target(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[22..22 + 3].copy_from_slice(&self.target);
+    }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_aim_dir(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[25..25 + 3].copy_from_slice(&self.aim_dir);
+    }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_shot_dir(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[28..28 + 3].copy_from_slice(&self.shot_dir);
+    }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_left(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[31..31 + 3].copy_from_slice(&self.left);
+    }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_up(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[34..34 + 3].copy_from_slice(&self.up);
+    }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_pivot(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[37..37 + 3].copy_from_slice(&self.pivot);
+    }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_weapons(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        { let at = heap.len(); row[42] = at as f64; row[42 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 42, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 42..at + (i + 1) * 42].copy_from_slice(&item); } }
+    }
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 44] = (&mut row[..44]).try_into().unwrap();
+        row[0] = self.health;
+        row[1] = if self.dead { 1.0 } else { 0.0 };
+        row[2] = self.death_time;
+        self.last_attacker.put(&mut row[3..3 + 3], heap);
+        match &self.repair_target { Some(v) => { row[6] = 0.0; (*v).put(&mut row[6 + 1..6 + 1 + 3], heap); } None => { row[6] = 1.0; row[6 + 1..6 + 4].fill(0.0); } }
+        row[10] = self.repair_lock.0 as f64;
+        row[11] = if self.blow_apart { 1.0 } else { 0.0 };
+        row[12] = self.zoom_step;
+        self.kick.put(&mut row[13..], heap);
+        match &self.mounted { Some(v) => { row[16] = 0.0; row[16 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[16] = 2.0; row[16 + 1..16 + 2].fill(0.0); } }
+        row[18] = if self.gun_underwater { 1.0 } else { 0.0 };
+        row[19..19 + 3].copy_from_slice(&self.origin);
+        row[22..22 + 3].copy_from_slice(&self.target);
+        row[25..25 + 3].copy_from_slice(&self.aim_dir);
+        row[28..28 + 3].copy_from_slice(&self.shot_dir);
+        row[31..31 + 3].copy_from_slice(&self.left);
+        row[34..34 + 3].copy_from_slice(&self.up);
+        row[37..37 + 3].copy_from_slice(&self.pivot);
+        row[40..40 + 2].copy_from_slice(&self.selected);
+        { let at = heap.len(); row[42] = at as f64; row[42 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 42, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 42..at + (i + 1) * 42].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 44] = (&row[..44]).try_into().unwrap();
+        Self {
+            health: row[0],
+            dead: row[1] != 0.0,
+            death_time: row[2],
+            last_attacker: Attacker::take(&row[3..3 + 3], heap),
+            repair_target: if row[6] == 0.0 { Some(RepairTarget::take(&row[6 + 1..6 + 1 + 3], heap)) } else { None },
+            repair_lock: StrId(word_u32(row[10])),
+            blow_apart: row[11] != 0.0,
+            zoom_step: row[12],
+            kick: Kick::take(&row[13..], heap),
+            mounted: if row[16] == 0.0 { Some(row[16 + 1] != 0.0) } else { None },
+            gun_underwater: row[18] != 0.0,
+            origin: [row[19], row[19 + 1], row[19 + 2]],
+            target: [row[22], row[22 + 1], row[22 + 2]],
+            aim_dir: [row[25], row[25 + 1], row[25 + 2]],
+            shot_dir: [row[28], row[28 + 1], row[28 + 2]],
+            left: [row[31], row[31 + 1], row[31 + 2]],
+            up: [row[34], row[34 + 1], row[34 + 2]],
+            pivot: [row[37], row[37 + 1], row[37 + 2]],
+            selected: { let mut a = [0.0; 2]; a.copy_from_slice(&row[40..40 + 2]); a },
+            weapons: { let (at, n) = (word_u32(row[42]) as usize, word_u32(row[42 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 42..at + (i + 1) * 42]; out.push(F3WeaponView::take(&row[0..], heap)); } out },
+        }
+    }
+
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -573,765 +2067,10 @@ impl CbEdge {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbWeaponIn {
-    pub random: bool,
-    pub spread_scale: f64,
-    pub yaw_spread_override: Option<f64>,
-}
-
-impl CbWeaponIn {
-    pub const WORDS: usize = 4;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        row[0] = if self.random { 1.0 } else { 0.0 };
-        row[1] = self.spread_scale;
-        match &self.yaw_spread_override { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v); } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
-        Self {
-            random: row[0] != 0.0,
-            spread_scale: row[1],
-            yaw_spread_override: if row[2] == 0.0 { Some(row[2 + 1]) } else { None },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbIn {
-    pub unit: f64,
-    pub generation: f64,
-    pub class_def: DefId,
-    pub network_human: Option<bool>,
-    pub seated: bool,
-    pub remotes_active: Option<bool>,
-    pub intent: Intent,
-    pub controls: Controls,
-    pub soldier: UnitBody,
-    pub edges: Option<Vec<CbEdge>>,
-    pub edge: Option<CbEdge>,
-    pub aim_override: Nullable<Vec3>,
-    pub mounted: Option<bool>,
-    pub gun_underwater: bool,
-    pub team: f64,
-    pub player: bool,
-    pub defer_muzzles: bool,
-    pub random: bool,
-    pub has_remotes: bool,
-    pub weapons: Vec<CbWeaponIn>,
-}
-
-impl CbIn {
-    pub const WORDS: usize = 147;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 147] = (&mut row[..147]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.generation;
-        row[2] = self.class_def.0 as f64;
-        match &self.network_human { Some(v) => { row[3] = 0.0; row[3 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[3] = 2.0; row[3 + 1..3 + 2].fill(0.0); } }
-        row[5] = if self.seated { 1.0 } else { 0.0 };
-        match &self.remotes_active { Some(v) => { row[6] = 0.0; row[6 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[6] = 2.0; row[6 + 1..6 + 2].fill(0.0); } }
-        self.intent.put(&mut row[8..], heap);
-        self.controls.put(&mut row[38..], heap);
-        self.soldier.put(&mut row[42..42 + 78], heap);
-        match &self.edges { Some(v) => { row[120] = 0.0; { let at = heap.len(); row[120 + 1] = at as f64; row[120 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 9, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } } } None => { row[120] = 1.0; row[120 + 1..120 + 3].fill(0.0); } }
-        match &self.edge { Some(v) => { row[123] = 0.0; v.put(&mut row[123 + 1..], heap); } None => { row[123] = 1.0; row[123 + 1..123 + 10].fill(0.0); } }
-        match &self.aim_override { Nullable::Value(v) => { row[133] = 0.0; row[133 + 1..133 + 1 + 3].copy_from_slice(&(*v)); } Nullable::Null => { row[133] = 1.0; row[133 + 1..133 + 4].fill(0.0); } Nullable::Undefined => { row[133] = 2.0; row[133 + 1..133 + 4].fill(0.0); } }
-        match &self.mounted { Some(v) => { row[137] = 0.0; row[137 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[137] = 2.0; row[137 + 1..137 + 2].fill(0.0); } }
-        row[139] = if self.gun_underwater { 1.0 } else { 0.0 };
-        row[140] = self.team;
-        row[141] = if self.player { 1.0 } else { 0.0 };
-        row[142] = if self.defer_muzzles { 1.0 } else { 0.0 };
-        row[143] = if self.random { 1.0 } else { 0.0 };
-        row[144] = if self.has_remotes { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[145] = at as f64; row[145 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 4, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 147] = (&row[..147]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            generation: row[1],
-            class_def: DefId(word_u32(row[2])),
-            network_human: if row[3] == 0.0 { Some(row[3 + 1] != 0.0) } else { None },
-            seated: row[5] != 0.0,
-            remotes_active: if row[6] == 0.0 { Some(row[6 + 1] != 0.0) } else { None },
-            intent: Intent::take(&row[8..], heap),
-            controls: Controls::take(&row[38..], heap),
-            soldier: UnitBody::take(&row[42..42 + 78], heap),
-            edges: if row[120] == 0.0 { Some({ let (at, n) = (word_u32(row[120 + 1]) as usize, word_u32(row[120 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(CbEdge::take(&row[0..], heap)); } out }) } else { None },
-            edge: if row[123] == 0.0 { Some(CbEdge::take(&row[123 + 1..], heap)) } else { None },
-            aim_override: match word_u32(row[133]) { 0 => Nullable::Value([row[133 + 1], row[133 + 1 + 1], row[133 + 1 + 2]]), 1 => Nullable::Null, _ => Nullable::Undefined },
-            mounted: if row[137] == 0.0 { Some(row[137 + 1] != 0.0) } else { None },
-            gun_underwater: row[139] != 0.0,
-            team: row[140],
-            player: row[141] != 0.0,
-            defer_muzzles: row[142] != 0.0,
-            random: row[143] != 0.0,
-            has_remotes: row[144] != 0.0,
-            weapons: { let (at, n) = (word_u32(row[145]) as usize, word_u32(row[145 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(CbWeaponIn::take(&row[0..], heap)); } out },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbDamageIn {
-    pub r#in: CbIn,
-    pub amount: f64,
-    pub on_shield: f64,
-    pub source: Option<Vec3>,
-    pub attacker: Attacker,
-    pub explosion: bool,
-}
-
-impl CbDamageIn {
-    pub const WORDS: usize = 157;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 157] = (&mut row[..157]).try_into().unwrap();
-        self.r#in.put(&mut row[0..], heap);
-        row[147] = self.amount;
-        row[148] = self.on_shield;
-        match &self.source { Some(v) => { row[149] = 0.0; row[149 + 1..149 + 1 + 3].copy_from_slice(&(*v)); } None => { row[149] = 1.0; row[149 + 1..149 + 4].fill(0.0); } }
-        self.attacker.put(&mut row[153..153 + 3], heap);
-        row[156] = if self.explosion { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 157] = (&row[..157]).try_into().unwrap();
-        Self {
-            r#in: CbIn::take(&row[0..], heap),
-            amount: row[147],
-            on_shield: row[148],
-            source: if row[149] == 0.0 { Some([row[149 + 1], row[149 + 1 + 1], row[149 + 1 + 2]]) } else { None },
-            attacker: Attacker::take(&row[153..153 + 3], heap),
-            explosion: row[156] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbExplodeIn {
-    pub r#in: CbIn,
-    pub explosion: f64,
-    pub position: Vec3,
-    pub owner: Attacker,
-    pub scale: f64,
-}
-
-impl CbExplodeIn {
-    pub const WORDS: usize = 155;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 155] = (&mut row[..155]).try_into().unwrap();
-        self.r#in.put(&mut row[0..], heap);
-        row[147] = self.explosion;
-        row[148..148 + 3].copy_from_slice(&self.position);
-        self.owner.put(&mut row[151..151 + 3], heap);
-        row[154] = self.scale;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 155] = (&row[..155]).try_into().unwrap();
-        Self {
-            r#in: CbIn::take(&row[0..], heap),
-            explosion: row[147],
-            position: [row[148], row[148 + 1], row[148 + 2]],
-            owner: Attacker::take(&row[151..151 + 3], heap),
-            scale: row[154],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbOut {
-    pub pressed0: bool,
-    pub pressed1: bool,
-    pub reload: bool,
-    pub next_primary: bool,
-    pub previous_primary: bool,
-    pub next_secondary: bool,
-    pub zoom: bool,
-    pub aim_pitch: f64,
-    pub velocity: Vec3,
-    pub air: Option<Air>,
-    pub state_time: f64,
-    pub grounded: bool,
-    pub shield_on: bool,
-    pub shield_value: f64,
-}
-
-impl CbOut {
-    pub const WORDS: usize = 17;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 17] = (&mut row[..17]).try_into().unwrap();
-        row[0] = if self.pressed0 { 1.0 } else { 0.0 };
-        row[1] = if self.pressed1 { 1.0 } else { 0.0 };
-        row[2] = if self.reload { 1.0 } else { 0.0 };
-        row[3] = if self.next_primary { 1.0 } else { 0.0 };
-        row[4] = if self.previous_primary { 1.0 } else { 0.0 };
-        row[5] = if self.next_secondary { 1.0 } else { 0.0 };
-        row[6] = if self.zoom { 1.0 } else { 0.0 };
-        row[7] = self.aim_pitch;
-        row[8..8 + 3].copy_from_slice(&self.velocity);
-        match &self.air { Some(v) => { row[11] = 0.0; row[11 + 1] = (*v) as u8 as f64; } None => { row[11] = 1.0; row[11 + 1..11 + 2].fill(0.0); } }
-        row[13] = self.state_time;
-        row[14] = if self.grounded { 1.0 } else { 0.0 };
-        row[15] = if self.shield_on { 1.0 } else { 0.0 };
-        row[16] = self.shield_value;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 17] = (&row[..17]).try_into().unwrap();
-        Self {
-            pressed0: row[0] != 0.0,
-            pressed1: row[1] != 0.0,
-            reload: row[2] != 0.0,
-            next_primary: row[3] != 0.0,
-            previous_primary: row[4] != 0.0,
-            next_secondary: row[5] != 0.0,
-            zoom: row[6] != 0.0,
-            aim_pitch: row[7],
-            velocity: [row[8], row[8 + 1], row[8 + 2]],
-            air: if row[11] == 0.0 { Some(Air::from_u8(word_u32(row[11 + 1]) as u8).unwrap_or_default()) } else { None },
-            state_time: row[13],
-            grounded: row[14] != 0.0,
-            shield_on: row[15] != 0.0,
-            shield_value: row[16],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbUnit {
-    pub unit: f64,
-}
-
-impl CbUnit {
-    pub const WORDS: usize = 1;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
-        row[0] = self.unit;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
-        Self {
-            unit: row[0],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbNumber {
-    pub value: f64,
-}
-
-impl CbNumber {
-    pub const WORDS: usize = 1;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
-        row[0] = self.value;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
-        Self {
-            value: row[0],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbFlag {
-    pub value: bool,
-}
-
-impl CbFlag {
-    pub const WORDS: usize = 1;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
-        row[0] = if self.value { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
-        Self {
-            value: row[0] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbText {
-    pub value: StrId,
-}
-
-impl CbText {
-    pub const WORDS: usize = 1;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
-        row[0] = self.value.0 as f64;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
-        Self {
-            value: StrId(word_u32(row[0])),
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbRay {
-    pub unit: f64,
-    pub origin: Vec3,
-    pub direction: Vec3,
-    pub far: f64,
-    pub static_only: bool,
-}
-
-impl CbRay {
-    pub const WORDS: usize = 9;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1..1 + 3].copy_from_slice(&self.origin);
-        row[4..4 + 3].copy_from_slice(&self.direction);
-        row[7] = self.far;
-        row[8] = if self.static_only { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            origin: [row[1], row[1 + 1], row[1 + 2]],
-            direction: [row[4], row[4 + 1], row[4 + 2]],
-            far: row[7],
-            static_only: row[8] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbHit {
-    pub found: bool,
-    pub distance: f64,
-    pub point: Vec3,
-    pub normal: Vec3,
-}
-
-impl CbHit {
-    pub const WORDS: usize = 8;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
-        row[0] = if self.found { 1.0 } else { 0.0 };
-        row[1] = self.distance;
-        row[2..2 + 3].copy_from_slice(&self.point);
-        row[5..5 + 3].copy_from_slice(&self.normal);
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
-        Self {
-            found: row[0] != 0.0,
-            distance: row[1],
-            point: [row[2], row[2 + 1], row[2 + 2]],
-            normal: [row[5], row[5 + 1], row[5 + 2]],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbWeapon {
-    pub unit: f64,
-    pub weapon: f64,
-}
-
-impl CbWeapon {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.weapon;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            weapon: row[1],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbDraw {
-    pub unit: f64,
-    pub weapon: f64,
-    pub legacy: bool,
-}
-
-impl CbDraw {
-    pub const WORDS: usize = 3;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.weapon;
-        row[2] = if self.legacy { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            weapon: row[1],
-            legacy: row[2] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbAdmit {
-    pub kind: f64,
-    pub token: f64,
-}
-
-impl CbAdmit {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        row[0] = self.kind;
-        row[1] = self.token;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            kind: row[0],
-            token: row[1],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbDroid {
-    pub found: bool,
-    pub droid: f64,
-}
-
-impl CbDroid {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        row[0] = if self.found { 1.0 } else { 0.0 };
-        row[1] = self.droid;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            found: row[0] != 0.0,
-            droid: row[1],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbDroidCall {
-    pub unit: f64,
-    pub droid: f64,
-}
-
-impl CbDroidCall {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.droid;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            droid: row[1],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbLaunch {
-    pub unit: f64,
-    pub weapon: f64,
-    pub origin: Vec3,
-    pub velocity: Vec3,
-    pub yaw: f64,
-    pub team: f64,
-    pub admission: Option<f64>,
-}
-
-impl CbLaunch {
-    pub const WORDS: usize = 12;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.weapon;
-        row[2..2 + 3].copy_from_slice(&self.origin);
-        row[5..5 + 3].copy_from_slice(&self.velocity);
-        row[8] = self.yaw;
-        row[9] = self.team;
-        match &self.admission { Some(v) => { row[10] = 0.0; row[10 + 1] = (*v); } None => { row[10] = 2.0; row[10 + 1..10 + 2].fill(0.0); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            weapon: row[1],
-            origin: [row[2], row[2 + 1], row[2 + 2]],
-            velocity: [row[5], row[5 + 1], row[5 + 2]],
-            yaw: row[8],
-            team: row[9],
-            admission: if row[10] == 0.0 { Some(row[10 + 1]) } else { None },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbLockOn {
-    pub unit: f64,
-    pub eye: Vec3,
-    pub dir: Vec3,
-    pub weapon: f64,
-    pub level: f64,
-    pub current: Option<RepairTarget>,
-    pub held: bool,
-    pub team: f64,
-}
-
-impl CbLockOn {
-    pub const WORDS: usize = 15;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 15] = (&mut row[..15]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1..1 + 3].copy_from_slice(&self.eye);
-        row[4..4 + 3].copy_from_slice(&self.dir);
-        row[7] = self.weapon;
-        row[8] = self.level;
-        match &self.current { Some(v) => { row[9] = 0.0; (*v).put(&mut row[9 + 1..9 + 1 + 3], heap); } None => { row[9] = 1.0; row[9 + 1..9 + 4].fill(0.0); } }
-        row[13] = if self.held { 1.0 } else { 0.0 };
-        row[14] = self.team;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 15] = (&row[..15]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            eye: [row[1], row[1 + 1], row[1 + 2]],
-            dir: [row[4], row[4 + 1], row[4 + 2]],
-            weapon: row[7],
-            level: row[8],
-            current: if row[9] == 0.0 { Some(RepairTarget::take(&row[9 + 1..9 + 1 + 3], heap)) } else { None },
-            held: row[13] != 0.0,
-            team: row[14],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbTarget {
-    pub target: Option<RepairTarget>,
-}
-
-impl CbTarget {
-    pub const WORDS: usize = 4;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        match &self.target { Some(v) => { row[0] = 0.0; (*v).put(&mut row[0 + 1..0 + 1 + 3], heap); } None => { row[0] = 1.0; row[0 + 1..0 + 4].fill(0.0); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
-        Self {
-            target: if row[0] == 0.0 { Some(RepairTarget::take(&row[0 + 1..0 + 1 + 3], heap)) } else { None },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbLockKey {
-    pub unit: f64,
-    pub target: Option<RepairTarget>,
-}
-
-impl CbLockKey {
-    pub const WORDS: usize = 5;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
-        row[0] = self.unit;
-        match &self.target { Some(v) => { row[1] = 0.0; (*v).put(&mut row[1 + 1..1 + 1 + 3], heap); } None => { row[1] = 1.0; row[1 + 1..1 + 4].fill(0.0); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            target: if row[1] == 0.0 { Some(RepairTarget::take(&row[1 + 1..1 + 1 + 3], heap)) } else { None },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbRepair {
-    pub unit: f64,
-    pub weapon: f64,
-    pub target: Option<RepairTarget>,
-    pub team: f64,
-}
-
-impl CbRepair {
-    pub const WORDS: usize = 7;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.weapon;
-        match &self.target { Some(v) => { row[2] = 0.0; (*v).put(&mut row[2 + 1..2 + 1 + 3], heap); } None => { row[2] = 1.0; row[2 + 1..2 + 4].fill(0.0); } }
-        row[6] = self.team;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            weapon: row[1],
-            target: if row[2] == 0.0 { Some(RepairTarget::take(&row[2 + 1..2 + 1 + 3], heap)) } else { None },
-            team: row[6],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbLockPick {
-    pub unit: f64,
-    pub weapon: f64,
-    pub level: f64,
-    pub lock_complete: bool,
-    pub lock_target_id: f64,
-    pub lock_generation: f64,
-    pub origin: Vec3,
-    pub dir: Vec3,
-}
-
-impl CbLockPick {
-    pub const WORDS: usize = 12;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.weapon;
-        row[2] = self.level;
-        row[3] = if self.lock_complete { 1.0 } else { 0.0 };
-        row[4] = self.lock_target_id;
-        row[5] = self.lock_generation;
-        row[6..6 + 3].copy_from_slice(&self.origin);
-        row[9..9 + 3].copy_from_slice(&self.dir);
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            weapon: row[1],
-            level: row[2],
-            lock_complete: row[3] != 0.0,
-            lock_target_id: row[4],
-            lock_generation: row[5],
-            origin: [row[6], row[6 + 1], row[6 + 2]],
-            dir: [row[9], row[9 + 1], row[9 + 2]],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbPick {
-    pub pick: f64,
-    pub id: f64,
-    pub generation: f64,
-    pub alive: bool,
-}
-
-impl CbPick {
-    pub const WORDS: usize = 4;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        row[0] = self.pick;
-        row[1] = self.id;
-        row[2] = self.generation;
-        row[3] = if self.alive { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
-        Self {
-            pick: row[0],
-            id: row[1],
-            generation: row[2],
-            alive: row[3] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
 pub struct CbShot {
     pub unit: f64,
     pub weapon: f64,
-    pub kind: f64,
+    pub kind: CbShotKind,
     pub yaw: f64,
     pub pitch: f64,
     pub charge: f64,
@@ -1348,7 +2087,7 @@ impl CbShot {
         let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
         row[0] = self.unit;
         row[1] = self.weapon;
-        row[2] = self.kind;
+        row[2] = self.kind as u8 as f64;
         row[3] = self.yaw;
         row[4] = self.pitch;
         row[5] = self.charge;
@@ -1363,7 +2102,7 @@ impl CbShot {
         Self {
             unit: row[0],
             weapon: row[1],
-            kind: row[2],
+            kind: CbShotKind::from_u8(word_u32(row[2]) as u8).unwrap_or_default(),
             yaw: row[3],
             pitch: row[4],
             charge: row[5],
@@ -1371,408 +2110,6 @@ impl CbShot {
             target_generation: row[7],
             admission: if row[8] == 0.0 { Some(row[8 + 1]) } else { None },
             swing: row[10],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbFire {
-    pub shot: CbShot,
-    pub from: Vec3,
-    pub from_origin: bool,
-    pub dir: Vec3,
-    pub bind: bool,
-    pub selected: bool,
-    pub selected_index: f64,
-    pub selected_barrel: f64,
-}
-
-impl CbFire {
-    pub const WORDS: usize = 22;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 22] = (&mut row[..22]).try_into().unwrap();
-        self.shot.put(&mut row[0..], heap);
-        row[11..11 + 3].copy_from_slice(&self.from);
-        row[14] = if self.from_origin { 1.0 } else { 0.0 };
-        row[15..15 + 3].copy_from_slice(&self.dir);
-        row[18] = if self.bind { 1.0 } else { 0.0 };
-        row[19] = if self.selected { 1.0 } else { 0.0 };
-        row[20] = self.selected_index;
-        row[21] = self.selected_barrel;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 22] = (&row[..22]).try_into().unwrap();
-        Self {
-            shot: CbShot::take(&row[0..], heap),
-            from: [row[11], row[11 + 1], row[11 + 2]],
-            from_origin: row[14] != 0.0,
-            dir: [row[15], row[15 + 1], row[15 + 2]],
-            bind: row[18] != 0.0,
-            selected: row[19] != 0.0,
-            selected_index: row[20],
-            selected_barrel: row[21],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbDispense {
-    pub unit: f64,
-    pub weapon: f64,
-    pub most: f64,
-    pub origin: Vec3,
-    pub velocity: Vec3,
-    pub yaw: f64,
-    pub team: f64,
-}
-
-impl CbDispense {
-    pub const WORDS: usize = 11;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.weapon;
-        row[2] = self.most;
-        row[3..3 + 3].copy_from_slice(&self.origin);
-        row[6..6 + 3].copy_from_slice(&self.velocity);
-        row[9] = self.yaw;
-        row[10] = self.team;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 11] = (&row[..11]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            weapon: row[1],
-            most: row[2],
-            origin: [row[3], row[3 + 1], row[3 + 2]],
-            velocity: [row[6], row[6 + 1], row[6 + 2]],
-            yaw: row[9],
-            team: row[10],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbArcTarget {
-    pub origin: Vec3,
-    pub center: Option<Vec3>,
-    pub radius: Option<f64>,
-}
-
-impl CbArcTarget {
-    pub const WORDS: usize = 9;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
-        row[0..0 + 3].copy_from_slice(&self.origin);
-        match &self.center { Some(v) => { row[3] = 0.0; row[3 + 1..3 + 1 + 3].copy_from_slice(&(*v)); } None => { row[3] = 1.0; row[3 + 1..3 + 4].fill(0.0); } }
-        match &self.radius { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v); } None => { row[7] = 1.0; row[7 + 1..7 + 2].fill(0.0); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
-        Self {
-            origin: [row[0], row[0 + 1], row[0 + 2]],
-            center: if row[3] == 0.0 { Some([row[3 + 1], row[3 + 1 + 1], row[3 + 1 + 2]]) } else { None },
-            radius: if row[7] == 0.0 { Some(row[7 + 1]) } else { None },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbArcTargets {
-    pub targets: Vec<CbArcTarget>,
-}
-
-impl CbArcTargets {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.targets.len() as f64; heap.resize(at + self.targets.len() * 9, 0.0); for (i, e) in self.targets.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            targets: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(CbArcTarget::take(&row[0..], heap)); } out },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbHurtArc {
-    pub unit: f64,
-    pub index: f64,
-    pub amount: f64,
-    pub from: Vec3,
-}
-
-impl CbHurtArc {
-    pub const WORDS: usize = 6;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.index;
-        row[2] = self.amount;
-        row[3..3 + 3].copy_from_slice(&self.from);
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            index: row[1],
-            amount: row[2],
-            from: [row[3], row[3 + 1], row[3 + 2]],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbDamaged {
-    pub unit: f64,
-    pub amount: f64,
-    pub attacker: Attacker,
-    pub explosion: bool,
-    pub info_amount: f64,
-    pub typed: f64,
-    pub generic: f64,
-}
-
-impl CbDamaged {
-    pub const WORDS: usize = 9;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.amount;
-        self.attacker.put(&mut row[2..2 + 3], heap);
-        row[5] = if self.explosion { 1.0 } else { 0.0 };
-        row[6] = self.info_amount;
-        row[7] = self.typed;
-        row[8] = self.generic;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            amount: row[1],
-            attacker: Attacker::take(&row[2..2 + 3], heap),
-            explosion: row[5] != 0.0,
-            info_amount: row[6],
-            typed: row[7],
-            generic: row[8],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbHealth {
-    pub unit: f64,
-    pub health: f64,
-}
-
-impl CbHealth {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.health;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            health: row[1],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbPresent {
-    pub unit: f64,
-    pub kind: f64,
-    pub action: Option<StrId>,
-    pub bank: StrId,
-    pub posture: Option<StrId>,
-    pub prepare: bool,
-    pub name: StrId,
-    pub from: Vec3,
-    pub to: Vec3,
-    pub charge: f64,
-    pub channel: Option<f64>,
-}
-
-impl CbPresent {
-    pub const WORDS: usize = 18;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.kind;
-        match &self.action { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v).0 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
-        row[4] = self.bank.0 as f64;
-        match &self.posture { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v).0 as f64; } None => { row[5] = 1.0; row[5 + 1..5 + 2].fill(0.0); } }
-        row[7] = if self.prepare { 1.0 } else { 0.0 };
-        row[8] = self.name.0 as f64;
-        row[9..9 + 3].copy_from_slice(&self.from);
-        row[12..12 + 3].copy_from_slice(&self.to);
-        row[15] = self.charge;
-        match &self.channel { Some(v) => { row[16] = 0.0; row[16 + 1] = (*v); } None => { row[16] = 1.0; row[16 + 1..16 + 2].fill(0.0); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            kind: row[1],
-            action: if row[2] == 0.0 { Some(StrId(word_u32(row[2 + 1]))) } else { None },
-            bank: StrId(word_u32(row[4])),
-            posture: if row[5] == 0.0 { Some(StrId(word_u32(row[5 + 1]))) } else { None },
-            prepare: row[7] != 0.0,
-            name: StrId(word_u32(row[8])),
-            from: [row[9], row[9 + 1], row[9 + 2]],
-            to: [row[12], row[12 + 1], row[12 + 2]],
-            charge: row[15],
-            channel: if row[16] == 0.0 { Some(row[16 + 1]) } else { None },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbGun {
-    pub found: bool,
-    pub point: Vec3,
-    pub gun: f64,
-    pub has_last: bool,
-    pub last_index: f64,
-    pub last_barrel: f64,
-}
-
-impl CbGun {
-    pub const WORDS: usize = 8;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
-        row[0] = if self.found { 1.0 } else { 0.0 };
-        row[1..1 + 3].copy_from_slice(&self.point);
-        row[4] = self.gun;
-        row[5] = if self.has_last { 1.0 } else { 0.0 };
-        row[6] = self.last_index;
-        row[7] = self.last_barrel;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
-        Self {
-            found: row[0] != 0.0,
-            point: [row[1], row[1 + 1], row[1 + 2]],
-            gun: row[4],
-            has_last: row[5] != 0.0,
-            last_index: row[6],
-            last_barrel: row[7],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbGunAt {
-    pub unit: f64,
-    pub index: f64,
-    pub barrel: f64,
-}
-
-impl CbGunAt {
-    pub const WORDS: usize = 3;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.index;
-        row[2] = self.barrel;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            index: row[1],
-            barrel: row[2],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbPoint {
-    pub found: bool,
-    pub point: Vec3,
-}
-
-impl CbPoint {
-    pub const WORDS: usize = 4;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        row[0] = if self.found { 1.0 } else { 0.0 };
-        row[1..1 + 3].copy_from_slice(&self.point);
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
-        Self {
-            found: row[0] != 0.0,
-            point: [row[1], row[1 + 1], row[1 + 2]],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CbShield {
-    pub unit: f64,
-    pub taken: f64,
-    pub left: f64,
-    pub explosion: bool,
-}
-
-impl CbShield {
-    pub const WORDS: usize = 4;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        row[0] = self.unit;
-        row[1] = self.taken;
-        row[2] = self.left;
-        row[3] = if self.explosion { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
-        Self {
-            unit: row[0],
-            taken: row[1],
-            left: row[2],
-            explosion: row[3] != 0.0,
         }
     }
 

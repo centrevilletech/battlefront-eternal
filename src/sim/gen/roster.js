@@ -6,9 +6,11 @@ import { exportPlayerId, putPlayerId, samePlayerId, syncPlayerId } from "./battl
 
 export const RoOperation_NAMES = ["create","reserve","release","switchTeam","counts"];
 export const RoOperation_INDEX = new Map(RoOperation_NAMES.map((name, i) => [name, i]));
+export const RoOperation_VALUE = Object.freeze({"create":0,"reserve":1,"release":2,"switchTeam":3,"counts":4});
 
 export const RoActionOp_NAMES = ["attach","detach","retire","botName","insert","newHuman","removeBody"];
 export const RoActionOp_INDEX = new Map(RoActionOp_NAMES.map((name, i) => [name, i]));
+export const RoActionOp_VALUE = Object.freeze({"attach":0,"detach":1,"retire":2,"botName":3,"insert":4,"newHuman":5,"removeBody":6});
 
 export class RoPlayersMirror {
   constructor() {
@@ -19,7 +21,7 @@ export class RoPlayersMirror {
 
 export function syncRoPlayers(b, f, at, h, m) {
   m.capacity = f[at + 0];
-  { const items = (m.reserved ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.reserved ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
@@ -172,7 +174,7 @@ export function syncRoResult(b, f, at, h, m) {
   { const tag = f[at + 3]; if (tag === 0) { m.character = b.refs[KIND_CHARACTER].at(f[at + 4], f[at + 5]); } else m.character = tag === 1 ? null : undefined; }
   m.flag = f[at + 6] !== 0;
   m.full = f[at + 7] !== 0;
-  { const items = (m.counts ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncRoCount(b, f, at + 0, h, v ?? new RoCountMirror()); } items[i] = v; } }
+  { const items = (m.counts ??= []), start = h + f[at + 8], n = f[at + 9]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncRoCount(b, f, at + 0, h, v ?? new RoCountMirror()); } items[i] = v; } }
   return m;
 }
 

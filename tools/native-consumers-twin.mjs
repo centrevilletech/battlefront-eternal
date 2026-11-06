@@ -96,6 +96,13 @@ for (const file of ['input-sim.test.js', 'command-controls-sim.test.js', 'world-
     else if (binding.startsWith('{')) for (const spec of binding.slice(1, -1).split(',')) {
       const [name, alias = name] = spec.trim().split(/\s+as\s+/);
       const original = module[name];
+      if (name === 'networkPorts') {
+        env[alias] = bridge => {
+          instrument({exports:bridge.x,holder:{bridge}});
+          return original(bridge);
+        };
+        continue;
+      }
       env[alias] = ['createInputSim', 'createWorldSim'].includes(name)
         ? (instance, ...args) => { instrument(instance); return original(instance, ...args); } : original;
     } else env[binding] = module.default;

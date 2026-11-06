@@ -11,7 +11,7 @@
 //! came from) the argument says which vector it is ([`Point`]).
 
 use super::defs::Field;
-use crate::gen::{Beam, BeamSource, Body, Bolt, Grenade, HitPart, Impact, ItemOwner, OrdnanceOwner, Round, Unit, Vehicle};
+use crate::gen::{Beam, BeamSource, Body, Bolt, Grenade, HitPart, Impact, Item, ItemOwner, OrdnanceOwner, Round, Unit, Vehicle};
 use crate::store::{DefId, Nullable, Ref, RefSet, StrId, Vec3};
 
 /// Which of the ordnance's hit records a cast fills (its `hit` or `behind`).
@@ -76,6 +76,19 @@ pub struct ItemModel {
     pub mesh: bool,
     pub radius: f64,
     pub center: Option<Vec3>,
+}
+
+/// Items.spawn's immutable facts, prepared with its class and model at load.
+/// Equal numeric base handles share the same world pool.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PreparedItem {
+    pub base: u32,
+    pub pool: f64,
+    pub mine: bool,
+    pub life: f64,
+    pub health: f64,
+    pub scale: usize,
+    pub model: ItemModel,
 }
 
 /// A round of any kind, for the capture's observers.
@@ -156,6 +169,9 @@ pub trait World {
     fn rider_mount(&mut self, body: Nullable<Ref<Body>>) -> Option<RiderMount>;
     /// None when the battle's units cannot be queried.
     fn fat_query(&mut self, center: Vec3, radius: f64, owner: OrdnanceOwner, struck: &RefSet<Unit>, ignore_body: Option<Ref<Body>>) -> Option<Vec<Ref<Unit>>>;
+    /// Return the invocation's query buffer after its hits have completed.
+    /// Replay worlds own ordinary lists; the live phase keeps their capacity.
+    fn recycle_fat_query(&mut self, _query: Vec<Ref<Unit>>) {}
     fn unit_sphere(&mut self, unit: Ref<Unit>) -> Option<(Vec3, f64)>;
     fn is_droid(&mut self, unit: Ref<Unit>) -> bool;
     /// Whether an owner or a beam's source is gone (`alive === false`).
@@ -186,6 +202,14 @@ pub trait World {
     fn blocked(&mut self, position: Vec3, target: Vec3) -> bool;
     fn item_water_crossing(&mut self, from: Vec3, to: Vec3) -> Option<Vec3>;
     fn item_model(&mut self, def: DefId) -> ItemModel;
+    fn prepared_item(&mut self, _def: DefId) -> Option<PreparedItem> { None }
+    fn item_blast_damage(&mut self, _explosion: DefId, _item: DefId, _distance: f64) -> Option<f64> { None }
+    fn owned_item_frames(&self) -> bool { false }
+    fn item_changed(&mut self, _item: Ref<Item>, _made: bool) {}
+    fn item_retired(&mut self, _item: Ref<Item>) {}
+    fn dispenser_active(&self, _key: crate::store::StrId) -> bool { true }
+    fn retain_empty_dispenser(&self, _key: crate::store::StrId) -> bool { false }
+    fn dispenser_changed(&mut self, _key: crate::store::StrId, _removed: bool) {}
     fn owner_key(&mut self, owner: ItemOwner) -> String;
     fn drop_roll(&mut self) -> f64;
     fn explode(&mut self, def: &Field, position: Vec3, owner: ItemOwner);

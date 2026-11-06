@@ -15,6 +15,13 @@ import { Unit } from '../../src/units.js';
 const owners = new WeakMap(), packs = new WeakMap();
 export function registerHullFixture(system, pack) { packs.set(system, pack); }
 export function prepareHullFixture(system) { return owner(system); }
+// Authority fixtures finish the shared registry before naming network ids or
+// boarding. Private page replay needs only owner()'s immutable hull resources.
+export function prepareAuthorityFixture(system) {
+  const row = owner(system);
+  system.f3;
+  return row;
+}
 function owner(system) {
   let row = owners.get(system); if (row) return row;
   if (system.f2) { row = { bridge: system.f2.bridge, pilots: new WeakMap() }; owners.set(system, row); return row; }
@@ -32,7 +39,7 @@ function owner(system) {
   row = { bridge, pilots: new WeakMap() }; owners.set(system, row); return row;
 }
 export function stepPrediction(system, dt, v = system.vehicles[0], input = {}) {
-  const row = owner(system);
+  const row = prepareAuthorityFixture(system);
   let unit = row.pilots.get(v);
   if (!unit) {
     const soldier = new Soldier(system.collision, {}); soldier.spawn(0, 0, 0, 0);

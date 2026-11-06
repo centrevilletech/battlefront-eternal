@@ -7,9 +7,11 @@ import { SeatLeaseViewMirror, SeatViewMirror, VehicleSeatMirror, VehicleWheelMir
 
 export const FlightState_NAMES = ["Landed","TakingOff","Flying","Landing","Destroyed"];
 export const FlightState_INDEX = new Map(FlightState_NAMES.map((name, i) => [name, i]));
+export const FlightState_VALUE = Object.freeze({"Landed":0,"TakingOff":1,"Flying":2,"Landing":3,"Destroyed":4});
 
 export const FlightClass_NAMES = ["fighter","scout","bomber","transport"];
 export const FlightClass_INDEX = new Map(FlightClass_NAMES.map((name, i) => [name, i]));
+export const FlightClass_VALUE = Object.freeze({"fighter":0,"scout":1,"bomber":2,"transport":3});
 
 // vehicle: from rust/sim/schema/flight.mjs, rust/sim/schema/ordnance.mjs, rust/sim/schema/vehicles.mjs.
 export class VehicleMirror {
@@ -179,11 +181,11 @@ export function syncVehicle(b, f, at, h, m) {
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 142 + i]; }
   { const $v = (m.itemCenter ??= new THREE.Vector3()); $v.x = f[at + 158]; $v.y = f[at + 159]; $v.z = f[at + 160]; }
   { const $v = (m.supportNormal ??= new THREE.Vector3()); $v.x = f[at + 161]; $v.y = f[at + 162]; $v.z = f[at + 163]; }
-  { const tag = f[at + 164]; if (tag === 0) { { const items = (m.legSide ??= []), start = h + f[at + 165], n = f[at + 166]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.legSide = tag === 1 ? null : undefined; }
+  { const tag = f[at + 164]; if (tag === 0) { { const items = (m.legSide ??= []), start = h + f[at + 165], n = f[at + 166]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.legSide = tag === 1 ? null : undefined; }
   m.seatIndex = f[at + 167];
   { const tag = f[at + 168]; if (tag === 0) { m.driver = b.refs[KIND_VEHICLE_DRIVER].at(f[at + 169], f[at + 170]); } else m.driver = tag === 1 ? null : undefined; }
-  { const items = (m.wheels ??= []), start = h + f[at + 171], n = f[at + 172]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncVehicleWheel(b, f, at + 0, h, v ?? new VehicleWheelMirror()); } items[i] = v; } }
-  { const items = (m.seats ??= []), start = h + f[at + 173], n = f[at + 174]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
+  { const items = (m.wheels ??= []), start = h + f[at + 171], n = f[at + 172]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncVehicleWheel(b, f, at + 0, h, v ?? new VehicleWheelMirror()); } items[i] = v; } }
+  { const items = (m.seats ??= []), start = h + f[at + 173], n = f[at + 174]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
   { const tag = f[at + 175]; if (tag === 0) { { const $v = (m.tickFrom ??= new THREE.Vector3()); $v.x = f[at + 176]; $v.y = f[at + 177]; $v.z = f[at + 178]; } } else m.tickFrom = tag === 1 ? null : undefined; }
   { const tag = f[at + 179]; if (tag === 0) { m.tickFromYaw = f[at + 180]; } else m.tickFromYaw = tag === 1 ? null : undefined; }
   { const tag = f[at + 181]; if (tag === 0) { m.tickFromTilt = f[at + 182]; } else m.tickFromTilt = tag === 1 ? null : undefined; }
@@ -270,8 +272,8 @@ export function syncFullVehicle(b, f, at, h, m) {
   { const $v = (m.size ??= new THREE.Vector3()); $v.x = f[at + 144]; $v.y = f[at + 145]; $v.z = f[at + 146]; }
   m.boundRadius = f[at + 147];
   m.probeRadius = f[at + 148];
-  { const items = (m.probes ??= []), start = h + f[at + 149], n = f[at + 150]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
-  { const items = (m.supportProbes ??= []), start = h + f[at + 151], n = f[at + 152]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
+  { const items = (m.probes ??= []), start = h + f[at + 149], n = f[at + 150]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
+  { const items = (m.supportProbes ??= []), start = h + f[at + 151], n = f[at + 152]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
   m.maxHealth = f[at + 153];
   { const tag = f[at + 154]; if (tag === 0) { m.waterRule = syncWaterRule(b, f, at + 155, h, m.waterRule ?? new WaterRuleMirror()); } else m.waterRule = tag === 1 ? null : undefined; }
   m.waterDepth = f[at + 157];
@@ -300,13 +302,13 @@ export function syncFullVehicle(b, f, at, h, m) {
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 191 + i]; }
   { const $v = (m.itemCenter ??= new THREE.Vector3()); $v.x = f[at + 207]; $v.y = f[at + 208]; $v.z = f[at + 209]; }
   { const $v = (m.supportNormal ??= new THREE.Vector3()); $v.x = f[at + 210]; $v.y = f[at + 211]; $v.z = f[at + 212]; }
-  { const tag = f[at + 213]; if (tag === 0) { { const items = (m.legSide ??= []), start = h + f[at + 214], n = f[at + 215]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.legSide = tag === 1 ? null : undefined; }
+  { const tag = f[at + 213]; if (tag === 0) { { const items = (m.legSide ??= []), start = h + f[at + 214], n = f[at + 215]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.legSide = tag === 1 ? null : undefined; }
   m.seatIndex = f[at + 216];
   { const tag = f[at + 217]; if (tag === 0) { m.driver = b.refs[KIND_VEHICLE_DRIVER].at(f[at + 218], f[at + 219]); } else m.driver = tag === 1 ? null : undefined; }
-  { const items = (m.wheels ??= []), start = h + f[at + 220], n = f[at + 221]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncVehicleWheel(b, f, at + 0, h, v ?? new VehicleWheelMirror()); } items[i] = v; } }
-  { const items = (m.seats ??= []), start = h + f[at + 222], n = f[at + 223]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
-  { const items = (m.seatViews ??= []), start = h + f[at + 224], n = f[at + 225]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSeatView(b, f, at + 0, h, v ?? new SeatViewMirror()); } items[i] = v; } }
-  { const items = (m.seatLeases ??= []), start = h + f[at + 226], n = f[at + 227]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSeatLeaseView(b, f, at + 0, h, v ?? new SeatLeaseViewMirror()); } items[i] = v; } }
+  { const items = (m.wheels ??= []), start = h + f[at + 220], n = f[at + 221]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncVehicleWheel(b, f, at + 0, h, v ?? new VehicleWheelMirror()); } items[i] = v; } }
+  { const items = (m.seats ??= []), start = h + f[at + 222], n = f[at + 223]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
+  { const items = (m.seatViews ??= []), start = h + f[at + 224], n = f[at + 225]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSeatView(b, f, at + 0, h, v ?? new SeatViewMirror()); } items[i] = v; } }
+  { const items = (m.seatLeases ??= []), start = h + f[at + 226], n = f[at + 227]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSeatLeaseView(b, f, at + 0, h, v ?? new SeatLeaseViewMirror()); } items[i] = v; } }
   { const tag = f[at + 228]; if (tag === 0) { { const $v = (m.tickFrom ??= new THREE.Vector3()); $v.x = f[at + 229]; $v.y = f[at + 230]; $v.z = f[at + 231]; } } else m.tickFrom = tag === 1 ? null : undefined; }
   { const tag = f[at + 232]; if (tag === 0) { m.tickFromYaw = f[at + 233]; } else m.tickFromYaw = tag === 1 ? null : undefined; }
   { const tag = f[at + 234]; if (tag === 0) { m.tickFromTilt = f[at + 235]; } else m.tickFromTilt = tag === 1 ? null : undefined; }

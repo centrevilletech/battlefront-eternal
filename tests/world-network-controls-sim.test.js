@@ -9,7 +9,7 @@ import { CommandControls } from '../src/runtime/commands.js';
 import { FireCommands } from '../src/runtime/fire-commands.js';
 import { InputActions } from '../src/runtime/input-actions.js';
 import { InputMailbox } from '../src/runtime/transport.js';
-import { ONLINE_PLAYOUT_MAX_TICKS } from '../src/runtime/hit-history.js';
+import { ONLINE_PLAYOUT_MAX_TICKS } from '../src/runtime/network-hit-limits.js';
 import { blankSeatIntent } from '../src/seats.js';
 import { mountInReach, seatScheme } from '../src/boarding.js';
 import { cycleNetworkSeat } from '../src/runtime/network-seat.js';

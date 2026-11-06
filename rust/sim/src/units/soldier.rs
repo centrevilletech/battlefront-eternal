@@ -46,32 +46,37 @@ fn air_back(a: MAir) -> Option<Air> {
     }
 }
 
+/// Prepare the retained mover when UnitFactory builds its body.
+pub fn prepare(s: &mut Soldier, world: usize) {
+    // His id in the module, with his class's numbers, on his first tick.
+    if s.mover < 0.0 {
+        let id = new_mover(world, |m| {
+            m.max_speed = s.max_speed;
+            m.max_strafe = s.max_strafe;
+            m.max_jump = s.max_jump;
+            m.max_turn = s.max_turn;
+            m.max_pitch = s.max_pitch;
+            m.accel = s.accel;
+            m.pitch_limits = s.pitch_limits;
+            m.jet.jump = s.jet.jump;
+            m.jet.push = s.jet.push;
+            m.jet.recharge = s.jet.recharge;
+            m.jet.cost = s.jet.cost;
+            m.jet.initial = s.jet.initial;
+            m.jet.min_border = s.jet.min_border;
+            m.jet.hover = s.jet.hover;
+            m.threshold = s.collision_rule.threshold;
+            m.scale = s.collision_rule.scale;
+        });
+        s.mover = id as f64;
+    }
+}
+
 /// Soldier.tick(input, dt) for a store soldier, in collision world `world`;
 /// `pass_through`: the ray slot of the body he passes through (a rider's
 /// mount while he falls from it), -1 for none.
 pub fn tick_soldier(s: &mut Soldier, input: &MoveInput, dt: f64, world: usize, pass_through: i64) {
-    // His id in the module, with his class's numbers, on his first tick.
-    if s.mover < 0.0 {
-        let c = s.clone();
-        s.mover = new_mover(world, |m| {
-            m.max_speed = c.max_speed;
-            m.max_strafe = c.max_strafe;
-            m.max_jump = c.max_jump;
-            m.max_turn = c.max_turn;
-            m.max_pitch = c.max_pitch;
-            m.accel = c.accel;
-            m.pitch_limits = c.pitch_limits;
-            m.jet.jump = c.jet.jump;
-            m.jet.push = c.jet.push;
-            m.jet.recharge = c.jet.recharge;
-            m.jet.cost = c.jet.cost;
-            m.jet.initial = c.jet.initial;
-            m.jet.min_border = c.jet.min_border;
-            m.jet.hover = c.jet.hover;
-            m.threshold = c.collision_rule.threshold;
-            m.scale = c.collision_rule.scale;
-        }) as f64;
-    }
+    prepare(s, world);
     let id = s.mover as u32;
     let m = mover(id);
     m.position = V3::from(s.position);

@@ -51,6 +51,7 @@ pub fn seat_body(u: &mut Unit, combat: &mut CombatFlags) {
     u.targetable = Some(false);
     u.combat.mounted = Some(true);
     combat.unzoom();
+    u.combat.zoom_step = 0.0;
     u.combat.gun_underwater = false;
     u.combat.aim_override = Nullable::Null;
     if let Some(s) = soldier_mut(u) {
@@ -67,6 +68,7 @@ pub fn unseat_body(u: &mut Unit, combat: &mut CombatFlags) {
     u.combat.mounted = Some(false);
     u.combat.aim_override = Nullable::Null;
     combat.unzoom();
+    u.combat.zoom_step = 0.0;
     if let Some(s) = soldier_mut(u) {
         s.velocity = [0.0, 0.0, 0.0];
         s.air = None;

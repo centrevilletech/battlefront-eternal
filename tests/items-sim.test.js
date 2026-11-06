@@ -1,3 +1,4 @@
+import {fixtureServices} from './helpers/rust-simulation.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -7,7 +8,7 @@ import { loadSim } from "../src/sim/module.js";
 import { SimBridge } from "../src/sim/runtime.js";
 import { attachOrdnanceSim, ordnanceTests } from "../src/ordnance-sim.js";
 import { attachItemsSim } from "../src/items-sim.js";
-import { KIND_ITEM, KIND_TABLE } from "../src/sim/gen/index.js";
+import { KIND_ITEM, KIND_ITEMS, KIND_TABLE } from "../src/sim/gen/index.js";
 
 class FakeUnit {
   constructor(id, team) { this.id = id; this.generation = 1; this.team = team; }
@@ -58,7 +59,8 @@ import {createHash} from 'node:crypto';
 test('Rust items synthetic fixture matches recorded flight and events',async()=>{
 const log=[], owner=new FakeUnit(1,1);
 const items = new Items({scene:new THREE.Scene(),collision,effects:{play:()=>null},lights:{add(){}},model,explode:(def,p)=>log.push(['explode',def.class,p.toArray()])});
-const bridge=new SimBridge(await loadSim(),{tests:{...ordnanceTests,unit:v=>v instanceof FakeUnit}}); const rounds=attachOrdnanceSim(new Ordnance({scene:new THREE.Scene(),collision,effects:{play:()=>null},lights:{add(){},flash(){}},texture:()=>null}),bridge);attachItemsSim(items,rounds);
+const bridge=new SimBridge(await loadSim(),{tests:{...ordnanceTests,unit:v=>v instanceof FakeUnit}}); const rounds=attachOrdnanceSim(new Ordnance({scene:new THREE.Scene(),collision,effects:{play:()=>null},lights:{add(){},flash(){}},texture:()=>null}),bridge);fixtureServices(rounds.ordnance);attachItemsSim(items,rounds);
+rounds.nativeServices.afterStep=()=>{bridge.sync(KIND_ITEM);bridge.sync(KIND_ITEMS,items);};
 const digest=createHash('sha256'), list=targets(log), v=(x,y,z)=>new THREE.Vector3(x,y,z);
 items.spawn(health,v(0,1,0),v(0,0,0),.3);
 items.spawn(ammo,v(3,2,6),v(.5,3,0),1.1);

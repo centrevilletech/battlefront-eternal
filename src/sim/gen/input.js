@@ -5,15 +5,19 @@ import { HsCommandMirror, exportHsCommand, putHsCommand, sameHsCommand, syncHsCo
 
 export const IaOperation_NAMES = ["push","take","clear","enable","drain","outcome"];
 export const IaOperation_INDEX = new Map(IaOperation_NAMES.map((name, i) => [name, i]));
+export const IaOperation_VALUE = Object.freeze({"push":0,"take":1,"clear":2,"enable":3,"drain":4,"outcome":5});
 
 export const ImOperation_NAMES = ["admit","push","take","clear"];
 export const ImOperation_INDEX = new Map(ImOperation_NAMES.map((name, i) => [name, i]));
+export const ImOperation_VALUE = Object.freeze({"admit":0,"push":1,"take":2,"clear":3});
 
 export const IqOperation_NAMES = ["add","delete","has","clear"];
 export const IqOperation_INDEX = new Map(IqOperation_NAMES.map((name, i) => [name, i]));
+export const IqOperation_VALUE = Object.freeze({"add":0,"delete":1,"has":2,"clear":3});
 
 export const IcOperation_NAMES = ["accept","clear"];
 export const IcOperation_INDEX = new Map(IcOperation_NAMES.map((name, i) => [name, i]));
+export const IcOperation_VALUE = Object.freeze({"accept":0,"clear":1});
 
 export class IaOutcomeMirror {
   constructor() {
@@ -63,8 +67,8 @@ export function syncIaEntry(b, f, at, h, m) {
   m.id = f[at + 0];
   m.tick = f[at + 1];
   m.generation = f[at + 2];
-  { const items = (m.actions ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
-  { const items = (m.human ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
+  { const items = (m.actions ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  { const items = (m.human ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -150,8 +154,8 @@ export function syncIaState(b, f, at, h, m) {
   m.received = f[at + 2];
   m.ack = f[at + 3];
   m.discarded = f[at + 4];
-  { const items = (m.queue ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncIaEntry(b, f, at + 0, h, v ?? new IaEntryMirror()); } items[i] = v; } }
-  { const tag = f[at + 7]; if (tag === 0) { { const items = (m.outcomes ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } } } else m.outcomes = tag === 1 ? null : undefined; }
+  { const items = (m.queue ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncIaEntry(b, f, at + 0, h, v ?? new IaEntryMirror()); } items[i] = v; } }
+  { const tag = f[at + 7]; if (tag === 0) { { const items = (m.outcomes ??= []), start = h + f[at + 8], n = f[at + 9]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } } } else m.outcomes = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -216,7 +220,7 @@ export function syncIaInput(b, f, at, h, m) {
   m.sameGeneration = f[at + 20] !== 0;
   m.payloadValid = f[at + 21] !== 0;
   m.humanValid = f[at + 22] !== 0;
-  { const items = (m.human ??= []), start = h + f[at + 23], n = f[at + 24]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncIaHuman(b, f, at + 0, h, v ?? new IaHumanMirror()); } items[i] = v; } }
+  { const items = (m.human ??= []), start = h + f[at + 23], n = f[at + 24]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncIaHuman(b, f, at + 0, h, v ?? new IaHumanMirror()); } items[i] = v; } }
   m.tick = f[at + 25];
   m.generation = f[at + 26];
   m.id = f[at + 27];
@@ -289,9 +293,9 @@ export class IaResultMirror {
 export function syncIaResult(b, f, at, h, m) {
   m.state = syncIaState(b, f, at + 0, h, m.state ?? new IaStateMirror());
   m.accepted = f[at + 10] !== 0;
-  { const items = (m.actions ??= []), start = h + f[at + 11], n = f[at + 12]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
-  { const items = (m.human ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
-  { const items = (m.outcomes ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } }
+  { const items = (m.actions ??= []), start = h + f[at + 11], n = f[at + 12]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  { const items = (m.human ??= []), start = h + f[at + 13], n = f[at + 14]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
+  { const items = (m.outcomes ??= []), start = h + f[at + 15], n = f[at + 16]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } }
   { const tag = f[at + 17]; if (tag === 0) { m.error = b.strings.at(f[at + 18]); } else m.error = tag === 1 ? null : undefined; }
   return m;
 }
@@ -411,11 +415,11 @@ export class IfStateMirror {
 
 export function syncIfState(b, f, at, h, m) {
   m.received = f[at + 0];
-  { const items = (m.queue ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncIfEdge(b, f, at + 0, h, v ?? new IfEdgeMirror()); } items[i] = v; } }
+  { const items = (m.queue ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncIfEdge(b, f, at + 0, h, v ?? new IfEdgeMirror()); } items[i] = v; } }
   { const a = (m.buttons ??= new Array(2)); a[0] = f[at + 3]; a[1] = f[at + 4]; }
   { const a = (m.pressTicks ??= new Array(2)); a[0] = f[at + 5]; a[1] = f[at + 6]; }
   { const tag = f[at + 7]; if (tag === 0) { m.generation = f[at + 8]; } else m.generation = tag === 1 ? null : undefined; }
-  { const tag = f[at + 9]; if (tag === 0) { { const items = (m.outcomes ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } } } else m.outcomes = tag === 1 ? null : undefined; }
+  { const tag = f[at + 9]; if (tag === 0) { { const items = (m.outcomes ??= []), start = h + f[at + 10], n = f[at + 11]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } } } else m.outcomes = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -580,8 +584,8 @@ export class IfResultMirror {
 export function syncIfResult(b, f, at, h, m) {
   m.state = syncIfState(b, f, at + 0, h, m.state ?? new IfStateMirror());
   m.accepted = f[at + 12] !== 0;
-  { const items = (m.shots ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncIfEdge(b, f, at + 0, h, v ?? new IfEdgeMirror()); } items[i] = v; } }
-  { const items = (m.outcomes ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } }
+  { const items = (m.shots ??= []), start = h + f[at + 13], n = f[at + 14]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncIfEdge(b, f, at + 0, h, v ?? new IfEdgeMirror()); } items[i] = v; } }
+  { const items = (m.outcomes ??= []), start = h + f[at + 15], n = f[at + 16]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } }
   { const tag = f[at + 17]; if (tag === 0) { m.error = b.strings.at(f[at + 18]); } else m.error = tag === 1 ? null : undefined; }
   m.replacedQueue = f[at + 19] !== 0;
   m.replacedButtons = f[at + 20] !== 0;
@@ -753,12 +757,12 @@ export function syncImEntry(b, f, at, h, m) {
   m.tick = f[at + 2];
   m.generation = f[at + 3];
   m.down = f[at + 4];
-  { const items = (m.actions ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
-  { const items = (m.look ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncImLook(b, f, at + 0, h, v ?? new ImLookMirror()); } items[i] = v; } }
+  { const items = (m.actions ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  { const items = (m.look ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncImLook(b, f, at + 0, h, v ?? new ImLookMirror()); } items[i] = v; } }
   { const tag = f[at + 9]; if (tag === 0) { { const a = (m.lookTotal ??= new Array(2)); a[0] = f[at + 10]; a[1] = f[at + 11]; } } else m.lookTotal = tag === 1 ? null : undefined; }
-  { const items = (m.view ??= []), start = h + f[at + 12], n = f[at + 13]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncImField(b, f, at + 0, h, v ?? new ImFieldMirror()); } items[i] = v; } }
-  { const items = (m.human ??= []), start = h + f[at + 14], n = f[at + 15]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.fire ??= []), start = h + f[at + 16], n = f[at + 17]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncImFire(b, f, at + 0, h, v ?? new ImFireMirror()); } items[i] = v; } }
+  { const items = (m.view ??= []), start = h + f[at + 12], n = f[at + 13]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncImField(b, f, at + 0, h, v ?? new ImFieldMirror()); } items[i] = v; } }
+  { const items = (m.human ??= []), start = h + f[at + 14], n = f[at + 15]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.fire ??= []), start = h + f[at + 16], n = f[at + 17]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncImFire(b, f, at + 0, h, v ?? new ImFireMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -835,11 +839,11 @@ export function syncImState(b, f, at, h, m) {
   m.ack = f[at + 3];
   m.ackTick = f[at + 4];
   m.discarded = f[at + 5];
-  { const items = (m.queue ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 18; v = syncImEntry(b, f, at + 0, h, v ?? new ImEntryMirror()); } items[i] = v; } }
+  { const items = (m.queue ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 18; v = syncImEntry(b, f, at + 0, h, v ?? new ImEntryMirror()); } items[i] = v; } }
   { const tag = f[at + 8]; if (tag === 0) { m.down = f[at + 9]; } else m.down = tag === 1 ? null : undefined; }
   m.generation = f[at + 10];
   m.late = f[at + 11];
-  { const items = (m.view ??= []), start = h + f[at + 12], n = f[at + 13]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncImField(b, f, at + 0, h, v ?? new ImFieldMirror()); } items[i] = v; } }
+  { const items = (m.view ??= []), start = h + f[at + 12], n = f[at + 13]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncImField(b, f, at + 0, h, v ?? new ImFieldMirror()); } items[i] = v; } }
   { const a = (m.lookTotal ??= new Array(2)); a[0] = f[at + 14]; a[1] = f[at + 15]; }
   m.stateTick = f[at + 16];
   return m;
@@ -909,10 +913,10 @@ export class ImTakenMirror {
 }
 
 export function syncImTaken(b, f, at, h, m) {
-  { const items = (m.actions ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
-  { const items = (m.look ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncImLook(b, f, at + 0, h, v ?? new ImLookMirror()); } items[i] = v; } }
-  { const items = (m.human ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.fire ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncImFire(b, f, at + 0, h, v ?? new ImFireMirror()); } items[i] = v; } }
+  { const items = (m.actions ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
+  { const items = (m.look ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncImLook(b, f, at + 0, h, v ?? new ImLookMirror()); } items[i] = v; } }
+  { const items = (m.human ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.fire ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncImFire(b, f, at + 0, h, v ?? new ImFireMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -1137,8 +1141,8 @@ export function syncIqState(b, f, at, h, m) {
   m.write = f[at + 2];
   m.length = f[at + 3];
   m.itemsLength = f[at + 4];
-  { const items = (m.items ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIqSlot(b, f, at + 0, h, v ?? new IqSlotMirror()); } items[i] = v; } }
-  { const items = (m.counts ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIqCount(b, f, at + 0, h, v ?? new IqCountMirror()); } items[i] = v; } }
+  { const items = (m.items ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIqSlot(b, f, at + 0, h, v ?? new IqSlotMirror()); } items[i] = v; } }
+  { const items = (m.counts ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIqCount(b, f, at + 0, h, v ?? new IqCountMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -1275,7 +1279,7 @@ export function syncIcState(b, f, at, h, m) {
   { const tag = f[at + 0]; if (tag === 0) { m.epoch = f[at + 1]; } else m.epoch = tag === 1 ? null : undefined; }
   { const tag = f[at + 2]; if (tag === 0) { m.generation = f[at + 3]; } else m.generation = tag === 1 ? null : undefined; }
   { const tag = f[at + 4]; if (tag === 0) { m.sequence = f[at + 5]; } else m.sequence = tag === 1 ? null : undefined; }
-  { const items = (m.down ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.down ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.queue = syncIqState(b, f, at + 8, h, m.queue ?? new IqStateMirror());
   return m;
 }
@@ -1407,9 +1411,9 @@ export class IkInputMirror {
 }
 
 export function syncIkInput(b, f, at, h, m) {
-  { const items = (m.down ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.plus ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.minus ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.down ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.plus ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.minus ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 

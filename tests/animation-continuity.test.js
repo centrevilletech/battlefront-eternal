@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
 import {presentUnit} from './helpers/presentation.js';
 import test from 'node:test';

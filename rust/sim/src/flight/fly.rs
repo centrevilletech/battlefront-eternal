@@ -137,7 +137,7 @@ impl Hull {
     /// numbers 0; a craft turned to its pad's heading and given its flight
     /// (`init_flight`); the floor under it unknown (NaN). The caller sets
     /// the yaw first and the rest of the spawn around these.
-    pub fn spawn_flight(&mut self, name: &str, config: super::Config) {
+    pub fn spawn_flight(&mut self, class: super::FlightClass, config: super::Config) {
         self.flight.grounded = self.flying;
         self.flight.state = if self.flying { Some(FlightState::Landed) } else { None };
         self.flight.altitude = 0.0;
@@ -150,7 +150,11 @@ impl Hull {
             let mut q = three::Quaternion::default();
             q.set_from_axis_angle(&three::Vector3::new(0.0, 1.0, 0.0), self.yaw);
             self.quaternion = q;
-            self.init_flight(name, config);
+            // initFlight's name classification is immutable class data. A
+            // respawn uses the retained enum without allocating lowercase text.
+            self.turn_rate = config.turn_rate;
+            self.speed = config.max_speed;
+            self.flight.init(class,config,&self.quaternion);
         }
         self.flight.floor_y = f64::NAN;
     }

@@ -18,10 +18,35 @@
 const MUL = 1664525;
 const ADD = 1013904223;
 const f32 = Math.fround;
+const generators = new WeakMap();
+const uniformDraws = new WeakMap();
+// A boundary can skip scanning unchanged JS streams. This stamp observes
+// draws and explicit restores without changing any generator or draw order.
+export let randomRevision = 0;
+
+// A phase transfers the generator's state, not its callback. Keep the binding
+// beside the function so existing AI and weapon callers retain ordinary draws.
+export function randomBinding(draw) { return generators.get(draw); }
+export function uniformRandom(random) {
+  let draw = uniformDraws.get(random);
+  if (!draw) {
+    draw = () => random.uniform();
+    uniformDraws.set(random, draw);
+    generators.set(draw, { random, streams: null, name: null });
+  }
+  return draw;
+}
 
 export class ClassicRandom {
   constructor(seed = 0) {
-    this.state = seed >>> 0;
+    this._state = seed >>> 0;
+    randomRevision = (randomRevision + 1) >>> 0;
+  }
+
+  get state() { return this._state; }
+  set state(value) {
+    this._state = value;
+    randomRevision = (randomRevision + 1) >>> 0;
   }
 
   // A raw 32-bit draw, as an unsigned integer.
@@ -75,6 +100,7 @@ export class RandomStreams {
   constructor(seed = 0) {
     this.seed = seed >>> 0;
     this.streams = new Map();
+    this.draws = new Map();
   }
 
   get(name) {
@@ -82,13 +108,36 @@ export class RandomStreams {
     if (!stream) {
       stream = new ClassicRandom(mix(this.seed, name));
       this.streams.set(name, stream);
+      // Native phases retain this same generator binding. Update it on first
+      // use, rather than looking up a stream name at every aimer boundary.
+      const draw = this.draws.get(name);
+      if (draw) generators.get(draw).random = stream;
     }
     return stream;
   }
 
+  // createGame's named draw callbacks stay lazy: preparing a native binding
+  // must not insert a stream into the world-hash's observed first-use order.
+  draw(name) {
+    let draw = this.draws.get(name);
+    if (!draw) {
+      const binding = { random: this.streams.get(name) ?? null, streams: this, name };
+      draw = () => (binding.random ?? this.get(name)).uniform();
+      generators.set(draw, binding);
+      this.draws.set(name, draw);
+    }
+    return draw;
+  }
+
+  initialState(name) { return mix(this.seed, name); }
+
   reset(seed = this.seed) {
     this.seed = seed >>> 0;
     this.streams.clear();
+    randomRevision = (randomRevision + 1) >>> 0;
+    // Existing draw callbacks survive reset, while their old generators do
+    // not. The next use still establishes the new registry insertion order.
+    for (const draw of this.draws.values()) generators.get(draw).random = null;
   }
 }
 

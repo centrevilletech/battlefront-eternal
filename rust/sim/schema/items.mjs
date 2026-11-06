@@ -3,6 +3,31 @@
 // world, every field each item gets, with what only a page's drawing reads
 // listed apart (`skip`). docs/sim-store.md says how a schema is written;
 // tools/sim-schema.mjs makes the code from it.
+const itemState = {
+  def: 'def:item',
+  mine: 'bool',
+  position: 'vec3',
+  previous: 'vec3',
+  velocity: 'vec3',
+  yaw: 'f64',
+  up: 'vec3',
+  landed: 'bool',
+  sinking: 'bool',
+  // Its model's size and middle (the largest of its parts' bounding
+  // spheres), and the model's orientation: a blast's reach and where
+  // a power-up is taken from. Without a model: 0.3 m, and no middle
+  // or orientation.
+  radius: 'f64',
+  center: 'vec3|null',
+  turn: 'quat|null',
+  owner: 'union:ItemOwner',
+  team: 'f64',
+  age: 'f64',
+  life: 'f64',
+  health: 'f64',
+  gone: 'bool|undefined',
+};
+
 export default {
   unions: {
     // Whose an item is (Items.spawn `owner`): the unit that threw it from
@@ -12,6 +37,17 @@ export default {
   },
 
   records: {
+    F3ItemClass: { def:'def:item', base:'u32', pool:'f64', mine:'bool', life:'f64', health:'f64', model:'rec:ModelAnswer', healthGain:'f64x5', ammoGain:'f64x5' },
+    F3ItemTarget: { unit:'ref:unit|null', hull:'ref:vehicle|null', life:'f64' },
+    F3PowerupEffect: { name:'str', position:'vec3' },
+    F3DispenserBinding: { key:'rec:F3UnitKey', weapon:'def:weapon', level:'u32', name:'str', ownedKey:'str' },
+    F3UnitItems: { class:'def:unitClass', explosion:'u32|null', drops:'list:rec:DropEntry', addHealth:'f64', healthEffect:'str', ammoEffect:'str' },
+    F3ItemState: itemState,
+    // The Item binding copies this sampled state into its existing vectors.
+    // Event scratch must never become an item's persistent position object.
+    F3ItemNotice: { item:'ref:item', state:'rec:F3ItemState', made:'bool' },
+    F3ItemRetired: { slot:'u32', generation:'u32' },
+    F3DispenserNotice: { key:'str', removed:'bool', items:'list:item' },
     // What the items ask of the rest of the battle (src/ordnance-world.js
     // ItemsWorld, rust/sim/src/ordnance/world.rs), as the module's imports;
     // answers shared with the rounds' come from rust/sim/schema/ordnance.mjs.
@@ -64,6 +100,8 @@ export default {
     pickup: { args: 'PickupArgs', result: null },
   },
 
+  events: { f3Item:'F3ItemNotice', f3ItemRetired:'F3ItemRetired', f3Dispenser:'F3DispenserNotice', f3PowerupEffect:'F3PowerupEffect', f3Pickup:'PickupArgs' },
+
   kinds: {
     // The battle's Items (items.js Items): the items in the order they are
     // stepped (and filtered, keeping order) each tick, and each dispenser's
@@ -100,30 +138,7 @@ export default {
     // A mine or power-up (items.js itemState(), spawn(), fly()).
     item: {
       home: 'items.items',
-      fields: {
-        def: 'def:item',
-        mine: 'bool',
-        position: 'vec3',
-        previous: 'vec3',
-        velocity: 'vec3',
-        yaw: 'f64',
-        up: 'vec3',
-        landed: 'bool',
-        sinking: 'bool',
-        // Its model's size and middle (the largest of its parts' bounding
-        // spheres), and the model's orientation: a blast's reach and where
-        // a power-up is taken from. Without a model: 0.3 m, and no middle
-        // or orientation.
-        radius: 'f64',
-        center: 'vec3|null',
-        turn: 'quat|null',
-        owner: 'union:ItemOwner',
-        team: 'f64',
-        age: 'f64',
-        life: 'f64',
-        health: 'f64',
-        gone: 'bool|undefined',
-      },
+      fields: itemState,
       skip: {
         mesh: 'its model, made to measure it and drawn by the page',
         light: 'colour from the definition, for drawing',

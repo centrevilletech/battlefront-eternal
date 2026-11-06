@@ -5,6 +5,54 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
+pub enum F3OrdnanceEvent {
+    #[default] Projectile = 0,
+    Launch = 1,
+    Impact = 2,
+    GrenadeContact = 3,
+    Bounce = 4,
+}
+
+impl F3OrdnanceEvent {
+    pub const NAMES: [&'static str; 5] = ["projectile", "launch", "impact", "grenadeContact", "bounce"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3OrdnanceEvent::Projectile),
+            1 => Some(F3OrdnanceEvent::Launch),
+            2 => Some(F3OrdnanceEvent::Impact),
+            3 => Some(F3OrdnanceEvent::GrenadeContact),
+            4 => Some(F3OrdnanceEvent::Bounce),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum F3ProjectileKind {
+    #[default] Bolt = 0,
+    Beam = 1,
+    Grenade = 2,
+    Round = 3,
+}
+
+impl F3ProjectileKind {
+    pub const NAMES: [&'static str; 4] = ["bolt", "beam", "grenade", "round"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3ProjectileKind::Bolt),
+            1 => Some(F3ProjectileKind::Beam),
+            2 => Some(F3ProjectileKind::Grenade),
+            3 => Some(F3ProjectileKind::Round),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum RoundKind {
     #[default] Bullet = 0,
     Missile = 1,
@@ -126,6 +174,171 @@ impl BeamSource {
             _ => BeamSource::default(),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3OwnerCreated {
+    pub slot: u32,
+    pub generation: u32,
+    pub source_unit: Ref<Unit>,
+    pub id: f64,
+    pub life: f64,
+    pub team: f64,
+    pub human: bool,
+    pub class_name: StrId,
+    pub character: Option<Ref<Character>>,
+}
+
+impl F3OwnerCreated {
+    pub const WORDS: usize = 12;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
+        row[0] = self.slot as f64;
+        row[1] = self.generation as f64;
+        row[2] = self.source_unit.slot as f64; row[2 + 1] = self.source_unit.gen as f64;
+        row[4] = self.id;
+        row[5] = self.life;
+        row[6] = self.team;
+        row[7] = if self.human { 1.0 } else { 0.0 };
+        row[8] = self.class_name.0 as f64;
+        match &self.character { Some(v) => { row[9] = 0.0; row[9 + 1] = (*v).slot as f64; row[9 + 1 + 1] = (*v).gen as f64; } None => { row[9] = 1.0; row[9 + 1..9 + 3].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
+        Self {
+            slot: word_u32(row[0]),
+            generation: word_u32(row[1]),
+            source_unit: Ref::new(word_u32(row[2]), word_u32(row[2 + 1])),
+            id: row[4],
+            life: row[5],
+            team: row[6],
+            human: row[7] != 0.0,
+            class_name: StrId(word_u32(row[8])),
+            character: if row[9] == 0.0 { Some(Ref::new(word_u32(row[9 + 1]), word_u32(row[9 + 1 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3OrdnanceKey {
+    pub kind: F3ProjectileKind,
+    pub slot: u32,
+    pub generation: u32,
+}
+
+impl F3OrdnanceKey {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.kind as u8 as f64;
+        row[1] = self.slot as f64;
+        row[2] = self.generation as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            kind: F3ProjectileKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            slot: word_u32(row[1]),
+            generation: word_u32(row[2]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3OrdnanceNotice {
+    pub key: F3OrdnanceKey,
+    pub event: F3OrdnanceEvent,
+    pub def: DefId,
+    pub owner: OrdnanceOwner,
+    pub tick: Nullable<f64>,
+    pub owner_id: f64,
+    pub owner_generation: f64,
+    pub fire_id: f64,
+    pub channel: f64,
+    pub team: f64,
+    pub has_source: bool,
+    pub source: F3LifeRef,
+    pub position: Vec3,
+    pub direction: Vec3,
+    pub offset: Vec3,
+    pub has_offset: bool,
+    pub speed: f64,
+    pub life: f64,
+    pub merge: f64,
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub surface: f64,
+    pub struck: Impact,
+    pub has_struck: bool,
+}
+
+impl F3OrdnanceNotice {
+    pub const WORDS: usize = 54;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 54] = (&mut row[..54]).try_into().unwrap();
+        self.key.put(&mut row[0..], heap);
+        row[3] = self.event as u8 as f64;
+        row[4] = self.def.0 as f64;
+        self.owner.put(&mut row[5..5 + 3], heap);
+        match &self.tick { Nullable::Value(v) => { row[8] = 0.0; row[8 + 1] = (*v); } Nullable::Null => { row[8] = 1.0; row[8 + 1..8 + 2].fill(0.0); } Nullable::Undefined => { row[8] = 2.0; row[8 + 1..8 + 2].fill(0.0); } }
+        row[10] = self.owner_id;
+        row[11] = self.owner_generation;
+        row[12] = self.fire_id;
+        row[13] = self.channel;
+        row[14] = self.team;
+        row[15] = if self.has_source { 1.0 } else { 0.0 };
+        self.source.put(&mut row[16..], heap);
+        row[18..18 + 3].copy_from_slice(&self.position);
+        row[21..21 + 3].copy_from_slice(&self.direction);
+        row[24..24 + 3].copy_from_slice(&self.offset);
+        row[27] = if self.has_offset { 1.0 } else { 0.0 };
+        row[28] = self.speed;
+        row[29] = self.life;
+        row[30] = self.merge;
+        row[31..31 + 3].copy_from_slice(&self.point);
+        row[34..34 + 3].copy_from_slice(&self.normal);
+        row[37] = self.surface;
+        self.struck.put(&mut row[38..], heap);
+        row[53] = if self.has_struck { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 54] = (&row[..54]).try_into().unwrap();
+        Self {
+            key: F3OrdnanceKey::take(&row[0..], heap),
+            event: F3OrdnanceEvent::from_u8(word_u32(row[3]) as u8).unwrap_or_default(),
+            def: DefId(word_u32(row[4])),
+            owner: OrdnanceOwner::take(&row[5..5 + 3], heap),
+            tick: match word_u32(row[8]) { 0 => Nullable::Value(row[8 + 1]), 1 => Nullable::Null, _ => Nullable::Undefined },
+            owner_id: row[10],
+            owner_generation: row[11],
+            fire_id: row[12],
+            channel: row[13],
+            team: row[14],
+            has_source: row[15] != 0.0,
+            source: F3LifeRef::take(&row[16..], heap),
+            position: [row[18], row[18 + 1], row[18 + 2]],
+            direction: [row[21], row[21 + 1], row[21 + 2]],
+            offset: [row[24], row[24 + 1], row[24 + 2]],
+            has_offset: row[27] != 0.0,
+            speed: row[28],
+            life: row[29],
+            merge: row[30],
+            point: [row[31], row[31 + 1], row[31 + 2]],
+            normal: [row[34], row[34 + 1], row[34 + 2]],
+            surface: row[37],
+            struck: Impact::take(&row[38..], heap),
+            has_struck: row[53] != 0.0,
+        }
+    }
+
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1495,6 +1708,61 @@ impl Ordnance {
         self.grenades = { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
         self.rounds = { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
         self.start = [row[10], row[10 + 1], row[10 + 2]];
+    }
+
+    #[inline(always)]
+    pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) { self.put_full(row, heap) }
+
+    #[inline(always)]
+    pub fn take_export(&mut self, row: &[f64], heap: &[f64]) { self.take_full(row, heap) }
+
+    #[inline(always)]
+    pub fn put_import(&self, row: &mut [f64], heap: &mut Vec<f64>) { self.put_full(row, heap) }
+
+    #[inline(always)]
+    pub fn take_import(&mut self, row: &[f64], heap: &[f64]) { self.take_full(row, heap) }
+
+}
+
+/// A ownerSnapshot, from rust/sim/schema/ordnance.mjs.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OwnerSnapshot {
+    pub source_unit: Ref<Unit>,
+    pub id: f64,
+    pub generation: f64,
+    pub team: f64,
+    pub human: bool,
+    pub class_name: StrId,
+    pub character: Option<Ref<Character>>,
+}
+
+impl OwnerSnapshot {
+    /// Words a row takes: slot, generation, then the fields mirrored (export),
+    /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
+    pub const EXPORT_STRIDE: usize = 12;
+    pub const IMPORT_STRIDE: usize = 12;
+    pub const FULL_STRIDE: usize = 12;
+
+    pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
+        row[2] = self.source_unit.slot as f64; row[2 + 1] = self.source_unit.gen as f64;
+        row[4] = self.id;
+        row[5] = self.generation;
+        row[6] = self.team;
+        row[7] = if self.human { 1.0 } else { 0.0 };
+        row[8] = self.class_name.0 as f64;
+        match &self.character { Some(v) => { row[9] = 0.0; row[9 + 1] = (*v).slot as f64; row[9 + 1 + 1] = (*v).gen as f64; } None => { row[9] = 1.0; row[9 + 1..9 + 3].fill(0.0); } }
+    }
+
+    pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
+        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
+        self.source_unit = Ref::new(word_u32(row[2]), word_u32(row[2 + 1]));
+        self.id = row[4];
+        self.generation = row[5];
+        self.team = row[6];
+        self.human = row[7] != 0.0;
+        self.class_name = StrId(word_u32(row[8]));
+        self.character = if row[9] == 0.0 { Some(Ref::new(word_u32(row[9 + 1]), word_u32(row[9 + 1 + 1]))) } else { None };
     }
 
     #[inline(always)]

@@ -1,4 +1,5 @@
-// Opt-in test instrumentation. The running game has no wrappers or counters.
+// Opt-in standalone fleet instrumentation. Coordinated worlds use the shared
+// owner's counters directly; this harness adds per-section test breakdowns.
 // Count the words decoded at each reader, including reentrant publications.
 import { F2Counters, countedF2Exports } from './f2-counters.js';
 import { COMMAND_F2_SEAT, COMMAND_TABLE } from '../../src/sim/gen/index.js';
@@ -42,7 +43,7 @@ export function instrumentF2(p) {
     c.outputFields += words; c.outputCollision += words;
   });
   wrap(p.seats, 'writeHeader', null, (end, words = end) => { c.inputFields += words; c.inputSeats += words; });
-  wrap(p.seats, 'readIo', null, () => c.outputFields += p.seats.io.words);
+  wrap(p.seats, 'readIo', null, () => c.outputFields += p.seats.io.descriptorWords);
   wrap(p.seats, 'syncLeases', null, () => block(p.seats.io.leases, 'outputLeases'));
   wrap(p.seats, 'syncBodies', () => {
     for (const [field, group] of [['units','outputUnits'],['controls','outputControls'],['effects','outputEffects']]) block(p.seats.io[field], group);

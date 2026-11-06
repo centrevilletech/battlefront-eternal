@@ -4,7 +4,6 @@ import { createWireHostBridge, createWireStaggerBridge } from './wire-host.js';
 import { createWireCosmeticsBridge } from './wire-cosmetics.js';
 import { createWireSemanticBridge } from './wire-semantic.js';
 import { createWireRegistryBridge } from './wire-registry.js';
-import { attachHitHistoryBridge } from './hit-history-sim.js';
 import { entityPostNames } from './entity-spawn-posts.js';
 import { attachPresentationCapture } from './entity-presentation-events.js';
 import { captureUnitState, UNIT_STATE_ID, UNIT_STATE_SCHEMA } from './entity-unit-state.js';
@@ -133,7 +132,7 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
   const nativePresentation = native ? createWirePresentationBridge(game.simBridge) : null;
   const nativeCosmetics = native ? createWireCosmeticsBridge(game.simBridge) : null;
   const nativeSemantic = native ? createWireSemanticBridge(game.simBridge) : null;
-  const history = native && game.ordnance?.hitHistory ? attachHitHistoryBridge(game.simBridge, game.ordnance.hitHistory) : null;
+  const history = native && game.ordnance?.hitHistory ? game.ordnance.hitHistory.lease : null;
   // A snapshot every `interval` ticks, each carrying every change since the
   // client's acknowledged baseline: every 2nd tick online; locally every
   // tick, or as many ticks as the page takes to draw a frame

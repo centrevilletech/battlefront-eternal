@@ -1,3 +1,4 @@
+import {BlockHeaderLayout as BLOCK} from './sim/gen/boundary.js';
 // The things lying about on the simulation's module (rust/sim/src/items):
 // once a battle's world hands them over (attachItemsSim, with its rounds),
 // Rust owns the mines and power-ups and steps them, and the Items' list and
@@ -10,10 +11,10 @@
 // A world only, as the rounds (src/ordnance-sim.js): a page flies the
 // copies of the items it is sent with the JavaScript (network-entity-items.js).
 import * as THREE from "three";
-import { KIND_ITEM, KIND_ITEMS, putDispenseArgs, putDropArgs, putHurtArgs, putItemsBlastArgs, putSpawnArgs } from "./sim/gen/index.js";
+import { KIND_ITEM, putDispenseArgs, putDropArgs, putHurtArgs, putItemsBlastArgs, putSpawnArgs } from "./sim/gen/index.js";
 
 // A block's header words (rust/sim/src/store/block.rs).
-const HEADER = 5;
+const HEADER = BLOCK.words;
 // An item class's fields the Rust reads, in the order items_def takes them
 // (rust/sim/src/items/module.rs ITEM_FIELDS).
 const ITEM_FIELDS = ["base", "Gravity", "Rebound", "Friction", "LifeSpan", "MaxHealth", "HealthType", "ExplosionDeath", "ExplosionTrigger", "ExplosionExpire", "TriggerRadius", "SuppressRadius"];
@@ -91,24 +92,23 @@ export class ItemsSim {
     if (has !== this.water) this.x.ord_water(1, (this.water = has) ? 1 : 0);
     this.items.world.targets = targets;
     // (0: no item lies about and none left: nothing to sync.)
-    if (this.x.items_update(dt, targets.length)) this.refresh();
+    const native = this.rounds.nativeServices;
+    native.beforeStep();
+    native.itemTargets(targets);
+    try { this.x.items_update(dt, targets.length); }
+    finally { native.afterStep(); }
   }
 
   // A command: its arguments into the call block, the export run, the item
   // it made (its mirror, made current) or null, then every mirror.
   command(which, run, args) {
     this.bridge.callArgs(this.args[which], args);
-    const ptr = run();
-    const item = ptr ? this.rounds.answered(ptr) ?? null : undefined;
-    this.refresh();
+    const native = this.rounds.nativeServices;
+    native.beforeStep();
+    let item;
+    try { const ptr = run();item = ptr ? this.rounds.answered(ptr) ?? null : undefined; }
+    finally { native.afterStep(); }
     return item;
-  }
-
-  // Every item's mirror (the retired' last state first), then the list
-  // and the dispensers' lists in place.
-  refresh() {
-    this.bridge.sync(KIND_ITEM);
-    this.bridge.sync(KIND_ITEMS, this.items);
   }
 
   defId(def) {
@@ -117,6 +117,8 @@ export class ItemsSim {
       const n = this.sent++;
       this.rounds.writeFields(table.at(n), ITEM_FIELDS);
       this.x.items_def(n);
+      const def = table.at(n);
+      this.rounds.nativeServices.item(def,this.model(def));
     }
     return id;
   }

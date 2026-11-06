@@ -125,7 +125,7 @@ impl Hull {
         }
         // order: by score, highest first, then by place (V8's sort).
         order.extend(0..candidates.len());
-        jsrt::sort::js_sort_reuse(order, &mut |&a: &usize, &b: &usize| {
+        jsrt::sort::js_sort_buffered(order, &mut |&a: &usize, &b: &usize| {
             let d = scores[b] - scores[a];
             if truthy(d) {
                 d

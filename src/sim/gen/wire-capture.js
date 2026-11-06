@@ -80,9 +80,9 @@ export function syncWcCall(b, f, at, h, m) {
   m.capacity = f[at + 2];
   m.itemCapacity = f[at + 3];
   m.token = f[at + 4];
-  { const items = (m.live ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.live ??= []), start = h + f[at + 5], n = f[at + 6]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   { const tag = f[at + 7]; if (tag === 0) { m.record = syncWireRecord(b, f, at + 8, h, m.record ?? new WireRecordMirror()); } else m.record = tag === 1 ? null : undefined; }
-  { const items = (m.records ??= []), start = h + f[at + 74], n = f[at + 75]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 69; v = syncWcStamped(b, f, at + 0, h, v ?? new WcStampedMirror()); } items[i] = v; } }
+  { const items = (m.records ??= []), start = h + f[at + 74], n = f[at + 75]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 69; v = syncWcStamped(b, f, at + 0, h, v ?? new WcStampedMirror()); } items[i] = v; } }
   m.air = b.strings.at(f[at + 76]);
   m.posture = b.strings.at(f[at + 77]);
   m.dive = f[at + 78];
@@ -194,7 +194,7 @@ export class WcResultMirror {
 
 export function syncWcResult(b, f, at, h, m) {
   { const tag = f[at + 0]; if (tag === 0) { m.error = b.strings.at(f[at + 1]); } else m.error = tag === 1 ? null : undefined; }
-  { const items = (m.records ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 69; v = syncWcStamped(b, f, at + 0, h, v ?? new WcStampedMirror()); } items[i] = v; } }
+  { const items = (m.records ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 69; v = syncWcStamped(b, f, at + 0, h, v ?? new WcStampedMirror()); } items[i] = v; } }
   m.changed = f[at + 4] !== 0;
   m.slot = f[at + 5];
   m.generation = f[at + 6];

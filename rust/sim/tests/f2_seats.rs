@@ -134,6 +134,28 @@ fn takeover_promotes_and_refreshes_the_derived_controls() {
 }
 
 #[test]
+fn boarding_and_released_leases_keep_slab_generation_separate_from_life() {
+    let (mut st, mut p, mut w, h) = setup(1);
+    let old = unit(&mut st, 1, true);
+    st.unit.remove(old.unit).unwrap();
+    let replacement = st.unit.insert(Unit {
+        generation:old.life, alive:true, team:1.0, network_human:Some(true),
+        soldier:UnitBody::Soldier(Soldier { pitch_limits:[-1.0,1.0], ..Default::default() }),
+        ..Default::default()
+    });
+    assert_eq!(replacement.slot, old.unit.slot);
+    assert_ne!(replacement.gen, old.unit.gen);
+    let current = UnitLife { unit:replacement, life:old.life };
+    assert!(!p.board(&mut st, &mut w, old, h, 0));
+    assert!(p.board(&mut st, &mut w, current, h, 0));
+    let lease = seat(&st, current);
+    assert_eq!(st.seat_lease.get(lease).unwrap().unit, Some(replacement));
+    assert!(p.unboard(&mut st, &mut w, current, Vacate { placement:false, ..Default::default() }));
+    assert_eq!(st.seat_lease.get(lease).unwrap().unit, Some(replacement));
+    assert!(st.seat_lease.get(lease).unwrap().released);
+}
+
+#[test]
 fn latch_freezes_once_takes_edges_and_honors_requested_exits() {
     let (mut st, mut p, mut w, h) = setup(2);
     let a = unit(&mut st, 1, false);

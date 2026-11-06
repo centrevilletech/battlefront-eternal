@@ -9,6 +9,10 @@
 // makes the code from it.
 export default {
   enums: {
+    F3AllocationStage: ['input', 'movement', 'aimer', 'combat', 'publication', 'other', 'hit', 'death', 'drop', 'fire'],
+    F3SensorMode: ['shapes', 'raycast', 'query', 'bounds'],
+    F3PoseAction: ['seize', 'carry'],
+    F3Action: ['team', 'look', 'lookRaw', 'spawn', 'remove', 'health', 'combatField', 'weaponField', 'select', 'next', 'reset', 'damage', 'explode', 'controller', 'letGo', 'unspawn', 'bodyAir', 'randomBinding', 'viewpoint', 'metadata', 'bodySpawn', 'deadTime', 'poolRelease', 'consumeContact', 'mountedRandom'],
     // A soldier's posture (soldier.js `posture`, `diveFrom`).
     Posture: ['stand', 'crouch', 'prone'],
     // In the air (soldier.js `air`; null on the ground).
@@ -31,6 +35,127 @@ export default {
   },
 
   records: {
+    F3CharacterRelease: { unit: 'ref:unit', character: 'ref:character' },
+    F3RemovedNotice: { key: 'rec:F3UnitKey' },
+    F3Allocation: { stage: 'enum:F3AllocationStage', bytes: 'u32', reallocation: 'bool' },
+    // IntentControls.consume always publishes one-shot edges. Its held input
+    // and latch mirrors need stores only when the canonical words changed.
+    F3ControlView: { $layout:true, $delta:['was','pressed0','pressed1','input'],
+      jump: {type: 'bool', js: 'intent.jump', mirror: false}, crouch: {type: 'bool', js: 'intent.crouch', mirror: false}, prone: {type: 'bool', js: 'intent.prone', mirror: false},
+      use: {type: 'bool', js: 'intent.use', mirror: false}, exit: {type:'bool', js:'intent.exit', mirror:false}, reload: {type: 'bool', js: 'intent.reload', mirror: false},
+      nextPrimary: {type: 'bool', js: 'intent.nextPrimary', mirror: false}, previousPrimary: {type: 'bool', js: 'intent.previousPrimary', mirror: false},
+      nextSecondary: {type: 'bool', js: 'intent.nextSecondary', mirror: false}, zoom: {type: 'bool', js: 'intent.zoom', mirror: false},
+      was: {type: 'f64x2', js: 'controls.was', mirror: false},
+      pressed0: {type: 'bool', js: 'controls.pressed.0', mirror: false}, pressed1: {type: 'bool', js: 'controls.pressed.1', mirror: false},
+      input: 'rec:MoveInput',
+    },
+    F3Publication: { $layout:true, $delta:['body','combat'], $parts:['body','controls'], body: 'rec:F3UnitMirror', arsenal: 'u32', combat: 'rec:F3CombatView', controls: 'rec:F3ControlView|null' },
+    F3Acknowledgement: { $layout:true, version:'u32', eventEpoch:'u32', eventOffset:'u32' },
+    F3Boundary: { $layout:true,
+      $refresh: ['version', 'controlsConsumed', 'output', 'outputRows', 'outputHeap', 'outputWords',
+        'events', 'eventWords', 'eventEpoch', 'boundsCache', 'boundsCapacity', 'accepted', 'allocations', 'reallocations', 'allocationBytes'],
+      version: 'u32', controlsConsumed:'bool', acknowledgement:'u32', descriptorWords: 'u32', allocationWords: 'u32', relationWords: 'u32', hitPolicyWords: 'u32', blastBindingWords: 'u32', impactRulesWords: 'u32', serviceWords: 'u32', missileClassWords: 'u32', poseWords: 'u32', sensorWords: 'u32', foreignWords: 'u32', bodyNameWords: 'u32', input: 'u32', inputCapacity: 'u32', inputStride: 'u32', networkWords: 'u32',
+      command: 'u32', commandWords: 'u32', adoptWords: 'u32', output: 'u32', outputRows: 'u32',
+      outputStride: 'u32', outputHeap: 'u32', outputWords: 'u32',
+      events: 'u32', eventWords: 'u32', eventEpoch: 'u32',
+      boundsCache:'u32', boundsCapacity:'u32', randomEpoch:'u32', randomStates: 'u32', randomCapacity: 'u32', randomWords: 'u32', randomGlobals: 'u32', randomGlobalWords: 'u32',
+      aimInput: 'u32', aimWords: 'u32', aimCapacity: 'u32', aimHeader: 'u32', aimHeaderWords: 'u32',
+      foreignHeader: 'u32', foreignHeaderWords: 'u32', buildingSetupWords: 'u32', buildingStateWords: 'u32', hullSetupWords:'u32',
+      separation: 'u32', separationWords: 'u32',
+      itemClassWords: 'u32', itemTargetWords:'u32', dispenserWords: 'u32', unitItemsWords: 'u32', blastWords:'u32',
+      reconClassWords: 'u32', reconLevelWords: 'u32', reconStrikeWords: 'u32', reconBindingWords: 'u32', reconWeaponWords: 'u32',
+      accepted: 'bool', allocations: 'u32', reallocations: 'u32', allocationBytes: 'u32',
+    },
+    F3Metadata: { character: 'ref:character|null', controller: 'ref:controller|null', team: 'f64', life: 'f64', human: 'bool', networkHuman: 'bool|undefined', hero: 'bool' },
+    // The post-movement aimer returns scalar settings in this retained block.
+    // It never calls a mutating export while the owned phase is on the stack.
+    F3AimHeader: { count: 'u32' },
+    F3ForeignHeader: { count: 'u32', buildings: 'u32', network: 'u32' },
+    // separateSoldiers scopes the authority to its simulation camera, while
+    // multiplayer worlds visit every pair. The player handle stays native.
+    F3Separation: { global: 'bool',  camera: 'vec3' },
+    F3MissileClass: { name: 'str', class: 'enum:FlightClass' },
+    F3AimChange: { key: 'rec:F3UnitKey', action: 'enum:F3Action', field: 'u32', index: 'u32', value: 'f64' },
+    F3Change: { key: 'rec:F3UnitKey', action: 'enum:F3Action', field: 'u32', index: 'u32', value: 'f64', vector: 'vec3', flag: 'bool',
+      onShield: 'f64', source: 'vec3|null', damageInfo: 'rec:F3DamageInfo|null', attacker: 'union:Attacker', controller: 'ref:controller|null', metadata: 'rec:F3Metadata|null', lease:'ref:seatLease|null' },
+    F3Adoption: { key: 'rec:F3UnitKey', passive: 'bool', category: 'u32', hasActor:'bool', noEnter:'f64', droidekaWater: 'rec:DroidekaWater|null' },
+    F3NetworkView: { view: 'f64|undefined', lead: 'f64|undefined', playout: 'f64|undefined', fire0: 'f64', fire1: 'f64', view0: 'f64|undefined', view1: 'f64|undefined' },
+    // UnitFactory cold rows are inactive until a native acquisition assigns
+    // their mixed-registry id. Structural births bind mirrors before readers.
+    F3ColdStage: { $layout:true, cookie:'u32', adoption:'rec:F3Adoption' },
+    F3UnitBirth: { key:'rec:F3UnitKey', cookie:'u32', replacement:'bool', order:'u32', retiredCookie:'u32|null' },
+    F3LifeStreams: { key:'rec:F3UnitKey', combat:'u32', weapon:'u32', metadata:'rec:F3Metadata' },
+    F3PlayerRealization: { $layout:true, className:'str', previous:'rec:F3UnitKey|null', local:'bool',
+      metadata:'rec:F3Metadata', combatRandom:'u32', weaponRandom:'u32', reconKey:'u32|null', reconSeed:'u32' },
+    // Admission resolves callbacks outside the native lifecycle. Later class
+    // changes reuse these numeric streams without a JavaScript factory hook.
+    F3PlayerBinding: { $layout:true, character:'ref:character', body:'ref:unit|null', local:'bool',
+      combatRandom:'u32', weaponRandom:'u32', reconKey:'u32|null', reconSeed:'u32' },
+    F3PlayerSpawn: { $layout:true, character:'ref:character', previous:'ref:unit|null',
+      className:'str', position:'vec3', yaw:'f64', local:'bool' },
+    // Unit.tick consumes short intent rows for every body. Only network actors
+    // append rewind and trigger records; bots do not send null edge padding.
+    F3PhaseInput: { key: 'rec:F3UnitKey', botTarget: 'union:Member|null', botTargetSet: 'bool', intent: 'rec:Intent', remoteFirstPerson: 'bool', hasNetwork: 'bool', networkIndex: 'u32' },
+    F3PhaseNetwork: { network: 'rec:F3NetworkView', edgeList: 'bool', edge0: 'rec:CbEdge|null', edge1: 'rec:CbEdge|null', edge: 'rec:CbEdge|null' },
+    // Ownership boundary. Slab generation names the pooled object; life names
+    // its current spawn. Neither can substitute for the other.
+    F3UnitKey: { $layout:true, slot: 'u32', generation: 'u32', life: 'f64' },
+    F3IntentCommand: { key: 'rec:F3UnitKey', intent: 'rec:Intent' },
+    F3LookCommand: { key: 'rec:F3UnitKey', dx: 'f64', dy: 'f64', sensitivity: 'f64', invert: 'bool', raw: 'bool' },
+    F3SpawnCommand: { key: 'rec:F3UnitKey', position: 'vec3', yaw: 'f64' },
+    // Published body values exclude class constants, clips, scratch storage,
+    // shapes and full rig matrices. JS mutates its existing vectors in place.
+    // These small motion records publish together. A straight reader keeps
+    // their numeric stores simple while the enclosing body mask skips an
+    // entirely unchanged pose and preserves the existing public storage.
+    F3SoldierMotion: { $layout:true,
+      normal: 'vec3', aimYaw: 'f64', aimPitch: 'f64', posture: 'enum:Posture', air: 'enum:Air|null',
+      dive: 'f64', diveFrom: 'enum:Posture', stateTime: 'f64', lock: 'f64', grounded: 'bool',
+      lookX: 'f64', lookY: 'f64', tickLength: 'f64', groundAdjustment: 'f64', fuel: 'f64',
+      passThrough: 'ref:body|null', dead: 'bool|undefined',
+    },
+    F3DroidekaMotion: { $layout:true,
+      aimYaw: 'f64', aimPitch: 'f64', stateTime: 'f64', grounded: 'bool', lookX: 'f64', lookY: 'f64',
+      mode: 'f64', time: 'f64', reverse: 'bool', legs: 'f64', spin: 'f64', roll: 'f64', lean: 'f64',
+      dead: 'bool', blastClock: 'f64', gun: 'f64', lastGun: 'rec:LastGun|undefined',
+      shield: 'rec:F3ShieldView|null', waterClock: 'f64|undefined',
+    },
+    F3ShieldView: { $delta:['value','on'], value: 'f64', on: 'bool' },
+    F3UnitMirror: { $layout:true,
+      $delta: ['key','pooled','team','alive','dead','deadTime','removed','character','controller','seat','held','visible',
+        'targetable','tickCount','remoteActive','position','previous','settled','velocity','avoidance',
+        'soldier','droideka','waterContact'],
+      key: 'rec:F3UnitKey', pooled:'bool', team: 'f64', alive: 'bool', dead: 'bool', deadTime: 'f64', removed: 'bool',
+      character: 'ref:character|null', controller: 'ref:controller|null', seat: 'ref:seatLease|null', held: 'bool|null|undefined', visible: 'bool',
+      targetable: 'bool|undefined', tickCount: 'f64', remoteActive: 'bool|undefined',
+      position: 'vec3', previous: 'vec3', settled: 'vec3', velocity: 'vec3', avoidance: 'vec3',
+      soldier: 'rec:F3SoldierMotion|null', droideka: 'rec:F3DroidekaMotion|null',
+      waterContact: 'rec:WaterContact|undefined',
+    },
+    // Shape reads are explicit foreign AI sensor requests. Publication must
+    // not force this cache early: death and blast do not invalidate it.
+    F3DroidekaClass: {$layout:true,maxPitchSpeed:'f64|null',ballTurnSpeed:'f64|null',ballMaxLean:'f64|null',
+      ballAcceleration:'f64|null',ballRollingFriction:'f64|null',clips:'f64x14'},
+    F3BodyName: { body: 'ref:body', kernel: 'u32' },
+    F3BodyBone: { name: 'str', parent: 'i32', position: 'vec3', quaternion: 'quat', scale: 'vec3' },
+    F3BodySkeleton: { key: 'rec:F3UnitKey', bones: 'list:rec:F3BodyBone' },
+    // Props own the grab node until their phase moves. Rust samples the
+    // soldier's root and limbs; this command never contains posed body shapes.
+    F3PoseCommand: { key: 'rec:F3UnitKey', action: 'enum:F3PoseAction', prop: 'ref:prop',
+      clip: 'u32|null', grab: 'u32', since: 'f64', frame: 'mat4', time: 'f64' },
+    F3HeldNotice: { key: 'rec:F3UnitKey', prop: 'ref:prop', grab: 'u32', since: 'f64',
+      placed: 'bool', frame: 'mat4', time: 'f64|undefined' },
+    F3SensorShape: { type: 'enum:ShapeType', part: 'enum:ShapePart', center: 'vec3', radius: 'f64', half: 'f64', halfIsSize: 'bool', halfSize: 'vec3', yaw: 'f64' },
+    F3BoundsView: { $layout:true, $refresh:['bounds'], key:'rec:F3UnitKey', tick:'f64', bounds:'rec:Bounds' },
+    F3ShapeView: { key: 'rec:F3UnitKey', tick: 'f64', bounds: 'rec:Bounds', shapes: 'list:rec:F3SensorShape' },
+    F3Sensor: { $layout:true, $parts:['mode','key','origin','direction','far','radius','riders','masked','exclude0','exclude1'], mode: 'enum:F3SensorMode', key: 'rec:F3UnitKey', origin: 'vec3', direction: 'vec3', far: 'f64', radius: 'f64', riders: 'bool', masked: 'bool', exclude0:'ref:unit|null', exclude1:'ref:unit|null' },
+    F3SensorResult: { hit: 'rec:UnitCastAnswer', members: 'list:union:Member' },
+    // The foreign block declares inputs from still-unported props. F2 hulls,
+    // units and canonical registry shapes must be read directly from stores.
+    F3PropFact: { id: 'u32', alive: 'bool', dead: 'bool', team: 'f64', bounds: 'rec:Bounds', health: 'f64', category: 'u32', kind: 'f64', position: 'vec3', velocity: 'vec3', rollRate: 'f64', aim: 'vec3', life: 'f64', body: 'ref:body|null', box: 'rec:F3TargetBox|null' },
+    F3TargetBox: { min: 'vec3', max: 'vec3', matrix: 'mat4' },
+    F3RelationFact: { a: 'f64', b: 'f64', value: 'f64' },
+    F3Foreign: { waterLevel: 'f64', props: 'list:rec:F3PropFact' },
     // What a unit's controller asks each tick (units.js blankIntent), and
     // what a seat's AI adds once it drives (brake, up, down).
     Intent: {
@@ -94,7 +219,7 @@ export default {
       facing: 'f64', legs: 'f64', mode: 'f64', wentUpRolled: 'bool', rollOrigin: 'f64', transition: 'f64',
       from: 'list:rec:BonePose', pivot: 'vec3', rollCenter: 'vec3',
     },
-    // ---- The units' phase on the simulation's module (src/units-sim.js,
+    // ---- Canonical unit phase inputs (Unit.tick,
     // rust/sim/src/units/module.rs): a world's units ticked in Rust,
     // written into the store before it and synced back after. A unit is
     // named by its id.
@@ -110,29 +235,13 @@ export default {
     // waterDamageRule's interval and amount, and droidekaWaterDepth's depth
     // upright and rolled.
     DroidekaWater: { interval: 'f64', amount: 'f64', upright: 'f64', ball: 'f64' },
-    // The phase: its step, the water's level now (water.level, which bobs;
-    // NaN without water) and its units.
-    UnitsPhase: { dt: 'f64', level: 'f64', units: 'list:rec:UnitsPhaseUnit' },
-    // What the phase reads of a unit's combat while combat is JavaScript's
-    // (PlayerCombat): whether it is dead, and the aim's pivot and gun origin
-    // the water step reads (his head and gun).
-    UnitsCombatView: { unit: 'f64', dead: 'bool', pivot: 'vec3', origin: 'vec3' },
-    UnitsCombatViews: { list: 'list:rec:UnitsCombatView' },
-    // The calls the phase makes into the battle (rust/sim/src/units/module.rs).
-    UnitRef: { unit: 'f64' },
-    UnitStep: { unit: 'f64', dt: 'f64' },
-    UnitBodyEvent: { unit: 'f64', exploded: 'bool' },
     // The AI's aimer (unit.onMoved: ai.aim) with his body's aim after it
     // moved; it answers with his intent's aim (the aimer's direction).
-    UnitAimArgs: { unit: 'f64', dt: 'f64', aimYaw: 'f64', aimPitch: 'f64' },
+    // Classic updateAim and Enhanced updateAim read only these movement facts.
+    // The ordinary publication retains the remaining motion/correction state.
+    UnitAimArgs: { unit: 'f64', dt: 'f64', aimYaw: 'f64', aimPitch: 'f64',
+      position: 'vec3', velocity: 'vec3', posture: 'enum:Posture|undefined', tickCount: 'f64' },
     UnitAimAnswer: { aim: 'vec3|null' },
-    // A network player's recon droid steps with him (remoteStep): `active`
-    // when he flies it (his intent goes to it).
-    UnitRemoteStep: { unit: 'f64', dt: 'f64', active: 'bool' },
-    // combat.update(dt, controls, stick) and combat.flushMuzzles() of a
-    // combat that is JavaScript's.
-    UnitCombatArgs: { unit: 'f64', dt: 'f64', stick: 'f64' },
-    UnitDamageArgs: { unit: 'f64', amount: 'f64' },
     // The splash of a fall into the water (game.js presentEffect).
     UnitSplash: { at: 'vec3' },
 
@@ -157,22 +266,13 @@ export default {
   },
 
   imports: {
+    // Character pointers remain foreign until battle ownership moves.
+    f3CharacterRelease: { args: 'F3CharacterRelease', result: null },
     // The AI's aimer between moving and firing.
     unitAim: { args: 'UnitAimArgs', result: 'UnitAimAnswer' },
-    // A droideka's death clip emits its blasts and final explosion at the
-    // same points in its native body tick. Its gun rig still poses in JS.
-    unitBodyEvent: { args: 'UnitBodyEvent', result: null },
-    unitSampleMuzzles: { args: 'UnitStep', result: null },
-    unitRemoteStep: { args: 'UnitRemoteStep', result: null },
-    // A combat that is JavaScript's: its update with its muzzles flushed,
-    // and a hurt; each answers the combat as the phase reads it.
-    unitCombat: { args: 'UnitCombatArgs', result: 'UnitsCombatView' },
-    unitDamage: { args: 'UnitDamageArgs', result: 'UnitsCombatView' },
-    // A unit off the field (Unit.remove): his Character lets go of him, his
-    // charge glow goes out, and his body goes back to the factory's pool.
-    unitRemoved: { args: 'UnitRef', result: null },
-    unitSplash: { args: 'UnitSplash', result: null },
   },
+
+  events: { f3LifeStreams:'F3LifeStreams', f3UnitBirth:'F3UnitBirth', f3Removed: 'F3RemovedNotice', f3Held: 'F3HeldNotice', f3Splash: 'UnitSplash' },
 
   kinds: {
     // The registry (src/registry.js Units): its members in the order they
@@ -229,11 +329,9 @@ export default {
         held: 'rec:Held|null|undefined',
         networkHuman: 'bool|undefined',
         soldier: 'union:UnitBody',
-        // Its side of the fight (src/combat.js PlayerCombat, the combat
-        // package's record, rust/sim/schema/combat.mjs). Not in the unit's
-        // rows: with combat on the module the store keeps it and its facade
-        // mirrors it (src/combat-sim.js); otherwise the units' phase takes
-        // what it reads of it on its own (UnitsCombatView).
+        // PlayerCombat belongs to this canonical Unit. Construction imports
+        // it once through the combat content facade; body adoption must not
+        // overwrite it with an incomplete or older JavaScript mirror.
         combat: { type: 'rec:Combat', mirror: false, import: false },
         // Whether he flies a recon droid now (the droids' controller,
         // src/remote.js, which his combat holds).
@@ -247,7 +345,7 @@ export default {
         jetFlame: 'the page\'s effect', bubble: 'the page\'s shield', poseClock: 'the page\'s posing', gone: 'the page\'s dissolve',
         ownMaterials: 'the page\'s materials', crowdSlot: 'the page\'s crowd shadows', shadowNear: 'the page\'s shadows',
         flameAt: 'the page\'s effect', flameTurn: 'the page\'s effect', flameScale: 'the page\'s effect',
-        onDeath: 'the battle\'s hook', onRemoved: 'the factory\'s hook', onMoved: 'the AI\'s hook (ai.aim)',
+        onRemoved: 'the factory\'s hook', onMoved: 'the AI\'s hook (ai.aim)',
         enhancedDeath: 'the page\'s setting', supply: 'getters over its body and combat', itemTarget: 'getters over its body, and hooks',
         steer: 'the vehicle AI\'s', remoteStep: 'the network world\'s hook (a network player\'s recon droid)',
         networkShot: 'the network capture\'s', networkShots: 'the network capture\'s', networkViewTick: 'the network capture\'s',
@@ -256,9 +354,9 @@ export default {
     },
 
     // Kinds the units refer to, owned elsewhere.
-    vehicleTarget: { class: 'VehicleTarget' },
-    turretTarget: { class: 'TurretTarget' },
-    objectiveTarget: { class: 'ObjectiveTarget' },
+    vehicleTarget: { key: 'id', class: 'VehicleTarget' },
+    turretTarget: { key: 'id', class: 'TurretTarget' },
+    objectiveTarget: { key: 'id', class: 'ObjectiveTarget' },
     character: { class: 'Character' },
     controller: {},
     seatLease: { class: 'SeatLease' },

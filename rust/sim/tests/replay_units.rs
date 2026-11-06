@@ -23,8 +23,17 @@ use std::rc::Rc;
 use three::Vector3;
 use bfe_sim::store::replay::{Arena, Node, Value, V};
 use bfe_sim::units::shapes::{Bounds, HitShape};
-use bfe_sim::units::world::{CastHit, GatherPolygon, UnitsWorld};
+use bfe_sim::units::world::{CastHit, UnitsWorld};
 use sim_replay::{check_num, check_vec3, diff, replay_corpus, Capture, Corpus, Frame, Log, Mismatch, Outcome};
+
+/// A polygon a sphere gather met (CollisionWorld.gather): its triangles and
+/// whether its body moves.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GatherPolygon {
+    pub triangles: Vec<[Vector3; 3]>,
+    pub moving: bool,
+}
+
 
 fn vec3(v: V) -> Option<Vector3> {
     v.vec3().map(|a| Vector3 { x: a[0], y: a[1], z: a[2] })
@@ -104,6 +113,7 @@ struct TickWorld<'a, 'f> {
     character_has: bool,
     /// The class's free bodies.
     pool: Vec<f64>,
+    gathered: Vec<GatherPolygon>,
     error: Option<Mismatch>,
 }
 
@@ -187,12 +197,12 @@ impl UnitsWorld for TickWorld<'_, '_> {
         })
     }
 
-    fn gather(&mut self, _id: u32, center: &Vector3, radius: f64, cache: usize, out: &mut Vec<GatherPolygon>) {
-        out.clear();
+    fn visit_gathered(&mut self, _id: u32, center: &Vector3, radius: f64, cache: usize, visit: &mut dyn FnMut(bool, &[Vector3; 3])) {
+        self.gathered.clear();
         let Some(call) = self.call("collision.gather") else { return };
         let checks = check_vec3("gather center", call.arg(0), [center.x, center.y, center.z]).and_then(|_| check_num("gather radius", call.arg(1), radius));
         if let Err(e) = checks {
-            return self.fail(e.0);
+            self.fail(e.0); return;
         }
         // The cache's number: a droideka's base's first, then its ball's (as
         // `gatherCaches ??= [base, ball]` made them), numbered by the capture
@@ -204,7 +214,10 @@ impl UnitsWorld for TickWorld<'_, '_> {
                 .items()
                 .map(|t| [vec3(t.get("a")).unwrap_or_default(), vec3(t.get("b")).unwrap_or_default(), vec3(t.get("c")).unwrap_or_default()])
                 .collect();
-            out.push(GatherPolygon { triangles, moving: p.get("moving").truthy() });
+            self.gathered.push(GatherPolygon { triangles, moving: p.get("moving").truthy() });
+        }
+        for polygon in &self.gathered {
+            for triangle in &polygon.triangles { visit(polygon.moving, triangle); }
         }
     }
 
@@ -394,7 +407,7 @@ fn unit_tick(capture: &Capture, frame: &Frame, contents: &mut Contents) -> Resul
     // The Character's hold on him: whether the one the tick began with still names him.
     let character_has = before.get("characterUnit").handle_num("unit") == Some(id as f64);
     let pool = ids(before.get("pool")).unwrap_or_default();
-    let mut world = TickWorld { frame, log: Log::new(frame), cx: &mut cx, arena: Arena::default(), id, state: before, character_has, pool, error: None };
+    let mut world = TickWorld { frame, log: Log::new(frame), cx: &mut cx, arena: Arena::default(), id, state: before, character_has, pool, gathered: Vec::new(), error: None };
     unit.tick(id, h, &mut world, parts.as_mut());
     if let Some(e) = world.error.take() {
         return Err(e);
@@ -676,7 +689,8 @@ impl UnitsWorld for QueryWorld<'_> {
         self.fail("a cast in a query".into());
         None
     }
-    fn gather(&mut self, _id: u32, _c: &Vector3, _r: f64, _cache: usize, _out: &mut Vec<GatherPolygon>) {
+    fn visit_gathered(&mut self, _: u32, _: &Vector3, _: f64, _: usize,
+        _: &mut dyn FnMut(bool, &[Vector3; 3])) {
         self.fail("a gather in a query".into());
     }
     fn seat_exposed(&mut self, id: u32, _unit: &Unit) -> bool {
@@ -976,7 +990,7 @@ fn spawn_frame(frame: &Frame) -> Result<Option<String>, Mismatch> {
     let mut cx = Replay::default();
     let (id, mut unit) = unit_in(frame, before.get("unit"), &mut cx)?;
     let (x, y, z, yaw) = (frame.arg(0).num(), frame.arg(1).num(), frame.arg(2).num(), frame.arg(3).num());
-    let mut world = TickWorld { frame, log: Log::new(frame), cx: &mut cx, arena: Arena::default(), id, state: before, character_has: false, pool: Vec::new(), error: None };
+    let mut world = TickWorld { frame, log: Log::new(frame), cx: &mut cx, arena: Arena::default(), id, state: before, character_has: false, pool: Vec::new(), gathered: Vec::new(), error: None };
     unit.spawn(id, x, y, z, yaw, &mut world);
     if let Some(e) = world.error.take() {
         return Err(e);

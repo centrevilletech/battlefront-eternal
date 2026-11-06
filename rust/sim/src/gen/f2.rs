@@ -374,35 +374,39 @@ pub struct F2Delta {
     pub length: u32,
     pub mask: Vec<u32>,
     pub values: Vec<f64>,
+    pub source: u32,
 }
 
 impl F2Delta {
-    pub const WORDS: usize = 7;
+    pub const WORDS: usize = 8;
     pub const SLOT: usize = 0;
     pub const GENERATION: usize = 1;
     pub const LENGTH: usize = 2;
     pub const MASK: usize = 3;
     pub const VALUES: usize = 5;
+    pub const SOURCE: usize = 7;
     pub fn mask_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[3] as usize; let length = row[4] as usize; heap[start..start + length * 1].chunks_exact(1) }
     pub fn values_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[5] as usize; let length = row[6] as usize; heap[start..start + length * 1].chunks_exact(1) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
         row[0] = self.slot as f64;
         row[1] = self.generation as f64;
         row[2] = self.length as f64;
         { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.mask.len() as f64; heap.resize(at + self.mask.len() * 1, 0.0); for (i, e) in self.mask.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
         { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.values.len() as f64; heap.resize(at + self.values.len() * 1, 0.0); for (i, e) in self.values.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        row[7] = self.source as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
         Self {
             slot: word_u32(row[0]),
             generation: word_u32(row[1]),
             length: word_u32(row[2]),
             mask: { let (at, n) = (word_u32(row[3]) as usize, word_u32(row[3 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(word_u32(row[0])); } out },
             values: { let (at, n) = (word_u32(row[5]) as usize, word_u32(row[5 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            source: word_u32(row[7]),
         }
     }
 
@@ -678,6 +682,7 @@ impl F2FlightIn {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct F2Phase {
+    pub version: u32,
     pub input: u32,
     pub capacity: u32,
     pub hulls: u32,
@@ -694,54 +699,57 @@ pub struct F2Phase {
 }
 
 impl F2Phase {
-    pub const WORDS: usize = 13;
-    pub const INPUT: usize = 0;
-    pub const CAPACITY: usize = 1;
-    pub const HULLS: usize = 2;
-    pub const PADS: usize = 3;
-    pub const BODIES: usize = 4;
-    pub const POSES: usize = 5;
-    pub const ACC: usize = 6;
-    pub const FLIGHT_ACC: usize = 7;
-    pub const TIME: usize = 8;
-    pub const TICK: usize = 9;
-    pub const LIVES: usize = 10;
-    pub const SEATS: usize = 11;
-    pub const FIRING: usize = 12;
+    pub const WORDS: usize = 14;
+    pub const VERSION: usize = 0;
+    pub const INPUT: usize = 1;
+    pub const CAPACITY: usize = 2;
+    pub const HULLS: usize = 3;
+    pub const PADS: usize = 4;
+    pub const BODIES: usize = 5;
+    pub const POSES: usize = 6;
+    pub const ACC: usize = 7;
+    pub const FLIGHT_ACC: usize = 8;
+    pub const TIME: usize = 9;
+    pub const TICK: usize = 10;
+    pub const LIVES: usize = 11;
+    pub const SEATS: usize = 12;
+    pub const FIRING: usize = 13;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 13] = (&mut row[..13]).try_into().unwrap();
-        row[0] = self.input as f64;
-        row[1] = self.capacity as f64;
-        row[2] = self.hulls as f64;
-        row[3] = self.pads as f64;
-        row[4] = self.bodies as f64;
-        row[5] = self.poses as f64;
-        row[6] = self.acc;
-        row[7] = self.flight_acc;
-        row[8] = self.time;
-        row[9] = self.tick;
-        row[10] = self.lives as f64;
-        row[11] = self.seats as f64;
-        row[12] = self.firing as f64;
+        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
+        row[0] = self.version as f64;
+        row[1] = self.input as f64;
+        row[2] = self.capacity as f64;
+        row[3] = self.hulls as f64;
+        row[4] = self.pads as f64;
+        row[5] = self.bodies as f64;
+        row[6] = self.poses as f64;
+        row[7] = self.acc;
+        row[8] = self.flight_acc;
+        row[9] = self.time;
+        row[10] = self.tick;
+        row[11] = self.lives as f64;
+        row[12] = self.seats as f64;
+        row[13] = self.firing as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 13] = (&row[..13]).try_into().unwrap();
+        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
         Self {
-            input: word_u32(row[0]),
-            capacity: word_u32(row[1]),
-            hulls: word_u32(row[2]),
-            pads: word_u32(row[3]),
-            bodies: word_u32(row[4]),
-            poses: word_u32(row[5]),
-            acc: row[6],
-            flight_acc: row[7],
-            time: row[8],
-            tick: row[9],
-            lives: word_u32(row[10]),
-            seats: word_u32(row[11]),
-            firing: word_u32(row[12]),
+            version: word_u32(row[0]),
+            input: word_u32(row[1]),
+            capacity: word_u32(row[2]),
+            hulls: word_u32(row[3]),
+            pads: word_u32(row[4]),
+            bodies: word_u32(row[5]),
+            poses: word_u32(row[6]),
+            acc: row[7],
+            flight_acc: row[8],
+            time: row[9],
+            tick: row[10],
+            lives: word_u32(row[11]),
+            seats: word_u32(row[12]),
+            firing: word_u32(row[13]),
         }
     }
 
@@ -909,6 +917,8 @@ pub struct F2SeatHeader {
     pub unit_count: u32,
     pub controls: u32,
     pub control_count: u32,
+    pub turrets: u32,
+    pub turret_count: u32,
     pub looks: u32,
     pub look_count: u32,
     pub mouse_scale: f64,
@@ -920,28 +930,30 @@ pub struct F2SeatHeader {
 }
 
 impl F2SeatHeader {
-    pub const WORDS: usize = 14;
+    pub const WORDS: usize = 16;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
+        let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
         row[0] = self.relations as f64;
         row[1] = self.relation_count as f64;
         row[2] = self.units as f64;
         row[3] = self.unit_count as f64;
         row[4] = self.controls as f64;
         row[5] = self.control_count as f64;
-        row[6] = self.looks as f64;
-        row[7] = self.look_count as f64;
-        row[8] = self.mouse_scale;
-        row[9] = if self.invert { 1.0 } else { 0.0 };
-        row[10] = self.flight_scale;
-        row[11] = if self.flight_invert { 1.0 } else { 0.0 };
-        row[12] = self.soldiers as f64;
-        row[13] = self.soldier_count as f64;
+        row[6] = self.turrets as f64;
+        row[7] = self.turret_count as f64;
+        row[8] = self.looks as f64;
+        row[9] = self.look_count as f64;
+        row[10] = self.mouse_scale;
+        row[11] = if self.invert { 1.0 } else { 0.0 };
+        row[12] = self.flight_scale;
+        row[13] = if self.flight_invert { 1.0 } else { 0.0 };
+        row[14] = self.soldiers as f64;
+        row[15] = self.soldier_count as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
+        let row: &[f64; 16] = (&row[..16]).try_into().unwrap();
         Self {
             relations: word_u32(row[0]),
             relation_count: word_u32(row[1]),
@@ -949,14 +961,16 @@ impl F2SeatHeader {
             unit_count: word_u32(row[3]),
             controls: word_u32(row[4]),
             control_count: word_u32(row[5]),
-            looks: word_u32(row[6]),
-            look_count: word_u32(row[7]),
-            mouse_scale: row[8],
-            invert: row[9] != 0.0,
-            flight_scale: row[10],
-            flight_invert: row[11] != 0.0,
-            soldiers: word_u32(row[12]),
-            soldier_count: word_u32(row[13]),
+            turrets: word_u32(row[6]),
+            turret_count: word_u32(row[7]),
+            looks: word_u32(row[8]),
+            look_count: word_u32(row[9]),
+            mouse_scale: row[10],
+            invert: row[11] != 0.0,
+            flight_scale: row[12],
+            flight_invert: row[13] != 0.0,
+            soldiers: word_u32(row[14]),
+            soldier_count: word_u32(row[15]),
         }
     }
 
@@ -1305,6 +1319,95 @@ impl F2SeatEffect {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3SeatNotice {
+    pub kind: F2SeatActionKind,
+    pub unit: Option<Ref<Unit>>,
+    pub hull: Option<Ref<Vehicle>>,
+    pub turret: Option<Ref<Turret>>,
+    pub index: u32,
+    pub post: Option<Ref<Post>>,
+    pub reason: SeatReason,
+    pub source: F3LifeRef,
+    pub has_source: bool,
+    pub target: F3LifeRef,
+    pub has_target: bool,
+    pub team: f64,
+    pub position: Vec3,
+}
+
+impl F3SeatNotice {
+    pub const WORDS: usize = 25;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 25] = (&mut row[..25]).try_into().unwrap();
+        row[0] = self.kind as u8 as f64;
+        match &self.unit { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).slot as f64; row[1 + 1 + 1] = (*v).gen as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 3].fill(0.0); } }
+        match &self.hull { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).slot as f64; row[4 + 1 + 1] = (*v).gen as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 3].fill(0.0); } }
+        match &self.turret { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v).slot as f64; row[7 + 1 + 1] = (*v).gen as f64; } None => { row[7] = 1.0; row[7 + 1..7 + 3].fill(0.0); } }
+        row[10] = self.index as f64;
+        match &self.post { Some(v) => { row[11] = 0.0; row[11 + 1] = (*v).slot as f64; row[11 + 1 + 1] = (*v).gen as f64; } None => { row[11] = 1.0; row[11 + 1..11 + 3].fill(0.0); } }
+        row[14] = self.reason as u8 as f64;
+        self.source.put(&mut row[15..], heap);
+        row[17] = if self.has_source { 1.0 } else { 0.0 };
+        self.target.put(&mut row[18..], heap);
+        row[20] = if self.has_target { 1.0 } else { 0.0 };
+        row[21] = self.team;
+        row[22..22 + 3].copy_from_slice(&self.position);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 25] = (&row[..25]).try_into().unwrap();
+        Self {
+            kind: F2SeatActionKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            unit: if row[1] == 0.0 { Some(Ref::new(word_u32(row[1 + 1]), word_u32(row[1 + 1 + 1]))) } else { None },
+            hull: if row[4] == 0.0 { Some(Ref::new(word_u32(row[4 + 1]), word_u32(row[4 + 1 + 1]))) } else { None },
+            turret: if row[7] == 0.0 { Some(Ref::new(word_u32(row[7 + 1]), word_u32(row[7 + 1 + 1]))) } else { None },
+            index: word_u32(row[10]),
+            post: if row[11] == 0.0 { Some(Ref::new(word_u32(row[11 + 1]), word_u32(row[11 + 1 + 1]))) } else { None },
+            reason: SeatReason::from_u8(word_u32(row[14]) as u8).unwrap_or_default(),
+            source: F3LifeRef::take(&row[15..], heap),
+            has_source: row[17] != 0.0,
+            target: F3LifeRef::take(&row[18..], heap),
+            has_target: row[20] != 0.0,
+            team: row[21],
+            position: [row[22], row[22 + 1], row[22 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3MountedSample {
+    pub source: F3LifeRef,
+    pub has_source: bool,
+    pub team: f64,
+    pub mount: F3LifeRef,
+}
+
+impl F3MountedSample {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        self.source.put(&mut row[0..], heap);
+        row[2] = if self.has_source { 1.0 } else { 0.0 };
+        row[3] = self.team;
+        self.mount.put(&mut row[4..], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            source: F3LifeRef::take(&row[0..], heap),
+            has_source: row[2] != 0.0,
+            team: row[3],
+            mount: F3LifeRef::take(&row[4..], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct F2Latched {
     pub control: Ref<SeatUnit>,
 }
@@ -1377,7 +1480,7 @@ impl F2Bodies {
 pub struct F2SeatIo {
     pub emitter_mask: u32,
     pub ordnance: u32,
-    pub words: u32,
+    pub descriptor_words: u32,
     pub input: u32,
     pub capacity: u32,
     pub header_words: u32,
@@ -1398,12 +1501,31 @@ pub struct F2SeatIo {
 
 impl F2SeatIo {
     pub const WORDS: usize = 19;
+    pub const EMITTER_MASK: usize = 0;
+    pub const ORDNANCE: usize = 1;
+    pub const DESCRIPTOR_WORDS: usize = 2;
+    pub const INPUT: usize = 3;
+    pub const CAPACITY: usize = 4;
+    pub const HEADER_WORDS: usize = 5;
+    pub const UNIT_WORDS: usize = 6;
+    pub const CONTROL_WORDS: usize = 7;
+    pub const LOOK_WORDS: usize = 8;
+    pub const LEASES: usize = 9;
+    pub const UNITS: usize = 10;
+    pub const CONTROLS: usize = 11;
+    pub const EFFECTS: usize = 12;
+    pub const TURRETS: usize = 13;
+    pub const EVENTS: usize = 14;
+    pub const RIDERS: usize = 15;
+    pub const TICKS: usize = 16;
+    pub const TURRET_TICKS: usize = 17;
+    pub const TURRET_TIME: usize = 18;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 19] = (&mut row[..19]).try_into().unwrap();
         row[0] = self.emitter_mask as f64;
         row[1] = self.ordnance as f64;
-        row[2] = self.words as f64;
+        row[2] = self.descriptor_words as f64;
         row[3] = self.input as f64;
         row[4] = self.capacity as f64;
         row[5] = self.header_words as f64;
@@ -1427,7 +1549,7 @@ impl F2SeatIo {
         Self {
             emitter_mask: word_u32(row[0]),
             ordnance: word_u32(row[1]),
-            words: word_u32(row[2]),
+            descriptor_words: word_u32(row[2]),
             input: word_u32(row[3]),
             capacity: word_u32(row[4]),
             header_words: word_u32(row[5]),
@@ -1631,6 +1753,7 @@ impl F2TurretPose {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct F2TurretOut {
     pub header: F2TurretHeader,
+    pub random_binding: u32,
     pub posed: bool,
     pub state: F2TurretPose,
     pub origin: Vec3,
@@ -1651,51 +1774,53 @@ pub struct F2TurretOut {
 }
 
 impl F2TurretOut {
-    pub const WORDS: usize = 89;
+    pub const WORDS: usize = 90;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 89] = (&mut row[..89]).try_into().unwrap();
+        let row: &mut [f64; 90] = (&mut row[..90]).try_into().unwrap();
         self.header.put(&mut row[0..], heap);
-        row[2] = if self.posed { 1.0 } else { 0.0 };
-        self.state.put(&mut row[3..], heap);
-        row[10..10 + 3].copy_from_slice(&self.origin);
-        row[13..13 + 3].copy_from_slice(&self.direction);
-        row[16..16 + 3].copy_from_slice(&self.eye);
-        row[19..19 + 3].copy_from_slice(&self.chase);
-        row[22..22 + 3].copy_from_slice(&self.seat_point);
-        row[25] = self.seat_yaw;
-        row[26..26 + 3].copy_from_slice(&self.muzzle);
-        row[29..29 + 3].copy_from_slice(&self.muzzle_direction);
-        match &self.lease { Some(v) => { row[32] = 0.0; row[32 + 1] = (*v).slot as f64; row[32 + 1 + 1] = (*v).gen as f64; } None => { row[32] = 1.0; row[32 + 1..32 + 3].fill(0.0); } }
-        match &self.gunner { Some(v) => { row[35] = 0.0; row[35 + 1] = (*v).slot as f64; row[35 + 1 + 1] = (*v).gen as f64; } None => { row[35] = 1.0; row[35 + 1..35 + 3].fill(0.0); } }
-        match &self.weapon { Some(v) => { row[38] = 0.0; v.put(&mut row[38 + 1..], heap); } None => { row[38] = 1.0; row[38 + 1..38 + 43].fill(0.0); } }
-        row[81..81 + 4].copy_from_slice(&self.seat_turn);
-        row[85] = self.sample_pitch;
-        row[86] = self.sample_turn;
-        match &self.sample_time { Some(v) => { row[87] = 0.0; row[87 + 1] = (*v); } None => { row[87] = 1.0; row[87 + 1..87 + 2].fill(0.0); } }
+        row[2] = self.random_binding as f64;
+        row[3] = if self.posed { 1.0 } else { 0.0 };
+        self.state.put(&mut row[4..], heap);
+        row[11..11 + 3].copy_from_slice(&self.origin);
+        row[14..14 + 3].copy_from_slice(&self.direction);
+        row[17..17 + 3].copy_from_slice(&self.eye);
+        row[20..20 + 3].copy_from_slice(&self.chase);
+        row[23..23 + 3].copy_from_slice(&self.seat_point);
+        row[26] = self.seat_yaw;
+        row[27..27 + 3].copy_from_slice(&self.muzzle);
+        row[30..30 + 3].copy_from_slice(&self.muzzle_direction);
+        match &self.lease { Some(v) => { row[33] = 0.0; row[33 + 1] = (*v).slot as f64; row[33 + 1 + 1] = (*v).gen as f64; } None => { row[33] = 1.0; row[33 + 1..33 + 3].fill(0.0); } }
+        match &self.gunner { Some(v) => { row[36] = 0.0; row[36 + 1] = (*v).slot as f64; row[36 + 1 + 1] = (*v).gen as f64; } None => { row[36] = 1.0; row[36 + 1..36 + 3].fill(0.0); } }
+        match &self.weapon { Some(v) => { row[39] = 0.0; v.put(&mut row[39 + 1..], heap); } None => { row[39] = 1.0; row[39 + 1..39 + 43].fill(0.0); } }
+        row[82..82 + 4].copy_from_slice(&self.seat_turn);
+        row[86] = self.sample_pitch;
+        row[87] = self.sample_turn;
+        match &self.sample_time { Some(v) => { row[88] = 0.0; row[88 + 1] = (*v); } None => { row[88] = 1.0; row[88 + 1..88 + 2].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 89] = (&row[..89]).try_into().unwrap();
+        let row: &[f64; 90] = (&row[..90]).try_into().unwrap();
         Self {
             header: F2TurretHeader::take(&row[0..], heap),
-            posed: row[2] != 0.0,
-            state: F2TurretPose::take(&row[3..], heap),
-            origin: [row[10], row[10 + 1], row[10 + 2]],
-            direction: [row[13], row[13 + 1], row[13 + 2]],
-            eye: [row[16], row[16 + 1], row[16 + 2]],
-            chase: [row[19], row[19 + 1], row[19 + 2]],
-            seat_point: [row[22], row[22 + 1], row[22 + 2]],
-            seat_yaw: row[25],
-            muzzle: [row[26], row[26 + 1], row[26 + 2]],
-            muzzle_direction: [row[29], row[29 + 1], row[29 + 2]],
-            lease: if row[32] == 0.0 { Some(Ref::new(word_u32(row[32 + 1]), word_u32(row[32 + 1 + 1]))) } else { None },
-            gunner: if row[35] == 0.0 { Some(Ref::new(word_u32(row[35 + 1]), word_u32(row[35 + 1 + 1]))) } else { None },
-            weapon: if row[38] == 0.0 { Some(Weapon::take(&row[38 + 1..], heap)) } else { None },
-            seat_turn: [row[81], row[81 + 1], row[81 + 2], row[81 + 3]],
-            sample_pitch: row[85],
-            sample_turn: row[86],
-            sample_time: if row[87] == 0.0 { Some(row[87 + 1]) } else { None },
+            random_binding: word_u32(row[2]),
+            posed: row[3] != 0.0,
+            state: F2TurretPose::take(&row[4..], heap),
+            origin: [row[11], row[11 + 1], row[11 + 2]],
+            direction: [row[14], row[14 + 1], row[14 + 2]],
+            eye: [row[17], row[17 + 1], row[17 + 2]],
+            chase: [row[20], row[20 + 1], row[20 + 2]],
+            seat_point: [row[23], row[23 + 1], row[23 + 2]],
+            seat_yaw: row[26],
+            muzzle: [row[27], row[27 + 1], row[27 + 2]],
+            muzzle_direction: [row[30], row[30 + 1], row[30 + 2]],
+            lease: if row[33] == 0.0 { Some(Ref::new(word_u32(row[33 + 1]), word_u32(row[33 + 1 + 1]))) } else { None },
+            gunner: if row[36] == 0.0 { Some(Ref::new(word_u32(row[36 + 1]), word_u32(row[36 + 1 + 1]))) } else { None },
+            weapon: if row[39] == 0.0 { Some(Weapon::take(&row[39 + 1..], heap)) } else { None },
+            seat_turn: [row[82], row[82 + 1], row[82 + 2], row[82 + 3]],
+            sample_pitch: row[86],
+            sample_turn: row[87],
+            sample_time: if row[88] == 0.0 { Some(row[88 + 1]) } else { None },
         }
     }
 
@@ -1718,6 +1843,83 @@ impl F2TurretDraw {
         let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
         Self {
             turret: word_u32(row[0]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F2TurretInput {
+    pub index: u32,
+    pub input: FfWeaponInput,
+}
+
+impl F2TurretInput {
+    pub const WORDS: usize = 10;
+    pub const INDEX: usize = 0;
+    pub const INPUT: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
+        row[0] = self.index as f64;
+        self.input.put(&mut row[1..], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
+        Self {
+            index: word_u32(row[0]),
+            input: FfWeaponInput::take(&row[1..], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F2TurretHintQuery {
+    pub lease: Ref<SeatLease>,
+}
+
+impl F2TurretHintQuery {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.lease.slot as f64; row[0 + 1] = self.lease.gen as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            lease: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F2TurretHint {
+    pub bot: bool,
+    pub target: Option<Member>,
+    pub life: f64,
+}
+
+impl F2TurretHint {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = if self.bot { 1.0 } else { 0.0 };
+        match &self.target { Some(v) => { row[1] = 0.0; (*v).put(&mut row[1 + 1..1 + 1 + 3], heap); } None => { row[1] = 1.0; row[1 + 1..1 + 4].fill(0.0); } }
+        row[5] = self.life;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            bot: row[0] != 0.0,
+            target: if row[1] == 0.0 { Some(Member::take(&row[1 + 1..1 + 1 + 3], heap)) } else { None },
+            life: row[5],
         }
     }
 
@@ -1827,13 +2029,14 @@ pub struct F2TurretEvent {
     pub charge: f64,
     pub target_id: f64,
     pub target_generation: f64,
+    pub sample: F3MountedSample,
 }
 
 impl F2TurretEvent {
-    pub const WORDS: usize = 24;
+    pub const WORDS: usize = 30;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 24] = (&mut row[..24]).try_into().unwrap();
+        let row: &mut [f64; 30] = (&mut row[..30]).try_into().unwrap();
         row[0] = self.kind as u8 as f64;
         row[1] = self.turret.slot as f64; row[1 + 1] = self.turret.gen as f64;
         match &self.round { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v).slot as f64; row[3 + 1 + 1] = (*v).gen as f64; } None => { row[3] = 1.0; row[3 + 1..3 + 3].fill(0.0); } }
@@ -1847,10 +2050,11 @@ impl F2TurretEvent {
         row[21] = self.charge;
         row[22] = self.target_id;
         row[23] = self.target_generation;
+        self.sample.put(&mut row[24..], heap);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 24] = (&row[..24]).try_into().unwrap();
+        let row: &[f64; 30] = (&row[..30]).try_into().unwrap();
         Self {
             kind: F2TurretEventKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             turret: Ref::new(word_u32(row[1]), word_u32(row[1 + 1])),
@@ -1865,6 +2069,7 @@ impl F2TurretEvent {
             charge: row[21],
             target_id: row[22],
             target_generation: row[23],
+            sample: F3MountedSample::take(&row[24..], heap),
         }
     }
 
@@ -2026,29 +2231,35 @@ impl F2SeatAction {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct F2SeatAnswer {
     pub control: Option<Ref<SeatUnit>>,
+    pub bound: bool,
+    pub random_binding: u32,
     pub value: Option<f64>,
     pub flag: bool,
     pub point: Vec3,
 }
 
 impl F2SeatAnswer {
-    pub const WORDS: usize = 9;
+    pub const WORDS: usize = 11;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
+        let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
         match &self.control { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } }
-        match &self.value { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v); } None => { row[3] = 2.0; row[3 + 1..3 + 2].fill(0.0); } }
-        row[5] = if self.flag { 1.0 } else { 0.0 };
-        row[6..6 + 3].copy_from_slice(&self.point);
+        row[3] = if self.bound { 1.0 } else { 0.0 };
+        row[4] = self.random_binding as f64;
+        match &self.value { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v); } None => { row[5] = 2.0; row[5 + 1..5 + 2].fill(0.0); } }
+        row[7] = if self.flag { 1.0 } else { 0.0 };
+        row[8..8 + 3].copy_from_slice(&self.point);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
+        let row: &[f64; 11] = (&row[..11]).try_into().unwrap();
         Self {
             control: if row[0] == 0.0 { Some(Ref::new(word_u32(row[0 + 1]), word_u32(row[0 + 1 + 1]))) } else { None },
-            value: if row[3] == 0.0 { Some(row[3 + 1]) } else { None },
-            flag: row[5] != 0.0,
-            point: [row[6], row[6 + 1], row[6 + 2]],
+            bound: row[3] != 0.0,
+            random_binding: word_u32(row[4]),
+            value: if row[5] == 0.0 { Some(row[5 + 1]) } else { None },
+            flag: row[7] != 0.0,
+            point: [row[8], row[8 + 1], row[8 + 2]],
         }
     }
 

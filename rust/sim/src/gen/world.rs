@@ -92,17 +92,15 @@ impl WorldEventCall {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum WorldLocalOperation {
-    #[default] Player = 0,
-    Tail = 1,
+    #[default] Tail = 0,
 }
 
 impl WorldLocalOperation {
-    pub const NAMES: [&'static str; 2] = ["player", "tail"];
+    pub const NAMES: [&'static str; 1] = ["tail"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
-            0 => Some(WorldLocalOperation::Player),
-            1 => Some(WorldLocalOperation::Tail),
+            0 => Some(WorldLocalOperation::Tail),
             _ => None,
         }
     }
@@ -111,41 +109,25 @@ impl WorldLocalOperation {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum WorldLocalCall {
-    #[default] Jump = 0,
-    Crouch = 1,
-    Prone = 2,
-    Use = 3,
-    Tick = 4,
-    Impacts = 5,
-    DeathRegion = 6,
-    Kill = 7,
-    Battle = 8,
-    Ready = 9,
-    Spawn = 10,
-    ClearHuman = 11,
-    Remove = 12,
-    Present = 13,
+    #[default] Battle = 0,
+    Ready = 1,
+    Spawn = 2,
+    ClearHuman = 3,
+    Remove = 4,
+    Present = 5,
 }
 
 impl WorldLocalCall {
-    pub const NAMES: [&'static str; 14] = ["jump", "crouch", "prone", "use", "tick", "impacts", "deathRegion", "kill", "battle", "ready", "spawn", "clearHuman", "remove", "present"];
+    pub const NAMES: [&'static str; 6] = ["battle", "ready", "spawn", "clearHuman", "remove", "present"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
-            0 => Some(WorldLocalCall::Jump),
-            1 => Some(WorldLocalCall::Crouch),
-            2 => Some(WorldLocalCall::Prone),
-            3 => Some(WorldLocalCall::Use),
-            4 => Some(WorldLocalCall::Tick),
-            5 => Some(WorldLocalCall::Impacts),
-            6 => Some(WorldLocalCall::DeathRegion),
-            7 => Some(WorldLocalCall::Kill),
-            8 => Some(WorldLocalCall::Battle),
-            9 => Some(WorldLocalCall::Ready),
-            10 => Some(WorldLocalCall::Spawn),
-            11 => Some(WorldLocalCall::ClearHuman),
-            12 => Some(WorldLocalCall::Remove),
-            13 => Some(WorldLocalCall::Present),
+            0 => Some(WorldLocalCall::Battle),
+            1 => Some(WorldLocalCall::Ready),
+            2 => Some(WorldLocalCall::Spawn),
+            3 => Some(WorldLocalCall::ClearHuman),
+            4 => Some(WorldLocalCall::Remove),
+            5 => Some(WorldLocalCall::Present),
             _ => None,
         }
     }
@@ -159,52 +141,33 @@ pub enum WorldStepCall {
     ClockAxes = 2,
     TakeSquad = 3,
     Squad = 4,
-    TakeUse = 5,
-    ToggleTurret = 6,
-    Player = 7,
-    PlayerCount = 8,
-    Eye = 9,
-    DeathCamera = 10,
-    RemoteCamera = 11,
-    DriverCamera = 12,
-    GunnerCamera = 13,
-    Zoom = 14,
-    Camera = 15,
-    CameraMatrix = 16,
-    RestorePose = 17,
-    Ai = 18,
-    NativeUnits = 19,
-    HostUnits = 20,
-    Vehicles = 21,
-    Driver = 22,
-    TurretSeats = 23,
-    Gunner = 24,
-    Remotes = 25,
-    NetworkRemotes = 26,
-    Muzzles = 27,
-    Combat = 28,
-    FlushMuzzles = 29,
-    PitchRange = 30,
-    SetPitch = 31,
-    Separate = 32,
-    Served = 33,
-    Live = 34,
-    Ordnance = 35,
-    MineTargets = 36,
-    Items = 37,
-    DroidekaWater = 38,
-    SoldierWater = 39,
-    Battlefield = 40,
-    Battle = 41,
-    Target = 42,
-    Grenades = 43,
-    NextGrenade = 44,
-    Grenade = 45,
-    SpawnFlush = 46,
+    PlayerCount = 5,
+    Eye = 6,
+    DeathCamera = 7,
+    RemoteCamera = 8,
+    DriverCamera = 9,
+    GunnerCamera = 10,
+    Zoom = 11,
+    Camera = 12,
+    CameraMatrix = 13,
+    Ai = 14,
+    NativeUnits = 15,
+    Served = 16,
+    Live = 17,
+    Ordnance = 18,
+    MineTargets = 19,
+    Items = 20,
+    Battlefield = 21,
+    Battle = 22,
+    Target = 23,
+    Grenades = 24,
+    NextGrenade = 25,
+    Grenade = 26,
+    SpawnFlush = 27,
 }
 
 impl WorldStepCall {
-    pub const NAMES: [&'static str; 47] = ["start", "water", "clockAxes", "takeSquad", "squad", "takeUse", "toggleTurret", "player", "playerCount", "eye", "deathCamera", "remoteCamera", "driverCamera", "gunnerCamera", "zoom", "camera", "cameraMatrix", "restorePose", "ai", "nativeUnits", "hostUnits", "vehicles", "driver", "turretSeats", "gunner", "remotes", "networkRemotes", "muzzles", "combat", "flushMuzzles", "pitchRange", "setPitch", "separate", "served", "live", "ordnance", "mineTargets", "items", "droidekaWater", "soldierWater", "battlefield", "battle", "target", "grenades", "nextGrenade", "grenade", "spawnFlush"];
+    pub const NAMES: [&'static str; 28] = ["start", "water", "clockAxes", "takeSquad", "squad", "playerCount", "eye", "deathCamera", "remoteCamera", "driverCamera", "gunnerCamera", "zoom", "camera", "cameraMatrix", "ai", "nativeUnits", "served", "live", "ordnance", "mineTargets", "items", "battlefield", "battle", "target", "grenades", "nextGrenade", "grenade", "spawnFlush"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -213,48 +176,29 @@ impl WorldStepCall {
             2 => Some(WorldStepCall::ClockAxes),
             3 => Some(WorldStepCall::TakeSquad),
             4 => Some(WorldStepCall::Squad),
-            5 => Some(WorldStepCall::TakeUse),
-            6 => Some(WorldStepCall::ToggleTurret),
-            7 => Some(WorldStepCall::Player),
-            8 => Some(WorldStepCall::PlayerCount),
-            9 => Some(WorldStepCall::Eye),
-            10 => Some(WorldStepCall::DeathCamera),
-            11 => Some(WorldStepCall::RemoteCamera),
-            12 => Some(WorldStepCall::DriverCamera),
-            13 => Some(WorldStepCall::GunnerCamera),
-            14 => Some(WorldStepCall::Zoom),
-            15 => Some(WorldStepCall::Camera),
-            16 => Some(WorldStepCall::CameraMatrix),
-            17 => Some(WorldStepCall::RestorePose),
-            18 => Some(WorldStepCall::Ai),
-            19 => Some(WorldStepCall::NativeUnits),
-            20 => Some(WorldStepCall::HostUnits),
-            21 => Some(WorldStepCall::Vehicles),
-            22 => Some(WorldStepCall::Driver),
-            23 => Some(WorldStepCall::TurretSeats),
-            24 => Some(WorldStepCall::Gunner),
-            25 => Some(WorldStepCall::Remotes),
-            26 => Some(WorldStepCall::NetworkRemotes),
-            27 => Some(WorldStepCall::Muzzles),
-            28 => Some(WorldStepCall::Combat),
-            29 => Some(WorldStepCall::FlushMuzzles),
-            30 => Some(WorldStepCall::PitchRange),
-            31 => Some(WorldStepCall::SetPitch),
-            32 => Some(WorldStepCall::Separate),
-            33 => Some(WorldStepCall::Served),
-            34 => Some(WorldStepCall::Live),
-            35 => Some(WorldStepCall::Ordnance),
-            36 => Some(WorldStepCall::MineTargets),
-            37 => Some(WorldStepCall::Items),
-            38 => Some(WorldStepCall::DroidekaWater),
-            39 => Some(WorldStepCall::SoldierWater),
-            40 => Some(WorldStepCall::Battlefield),
-            41 => Some(WorldStepCall::Battle),
-            42 => Some(WorldStepCall::Target),
-            43 => Some(WorldStepCall::Grenades),
-            44 => Some(WorldStepCall::NextGrenade),
-            45 => Some(WorldStepCall::Grenade),
-            46 => Some(WorldStepCall::SpawnFlush),
+            5 => Some(WorldStepCall::PlayerCount),
+            6 => Some(WorldStepCall::Eye),
+            7 => Some(WorldStepCall::DeathCamera),
+            8 => Some(WorldStepCall::RemoteCamera),
+            9 => Some(WorldStepCall::DriverCamera),
+            10 => Some(WorldStepCall::GunnerCamera),
+            11 => Some(WorldStepCall::Zoom),
+            12 => Some(WorldStepCall::Camera),
+            13 => Some(WorldStepCall::CameraMatrix),
+            14 => Some(WorldStepCall::Ai),
+            15 => Some(WorldStepCall::NativeUnits),
+            16 => Some(WorldStepCall::Served),
+            17 => Some(WorldStepCall::Live),
+            18 => Some(WorldStepCall::Ordnance),
+            19 => Some(WorldStepCall::MineTargets),
+            20 => Some(WorldStepCall::Items),
+            21 => Some(WorldStepCall::Battlefield),
+            22 => Some(WorldStepCall::Battle),
+            23 => Some(WorldStepCall::Target),
+            24 => Some(WorldStepCall::Grenades),
+            25 => Some(WorldStepCall::NextGrenade),
+            26 => Some(WorldStepCall::Grenade),
+            27 => Some(WorldStepCall::SpawnFlush),
             _ => None,
         }
     }
@@ -491,136 +435,6 @@ impl WorldControlsCall {
             _ => None,
         }
     }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WsMember {
-    pub id: f64,
-    pub position: Vec3,
-    pub tick_count: f64,
-    pub walker: bool,
-    pub posture: Posture,
-    pub seat: bool,
-    pub held: bool,
-    pub removed: bool,
-    pub alive: bool,
-    pub dead: bool,
-}
-
-impl WsMember {
-    pub const WORDS: usize = 12;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
-        row[0] = self.id;
-        row[1..1 + 3].copy_from_slice(&self.position);
-        row[4] = self.tick_count;
-        row[5] = if self.walker { 1.0 } else { 0.0 };
-        row[6] = self.posture as u8 as f64;
-        row[7] = if self.seat { 1.0 } else { 0.0 };
-        row[8] = if self.held { 1.0 } else { 0.0 };
-        row[9] = if self.removed { 1.0 } else { 0.0 };
-        row[10] = if self.alive { 1.0 } else { 0.0 };
-        row[11] = if self.dead { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
-        Self {
-            id: row[0],
-            position: [row[1], row[1 + 1], row[1 + 2]],
-            tick_count: row[4],
-            walker: row[5] != 0.0,
-            posture: Posture::from_u8(word_u32(row[6]) as u8).unwrap_or_default(),
-            seat: row[7] != 0.0,
-            held: row[8] != 0.0,
-            removed: row[9] != 0.0,
-            alive: row[10] != 0.0,
-            dead: row[11] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WsSeparation {
-    pub members: Vec<WsMember>,
-    pub player: Option<f64>,
-    pub player_out: bool,
-    pub global: bool,
-    pub camera: Vec3,
-}
-
-impl WsSeparation {
-    pub const WORDS: usize = 9;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.members.len() as f64; heap.resize(at + self.members.len() * 12, 0.0); for (i, e) in self.members.iter().enumerate() { let mut item = [0.0f64; 12]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 12..at + (i + 1) * 12].copy_from_slice(&item); } }
-        match &self.player { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v); } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
-        row[4] = if self.player_out { 1.0 } else { 0.0 };
-        row[5] = if self.global { 1.0 } else { 0.0 };
-        row[6..6 + 3].copy_from_slice(&self.camera);
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
-        Self {
-            members: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 12..at + (i + 1) * 12]; out.push(WsMember::take(&row[0..], heap)); } out },
-            player: if row[2] == 0.0 { Some(row[2 + 1]) } else { None },
-            player_out: row[4] != 0.0,
-            global: row[5] != 0.0,
-            camera: [row[6], row[6 + 1], row[6 + 2]],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WsSeparated {
-    pub position: Vec3,
-    pub tick_count: f64,
-}
-
-impl WsSeparated {
-    pub const WORDS: usize = 4;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        row[0..0 + 3].copy_from_slice(&self.position);
-        row[3] = self.tick_count;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
-        Self {
-            position: [row[0], row[0 + 1], row[0 + 2]],
-            tick_count: row[3],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WsSeparationResult {
-    pub members: Vec<WsSeparated>,
-}
-
-impl WsSeparationResult {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.members.len() as f64; heap.resize(at + self.members.len() * 4, 0.0); for (i, e) in self.members.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            members: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(WsSeparated::take(&row[0..], heap)); } out },
-        }
-    }
-
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

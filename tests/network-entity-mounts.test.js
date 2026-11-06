@@ -1,3 +1,4 @@
+import {Units} from '../src/registry.js';
 import {decodeOwnPlayer,OWN_PLAYER_SCHEMA} from '../src/runtime/network-entity-player.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,6 +29,17 @@ function body(id, generation = 1) {
   const unit = new Unit({ className: 'trooper', def: {}, soldier, combat, presentation: new SoldierPresentation(soldier), actor: { root: new Object3D() }, animator: { reset() {}, gunner() {} } });
   Object.assign(unit, { id, generation, team: 1, removed: false, alive: true });
   return unit;
+}
+// Declare the wire identities before handing the registry to Rust. Replica
+// tests intentionally allocate their page objects in a different order.
+function authorityFleet(options={}) {
+  const f=mountFixture({...options,authority:true}),units=f.system.units;
+  const own=body(1),remote=body(2),next=units.nextId;
+  for(const unit of [own,remote]) { units.nextId=unit.id;Units.prototype.add.call(units,unit); }
+  units.nextId=next;
+  f.system.f3;
+  f.system.fixtureOwner.adopt(own);f.system.fixtureOwner.adopt(remote);
+  return {...f,own,remote};
 }
 function registryUnits(...units) {
   const byIdMap = new Map(units.map(u => [u.id, u]));
@@ -94,9 +106,9 @@ test('exact own turret aim survives remote pose but destruction still releases i
 });
 
 test('capture: a real hull yields a crew pose with every seat aim, lean and slot; seats name hulls or turrets; a mounted player yields no correction', () => {
-  const { system, v } = mountFixture({ authority: true });
+  const { system, v } = authorityFleet();
   v.aiTarget.id = 40;
-  const gunner = body(2);
+  const gunner = system.units.byId(2);
   assert.ok(system.board(gunner, v, 1), 'the shared boarding rule seats the unit');
   v.seats[0].aimYaw = -1.1; v.seats[1].aimYaw = .7; v.seats[1].pitch = .2; v.tilt = .1; v.roll = -.05;
   const game = { units: registryUnits(gunner), vehicles: system, turretSeats: { turrets: [] }, live: { buildings: [] } };
@@ -125,9 +137,9 @@ test('capture: a real hull yields a crew pose with every seat aim, lean and slot
 });
 
 test('client: hull creation, seat ownership for both humans, replicated aim and lean, exit, destruction and respawn without stale leases', () => {
-  const c = client(['tank', 'tank2']), server = mountFixture({ authority: true, position: [12,0,-3], yaw: .4 });
+  const c = client(['tank', 'tank2']), server = authorityFleet({position:[12,0,-3],yaw:.4});
   const hull = server.v; hull.aiTarget.id = 40;
-  const remote = body(2); server.system.board(remote, hull, 1);
+  const remote = server.remote; server.system.board(remote, hull, 1);
   hull.seats[1].aimYaw = .7; hull.seats[1].pitch = .2; hull.tilt = .1; hull.roll = -.05;
   const vehicle = tick => captureEntityVehicle(hull, { tick, classId: 2 }), mount = tick => captureEntityMount(hull, { tick, slot: 0 });
   const soldier = (unit, tick) => captureEntitySoldier(unit, { tick, classId: 1, weaponId: 1 });
@@ -180,8 +192,8 @@ test('client: hull creation, seat ownership for both humans, replicated aim and 
 });
 
 test('a dying walker stays in the roster, and on a client it is dead but drawn, posed by the time it has left, until its tombstone', () => {
-  const c = client(), server = mountFixture({ authority: true }); const hull = server.v; hull.aiTarget.id = 40;
-  const remote = body(2); server.system.board(remote, hull, 0);
+  const c = client(), server = authorityFleet(); const hull = server.v; hull.aiTarget.id = 40;
+  const remote = server.remote; server.system.board(remote, hull, 0);
   const game = { units: registryUnits(remote), vehicles: server.system, turretSeats: { turrets: [] }, live: { buildings: [] } };
   const capture = new EntityWorldCapture(game, registry);
   send(c, 10, capture.capture(10));
@@ -209,8 +221,8 @@ test('a dying walker stays in the roster, and on a client it is dead but drawn, 
 });
 
 test('client: hull, mount and seat from one snapshot install together', () => {
-  const c = client(), server = mountFixture({ authority: true }); const hull = server.v; hull.aiTarget.id = 40;
-  const remote = body(2); server.system.board(remote, hull, 0);
+  const c = client(), server = authorityFleet(); const hull = server.v; hull.aiTarget.id = 40;
+  const remote = server.remote; server.system.board(remote, hull, 0);
   send(c, 10, [captureEntitySoldier(remote, { tick: 10, classId: 1, weaponId: 1 }), seatRecord(remote, 10, hull, 0, 1),
     captureEntityVehicle(hull, { tick: 10, classId: 2 }), captureEntityMount(hull, { tick: 10, slot: 0 })]);
   assert.equal(c.remote.seat?.vehicle, c.v, 'the vehicle, its mount group and its seat record travel in one snapshot');

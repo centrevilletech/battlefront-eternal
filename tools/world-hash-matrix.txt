@@ -50,11 +50,6 @@ L-geo1-cis-1 --map geo1 --side cis --seed 1 --ticks 6000
 # turret, then a hull's armed seat (M).
 E-nab2-rep-1 --map nab2 --side rep --seed 1 --ticks 2400 --ai enhanced
 E-tat1-all-2-view --map tat1 --side all --seed 2 --ticks 2400 --ai enhanced --view 2.5
-# The heroes' battle stops at the first hero's snapshot: a hero's 1,000,000
-# health is more than the snapshot's 16-bit health can carry, and the
-# capture throws (src/runtime/network-entity-capture.js). Back in once that
-# is settled:
-# H-nab2-rep-1-view --map nab2 --side rep --seed 1 --ticks 2400 --heroes --view 2.5
 D-nab2-cis-1-view --map nab2 --side cis --seed 1 --ticks 2400 --unit cis_inf_droideka --view 2.5
 D-geo1-cis-2-ackview --map geo1 --side cis --seed 2 --ticks 2400 --unit cis_inf_droideka --view 2.5 --ack
 W-hot1-all-1-view --map hot1 --side all --seed 1 --ticks 6000 --view 2.5

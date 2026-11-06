@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 // M1 single-player playtest regressions (2026-10-14): shots left of the
 // crosshair, flight roll/strafe frame errors, first-life turret lease
 // failures (Bespin Platforms), and stuck landing gear / X-wing S-foils.

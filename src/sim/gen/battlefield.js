@@ -5,12 +5,15 @@ import { KIND_CHARACTER, KIND_UNIT, KIND_VEHICLE } from "./kinds.js";
 
 export const BfOperation_NAMES = ["outside","controlsOutside","update","warning","alpha"];
 export const BfOperation_INDEX = new Map(BfOperation_NAMES.map((name, i) => [name, i]));
+export const BfOperation_VALUE = Object.freeze({"outside":0,"controlsOutside":1,"update":2,"warning":3,"alpha":4});
 
 export const BfQueryOp_NAMES = ["body","vehicle","combatDead"];
 export const BfQueryOp_INDEX = new Map(BfQueryOp_NAMES.map((name, i) => [name, i]));
+export const BfQueryOp_VALUE = Object.freeze({"body":0,"vehicle":1,"combatDead":2});
 
 export const BfActionOp_NAMES = ["kill","killDroid","wreck"];
 export const BfActionOp_INDEX = new Map(BfActionOp_NAMES.map((name, i) => [name, i]));
+export const BfActionOp_VALUE = Object.freeze({"kill":0,"killDroid":1,"wreck":2});
 
 export class BfPolygonMirror {
   constructor() {
@@ -19,7 +22,7 @@ export class BfPolygonMirror {
 }
 
 export function syncBfPolygon(b, f, at, h, m) {
-  { const items = (m.edges ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
+  { const items = (m.edges ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
   return m;
 }
 
@@ -48,7 +51,7 @@ export class BfConfigMirror {
 }
 
 export function syncBfConfig(b, f, at, h, m) {
-  { const items = (m.polygons ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncBfPolygon(b, f, at + 0, h, v ?? new BfPolygonMirror()); } items[i] = v; } }
+  { const items = (m.polygons ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncBfPolygon(b, f, at + 0, h, v ?? new BfPolygonMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -133,7 +136,7 @@ export function syncBfInput(b, f, at, h, m) {
   m.op = BfOperation_NAMES[f[at + 0]];
   m.index = f[at + 1];
   m.dt = f[at + 2];
-  { const items = (m.characters ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.characters ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.present = f[at + 5] !== 0;
   { const a = (m.position ??= new Array(3)); a[0] = f[at + 6]; a[1] = f[at + 7]; a[2] = f[at + 8]; }
   { const tag = f[at + 9]; if (tag === 0) { { const a = (m.droid ??= new Array(3)); a[0] = f[at + 10]; a[1] = f[at + 11]; a[2] = f[at + 12]; } } else m.droid = tag === 1 ? null : undefined; }
@@ -235,7 +238,7 @@ export function syncBfResult(b, f, at, h, m) {
   m.flag = f[at + 0] !== 0;
   m.alpha = f[at + 1];
   { const tag = f[at + 2]; if (tag === 0) { m.warning = syncBfWarning(b, f, at + 3, h, m.warning ?? new BfWarningMirror()); } else m.warning = tag === 1 ? null : undefined; }
-  { const items = (m.countdowns ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncBfCountdown(b, f, at + 0, h, v ?? new BfCountdownMirror()); } items[i] = v; } }
+  { const items = (m.countdowns ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncBfCountdown(b, f, at + 0, h, v ?? new BfCountdownMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -406,7 +409,7 @@ export function syncBfActionArgs(b, f, at, h, m) {
   m.op = BfActionOp_NAMES[f[at + 0]];
   { const tag = f[at + 1]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 2], f[at + 3]); } else m.unit = tag === 1 ? null : undefined; }
   { const tag = f[at + 4]; if (tag === 0) { m.vehicle = b.refs[KIND_VEHICLE].at(f[at + 5], f[at + 6]); } else m.vehicle = tag === 1 ? null : undefined; }
-  { const items = (m.countdowns ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncBfCountdown(b, f, at + 0, h, v ?? new BfCountdownMirror()); } items[i] = v; } }
+  { const items = (m.countdowns ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncBfCountdown(b, f, at + 0, h, v ?? new BfCountdownMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -444,7 +447,7 @@ export class BfCharactersMirror {
 }
 
 export function syncBfCharacters(b, f, at, h, m) {
-  { const items = (m.characters ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.characters ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_CHARACTER].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 

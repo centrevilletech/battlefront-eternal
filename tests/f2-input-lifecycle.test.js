@@ -1,4 +1,9 @@
+import {unitOwner} from './helpers/unit-owner.js';
 import test from 'node:test';
+// Failed identities must not serialize a complete battle and its WASM views.
+// Keep primitive diagnostics, while objects are compared only by identity.
+const same=(actual,expected,message)=>assert.ok(Object.is(actual,expected),message??
+  (actual!==null&&typeof actual==='object' ? 'Expected identical references' : `${actual} !== ${expected}`));
 import leaseGolden from './fixtures/f2-lease-golden.json' with { type: 'json' };
 import assert from 'node:assert/strict';
 import { Session } from 'node:inspector/promises';
@@ -17,7 +22,6 @@ import { seatLook, leaveKilled } from '../src/boarding.js';
 import { loadSim } from '../src/sim/module.js';
 import { loadRayKernel } from '../src/ray-kernel.js';
 import { predictHull } from './helpers/hull-prediction.js';
-import { CommandControls } from '../src/runtime/commands.js';
 
 function box(w, h, d, y) {
   const geometry = new THREE.BoxGeometry(w, h, d).translate(0, y, 0);
@@ -47,8 +51,11 @@ async function fleet(cage = false) {
     collision, posts: { posts: [post] }, texture: () => null, ordnance: { explosion() {} }, effects: { play() {} } });
   system.clock = () => system.time;
   {
-    attachF2(system, bridgeFor(instance, { classes: { Unit, Vehicle } }),
-      { killY: -300, deathRegions: [], scripted: [] }, { data, buffer, indexBuffer }, Unit, true);
+    const bridge=bridgeFor(instance,{classes:{Unit,Vehicle},tests:ordnanceTests});
+    const rounds=new Ordnance({scene:new THREE.Scene(),collision,texture(){},lights:{flash(){},add(){}},effects:{play(){}}});
+    attachOrdnanceSim(rounds,bridge);system.ordnance=rounds;
+    attachF2(system,bridge,{killY:-300,deathRegions:[],scripted:[]},{data,buffer,indexBuffer},Unit,true);
+    unitOwner(system,bridge);
   }
   return { system, post };
 }
@@ -63,11 +70,10 @@ function observe(v) {
 test('warm live F2 boundary creates no sampled JavaScript objects', async () => {
   const { system } = await fleet();
   system.f2.debug = false;
-  assert.equal(system.f2.x, system.f2.bridge.x, 'play uses direct module exports');
-  assert.equal(system.f2.counters, undefined, 'counting is test instrumentation');
+  same(system.f2.x, system.f2.bridge.x, 'play uses direct module exports');
   const session = new Session(); session.connect();
   try {
-    const u = rider(system, 42); assert.equal(system.board(u, system.vehicles[0]), true);
+    const u = rider(system, 42); same(system.board(u, system.vehicles[0]), true);
     u.intent.forward = .5;
     for (let i = 0; i < 1600; i++) system.update(1 / 60);
     // Warm the profiler's own allocation-stack metadata before the measured
@@ -100,17 +106,17 @@ for (const replacement of [false, true]) {
         seatLook(other, 0, -.7 * 2048, -.2 * 2048);
         system.update(1 / 60);
         other.setHealth(0);
-        assert.equal(other.alive, false, 'an empty hull publishes death before the command returns');
+        same(other.alive, false, 'an empty hull publishes death before the command returns');
         if (replacement) post.team = 2;
         seatLook(pilot, 0, -.4 * 2048, .1 * 2048);
         system.update(1 / 60);
         const spawned = system.slots[1].vehicle;
         assert.ok(spawned.alive);
-        assert.equal(spawned.name, replacement ? 'replacement' : 'tank');
-        assert.equal(pilot.seats[0].lookYaw, .4, 'the pending yaw reaches the ground substeps');
-        assert.equal(pilot.seats[0].lookPitch, -.1, 'the pending pitch reaches the ground substeps');
-        assert.equal(spawned.seats[0].lookYaw, null, 'the new life resets its own look');
-        assert.equal(spawned.seats[0].pitch, 0, 'the new life resets its own pitch');
+        same(spawned.name, replacement ? 'replacement' : 'tank');
+        same(pilot.seats[0].lookYaw, .4, 'the pending yaw reaches the ground substeps');
+        same(pilot.seats[0].lookPitch, -.1, 'the pending pitch reaches the ground substeps');
+        same(spawned.seats[0].lookYaw, null, 'the new life resets its own look');
+        same(spawned.seats[0].pitch, 0, 'the new life resets its own pitch');
         return system.vehicles.map(observe);
       } finally { system.dispose(); }
     };
@@ -133,20 +139,20 @@ test('live F2 scalar commands publish leases before hooks and latch in f2_step',
     const v = system.vehicles[0], u = rider(system, 7);
     let boards = 0;
     system.onBoard = (unit, hull, index) => {
-      boards++; assert.equal(unit, u); assert.equal(hull, v); assert.equal(index, 0);
-      assert.equal(unit.seat, hull.seats[0].lease); assert.equal(unit.seat.live, true);
+      boards++; same(unit, u); same(hull, v); same(index, 0);
+      same(unit.seat, hull.seats[0].lease); same(unit.seat.live, true);
     };
-    assert.equal(system.board(u, v), true); const lease = u.seat;
-    assert.equal(boards, 1); assert.equal(lease.unit, u);
+    same(system.board(u, v), true); const lease = u.seat;
+    same(boards, 1); same(lease.unit, u);
     u.intent.forward = 1; u.intent.reload = true;
     system.update(1 / 60);
-    assert.equal(lease.input.forward, 1); assert.equal(lease.input.reload, true);
-    assert.equal(u.intent.reload, false); assert.equal(u.seat, lease);
+    same(lease.input.forward, 1); same(lease.input.reload, true);
+    same(u.intent.reload, false); same(u.seat, lease);
     lease.input.forward = 2; assert.throws(() => system.f2.check(), /F2 lease mirror write/); lease.input.forward = 1;
     v.seats[0].lookYaw = .7; assert.throws(() => system.f2.check(), /F2 mirror write: seats/); v.seats[0].lookYaw = null;
-    assert.equal(system.requestExit(u, { placement: false }), true);
+    same(system.requestExit(u, { placement: false }), true);
     system.update(1 / 60);
-    assert.equal(u.seat, null); assert.equal(lease.released, true); assert.equal(v.seats[0].lease, null);
+    same(u.seat, null); same(lease.released, true); same(v.seats[0].lease, null);
   } finally { system.dispose(); }
 });
 
@@ -154,11 +160,11 @@ test('live F2 board hooks can synchronously board another hull', async () => {
   const { system } = await fleet();
   try {
     const a = rider(system, 10), b = rider(system, 11), first = system.vehicles[0], second = system.vehicles[1];
-    system.onBoard = unit => { if (unit === a) assert.equal(system.board(b, second), true); };
-    assert.equal(system.board(a, first), true);
-    assert.equal(a.seat.vehicle, first); assert.equal(b.seat.vehicle, second);
+    system.onBoard = unit => { if (unit === a) same(system.board(b, second), true); };
+    same(system.board(a, first), true);
+    same(a.seat.vehicle, first); same(b.seat.vehicle, second);
     system.update(1 / 60);
-    assert.equal(a.seat.unit, a); assert.equal(b.seat.unit, b);
+    same(a.seat.unit, a); same(b.seat.unit, b);
   } finally { system.dispose(); }
 });
 
@@ -167,14 +173,14 @@ test('live F2 safe exits refuse blocked geometry and retain the same lease', asy
     const { system } = await fleet(true);
     try {
       const v = system.vehicles[0], u = rider(system, 15); u.human = u.networkHuman = true;
-      assert.equal(system.board(u, v), true); const lease = u.seat;
-      assert.equal(system.unboard(u), false); assert.equal(u.seat, lease); assert.equal(lease.released, false);
+      same(system.board(u, v), true); const lease = u.seat;
+      same(system.unboard(u), false); same(u.seat, lease); same(lease.released, false);
       for (const body of system.collision.bodies) if (!body.owner) body.enabled = false;
-      assert.equal(system.unboard(u), true, 'a between-tick body change opens the exit');
-      assert.equal(system.board(u, v), true);
+      same(system.unboard(u), true, 'a between-tick body change opens the exit');
+      same(system.board(u, v), true);
       for (const body of system.collision.bodies) if (!body.owner) body.enabled = true;
-      assert.equal(system.unboard(u), false, 'the next command sees the restored blockers');
-      assert.equal(system.unboard(u, { force: true }), true); assert.equal(u.seat, null);
+      same(system.unboard(u), false, 'the next command sees the restored blockers');
+      same(system.unboard(u, { force: true }), true); same(u.seat, null);
       return { position: u.position.toArray(), grounded: u.soldier.grounded };
     } finally { system.dispose(); }
   };
@@ -193,32 +199,12 @@ test('live F2 private hull replay leaves the native authority input untouched', 
     assert.notEqual(clone.seats[0].aimYaw, v.seats[0].aimYaw);
     assert.deepEqual(observe(v), before);
     system.update(1 / 60);
-    assert.equal(v.seats[0].aimYaw, before.seats[0][0]);
+    same(v.seats[0].aimYaw, before.seats[0][0]);
   } finally { system.dispose(); }
 });
 
-test('live F2 damage preserves the latest foreign hull rider body at kill entry', async () => {
-  const run = async () => {
-    const { system } = await fleet();
-    try {
-      const v = system.vehicles[0], u = rider(system, 13);
-      assert.equal(system.board(u, v), true);
-      u.intent.forward = 1;
-      for (let i = 0; i < 8; i++) system.update(1 / 60);
-      const before = { position: u.position.toArray(), yaw: u.soldier.aimYaw, ticks: u.tickCount };
-      let entry;
-      u.combat.damage = () => {
-        entry = { position: u.position.toArray(), yaw: u.soldier.aimYaw, ticks: u.tickCount };
-        u.alive = false; u.dead = u.combat.dead = true; leaveKilled(u);
-      };
-      v.damage(Infinity);
-      assert.deepEqual(entry, before, 'destroyedCrew sees the preceding native rider placement');
-      assert.equal(u.seat, null);
-      return entry;
-    } finally { system.dispose(); }
-  };
-  assert.deepEqual(await run(), leaseGolden['live F2 damage preserves the latest foreign hull rider body at kill entry']);
-});
+// Native crew damage and immediate deaths are covered by f3-hulls and
+// f3-turrets. The deleted callback world no longer invokes combat.damage.
 
 function turret(x, base = 'bolt', height = 3) {
   const root = new THREE.Group(), drum = new THREE.Bone(), gun = new THREE.Bone(), seat = new THREE.Bone(), fire = new THREE.Bone();
@@ -240,7 +226,7 @@ test('live F2 Classic turret exits exhaust unsupported candidates before fallbac
       const crews = new TurretSeats({ live: { turrets: [t] }, collision: system.collision });
       system.f2.seats.attachTurrets(crews);
       const u = rider(system, 35); u.human = u.networkHuman = true;
-      assert.equal(crews.man(u, t), true); assert.equal(crews.leave(u), true);
+      same(crews.man(u, t), true); same(crews.leave(u), true);
       assert.deepEqual(u.position.toArray(), t.position.toArray());
       return { position: u.position.toArray(), grounded: u.soldier.grounded, air: u.soldier.air };
     } finally { system.dispose(); }
@@ -261,8 +247,8 @@ test('live F2 turret exits use built bounds after construction and rebuild', asy
       for (let i = 0; i < 2; i++) {
         t.setHealth(t.maxHealth);
         const u = rider(system, 30 + i); u.human = u.networkHuman = true;
-        assert.equal(crews.man(u, t), true);
-        assert.equal(crews.leave(u), true);
+        same(crews.man(u, t), true);
+        same(crews.leave(u), true);
         results.push(u.position.toArray());
         t.setHealth(0);
       }
@@ -272,32 +258,33 @@ test('live F2 turret exits use built bounds after construction and rebuild', asy
   assert.deepEqual(await run(), leaseGolden['live F2 turret exits use built bounds after construction and rebuild']);
 });
 
-test('live F2 turret crews place each body before its direct native ordnance call', async () => {
+test('live native turret crews retain sampled owners and publish their bodies', async () => {
   const { system } = await fleet();
   try {
-    const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: system.collision, effects: { play() {} }, lights: { add() {} }, texture: () => null });
-    attachOrdnanceSim(ordnance, system.f2.bridge);
+    const ordnance = system.ordnance;
     const turrets = [turret(20), turret(40)], crews = new TurretSeats({ live: { turrets }, ordnance, collision: system.collision });
     system.f2.seats.attachTurrets(crews);
     const a = rider(system, 20), b = rider(system, 21);
     a.human = b.human = a.networkHuman = b.networkHuman = true;
-    assert.equal(crews.man(a, turrets[0]), true); assert.equal(crews.man(b, turrets[1]), true);
+    same(crews.man(a, turrets[0]), true); same(crews.man(b, turrets[1]), true);
     const beforeA = a.tickCount, beforeB = b.tickCount, shots = [];
-    ordnance.hitHistory = { shotTick(owner) { shots.push([owner.id, a.tickCount - beforeA, b.tickCount - beforeB]); return null; } };
+    crews.onFired=(turret,index,shot,owner)=>shots.push(owner.id);
+    ordnance.hitHistory={shotTick(){throw Error('JavaScript hit-history query reached');}};
     a.intent.buttons[0] = b.intent.buttons[0] = 1;
     system.update(1 / 60);
-    assert.deepEqual(shots, [[20, 1, 0], [21, 1, 1]], 'aim, body and fire stay interleaved per crew');
-    assert.equal(turrets[0].lease, a.seat); assert.equal(turrets[1].lease, b.seat);
-    assert.equal(crews.leases.length, 2); assert.equal(crews.ticks, 1);
-    assert.equal(ordnance.bolts.length, 2);
-    assert.equal(crews.leave(a, { placement: false }), true);
-    assert.equal(a.seat, null); assert.equal(turrets[0].gunner, null);
+    assert.deepEqual(shots, [a.id,b.id]);
+    same(a.tickCount-beforeA,1);same(b.tickCount-beforeB,1);
+    same(turrets[0].lease, a.seat); same(turrets[1].lease, b.seat);
+    same(crews.leases.length, 2); same(crews.ticks, 1);
+    same(ordnance.bolts.length, 2);
+    same(crews.leave(a, { placement: false }), true);
+    same(a.seat, null); same(turrets[0].gunner, null);
     const old = b.seat; turrets[1].setHealth(0);
-    assert.equal(b.alive, false); assert.equal(b.seat, null); assert.equal(old.released, true);
+    same(b.alive, false); same(b.seat, null); same(old.released, true);
     turrets[1].setHealth(turrets[1].maxHealth);
     const c = rider(system, 22); c.human = c.networkHuman = true;
-    assert.equal(crews.man(c, turrets[1]), true);
-    assert.notEqual(c.seat, old); assert.equal(old.unit, b); assert.equal(turrets[1].gunner, c.soldier);
+    same(crews.man(c, turrets[1]), true);
+    assert.notEqual(c.seat, old); same(old.unit, b); same(turrets[1].gunner, c.soldier);
   } finally { system.dispose(); }
 });
 
@@ -305,18 +292,16 @@ test('live F2 beams follow the original turret lease through departure and reuse
   async function run() {
     const { system } = await fleet();
     try {
-      const bridge = system.f2?.bridge ?? bridgeFor(await loadSim(), { classes: { Unit, Vehicle }, tests: ordnanceTests });
-      const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: system.collision, effects: { play() {} }, lights: { add() {} }, texture: () => null });
-      attachOrdnanceSim(ordnance, bridge);
+      const ordnance = system.ordnance;
       const t = turret(30, 'beam'), crews = new TurretSeats({ live: { turrets: [t] }, ordnance, collision: system.collision });
       system.f2.seats.attachTurrets(crews);
       const a = rider(system, 30), b = rider(system, 31);
       a.human = b.human = a.networkHuman = b.networkHuman = true;
-      assert.equal(crews.man(a, t), true);
+      same(crews.man(a, t), true);
       const trace = [];
       for (let tick = 0; tick < 6; tick++) {
         a.intent.turn = .4; a.intent.buttons[0] = tick === 0 ? 1 : 0;
-        if (tick === 3) { assert.equal(crews.leave(a, { placement: false }), true); assert.equal(crews.man(b, t), true); }
+        if (tick === 3) { same(crews.leave(a, { placement: false }), true); same(crews.man(b, t), true); }
         system.update(1 / 60);
         ordnance.update(1 / 60);
         trace.push([t.yaw, t.pitch, t.barrel, ordnance.beams.map(beam => [beam.position.toArray(), beam.direction.toArray(), beam.life])]);
@@ -331,43 +316,45 @@ test('live F2 stale leases do not reset a reused soldier body', async () => {
   const { system } = await fleet();
   try {
     const v = system.vehicles[0], u = rider(system, 40);
-    assert.equal(system.board(u, v), true); const lease = u.seat;
+    same(system.board(u, v), true); const lease = u.seat;
     u.presentation = { position: new THREE.Vector3(), reset() {} }; u.animator = { reset() {} }; u.combat.reset = () => {};
     u.spawn(60, 2, 20, .4); const position = u.soldier.position.clone(), ticks = u.tickCount;
     system.update(1 / 60);
-    assert.equal(u.seat, null); assert.equal(lease.released, true); assert.equal(v.seats[0].lease, null);
-    assert.deepEqual(u.soldier.position, position); assert.equal(u.tickCount, ticks);
+    same(u.seat, null); same(lease.released, true); same(v.seats[0].lease, null);
+    assert.deepEqual(u.soldier.position, position); same(u.tickCount, ticks);
   } finally { system.dispose(); }
 });
 
-test('live F2 nested shot deaths keep the remaining crew snapshot valid', async () => {
+test('an observer death preserves the remaining sampled native crew notices', async () => {
   const { system } = await fleet();
   try {
-    const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: system.collision, effects: { play() {} }, lights: { add() {} }, texture: () => null });
-    attachOrdnanceSim(ordnance, system.f2.bridge);
+    const ordnance = system.ordnance;
     const turrets = [turret(20), turret(40)], crews = new TurretSeats({ live: { turrets }, ordnance, collision: system.collision });
     system.f2.seats.attachTurrets(crews);
     const a = rider(system, 50), b = rider(system, 51);
     a.human = b.human = a.networkHuman = b.networkHuman = true;
     assert.ok(crews.man(a, turrets[0])); assert.ok(crews.man(b, turrets[1]));
     const fired = [], old = b.seat;
-    ordnance.hitHistory = { shotTick(owner) { fired.push(owner.id); if (owner === a) turrets[1].setHealth(0); return null; } };
+    crews.onFired=(turret,index,shot,owner)=>{
+      fired.push(owner.id);
+      if(owner===a)turrets[1].setHealth(0);
+    };
     a.intent.buttons[0] = b.intent.buttons[0] = 1;
     system.update(1 / 60);
-    assert.deepEqual(fired, [50]); assert.equal(b.alive, false); assert.equal(b.seat, null);
-    assert.equal(old.released, true); assert.equal(a.seat.unit, a);
+    assert.deepEqual(fired, [a.id,b.id]); same(b.alive, false); same(b.seat, null);
+    same(old.released, true); same(a.seat.unit, a);
   } finally { system.dispose(); }
 });
 
 test('warm live F2 hull and crew phases reuse their native storage', async () => {
   const { system } = await fleet();
   try {
-    const u = rider(system, 40); assert.equal(system.board(u, system.vehicles[0]), true);
+    const u = rider(system, 40); same(system.board(u, system.vehicles[0]), true);
     u.intent.forward = .5;
     for (let i = 0; i < 60; i++) system.update(1 / 60);
     for (let i = 0; i < 1200; i++) {
       system.update(1 / 60);
-      assert.equal(system.f2.x.f2_allocations(), 0, `native allocation at warm tick ${i}`);
+      same(system.f2.x.f2_allocations(), 0, `native allocation at warm tick ${i}`);
     }
   } finally { system.dispose(); }
 });
@@ -376,7 +363,7 @@ test('live F2 generated collision records match world bodies without game files'
   async function run() {
     const { system } = await fleet();
     try {
-      const v = system.vehicles[0], u = rider(system, 51); assert.equal(system.board(u, v), true);
+      const v = system.vehicles[0], u = rider(system, 51); same(system.board(u, v), true);
       u.intent.forward = .5;
       for (let i = 0; i < 120; i++) system.update(1 / 60);
       return { hull: observe(v), bounds: [v.body.bounds.min.toArray(), v.body.bounds.max.toArray()],
@@ -391,37 +378,17 @@ test('warm F2 native collision reuses storage at a later wall contact', async ()
   const { system } = await fleet(true);
   try {
     const v = system.vehicles[0], u = rider(system, 46);
-    assert.equal(system.board(u, v), true);
+    same(system.board(u, v), true);
     for (let i = 0; i < 30; i++) system.update(1 / 60);
     u.intent.forward = 1;
     for (let i = 0; i < 240; i++) {
       system.update(1 / 60);
-      assert.equal(system.f2.x.f2_allocations(), 0, `collision allocation at ${i}`);
+      same(system.f2.x.f2_allocations(), 0, `collision allocation at ${i}`);
     }
     assert.ok(v.position.z > 0, 'the hull reaches the blocking geometry');
     assert.ok(v.position.z < 2.6, 'the wall still stops the hull');
   } finally { system.dispose(); }
 });
-// A normal lifecycle hook may synchronously board a new occupant. Its scalar
-// command has its own foreign facts; it must not replace another crew's batch.
-test('a pre-latch birth command preserves another crew\'s pending intent', async () => {
-  const { system } = await fleet();
-  try {
-    const [pilot, other] = system.vehicles, a = rider(system, 61), b = rider(system, 62);
-    assert.equal(system.board(a, pilot), true); system.update(1 / 60);
-    other.setHealth(0); a.intent.forward = .7;
-    const adopt = system.f2.firing.adopt;
-    let boarded = false;
-    system.f2.firing.adopt = function(v) {
-      adopt.call(this, v);
-      if (v === other && !boarded) { boarded = true; assert.equal(system.board(b, v), true); }
-    };
-    system.update(1 / 60);
-    assert.ok(boarded); assert.equal(b.seat.vehicle, other);
-    assert.equal(a.seat.input.forward, .7, 'the pending batch survives the birth command');
-  } finally { system.dispose(); }
-});
-
 // TurretSeats.vacate restores a hidden gunner's body. That exception belongs
 // to the mount being left, never a turret the same unit occupied earlier.
 test('leaving a hidden hull keeps a former turret gunner corpse hidden', async () => {
@@ -433,11 +400,11 @@ test('leaving a hidden hull keeps a former turret gunner corpse hidden', async (
     const u = rider(system, 63); u.human = u.networkHuman = true;
     assert.ok(crews.man(u, t));
     assert.ok(crews.leave(u, { placement: false }));
-    assert.equal(u.actor.root.visible, true);
+    same(u.actor.root.visible, true);
     assert.ok(system.board(u, system.vehicles[0]));
-    assert.equal(u.actor.root.visible, false);
-    u.combat.damage();
-    assert.equal(u.seat, null);
-    assert.equal(u.actor.root.visible, false);
+    same(u.actor.root.visible, false);
+    u.combat.damage(Infinity);
+    same(u.seat, null);
+    same(u.actor.root.visible, false);
   } finally { system.dispose(); }
 });

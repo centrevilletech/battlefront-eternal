@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiRangeOp_NAMES = ["speed","start","max","implicit","kind","double","store","scale","number","scaledExtreme","extremeRange","compare","publish","add","subtract","selected","levels","next","band","minimum","minimumAdd","optimalCompare","optimalResult","bandDef","highCompare","highSelect","sight","sightHigh","highResult"];
 export const AiRangeOp_INDEX = new Map(AiRangeOp_NAMES.map((name, i) => [name, i]));
+export const AiRangeOp_VALUE = Object.freeze({"speed":0,"start":1,"max":2,"implicit":3,"kind":4,"double":5,"store":6,"scale":7,"number":8,"scaledExtreme":9,"extremeRange":10,"compare":11,"publish":12,"add":13,"subtract":14,"selected":15,"levels":16,"next":17,"band":18,"minimum":19,"minimumAdd":20,"optimalCompare":21,"optimalResult":22,"bandDef":23,"highCompare":24,"highSelect":25,"sight":26,"sightHigh":27,"highResult":28});
 
 export class AiRangeArgsMirror {
   constructor() {
@@ -15,7 +16,7 @@ export class AiRangeArgsMirror {
 
 export function syncAiRangeArgs(b, f, at, h, m) {
   m.op = AiRangeOp_NAMES[f[at + 0]];
-  m.id = f[at + 1];
+  m.id = f[at + 1] >>> 0;
   m.number = f[at + 2];
   return m;
 }
@@ -55,7 +56,7 @@ export class AiRangeResultMirror {
 export function syncAiRangeResult(b, f, at, h, m) {
   m.flag = f[at + 0] !== 0;
   m.number = f[at + 1];
-  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 

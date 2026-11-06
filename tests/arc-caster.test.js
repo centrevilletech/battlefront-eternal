@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { PlayerCombat } from "../src/combat.js";
-import { Lightning } from "../src/lightning.js";
+
 import { presentEntityEvent } from "../src/runtime/entity-presentation-events.js";
 import { Arsenal } from "../src/weapons.js";
 
@@ -28,80 +28,8 @@ function fixture({ hits = () => null } = {}) {
   combat.shotDir.set(0, 0, 1);
   return { combat, soldier, events, banks };
 }
-const target = (x, y, z, hurt) => ({ origin: new THREE.Vector3(x, y, z), hurt: (amount) => hurt.push([z, amount]) });
+
 const lightning = (events) => events.filter((e) => e.kind === "lightning");
-
-test("the arc caster's first bolt leaves the gun origin and is held to the shooter; later ones run target to target", () => {
-  const { combat, events } = fixture();
-  const hurt = [];
-  combat.arcTargets = () => [target(0, 0, 8, hurt), target(0.5, 0, 14, hurt), target(-0.5, 0, 20, hurt)];
-  combat.arc({ charge: 1, weapon: combat.arsenal.current(0) }, ORD);
-  assert.deepEqual(hurt, [[8, 250], [14, 175], [20, 100]], "nearest first, 75 lost a link, stopping below 75");
-  const bolts = lightning(events);
-  assert.equal(bolts.length, 3);
-  assert.deepEqual(bolts[0].from, [0, 1.6, 0], "from the gun origin, not a held model's muzzle");
-  assert.deepEqual(bolts[0].to, [0, 1, 8], "to the target's origin + 1 m");
-  assert.equal(bolts[0].channel, 0, "the first bolt names its weapon's channel: held to the shooter");
-  assert.deepEqual(bolts[1].from, [0, 1, 8]);
-  assert.equal(bolts[1].channel, undefined, "a link between targets is held to nothing");
-  assert.equal(bolts[0].charge, 1);
-});
-
-test("each link's damage comes from where its arc starts: the gun origin, then the target before", () => {
-  const { combat } = fixture();
-  const from = [];
-  const at = (x, y, z) => ({ origin: new THREE.Vector3(x, y, z), hurt: (amount, source) => from.push([z, source.toArray()]) });
-  combat.arcTargets = () => [at(0, 0, 8), at(0.5, 0, 14), at(-0.5, 0, 20)];
-  combat.arc({ charge: 1, weapon: combat.arsenal.current(0) }, ORD);
-  assert.deepEqual(from, [[8, [0, 1.6, 0]], [14, [0, 1, 8]], [20, [0.5, 1, 14]]], "the gun origin, then each target's origin + 1 m");
-});
-
-test("the gathering box and the double cone: a target on the line behind the shooter comes first", () => {
-  const { combat } = fixture();
-  const hurt = [];
-  // The box reaches 0.1 x ConeLength (3 m) behind the gun origin along +z.
-  combat.arcTargets = () => [target(0, 1.6, -2, hurt), target(0, 1.6, -5, hurt), target(0, 0, 10, hurt)];
-  combat.arc({ charge: 1, weapon: combat.arsenal.current(0) }, ORD);
-  assert.deepEqual(hurt, [[-2, 250], [10, 175]], "the one 2 m behind on the line is linked first; 5 m behind is outside the box");
-});
-
-test("the first link's FirstRadius is measured from its origin + 1 m, and a blocked link is skipped", () => {
-  const blocked = new THREE.Vector3(0, 1, 12);
-  const { combat } = fixture({ hits: (from, dir, far, out) => {
-    // Something stands between the gun and the second target only.
-    const end = from.clone().addScaledVector(dir, far);
-    return end.distanceTo(blocked) < 1e-6 ? Object.assign(out, { distance: far / 2 }) : null;
-  } });
-  const hurt = [];
-  // Its feet 2.6 m under the line (outside FirstRadius), its point 1.6 m.
-  combat.arcTargets = () => [target(0, -1, 10, hurt), target(0, 0, 12, hurt), target(0, 0, 16, hurt)];
-  combat.arc({ charge: 1, weapon: combat.arsenal.current(0) }, ORD);
-  assert.deepEqual(hurt, [[10, 250], [16, 175]]);
-});
-
-test("with nothing to link one bolt runs along the shot to what it meets, held to the shooter", () => {
-  const { combat, events } = fixture({ hits: (from, dir, far, out) => Object.assign(out, { distance: 12 }) });
-  combat.arcTargets = () => [];
-  combat.arc({ charge: 0.5, weapon: combat.arsenal.current(0) }, ORD);
-  const [bolt] = lightning(events);
-  assert.deepEqual(bolt.from, [0, 1.6, 0]);
-  assert.deepEqual(bolt.to, [0, 1.6, 12]);
-  assert.equal(bolt.channel, 0);
-});
-
-test("a world that draws holds its first bolt's start to the shooter's gun as drawn", () => {
-  const { combat, soldier } = fixture();
-  combat.lightning = new Lightning(new THREE.Scene(), () => null);
-  combat.owner = { presentation: { state: soldier } };
-  combat.arcTargets = () => [target(0, 0, 8, [])];
-  combat.arc({ charge: 1, weapon: combat.arsenal.current(0) }, ORD);
-  const [bolt] = combat.lightning.bolts;
-  soldier.position.set(2, 0, 0);
-  combat.lightning.update(1 / 60, new THREE.PerspectiveCamera());
-  const expected = combat.viewBasis(soldier).origin;
-  assert.ok(bolt.start.distanceTo(expected) < 1e-6, "the start moved with him");
-  assert.ok(Math.abs(bolt.start.x - (2 - 0.06)) < 1e-6);
-});
 
 test("a page draws a held bolt from its shooter's gun as it draws him, and any bolt at once", () => {
   const spawned = [];

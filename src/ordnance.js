@@ -160,6 +160,9 @@ export class Ordnance {
     this.texture = texture;
     this.model = model;
     this.onExplode = onExplode || (() => {});
+    // Lifecycle observation follows the complete gameplay callback. Native
+    // blast fan-out publishes this same point without invoking it twice.
+    this.onExplosion = () => {};
     this.onHit = onHit || (() => {});
     // Soldiers: the battle's units (src/registry.js). A round meets the
     // first unit on its path other than its owner; `canHit(owner, unit)`
@@ -518,9 +521,7 @@ export class Ordnance {
   // An explosion: its effect (its WaterEffect at the water's surface, with a
   // ring), its light, and its damage for the caller.
   explosion(explosion, position, owner, presentation = explosion) {
-    // Presentation may suppress stock sprites; replication keeps matched content identity.
-    const wet = this.presentExplosion(presentation, position);
-    this.onExplode(explosion, position.clone(), owner, { wet });
+    return this.sim.nativeServices.explode(explosion,position,owner,presentation);
   }
 
   // Shared cosmetic path; callers never apply damage through presentation.

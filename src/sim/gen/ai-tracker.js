@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiTrackerOp_NAMES = ["start","candidate","target","relation","reset","countdown","refresh","cost","controller","fireStart","setTarget","weaponLead","facing","near","clearShot","writeFire","select","updateReady","dispatch","assign","fire","pointNear"];
 export const AiTrackerOp_INDEX = new Map(AiTrackerOp_NAMES.map((name, i) => [name, i]));
+export const AiTrackerOp_VALUE = Object.freeze({"start":0,"candidate":1,"target":2,"relation":3,"reset":4,"countdown":5,"refresh":6,"cost":7,"controller":8,"fireStart":9,"setTarget":10,"weaponLead":11,"facing":12,"near":13,"clearShot":14,"writeFire":15,"select":16,"updateReady":17,"dispatch":18,"assign":19,"fire":20,"pointNear":21});
 
 export class AiTrackerArgsMirror {
   constructor() {
@@ -15,7 +16,7 @@ export class AiTrackerArgsMirror {
 
 export function syncAiTrackerArgs(b, f, at, h, m) {
   m.op = AiTrackerOp_NAMES[f[at + 0]];
-  m.id = f[at + 1];
+  m.id = f[at + 1] >>> 0;
   m.number = f[at + 2];
   return m;
 }
@@ -53,7 +54,7 @@ export class AiTrackerResultMirror {
 
 export function syncAiTrackerResult(b, f, at, h, m) {
   m.number = f[at + 0];
-  { const items = (m.values ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 

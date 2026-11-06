@@ -89,6 +89,7 @@ pub struct ClientPrediction {
     correction: Vec<u8>,
     notices: Vec<f64>,
     before: Vec<f64>,
+    #[cfg(target_arch = "wasm32")]
     error: Option<&'static str>,
 }
 

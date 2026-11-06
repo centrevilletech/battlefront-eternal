@@ -5,6 +5,27 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
+pub enum F3PropEffectKind {
+    #[default] Publish = 0,
+    Show = 1,
+    Destroyed = 2,
+}
+
+impl F3PropEffectKind {
+    pub const NAMES: [&'static str; 3] = ["publish", "show", "destroyed"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(F3PropEffectKind::Publish),
+            1 => Some(F3PropEffectKind::Show),
+            2 => Some(F3PropEffectKind::Destroyed),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum DbOperation {
     #[default] Launch = 0,
     Update = 1,
@@ -477,6 +498,190 @@ impl PcActionKind {
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3BuildingState {
+    pub index: u32,
+    pub state: PbStateName,
+    pub health: f64,
+    pub add_health: f64,
+    pub attacker: Attacker,
+    pub generation: Option<f64>,
+    pub team: f64,
+    pub target_team: f64,
+    pub gunner: Option<Ref<Unit>>,
+    pub trap_mode: bool,
+    pub trap_state: TrState,
+}
+
+impl F3BuildingState {
+    pub const WORDS: usize = 24;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 24] = (&mut row[..24]).try_into().unwrap();
+        row[0] = self.index as f64;
+        row[1] = self.state as u8 as f64;
+        row[2] = self.health;
+        row[3] = self.add_health;
+        self.attacker.put(&mut row[4..4 + 3], heap);
+        match &self.generation { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v); } None => { row[7] = 1.0; row[7 + 1..7 + 2].fill(0.0); } }
+        row[9] = self.team;
+        row[10] = self.target_team;
+        match &self.gunner { Some(v) => { row[11] = 0.0; row[11 + 1] = (*v).slot as f64; row[11 + 1 + 1] = (*v).gen as f64; } None => { row[11] = 1.0; row[11 + 1..11 + 3].fill(0.0); } }
+        row[14] = if self.trap_mode { 1.0 } else { 0.0 };
+        self.trap_state.put(&mut row[15..], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 24] = (&row[..24]).try_into().unwrap();
+        Self {
+            index: word_u32(row[0]),
+            state: PbStateName::from_u8(word_u32(row[1]) as u8).unwrap_or_default(),
+            health: row[2],
+            add_health: row[3],
+            attacker: Attacker::take(&row[4..4 + 3], heap),
+            generation: if row[7] == 0.0 { Some(row[7 + 1]) } else { None },
+            team: row[9],
+            target_team: row[10],
+            gunner: if row[11] == 0.0 { Some(Ref::new(word_u32(row[11 + 1]), word_u32(row[11 + 1 + 1]))) } else { None },
+            trap_mode: row[14] != 0.0,
+            trap_state: TrState::take(&row[15..], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3BuildingSetup {
+    pub index: u32,
+    pub target: RepairTarget,
+    pub member: Option<Member>,
+    pub key: StrId,
+    pub settings: PbSettings,
+    pub state: F3BuildingState,
+    pub bodies: Vec<Option<Ref<Body>>>,
+    pub explosion: Option<u32>,
+    pub damaged: bool,
+    pub category: u32,
+    pub kind: f64,
+    pub trap_sphere: Option<Bounds>,
+}
+
+impl F3BuildingSetup {
+    pub const WORDS: usize = 71;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 71] = (&mut row[..71]).try_into().unwrap();
+        row[0] = self.index as f64;
+        self.target.put(&mut row[1..1 + 3], heap);
+        match &self.member { Some(v) => { row[4] = 0.0; (*v).put(&mut row[4 + 1..4 + 1 + 3], heap); } None => { row[4] = 1.0; row[4 + 1..4 + 4].fill(0.0); } }
+        row[8] = self.key.0 as f64;
+        self.settings.put(&mut row[9..], heap);
+        self.state.put(&mut row[35..], heap);
+        { let at = heap.len(); row[59] = at as f64; row[59 + 1] = self.bodies.len() as f64; heap.resize(at + self.bodies.len() * 3, 0.0); for (i, e) in self.bodies.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } } } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        match &self.explosion { Some(v) => { row[61] = 0.0; row[61 + 1] = (*v) as f64; } None => { row[61] = 1.0; row[61 + 1..61 + 2].fill(0.0); } }
+        row[63] = if self.damaged { 1.0 } else { 0.0 };
+        row[64] = self.category as f64;
+        row[65] = self.kind;
+        match &self.trap_sphere { Some(v) => { row[66] = 0.0; v.put(&mut row[66 + 1..], heap); } None => { row[66] = 1.0; row[66 + 1..66 + 5].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 71] = (&row[..71]).try_into().unwrap();
+        Self {
+            index: word_u32(row[0]),
+            target: RepairTarget::take(&row[1..1 + 3], heap),
+            member: if row[4] == 0.0 { Some(Member::take(&row[4 + 1..4 + 1 + 3], heap)) } else { None },
+            key: StrId(word_u32(row[8])),
+            settings: PbSettings::take(&row[9..], heap),
+            state: F3BuildingState::take(&row[35..], heap),
+            bodies: { let (at, n) = (word_u32(row[59]) as usize, word_u32(row[59 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(if row[0] == 0.0 { Some(Ref::new(word_u32(row[0 + 1]), word_u32(row[0 + 1 + 1]))) } else { None }); } out },
+            explosion: if row[61] == 0.0 { Some(word_u32(row[61 + 1])) } else { None },
+            damaged: row[63] != 0.0,
+            category: word_u32(row[64]),
+            kind: row[65],
+            trap_sphere: if row[66] == 0.0 { Some(Bounds::take(&row[66 + 1..], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3PropEffect {
+    pub kind: F3PropEffectKind,
+    pub state: F3BuildingState,
+}
+
+impl F3PropEffect {
+    pub const WORDS: usize = 25;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 25] = (&mut row[..25]).try_into().unwrap();
+        row[0] = self.kind as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 25] = (&row[..25]).try_into().unwrap();
+        Self {
+            kind: F3PropEffectKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: F3BuildingState::take(&row[1..], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3PropDamage {
+    pub index: u32,
+    pub amount: f64,
+    pub attacker: Attacker,
+    pub has_direction: bool,
+    pub direction: Vec3,
+    pub untyped: f64,
+    pub typed: f64,
+    pub generic: f64,
+    pub position: Vec3,
+    pub team: f64,
+    pub generation: Option<f64>,
+}
+
+impl F3PropDamage {
+    pub const WORDS: usize = 18;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
+        row[0] = self.index as f64;
+        row[1] = self.amount;
+        self.attacker.put(&mut row[2..2 + 3], heap);
+        row[5] = if self.has_direction { 1.0 } else { 0.0 };
+        row[6..6 + 3].copy_from_slice(&self.direction);
+        row[9] = self.untyped;
+        row[10] = self.typed;
+        row[11] = self.generic;
+        row[12..12 + 3].copy_from_slice(&self.position);
+        row[15] = self.team;
+        match &self.generation { Some(v) => { row[16] = 0.0; row[16 + 1] = (*v); } None => { row[16] = 1.0; row[16 + 1..16 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
+        Self {
+            index: word_u32(row[0]),
+            amount: row[1],
+            attacker: Attacker::take(&row[2..2 + 3], heap),
+            has_direction: row[5] != 0.0,
+            direction: [row[6], row[6 + 1], row[6 + 2]],
+            untyped: row[9],
+            typed: row[10],
+            generic: row[11],
+            position: [row[12], row[12 + 1], row[12 + 2]],
+            team: row[15],
+            generation: if row[16] == 0.0 { Some(row[16 + 1]) } else { None },
+        }
+    }
+
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

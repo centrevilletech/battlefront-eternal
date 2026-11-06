@@ -176,6 +176,13 @@ them into one kind (a field declared twice must be declared the same). A
 kind declared with no fields (`unit: { key: 'id' }` above) is one the store
 only refers to.
 
+An immutable object with fields can declare `identity: true` instead of a key
+or a home list. Launch attribution uses this form: its slab reference identifies
+the snapshot, while its stored id and generation describe the launching life.
+The bridge keeps its ordinary `Identity`; a native creation notice binds the
+frozen facade before a later event refers to it. Slot-order exports still work,
+without inventing a live gameplay list for those immutable objects.
+
 ### The generator's own tests
 
 The generator has a schema of its own, `rust/sim/schema-test/shelf.mjs`,

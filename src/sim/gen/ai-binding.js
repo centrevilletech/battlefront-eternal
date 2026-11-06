@@ -4,6 +4,7 @@ import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../co
 
 export const AiBindingOp_NAMES = ["create","reset","arsenal","weapons","nextWeapon","weaponRandom","hasPerception","clearCandidate","unit","weapon","lead","result","fire","hooked","hasIntent","update","intentWrite","hook","intent","aimStart","forward","difficulty","curveA","ownCurves","aiCurves","aiCurvesCall","difficultyCurves","difficultyCurvesCall","nullCurves","aimer","aimerUpdate","reader","read","dangerState","dangerNew","dangerBind","dangerContact","dangerCompare","dangerWrite","dangerNotify","eventKind","eventSource","eventTarget","eventAttacker","reference","referenceUnit","resolveUnit","resolveAlive","resolveGeneration","resolveResult","referenceHasAlive","referenceAlive","referenceNull","shotController","shotFallback","shotReference","pair","shot","attackerFallback","damage","eligibleAlive","eligibleTargetable","eligibleHealth","eligibleHealthCompare","eligibleRelation","eligibleRelationCompare"];
 export const AiBindingOp_INDEX = new Map(AiBindingOp_NAMES.map((name, i) => [name, i]));
+export const AiBindingOp_VALUE = Object.freeze({"create":0,"reset":1,"arsenal":2,"weapons":3,"nextWeapon":4,"weaponRandom":5,"hasPerception":6,"clearCandidate":7,"unit":8,"weapon":9,"lead":10,"result":11,"fire":12,"hooked":13,"hasIntent":14,"update":15,"intentWrite":16,"hook":17,"intent":18,"aimStart":19,"forward":20,"difficulty":21,"curveA":22,"ownCurves":23,"aiCurves":24,"aiCurvesCall":25,"difficultyCurves":26,"difficultyCurvesCall":27,"nullCurves":28,"aimer":29,"aimerUpdate":30,"reader":31,"read":32,"dangerState":33,"dangerNew":34,"dangerBind":35,"dangerContact":36,"dangerCompare":37,"dangerWrite":38,"dangerNotify":39,"eventKind":40,"eventSource":41,"eventTarget":42,"eventAttacker":43,"reference":44,"referenceUnit":45,"resolveUnit":46,"resolveAlive":47,"resolveGeneration":48,"resolveResult":49,"referenceHasAlive":50,"referenceAlive":51,"referenceNull":52,"shotController":53,"shotFallback":54,"shotReference":55,"pair":56,"shot":57,"attackerFallback":58,"damage":59,"eligibleAlive":60,"eligibleTargetable":61,"eligibleHealth":62,"eligibleHealthCompare":63,"eligibleRelation":64,"eligibleRelationCompare":65});
 
 export class AiBindingArgsMirror {
   constructor() {
@@ -15,7 +16,7 @@ export class AiBindingArgsMirror {
 
 export function syncAiBindingArgs(b, f, at, h, m) {
   m.op = AiBindingOp_NAMES[f[at + 0]];
-  m.id = f[at + 1];
+  m.id = f[at + 1] >>> 0;
   m.number = f[at + 2];
   return m;
 }
@@ -55,7 +56,7 @@ export class AiBindingResultMirror {
 export function syncAiBindingResult(b, f, at, h, m) {
   m.flag = f[at + 0] !== 0;
   m.number = f[at + 1];
-  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 

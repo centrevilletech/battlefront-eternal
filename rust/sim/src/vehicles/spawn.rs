@@ -166,6 +166,15 @@ impl Hull {
     /// under the pad (a hover on its springs, lying with the ground), its
     /// body placed and its pose drawn.
     pub fn spawn<W: VehicleWorld>(&mut self, w: &mut W, team: f64, matrix: &[f64; 16], def: &Value, name: &str) {
+        let config = crate::flight::config::Config::of(def);
+        let class = if self.flying { crate::flight::config::flight_class(name) } else { crate::flight::FlightClass::default() };
+        self.spawn_prepared(w,team,matrix,class,config);
+    }
+
+    // Vehicle.spawn uses the same immutable flight configuration every life.
+    // The owned fleet resolves it at construction; replay callers can still
+    // supply their captured definition through spawn above.
+    pub fn spawn_prepared<W: VehicleWorld>(&mut self, w: &mut W, team: f64, matrix: &[f64; 16], class: crate::flight::FlightClass, config: crate::flight::Config) {
         self.flight.team = Some(team);
         self.position = Vector3::new(matrix[12], matrix[13], matrix[14]);
         self.yaw = math::atan2(matrix[8], matrix[10]);
@@ -189,11 +198,11 @@ impl Hull {
         self.seats[si].look_pitch = None;
         // Its flight part (the flight package's: every hull's flight fields,
         // a craft turned to the pad's heading and given its flight).
-        self.spawn_flight(name, crate::flight::config::Config::of(def));
+        self.spawn_flight(class,config);
         self.tow_target = -1.0;
         self.tow_winding = 0.0;
         self.tow_angle = 0.0;
-        self.tow_leg.clear();
+        self.tow_leg = None;
         self.tow_local.set(0.0, 0.0, 0.0);
         self.velocity.set(0.0, 0.0, 0.0);
         for wheel in &mut self.wheels {

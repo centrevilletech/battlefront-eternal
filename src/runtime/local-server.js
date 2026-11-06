@@ -12,7 +12,10 @@ export async function createLocalServer(game, {name='Player', send=()=>{}} = {})
     spawn:game.policy.auto,teamSelect:game.humanSpawn.canSwitchTeams,reliableFire:true,separateActions:true});
   const actor=world.players.get(id);
   actor.autoRespawn=!!game.policy.auto;
-  if(game.policy.auto){actor.unit.soldier.spawn(position.x,position.y,position.z,yaw);actor.unit.presentation.reset();}
+  if(game.policy.auto){
+    game.unitsSim.placeBody(actor.unit,position.x,position.y,position.z,yaw);
+    actor.unit.presentation.reset();
+  }
   const host=createSnapshotHost({game,world,local:true});
   host.addClient(id);host.setReady(id);host.setStarted(id,true);
   let running=false,stepping=false;

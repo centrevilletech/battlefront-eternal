@@ -223,6 +223,7 @@ fn read_state(capture: &Capture, content: &mut Content, cx: &mut Replay, state: 
     let edges = Edges {
         shots: if state.get("shots").is_nullish() { None } else { Some(state.get("shots").items().map(edge).collect()) },
         shot: if state.get("shot").is_nullish() { None } else { Some(edge(state.get("shot"))) },
+        fixed: None,
     };
     Ok((r.slot, unit, combat, edges))
 }
@@ -656,10 +657,10 @@ impl CombatWorld for World<'_, '_> {
         let Some(call) = self.call("world.presentation") else { return };
         let e = call.arg(0);
         match event {
-            Presentation::WeaponAction { action, bank, posture, prepare } => {
+            Presentation::WeaponAction { action, bank, posture, prepare, .. } => {
                 let ok = e.get("kind").str() == Some("weaponAction")
-                    && e.get("action").str() == Some(action.as_str())
-                    && e.get("bank").str() == Some(bank.as_str())
+                    && e.get("action").str() == Some(*action)
+                    && e.get("bank").str() == Some(*bank)
                     && e.get("posture").str() == *posture
                     && e.get("prepare").truthy() == *prepare;
                 if !ok {
@@ -671,11 +672,11 @@ impl CombatWorld for World<'_, '_> {
                     self.fail(format!("presentation: the capture has {}, the port {event:?}", e.show()));
                 }
             }
-            Presentation::Lightning { name, from, to, charge, channel } => {
+            Presentation::Lightning { name, from, to, charge, channel, .. } => {
                 let pos = |v: V| -> Option<[f64; 3]> { Some([v.at(0).opt_num()?, v.at(1).opt_num()?, v.at(2).opt_num()?]) };
                 let same = |a: Option<[f64; 3]>, b: &Vector3| a.is_some_and(|a| a.iter().zip(arr(b)).all(|(x, y)| x.to_bits() == y.to_bits()));
                 let ok = e.get("kind").str() == Some("lightning")
-                    && e.get("name").str() == Some(name.as_str())
+                    && e.get("name").str() == Some(*name)
                     && same(pos(e.get("from")), from)
                     && same(pos(e.get("to")), to)
                     && e.get("charge").opt_num().map(f64::to_bits) == Some(charge.to_bits())
@@ -749,9 +750,13 @@ fn combat_frame(capture: &Capture, frame: &Frame, content: &mut Content, cx: &mu
             let dt = frame.arg(0).num();
             let dt = if mutation == Mutation::Dt { up_one_ulp(dt) } else { dt };
             let stick = frame.arg(2).num();
-            cb::update(&mut combat, id, &mut unit, &defs, dt, stick, &edges, &mut world);
+            let mut scratch=cb::Scratch::default();scratch.reserve(64);
+            cb::update_buffered(&mut combat,id,&mut unit,&defs,dt,stick,&edges,&mut world,&mut scratch);
         }
-        "flushMuzzles" => cb::flush_muzzles(&mut combat, &mut unit, &defs, &edges, &mut world),
+        "flushMuzzles" => {
+            let mut pending=Vec::new();
+            cb::flush_muzzles_buffered(&mut combat,&mut unit,&defs,&edges,&mut world,&mut pending);
+        },
         "damage" => {
             let amount = frame.arg(0).num();
             let on_shield = if frame.arg(1).is_undefined() { amount } else { frame.arg(1).num() };

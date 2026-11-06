@@ -42,7 +42,7 @@ export class WrBindingMirror {
 export function syncWrBinding(b, f, at, h, m) {
   m.action = b.strings.at(f[at + 0]);
   m.valid = f[at + 1] !== 0;
-  { const items = (m.codes ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
+  { const items = (m.codes ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -83,7 +83,7 @@ export function syncWrProfile(b, f, at, h, m) {
   m.id = f[at + 0];
   m.idValid = f[at + 1] !== 0;
   m.valid = f[at + 2] !== 0;
-  { const items = (m.bindings ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncWrBinding(b, f, at + 0, h, v ?? new WrBindingMirror()); } items[i] = v; } }
+  { const items = (m.bindings ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncWrBinding(b, f, at + 0, h, v ?? new WrBindingMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -130,8 +130,8 @@ export function syncWrInputs(b, f, at, h, m) {
   m.epochValid = f[at + 1] !== 0;
   m.codesValid = f[at + 2] !== 0;
   m.profilesValid = f[at + 3] !== 0;
-  { const items = (m.codes ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
-  { const items = (m.profiles ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncWrProfile(b, f, at + 0, h, v ?? new WrProfileMirror()); } items[i] = v; } }
+  { const items = (m.codes ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
+  { const items = (m.profiles ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncWrProfile(b, f, at + 0, h, v ?? new WrProfileMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -177,9 +177,9 @@ export class WrTablesMirror {
 }
 
 export function syncWrTables(b, f, at, h, m) {
-  { const items = (m.classes ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
-  { const items = (m.weapons ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
-  { const items = (m.posts ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
+  { const items = (m.classes ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
+  { const items = (m.posts ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -220,11 +220,11 @@ export class WrResultMirror {
 
 export function syncWrResult(b, f, at, h, m) {
   { const tag = f[at + 0]; if (tag === 0) { m.error = b.strings.at(f[at + 1]); } else m.error = tag === 1 ? null : undefined; }
-  { const items = (m.codes ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
-  { const items = (m.profiles ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncWrProfile(b, f, at + 0, h, v ?? new WrProfileMirror()); } items[i] = v; } }
-  { const items = (m.classes ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
-  { const items = (m.weapons ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
-  { const items = (m.posts ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
+  { const items = (m.codes ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
+  { const items = (m.profiles ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncWrProfile(b, f, at + 0, h, v ?? new WrProfileMirror()); } items[i] = v; } }
+  { const items = (m.classes ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 8], n = f[at + 9]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
+  { const items = (m.posts ??= []), start = h + f[at + 10], n = f[at + 11]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncWrName(b, f, at + 0, h, v ?? new WrNameMirror()); } items[i] = v; } }
   return m;
 }
 

@@ -5,12 +5,15 @@ import { KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET, KIN
 
 export const SeatRole_NAMES = ["pilot","gunner","passenger"];
 export const SeatRole_INDEX = new Map(SeatRole_NAMES.map((name, i) => [name, i]));
+export const SeatRole_VALUE = Object.freeze({"pilot":0,"gunner":1,"passenger":2});
 
 export const SeatReason_NAMES = ["exit","stale","killed","destroyed","displaced"];
 export const SeatReason_INDEX = new Map(SeatReason_NAMES.map((name, i) => [name, i]));
+export const SeatReason_VALUE = Object.freeze({"exit":0,"stale":1,"killed":2,"destroyed":3,"displaced":4});
 
 export const SeatEffectKind_NAMES = ["seated","unseated","placed","dropped","boarded","unboarded","moved"];
 export const SeatEffectKind_INDEX = new Map(SeatEffectKind_NAMES.map((name, i) => [name, i]));
+export const SeatEffectKind_VALUE = Object.freeze({"seated":0,"unseated":1,"placed":2,"dropped":3,"boarded":4,"unboarded":5,"moved":6});
 
 export class SeatInputMirror {
   constructor() {
@@ -43,8 +46,8 @@ export function syncSeatInput(b, f, at, h, m) {
   m.down = f[at + 6];
   { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
   m.aiming = f[at + 10] !== 0;
-  { const items = (m.held ??= []), start = h + f[at + 11], n = f[at + 12]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
-  { const items = (m.pressed ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.held ??= []), start = h + f[at + 11], n = f[at + 12]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.pressed ??= []), start = h + f[at + 13], n = f[at + 14]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
   m.reload = f[at + 15] !== 0;
   m.exit = f[at + 16] !== 0;
   { const tag = f[at + 17]; if (tag === 0) { m.trick = f[at + 18] !== 0; } else m.trick = tag === 1 ? null : undefined; }
@@ -175,8 +178,8 @@ export function syncSeatHullFacts(b, f, at, h, m) {
   m.attackerId = f[at + 4];
   m.hover = f[at + 5] !== 0;
   m.animal = f[at + 6] !== 0;
-  { const items = (m.turretNodes ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
-  { const items = (m.weapons ??= []), start = h + f[at + 9], n = f[at + 10]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.turretNodes ??= []), start = h + f[at + 7], n = f[at + 8]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 9], n = f[at + 10]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   return m;
 }
 
@@ -404,8 +407,8 @@ export class SeatPhaseArgsMirror {
 export function syncSeatPhaseArgs(b, f, at, h, m) {
   m.time = f[at + 0];
   m.ticks = f[at + 1];
-  { const items = (m.hulls ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 11; v = syncSeatHullFacts(b, f, at + 0, h, v ?? new SeatHullFactsMirror()); } items[i] = v; } }
-  { const items = (m.controls ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 29; v = syncSeatAiControl(b, f, at + 0, h, v ?? new SeatAiControlMirror()); } items[i] = v; } }
+  { const items = (m.hulls ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 11; v = syncSeatHullFacts(b, f, at + 0, h, v ?? new SeatHullFactsMirror()); } items[i] = v; } }
+  { const items = (m.controls ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 29; v = syncSeatAiControl(b, f, at + 0, h, v ?? new SeatAiControlMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -510,8 +513,8 @@ export class SeatPhaseAnswerMirror {
 
 export function syncSeatPhaseAnswer(b, f, at, h, m) {
   m.ticks = f[at + 0];
-  { const items = (m.latched ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_UNIT].at(f[at + 0], f[at + 1]); } items[i] = v; } }
-  { const items = (m.effects ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 12; v = syncSeatEffect(b, f, at + 0, h, v ?? new SeatEffectMirror()); } items[i] = v; } }
+  { const items = (m.latched ??= []), start = h + f[at + 1], n = f[at + 2]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_UNIT].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.effects ??= []), start = h + f[at + 3], n = f[at + 4]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 12; v = syncSeatEffect(b, f, at + 0, h, v ?? new SeatEffectMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -1056,13 +1059,13 @@ export const SEATS_EXPORT_STRIDE = 4, SEATS_IMPORT_STRIDE = 4, SEATS_FULL_STRIDE
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncSeats(b, f, at, h, m) {
-  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
 // A full row into object `m`.
 export function syncFullSeats(b, f, at, h, m) {
-  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
@@ -1112,7 +1115,7 @@ export const TURRET_SEATS_EXPORT_STRIDE = 6, TURRET_SEATS_IMPORT_STRIDE = 6, TUR
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncTurretSeats(b, f, at, h, m) {
-  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.time = f[at + 4];
   m.ticks = f[at + 5];
   return m;
@@ -1120,7 +1123,7 @@ export function syncTurretSeats(b, f, at, h, m) {
 
 // A full row into object `m`.
 export function syncFullTurretSeats(b, f, at, h, m) {
-  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.leases ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   m.time = f[at + 4];
   m.ticks = f[at + 5];
   return m;

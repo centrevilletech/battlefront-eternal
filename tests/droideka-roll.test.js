@@ -1,3 +1,4 @@
+import './fixtures/native-anim.js';
 import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';

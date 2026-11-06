@@ -1,106 +1,20 @@
-import {latePresses,readWeaponInput,seedPresses,selectCombatWeapons} from './combat-weapon-input.js';
-import { networkShotDirection, networkShotFor, networkShotTarget } from './runtime/network-shot-aim.js';
+
+
 import { weaponMuzzle } from "./muzzles.js";
-import { legacyRandom } from "./ai/random.js";
+
 import * as THREE from "three";
-import { prepareMelee, regenerate, attachBlade } from "./heroes.js";
+import { prepareMelee, attachBlade } from "./heroes.js";
 import { zeroMaterial } from "./materials.js";
 import { modelGroup } from "./models.js";
 import { motionVectors } from "./motion-vectors.js";
-import { falloff, blastDistance, blastShare, blastBlocked, HEALTH_SCALES } from "./ordnance.js";
+import { HEALTH_SCALES } from "./ordnance.js";
 import { Arsenal } from "./weapons.js";
-import { hasMissileLock, targetingWeapon } from "./weapon-targeting.js";
+import { targetingWeapon } from "./weapon-targeting.js";
 import { CombatWorld } from "./combat-world.js";
-import { emitSound } from "./audio/events.js";
-import { infantryFireBlocked, damageDirection } from './combat-input.js';
 
-// The player's side of the fight, following the 2004 game: triggers and
-// switching, where shots start and where they go, the weapon in the hand and
-// its muzzle flash, and what explosions do to the player.
-//
-// Aim: shots start at a gun origin beside the head, set per posture in the
-// aim's frame, and converge on the point under the crosshair. That point is
-// found by a ray along the aim, up to 60 m, from where the camera sits level
-// with the soldier plus TrackOffset.z + 2 m, so nothing right in front of the
-// soldier steers it. The ray meets the world, vehicles and soldiers (mask
-// 0x4e), so a soldier under the crosshair is where the shots converge. Grenades leave along that line tipped up by ShotElevate.
-//
-// In first person the eye sits 0.3 m (0.6 m zoomed) behind the gun origin
-// along the aim, or prone behind a point beside the pivot, so shots leave
-// from the middle of the screen and go straight along the aim.
-//
-// Firing is held off in a jump or fall, mid-dive, while getting up, and
-// crawling prone; a jetpack hover fires freely. Zoom needs a weapon that
-// zooms, and drops while jumping or falling, diving, or reloading. The zoom
-// key steps through the weapon's zooms and back out: ZoomMin, then ZoomMax
-// when that differs (the sniper rifle's 2x and 8x).
-//
-// Aim kick (KickStrength, in degrees, KickBuildup): each round adds 10 x
-// KickStrength per second to a kick rate that falls off at 20/s, and holds
-// it for (1 / KickBuildup + 2) x ShotDelay; while held the aim climbs at that
-// rate (a sniper shot lifts it about half the kick). Shots also go up by an
-// offset that gathers the rate and fades at 6/s.
-//
-// Explosions (src/ordnance.js, "What an explosion does"): damage and push
-// fall off from the distance to the soldier's blast sphere, its centre 1.0 m
-// up and radius 1.46 standing (0.75 and 1.10 crouched, 0.35 and 1.62 prone
-// or lying dead), less half that radius; terrain or a building (never a
-// soldier or a vehicle) between the blast and a point 1.4 m up (0.6, 0.2)
-// blocks both. A push adds (away + 0.6 up) x Push x falloff to the velocity,
-// and over 2 m/s up throws the soldier (src/soldier.js). A soldier the blast
-// kills is thrown all the same, dying whole, and a body already lying on the
-// field is thrown too: in the retail data every pushing explosion's push
-// radius lies inside its full-damage radius, which kills any trooper, so it
-// is the killed soldier who flies, landing in the thrown rest pose. Damage
-// is scaled for what the soldier is (its HealthType: a droid takes the
-// DroidScale share).
-//
-// A repair weapon (the fusion cutter) locks onto the building it would work
-// on, each frame, and each tick gives it the weapon's amount for what it is,
-// heating the weapon when it gave something, with the weapon's
-// MuzzleFlashEffect (repairkit sparks) either way, at the tool's fire point
-// (the tick starts it at the weapon's fire matrix). A
-// world worker has no posed hand, so the page that draws the soldier plays
-// it at the tool as drawn when the tick's shot reaches it
-// (presentRepairTick). It plays no shot clip; holding a lock keeps the
-// soldier alert. The health bar's second bar shows the target's health (a
-// pad's is its build progress); the lock travels as a plain key
-// (repairLock) so a page showing a worker's battle has it too.
-//
-// The arc caster (emitter ordnance) throws lightning on
-// release from the gun origin along the shot. It gathers soldiers (droids
-// and droidekas too) and mines in a box ConeLength across each way about
-// the point 0.9 x ConeLength down the shot (the 2004 game gathers a
-// droideka's shield as a target of its own; here the droideka is linked and
-// its shield takes the damage first), and keeps those whose origin is closer
-// along the shot than ConeLength and inside the cone of half angle
-// ConeAngle / 2 about it. The cone is a double cone: nothing requires the
-// target to be ahead, so one in the box behind the shooter on the line
-// back counts, and comes first. Nearest first along the shot, each link
-// must be within ConeLength (the first) or MaxJumpDistance (later ones)
-// further along than the last, have a clear line (terrain, buildings,
-// vehicles) from where its arc starts to its origin + 1 m, and the first
-// that point within FirstRadius of the shot's line. Damage is Damage +
-// (MaxDamage - Damage) x charge, the same for every kind of target, less
-// DamageDropPerTarget a link; the chain stops below DamageThreshold or at
-// MaxTargets. Each link's damage comes from where its arc starts (a shield
-// ripples on that side; a player struck sees which side it came from).
-// From the second link on, the next arc starts from the same
-// point 30% of the time instead of from the last target. With nothing to
-// link, one bolt runs to what the shot's line hits within ConeLength. The
-// first bolt (or that lone one) is held to the shooter: its start follows
-// his gun origin for as long as it lasts. While
-// charging, the weapon's ChargeUpEffect glows at its fire point, brighter
-// with the charge.
-//
-// Droids blow apart (a class with CHUNKSECTIONs and a ChunkFrequency): each
-// blast that would push one first rolls against ChunkFrequency, and a hit
-// marks it to blow apart when it dies and leaves it unpushed. At death it
-// rolls again; either way it then goes up in its ExplosionName instead of
-// playing a death clip, its pieces flying (see debris.js). A soldier thrown
-// through the air dies whole. All of this is the same with either setting of
-// Destruction effects: Enhanced (destruction.js) only changes how it looks,
-// and also blows apart on screen a droid that plays its death clip here.
+// Page presentation for a soldier's published combat state: camera aim,
+// held weapons, charge glows, muzzle flashes and HUD. The native owner
+// advances weapons, targeting, damage and blasts before publishing mirrors.
 
 // The aim pivot and gun origin per posture: x is the soldier's left (the
 // model's +x), y up, z forward.
@@ -115,33 +29,19 @@ const FLASH_SCALE = 0.6;
 // sphere): its centre above the feet and its radius, and the point above the
 // feet its line of sight is tested to.
 export const BLAST_BODY = { stand: [1.0, 1.4626, 1.4], crouch: [0.75, 1.1023, 0.6], prone: [0.35, 1.622, 0.2] };
-const SIGHT_POINT = new THREE.Vector3();
 // The animation banks a charge doesn't put on alert.
 const UNALERTED_BANKS = new Set(["tool", "lightsabre", "sabre", "gam"]);
 // The soldiers whose charge presentCharge has on show: the page's own
 // drawing, kept off the combat object so a world worker's state never
 // carries or overwrites it.
 const CHARGE_SHOWN = new WeakSet();
-const RESPAWN_DELAY = 4; // s: a Character's respawn timer; the spawn screen opens then
-const THROWN_SPEED = 2; // m/s up after a push that throws the soldier
 const RETICLE_REACH = 1024; // m along the aim to the point the reticle marks
-const DEG = Math.PI / 180;
-// Draws with no generator given (random null): Math.random.
-const legacyArc = legacyRandom("arc-link");
-const legacyChunks = legacyRandom("blow-apart");
-const KICK_RATE = 10; // kick rate per round, x KickStrength
-const KICK_FADE = 20; // 1/s
-const KICK_OFFSET_FADE = 6; // 1/s
-const KICK_HOLD_DRAIN = 2; // 1/s
 
 const color01 = (rgba = [255, 255, 255, 255]) => {
   const a = (rgba[3] ?? 255) / 255;
   return [(rgba[0] / 255) * a, (rgba[1] / 255) * a, (rgba[2] / 255) * a];
 };
 
-// The same code runs a bot's weapons. A bot has no camera or HUD: it fires
-// along the direction its controller's aimer gives (aimOverride), or straight
-// along its aim, and `player: false` gives its weapons the AI spread rules.
 // A repair lock as a plain key: a building's index (l3) or a vehicle's (v1)
 // among what the lock can pick, "" for none; and back.
 export function repairLockKey(live, target) {
@@ -186,17 +86,12 @@ export class PlayerCombat {
     this.health = this.maxHealth;
     this.dead = false;
     this.deathTime = 0;
-    this.onDeath = () => {};
     this.onRespawn = () => {};
-    this.onBlowApart = () => {}; // (health at death)
     this.items = null; // where dispensed items go
     this.team = 0;
     this.live = null; // the map's buildings, for repair weapons
     this.remotes = null; // remote droids
-    this.admitRemoteLaunch = weapon => this.world.admitRemote(weapon);
-    this.lightning = null; // the lightning bolts the arc caster throws
     this.glow = null; // the charge-up effect
-    this.arcTargets = () => []; // what lightning can link (owner): { origin, hurt(amount) }
     this.effects = null;
     this.repairTarget = null;
     this.repairLock = ""; // the lock as a key (repairLockKey), replicated
@@ -210,9 +105,7 @@ export class PlayerCombat {
     this.gunUnderwater = false; // the gun is under water: it won't fire
     this.view = null; // the first-person view, when there is one
     this.deferMuzzles = false;
-    this.pendingMuzzles = [];
     this.arsenal = prepareMelee(new Arsenal(def.weapons || [], { player }));
-    this.seen = new Map(); // weapon -> { reloading, throwing } last frame
 
     // The weapons in the hand, one model each, with the muzzle flash at its
     // fire point pointing down the barrel.
@@ -282,31 +175,13 @@ export class PlayerCombat {
     return (this.worldBoundary ??= new CombatWorld(this));
   }
 
-  // What the store keeps of the combat that is not a number or a vector
-  // here (rust/sim/schema/combat.mjs): whether it has a generator and recon
-  // droids, what update last saw of each weapon, in the arsenal's order, and
-  // the rounds a droideka's guns owe as plain records.
+  // The page capture records the presence of its private prediction services.
   get hasRandom() {
     return Boolean(this.random);
   }
 
   get hasRemotes() {
     return Boolean(this.remotes);
-  }
-
-  get seenList() {
-    return this.arsenal.weapons.map((w) => {
-      const s = this.seen.get(w);
-      return s ? { known: true, reloading: s.reloading, throwing: s.throwing } : { known: false, reloading: false, throwing: false };
-    });
-  }
-
-  get pendingShots() {
-    const weapons = this.arsenal.weapons;
-    return this.pendingMuzzles.map(({ shot, selected, target, forward, kick }) => ({
-      weapon: weapons.indexOf(shot.weapon), yaw: shot.yaw, pitch: shot.pitch, charge: shot.charge, targetId: shot.targetId,
-      targetGeneration: shot.targetGeneration, selectedIndex: selected.index, selectedBarrel: selected.barrel, target, forward, kick,
-    }));
   }
 
   // A weapon's zoom factors, from none.
@@ -349,8 +224,6 @@ export class PlayerCombat {
     // old life's selection over spawned the soldier holding his pistol
     // forever after the first time an empty rifle auto-switched to it.
     this.arsenal = prepareMelee(new Arsenal(this.def.weapons || [], { player: this.player }));
-    this.seen.clear();
-    this.pendingMuzzles.length = 0;
     this.updateHeld();
   }
 
@@ -369,11 +242,6 @@ export class PlayerCombat {
     );
     const [gx, gy, gz] = GUN[posture] || GUN.stand;
     this.origin.copy(this.pivot).addScaledVector(forward, gz).addScaledVector(this.left, gx).addScaledVector(this.up, gy);
-  }
-
-  // The yaw/pitch of the shot direction as last computed by aim().
-  shotAngles() {
-    return { aimYaw: Math.atan2(this.shotDir.x, this.shotDir.z), aimPitch: Math.asin(THREE.MathUtils.clamp(this.shotDir.y, -1, 1)) };
   }
 
   // The shot direction for a network fire edge, as yaw/pitch: in third
@@ -401,44 +269,6 @@ export class PlayerCombat {
     const angles = { aimYaw: Math.atan2(dir.x, dir.z), aimPitch: Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1)) };
     this.aimBasis(); // restore the tick's basis from the soldier's own aim
     return angles;
-  }
-
-  // The gun origin and the converged aim point for the soldier as it stands.
-  aim() {
-    const s = this.soldier;
-    // A droideka aims from its own eye.
-    if (s.aim) {
-      s.aim(this);
-      return;
-    }
-    this.aimBasis();
-    const forward = this.aimDir;
-    const posture = s.air ? "stand" : s.posture;
-
-    // A bot (no camera) fires from the gun origin along its aimer's
-    // direction, or straight along its aim.
-    if (!this.camera) {
-      this.shotDir.copy(this.aimOverride || forward).normalize();
-      this.target.copy(this.origin).addScaledVector(this.shotDir, AIM_REACH);
-      return;
-    }
-    // In first person shots go straight along the aim.
-    if (this.usesEyeView) {
-      const eye = this.eye(s.position, this.eyePoint);
-      const hit = this.world.cast(eye, forward, AIM_REACH, this.hit);
-      this.target.copy(eye).addScaledVector(forward, hit ? hit.distance : AIM_REACH);
-      this.shotDir.copy(forward);
-      return;
-    }
-    // The crosshair ray: from the camera brought level with the pivot.
-    const camera = this.camera.position;
-    const behind = this.from.subVectors(camera, this.pivot).dot(forward);
-    this.from.copy(camera).addScaledVector(forward, -behind);
-    const section = this.def.cameras?.[posture.toUpperCase()] || this.def.cameras?.STAND;
-    const ahead = (section?.TrackOffset?.[2] ?? 3.5) + 2;
-    this.from.addScaledVector(forward, ahead);
-    this.target.copy(this.from).addScaledVector(forward, this.crosshairReach(this.from, forward));
-    this.shotDir.subVectors(this.target, this.origin).normalize();
   }
 
   // How far the crosshair ray reaches (60 m, mask 0x4e): the
@@ -512,113 +342,6 @@ export class PlayerCombat {
     this.animator.setBank?.(weapon?.bank || "rifle");
   }
 
-  update(dt, controls, stick) {
-    const s = this.soldier;
-    regenerate(this, dt);
-    // Manning a turret, the soldier's own weapons wait.
-    if (this.mounted) {
-      for (const weapon of this.arsenal.weapons) weapon.clearLock?.();
-      this.aim();
-      this.updateHeld();
-      this.updateFlashes(dt);
-      return;
-    }
-    if (this.dead) {
-      for (const weapon of this.arsenal.weapons) weapon.clearLock?.();
-      this.deathTime += dt;
-      for (const name of ["firePrimary", "fireSecondary", "reload", "nextPrimary", "previousPrimary", "nextSecondary", "zoom"]) controls.take(name);
-      if (this.deathTime >= RESPAWN_DELAY) this.world.respawn();
-      this.updateFlashes(dt);
-      return;
-    }
-    // Flying a remote droid, the soldier does nothing.
-    if (this.remotes?.active) {
-      for (const weapon of this.arsenal.weapons) weapon.clearLock?.();
-      this.aim();
-      this.updateHeld();
-      this.updateFlashes(dt);
-      return;
-    }
-    // A press the page predicted (its trigger edge's id) draws its rounds'
-    // spread from the press's seed, as the page's copies did.
-    const input = latePresses(seedPresses(readWeaponInput(controls), this.owner, [0, 1].map((channel) => networkShotFor(this.owner, channel)?.id)),
-      [0, 1].map((channel) => networkShotFor(this.owner, channel)?.late));
-    // A remote weapon whose droid is out: fire flies it again, reload blows
-    // it up (AllowDestruct).
-    for (const weapon of this.arsenal.weapons) {
-      if (!weapon.def.droid) continue;
-      weapon.admitShot = this.admitRemoteLaunch;
-      const droid = this.world.remoteOf(weapon);
-      weapon.deployed = Boolean(droid);
-      if (!droid || this.arsenal.current(weapon.channel) !== weapon) continue;
-      const trigger = weapon.channel === 0 ? input.primary : input.secondary;
-      if (trigger.pressed) {
-        this.world.remoteEnter(droid);
-        trigger.pressed = false;
-        trigger.held = false;
-      } else if (input.reload && weapon.def.AllowDestruct !== 0) {
-        this.world.remoteKill(droid);
-        input.reload = false;
-      }
-    }
-    const primary = selectCombatWeapons(this, controls, PlayerCombat.zooms);
-
-    const blocked = infantryFireBlocked(s, this.gunUnderwater, stick);
-    // A droideka's shield goes up or down with each press of its trigger.
-    const guard = this.arsenal.current(1);
-    if (guard?.def.base === "shield") {
-      if (input.secondary.pressed && !blocked) s.toggleShield?.();
-      input.secondary = { held: false, pressed: false };
-    }
-    this.aim();
-    // A repair weapon's lock, the trigger held widening it.
-    const fixer = [this.arsenal.current(0), this.arsenal.current(1)].find((w) => w?.repair);
-    const fixHeld = fixer && (fixer.channel === 0 ? input.primary.held : input.secondary.held);
-    this.repairTarget = fixer ? this.world.lockOn(this.origin, this.aimDir, fixer.def, this.repairTarget, fixHeld, this.team) : null;
-    this.repairLock = this.world.lockKey(this.repairTarget);
-    if (this.repairTarget) this.animator.fire();
-    for (const channel of [0, 1]) {
-      const weapon = this.arsenal.current(channel);
-      if (!weapon || !hasMissileLock(weapon.def)) continue;
-      // The cone runs from the gun through the point under the reticle
-      // (aim(): shotDir).
-      const picked = this.world.lockPick(weapon, this.origin, this.shotDir);
-      if (picked === undefined) weapon.clearLock();
-      else weapon.updateLock(dt, picked?.unit);
-    }
-    const shots = this.arsenal.update(dt, input, { stick, posture: s.posture, zoomed: this.zoomed, blocked, repairTarget: this.repairTarget });
-    // Enter the grenade bank before starting its throw: changing banks clears
-    // the old weapon action, and must not erase the action we just started.
-    this.updateHeld();
-
-    // Reloads of the gun in hand and throws play their clips over the upper
-    // body, for as long as the weapon stays in that state (charging is shown
-    // by presentCharge). A throw plays shoot3 above 0.7 of a charge, shoot2
-    // above 0.4, else shoot.
-    for (const weapon of this.arsenal.weapons) {
-      let was = this.seen.get(weapon);
-      if (!was) this.seen.set(weapon, was = { reloading: false, throwing: false });
-      if (weapon === primary) {
-        if (weapon.reloading && !was.reloading) this.weaponAction("reload", weapon.bank, s.posture);
-        if (!weapon.reloading && was.reloading) this.endWeaponAction("reload");
-      }
-      if (weapon.thrown && weapon.busy && !was.throwing) {
-        // A dispenser plays its shoot clip (FireAnim 0).
-        let action = weapon.charge > 0.7 ? "shoot3" : weapon.charge > 0.4 ? "shoot2" : "shoot";
-        if (weapon.def.base === "dispenser") action = "shoot";
-        this.weaponAction(action, weapon.bank, s.posture);
-        if (this.firstPerson) this.view?.play("prepareThrow", weapon);
-        this.animator.fire();
-      }
-      was.reloading = weapon.reloading;
-      was.throwing = weapon.busy;
-    }
-    for (const shot of shots) this.fire(shot);
-    this.updateKick(dt);
-    this.updateHeld();
-    this.updateFlashes(dt);
-  }
-
   // A charge on show, each frame the body is drawn (Unit.present for every
   // soldier, game.js for his own), as the original game draws it: a gun held at
   // a charge keeps the soldier in the alert stance, aim up (but for the tool,
@@ -667,20 +390,6 @@ export class PlayerCombat {
     if (CHARGE_SHOWN.delete(this)) this.endWeaponAction("charge");
   }
 
-  // The aim kick: the aim climbs while the kick holds, and the rate fades.
-  updateKick(dt) {
-    const k = this.kick;
-    if (!k.rate && !k.offset && !k.hold) return;
-    const s = this.soldier;
-    s.aimPitch += Math.min(k.hold, 1) * k.rate * dt;
-    const [low, high] = s.pitchRange();
-    s.aimPitch = THREE.MathUtils.clamp(s.aimPitch, low, high);
-    k.offset = (k.offset + k.rate * dt) * (1 - Math.min(KICK_OFFSET_FADE * dt, 1));
-    k.rate *= 1 - Math.min(KICK_FADE * dt, 1);
-    k.hold = Math.max(k.hold - KICK_HOLD_DRAIN * dt, 0);
-    if (Math.abs(k.rate) < 1e-6 && Math.abs(k.offset) < 1e-6 && !k.hold) k.rate = k.offset = 0;
-  }
-
   weaponAction(action, bank, posture) {
     this.animator.weaponAction(action, bank, posture);
     this.world.presentation({kind:'weaponAction',action,bank,posture,prepare:action.startsWith('shoot')&&this.arsenal.weapons.some(w=>w.bank===bank&&w.thrown&&w.busy)});
@@ -689,101 +398,12 @@ export class PlayerCombat {
     this.animator.endWeaponAction(action);
     this.world.presentation({kind:'endWeaponAction',action:action??null});
   }
-  // One bolt of the arc caster's lightning, drawn where this world is drawn
-  // and sent to the pages that draw it. `held`, the weapon's channel, marks
-  // the bolt held to the shooter: its start follows his gun origin as drawn.
-  lightningBolt(name, def, from, to, charge, held = null) {
-    this.lightning?.spawn(def, from, to, charge, held === null ? null : (out) => this.drawnGunOrigin(out));
-    this.world.presentation({ kind: 'lightning', name, from: from.toArray(), to: to.toArray(), charge, ...(held === null ? {} : { channel: held }) });
-  }
   // The gun origin where the soldier is drawn now (a page's presented pose;
   // its own player's as rendered, first person included), or null.
   drawnGunOrigin(out) {
     const pose = this.owner?.presentation?.state;
     if (!pose || this.dead || this.mounted) return null;
     return out.copy(this.viewBasis(pose).origin);
-  }
-  fire(shot) {
-    if (shot.meleeEnd) {
-      this.endWeaponAction();
-      return;
-    }
-    if (shot.meleeHit) {
-      this.world.meleeStrike();
-      return;
-    }
-    emitSound(this.player ? "fire" : "actorFire", this, shot);
-    this.world.fired(shot);
-    const weapon = shot.weapon;
-    if (shot.meleeStart) {
-      this.weaponAction(shot.swing === 1 ? "shoot" : `shoot${shot.swing}`, weapon.bank, this.soldier.posture);
-      this.animator.fire();
-      return;
-    }
-    if (shot.repair) {
-      this.repairTick(weapon);
-      return;
-    }
-    if (weapon.def.item) {
-      this.dispense(shot);
-      return;
-    }
-    if (weapon.def.droid) {
-      // A remote droid leaves the gun origin along the aim at Velocity, plus
-      // the soldier's own velocity.
-      const speed = (weapon.def.Velocity ?? 10) * (weapon.def.MaxStrength ?? 1);
-      const velocity = this.fireDir.copy(this.shotDir).multiplyScalar(speed).add(this.soldier.velocity);
-      this.world.remoteLaunch(weapon, this.origin, velocity, this.soldier.aimYaw, this.team, shot.launchAdmission);
-      if (this.firstPerson) this.view?.play("throw", weapon);
-      return;
-    }
-    const ordnance = weapon.def.ordnance;
-    if (!ordnance) return;
-    if (ordnance.base === "emitterordnance") {
-      this.arc(shot, ordnance);
-      this.presentProjectileShot(weapon);
-      return;
-    }
-    // Collision starts at the gameplay gun origin. Resolve the visible
-    // muzzle after presentation has posed the wrist/weapon and camera;
-    // a headless worker's actor transform is not a rendered muzzle.
-    const dir = this.fireDir.copy(this.shotDir);
-    // A droideka's guns take turns, each firing at the aim point.
-    let from = this.origin;
-    const gun = this.soldier.nextGun?.(this.gunPoint);
-    if (gun) {
-      from = gun;
-      dir.subVectors(this.target, gun).normalize();
-      // A close surface between the eye and barrels cannot make a shot turn
-      // back through the droideka. Keep firing into the forward hemisphere.
-      if (dir.dot(this.aimDir) <= 0) dir.copy(this.aimDir);
-    }
-    networkShotDirection(this.owner,dir,weapon.channel);
-    // The spread (and a pattern's offset, and the kick): turn about the
-    // vertical, then tip about the horizontal.
-    dir.applyAxisAngle(THREE.Object3D.DEFAULT_UP, shot.yaw);
-    const side = this.side.set(dir.z, 0, -dir.x).normalize();
-    dir.applyAxisAngle(side, -(shot.pitch + this.kick.offset));
-    if (weapon.def.ShotElevate) {
-      dir.y += weapon.def.ShotElevate;
-      dir.normalize();
-    }
-    if (gun && this.soldier.gunAt) {
-      const payload = {
-        shot, selected: { ...this.soldier.lastGun }, target: this.target.clone(),
-        forward: this.aimDir.clone(), kick: this.kick.offset,
-      };
-      if (this.deferMuzzles) this.pendingMuzzles.push(payload);
-      else this.emitGunRound(payload);
-    } else {
-      this.world.fireRound(ordnance, from, dir, shot, !weapon.thrown);
-    }
-    // Each round kicks the aim.
-    if (weapon.def.KickStrength) {
-      this.kick.rate += KICK_RATE * weapon.def.KickStrength * DEG;
-      this.kick.hold += (1 / (weapon.def.KickBuildup || 2) + 2) * weapon.def.ShotDelay;
-    }
-    this.presentProjectileShot(weapon, gun ? this.soldier.lastGun : null);
   }
 
   // Shared local/replicated projectile presentation. It deliberately contains
@@ -798,122 +418,6 @@ export class PlayerCombat {
     }
     this.flash(weapon);
     if (this.firstPerson) this.view?.flash(weapon, gun);
-  }
-
-  // Emit after the fixed tick has sampled the physical built-in gun rig.
-  // Rendering must never decide when a projectile enters the world.
-  flushMuzzles() {
-    for (const payload of this.pendingMuzzles) this.emitGunRound(payload);
-    // Popped empty: setting the length to 0 costs a runtime call every tick.
-    while (this.pendingMuzzles.length) this.pendingMuzzles.pop();
-  }
-
-  emitGunRound({ shot, selected, target, forward, kick }) {
-    const from = this.soldier.gunAt(this.gunPoint, selected);
-    if (!from) return;
-    networkShotTarget(this.owner, this.origin, target, shot.weapon.channel);
-    const dir = this.fireDir.subVectors(target, from).normalize();
-    if (dir.dot(forward) <= 0) dir.copy(forward);
-    dir.applyAxisAngle(THREE.Object3D.DEFAULT_UP, shot.yaw);
-    this.side.set(dir.z, 0, -dir.x).normalize();
-    dir.applyAxisAngle(this.side, -(shot.pitch + kick));
-    if (shot.weapon.def.ShotElevate) { dir.y += shot.weapon.def.ShotElevate; dir.normalize(); }
-    // The hidden world rig supplies physical collision, while the visible
-    // first-person barrels supply the beam's start in the rendered view.
-    this.world.fireRound(shot.weapon.def.ordnance, from, dir, shot, true, selected);
-  }
-
-  bindRoundMuzzle(round, weapon, selected = null) {
-    // These identities cross the worker boundary; the closure does not.
-    round.weapon = weapon;
-    round.muzzleGeneration = this.owner?.generation ?? null;
-    round.muzzleIndex = selected?.index ?? -1;
-    round.muzzleBarrel = selected?.barrel ?? -1;
-    round.visualMuzzle = () => this.roundMuzzle(round);
-  }
-
-  roundMuzzle(round) {
-    if (round.muzzleGeneration != null && this.owner?.generation !== round.muzzleGeneration) return null;
-    if (round.muzzleIndex >= 0) {
-      const selected = { index: round.muzzleIndex, barrel: round.muzzleBarrel };
-      return this.firstPerson && this.view
-        ? this.view.muzzlePoint?.(selected, this.muzzlePoint)
-        : this.soldier.visualGunAt?.(this.muzzlePoint, selected);
-    }
-    return this.firePoint(round.weapon)?.position ?? null;
-  }
-
-  // The arc caster's shot (see the top of the file). It starts at
-  // the gun origin, never at a held model's muzzle: a world worker's body is
-  // never posed, so its hand stays where it last stood.
-  arc(shot, def) {
-    const charge = shot.charge ?? 1;
-    const channel = shot.weapon?.channel ?? 0;
-    const P = this.origin.clone();
-    // Along the shot (the aimer's direction): converged on the crosshair in
-    // third person, a network player's own aim at the trigger.
-    const D = networkShotDirection(this.owner, this.shotDir.clone(), channel).normalize();
-    const L = def.ConeLength ?? 10;
-    const sine = Math.sin((((def.ConeAngle ?? 60) / 2) * Math.PI) / 180);
-    // The gathering box: ConeLength each way about 0.9 x ConeLength down the
-    // shot, against each target's bounds.
-    const C = P.clone().addScaledVector(D, 0.9 * L);
-    const toward = new THREE.Vector3();
-    const candidates = [];
-    const targets = this.world.arcTargets();
-    for (let index = 0; index < targets.length; index++) {
-      const target = targets[index];
-      const c = target.center ?? target.origin;
-      const r = L + (target.radius ?? 0);
-      if (Math.abs(c.x - C.x) > r || Math.abs(c.y - C.y) > r || Math.abs(c.z - C.z) > r) continue;
-      toward.subVectors(target.origin, P);
-      const a = toward.dot(D);
-      if (!(a < L)) continue;
-      // Inside the cone about the shot's line, either way along it.
-      if (!(toward.addScaledVector(D, -a).lengthSq() < (sine * a) ** 2)) continue;
-      candidates.push({ target, index, a });
-    }
-    candidates.sort((x, y) => x.a - y.a);
-    const bolt = this.world.lightning(def.LightningEffect);
-    let damage = (def.Damage ?? 0) + ((def.MaxDamage ?? 0) - (def.Damage ?? 0)) * charge;
-    const from = P.clone();
-    const T = new THREE.Vector3();
-    const dir = new THREE.Vector3();
-    let prev = 0;
-    let links = 0;
-    for (const { target, index, a } of candidates) {
-      if (links >= (def.MaxTargets ?? 5) || damage < (def.DamageThreshold ?? 0)) break;
-      if (a - prev > (links === 0 ? L : def.MaxJumpDistance ?? 10)) break;
-      T.copy(target.origin);
-      T.y += 1;
-      // Blocked from where its arc starts, or (the first) its point too far
-      // off the shot's line.
-      const span = dir.subVectors(T, from).length();
-      if (span > 1e-3 && this.world.cast(from, dir.divideScalar(span), span, this.hit)) continue;
-      if (links === 0 && def.FirstRadius > 0) {
-        toward.subVectors(T, P);
-        if (toward.addScaledVector(D, -toward.dot(D)).lengthSq() > def.FirstRadius ** 2) continue;
-      }
-      prev = a;
-      if (damage > 0) this.world.hurtArcTarget(index, damage, from.clone());
-      if (bolt) {
-        this.lightningBolt(def.LightningEffect, bolt, from, T, charge, links === 0 ? channel : null);
-        if (links === 0 || (this.random || legacyArc)() > 0.3) from.copy(T);
-      }
-      links += 1;
-      damage -= def.DamageDropPerTarget ?? 0;
-    }
-    if (!links && bolt) {
-      const hit = this.world.cast(P, D, L, this.hit);
-      this.lightningBolt(def.LightningEffect, bolt, P, T.copy(P).addScaledVector(D, hit ? hit.distance : L), charge, channel);
-    }
-  }
-
-  // One tick of a repair weapon: the target's health raised. Its sparks are
-  // the page's (presentRepairTick), when the tick's shot reaches it.
-  repairTick(weapon) {
-    const d = weapon.def;
-    if (this.world.repair(d, this.repairTarget, this.team)) weapon.heat += d.HeatPerShot || 0;
   }
 
   // A repair tick as drawn: the weapon's MuzzleFlashEffect (the fusion
@@ -955,22 +459,6 @@ export class PlayerCombat {
     return this.at;
   }
 
-  // A dispenser's throw: its item leaves the gun origin along the aim at
-  // Velocity x lerp(MinStrength, MaxStrength, charge), plus the soldier's own
-  // velocity. Nothing spent if there was no room for it.
-  dispense(shot) {
-    const weapon = shot.weapon;
-    const d = weapon.def;
-    const strength = (d.MinStrength ?? 0.3) + ((d.MaxStrength ?? 1) - (d.MinStrength ?? 0.3)) * (shot.charge ?? 1);
-    const velocity = this.fireDir.copy(this.shotDir).multiplyScalar((d.Velocity ?? 10) * strength).add(this.soldier.velocity);
-    const made = this.world.dispense(d.class, d.MaxItems || 0, d.item, this.origin, velocity, this.soldier.aimYaw, this.owner, this.team);
-    if (!made) {
-      if (!weapon.bottomless) weapon.clip = Math.min(weapon.clip + weapon.perShot, 1);
-      weapon.heat = Math.max(weapon.heat - (d.HeatPerShot || 0), 0);
-    }
-    if (this.firstPerson) this.view?.play("throw", weapon);
-  }
-
   // The muzzle flash: the flash mesh for FlashLength, at full alpha for its
   // first half and fading through the second, and a light for
   // FlashLightDuration. Each round restarts its barrel's flash (it sets the
@@ -998,114 +486,6 @@ export class PlayerCombat {
       held.flash.visible = held.flashLeft > 0 && held.group.visible;
       held.flash.userData.material.opacity = held.flashAlpha * Math.min(2 * Math.max(t, 0), 1);
     }
-  }
-
-  // An explosion at `position`: damage and push on the soldier (the camera's
-  // shake is the page's: src/camera-shake.js). `owner` is credited with any
-  // damage; `scale` is the battle's friendly fire factor for it (the push
-  // doesn't take it). A soldier the
-  // blast kills is thrown all the same; a body already dead takes the push
-  // alone, so a corpse lying on the field is tossed like anyone else.
-  explode(explosion, position, owner = null, scale = 1) {
-    const s = this.soldier;
-    const wasDead = this.dead;
-    // Nothing is left to throw of a droid that went up in pieces, and a
-    // droideka's hull never takes the infantry launch impulse.
-    if (wasDead && (this.blowApart || this.def.base === "walkerdroid")) return;
-    // His blast sphere and sight point by stance (a body lies prone, a
-    // soldier in the air stands).
-    const [middle, radius, sight] = BLAST_BODY[wasDead ? "prone" : s.air ? "stand" : s.posture] || BLAST_BODY.stand;
-    const center = this.worldPoint.copy(s.position);
-    center.y += middle;
-    const away = new THREE.Vector3().subVectors(center, position);
-    const span = away.length();
-    const distance = blastDistance(position, center, radius);
-    let push = (explosion.Push || 0) * falloff(distance, explosion.PushRadiusInner || 0, explosion.PushRadiusOuter || 0);
-    const damage = scale * (explosion.Damage || 0) * blastShare(explosion, distance), typed = explosion[this.scale] ?? 1;
-    // What the blast does to him: throws him, or hurts him (damage() takes
-    // any amount that is not zero or less) and shows him where it came
-    // from. Beyond its reach it does neither, so nothing has to shield him:
-    // the sight test, a ray through the map that every explosion made for
-    // every soldier on the field, is not made.
-    const hurts = !wasDead && (damage > 0 || !(damage * typed <= 0));
-    if (!(push > 0) && !hurts) return;
-    // Terrain or a building between the blast and his sight point shields him.
-    if (blastBlocked(this.world, position, SIGHT_POINT.set(s.position.x, s.position.y + sight, s.position.z))) return;
-    if (span > 1e-3) away.divideScalar(span);
-    // The push is rolled before the damage: a droid the blast would push
-    // may be marked to blow apart at its death instead, and is left
-    // unpushed by this blast. A turret's gunner (the only one seated a
-    // blast reaches: SeatLease.blastable) is never pushed while he mans
-    // it, as the 2004 game's push skips a soldier in a seat.
-    if (push > 0 && this.chunks && !wasDead && !this.mounted && s.air !== "thrown" && (this.random || legacyChunks)() <= this.chunks) {
-      this.blowApart = true;
-      push = 0;
-    }
-    if (!wasDead) {
-      const info = { kind: "explosion", amount: damage, typed, generic: explosion.ShieldScale ?? 1, known: false, point: null };
-      this.damage(damage * info.typed, damage * info.generic, position, owner, info);
-      // The HUD shows which side it came from (positive to the right).
-      if (damage > 0 && this.hud) {
-        const toward = this.from.subVectors(position, center);
-        const yaw = s.aimYaw;
-        this.hud.damageFrom(damageDirection(toward.x, toward.z, yaw));
-      }
-    }
-    // Thrown whole, alive or killed by this blast; a droid that blew apart
-    // at its death has no body left. Droidekas take blast damage but never
-    // use the infantry launch impulse. A gunner it killed has left his gun
-    // by now (src/boarding.js leaveKilled), and his body is thrown too.
-    if (push > 0 && !this.mounted && !(this.dead && this.blowApart) && this.def.base !== "walkerdroid") {
-      s.velocity.addScaledVector(away, push);
-      s.velocity.y += 0.6 * push;
-      if (s.velocity.y > THROWN_SPEED && s.air !== "thrown") {
-        s.air = "thrown";
-        s.stateTime = 0;
-        s.grounded = false;
-      }
-    }
-  }
-
-  // amount: the damage to health; onShield: what the same attack does to a
-  // shield (a droideka's takes it first). attacker: who is credited. info:
-  // the hit as the AI's alerts read it ({ amount: the packet's base damage,
-  // typed and generic: its health-type and shield scales, known, point }).
-  damage(amount, onShield = amount, source = null, attacker = null, info = null) {
-    if (this.dead || amount <= 0) return;
-    if (this.soldier.absorb) amount = this.soldier.absorb(amount, onShield, source, info?.kind);
-    if (amount <= 0) return;
-    this.health -= amount;
-    if (this.player) emitSound(this.health > 0 ? "hurt" : "death", this, amount);
-    else emitSound(this.health > 0 ? "actorHurt" : "actorDeath", this, amount);
-    this.lastAttacker = attacker;
-    this.world.damaged(amount, attacker, { ...info, source });
-    if (this.health <= 0) {
-      const left = this.health;
-      this.health = 0;
-      this.dead = true;
-      this.deathTime = 0;
-      this.zoomed = false;
-      const apart = this.chunks && this.soldier.air !== "thrown" && (this.blowApart || (this.random || legacyChunks)() <= this.chunks);
-      // Dead, the mark records what became of the body: a blast reaching
-      // it later finds whether anything is left to throw.
-      this.blowApart = Boolean(apart);
-      if (apart) this.world.blownApart(left);
-      else this.animator.die();
-      this.updateHeld();
-      this.world.died();
-    }
-  }
-
-  // Melee invokes the defender's selected-weapon block hook. Stock cloned
-  // sabers use effective CanDeflect=0; explicit custom overrides can block
-  // melee. Projectile rebound is a separate, not yet wired ordnance hook.
-  tryMeleeBlock(direction, point) {
-    if (this.dead || this.mounted) return false;
-    const weapon = this.arsenal.current(0);
-    if (weapon?.def.base !== "melee" || !Number(weapon.def.CanDeflect)) return false;
-    this.effects?.play?.("lightsabre_deflect", point);
-    this.world.presentation({kind:'effect',name:'lightsabre_deflect',position:point.toArray()});
-    return true;
   }
 
   // The HUD while flying a droid: its weapons and health, its reticle, and

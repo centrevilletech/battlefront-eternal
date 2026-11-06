@@ -1,30 +1,11 @@
-use super::{clock, events, local, step, network, separation::Separation};
+use super::{clock, events, local, step, network};
 use crate::abi::sim;
-use crate::gen::{WsSeparation, WsSeparationResult, WorldClockInput, WorldClockResult, WorldClockState, WorldClockOperation, WorldClockCall, WorldClockArgs, import_world_clock};
+use crate::gen::{WorldClockInput, WorldClockResult, WorldClockState, WorldClockOperation, WorldClockCall, WorldClockArgs, import_world_clock};
 use crate::gen::{WorldEventState, WorldEventInput, WorldEventOperation, WorldEventCall, WorldEventArgs, import_world_events};
 use crate::gen::{WorldLocalState, WorldLocalInput, WorldLocalOperation, WorldLocalCall, WorldLocalArgs, import_world_local};
 use crate::gen::{WorldStepState, WorldStepInput, WorldStepCall, WorldStepArgs, WorldStepReply, import_world_step};
 use crate::gen::{WorldNetworkState, WorldNetworkInput, WorldNetworkCall, WorldNetworkArgs, import_world_network};
 use crate::gen::{WorldControlsCall, WorldControlsArgs, WorldControlsReply, import_world_controls};
-use std::ptr::addr_of_mut;
-
-static mut SEPARATION: Option<Separation> = None;
-
-#[no_mangle]
-pub extern "C" fn world_separation_words(which: u32) -> u32 {
-    (match which { 0 => WsSeparation::WORDS, 1 => WsSeparationResult::WORDS, _ => 0 }) as u32
-}
-
-#[no_mangle]
-pub extern "C" fn world_separate() -> *const f64 {
-    let sim = sim(); let (row, heap) = sim.calls.args();
-    let input = WsSeparation::take(row, heap);
-    // One module instance, one thread, no host callbacks in the crowd pass.
-    let phase = unsafe { (*addr_of_mut!(SEPARATION)).get_or_insert_with(Separation::default) };
-    let out = phase.run(input);
-    sim.calls.result(WsSeparationResult::WORDS, |row, heap| out.put(row, heap));
-    sim.calls.block.ptr()
-}
 
 struct ClockHost;
 impl ClockHost {
@@ -112,7 +93,6 @@ pub extern "C" fn world_local_run() -> *const f64 {
     let input = { let (row, heap) = sim().calls.args(); WorldLocalInput::take(row, heap) };
     let mut state = input.state;
     match input.op {
-        WorldLocalOperation::Player => local::player(&mut state, input.dt, &mut LocalHost),
         WorldLocalOperation::Tail => local::tail(&mut state, input.dt, &mut LocalHost),
     }
     let sim = sim();
@@ -123,6 +103,7 @@ pub extern "C" fn world_local_run() -> *const f64 {
 struct StepHost;
 impl step::Host for StepHost {
     fn call(&mut self, state: &mut WorldStepState, op: WorldStepCall, value: f64, flag: bool) -> WorldStepReply {
+        if op == WorldStepCall::PlayerCount { crate::units::f3::viewpoint_count(value); }
         let reply = import_world_step(&WorldStepArgs { op, value, flag });
         *state = reply.state.clone();
         reply

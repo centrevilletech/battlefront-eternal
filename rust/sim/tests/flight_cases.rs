@@ -167,7 +167,7 @@ impl<'c> VehicleWorld for Scripted<'c> {
     fn ground(&mut self, _: f64, _: f64, _: f64) -> Option<Ground> {
         unreachable!()
     }
-    fn spring_polygons(&mut self, _: usize, _: usize, _: &Vector3, _: f64, _: &mut Vec<Polygon>) {
+    fn spring_polygons<'a>(&'a mut self, _: usize, _: usize, _: &Vector3, _: f64, _: &'a mut Vec<Polygon>) -> bfe_sim::vehicles::SpringPolygons<'a> {
         unreachable!()
     }
     fn move_body(&mut self, _: BodyId, _: &Matrix4) {

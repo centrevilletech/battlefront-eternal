@@ -43,7 +43,7 @@ impl From<&Target> for PbTarget {
 impl From<PbSupply> for Supply {
     fn from(v: PbSupply) -> Self { Self { position: v3(v.position), radius: v.radius, delay: v.delay, health: v.health, ammo: v.ammo, vehicle_health: v.vehicle_health, vehicle_ammo: v.vehicle_ammo } }
 }
-fn settings(v: PbSettings) -> Settings {
+pub(crate) fn settings(v: PbSettings) -> Settings {
     let mut matrix = Matrix4::default(); matrix.from_array(&v.matrix, 0);
     Settings { kind: match v.kind { PbKind::Building => Kind::Building, PbKind::Turret => Kind::Turret, PbKind::Objective => Kind::Objective },
         max_health: v.max_health, respawn_time: v.respawn_time, built_add_health: v.built_add_health, regenerates: v.regenerates,

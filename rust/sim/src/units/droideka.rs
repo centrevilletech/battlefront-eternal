@@ -13,7 +13,7 @@
 use super::damage::contact_damage;
 use super::shapes::{arr, v3};
 use super::unit::or_zero;
-use super::world::{GatherPolygon, UnitsWorld};
+use super::world::{UnitsWorld};
 use crate::collision::spheres::closest_point_to_point;
 use crate::gen::{BonePose, Droideka, RigAnimator, Unit, UnitBody};
 use crate::pose::Clip;
@@ -386,7 +386,6 @@ fn collide(id: u32, d: &mut Droideka, world: &mut dyn UnitsWorld) {
     let r = if ball { d.ball_radius } else { BODY_RADIUS };
     let mut n = Vector3::default();
     let mut grounded = false;
-    let mut polygons: Vec<GatherPolygon> = Vec::new();
     let mut position = v3(d.position);
     let mut velocity = v3(d.velocity);
     let mut avoidance = v3(d.avoidance);
@@ -394,7 +393,7 @@ fn collide(id: u32, d: &mut Droideka, world: &mut dyn UnitsWorld) {
         let c = Vector3 { x: position.x, y: position.y + r, z: position.z };
         let mut best = f64::INFINITY;
         let mut moving = false;
-        world.visit_gathered(id, &c, r, if ball { 1 } else { 0 }, &mut polygons, &mut |is_moving, tri| {
+        world.visit_gathered(id, &c, r, if ball { 1 } else { 0 }, &mut |is_moving, tri| {
             let p = closest_point_to_point(arr(&tri[0]), arr(&tri[1]), arr(&tri[2]), arr(&c));
             let closest = v3(p);
             let distance = closest.distance_to(&c);
@@ -533,7 +532,14 @@ pub fn take_animator(a: &mut RigAnimator, rig: &DroidekaRig) {
     a.went_up_rolled = r.went_up_rolled;
     a.roll_origin = r.roll_origin;
     a.transition = r.transition;
-    a.from = r.from_q.iter().zip(&r.from_p).map(|(q, p)| BonePose { q: [q.x, q.y, q.z, q.w], p: arr(p) }).collect();
+    // DroidekaRig's saved transition pose has a fixed bone count. Retain
+    // the imported animator's storage rather than replacing it each tick.
+    a.from.resize_with(r.from_q.len(), BonePose::default);
+    for i in 0..r.from_q.len() {
+        let q = &r.from_q[i];
+        a.from[i].q = [q.x, q.y, q.z, q.w];
+        a.from[i].p = arr(&r.from_p[i]);
+    }
     a.pivot = arr(&r.pivot);
     a.roll_center = arr(&r.roll_center);
 }
