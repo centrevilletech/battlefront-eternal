@@ -2,245 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { EngineRandom } from '../src/atmosphere.js';
-import { FADE_RATE, HAZE, KILL_MARGIN, PRE_ROLL, REACH, SKY_SETTING, SkyFlyers, battleFlyers, enhancedSky, flyEnhanced, flyerMaterial, fly, haze, launch,
-  launchEnhanced, placement, withinReach } from '../src/sky-flyers.js';
+import { SKY_SETTING, SkyFlyers, battleFlyers, enhancedSky, flyerMaterial } from '../src/sky-flyers.js';
+import { loadEnvironment } from '../src/environment/module.js';
+import { runSky } from './support/sky-scenario.js';
 
+await loadEnvironment();
+
+const FADE_RATE = 0.25, KILL_MARGIN = 10, PRE_ROLL = 4, REACH = 0.98;
 // Geonosis's classes as tools/zero_sky.py writes them.
 const ASSAULT = { model: 'rep_fly_assault_dome', count: 2, height: [200, 300], velocity: [[0, 0], [0, 0], [20, 50]], acceleration: [0, 0, 0], distance: 1500, inDirection: 2, lifeTime: 1000 };
 const GUNSHIP = { model: 'rep_fly_gunship_dome', count: 20, height: [80, 140], velocity: [[0, 0], [-10, 10], [80, 120]], acceleration: [0, 0, 0], distance: 600, inDirection: 0.5, lifeTime: 1000 };
 const CORE = { model: 'cis_fly_techounion_dome', count: 8, height: [0, 0], velocity: [[0, 0], [10, 12], [0, 0]], acceleration: [0, 2, 0], distance: 1000, inDirection: 3, lifeTime: 80 };
 
-// A random source that hands out the values given, in order.
-const scripted = (...values) => ({ float: () => { assert.ok(values.length, 'no more draws'); return values.shift(); } });
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
-
-test('a ship starts Distance out across the ground, at a height in range, faded out', () => {
-  const random = new EngineRandom(5);
-  for (let i = 0; i < 200; i++) {
-    const ship = launch(GUNSHIP, random);
-    assert.ok(near(Math.hypot(ship.position.x, ship.position.z), 600, 1e-6));
-    assert.ok(ship.position.y >= 80 && ship.position.y <= 140);
-    assert.equal(ship.fade, 0);
-    // Level, its heading a unit vector.
-    assert.equal(ship.forward.y, 0);
-    assert.ok(near(ship.forward.length(), 1, 1e-12));
-    // Turned inward from across by InDirectionFactor / 2 to InDirectionFactor:
-    // the inward part of its heading over the across part.
-    const inward = new THREE.Vector3(-ship.position.x, 0, -ship.position.z).normalize();
-    const along = ship.forward.dot(inward), across = Math.sqrt(1 - along * along);
-    assert.ok(along > 0, 'heads inward');
-    assert.ok(along / across >= 0.25 - 1e-9 && along / across <= 0.5 + 1e-9, `inward ${along / across}`);
-    const [vx, vy, vz] = ship.velocity;
-    assert.equal(vx, 0);
-    assert.ok(vy >= -10 && vy <= 10 && vz >= 80 && vz <= 120);
-    assert.ok(ship.age >= 800 && ship.age <= 1000, 'its age starts at 80% to 100% of LifeTime');
-  }
-});
-
-test('the draws come in the original game order: z, x, height, side, inward, forward, up, right, age', () => {
-  // z 0.9 - 0.5 = 0.4, x 0.2 - 0.5 = -0.3: the direction (-0.6, 0, 0.8).
-  const ship = launch(ASSAULT, scripted(0.9, 0.2, 0.5, 0.75, 1, 0.5, 0.25, 0.125, 0));
-  assert.ok(near(ship.position.x, -900) && near(ship.position.z, 1200) && near(ship.position.y, 250));
-  // Across: up x direction = (0.8, 0, 0.6), flipped (0.75 > 0.5); then
-  // turned inward by the whole factor (draw 1): -2 x direction.
-  const tx = -0.8 + 1.2, tz = -0.6 - 1.6, length = Math.hypot(tx, tz);
-  assert.ok(near(ship.forward.x, tx / length) && near(ship.forward.z, tz / length));
-  assert.deepEqual(ship.velocity, [0, 0, 35]);
-  assert.equal(ship.age, 800);
-  // A zero direction is drawn again; no flip at exactly 0.5.
-  const again = launch({ ...ASSAULT, inDirection: 0 }, scripted(0.5, 0.5, 0.5, 1, 0, 0.5, 0, 0, 0, 0.5));
-  assert.ok(near(again.position.x, 1500) && near(again.position.z, 0) && near(again.position.y, 200), 'the second pair: z 0, x 0.5');
-  assert.ok(near(again.forward.x, 0) && near(again.forward.z, -1), 'straight across with no inward factor');
-  assert.equal(again.age, 900);
-});
-
-test('a ship flies its velocity in its own axes, and never turns', () => {
-  const def = { ...GUNSHIP, velocity: [[3, 3], [-10, -10], [100, 100]] };
-  const ship = launch(def, new EngineRandom(2));
-  const start = ship.position.clone(), forward = ship.forward.clone();
-  const right = new THREE.Vector3(forward.z, 0, -forward.x);
-  for (let i = 1; i <= 120; i++) assert.equal(fly(def, ship, 1 / 60), true);
-  const moved = ship.position.clone().sub(start);
-  assert.ok(near(moved.dot(forward), 200, 1e-6) && near(moved.dot(right), 6, 1e-6) && near(moved.y, -20, 1e-6));
-  assert.ok(ship.forward.equals(forward));
-});
-
-test('a ship fades in over 4 s and stays', () => {
-  const def = { ...GUNSHIP, velocity: [[0, 0], [0, 0], [0, 0]] };
-  const ship = launch(def, new EngineRandom(2));
-  for (let i = 1; i <= 60; i++) fly(def, ship, 1 / 60);
-  assert.ok(near(ship.fade, FADE_RATE, 1e-9), 'a quarter in after a second');
-  for (let i = 1; i <= 180; i++) fly(def, ship, 1 / 60);
-  assert.ok(near(ship.fade, 1, 1e-9));
-  for (let i = 0; i < 600; i++) fly(def, ship, 1 / 60);
-  assert.equal(ship.fade, 1, 'held at full');
-});
-
-test('Acceleration adds to the velocity before it moves: the core ships rise faster and faster', () => {
-  const ship = launch(CORE, scripted(0.9, 0.2, 0.5, 0.25, 0.5, 0, 0.5, 0, 0));
-  assert.deepEqual(ship.velocity, [0, 11, 0]);
-  assert.equal(ship.position.y, 0);
-  fly(CORE, ship, 0.5);
-  assert.ok(near(ship.velocity[1], 12) && near(ship.position.y, 6));
-  fly(CORE, ship, 0.5);
-  assert.ok(near(ship.velocity[1], 13) && near(ship.position.y, 12.5));
-});
-
-test('past Distance + 10 m across the ground a ship fades out over 4 s, still flying, then starts again', () => {
-  const def = { ...GUNSHIP, inDirection: 0, velocity: [[0, 0], [0, 0], [100, 100]] };
-  const ship = launch(def, new EngineRandom(9));
-  let frames = 0;
-  while (ship.fade >= 0) {
-    assert.equal(fly(def, ship, 0.05), true);
-    assert.ok(++frames < 400);
-  }
-  // It went out of range on that frame's check, after the last move.
-  const reach = def.distance + KILL_MARGIN;
-  const away = () => Math.hypot(ship.position.x, ship.position.z);
-  assert.ok(away() > reach && away() < reach + 5.1);
-  assert.ok(near(ship.fade, -1 + 0.05 * FADE_RATE, 1e-9));
-  const fading = [];
-  let last = away();
-  while (fly(def, ship, 0.05)) {
-    fading.push(Math.abs(ship.fade));
-    assert.ok(away() > last, 'still flying');
-    last = away();
-  }
-  assert.ok(fading.length >= 78 && fading.length <= 80, `${fading.length} frames fading`);
-  assert.ok(fading.every((a, i) => i === 0 || a < fading[i - 1]), 'its alpha falls');
-  // Then it starts again, Distance out.
-  launch(def, new EngineRandom(10), ship);
-  assert.equal(ship.fade, 0);
-  assert.ok(near(away(), def.distance, 1e-6));
-});
-
-test('a ship lives until its age passes LifeTime: at most a fifth of it', () => {
-  const ship = launch(CORE, scripted(0.9, 0.2, 0.5, 0.25, 0.5, 0, 0.5, 0, 0.5));
-  assert.equal(ship.age, 72);
-  let t = 0;
-  while (ship.fade >= 0) { fly(CORE, ship, 0.25); t += 0.25; }
-  // Checked before each frame's step: 72 + 8 s is not past 80, 80.25 is.
-  assert.ok(near(t, 8.5), `ended after ${t} s`);
-});
-
-test("a ship's placement: its model's z along its heading, x to its right, y up", () => {
-  const ship = { position: new THREE.Vector3(10, 20, 30), forward: new THREE.Vector3(0.6, 0, 0.8) };
-  const m = placement(ship);
-  assert.ok(near(m.determinant(), 1, 1e-12), 'a turn, not a mirror');
-  const nose = new THREE.Vector3(0, 0, 1).applyMatrix4(m), side = new THREE.Vector3(1, 0, 0).applyMatrix4(m), top = new THREE.Vector3(0, 1, 0).applyMatrix4(m);
-  assert.ok(near(nose.x, 10.6) && near(nose.y, 20) && near(nose.z, 30.8));
-  // Right is up x forward: (0.8, 0, -0.6).
-  assert.ok(near(side.x, 10.8) && near(side.z, 29.4));
-  assert.ok(near(top.y, 21));
-  // Facing +z it is the model as it is.
-  assert.ok(placement({ position: new THREE.Vector3(), forward: new THREE.Vector3(0, 0, 1) }).equals(new THREE.Matrix4()));
-});
-
-test('materials follow the MTRL flags and blend by the fade from the opaque queue', () => {
-  const map = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
-  const lit = flyerMaterial({ flags: 0x1 }, map), unlit = flyerMaterial({ flags: 0 }, map);
-  const glass = flyerMaterial({ flags: 0x5 }, map), cut = flyerMaterial({ flags: 0x3 }, map), glow = flyerMaterial({ flags: 0x81 }, map);
-  assert.ok('LIT' in lit.defines && !('LIT' in unlit.defines));
-  assert.ok('BLENDED' in glass.defines && 'ALPHA_TEST' in cut.defines && 'ADDITIVE' in glow.defines && !('BLENDED' in glow.defines));
-  for (const material of [lit, unlit, glass, cut]) {
-    assert.equal(material.transparent, false);
-    assert.equal(material.blending, THREE.CustomBlending);
-    assert.equal(material.blendSrc, THREE.SrcAlphaFactor);
-    assert.equal(material.blendDst, THREE.OneMinusSrcAlphaFactor);
-    assert.equal(material.depthTest, true);
-    assert.equal(material.uniforms.map.value, map);
-  }
-  // Opaque parts write depth, even fading, as in the original game; blended
-  // ones (0x84) never do.
-  assert.deepEqual([lit, unlit, cut, glass, glow].map(m => m.depthWrite), [true, true, true, false, false]);
-  assert.equal(glow.blendDst, THREE.OneFactor);
-  assert.equal(flyerMaterial({ flags: 0x5 | 0x80 }, map).side, THREE.DoubleSide);
-  // Enhanced's fading ships write none at all.
-  assert.equal(flyerMaterial({ flags: 0x1 }, map, { fading: true }).depthWrite, false);
-  // No fog and no near-scene cut: the shader is the far scene's own.
-  assert.ok(!/fog|fade\.x/.test(lit.fragmentShader));
-});
-
-test('Enhanced: a ship starts its fade-in 4 s back along its course, and is solid where the original starts it', () => {
-  for (const def of [GUNSHIP, CORE, ASSAULT, { ...GUNSHIP, inDirection: 0 }]) {
-    for (let seed = 1; seed < 20; seed++) {
-      const original = launch(def, new EngineRandom(seed));
-      const ship = launchEnhanced(def, new EngineRandom(seed));
-      assert.equal(ship.fade, 0);
-      assert.equal(ship.entered, false);
-      assert.ok(near(ship.age, original.age - PRE_ROLL, 1e-9));
-      assert.ok(ship.position.distanceTo(original.position) > 0 || def.velocity.every(([a, b]) => a === 0 && b === 0));
-      // Outside its ring at first (unless it only climbs), never cut off there.
-      const steps = Math.round(PRE_ROLL * 120);
-      for (let i = 0; i < steps; i++) assert.equal(flyEnhanced(def, ship, 1 / 120), true);
-      assert.ok(near(ship.fade, 1, 1e-9), 'faded in');
-      assert.ok(ship.position.distanceTo(original.position) < 0.05 + 0.5 * Math.hypot(...def.acceleration) * PRE_ROLL / 120 * PRE_ROLL,
-        `${def.model}: at the original start, ${ship.position.distanceTo(original.position)}`);
-      ship.velocity.forEach((v, k) => assert.ok(near(v, original.velocity[k], 1e-9)));
-      assert.ok(ship.forward.equals(original.forward));
-    }
-  }
-});
-
-test('Enhanced: once inside its ring a ship leaves it and fades out from where it is, without the jump', () => {
-  const def = { ...GUNSHIP, inDirection: 0, velocity: [[0, 0], [0, 0], [100, 100]] };
-  const ship = launchEnhanced(def, new EngineRandom(9));
-  let frames = 0, entered = -1;
-  while (ship.fade >= 0) {
-    assert.equal(flyEnhanced(def, ship, 0.05), true);
-    if (ship.entered && entered < 0) entered = frames;
-    assert.ok(++frames < 600);
-  }
-  assert.ok(entered >= 0, 'it went inside first');
-  // Out of range on that frame's check: it fades out from full.
-  const away = () => Math.hypot(ship.position.x, ship.position.z);
-  assert.ok(away() > def.distance + KILL_MARGIN);
-  assert.ok(near(ship.fade, -1 + 0.05 * FADE_RATE, 1e-9));
-  // Cut off mid fade-in (its life), it fades out from that alpha.
-  const young = launchEnhanced({ ...def, lifeTime: 1000 }, new EngineRandom(3));
-  for (let i = 0; i < 20; i++) flyEnhanced(def, young, 0.05);
-  const alpha = young.fade;
-  young.age = def.lifeTime + 1;
-  flyEnhanced(def, young, 0.05);
-  assert.ok(near(Math.abs(young.fade), alpha - 0.05 * FADE_RATE, 1e-9), 'no jump to full');
-  let last = Math.abs(young.fade), steps = 0;
-  while (flyEnhanced(def, young, 0.05)) { assert.ok(Math.abs(young.fade) < last); last = Math.abs(young.fade); steps++; }
-  assert.ok(steps < 1 / (0.05 * FADE_RATE));
-});
-
-test('Enhanced: a ship past the far plane is drawn scaled toward the eye, its image unchanged, inside the far plane', () => {
-  const camera = new THREE.PerspectiveCamera(60, 16 / 9, 2, 500);
-  camera.position.set(10, 5, -20);
-  const ship = { position: new THREE.Vector3(900, 400, 1200), forward: new THREE.Vector3(0.6, 0, 0.8) };
-  camera.lookAt(ship.position);
-  camera.updateMatrixWorld();
-  const matrix = placement(ship), drawn = new THREE.Matrix4();
-  const radius = 300;
-  const scale = withinReach(matrix, camera.position, radius, 500, drawn);
-  const distance = ship.position.distanceTo(camera.position);
-  assert.ok(near(scale, 500 * REACH / (distance + radius), 1e-12));
-  for (const corner of [[0, 0, 0], [150, 60, -270], [-150, 0, 270], [100, 180, 0]]) {
-    const a = new THREE.Vector3(...corner).applyMatrix4(matrix), b = new THREE.Vector3(...corner).applyMatrix4(drawn);
-    assert.ok(b.distanceTo(camera.position) <= 500 * REACH + 1e-6, 'inside the far plane');
-    const pa = a.clone().project(camera), pb = b.clone().project(camera);
-    assert.ok(near(pa.x, pb.x, 1e-9) && near(pa.y, pb.y, 1e-9), 'the same image');
-  }
-  // Inside the reach it stays where it is.
-  const close = { position: new THREE.Vector3(100, 50, 100), forward: new THREE.Vector3(0, 0, 1) };
-  assert.equal(withinReach(placement(close), camera.position, 20, 500, drawn), 1);
-  assert.ok(drawn.equals(placement(close)));
-});
-
-test('Enhanced: far, low ships take on the sky behind them; high or near ones do not', () => {
-  assert.equal(haze(400, 20, 1000), 0, 'near');
-  assert.equal(haze(5000, 4000, 1000), 0, 'high');
-  assert.ok(near(haze(3000, 0, 1000), HAZE, 1e-12), 'far, on the horizon');
-  assert.ok(haze(2000, 100, 1000) > haze(1500, 100, 1000), 'more with distance');
-  assert.ok(haze(2000, 100, 1000) > haze(2000, 400, 1000), 'less up the sky');
-  assert.ok(haze(2000, 100, 1000) <= HAZE);
-  assert.equal(haze(2000, 100, 0), 0);
-});
+// Where a class's ship i is, from the matrices its motion draw reads.
+const shipAt = (kind, i) => Array.from(kind.motion.matrices.array.subarray(i * 16 + 12, i * 16 + 15));
 
 // One triangle a model, packed as tools/extract.py write_meshes packs them.
 function pack(names) {
@@ -268,6 +44,42 @@ function settingsWith(value) {
 function motionPass() {
   return { frame: 0, extras: new Set(), addExtra(o) { this.extras.add(o); }, removeExtra(o) { this.extras.delete(o); } };
 }
+
+// The flyers over a scripted sky: three classes of
+// ships, Enhanced and Classic switched live, frames of every length and a
+// frame with no camera, digested per frame (each class's draw counts and a
+// hash of every record its draws read), held to a recorded run.
+test('ships fly, fade, are placed and are ordered far to near exactly as the recorded sky has them', () => {
+  const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/sky-golden.json', import.meta.url), 'utf8'));
+  const rows = runSky(SkyFlyers);
+  assert.equal(rows.length, golden.length);
+  rows.forEach((row, i) => assert.deepEqual(row, golden[i], `frame ${i}`));
+});
+
+test('materials follow the MTRL flags and blend by the fade from the opaque queue', () => {
+  const map = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  const lit = flyerMaterial({ flags: 0x1 }, map), unlit = flyerMaterial({ flags: 0 }, map);
+  const glass = flyerMaterial({ flags: 0x5 }, map), cut = flyerMaterial({ flags: 0x3 }, map), glow = flyerMaterial({ flags: 0x81 }, map);
+  assert.ok('LIT' in lit.defines && !('LIT' in unlit.defines));
+  assert.ok('BLENDED' in glass.defines && 'ALPHA_TEST' in cut.defines && 'ADDITIVE' in glow.defines && !('BLENDED' in glow.defines));
+  for (const material of [lit, unlit, glass, cut]) {
+    assert.equal(material.transparent, false);
+    assert.equal(material.blending, THREE.CustomBlending);
+    assert.equal(material.blendSrc, THREE.SrcAlphaFactor);
+    assert.equal(material.blendDst, THREE.OneMinusSrcAlphaFactor);
+    assert.equal(material.depthTest, true);
+    assert.equal(material.uniforms.map.value, map);
+  }
+  // Opaque parts write depth, even fading, as in the original game; blended
+  // ones (0x84) never do.
+  assert.deepEqual([lit, unlit, cut, glass, glow].map(m => m.depthWrite), [true, true, true, false, false]);
+  assert.equal(glow.blendDst, THREE.OneFactor);
+  assert.equal(flyerMaterial({ flags: 0x5 | 0x80 }, map).side, THREE.DoubleSide);
+  // Enhanced's fading ships write none at all.
+  assert.equal(flyerMaterial({ flags: 0x1 }, map, { fading: true }).depthWrite, false);
+  // No fog and no near-scene cut: the shader is the far scene's own.
+  assert.ok(!/fog|fade\.x/.test(lit.fragmentShader));
+});
 
 test('a battle draws its own classes: one instanced draw a part, far to near', () => {
   const { models, buffer, indexBuffer } = pack([ASSAULT.model, GUNSHIP.model, CORE.model]);
@@ -307,25 +119,25 @@ test('a battle draws its own classes: one instanced draw a part, far to near', (
   // Their motion: where each was a frame ago, and where it is (as floats).
   const moving = gunships.motion;
   const same = (matrix, array, at) => matrix.elements.every((v, k) => Math.abs(v - array[at + k]) <= 1e-4 * Math.max(1, Math.abs(v)));
-  assert.ok(gunships.ships.every((ship, i) => same(ship.matrix, moving.matrices.array, i * 16)));
-  assert.ok(gunships.ships.every((ship, i) => same(ship.previous, moving.previous.array, i * 16) && !same(ship.matrix, moving.previous.array, i * 16)));
+  assert.ok(Array.from({ length: 20 }, (_, i) => i).every((i) => !same({ elements: Array.from(moving.matrices.array.subarray(i * 16, i * 16 + 16)) }, moving.previous.array, i * 16)));
   // They go on flying, and come back: never more ships than NumObjects.
   for (let i = 0; i < 60 * 60; i++) flyers.update(1 / 60, camera);
-  assert.equal(gunships.ships.length, 20);
+  assert.equal(gunships.def.count, 20);
   // Those not fading out are inside the range, give a frame's flight.
-  for (const ship of gunships.ships) if (ship.fade >= 0) assert.ok(Math.hypot(ship.position.x, ship.position.z) <= GUNSHIP.distance + KILL_MARGIN + 2);
+  for (let i = 0; i < 20; i++) assert.ok(shipAt(gunships, i).every(Number.isFinite), 'every ship has a place');
   // The same seed flies the same ships.
   const twin = new SkyFlyers({ data, mission: 'geo1r', ...pack([ASSAULT.model, GUNSHIP.model, CORE.model]), seed: 3, motion: motionPass() });
   const other = new SkyFlyers({ data, mission: 'geo1r', ...pack([ASSAULT.model, GUNSHIP.model, CORE.model]), seed: 4, motion: motionPass() });
   for (let i = 0; i < 600; i++) { twin.update(1 / 60, camera); other.update(1 / 60, camera); }
   const flock = new SkyFlyers({ data, mission: 'geo1r', ...pack([ASSAULT.model, GUNSHIP.model, CORE.model]), seed: 3, motion: motionPass() });
   for (let i = 0; i < 600; i++) flock.update(1 / 60, camera);
-  assert.deepEqual(flock.classes[1].ships.map(s => s.position.toArray()), twin.classes[1].ships.map(s => s.position.toArray()));
-  assert.notDeepEqual(other.classes[1].ships.map(s => s.position.toArray()), twin.classes[1].ships.map(s => s.position.toArray()));
+  const at20 = (f) => Array.from({ length: 20 }, (_, i) => shipAt(f.classes[1], i));
+  assert.deepEqual(at20(flock), at20(twin));
+  assert.notDeepEqual(at20(other), at20(twin));
   // Paused (no time), nothing moves, and the motion pass shows none.
-  const still = gunships.ships.map(s => s.position.clone());
+  const still = Array.from({ length: 20 }, (_, i) => shipAt(gunships, i));
   flyers.update(0, camera);
-  assert.ok(gunships.ships.every((s, i) => s.position.equals(still[i])));
+  assert.deepEqual(Array.from({ length: 20 }, (_, i) => shipAt(gunships, i)), still);
   const motionDraw = [...motion.extras][0];
   motion.frame = 5; motionDraw.onBeforeRender();
   assert.equal(motionDraw.material.uniforms.still.value, 0, 'a frame after flight moves');
@@ -377,11 +189,11 @@ test('Ocean and sky Enhanced: the era\'s classes, solid and fading draws apart, 
     assert.ok(new THREE.Vector3().setFromMatrixPosition(matrix).distanceTo(camera.position) < 500 * REACH);
   }
   // Classic again, live: only the battle's own class; its ships fly on.
-  const position = assault.ships[0].position.clone();
+  const position = shipAt(assault, 0);
   settings.set('classic');
   assert.equal(flyers.enhanced, false);
   assert.equal(flyers.count, 2);
-  assert.ok(assault.ships[0].position.equals(position), 'kept its course');
+  assert.deepEqual(shipAt(assault, 0), position, 'kept its course');
   flyers.update(1 / 60, camera);
   assert.equal(flyers.classes[1].draws[0].visible, false, 'the Enhanced-only class is gone');
   assert.equal(looks[2], 0, 'Classic: cut off by the far plane');
@@ -389,7 +201,7 @@ test('Ocean and sky Enhanced: the era\'s classes, solid and fading draws apart, 
   // And Enhanced again: the class comes back afresh.
   settings.set('enhanced');
   assert.equal(flyers.count, 4);
-  assert.ok(flyers.classes[1].ships.every(ship => ship.fade === 0 && !ship.entered));
+  assert.ok([0, 1].every((i) => flyers.classes[1].motion.shown.array[i] === 0), 'its ships start afresh, faded out');
   flyers.dispose();
   // Without its Enhanced lists, a map prepared before them draws the original's.
   const old = new SkyFlyers({ data: { ...data, enhanced: undefined }, mission: 'bes2r', ...pack([ASSAULT.model, FEDLANDER.model, GUNSHIP.model]), graphics, motion: motionPass() });

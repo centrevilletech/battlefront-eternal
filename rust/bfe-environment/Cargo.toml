@@ -1,0 +1,19 @@
+[package]
+name = "bfe-environment"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "The destruction and weather presentation phase: pooled particle and arc state for the battle renderer"
+
+# A raw WebAssembly module (no wasm-bindgen), as the simulation and audio
+# are: the page and plain Node instantiate it with WebAssembly APIs and read
+# its fixed buffers through typed-array views. The rlib is for the native
+# tests and a native host.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jsrt = { path = "../jsrt" }
+three = { path = "../three" }
+v8math = { path = "../v8math" }

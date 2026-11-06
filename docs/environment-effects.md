@@ -126,9 +126,12 @@ A map prepared before generation 15 has no `sky/` and draws no ships.
 Generation 16 adds the Enhanced lists and models (below); a map prepared at
 15 draws only the original's ships in either mode.
 
-`src/sky-flyers.js` flies them page-side, in every host (the page, under a
-world worker and online), and stops with the rest of the presentation while
-the game is paused. Each page flies its own ships (`?seed=` repeats them).
+The Rust sky phase (`rust/bfe-environment`, `sky.rs`) flies them page-side, in
+every host (the page, under a world worker and online): launches, flight,
+fades, placement, the Enhanced far-plane reach and haze, and the far-to-near
+order of each class's draws, as instance records the page reads in place.
+`src/sky-flyers.js` keeps the meshes, the materials and the sky probe. It
+stops with the rest of the presentation while the game is paused. Each page flies its own ships (`?seed=` repeats them).
 Cost: one instanced draw per model part of each class the battle draws
 (Geonosis 6, the others 1 or 2), at most about 5,000 triangles (Geonosis:
 2 + 20 + 20 + 8 ships of 74 to 200 triangles), a custom shader of a few
@@ -193,10 +196,11 @@ triangles in both; the update 0.024 ms a frame in Classic and 0.079 ms in
 Enhanced, the sky probe included. Cloud City's Galactic Civil War battle,
 which has no ships in Classic, draws 2 more (672 triangles) in Enhanced.
 
-Checks: `node --test tests/sky-flyers.test.js` (the motion rules, the
-draw order of the random numbers, the placement, materials, the instanced
-classes, Enhanced's reach, haze, fades and era lists, and each prepared
-map's battles), `python3 -m unittest discover -s tests -p
+Checks: `node --test tests/sky-flyers.test.js` (a recorded 700-frame sky
+the phase must reproduce record for record, materials, the instanced
+classes, Enhanced's reach, fades and era lists, and each prepared map's
+battles) and `cargo test -p bfe-environment` (haze, and a frame that
+allocates nothing), `python3 -m unittest discover -s tests -p
 'test_sky_flyers_export.py'` (with `BFE_GAME_DIR` set it also checks every
 stock map's SkyObjects and battles against the survey), and with Vite
 running `node tests/sky-flyers-browser.mjs` (each battle builds its classes

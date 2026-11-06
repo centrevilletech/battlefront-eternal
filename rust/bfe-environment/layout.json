@@ -1,0 +1,382 @@
+{
+  "version": 1,
+  "records": {
+    "Result": {
+      "time": 1,
+      "hotCount": 1,
+      "hotDirty": 1,
+      "smokeCount": 1,
+      "smokeDirty": 1,
+      "arcsLive": 1,
+      "arcVertices": 1,
+      "arcIndices": 1,
+      "hotEmitted": 1,
+      "hotDropped": 1,
+      "smokeEmitted": 1,
+      "smokeDropped": 1,
+      "arcsSpawned": 1
+    },
+    "View": {
+      "dt": 1,
+      "camera": 16,
+      "inverse": 16,
+      "projection": 16,
+      "fov": 1,
+      "aspect": 1,
+      "position": 3
+    },
+    "AtmosphereConfig": {
+      "hasFog": 1,
+      "near": 1,
+      "far": 1,
+      "cell": 1,
+      "size": 1,
+      "density": 1,
+      "velocity": 2,
+      "rotation": 1,
+      "alpha": 1,
+      "height": 1,
+      "classes": 1
+    },
+    "DustConfig": {
+      "count": 1,
+      "minPos": 3,
+      "maxPos": 3,
+      "minVel": 3,
+      "maxVel": 3,
+      "minSize": 1,
+      "maxSize": 1,
+      "minLifetime": 1,
+      "maxLifetime": 1,
+      "alpha": 1,
+      "fadeMin": 1,
+      "fadeMax": 1,
+      "radius": 1,
+      "minDistance": 1,
+      "maxDistance": 1,
+      "heightScale": 1,
+      "seed": 1,
+      "instances": 1
+    },
+    "SquareBatch": {
+      "count": 1,
+      "axisU": 3,
+      "axisV": 3
+    },
+    "AtmosphereStats": {
+      "fog": 1,
+      "dust": 1,
+      "objects": 1
+    },
+    "SnowConfig": {
+      "count": 1,
+      "fall": 1,
+      "wander": 1,
+      "alphaMin": 1,
+      "alphaMax": 1,
+      "spinBase": 1,
+      "spinRange": 1,
+      "wind": 2,
+      "gustRange": 1,
+      "gustRate": 1,
+      "range": 1,
+      "boxLimit": 1
+    },
+    "SnowResult": {
+      "boxes": 1,
+      "instances": 1,
+      "covered": 1,
+      "changed": 1,
+      "queries": 1,
+      "cameraRight": 3,
+      "cameraUp": 3
+    },
+    "SkyConfig": {
+      "seed": 1,
+      "classes": 1,
+      "enhanced": 1
+    },
+    "SkyClass": {
+      "count": 1,
+      "distance": 1,
+      "height": 2,
+      "inDirection": 1,
+      "velocity": 6,
+      "acceleration": 3,
+      "lifeTime": 1,
+      "radius": 1,
+      "classic": 1,
+      "enhanced": 1
+    },
+    "SkyFrame": {
+      "dt": 1,
+      "hasEye": 1,
+      "eye": 3,
+      "far": 1,
+      "visible": 1,
+      "misty": 1
+    },
+    "SkyResult": {
+      "solids": 1,
+      "fadings": 1,
+      "on": 1
+    },
+    "WeatherFrame": {
+      "dt": 1,
+      "position": 3
+    },
+    "WeatherResult": {
+      "rainTime": 1,
+      "eye": 3,
+      "cameraMotion": 3,
+      "covered": 1,
+      "changed": 1,
+      "coverQueries": 1,
+      "mistVisible": 1,
+      "sheetsVisible": 1,
+      "impactsShown": 1,
+      "impactsChanged": 1,
+      "impactsNext": 1,
+      "impactsQueries": 1,
+      "impactTime": 1
+    },
+    "EnvironmentInstance": {
+      "sphere": 4,
+      "position": 3,
+      "classic": 1,
+      "jet": 1
+    },
+    "EnvironmentFrame": {
+      "reach": 1,
+      "enhanced": 1
+    },
+    "EnvironmentResult": {
+      "sources": 1,
+      "volumes": 1,
+      "fountains": 1
+    },
+    "DstFrame": {
+      "dt": 1,
+      "enhanced": 1,
+      "hasEye": 1,
+      "eye": 3,
+      "commands": 1,
+      "stations": 1
+    },
+    "DstCommand": {
+      "kind": 1,
+      "slot": 1,
+      "walker": 1,
+      "at": 3,
+      "velocity": 3,
+      "scale": 1,
+      "electric": 1,
+      "inherited": 1,
+      "frameStart": 1,
+      "frameCount": 1,
+      "weapon": 1,
+      "matrixStart": 1,
+      "matrixCount": 1,
+      "sound": 1,
+      "explosion": 1
+    },
+    "DstChunk": {
+      "shape": 1,
+      "speed": 1,
+      "matrix": 16
+    },
+    "DstEvent": {
+      "kind": 1,
+      "a": 1,
+      "b": 1,
+      "x": 1,
+      "y": 1,
+      "z": 1,
+      "p": 1,
+      "q": 1,
+      "r": 1,
+      "s": 1,
+      "t": 1,
+      "u": 1
+    },
+    "DstPiece": {
+      "uid": 1,
+      "shape": 1,
+      "position": 3,
+      "quaternion": 4,
+      "heat": 1,
+      "dissolve": 1,
+      "moved": 1,
+      "shadows": 1,
+      "soot": 1,
+      "tear": 4,
+      "sample": 1,
+      "samplePosition": 3
+    },
+    "DstStation": {
+      "min": 3,
+      "max": 3,
+      "center": 3
+    },
+    "DstStationState": {
+      "destroyed": 1,
+      "health": 1,
+      "maxHealth": 1
+    },
+    "DstResult": {
+      "events": 1,
+      "pieces": 1,
+      "sites": 1,
+      "blasts": 1,
+      "deaths": 1,
+      "bursts": 1,
+      "fx": 1,
+      "overflow": 1
+    },
+    "DstSite": {
+      "station": 1,
+      "heat": 1,
+      "soot": 1
+    },
+    "DstSlotStatic": {
+      "boneCount": 1,
+      "jointCount": 1,
+      "bones": "Dst.BONES",
+      "joints": "Dst.JOINT_NUMBERS"
+    },
+    "DstSlotState": {
+      "valid": 1,
+      "position": 3
+    },
+    "DstBurst": {
+      "velocity": 3,
+      "start": 1,
+      "count": 1,
+      "weapon": 1,
+      "explosion": 1
+    }
+  },
+  "enums": {
+    "DstCommandKind": [
+      "blowApart",
+      "died",
+      "deathBlast",
+      "blast",
+      "clear"
+    ],
+    "DstEventKind": [
+      "flash",
+      "add",
+      "sound",
+      "hide",
+      "siteStart",
+      "siteEnd"
+    ]
+  },
+  "limits": {
+    "Squares": {
+      "capacity": 4096,
+      "batches": 16
+    },
+    "Snow": {
+      "box": 5,
+      "maxFlakes": 32768,
+      "maxBoxes": 1024
+    },
+    "Sky": {
+      "arrays": 7
+    },
+    "Rain": {
+      "impacts": 96,
+      "streakSize": 256,
+      "streakCount": 520,
+      "mist": 48
+    },
+    "Dst": {
+      "slots": 32,
+      "bones": 64,
+      "jointNumbers": 128,
+      "stations": 64,
+      "pieces": 40,
+      "events": 1024,
+      "chunks": 64,
+      "unitChunks": 16,
+      "matrices": 128,
+      "shapes": 64,
+      "commands": 256,
+      "shapePoints": 26,
+      "sites": 64
+    },
+    "Fx": {
+      "hotAttributes": 4,
+      "smokeAttributes": 5
+    }
+  },
+  "blocks": {
+    "DstResultAt": {
+      "start": "DstResult.STRIDE",
+      "entries": [
+        [
+          "refs",
+          "Dst.SLOTS",
+          "1"
+        ],
+        [
+          "active",
+          "Dst.SLOTS",
+          "1"
+        ],
+        [
+          "sites",
+          "Dst.SITES",
+          "DstSite.STRIDE"
+        ],
+        [
+          "pieces",
+          "Dst.PIECES",
+          "DstPiece.STRIDE"
+        ],
+        [
+          "events",
+          "Dst.EVENTS",
+          "DstEvent.STRIDE"
+        ],
+        [
+          "bursts",
+          "Dst.SLOTS",
+          "1"
+        ]
+      ]
+    },
+    "DstChunkAt": {
+      "start": "0",
+      "entries": [
+        [
+          "commands",
+          "Dst.CHUNKS",
+          "1"
+        ],
+        [
+          "bursts",
+          "Dst.SLOTS*Dst.UNIT_CHUNKS",
+          "1"
+        ]
+      ]
+    },
+    "DstMatrixAt": {
+      "start": "0",
+      "entries": [
+        [
+          "commands",
+          "Dst.MATRICES",
+          "1"
+        ],
+        [
+          "weapons",
+          "Dst.SLOTS",
+          "1"
+        ]
+      ]
+    }
+  }
+}

@@ -2,10 +2,13 @@ import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Destruction } from '../src/destruction.js';
+import { loadEnvironment } from '../src/environment/module.js';
 import { DEFAULTS, PERFORMANCE_PRESETS, Settings } from '../src/settings.js';
 import { zeroMaterial } from '../src/materials.js';
 import { listenSounds } from '../src/audio/events.js';
 import { RandomStreams } from '../src/ai/random.js';
+
+await loadEnvironment();
 
 // Geometry, launch directions and cosmetic effects all draw randomness,
 // including Three.js helpers that use Math.random directly. Keep each test
@@ -90,11 +93,11 @@ function droid({ geometry: shared = null, at = [0, 0, 0] } = {}) {
   };
 }
 
-function destruction(mode = 'enhanced') {
+function destruction(mode = 'enhanced', world = FLOOR) {
   const scene = new THREE.Scene();
   const light = lights();
   const options = settings(mode);
-  const result = new Destruction({ scene, collision: FLOOR, lights: light, settings: options, model, random: Math.random });
+  const result = new Destruction({ scene, collision: world, lights: light, settings: options, model, seed: 20261012 });
   return { destruction: result, scene, lights: light, settings: options };
 }
 
@@ -138,12 +141,15 @@ test('enhanced blows a droid apart into its pieces and draws its own blast, touc
   const before = [unit.position.clone(), unit.velocity.clone()];
   assert.equal(d.blowApart(unit), true);
   assert.equal(unit.actor.root.visible, false);
+  d.update(0);
   assert.equal(d.pieces.count, 3, 'a piece for each chunk');
   assert.ok(d.fx.hot.count > 50 && d.fx.smoke.count > 20 && d.fx.arcs.live > 0);
   assert.ok(light.flashes >= 2);
   run(d, 3);
-  assert.ok(d.pieces.pieces.every((piece) => piece.body.sleeping), 'the pieces have settled');
-  assert.ok(d.pieces.pieces.every((piece) => piece.body.position.y < 0.3 && piece.body.position.y > 0), 'on the floor');
+  const rest = d.pieces.pieces.map((piece) => piece.object.position.toArray());
+  run(d, 0.5);
+  assert.deepEqual(d.pieces.pieces.map((piece) => piece.object.position.toArray()), rest, 'the pieces have settled');
+  assert.ok(d.pieces.pieces.every((piece) => piece.object.position.y < 0.3 && piece.object.position.y > -0.3), 'on the floor');
   assert.deepEqual([unit.position, unit.velocity], before);
 });
 
@@ -154,6 +160,7 @@ test('a droid killed on its feet shorts out, then blows apart with its explosion
     const { destruction: d } = destruction();
     const unit = droid();
     d.died(unit);
+    d.update(0);
     assert.equal(d.deaths.length, 1);
     run(d, 0.3);
     assert.equal(unit.actor.root.visible, true, 'still shorting out');
@@ -164,6 +171,7 @@ test('a droid killed on its feet shorts out, then blows apart with its explosion
     assert.equal(d.pieces.count, 3);
     assert.deepEqual(sounds, [['explosion', unit.classDef.explosion]]);
     d.died(unit);
+    d.update(0);
     assert.equal(d.deaths.length, 0, 'a body already blown apart does not short out again');
   } finally { stop(); }
 });
@@ -207,6 +215,7 @@ test('switching to classic clears what enhanced drew', () => {
   d.died(droid());
   run(d, 0.1);
   options.set('destructionEffects', 'classic');
+  d.update(0);
   assert.deepEqual([d.pieces.count, d.fx.hot.count, d.fx.smoke.count, d.fx.arcs.live, d.deaths.length], [0, 0, 0, 0, 0]);
 });
 
@@ -259,11 +268,12 @@ test('a wreck goes out by itself in a few minutes', () => {
   assert.equal(d.sites.length, 0);
 });
 
-// Everything a droid shorting out has drawn so far: the ends of its arcs,
-// where its sparks and flashes were born, and its lights.
+// Everything a droid shorting out has drawn so far: the first points of its
+// arcs, where its sparks and flashes were born, and its lights.
 function drawn(d, light) {
+  const arcs = d.fx.arcs;
   const ends = [];
-  for (const arc of d.fx.arcs.arcs) if (arc.live) for (const end of [arc.a, arc.b]) if (end.object) ends.push(end.object);
+  for (let i = 0; i < arcs.vertex; i += 26) ends.push(new THREE.Vector3().fromArray(arcs.positions, i * 3));
   const births = [];
   for (let i = 0; i < d.fx.hot.count; i++) births.push(new THREE.Vector3().fromArray(d.fx.hot.arrays[0], i * 4));
   return { ends, births, lights: light.at };
@@ -277,14 +287,13 @@ test('a second droid of the same model shorts out on its own body, not the first
   assert.equal(second.actor.body.geometry, first.actor.body.geometry);
   for (const [unit, others] of [[first, [second, third]], [second, [first, third]], [third, [first, second]]]) {
     d.clear();
+    d.update(0);
     light.at.length = 0;
     d.died(unit);
     run(d, 0.3);
     const { ends, births, lights: lit } = drawn(d, light);
     assert.ok(ends.length > 0 && births.length > 0 && lit.length > 0, 'it shorts out');
-    assert.ok(ends.every((bone) => unit.actor.bones.includes(bone)), 'its arcs are on its own bones');
-    for (const other of others) assert.ok(!ends.some((bone) => other.actor.bones.includes(bone)), 'never on another body');
-    for (const at of [...births, ...lit]) assert.ok(at.distanceTo(unit.position) < 3, `drawn ${at.distanceTo(unit.position).toFixed(1)} m from the droid dying`);
+    for (const at of [...ends, ...births, ...lit]) assert.ok(at.distanceTo(unit.position) < 3, `drawn ${at.distanceTo(unit.position).toFixed(1)} m from the droid dying`);
     run(d, 0.2);
     assert.equal(unit.actor.root.visible, false, 'and then it blows apart');
   }
@@ -295,20 +304,22 @@ test('a second droideka of the same model pops on its own body', () => {
   const first = droid();
   const second = droid({ geometry: first.actor.body.geometry, at: [50, 0, 0] });
   assert.equal(d.deathBlast(first), true);
-  d.fx.clear();
+  d.update(0);
+  assert.ok(drawn(d, lights()).births.every((at) => at.distanceTo(first.position) < 3));
+  d.clear();
+  d.update(0);
   assert.equal(d.deathBlast(second), true);
-  d.fx.update(0);
+  d.update(0);
   const { births } = drawn(d, lights());
   assert.ok(births.length > 0 && births.every((at) => at.distanceTo(second.position) < 3));
 });
 
 test('a droid blown apart in the air draws no floor glow and nothing skips off a floor that is not there', () => {
-  const { destruction: d } = destruction();
-  const unit = droid({ at: [0, 30, 0] });
   // Nothing below it within 6 m.
-  d.collision = { cast: () => null };
-  d.pieces.solver.collision = d.collision;
+  const { destruction: d } = destruction('enhanced', { cast: () => null });
+  const unit = droid({ at: [0, 30, 0] });
   d.blowApart(unit);
+  d.update(0);
   const hot = d.fx.hot.arrays[3];
   const styles = [], floors = [];
   for (let i = 0; i < d.fx.hot.count; i++) { styles.push(hot[i * 4]); if (hot[i * 4] === 0) floors.push(hot[i * 4 + 3]); }

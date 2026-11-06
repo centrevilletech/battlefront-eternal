@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
+import { Result as RESULT } from "./environment/layout.js";
 
 // The particles and electric arcs of the Enhanced destruction effects
 // (src/destruction.js): droids shorting out and blowing apart, and wrecked
@@ -38,7 +39,6 @@ export const SMOKE = 0;
 export const CHIP = 1;
 export const SCORCH = 2;
 
-const REBASE = 600; // s: births are shifted back by this much so the clock stays precise
 const WIND = new THREE.Vector3(0.55, 0, 0.32); // m/s, drifting the smoke
 
 const NOISE = /* glsl */ `
@@ -391,29 +391,31 @@ const depthUniforms = () => ({
 // it never and uploads it nothing.
 export const destructionPools = new WeakMap();
 
-// A fixed pool of instanced quads whose records live in their attribute
-// arrays: births are appended, deaths swap in the last record. Their clock
-// is the effects' own (fxTime, not the frame's time).
+// The page's shell around one of the Rust phase's pools: a mesh whose
+// instanced attributes are views onto the records the phase keeps
+// (rust/bfe-environment), so three can draw one until the renderer takes
+// over. Births are appended, deaths swap in the last record, and the clock is
+// the effects' own (fxTime, not the frame's time); all of that is Rust's.
 class Pool {
-  constructor(scene, { name, capacity, attributes, vertexShader, fragmentShader, uniforms, blending, premultiplied, renderOrder }) {
+  constructor(scene, arrays, { name, capacity, attributes, vertexShader, fragmentShader, uniforms, blending, premultiplied, renderOrder }) {
     this.capacity = capacity;
     this.count = 0;
     this.external = false;
-    this.dirty = Infinity; // first record changed since the last upload
     this.emitted = 0;
     this.dropped = 0;
+    // The first record changed since the renderer last read the pool.
+    this.unread = Infinity;
+    this.arrays = arrays;
     const plane = new THREE.PlaneGeometry(2, 2);
     const geometry = new THREE.InstancedBufferGeometry();
     geometry.index = plane.index;
     geometry.attributes.position = plane.attributes.position;
     geometry.attributes.uv = plane.attributes.uv;
-    this.arrays = [];
     this.attributes = [];
     for (let i = 0; i < attributes; i++) {
-      const attribute = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4).setUsage(THREE.DynamicDrawUsage);
+      const attribute = new THREE.InstancedBufferAttribute(arrays[i], 4).setUsage(THREE.DynamicDrawUsage);
       geometry.setAttribute(`a${i}`, attribute);
       this.attributes.push(attribute);
-      this.arrays.push(attribute.array);
     }
     geometry.instanceCount = 0;
     this.material = new THREE.ShaderMaterial({
@@ -433,64 +435,31 @@ class Pool {
     scene.add(this.mesh);
   }
 
-  // A free record's index, or -1 when the pool is full (the particle is
-  // dropped: the ones already flying matter more than one more).
-  take() {
-    if (this.count >= this.capacity) {
-      this.dropped++;
-      return -1;
-    }
-    const i = this.count++;
-    if (i < this.dirty) this.dirty = i;
-    this.emitted++;
-    return i;
-  }
-
-  set(attribute, i, x, y, z, w) {
-    const a = this.arrays[attribute], k = i * 4;
-    a[k] = x; a[k + 1] = y; a[k + 2] = z; a[k + 3] = w;
-  }
-
-  update(time) {
-    const birth = this.arrays[0], flow = this.arrays[1];
-    for (let i = this.count - 1; i >= 0; i--) {
-      if (time - birth[i * 4 + 3] < flow[i * 4 + 3]) continue;
-      const last = --this.count;
-      if (i !== last) {
-        for (const array of this.arrays) array.copyWithin(i * 4, last * 4, last * 4 + 4);
-        if (i < this.dirty) this.dirty = i;
-      }
-    }
+  // After the phase's frame: its counts, and what three must upload of the
+  // records changed since the last frame (`dirty`: the first of them, -1 for
+  // none).
+  synced(count, dirty, emitted, dropped) {
+    this.count = count;
+    this.emitted = emitted;
+    this.dropped = dropped;
+    if (dirty >= 0 && dirty < this.unread) this.unread = dirty;
     // Drawn by another renderer (external), it is shown to three never and
-    // uploads it nothing (the renderer is given every record each frame).
-    if (this.dirty < this.count && !this.external) {
-      for (const attribute of this.attributes) {
+    // uploads it nothing (the renderer copies the records changed since it
+    // last read them).
+    if (dirty >= 0 && dirty < count && !this.external) {
+      for (let i = 0; i < this.attributes.length; i++) {
+        const attribute = this.attributes[i];
         // A range not yet uploaded (frames stepped without a draw) is
         // merged in, not replaced: three clears the ranges once it uploads.
         const pending = attribute.updateRanges[0];
-        const start = Math.min(this.dirty * 4, pending ? pending.start : Infinity);
+        const start = Math.min(dirty * 4, pending ? pending.start : Infinity);
         attribute.clearUpdateRanges();
-        attribute.addUpdateRange(start, this.count * 4 - start);
+        attribute.addUpdateRange(start, count * 4 - start);
         attribute.needsUpdate = true;
       }
     }
-    this.dirty = Infinity;
-    this.mesh.geometry.instanceCount = this.count;
-    this.mesh.visible = this.count > 0 && !this.external;
-  }
-
-  // Every birth moved back by `by` seconds, with the clock.
-  rebase(by) {
-    const birth = this.arrays[0];
-    for (let i = 0; i < this.count; i++) birth[i * 4 + 3] -= by;
-    if (this.count) this.dirty = 0;
-  }
-
-  clear() {
-    this.count = 0;
-    this.dirty = Infinity;
-    this.mesh.geometry.instanceCount = 0;
-    this.mesh.visible = false;
+    this.mesh.geometry.instanceCount = count;
+    this.mesh.visible = count > 0 && !this.external;
   }
 
   dispose() {
@@ -500,61 +469,25 @@ class Pool {
   }
 }
 
-const SEGMENTS = 12; // per arc
-const BRANCH_SEGMENTS = 5;
-const BRANCHES = 2;
-const POINTS_PER_ARC = SEGMENTS + 1 + BRANCHES * (BRANCH_SEGMENTS + 1);
-const FLICKER = 30; // new jags a second
-
-// A seeded random number in [0, 1) from two integers, without state.
-function jitter(seed, n) {
-  let h = Math.imul(seed ^ Math.imul(n, 0x9e3779b1), 0x85ebca6b);
-  h ^= h >>> 13;
-  h = Math.imul(h, 0xc2b2ae35);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
-}
-
-// An arc's end: a fixed point, or a point carried by an object.
-class Anchor {
-  constructor() {
-    this.object = null;
-    this.local = new THREE.Vector3();
-  }
-
-  set(object, point) {
-    this.object = object;
-    this.local.copy(point);
-    return this;
-  }
-
-  resolve(out) {
-    out.copy(this.local);
-    if (this.object) out.applyMatrix4(this.object.matrixWorld);
-    return out;
-  }
-}
-
 // The arcs by their mesh, for a renderer that draws them itself
 // (src/rust-render/effects.js): while `external`, three is shown them never
 // and uploads them nothing.
 export const destructionArcs = new WeakMap();
 
+// The page's shell around the phase's arcs: one dynamic mesh whose vertices
+// and indices are views onto what the phase wrote.
 class Arcs {
-  constructor(scene, capacity) {
-    this.capacity = capacity;
+  constructor(scene, host) {
+    this.capacity = host.arcCapacity;
     this.external = false;
-    this.arcs = Array.from({ length: capacity }, () => ({
-      live: false, age: 0, life: 0, width: 0, intensity: 0, seed: 0, reach: 0, a: new Anchor(), b: new Anchor(),
-    }));
     this.live = 0;
     this.spawned = 0;
-    const vertices = capacity * POINTS_PER_ARC * 2;
-    this.positions = new Float32Array(vertices * 3);
-    this.tangents = new Float32Array(vertices * 3);
-    this.meta = new Float32Array(vertices * 4);
-    const quads = capacity * (SEGMENTS + BRANCHES * BRANCH_SEGMENTS);
-    this.indices = new Uint16Array(quads * 6);
+    this.vertex = 0;
+    this.index = 0;
+    this.positions = host.positions;
+    this.tangents = host.tangents;
+    this.meta = host.meta;
+    this.indices = host.indices;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
     geometry.setAttribute("tangent", new THREE.BufferAttribute(this.tangents, 3).setUsage(THREE.DynamicDrawUsage));
@@ -570,94 +503,27 @@ class Arcs {
     });
     this.mesh = new THREE.Mesh(geometry, this.material);
     this.mesh.name = "destruction-arcs";
+    this.attributes = [geometry.getAttribute("position"), geometry.getAttribute("tangent"), geometry.getAttribute("meta")];
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 12;
     this.mesh.visible = false;
     destructionArcs.set(this.mesh, this);
     scene.add(this.mesh);
-    this.points = Array.from({ length: SEGMENTS + 1 }, () => new THREE.Vector3());
-    this.from = new THREE.Vector3();
-    this.to = new THREE.Vector3();
-    this.dir = new THREE.Vector3();
-    this.u = new THREE.Vector3();
-    this.w = new THREE.Vector3();
-    this.tangent = new THREE.Vector3();
-    this.branchPoints = Array.from({ length: BRANCH_SEGMENTS + 1 }, () => new THREE.Vector3());
   }
 
-  // An arc from a to b (each an object or null, and a point in its frame or
-  // the world) for `life` seconds. Returns false when every arc is busy.
-  add(aObject, a, bObject, b, life, width, intensity) {
-    if (this.live >= this.capacity) return false;
-    let arc = null;
-    for (const candidate of this.arcs) if (!candidate.live) { arc = candidate; break; }
-    arc.live = true;
-    arc.age = 0;
-    arc.life = life;
-    arc.width = width;
-    arc.intensity = intensity;
-    arc.seed = (Math.random() * 0xffffffff) >>> 0;
-    arc.a.set(aObject, a);
-    arc.b.set(bObject, b);
-    this.live++;
-    this.spawned++;
-    return true;
-  }
-
-  update(dt, time) {
-    this.vertex = 0;
-    this.index = 0;
-    const frame = Math.floor(time * FLICKER);
-    for (const arc of this.arcs) {
-      if (!arc.live) continue;
-      arc.age += dt;
-      if (arc.age >= arc.life) {
-        arc.live = false;
-        this.live--;
-        continue;
-      }
-      const from = arc.a.resolve(this.from), to = arc.b.resolve(this.to);
-      const length = from.distanceTo(to);
-      if (length < 0.02) continue;
-      const fade = Math.min(1, 3 * (1 - arc.age / arc.life)) * (0.6 + 0.4 * jitter(arc.seed, frame + 11));
-      const dir = this.dir.subVectors(to, from).divideScalar(length);
-      this.u.set(dir.y, dir.z, -dir.x).cross(dir).normalize();
-      this.w.crossVectors(dir, this.u);
-      const jag = length * 0.16;
-      const points = this.points;
-      for (let i = 0; i <= SEGMENTS; i++) {
-        const s = i / SEGMENTS;
-        const envelope = Math.sin(Math.PI * s);
-        const ju = (jitter(arc.seed, frame * 97 + i * 2) - 0.5) * 2 * jag * envelope;
-        const jw = (jitter(arc.seed, frame * 97 + i * 2 + 1) - 0.5) * 2 * jag * envelope;
-        points[i].lerpVectors(from, to, s).addScaledVector(this.u, ju).addScaledVector(this.w, jw);
-      }
-      this.strip(points, SEGMENTS, arc.width, arc.intensity * fade);
-      // A branch or two off the inside points, forking away and fading.
-      for (let k = 0; k < BRANCHES; k++) {
-        if (jitter(arc.seed, frame * 31 + 50 + k) > 0.55) continue;
-        const at = 2 + Math.floor(jitter(arc.seed, frame * 31 + 60 + k) * (SEGMENTS - 4));
-        const reach = length * (0.2 + 0.25 * jitter(arc.seed, frame * 31 + 70 + k));
-        const branch = this.branchPoints;
-        this.tangent.subVectors(points[at + 1], points[at - 1]).normalize()
-          .addScaledVector(this.u, (jitter(arc.seed, k * 7 + 80) - 0.5) * 2.4)
-          .addScaledVector(this.w, (jitter(arc.seed, k * 7 + 81) - 0.5) * 2.4).normalize();
-        for (let i = 0; i <= BRANCH_SEGMENTS; i++) {
-          const s = i / BRANCH_SEGMENTS;
-          branch[i].copy(points[at]).addScaledVector(this.tangent, reach * s)
-            .addScaledVector(this.u, (jitter(arc.seed, frame * 53 + k * 13 + i) - 0.5) * reach * 0.35 * s)
-            .addScaledVector(this.w, (jitter(arc.seed, frame * 59 + k * 13 + i) - 0.5) * reach * 0.35 * s);
-        }
-        this.strip(branch, BRANCH_SEGMENTS, arc.width * 0.6, arc.intensity * fade * 0.7);
-      }
-    }
+  // After the phase's frame: how much of the mesh is drawn, and what three
+  // must upload of it.
+  synced(live, spawned, vertex, index) {
+    this.live = live;
+    this.spawned = spawned;
+    this.vertex = vertex;
+    this.index = index;
     const geometry = this.mesh.geometry;
-    const { vertex, index } = this;
     geometry.setDrawRange(0, index);
     this.mesh.visible = index > 0 && !this.external;
     if (!index || this.external) return;
-    for (const name of ["position", "tangent", "meta"]) {
-      const attribute = geometry.getAttribute(name);
+    for (let i = 0; i < this.attributes.length; i++) {
+      const attribute = this.attributes[i];
       attribute.clearUpdateRanges();
       attribute.addUpdateRange(0, vertex * attribute.itemSize);
       attribute.needsUpdate = true;
@@ -667,48 +533,6 @@ class Arcs {
     geometry.index.needsUpdate = true;
   }
 
-  // One strand of points as a ribbon: two vertices a point, a quad a segment.
-  strip(points, segments, width, intensity) {
-    let vertex = this.vertex, index = this.index;
-    const base = vertex;
-    for (let i = 0; i <= segments; i++) {
-      const p = points[i];
-      const before = points[Math.max(i - 1, 0)], after = points[Math.min(i + 1, segments)];
-      this.tangent.subVectors(after, before);
-      for (let side = -1; side <= 1; side += 2) {
-        const v = vertex++;
-        this.positions[v * 3] = p.x;
-        this.positions[v * 3 + 1] = p.y;
-        this.positions[v * 3 + 2] = p.z;
-        this.tangents[v * 3] = this.tangent.x;
-        this.tangents[v * 3 + 1] = this.tangent.y;
-        this.tangents[v * 3 + 2] = this.tangent.z;
-        this.meta[v * 4] = side;
-        this.meta[v * 4 + 1] = i / segments;
-        this.meta[v * 4 + 2] = width;
-        this.meta[v * 4 + 3] = intensity;
-      }
-    }
-    for (let i = 0; i < segments; i++) {
-      const a = base + i * 2;
-      this.indices[index++] = a;
-      this.indices[index++] = a + 1;
-      this.indices[index++] = a + 2;
-      this.indices[index++] = a + 1;
-      this.indices[index++] = a + 3;
-      this.indices[index++] = a + 2;
-    }
-    this.vertex = vertex;
-    this.index = index;
-  }
-
-  clear() {
-    for (const arc of this.arcs) arc.live = false;
-    this.live = 0;
-    this.mesh.geometry.setDrawRange(0, 0);
-    this.mesh.visible = false;
-  }
-
   dispose() {
     this.mesh.removeFromParent();
     this.mesh.geometry.dispose();
@@ -716,20 +540,21 @@ class Arcs {
   }
 }
 
-// The pools and arcs together, with emitters in plain terms. Positions and
-// velocities are read, never kept.
+// The pools and arcs of the destruction effects as meshes. Their births and
+// arcs are made by the destruction phase (rust/bfe-environment); `sync` reads
+// what it left after each of its frames.
 export class DestructionFx {
-  constructor(scene, { hot = 1536, smoke = 1536, arcs = 48 } = {}) {
-    this.time = 0;
+  constructor(scene, host) {
+    this.host = host;
     this.clock = { value: 0 };
-    this.hot = new Pool(scene, {
-      name: "destruction-hot", capacity: hot, attributes: 4,
+    this.hot = new Pool(scene, host.hot, {
+      name: "destruction-hot", capacity: host.hotCapacity, attributes: 4,
       vertexShader: HOT_VERTEX, fragmentShader: HOT_FRAGMENT,
       uniforms: { fxTime: this.clock, fogRange: lighting.fogRange, ...depthUniforms() },
       blending: THREE.AdditiveBlending, premultiplied: true, renderOrder: 11,
     });
-    this.smoke = new Pool(scene, {
-      name: "destruction-smoke", capacity: smoke, attributes: 5,
+    this.smoke = new Pool(scene, host.smoke, {
+      name: "destruction-smoke", capacity: host.smokeCapacity, attributes: 5,
       vertexShader: SMOKE_VERTEX, fragmentShader: SMOKE_FRAGMENT,
       uniforms: {
         fxTime: this.clock, wind: { value: WIND.clone() },
@@ -738,67 +563,24 @@ export class DestructionFx {
       },
       blending: THREE.NormalBlending, premultiplied: false, renderOrder: 9,
     });
-    this.arcs = new Arcs(scene, arcs);
+    this.arcs = new Arcs(scene, host);
+  }
+
+  get time() {
+    return this.host.fxResult[RESULT.TIME];
   }
 
   get draws() {
     return Number(this.hot.mesh.visible) + Number(this.smoke.mesh.visible) + Number(this.arcs.mesh.visible);
   }
 
-  // How much of a pool is still free, past a reserve kept for blasts and
-  // wrecks: 1 with room to spare, falling to 0 as it fills. Lesser emitters
-  // (trails, wisps) scale their rate by it.
-  room(pool) {
-    return THREE.MathUtils.clamp((1 - pool.count / pool.capacity - 0.25) / 0.35, 0, 1);
-  }
-
-  // style: SPARK, FIRE, FLASH, GLOW or EMBER. size0, size1: its radius at
-  // birth and death (a spark's half width); pull: gravity's share (negative
-  // rises); extra: the floor's height for sparks and glows, or a flash's
-  // tint (0 fire, 1 electric).
-  hotParticle(style, position, velocity, life, size0, size1, pull, drag, intensity, extra = -1e4, delay = 0) {
-    const i = this.hot.take();
-    if (i < 0) return;
-    this.hot.set(0, i, position.x, position.y, position.z, this.time + delay);
-    this.hot.set(1, i, velocity.x, velocity.y, velocity.z, life);
-    this.hot.set(2, i, size0, size1, pull, drag);
-    this.hot.set(3, i, style, Math.random(), intensity, extra);
-  }
-
-  // style: SMOKE, CHIP or SCORCH. tone: 0 oily black .. 1 pale grey; heat:
-  // fire light on its underside while young; wind: its share of the wind;
-  // floor: the height chips skip off and scorch marks lie on.
-  smokeParticle(style, position, velocity, life, size0, size1, pull, drag, opacity, { tone = 0.3, heat = 0, wind = 1, spin = 0, floor = -1e4, delay = 0 } = {}) {
-    const i = this.smoke.take();
-    if (i < 0) return;
-    this.smoke.set(0, i, position.x, position.y, position.z, this.time + delay);
-    this.smoke.set(1, i, velocity.x, velocity.y, velocity.z, life);
-    this.smoke.set(2, i, size0, size1, pull, drag);
-    this.smoke.set(3, i, style, Math.random(), opacity, floor);
-    this.smoke.set(4, i, tone, heat, wind, spin);
-  }
-
-  arc(aObject, a, bObject, b, life, width = 0.012, intensity = 1) {
-    return this.arcs.add(aObject, a, bObject, b, life, width, intensity);
-  }
-
-  update(dt) {
-    this.time += dt;
-    if (this.time > REBASE) {
-      this.time -= REBASE;
-      this.hot.rebase(REBASE);
-      this.smoke.rebase(REBASE);
-    }
-    this.clock.value = this.time;
-    this.hot.update(this.time);
-    this.smoke.update(this.time);
-    this.arcs.update(dt, this.time);
-  }
-
-  clear() {
-    this.hot.clear();
-    this.smoke.clear();
-    this.arcs.clear();
+  // After the phase's frame.
+  sync() {
+    const r = this.host.fxResult;
+    this.clock.value = r[RESULT.TIME];
+    this.hot.synced(r[RESULT.HOT_COUNT], r[RESULT.HOT_DIRTY], r[RESULT.HOT_EMITTED], r[RESULT.HOT_DROPPED]);
+    this.smoke.synced(r[RESULT.SMOKE_COUNT], r[RESULT.SMOKE_DIRTY], r[RESULT.SMOKE_EMITTED], r[RESULT.SMOKE_DROPPED]);
+    this.arcs.synced(r[RESULT.ARCS_LIVE], r[RESULT.ARCS_SPAWNED], r[RESULT.ARC_VERTICES], r[RESULT.ARC_INDICES]);
   }
 
   dispose() {

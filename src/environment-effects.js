@@ -7,6 +7,8 @@ import { FountainWater } from './fountain-water.js';
 import { FountainSpray } from './fountain-spray.js';
 import { FountainJets, TIER } from './fountain-jets.js';
 import { SteamWisps } from './steam-wisps.js';
+import { VisibilityHost, loaded } from './environment/module.js';
+import { EnvironmentFrame as FRAME, EnvironmentInstance as INSTANCE, EnvironmentResult as RESULT, View as VIEW } from './environment/layout.js';
 
 const UP=new THREE.Vector3(0,1,0),FORWARD=new THREE.Vector3(0,0,1);
 // The effects placed objects carry (tools/zero_environment.py). Fountains and
@@ -74,7 +76,18 @@ export class EnvironmentEffects {
       const water=basin?basin.center[1]:f.position.y-.2;
       f.slot=slot;f.level=water+TIER.rise;f.low=water+TIER.outer;
     }
-    this.frustum=new THREE.Frustum();this.matrix=new THREE.Matrix4();this.visibleVolumes=[];this.visibleFountains=[];
+    this.visibleVolumes=[];this.visibleFountains=[];
+    // Which are in view is the Rust phase's: each instance's sphere, where it plays and what kind it is.
+    // Which placed effects are in view is the Rust phase's: each instance's sphere
+    // (where it plays), its position and what kind it is.
+    this.host=new VisibilityHost(loaded(),this.instances.length);
+    this.instances.forEach((i,k)=>{
+      const c=this.host.config,at=k*INSTANCE.STRIDE;
+      c[at+INSTANCE.SPHERE]=i.sphere.center.x;c[at+INSTANCE.SPHERE+1]=i.sphere.center.y;c[at+INSTANCE.SPHERE+2]=i.sphere.center.z;c[at+INSTANCE.SPHERE+3]=i.sphere.radius;
+      c[at+INSTANCE.POSITION]=i.position.x;c[at+INSTANCE.POSITION+1]=i.position.y;c[at+INSTANCE.POSITION+2]=i.position.z;
+      c[at+INSTANCE.CLASSIC]=i.classic?1:0;c[at+INSTANCE.JET]=i.jet?1:0;
+    });
+    this.host.start();
     this.relevant=position=>this.instances.some(i=>i.position.distanceToSquared(position)<144);
     this.stats={activeSources:0,volumes:0,classicParticles:0};
     this.warmup=new Map(Object.entries(data.effects).map(([name,defs])=>[name,Math.min(4,Math.max(...defs.map(d=>d.transformer?.lifetime||0)))]));
@@ -87,27 +100,36 @@ export class EnvironmentEffects {
       for(const i of this.instances){if(i.classic)continue;i.handle?.kill();i.handle=null;}
       this.classic.update(0);this.wakes.clear();this.mode=mode;this.water?.setEnabled(mode==='enhanced');
     }
-    camera.updateMatrixWorld();this.matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);this.frustum.setFromProjectionMatrix(this.matrix);
+    camera.updateMatrixWorld();
+    // Which placed effects are in view is the Rust phase's (rust/bfe-environment, environment.rs).
+    const view=this.host.view;
+    view.set(camera.matrixWorld.elements,VIEW.CAMERA);view.set(camera.matrixWorldInverse.elements,VIEW.INVERSE);view.set(camera.projectionMatrix.elements,VIEW.PROJECTION);
+    view[VIEW.POSITION]=camera.position.x;view[VIEW.POSITION+1]=camera.position.y;view[VIEW.POSITION+2]=camera.position.z;
+    this.host.frame[FRAME.REACH]=Math.max(90,lighting.fade.value.y);this.host.frame[FRAME.ENHANCED]=mode==='enhanced'?1:0;
+    this.host.update();
+    // Fog wakes follow the actors walking through steam, in the Enhanced mode only.
     this.wakes.update(dt,mode==='enhanced'?actors:[],this.relevant);
-    this.visibleVolumes.length=0;this.visibleFountains.length=0;this.stats.activeSources=0;
-    const reach=Math.max(90,lighting.fade.value.y);
-    for(const i of this.instances){
-      const visible=i.position.distanceToSquared(camera.position)<(i.classic?reach*reach:90*90)&&this.frustum.intersectsSphere(i.sphere);
-      if(visible)this.stats.activeSources++;
-      if(mode==='classic'||i.classic){
-        if(visible&&!i.handle){
-          i.handle=this.classic.play(i.effect,i.position,UP,null,i.quaternion);
-          // Emit the last lifetime analytically, so a fountain is already
-          // flowing when it enters view, without stepping an offscreen sim.
-          if(i.handle)this.classic.step(i.handle,this.warmup.get(i.effect)||0);
-        }
-        else if(!visible&&i.handle){i.handle.kill();i.handle=null;}
-      }else if(visible){
-        // Fountains are drawn as water (fountain-jets.js); only steam is a volume.
-        if(!i.jet)this.visibleVolumes.push(i.volume);
-        if(i.jet)this.visibleFountains.push(i);
+    this.visibleVolumes.length=0;this.visibleFountains.length=0;
+    const r=this.host.result,n=this.instances.length;
+    this.stats.activeSources=r[RESULT.SOURCES];
+    // The stock effects play while in view and stop out of it.
+    // The stock effects play while in view and stop out of it: a campfire or torch
+    // is started (and run on to its steady state) the first frame it is in view.
+    for(let k=0;k<n;k++){
+      const i=this.instances[k];
+      if(mode!=='classic'&&!i.classic)continue;
+      const visible=r[RESULT.STRIDE+k]===1;
+      if(visible&&!i.handle){
+        i.handle=this.classic.play(i.effect,i.position,UP,null,i.quaternion);
+        // Emit the last lifetime analytically, so a fountain is already
+        // flowing when it enters view, without stepping an offscreen sim.
+        if(i.handle)this.classic.step(i.handle,this.warmup.get(i.effect)||0);
       }
+      else if(!visible&&i.handle){i.handle.kill();i.handle=null;}
     }
+    // The Enhanced steam volumes and fountains in view, for their draws.
+    for(let k=0;k<r[RESULT.VOLUMES];k++)this.visibleVolumes.push(this.instances[r[RESULT.STRIDE+n+k]].volume);
+    for(let k=0;k<r[RESULT.FOUNTAINS];k++)this.visibleFountains.push(this.instances[r[RESULT.STRIDE+2*n+k]]);
     this.classic.update(dt);
     this.volume?.update(this.time,this.visibleVolumes);this.spray?.update(this.time,this.visibleFountains);this.water?.update(this.time);
     this.jets?.update(this.time,this.visibleFountains);

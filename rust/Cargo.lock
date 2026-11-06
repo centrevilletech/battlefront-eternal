@@ -19,6 +19,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bfe-environment"
+version = "0.1.0"
+dependencies = [
+ "jsrt",
+ "three",
+ "v8math",
+]
+
+[[package]]
 name = "bfe-native"
 version = "0.1.0"
 dependencies = [

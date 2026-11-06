@@ -279,6 +279,9 @@ function poolOf(pool) {
   return {
     mesh: pool.mesh, material: pool.material, geometry: g, source: pool,
     get count() { return pool.count; }, capacity: pool.capacity, arrays,
+    // The first record changed since the renderer last read the pool (the
+    // phase's own dirty range, kept as the least over the frames between).
+    get unread() { return pool.unread; }, set unread(from) { pool.unread = from; },
     get external() { return pool.external; }, set external(on) { pool.external = on; },
   };
 }
@@ -1184,11 +1187,11 @@ class EffectsPass {
       const b = record.batch, count = b.count, attributes = record.attributes;
       // The batch's arrays (made anew as it grows).
       if (record.capacity !== b.capacity && !record.interleaved) record.arrays = attributes.map(([name]) => b.arrays[name]);
-      // An analytic batch's instances from the first that changed since it
-      // was last read (effects-gpu.js unread), when the renderer holds the
-      // rest; all of them otherwise.
+      // An analytic batch's (or a destruction pool's) instances from the first
+      // that changed since it was last read (effects-gpu.js unread; the pool's
+      // dirty range), when the renderer holds the rest; all of them otherwise.
       let from = 0;
-      if (record.kind === "analytic") {
+      if (record.kind === "analytic" || record.kind === "pool") {
         if (record.synced && record.capacity === b.capacity) from = Math.min(Math.max(b.unread ?? 0, 0), count);
         b.unread = Infinity;
       } else if (record.static) {

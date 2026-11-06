@@ -28,7 +28,6 @@ import { VehicleEffects } from "./vehicle-effects.js";
 import { TurretSeats } from "./seats.js";
 import * as THREE from "three";
 import { Debris } from "./debris.js";
-import { Destruction } from "./destruction.js";
 import { givePowerup, Items } from "./items.js";
 import { RemoteDroids, BODY_RADIUS as DROID_RADIUS } from "./remote.js";
 import { BLAST_BODY } from "./combat.js";
@@ -137,7 +136,9 @@ async function attachCombatPhase(instance) {
 
 export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null } = {}) {
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
-const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
+const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, Destruction, loadEnvironment, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
+// The destruction and weather phase's Rust module, compiled before anything builds on it.
+if (!headless) await loadEnvironment();
 const params = new URLSearchParams(query);
 const runtimeProfile = params.get("profileRuntime") === "1" ? new RuntimeProfiler() : null;
 const inputTrace = params.get("traceInput") === "1" ? new InputLatencyTrace() : null;

@@ -80,7 +80,7 @@ jobs:
         # The content BVH oracle uses the installed three and three-mesh-bvh.
         # sim-replay's format test has Node write a made-up capture; the
         # replays of real battles need game data, so they pass empty here.
-        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p content -p v8math -p jsrt -p three -p audio -p audio-decode --features sim/replay
+        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p bfe-environment --features sim/replay
       - name: Keep the rebuilt files
         if: failure()
         uses: actions/upload-artifact@v7

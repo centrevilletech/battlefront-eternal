@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { EngineRandom } from "./atmosphere.js";
+import { SkyHost, loaded } from "./environment/module.js";
+import { SkyClass as SKY_CLASS, SkyConfig as SKY_CONFIG, SkyFrame as SKY_FRAME, SkyResult as SKY_RESULT } from "./environment/layout.js";
 import { lighting } from "./materials.js";
 import { modelPack } from "./models.js";
 import { motionUniforms, motionVectors } from "./motion-vectors.js";
@@ -52,159 +53,8 @@ import { SkyProbe } from "./sky-probe.js";
 // one instanced draw per model part, sorted far to near (Enhanced: another
 // for its fading ships).
 
-export const FADE_RATE = 0.25; // of full alpha a second: 4 s in, 4 s out
-export const KILL_MARGIN = 10; // m past Distance, across the ground from the origin
 // The setting whose Enhanced choice turns the Enhanced sky on.
 export const SKY_SETTING = "oceanEffects";
-// Enhanced: how far back along its course a ship starts, its whole fade-in.
-export const PRE_ROLL = 1 / FADE_RATE;
-// Enhanced: the share of the far plane a farther ship is drawn inside.
-export const REACH = 0.98;
-// Enhanced: how much of the sky behind it a far, low ship takes on at most.
-export const HAZE = 0.7;
-
-const span = ([low, high], random) => low + random.float() * (high - low);
-const smooth = (a, b, x) => { const t = Math.min(Math.max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); };
-
-// A ship starts again: the draws in the 2004 game's order.
-export function launch(def, random, ship = {}) {
-  ship.fade = 0;
-  let dx = 0, dz = 0;
-  while (dx === 0 && dz === 0) {
-    dz = random.float() - 0.5;
-    dx = random.float() - 0.5;
-  }
-  const length = Math.hypot(dx, dz);
-  dx /= length;
-  dz /= length;
-  const height = span(def.height, random);
-  ship.position ??= new THREE.Vector3();
-  ship.position.set(dx * def.distance, height, dz * def.distance);
-  // Across the direction it starts in (up x direction), either way, then
-  // turned inward.
-  let tx = dz, tz = -dx;
-  if (random.float() > 0.5) { tx = -tx; tz = -tz; }
-  if (def.inDirection > 0) {
-    const inward = random.float() * def.inDirection * 0.5 + def.inDirection * 0.5;
-    tx -= dx * inward;
-    tz -= dz * inward;
-  }
-  const heading = Math.hypot(tx, tz);
-  ship.forward ??= new THREE.Vector3();
-  ship.forward.set(tx / heading, 0, tz / heading);
-  // Its velocity in its own axes, drawn forward first.
-  const vz = span(def.velocity[2], random);
-  const vy = span(def.velocity[1], random);
-  const vx = span(def.velocity[0], random);
-  ship.velocity = [vx, vy, vz];
-  ship.age = def.lifeTime * (random.float() * 0.2 + 0.8);
-  ship.entered = true;
-  ship.launched = true;
-  return ship;
-}
-
-// Enhanced: the same start, the same draws, then PRE_ROLL seconds back
-// along its course (its acceleration undone too): it fades in on the way
-// and is solid where the original starts it. Its age counts from there,
-// and it may leave its ring only once it has been inside.
-export function launchEnhanced(def, random, ship = {}) {
-  launch(def, random, ship);
-  const t = PRE_ROLL, v = ship.velocity, a = def.acceleration, f = ship.forward;
-  const back = [0, 1, 2].map((k) => v[k] * t - 0.5 * a[k] * t * t);
-  ship.position.x -= f.z * back[0] + f.x * back[2];
-  ship.position.y -= back[1];
-  ship.position.z -= -f.x * back[0] + f.z * back[2];
-  for (let k = 0; k < 3; k++) v[k] -= a[k] * t;
-  ship.age -= t;
-  ship.entered = false;
-  return ship;
-}
-
-// Its flight over dt in its own axes: Acceleration first, then the move.
-function move(def, ship, dt) {
-  const v = ship.velocity, a = def.acceleration;
-  v[0] += a[0] * dt;
-  v[1] += a[1] * dt;
-  v[2] += a[2] * dt;
-  // Right is up x forward, (fz, 0, -fx); up is the world's.
-  const f = ship.forward;
-  ship.position.x += (f.z * v[0] + f.x * v[2]) * dt;
-  ship.position.y += v[1] * dt;
-  ship.position.z += (-f.x * v[0] + f.z * v[2]) * dt;
-}
-
-// One frame of a ship. False when it has just faded out: it starts again
-// instead of moving.
-export function fly(def, ship, dt) {
-  if (ship.fade >= 0) {
-    const reach = def.distance + KILL_MARGIN;
-    const away = ship.position.x * ship.position.x + ship.position.z * ship.position.z;
-    if (away > reach * reach || ship.age > def.lifeTime) ship.fade = -1;
-  }
-  ship.age += dt;
-  const before = ship.fade;
-  ship.fade = Math.min(before + dt * FADE_RATE, 1);
-  if (ship.fade >= 0 && before < 0) return false;
-  move(def, ship, dt);
-  return true;
-}
-
-// Enhanced: the same frame, but a ship leaves its ring only once it has
-// been inside it, and fades out from the alpha it has.
-export function flyEnhanced(def, ship, dt) {
-  const reach = def.distance + KILL_MARGIN;
-  const away = ship.position.x * ship.position.x + ship.position.z * ship.position.z;
-  if (away <= reach * reach) ship.entered = true;
-  if (ship.fade >= 0 && ((ship.entered && away > reach * reach) || ship.age > def.lifeTime)) {
-    ship.fade = -Math.max(ship.fade, 1e-6);
-  }
-  ship.age += dt;
-  const before = ship.fade;
-  ship.fade = Math.min(before + dt * FADE_RATE, 1);
-  if (ship.fade >= 0 && before < 0) return false;
-  move(def, ship, dt);
-  return true;
-}
-
-// Its placement: the model's x along right, y up, z along its heading.
-export function placement(ship, out = new THREE.Matrix4()) {
-  const f = ship.forward;
-  return out.set(
-    f.z, 0, f.x, ship.position.x,
-    0, 1, 0, ship.position.y,
-    -f.x, 0, f.z, ship.position.z,
-    0, 0, 0, 1,
-  );
-}
-
-// Enhanced: where a ship is drawn so that the far plane `far` doesn't cut
-// it. A ship (of bounding radius `radius` about its origin) reaching past
-// REACH x far is scaled about the eye by the share that brings its far side
-// there: its image is the same, it lies inside the far plane, and its
-// depth is put just inside it (the shader). Returns that scale (1: drawn
-// where it is) and writes the placement drawn into `out`.
-export function withinReach(matrix, eye, radius, far, out) {
-  const x = matrix.elements[12] - eye.x, y = matrix.elements[13] - eye.y, z = matrix.elements[14] - eye.z;
-  const distance = Math.hypot(x, y, z);
-  const reach = far * REACH;
-  out.copy(matrix);
-  if (!(distance + radius > reach) || !(reach > 0)) return 1;
-  const scale = reach / (distance + radius);
-  const e = out.elements;
-  for (let i = 0; i < 12; i++) if (i % 4 !== 3) e[i] *= scale;
-  e[12] = eye.x + x * scale;
-  e[13] = eye.y + y * scale;
-  e[14] = eye.z + z * scale;
-  return scale;
-}
-
-// Enhanced: how much of the sky behind it a ship at `distance`, `rise`
-// metres above the eye, takes on: none overhead or near, up to HAZE low on
-// the horizon three times the far plane away.
-export function haze(distance, rise, far) {
-  if (!(distance > 0) || !(far > 0)) return 0;
-  return HAZE * (1 - smooth(0.04, 0.35, rise / distance)) * smooth(0.6, 3, distance / far);
-}
 
 const vertexShader = /* glsl */ `
   uniform vec3 sunDirection;
@@ -380,10 +230,10 @@ export function battleFlyers(data, mission, enhanced = false) {
 // Whether the Enhanced sky is on.
 export const enhancedSky = (settings) => settings?.get?.(SKY_SETTING) === "enhanced";
 
-const drawn = new THREE.Matrix4();
-const order = [];
-const SOLID = 0.999;
-
+// The flight (launch, fly, fade, placement, the far plane's reach, the haze),
+// the order of the draws and their instance records are a Rust phase's
+// (rust/bfe-environment, sky.rs). The page keeps the meshes, materials and
+// the sky probe the haze reads.
 export class SkyFlyers {
   // data: flyers.json; buffer, indexBuffer: flyers.bin and flyers_index.bin;
   // texture(name): the sky folder's textures; scene: the far scene;
@@ -392,7 +242,6 @@ export class SkyFlyers {
   // src/atmosphere.js); motion: the temporal upscaler's motion pass.
   constructor({ data, mission, buffer, indexBuffer, texture = () => null, scene = null, seed = 1,
     graphics = null, settings = graphics?.settings ?? null, motion = motionVectors }) {
-    this.random = new EngineRandom(seed);
     this.graphics = graphics;
     this.settings = settings;
     this.motion = motion;
@@ -407,15 +256,38 @@ export class SkyFlyers {
     const classic = new Set(battleFlyers(data, mission, false));
     const enhanced = new Set(battleFlyers(data, mission, true));
     const models = modelPack(data?.models, buffer, indexBuffer);
+    const kept = [];
     for (const def of data?.flyers || []) {
       if (!classic.has(def) && !enhanced.has(def)) continue;
       const parts = models.get(def.model);
       if (!parts?.length) continue;
-      this.classes.push(this.build(def, parts, texture, { classic: classic.has(def), enhanced: enhanced.has(def) }));
+      kept.push({ def, parts, modes: { classic: classic.has(def), enhanced: enhanced.has(def) } });
     }
-    // Only the classes flying now: one coming in later (setEnhanced) starts
-    // then, so Classic's random draws are the original's alone.
-    for (const kind of this.classes) if (this.active(kind)) this.relaunch(kind);
+    // Rust keeps the ships; the page's draws are built over its records.
+    this.host = new SkyHost(loaded(), kept.length);
+    const config = this.host.config;
+    config[SKY_CONFIG.SEED] = seed;
+    config[SKY_CONFIG.CLASSES] = kept.length;
+    config[SKY_CONFIG.ENHANCED] = this.enhanced ? 1 : 0;
+    const radii = kept.map(({ parts }) => parts.reduce((r, part) => {
+      const sphere = part.geometry.boundingSphere;
+      return Math.max(r, sphere.center.length() + sphere.radius);
+    }, 0));
+    kept.forEach(({ def, modes }, i) => {
+      const at = SKY_CONFIG.STRIDE + i * SKY_CLASS.STRIDE;
+      config[at + SKY_CLASS.COUNT] = def.count;
+      config[at + SKY_CLASS.DISTANCE] = def.distance;
+      config.set(def.height, at + SKY_CLASS.HEIGHT);
+      config[at + SKY_CLASS.IN_DIRECTION] = def.inDirection;
+      def.velocity.forEach((range, k) => config.set(range, at + SKY_CLASS.VELOCITY + k * 2));
+      config.set(def.acceleration, at + SKY_CLASS.ACCELERATION);
+      config[at + SKY_CLASS.LIFE_TIME] = def.lifeTime;
+      config[at + SKY_CLASS.RADIUS] = radii[i];
+      config[at + SKY_CLASS.CLASSIC] = modes.classic ? 1 : 0;
+      config[at + SKY_CLASS.ENHANCED] = modes.enhanced ? 1 : 0;
+    });
+    this.host.start();
+    kept.forEach(({ def, parts, modes }, i) => this.classes.push(this.build(def, parts, texture, modes, radii[i], i)));
     this.motionChecked = -1;
     this.unsubscribe = settings?.onChange?.((key) => { if (key === SKY_SETTING) this.setEnhanced(enhancedSky(settings)); }) || null;
     this.place(null);
@@ -424,15 +296,16 @@ export class SkyFlyers {
 
   // A class's draws: per model part one instanced mesh for its ships (all of
   // them in Classic, the solid ones in Enhanced), one for Enhanced's fading
-  // ships, and its motion.
-  build(def, parts, texture, modes) {
+  // ships, and its motion. Their instance records are views onto the phase's.
+  build(def, parts, texture, modes, radius, index) {
     const count = def.count;
-    const solid = { matrices: new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16), looks: new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4) };
-    const fading = { matrices: new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16), looks: new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4) };
+    const records = this.host.arrays(index);
+    const solid = { matrices: new THREE.InstancedBufferAttribute(records[0], 16), looks: new THREE.InstancedBufferAttribute(records[1], 4) };
+    const fading = { matrices: new THREE.InstancedBufferAttribute(records[2], 16), looks: new THREE.InstancedBufferAttribute(records[3], 4) };
     const motion = {
-      matrices: new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16),
-      previous: new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16),
-      shown: new THREE.InstancedBufferAttribute(new Float32Array(count), 1),
+      matrices: new THREE.InstancedBufferAttribute(records[4], 16),
+      previous: new THREE.InstancedBufferAttribute(records[5], 16),
+      shown: new THREE.InstancedBufferAttribute(records[6], 1),
     };
     for (const attribute of Object.values({ ...solid, ...fading }).concat(Object.values(motion))) attribute.setUsage(THREE.DynamicDrawUsage);
     // The part's buffers, with these instance attributes beside them.
@@ -453,11 +326,8 @@ export class SkyFlyers {
       m.renderOrder = order;
       return m;
     };
-    let radius = 0;
     const draws = [], fades = [], motions = [];
     for (const part of parts) {
-      const sphere = part.geometry.boundingSphere;
-      radius = Math.max(radius, sphere.center.length() + sphere.radius);
       const map = texture(part.texture);
       // After the far scene's terrain and models; the fading ships after
       // every solid one.
@@ -469,9 +339,8 @@ export class SkyFlyers {
     }
     for (const m of [...draws, ...fades]) this.group.add(m);
     for (const m of motions) this.motion?.addExtra?.(m);
-    const ships = Array.from({ length: def.count }, () => ({ matrix: new THREE.Matrix4(), previous: new THREE.Matrix4() }));
     const attributes = [solid.matrices, solid.looks, fading.matrices, fading.looks, motion.matrices, motion.previous, motion.shown];
-    return { def, ...modes, radius, ships, solid, fading, motion, draws, fades, motions, meshes: [...draws, ...fades, ...motions], attributes };
+    return { def, ...modes, index, radius, solid, fading, motion, draws, fades, motions, meshes: [...draws, ...fades, ...motions], attributes };
   }
 
   // Whether a class flies in the current mode.
@@ -479,57 +348,27 @@ export class SkyFlyers {
     return this.enhanced ? kind.enhanced : kind.classic;
   }
 
-  relaunch(kind) {
-    for (const ship of kind.ships) this.launch(kind, ship);
-  }
-
-  launch(kind, ship) {
-    if (this.enhanced) launchEnhanced(kind.def, this.random, ship);
-    else launch(kind.def, this.random, ship);
-    placement(ship, ship.matrix);
-    ship.previous.copy(ship.matrix);
-  }
-
   // Classic or Enhanced, as the setting changes: classes coming in start
   // afresh; ships flying on keep their course under the new rules.
   setEnhanced(enhanced) {
     if (enhanced === this.enhanced) return;
-    const was = this.classes.map((kind) => this.active(kind));
     this.enhanced = enhanced;
-    this.classes.forEach((kind, i) => {
-      if (!this.active(kind)) return;
-      if (!was[i]) this.relaunch(kind);
-      else if (enhanced) {
-        for (const ship of kind.ships) {
-          const reach = kind.def.distance + KILL_MARGIN;
-          ship.entered = ship.position.x ** 2 + ship.position.z ** 2 <= reach * reach;
-        }
-      }
-    });
+    this.host.x.sky_set_enhanced(enhanced ? 1 : 0);
     this.place(null);
   }
 
   get count() {
-    return this.classes.reduce((sum, kind) => sum + (this.active(kind) ? kind.ships.length : 0), 0);
+    return this.classes.reduce((sum, kind) => sum + (this.active(kind) ? kind.def.count : 0), 0);
   }
 
   // A frame of flight, then the draws: far to near from the eye.
   update(dt, camera = null) {
     if (dt > 0) {
       this.time += dt;
-      for (const kind of this.classes) {
-        if (!this.active(kind)) continue;
-        for (const ship of kind.ships) {
-          ship.previous.copy(ship.matrix);
-          const flying = this.enhanced ? flyEnhanced(kind.def, ship, dt) : fly(kind.def, ship, dt);
-          if (flying) placement(ship, ship.matrix);
-          else this.launch(kind, ship);
-        }
-      }
       this.stepped = true;
     }
     if (this.enhanced && camera) this.sky(camera);
-    this.place(camera?.position || null);
+    this.place(camera?.position || null, dt);
   }
 
   // Enhanced: the sky behind the ships (sky-probe.js), for their haze.
@@ -544,47 +383,26 @@ export class SkyFlyers {
     this.probe.update(this.time, camera);
   }
 
-  place(eye) {
+  // The phase's frame (flight over dt, then the layout of the draws from
+  // the eye, none without one), and the meshes set from what it left.
+  place(eye, dt = 0) {
+    const frame = this.host.frame;
+    frame[SKY_FRAME.DT] = dt;
+    frame[SKY_FRAME.HAS_EYE] = eye ? 1 : 0;
+    if (eye) { frame[SKY_FRAME.EYE] = eye.x; frame[SKY_FRAME.EYE + 1] = eye.y; frame[SKY_FRAME.EYE + 2] = eye.z; }
     const far = this.graphics?.farCamera?.far || 0;
-    const enhanced = this.enhanced && eye && far > 0;
-    // The haze needs the sky behind (sky()); without it, none.
-    const misty = enhanced && this.probe;
+    frame[SKY_FRAME.FAR] = far;
+    frame[SKY_FRAME.VISIBLE] = this.group.visible ? 1 : 0;
+    frame[SKY_FRAME.MISTY] = this.probe ? 1 : 0;
+    this.host.x.sky_update();
+    const r = this.host.result;
     for (const kind of this.classes) {
-      const { ships, solid, fading, motion } = kind;
-      const on = this.active(kind) && this.group.visible;
-      if (!on) {
+      const at = kind.index * SKY_RESULT.STRIDE;
+      if (!r[at + SKY_RESULT.ON]) {
         for (const m of kind.meshes) m.visible = false;
         continue;
       }
-      order.length = 0;
-      for (let i = 0; i < ships.length; i++) {
-        const ship = ships[i];
-        ship.distance = eye ? ship.position.distanceToSquared(eye) : 0;
-        order.push(ship);
-        // Its motion, at its true placement now and then.
-        ship.matrix.toArray(motion.matrices.array, i * 16);
-        ship.previous.toArray(motion.previous.array, i * 16);
-        motion.shown.array[i] = Math.abs(ship.fade) >= 0.5 ? 1 : 0;
-      }
-      if (eye) order.sort((a, b) => b.distance - a.distance);
-      let solids = 0, fadings = 0;
-      for (const ship of order) {
-        const alpha = Math.abs(ship.fade);
-        let scale = 1, mist = 0;
-        drawn.copy(ship.matrix);
-        if (enhanced) {
-          scale = withinReach(ship.matrix, eye, kind.radius, far, drawn);
-          if (misty) mist = haze(Math.sqrt(ship.distance), ship.position.y - eye.y, far);
-        }
-        const into = this.enhanced && alpha < SOLID ? fading : solid;
-        const at = into === solid ? solids++ : fadings++;
-        drawn.toArray(into.matrices.array, at * 16);
-        const look = into.looks.array;
-        look[at * 4] = alpha;
-        look[at * 4 + 1] = mist;
-        look[at * 4 + 2] = scale < 1 ? 1 : 0;
-        look[at * 4 + 3] = scale;
-      }
+      const solids = r[at + SKY_RESULT.SOLIDS], fadings = r[at + SKY_RESULT.FADINGS];
       for (const m of kind.draws) {
         m.count = solids;
         m.visible = solids > 0;

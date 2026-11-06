@@ -5,6 +5,10 @@ import * as THREE from 'three';
 import {EnvironmentWakes,WAKE_COUNT} from '../src/environment-volume.js';
 import {EnvironmentEffects} from '../src/environment-effects.js';
 import {TIER} from '../src/fountain-jets.js';
+import {loadEnvironment} from '../src/environment/module.js';
+import {runEnvironment} from './support/environment-scenario.js';
+
+await loadEnvironment();
 
 const run=(hz)=>{
   const wakes=new EnvironmentWakes(),actor={position:new THREE.Vector3()};
@@ -101,4 +105,16 @@ test('placed stock effects play in both modes, out to the near scene, with no En
   camera.position.set(-110,1.8,0);camera.lookAt(40,2,0);e.update(.05,camera,[]);assert.equal(e.stats.activeSources,1);
   camera.lookAt(-300,2,0);e.update(.05,camera,[]);assert.equal(e.stats.activeSources,0);assert.equal(e.instances[0].handle,null);
   e.dispose();texture.dispose();assert.equal(scene.children.length,0);
+});
+
+// The placed effects over a scripted walk: stock
+// torches, steam vents, pipes and fountains, a camera that walks, turns and
+// jumps, frames of every length and the mode switched live, digested per
+// frame (the statistics and the instances found in view for each draw),
+// held to a recorded run.
+test('the placed effects in view are found exactly as the recorded walk has them',()=>{
+  const golden=JSON.parse(fs.readFileSync(new URL('./fixtures/environment-golden.json',import.meta.url),'utf8'));
+  const rows=runEnvironment(EnvironmentEffects);
+  assert.equal(rows.length,golden.length);
+  rows.forEach((row,i)=>assert.deepEqual(row,golden[i],`frame ${i}`));
 });

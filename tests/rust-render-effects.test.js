@@ -106,6 +106,9 @@ function bridge() {
   return { core, calls, scene, camera, renderer, list, frame, drawn, entry, fx: core.byName.effects };
 }
 
+await (await import("../src/environment/module.js")).loadEnvironment();
+const { Destruction } = await import("../src/destruction.js");
+
 test("the effects are the transparent phase's second pass, after the map's blended buckets", () => {
   const { core } = bridge();
   assert.deepEqual(core.phases.transparent.map((p) => p.name), ["transparent", "effects", "water", "fog"]);
@@ -422,24 +425,26 @@ test("a droideka's Enhanced aura: a shader model with the shield's values, front
 test("the atmosphere's squares: a batch with values of its own after its instances", async () => {
   const { Atmosphere, squareBatches } = await import("../src/atmosphere.js");
   const { core, calls, scene, camera, frame, drawn, entry } = bridge();
-  const atmosphere = new Atmosphere({ data: { fogCloud: { texture: "fog", color: [255, 128, 64], size: 20 } }, scene, collision: { cast: () => null }, texture: () => new THREE.Texture() });
+  const fog = { texture: "fog", color: [255, 128, 64], range: [5, 40], velocity: [0, 0], rotation: 0, height: 1, size: 20, density: 30, cell: 64 };
+  const atmosphere = new Atmosphere({ data: { fogCloud: fog }, scene, collision: { ground: (x, z, top, out) => { out.height = 0; return out; } }, texture: () => new THREE.Texture() });
   const [batch] = squareBatches.get(scene);
-  assert.equal(batch, atmosphere.fog.batch);
-  batch.begin(); batch.push(10, 1, 2, -10, 4, 0.5, 0.75); batch.push(5, 3, 2, -5, 4, 0.25, 0.5); batch.end();
-  assert.equal(batch.mesh.visible, true);
+  assert.equal(batch, atmosphere.batches[0]);
+  atmosphere.update(1 / 60, camera);
+  const n = batch.geometry.instanceCount;
+  assert.ok(n > 1 && batch.mesh.visible);
   drawn(batch.material, program(["projectionMatrix", "viewMatrix", "map", "tint", "axisU", "axisV", "fade", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["corner", "center", "spin"]));
   frame();
   assert.deepEqual(calls.find((c) => c[0] === "fx_batch_values").slice(2), ["tint:4:0,axisU:3:0,axisV:3:0"]);
   assert.equal(batch.external, true);
-  batch.begin(); batch.push(10, 1, 2, -10, 4, 0.5, 0.75); batch.push(5, 3, 2, -5, 4, 0.25, 0.5); batch.end();
+  atmosphere.update(1 / 60, camera);
   assert.equal(batch.mesh.visible, false, "hidden from three");
   frame();
   const e = entry(0), data = core.fxData;
-  assert.deepEqual(e.slice(0, 5), [0, 0, 2, 0, 0]);
+  assert.deepEqual(e.slice(0, 3), [0, 0, n]);
   assert.deepEqual(e.slice(6, 8), [0, 10], "render order 10");
-  assert.deepEqual([...data.subarray(0, 8)], [1, 2, -10, 4, 3, 2, -5, 4], "centres, farthest first as atmosphere.js sorts them");
-  assert.deepEqual([...data.subarray(8, 12)], [0.5, 0.75, 0.25, 0.5].map(Math.fround), "spins");
-  assert.deepEqual([...data.subarray(12, 16)], [1, 128 / 255, 64 / 255, 1].map(Math.fround), "then the tint");
+  assert.deepEqual([...data.subarray(0, 4 * n)], [...batch.center.array.subarray(0, 4 * n)], "centres, farthest first as the phase sorts them");
+  assert.deepEqual([...data.subarray(4 * n, 6 * n)], [...batch.spin.array.subarray(0, 2 * n)], "spins");
+  assert.deepEqual([...data.subarray(6 * n, 6 * n + 4)], [1, 128 / 255, 64 / 255, 1].map(Math.fround), "then the tint");
   });
 
 test("the snow: no instances of its own, its flakes and boxes in data textures on units of their own, an int value", async () => {
@@ -1157,14 +1162,18 @@ test("the Enhanced jetpack's wake: its three pools batches on a quad of their ow
   assert.equal(core.fxData[14 * n], Math.fround(wake.time), "its clock after them");
   });
 
-test("the Enhanced destruction's fire and smoke: each pool a batch on a quad of its own, as many attributes as it keeps", async () => {
-  const { DestructionFx, FIRE, SMOKE } = await import("../src/destruction-fx.js");
+// A destruction effects owner over a floor, its births made by a blast.
+function destructionOf(scene) {
+  const floor = { cast: (o, d, far, out) => { if (d.y >= 0 || o.y < 0 || o.y / -d.y > far) return null; out.point.copy(o).addScaledVector(d, o.y / -d.y); out.normal.set(0, 1, 0); return out; } };
+  return new Destruction({ scene, collision: floor, lights: { flash() {}, add() {} }, settings: { get: () => "enhanced", onChange: () => () => {} }, model: () => null, seed: 3 });
+}
+
+test("the Enhanced destruction\'s fire and smoke: each pool a batch on a quad of its own, as many attributes as it keeps", async () => {
+  const { Destruction } = await import("../src/destruction.js");
   const { core, calls, scene, list, frame, drawn, entry } = bridge();
-  const fx = new DestructionFx(scene, { hot: 16, smoke: 16, arcs: 2 });
-  const at = new THREE.Vector3(0, 0, -5), up = new THREE.Vector3(0, 1, 0);
-  for (let i = 0; i < 3; i++) fx.hotParticle(FIRE, at, up, 2, 0.5, 1, 0, 0, 1);
-  for (let i = 0; i < 2; i++) fx.smokeParticle(SMOKE, at, up, 3, 1, 2, -0.1, 0.5, 0.5);
-  fx.update(1 / 60);
+  const d = destructionOf(scene), fx = d.fx;
+  d.blast(new THREE.Vector3(0, 0, -5), 1);
+  d.update(1 / 60);
   const depth = ["sceneDepth", "softParticles", "depthResolution", "cameraRange"];
   list.transparent.push({ object: fx.hot.mesh, material: fx.hot.material, group: null }, { object: fx.smoke.mesh, material: fx.smoke.material, group: null });
   drawn(fx.hot.material, program(["projectionMatrix", "viewMatrix", "fxTime", "fogRange", ...depth], ["position", "uv", "a0", "a1", "a2", "a3"]));
@@ -1175,24 +1184,27 @@ test("the Enhanced destruction's fire and smoke: each pool a batch on a quad of 
   assert.deepEqual(added.map((c) => c[5].length / 2), [4, 5], "four records' attributes of fire, five of smoke");
   assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_values").map((c) => c[2]), ["fxTime:1:0", "fxTime:1:0,wind:3:0"]);
   assert.ok(fx.hot.external && fx.smoke.external);
+  assert.equal(fx.hot.unread, Infinity, "read in full once, nothing unread");
   list.transparent.length = 0;
   const version = fx.hot.attributes[0].version;
-  fx.hotParticle(FIRE, at, up, 2, 0.5, 1, 0, 0, 1);
-  fx.update(1 / 60);
+  d.blast(new THREE.Vector3(0, 0, -5), 1);
+  d.update(1 / 60);
   assert.equal(fx.hot.mesh.visible, false, "shown to three never");
   assert.equal(fx.hot.attributes[0].version, version, "uploaded nothing by three");
   frame();
-  const fire = [0, 1].map(entry).find((e) => e[2] === 4);
+  const fire = [0, 1].map(entry).find((e) => e[2] === fx.hot.count);
   assert.ok(fire, "every record of the fire, each frame");
-  assert.deepEqual([...core.fxData.subarray(fire[4], fire[4] + 16)], [...fx.hot.arrays[0].subarray(0, 16)]);
+  // From the first record changed since the renderer last read the pool; the rest it holds.
+  assert.ok(fire[3] > 0, "only what changed is copied");
+  assert.deepEqual([...core.fxData.subarray(fire[4], fire[4] + 16)], [...fx.hot.arrays[0].subarray(fire[3] * 4, fire[3] * 4 + 16)]);
   });
 
 test("the Enhanced destruction's arcs: a mesh rebuilt each frame, as many vertices and indices as its arcs used, hidden by its flag", async () => {
-  const { DestructionFx } = await import("../src/destruction-fx.js");
+  const { Destruction } = await import("../src/destruction.js");
   const { core, calls, scene, list, frame, drawn, entry } = bridge();
-  const fx = new DestructionFx(scene, { hot: 4, smoke: 4, arcs: 4 });
-  fx.arc(null, new THREE.Vector3(-1, 0, -6), null, new THREE.Vector3(1, 0.5, -6), 2);
-  fx.update(1 / 60);
+  const d = destructionOf(scene), fx = d.fx;
+  d.blast(new THREE.Vector3(0, 0, -6), 1);
+  d.update(1 / 60);
   const arcs = fx.arcs;
   assert.ok(arcs.index > 0 && arcs.mesh.visible);
   list.transparent.push({ object: arcs.mesh, material: arcs.material, group: null });
@@ -1204,7 +1216,7 @@ test("the Enhanced destruction's arcs: a mesh rebuilt each frame, as many vertic
   assert.equal(arcs.material.visible, true, "hidden by its flag, not its material");
   list.transparent.length = 0;
   const version = arcs.mesh.geometry.getAttribute("position").version;
-  fx.update(1 / 60);
+  d.update(1 / 60);
   assert.equal(arcs.mesh.visible, false, "shown to three never");
   assert.equal(arcs.mesh.geometry.getAttribute("position").version, version, "uploaded nothing by three");
   frame();

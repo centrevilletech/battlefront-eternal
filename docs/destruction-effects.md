@@ -3,9 +3,37 @@
 `Destruction effects` in the graphics menu selects **Classic** or **Enhanced**
 (the default; the Performance preset picks Classic). Classic is the 2004
 behaviour, unchanged: the class's explosion sprites and `src/debris.js`
-pieces. Enhanced is drawn by `src/destruction.js`, with
-`src/destruction-debris.js` (rigid pieces) and `src/destruction-fx.js`
-(particles and arcs).
+pieces. Enhanced is decided by the Rust destruction phase
+(`rust/bfe-environment`, `destruction.rs`, `solver.rs` and `fx.rs`): every
+blast, droid short-out, flying piece (a rigid body: bounces, rolls, rests,
+tips over, crumbles) and wreck's smoulder, in a fixed order from one seeded
+random stream. The page's `src/destruction.js` tells it what happened as
+commands (a droid blown apart, a droid died, a droideka's blast, a blast, a
+clear) with the numbers only the page has (a body's bones, where its chunks
+were, how a wreck's box sits), and applies what the phase answers: lights,
+sounds, bodies to hide, wrecks to glow. `src/destruction-debris.js` keeps the
+pieces' models (heated copies of the game's materials) and
+`src/destruction-fx.js` the meshes the particles and arcs are drawn from;
+their records live in the phase's memory and are read in place.
+
+### How the boundary is bounded
+
+The map with the most has 23 piece models, droid bodies of 33 bones, five
+chunks a droid and 30 wreckable power-up droids; the phase holds 64 shapes,
+64 bones, 16 chunks a droid, 64 wrecks, 32 droids dying at once and 40 pieces
+on the field, and each is a degradation, never a failure: a model past the
+shapes throws no piece, a droid with no slot blows apart at once, the oldest
+piece gives way at 40. Commands queue up to 256 and the queue is run (with no
+time passing) before it can fill, so a load or a pause with no frame cannot
+overflow it; the page pairs the pieces with the phase's own records by id, so
+nothing it missed can leave the two out of step. Sizes and offsets are
+generated from `rust/bfe-environment/layout.json`
+(`node tools/environment-schema.mjs`).
+
+One quirk is kept on purpose: the point a piece's landing puffs and sparks are
+laid at is the contact's offset from the ground's point, not its place in the
+world, as the original code left it; the effect depends on it, and changing
+it would change how every landing looks.
 
 ## Why droidekas stood upright
 

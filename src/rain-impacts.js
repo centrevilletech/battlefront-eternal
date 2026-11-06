@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import {makeHit} from './collision.js';
 import {particleDepth} from './particle-depth.js';
-const DOWN=new THREE.Vector3(0,-1,0),COUNT=96,LIFE=.65;
+const COUNT=96,LIFE=.65;
 // Each splash mesh's RainImpacts, for a renderer that draws the splashes
 // itself (src/rust-render/effects.js).
 export const rainImpacts=new WeakMap();
@@ -50,16 +49,22 @@ const FRAGMENT=/* glsl */`
   gl_FragColor=vec4(.72,.81,.9,a);
  }
 `;
-export class RainImpacts {
- constructor({scene,collision,water}){
-  Object.assign(this,{collision,water});this.time=0;this.acc=0;this.next=0;this.queries=0;this.randomState=19;
-  this.from=new THREE.Vector3();this.hit=makeHit();
+// The splashes' mesh and material; their records, their clock and what lands
+// where are the Rust phase's (rust/bfe-environment, weather.rs): this keeps
+// what three or the renderer needs of them.
+// The splashes' mesh and material. Their records, their clock and what lands where
+// are the Rust phase's; this keeps what three, or the renderer that draws them
+// itself, needs of them.
+export class RainImpacts{
+ constructor({scene,locations,normals}){
+  this.next=0;this.queries=0;this.locations=locations;this.normals=normals;
   const base=new THREE.PlaneGeometry(2,2),g=new THREE.InstancedBufferGeometry();g.setIndex(base.index.clone());
   g.setAttribute('position',base.attributes.position.clone());g.setAttribute('uv',base.attributes.uv.clone());base.dispose();
-  this.locations=new Float32Array(COUNT*2*4);this.normals=new Float32Array(COUNT*2*3);const kinds=new Float32Array(COUNT*2);
-  for(let i=0;i<COUNT*2;i++){this.locations[i*4+3]=-100;this.normals[i*3+1]=1;kinds[i]=i%2;}
-  g.setAttribute('impact',new THREE.InstancedBufferAttribute(this.locations,4).setUsage(THREE.DynamicDrawUsage));
-  g.setAttribute('surfaceNormal',new THREE.InstancedBufferAttribute(this.normals,3).setUsage(THREE.DynamicDrawUsage));
+  // Each record is drawn twice: kind 0 a ring that spreads, kind 1 a droplet that
+  // rises and falls.
+  const kinds=new Float32Array(COUNT*2);for(let i=0;i<COUNT*2;i++)kinds[i]=i%2;
+  g.setAttribute('impact',new THREE.InstancedBufferAttribute(locations,4).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('surfaceNormal',new THREE.InstancedBufferAttribute(normals,3).setUsage(THREE.DynamicDrawUsage));
   g.setAttribute('kind',new THREE.InstancedBufferAttribute(kinds,1));g.instanceCount=COUNT*2;
   const material=new THREE.ShaderMaterial({vertexShader:VERTEX,fragmentShader:FRAGMENT,uniforms:{impactTime:{value:0},sceneDepth:particleDepth.map,softParticles:particleDepth.enabled,depthResolution:particleDepth.resolution,cameraRange:particleDepth.cameraRange},transparent:true,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
   this.mesh=new THREE.Mesh(g,material);this.mesh.name='rain-surface-impacts';this.mesh.frustumCulled=false;this.mesh.renderOrder=21;this.mesh.visible=false;
@@ -68,27 +73,13 @@ export class RainImpacts {
   this.shown=false;this.external=false;rainImpacts.set(this.mesh,this);
   this.mesh.onBeforeRender=(r,s,c)=>particleDepth.capture(r,s,c);scene.add(this.mesh);
  }
- random(){this.randomState=Math.imul(this.randomState,1664525)+1013904223>>>0;return this.randomState/4294967296;}
- update(dt,camera,enabled){
-  this.time+=dt;this.mesh.material.uniforms.impactTime.value=this.time;this.shown=enabled;this.mesh.visible=enabled&&!this.external;this.queries=0;
-  if(!enabled){this.acc=0;return;}
-  this.acc=Math.min(4,this.acc+dt*90);let changed=false;
-  while(this.acc>=1){
-   this.acc--;this.queries++;
-   const radius=Math.sqrt(this.random())*11,angle=this.random()*Math.PI*2;
-   this.from.set(camera.position.x+Math.cos(angle)*radius,camera.position.y+128,camera.position.z+Math.sin(angle)*radius);
-   const hit=this.collision.cast(this.from,DOWN,180,this.hit);
-   let y=hit?.point.y??-Infinity;const normal=hit?.normal;
-   const water=this.water?.over(this.from.x,this.from.z)&&this.water.level>y;
-   if(water)y=this.water.level;
-   if(!Number.isFinite(y)||y>camera.position.y+1||y<camera.position.y-12||(!water&&normal.y<.6))continue;
-   for(let kind=0;kind<2;kind++){
-    const index=this.next*2+kind;
-    this.locations.set([this.from.x,y,this.from.z,this.time],index*4);
-    this.normals.set(water?[0,1,0]:[normal.x,normal.y,normal.z],index*3);
-   }
-   this.next=(this.next+1)%COUNT;changed=true;
-  }
+ // After the phase's frame: its clock, whether they show, and whether any
+ // landed (marked for three to upload).
+ // After the phase's frame: its clock, whether the splashes show, and whether any
+ // landed (marked for three to upload; a renderer that draws them copies them
+ // itself).
+ synced(time,enabled,changed,next,queries){
+  this.mesh.material.uniforms.impactTime.value=time;this.shown=enabled;this.mesh.visible=enabled&&!this.external;this.next=next;this.queries=queries;
   if(changed){this.mesh.geometry.attributes.impact.needsUpdate=true;this.mesh.geometry.attributes.surfaceNormal.needsUpdate=true;}
  }
  dispose(){this.mesh.removeFromParent();this.mesh.geometry.dispose();this.mesh.material.dispose();}

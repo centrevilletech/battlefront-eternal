@@ -17,6 +17,8 @@ export { Weather } from "./weather.js";
 export { Atmosphere } from "./atmosphere.js";
 export { SkyFlyers } from "./sky-flyers.js";
 export { Snow } from "./snow.js";
+export { Destruction } from "./destruction.js";
+export { loadEnvironment } from "./environment/module.js";
 export { GameAudio } from "./audio/game.js";
 export { WaterShore } from "./water-shore.js";
 export { buildWorld } from "./world.js";

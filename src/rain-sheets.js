@@ -12,24 +12,10 @@ import { particleDepth } from './particle-depth.js';
 // included.
 const RADII = [4, 9, 18], SEGMENTS = 48, ABOVE = 16, BELOW = 10;
 
-// A tileable sheet of falling streaks: thin, varied in length and strength,
-// pre-blurred across so they stay soft when minified.
-function streakTexture(size = 256, count = 520) {
-  const data = new Uint8Array(size * size * 4);
-  let state = 2741;
-  const random = () => ((state = Math.imul(state, 1664525) + 1013904223 >>> 0) / 4294967296);
-  for (let n = 0; n < count; n++) {
-    const x = random() * size, y0 = random() * size, length = 6 + random() * random() * 44, strength = 0.35 + random() * 0.65;
-    for (let k = 0; k < length; k++) {
-      const y = Math.floor(y0 + k) % size, fade = Math.sin(Math.PI * (k + 0.5) / length) * strength;
-      for (let dx = -1; dx <= 1; dx++) {
-        const px = ((Math.floor(x) + dx) % size + size) % size, w = dx === 0 ? 1 : 0.28;
-        const at = (y * size + px) * 4;
-        data[at + 3] = Math.min(255, data[at + 3] + Math.round(255 * fade * w));
-      }
-    }
-  }
-  for (let i = 0; i < data.length; i += 4) data[i] = data[i + 1] = data[i + 2] = 255;
+// A tileable sheet of falling streaks, thin, varied in length and strength,
+// pre-blurred across so they stay soft when minified; its texels are made
+// by the Rust phase (weather.rs streaks).
+function streakTexture(data, size = 256) {
   const texture = new THREE.DataTexture(data, size, size);
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.magFilter = THREE.LinearFilter;
@@ -110,8 +96,8 @@ const fragmentShader = /* glsl */`
 `;
 
 export class RainSheets {
-  constructor(scene, uniforms) {
-    this.texture = streakTexture();
+  constructor(scene, uniforms, streaks) {
+    this.texture = streakTexture(streaks);
     this.material = new THREE.ShaderMaterial({
       vertexShader, fragmentShader, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
       uniforms: {

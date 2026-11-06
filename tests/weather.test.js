@@ -1,21 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {RainCover,Weather} from '../src/weather.js';
+import fs from 'node:fs';
+import {Weather} from '../src/weather.js';
+import {runWeather} from './support/weather-scenario.js';
 import {oceanGeometry,OceanSurface} from '../src/ocean-surface.js';
+import {loadEnvironment} from '../src/environment/module.js';
+
+await loadEnvironment();
 
 test('rain cover caches stationary roofs, refreshes entered cells, and budgets teleports',()=>{
  let queries=0;
  const collision={cast(from,down,range,hit){queries++;hit.point.set(from.x,20,from.z);return hit;}};
- const cover=new RainCover(collision,12.5);
- const eye=new THREE.Vector3(0,10,0);
- assert.equal(cover.update(eye,256),true);assert.equal(queries,256);
+ const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera();camera.position.set(0,10,0);
+ const weather=new Weather({data:{precipitation:{ParticleDensity:[256],Range:[12.5]}},scene,collision});
+ const cover=weather.cover;
+ weather.update(1/60,camera);assert.equal(weather.mesh.visible,true);assert.equal(queries,256);assert.equal(cover.queries,256);
  assert.ok(cover.heights.every(h=>h===20),'roof height, not indoor floor, clips falling rain');
- queries=0;assert.equal(cover.update(eye),true);assert.equal(queries,0);
- eye.x+=cover.cell;assert.equal(cover.update(eye),true);assert.equal(queries,16);
- queries=0;eye.x+=1000;assert.equal(cover.update(eye,32),false);assert.equal(queries,32);
- while(!cover.update(eye,64)) assert.ok(cover.queries<=64);
- assert.equal(cover.update(eye),true);assert.equal(cover.queries,0);cover.dispose();
+ queries=0;weather.update(1/60,camera);assert.equal(queries,0);
+ camera.position.x+=cover.cell;weather.update(1/60,camera);assert.equal(queries,16);
+ queries=0;camera.position.x+=1000;weather.update(1/60,camera);assert.equal(queries,96);assert.equal(weather.mesh.visible,false,'drawn again once its cover is held');
+ while(!weather.mesh.visible){weather.update(1/60,camera);assert.ok(cover.queries<=96);}
+ queries=0;weather.update(1/60,camera);assert.equal(queries,0);weather.dispose();
+});
+
+// The storm, scripted: rain over roofed and open
+// ground with a pond, a walking and jumping camera, frames of every length and
+// the rain effects switched live, digested per frame (uniforms, which draws
+// show, a hash of the splashes' and the cover cache's records), held to a recorded run.
+test('the rain clock, cover and splashes are kept exactly as the recorded storm has them',()=>{
+ const golden=JSON.parse(fs.readFileSync(new URL('./fixtures/weather-golden.json',import.meta.url),'utf8'));
+ const rows=runWeather(Weather);
+ assert.equal(rows.length,golden.length);
+ rows.forEach((row,i)=>assert.deepEqual(row,golden[i],`frame ${i}`));
 });
 
 test('open-water rain stops at the water level and uses one bounded instance batch',()=>{
