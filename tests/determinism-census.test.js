@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 //   it makes (which no gameplay reads): no legacy stream reaches a step.
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const content = process.env.BFE_CONTENT_DIR || join(root, 'public');
+const content = contentPath();
 
 // Where a module's clock reads and Math.random calls run:
 // page: only on a page (presentation, interface, audio, the page's own

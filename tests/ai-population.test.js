@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // Classic population: difficulty, spawning, class choice and objectives.
 // Synthetic fixtures throughout; optional reference fixtures measured in the
 // original game and the extracted public/maps/*/ai-mission.json are used when
@@ -187,7 +188,8 @@ const PLAN_ROWS = {
 };
 for (const [script, rows] of Object.entries(PLAN_ROWS)) {
   const map = script.slice(0, 4);
-  const data = optional(`public/maps/${map}/ai-mission.json`);
+  const file = contentPath(`maps/${map}/ai-mission.json`);
+  const data = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
   test(`extracted ${script} setters reproduce the historical row`, { skip: !data?.scripts?.[script] && "ai-mission.json absent" }, () => {
     for (const [i, tier] of [EASY, MEDIUM, HARD].entries()) {
       const d = new ClassicDifficulty({ tier }).apply(data.scripts[script].calls);

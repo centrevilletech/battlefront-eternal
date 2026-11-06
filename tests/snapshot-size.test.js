@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { existsSync } from 'node:fs';
 // test when the no-loss infantry snapshot needs more than one entities
 // datagram. World fields ride on the staggered refresh cadence the host
 // uses; their bytes are reported separately so the breakdown stays visible.
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 const pct = (values, p) => values.length ? [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(values.length * p))] : null;
 
 test('snapshot sizes on real 32 + 32 captures', { skip: !existsSync(`${content}/maps/nab2/map.json`) }, async () => {

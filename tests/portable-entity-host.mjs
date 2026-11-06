@@ -1,10 +1,11 @@
+import { contentPath } from './helpers/content.js';
 // Requires npm run host:prepare and imported content in public/.
 // Tests the pinned portable adapter against its bundled engine.
 import { Worker } from 'node:worker_threads';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url)).replace(/\/$/,'');
-const worker=new Worker(root+'/.host-runtime/server/src/world-worker.js',{workerData:{engine:root+'/.host-runtime/engine',data:root+'/public',query:'?map=nab2&side=rep&ai=off&seed=1',maxPlayers:1,autoSpawn:true}});
+const worker=new Worker(root+'/.host-runtime/server/src/world-worker.js',{workerData:{engine:root+'/.host-runtime/engine',data:contentPath(),query:'?map=nab2&side=rep&ai=off&seed=1',maxPlayers:1,autoSpawn:true}});
 const messages=[],waiters=[];
 worker.on('message',m=>{messages.push(m);for(const w of [...waiters])if(w.match(m)){waiters.splice(waiters.indexOf(w),1);clearTimeout(w.timer);w.resolve(m);}});
 const wait=match=>new Promise((resolve,reject)=>{const w={match,resolve,timer:setTimeout(()=>reject(Error('timeout: '+JSON.stringify(messages.slice(-3)))),15000)};waiters.push(w);});

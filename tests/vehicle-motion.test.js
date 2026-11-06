@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
 // Vehicle speeds follow each class's ODF as the 2004 game reads it
 // (docs/vehicles.md "Movement"). The synthetic cases always run; the last
@@ -6,7 +7,6 @@ import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.j
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { pathToFileURL } from 'node:url';
 import * as THREE from 'three';
 import { fixture } from './flight-fixture.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
@@ -119,7 +119,7 @@ test('walkers walk at their clips pace, the same backward, and never strafe', ()
 
 // Every imported class, driven through Vehicles.update as the world drives
 // it: W to its top speed, S to its slowest (a flyer) or full reverse.
-const content = process.env.BFE_CONTENT_DIR ? pathToFileURL(`${process.env.BFE_CONTENT_DIR}/`) : new URL('../public/', import.meta.url);
+const content = contentURL();
 const maps = new URL('maps/', content);
 const imported = vehiclePacks(maps);
 const binary = (file) => { const b = fs.readFileSync(file); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };

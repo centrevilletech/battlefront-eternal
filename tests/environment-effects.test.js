@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,7 +36,7 @@ test('wakes expire, survive rate changes, and clear on mode changes',()=>{
   }
 });
 for(const [map,count,basins] of [['nab2',5,5],['bes2',9,0]]){
-  const path=new URL(`../public/maps/${map}/environment/effects.json`,import.meta.url);
+  const path=contentURL(`maps/${map}/environment/effects.json`);
   test(`${map}: retail attachments, orientations and dependencies are complete`,{skip:!fs.existsSync(path)},()=>{
     const data=JSON.parse(fs.readFileSync(path));assert.equal(data.instances.length,count);assert.equal(data.basins.length,basins);
     for(const i of data.instances){assert.equal(i.matrix.length,16);assert.ok(i.matrix.every(Number.isFinite));assert.ok(data.effects[i.effect]?.length);}
@@ -47,7 +48,7 @@ for(const [map,count,basins] of [['nab2',5,5],['bes2',9,0]]){
   });
 }
 
-const chamberPath=new URL('../public/maps/bes2/environment/effects.json',import.meta.url);
+const chamberPath=contentURL('maps/bes2/environment/effects.json');
 test('mode changes and culling clear old draws; Classic starts fully flowing',{skip:!fs.existsSync(chamberPath)},()=>{
   const data=JSON.parse(fs.readFileSync(chamberPath)),scene=new THREE.Scene();let mode='classic';
   const texture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);
@@ -60,7 +61,7 @@ test('mode changes and culling clear old draws; Classic starts fully flowing',{s
   e.dispose();texture.dispose();assert.equal(scene.children.length,0);
 });
 
-const theedPath=new URL('../public/maps/nab2/environment/effects.json',import.meta.url);
+const theedPath=contentURL('maps/nab2/environment/effects.json');
 test('Theed fountains keep fixed jet slots and their basin levels; jets follow mode and view',{skip:!fs.existsSync(theedPath)},()=>{
   const data=JSON.parse(fs.readFileSync(theedPath)),scene=new THREE.Scene();let mode='enhanced';
   const texture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);

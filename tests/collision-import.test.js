@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // World objects collide as the original places them: a tree's trunk
 // primitives stop a soldier, a raised platform mesh carries one. The
 // exporter files a class's collision under the model it draws
@@ -19,7 +20,7 @@ import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Soldier } from '../src/soldier.js';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
-const CONTENT = process.env.BFE_CONTENT_DIR || path.join(ROOT, 'public');
+const CONTENT = contentPath();
 
 // Polygons (lists of points) into the exporter's layout: fan-triangulated
 // convex faces, each triangle numbered with its polygon.

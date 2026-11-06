@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -110,7 +111,7 @@ test('guided missiles track moving targets and never adopt a recycled unit', () 
 
 
 for (const side of ['all', 'rep', 'cis', 'imp']) {
-  const file = `public/sides/${side}/units.json`;
+  const file = contentPath(`sides/${side}/units.json`);
   test(`retail ${side} assault launcher retains its own projectile schedule`, { skip: !fs.existsSync(file) }, () => {
     const data = JSON.parse(fs.readFileSync(file));
     const def = Object.values(data.units).flatMap(u => u.weapons || []).find(w => w.class === `${side}_weap_inf_torpedo_launcher`);

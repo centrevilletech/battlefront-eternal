@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -223,7 +224,7 @@ const BATTLES = {
   tat2: { tat2r: [['rep_fly_assault_dome'], CAPITALS.cw], tat2i: [['imp_fly_destroyer_dome'], CAPITALS.gcw], tat2i_h: [['all_fly_moncalamari_dome'], CAPITALS.gcw] },
 };
 for (const [map, battles] of Object.entries(BATTLES)) {
-  const path = new URL(`../public/maps/${map}/sky/flyers.json`, import.meta.url);
+  const path = contentURL(`maps/${map}/sky/flyers.json`);
   const data = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path)) : null;
   test(`${map}: its prepared flyers`, { skip: !data?.enhanced }, () => {
     for (const [mission, [classic, enhanced]] of Object.entries(battles)) {
@@ -237,7 +238,7 @@ for (const [map, battles] of Object.entries(BATTLES)) {
       assert.ok(data.models[def.model]?.length, `${def.model} has parts`);
       for (const part of data.models[def.model]) assert.ok(data.textures[part.texture], `${part.texture} exported`);
     }
-    const dir = new URL(`../public/maps/${map}/sky/`, import.meta.url);
+    const dir = contentURL(`maps/${map}/sky/`);
     const buffer = fs.readFileSync(new URL('flyers.bin', dir)), indexBuffer = fs.readFileSync(new URL('flyers_index.bin', dir));
     const slice = (b) => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
     for (const mission of Object.keys(battles)) {
@@ -252,7 +253,7 @@ for (const [map, battles] of Object.entries(BATTLES)) {
   });
 }
 for (const map of ['end1', 'hot1', 'kam1', 'kas1', 'kas2', 'nab2', 'rhn1', 'rhn2', 'tat3', 'yav1', 'yav2']) {
-  const dir = new URL(`../public/maps/${map}/`, import.meta.url);
+  const dir = contentURL(`maps/${map}/`);
   test(`${map}: no battle draws sky flyers`, { skip: !fs.existsSync(new URL('map.json', dir)) }, () => {
     assert.equal(fs.existsSync(new URL('sky/flyers.json', dir)), false);
   });

@@ -3,6 +3,7 @@ objectives in mission order, the vehicles each post gives each team, display
 names, and the asset lists. Synthetic inputs; the last class audits an
 existing extraction against docs/spawn-screen-assets.md when there is one."""
 import json
+from helpers.content import content_path
 import math
 import sys
 import unittest
@@ -15,7 +16,7 @@ from zero_spawn_screen import (
     spawn_strings, unit_name, weapon_name,
 )
 
-PUBLIC = Path(__file__).resolve().parents[1] / 'public'
+PUBLIC = content_path()
 
 
 def table(**texts):

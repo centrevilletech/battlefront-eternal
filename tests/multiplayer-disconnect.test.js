@@ -1,8 +1,9 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 
 test('a disconnecting player leaves his vehicle or turret seat at once, and his place after 60 simulated seconds', { skip: !existsSync(`${content}/maps/nab2/map.json`) }, async () => {
   process.env.BFE_CONTENT_DIR ||= content;

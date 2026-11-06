@@ -1,10 +1,11 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync} from 'node:fs';
 import {createEntityHost} from '../src/runtime/entity-host.js';
 import {decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
 
-const content=process.env.BFE_CONTENT_DIR||new URL('../public',import.meta.url).pathname;
+const content=contentPath();
 const isPose=r=>['soldier','vehicle','droideka'].includes(r.kind);
 const version=r=>`${r.kind}:${r.id}:${r.generation}:${r.tick}:${r.schema??''}:${r.active??''}`;
 const percentile=(values,p)=>values.length?[...values].sort((a,b)=>a-b)[Math.min(values.length-1,Math.floor(values.length*p))]:null;

@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { encodeCosmeticEvent, unpackCosmeticEvents } from '../src/runtime/snapsh
 // What a client is owed of the cosmetic combat events: launches, first
 // samples, terminals and explosions until a snapshot that carried them is
 // acknowledged; refinements once, while there is space.
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 const here = { x: 0, y: 0, z: 0 };
 const event = record => cosmeticEvent(record, decodeCombat(record), encodeCosmeticEvent(record));
 const launch = (id, { tick = 10, x = 10, owner = 9, life = 1, direction = [1, 0, 0] } = {}) => event(combatRecord({ id, generation: 1, tick, schema: 1, expiryTick: tick + 200, definitionId: 1, ownerId: owner, ownerGeneration: 1, position: [x, 0, 0], direction, speed: 100, life, merge: 8 }));

@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // Locals (teams 3 and up: Tatooine's Tusken Raiders and Jawas, Naboo's
 // Gungans, Endor's Ewoks, Kashyyyk's Wookiees, Geonosis' Geonosians): the
 // mission's relations, factions and capture teams; command posts; the
@@ -8,7 +9,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import * as THREE from "three";
 import { missionTeams } from "../src/ai/classic/spawning.js";
 import { Units } from "../src/registry.js";
@@ -186,8 +186,7 @@ test("an army whose posts are worth nothing counts down; a neutral post pauses i
 
 // A battle under Node with the extract: the locals are fielded, fight, and
 // keep coming. Needs an extract with Tatooine's locals (sides/des).
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const CONTENT = process.env.BFE_CONTENT_DIR || path.join(ROOT, "public");
+const CONTENT = contentPath();
 const desSide = (() => {
   try { return Object.keys(JSON.parse(fs.readFileSync(path.join(CONTENT, "sides/des/units.json"), "utf8")).units).length > 0; } catch { return false; }
 })();

@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
@@ -190,8 +191,8 @@ test("blade attaches at the hilt's authored point with native length and core wi
 });
 
 const stock = { rep: ["rep_inf_macewindu"], cis: ["cis_inf_countdooku"], all: ["all_inf_lukeskywalker", "all_inf_lukeskywalkersnow"], imp: ["imp_inf_darthvader"] };
-for (const [side, names] of Object.entries(stock)) test(`extracted ${side} heroes carry stock health, permissions and effective defense profile`, { skip: !existsSync(`public/sides/${side}/units.json`) }, () => {
-  const data = JSON.parse(readFileSync(`public/sides/${side}/units.json`));
+for (const [side, names] of Object.entries(stock)) test(`extracted ${side} heroes carry stock health, permissions and effective defense profile`, { skip: !existsSync(contentPath(`sides/${side}/units.json`)) }, () => {
+  const data = JSON.parse(readFileSync(contentPath(`sides/${side}/units.json`)));
   for (const name of names) {
     const def = data.units[name];
     assert.ok(def, `${name}: refresh this side's extraction`);
@@ -203,6 +204,6 @@ for (const [side, names] of Object.entries(stock)) test(`extracted ${side} heroe
     assert.equal(def.weapons[0].canDeflectAuthored, null);
     assert.equal(def.weapons[0].deflectionProfile, "bf1-cloned-melee-cleared-v1");
     assert.ok(data.textures[def.weapons[0].Texture]);
-    assert.ok(existsSync(`public/sides/${side}/actors/${def.model}.json`));
+    assert.ok(existsSync(contentPath(`sides/${side}/actors/${def.model}.json`)));
   }
 });

@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 // Walkers on their legs and their guns' barrels, as the original game has them
 // (docs/vehicles.md "Standing on the ground", "Aimers and barrels"), on the
@@ -10,7 +11,7 @@ import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { packWith } from '../tools/vehicle-packs.mjs';
 
-const maps = new URL('../public/maps/', import.meta.url);
+const maps = contentURL('maps/');
 // A walker alone on a plane tilted `slope` radians about x, driven.
 function walker(name, map, slope = 0) {
   const pack = packWith(maps, [name], map);

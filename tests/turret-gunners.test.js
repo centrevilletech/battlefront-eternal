@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import { presentUnit, unitHost } from './helpers/presentation.js';
 import { SoldierPresentation } from '../src/soldier-presentation.js';
@@ -13,7 +14,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { CollisionWorld, nativeTurrets } from './helpers/native-vehicles.js';
 import { Turret } from '../src/props.js';
@@ -482,8 +482,7 @@ test("blasts hurt only a turret's shown gunner among the seated, and move him on
 // The imported Hoth turrets (BFE_CONTENT_DIR, or public/), in the headless
 // world the worker and the server run: the dish turret shows its gunner,
 // and rifle bolts kill him; the big turret hides its own.
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CONTENT = process.env.BFE_CONTENT_DIR || path.join(ROOT, 'public');
+const CONTENT = contentPath();
 test('imported: the Hoth dish turret\'s gunner dies to rifle bolts and leaves it; the Hoth turret\'s is out of reach', { skip: !fs.existsSync(path.join(CONTENT, 'maps/hot1/props.json')) && 'no hot1 extract' }, async () => {
   process.env.BFE_CONTENT_DIR = CONTENT;
   const { headlessGame } = await import('../tools/headless-world.mjs');

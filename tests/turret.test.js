@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,12 +39,12 @@ test('turret ray ignores only its own live body', () => {
 // and follow it as the JavaScript rounds do.
 
 
-for (const map of ['nab2', 'bes2']) test(`${map} exports turret bolt sprites independent of player side`, { skip: !existsSync(`public/maps/${map}/props.json`) }, () => {
-  const props = JSON.parse(readFileSync(`public/maps/${map}/props.json`));
-  const manifest = JSON.parse(readFileSync(`public/maps/${map}/map.json`));
+for (const map of ['nab2', 'bes2']) test(`${map} exports turret bolt sprites independent of player side`, { skip: !existsSync(contentPath(`maps/${map}/props.json`)) }, () => {
+  const props = JSON.parse(readFileSync(contentPath(`maps/${map}/props.json`)));
+  const manifest = JSON.parse(readFileSync(contentPath(`maps/${map}/map.json`)));
   for (const p of props.instances.filter(p => p.weapon?.ordnance?.LaserTexture)) {
     const name = p.weapon.ordnance.LaserTexture;
     assert.ok(manifest.textures[name], `${map}: ${name} is a map dependency`);
-    assert.ok(existsSync(`public/maps/${map}/${manifest.textures[name]}`));
+    assert.ok(existsSync(contentPath(`maps/${map}/${manifest.textures[name]}`)));
   }
 });

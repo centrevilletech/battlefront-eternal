@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // Tab's scoreboard in a network game: a real bfeserver (its 32 a side
 // filled with Classic AI bots) and two rendered Chromium clients joined
 // over the native UDP transport (tools/net-page-bridge.mjs), one on each
@@ -27,7 +28,7 @@ import { createNetworkBridge } from '../electron/network.js';
 import { startPageNetwork } from '../tools/net-page-bridge.mjs';
 
 const arg = (name, fallback) => { const found = process.argv.find(value => value.startsWith(`--${name}=`)); return found === undefined ? fallback : found.slice(name.length + 3); };
-const engine = resolve('.'), data = resolve(process.env.BFE_DATA_DIR || 'public'), serverRepo = resolve(process.env.BFE_SERVER_REPO || '../battlefront-eternal-server');
+const engine = resolve('.'), data = resolve(process.env.BFE_DATA_DIR || contentPath()), serverRepo = resolve(process.env.BFE_SERVER_REPO || '../battlefront-eternal-server');
 const gamePort = Number(arg('port', 28651)), healthPort = Number(arg('health-port', 28652)), vitePort = Number(arg('vite-port', 18507));
 const map = arg('map', 'nab2'), side = arg('side', 'rep');
 const OUT = process.env.SCOREBOARD_SHOTS || '/tmp/bf-punch/scoreboard/network';

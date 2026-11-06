@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { existsSync } from 'node:fs';
 // during play: in whole seconds, each chunk refreshed every 5 s. Once the
 // scores stop they come exact, for the end table's DETAILS and AWARDS.
 // The player's own record keeps coming from his own datagram.
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 
 test('everyone\'s records reach a client during play, then exact once the scores stop', { skip: !existsSync(`${content}/maps/nab2/map.json`) }, async () => {
   process.env.BFE_CONTENT_DIR ||= content;

@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 // A hover hull on the ground (src/vehicle-hover.js): its springs carry it
 // over the terrain and buildings, pitching and rolling it with the ground,
@@ -167,7 +168,7 @@ test('without springs a hover rides its lift spring at SetAltitude', () => {
   system.dispose();
 });
 
-const maps = new URL('../public/maps/', import.meta.url);
+const maps = contentURL('maps/');
 const pack = packWith(maps, ['imp_hover_fightertank'], 'rhn1') || packWith(maps, ['rep_hover_fightertank']);
 const springPack = pack && JSON.parse(fs.readFileSync(pack)).classes.imp_hover_fightertank?.springs;
 test('every extracted hover class carries its springs, and the stock fighter tank lies with a slope', { skip: !springPack && 'no extract with hover springs' }, () => {

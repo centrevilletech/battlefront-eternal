@@ -1,8 +1,9 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 
 // A server world's own player is dormant (createMultiplayerWorld), and its
 // step leaves his chase camera where it was. That is only sound while

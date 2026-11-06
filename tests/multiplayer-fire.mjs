@@ -1,10 +1,11 @@
+import { contentPath } from './helpers/content.js';
 // Real authoritative weapons acceptance, using operator-owned imported content.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { createGame } from '../src/game.js';
 import { createMultiplayerWorld } from '../src/runtime/multiplayer-world.js';
-const root=resolve(process.env.BFE_DATA_DIR??'public');
+const root=resolve(process.env.BFE_DATA_DIR || contentPath());
 globalThis.fetch=async path=>{const filename=resolve(root,'.'+path);assert(filename.startsWith(root+sep));try{return new Response(await readFile(filename));}catch(e){if(e.code==='ENOENT')return new Response('',{status:404});throw e;}};
 const game=await createGame({headless:true,query:'?map=nab2&side=rep&ai=classic&seed=1'});
 const world=createMultiplayerWorld(game,{maxPlayers:2,armySize:1});

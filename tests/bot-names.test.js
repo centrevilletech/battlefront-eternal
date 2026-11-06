@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -46,7 +47,7 @@ test("locals all take the level's local name; the lists hold 64 names at most", 
 // The retail roster, where the extraction has the name lists: every name
 // Geonosis' end table showed in the original game is in the first thirty of
 // its side's sequence, and the sequences start with the names pinned below.
-const MISSION = new URL("../public/maps/geo1/ai-mission.json", import.meta.url);
+const MISSION = contentURL("maps/geo1/ai-mission.json");
 const extracted = fs.existsSync(MISSION);
 test("the retail sequences: Geonosis' end screen names", { skip: !extracted && "needs public/maps/geo1/ai-mission.json" }, () => {
   const lists = JSON.parse(fs.readFileSync(MISSION, "utf8")).names;

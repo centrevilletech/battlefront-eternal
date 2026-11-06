@@ -1,9 +1,10 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { F2MemberLayout } from '../src/sim/gen/f2.js';
 
-const content = process.env.BFE_CONTENT_DIR ?? 'public';
+const content = contentPath();
 test('F2 keeps pooled identity through death and respawn and rejects retired handles', {
   skip: !existsSync(`${content}/maps/hot1/map.json`) && 'no game files', timeout: 180000,
 }, async () => {

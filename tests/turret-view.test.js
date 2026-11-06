@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import { stepTurretPreview } from '../src/runtime/turret-prediction.js';
 // The views and aim of a manned turret (src/props.js Turret, src/gunner.js
 // Gunner and TurretCamera, src/seats.js TurretSeats): each class's camera
@@ -9,7 +10,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { makeHit } from '../src/collision.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
@@ -245,6 +245,5 @@ function person(firstPerson) {
 // highest pitch its view takes, in either view, its gun turns toward the
 // point the server's aim met for a network human, which lies on the page's
 // crosshair ray (the camera at rest), and his rounds go through it.
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CONTENT = process.env.BFE_CONTENT_DIR || path.join(ROOT, 'public');
+const CONTENT = contentPath();
 const CLASS_MAPS = ['hot1', 'yav1', 'tat2', 'bes1', 'geo1'];

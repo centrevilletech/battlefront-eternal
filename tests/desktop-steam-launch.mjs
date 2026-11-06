@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // A packaged build's start from outside Steam goes through the Steam
 // library (electron/steam/relaunch.js), against a stand-in Steam: a
 // process whose executable is a client's (ubuntu12_32/steam), its
@@ -16,8 +17,7 @@ import { rungameId, STEAM_ARG, upsertShortcut } from "../electron/steam/shortcut
 
 const packaged = path.resolve(process.env.BFE_PACKAGED || "release/linux-unpacked");
 const executable = path.join(packaged, "battlefront-eternal");
-const content = process.env.BFE_CONTENT_DIR;
-if (!content) throw new Error("Set BFE_CONTENT_DIR to prepared game data");
+const content = contentPath();
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "bfe-steam-launch-"));
 const home = path.join(temp, "home"), config = path.join(home, ".config"), data = path.join(home, ".local", "share");
 const steamRoot = path.join(data, "Steam"), bin = path.join(temp, "bin"), calls = path.join(temp, "steam-calls.log");

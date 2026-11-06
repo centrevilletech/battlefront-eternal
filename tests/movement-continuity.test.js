@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
@@ -81,7 +82,7 @@ test('jump remains ballistic and never reports grounded presentation corrections
 });
 
 function retailWorld(name) {
-  const dir = new URL(`../public/maps/${name}/`, import.meta.url);
+  const dir = contentURL(`maps/${name}/`);
   if (!fs.existsSync(new URL('collision.bin', dir))) return null;
   const load = (file, Type) => {
     const bytes = fs.readFileSync(new URL(file, dir));

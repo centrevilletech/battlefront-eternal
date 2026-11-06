@@ -1,3 +1,5 @@
+import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
+import { contentURL } from './helpers/content.js';
 // Walkers and the droideka in deep water (src/vehicle-water.js,
 // docs/vehicles.md "Water"): the original game's clock and per-update damage,
 // and a walker that wades in on the bed rather than standing on the
@@ -6,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
+import { CollisionWorld } from './helpers/native-vehicles.js';
 import { Vehicles } from '../src/vehicles.js';
 import { droidekaWaterDepth, waterDamageRule, waterDamageStep } from '../src/vehicle-water.js';
 import { packWith } from '../tools/vehicle-packs.mjs';
@@ -65,7 +67,7 @@ test('classes without an amount take none; the droideka hurts deeper standing th
   assert.equal(s, 0);
 });
 
-const maps = new URL('../public/maps/', import.meta.url);
+const maps = contentURL('maps/');
 const has = (name, map) => Boolean(packWith(maps, [name], map));
 
 // An AT-ST alone on a plane at y 0, with water `level` over x < 0.
@@ -83,7 +85,8 @@ function atst(level) {
     texture: () => null, effects: { play() { return null; } }, ordnance: { explosion() {}, fire() { return null; }, lights: { flash() {} } },
     onDestroyed: (v) => destroyed.push(v) });
   const v = system.vehicles[0];
-  nativeVehicles(system, { data: system.data, buffer: bin('models.bin'), indexBuffer: bin('models_index.bin'), animationBuffer: bin('animations.bin') });
+  registerHullFixture(system, { data: system.data, buffer: bin('models.bin'), indexBuffer: bin('models_index.bin'), animationBuffer: bin('animations.bin') });
+  // Occupied walkers keep updating at rest, just as the driven fixture did.
   return { system, v, destroyed };
 }
 
@@ -91,19 +94,19 @@ test('an AT-ST wades in on the bed; water over its sphere wears it down, shallow
   // Shallow: 2 m of water. It stands on the bed and takes nothing.
   let { system, v } = atst(2);
   assert.ok(v.waterRule && v.waterDepth > 5 && v.waterDepth < 6, `depth ${v.waterDepth}`);
-  for (let t = 0; t < 300; t++) system.update(1 / 60);
+  for (let t = 0; t < 300; t++) stepPrediction(system, 1 / 60, v);
   assert.ok(Math.abs(v.position.y) < 0.6, `stands on the bed at ${v.position.y}, not the surface`);
   assert.equal(v.health, v.maxHealth);
   system.dispose();
   // Deep: 7 m. After a second it loses 10 an update until it is destroyed.
   let destroyed;
   ({ system, v, destroyed } = atst(7));
-  for (let t = 0; t < 60; t++) system.update(1 / 60);
+  for (let t = 0; t < 60; t++) stepPrediction(system, 1 / 60, v);
   assert.ok(v.position.y < 0.6, `under the water at ${v.position.y}`);
   assert.ok(v.health > v.maxHealth - 15, `health ${v.health} after a second`);
-  for (let t = 0; t < 60; t++) system.update(1 / 60);
+  for (let t = 0; t < 60; t++) stepPrediction(system, 1 / 60, v);
   assert.ok(Math.abs(v.maxHealth - v.health - 600) <= 20, `lost ${v.maxHealth - v.health} in the second second`);
-  for (let t = 0; t < 60 * 20 && v.alive; t++) system.update(1 / 60);
+  for (let t = 0; t < 60 * 20 && v.alive; t++) stepPrediction(system, 1 / 60, v);
   assert.equal(v.alive, false);
   assert.equal(destroyed.length, 1);
   system.dispose();

@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 // Content-gated repeatability of the required Rust world. Synthetic kernel
 // golden fixtures run in CI without these files.
 const root = fileURLToPath(new URL('../', import.meta.url));
-const content = process.env.BFE_CONTENT_DIR || `${root}public`;
+const content = contentPath();
 
 // A battle on each kind of map, as a page plays it: acknowledging
 // snapshots, shooting from a view behind the world, drawing every third tick.

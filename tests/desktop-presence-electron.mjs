@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // The desktop client's activity for friends, end to end in Electron, with
 // stand-ins for what this machine may not have: a Discord client's IPC
 // socket (the protocol as Discord speaks it) and a Steam installation's
@@ -23,8 +24,7 @@ import { parseShortcuts } from "../electron/steam/vdf.js";
 
 const { _electron } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const root = fileURLToPath(new URL("../", import.meta.url));
-const content = process.env.BFE_CONTENT_DIR;
-if (!content) throw new Error("Set BFE_CONTENT_DIR to prepared game data");
+const content = contentPath();
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "bfe-presence-e2e-"));
 const CLIENT_ID = "123456789012345678";
 

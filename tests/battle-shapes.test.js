@@ -1,8 +1,9 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 
 // The battle's units, their combat and their bots' controllers declare every
 // field in their constructors, so each keeps one shape however its life went

@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -159,12 +160,20 @@ test('first-person grenade starts windup before release',()=>{
   view.update(0,args);view.play('prepareThrow',weapon);view.update(0,args);assert.equal(view.clip,windup);view.play('throw',weapon);view.update(0,args);assert.equal(view.clip,release);
 });
 
-const assetPath = new URL('../public/common/anims.json', import.meta.url);
+const assetPath = contentURL('common/anims.json');
 test('retail animation samples remain finite through alternating rolls and throws', { skip: !existsSync(assetPath) }, () => {
   const meta = JSON.parse(readFileSync(assetPath));
-  const bytes = readFileSync(new URL('../public/common/anims.bin', import.meta.url));
-  const clips = loadClips(meta, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-  const a = new SoldierAnimator(actor(meta.bones), clips, meta.sets);
+  const bytes = readFileSync(contentURL('common/anims.bin'));
+  // Authored clips need the actor's hierarchy and bind lengths. A flat list
+  // of independent roots cannot represent the visible spine/neck chain.
+  const model = JSON.parse(readFileSync(contentURL('sides/cis/actors/cis_inf_bdroid.json')));
+  const body = actor(model.bones.map(b => b.name));
+  model.bones.forEach((desc, i) => {
+    new THREE.Matrix4().fromArray(desc.local).decompose(body.bones[i].position, body.bones[i].quaternion, body.bones[i].scale);
+    if (desc.parent >= 0) body.bones[desc.parent].add(body.bones[i]);
+  });
+  const clips = loadClips(meta, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), model.bones.map(b => b.name));
+  const a = new SoldierAnimator(body, clips, meta.sets);
   const soldier = { aimYaw: 0, aimPitch: 0.2, velocity: new THREE.Vector3(), posture: 'stand', dive: 0, diveTime: clips.get('human_rifle_diveforward').duration * 0.75, air: null };
   for (const direction of [-1, 1, -1, 1]) {
     soldier.dive = direction;

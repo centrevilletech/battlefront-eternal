@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import {presentUnit} from './helpers/presentation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,13 +9,13 @@ import {SoldierAnimator} from './helpers/presentation.js';
 import {SoldierPresentation} from '../src/soldier-presentation.js';
 import {Unit} from '../src/units.js';
 
-const metaURL=new URL('../public/common/anims.json',import.meta.url);
-const actorURL=new URL('../public/sides/cis/actors/cis_inf_bdroid.json',import.meta.url);
+const metaURL=contentURL('common/anims.json');
+const actorURL=contentURL('sides/cis/actors/cis_inf_bdroid.json');
 const available=existsSync(metaURL)&&existsSync(actorURL);
 function fixture() {
  const meta=JSON.parse(readFileSync(metaURL));
  const model=JSON.parse(readFileSync(actorURL));
- const bytes=readFileSync(new URL('../public/common/anims.bin',import.meta.url));
+ const bytes=readFileSync(contentURL('common/anims.bin'));
  const clips=loadClips(meta,bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),model.bones.map(b=>b.name));
  const root=new THREE.Group(),byName={};
  const bones=model.bones.map((desc,index)=>{const bone=new THREE.Bone();bone.name=desc.name;bone.userData.index=index;new THREE.Matrix4().fromArray(desc.local).decompose(bone.position,bone.quaternion,bone.scale);byName[bone.name]=bone;return bone;});

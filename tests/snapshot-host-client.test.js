@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { existsSync } from 'node:fs';
 // client applies it and acknowledges complete snapshots through real input
 // datagrams, and a dropped-datagram stretch still converges because the
 // next snapshot is encoded against the older acknowledged baseline.
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 
 test('snapshot host and client converge through acks and datagram loss', { skip: !existsSync(`${content}/maps/nab2/map.json`) }, async () => {
   process.env.BFE_CONTENT_DIR ||= content;

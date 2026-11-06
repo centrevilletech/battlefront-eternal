@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // Imported-content acceptance for every playable Instant Action map/era.
 // Each process owns one world so runtime globals and assets cannot leak
 // between cases. --list also supplies the collaborative browser's matrix.
@@ -8,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { battlesOf } from '../src/mission.js';
 import { MAX_TEAM_SIZE } from '../src/battle-limits.js';
 
-const content = process.env.BFE_CONTENT_DIR || 'public';
+const content = contentPath();
 if (!process.argv.includes('--case')) {
   const cases = readdirSync(`${content}/maps`).sort().flatMap(map => {
     const world = JSON.parse(readFileSync(`${content}/maps/${map}/map.json`, 'utf8'));

@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { feedbackRecord, decodeFeedback, feedbackConcerns } from '../src/runtime
 // Snapshot publication policy: shared baseline choice, the per-client state
 // byte budget, stale recipients, cadence after a skipped tick and damage
 // feedback recipients.
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 const owned = { skip: !existsSync(`${content}/maps/nab2/map.json`) };
 
 test('shared baselines: at most three, newest first, each one acknowledged by its clients', () => {

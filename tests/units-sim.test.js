@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync } from 'node:fs';
@@ -5,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const content = process.env.BFE_CONTENT_DIR || `${root}public`;
+const content = contentPath();
 
 test('imported: native droideka movement, unfolding and death match JavaScript', {
   skip: !existsSync(`${content}/maps/nab2/map.json`) && 'no game files', timeout: 180000,

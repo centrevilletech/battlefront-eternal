@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // The battle a map plays (src/mission.js): every battle an import holds, and
 // the one a URL, a server's rotation or the desktop host asks for, picked the
 // same way on the page, in the world worker and on a server, with the network
@@ -8,7 +9,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { battlesOf, eraOfSide, pickMission, selectAIMission, selectMission } from '../src/mission.js';
 import { contentHash } from '../src/runtime/content-hash.js';
 import { registryContent } from '../src/runtime/network-entity-registry.js';
@@ -145,8 +145,7 @@ test('a battle named by its mission stays with that battle', () => {
 });
 
 // The import itself: every map's battles, each era's with all it needs.
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CONTENT = process.env.BFE_CONTENT_DIR || path.join(ROOT, 'public');
+const CONTENT = contentPath();
 const imported = fs.existsSync(path.join(CONTENT, 'maps')) ? fs.readdirSync(path.join(CONTENT, 'maps')).filter((map) => {
   try { return Boolean(JSON.parse(fs.readFileSync(path.join(CONTENT, 'maps', map, 'map.json'), 'utf8')).missions); } catch { return false; }
 }).sort() : [];

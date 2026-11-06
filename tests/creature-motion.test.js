@@ -1,4 +1,5 @@
-import { stepPrediction } from './helpers/hull-prediction.js';
+import { contentURL } from './helpers/content.js';
+import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
 // Optional retail regression: exercise the actual rig and gait, not just a
 // moving collider. Retail geometry/animation stays ignored under public/.
 import test from 'node:test';
@@ -9,9 +10,16 @@ import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { packWith } from '../tools/vehicle-packs.mjs';
 // Hoth's pack with the tauntaun (its battle's own, vehicles/<mission>/).
-const pack = packWith(new URL('../public/maps/', import.meta.url), ['all_walk_tauntaun'], 'hot1');
+const pack = packWith(contentURL('maps/'), ['all_walk_tauntaun'], 'hot1');
 const dir = pack ? new URL('./', pack) : null;
 const available = Boolean(pack);
+// Match the world's interpolated tick pose at arbitrary display rates.
+// Drawing every facade at alpha=1 mixes a full physics step with a partial
+// gait step and makes a planted foot appear to slide above 120 Hz.
+function advance(system, dt, v, input = {}) {
+  stepPrediction(system, dt, v, input);
+  v.render(Math.max(0, system.acc * 120), 0);
+}
 const binary = name => { const b = fs.readFileSync(new URL(name, dir)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 function fixture(slopeX = 0, slopeZ = 0) {
   const data = JSON.parse(fs.readFileSync(new URL('vehicles.json', dir)));
@@ -24,6 +32,7 @@ function fixture(slopeX = 0, slopeZ = 0) {
     data: {...data, blockers: null, spawns: [{name: 'test', matrix: new THREE.Matrix4().toArray(), team: 1, post: '', classes: {1: name}}]},
     buffer: binary('models.bin'), indexBuffer: binary('models_index.bin'), animationBuffer: binary('animations.bin'),
     texture: () => null, effects: {play() {return null}}, ordnance: {explosion() {}}});
+  registerHullFixture(system, { data: system.data, buffer: binary('models.bin'), indexBuffer: binary('models_index.bin'), animationBuffer: binary('animations.bin') });
   return {system, v: system.vehicles[0], normal: new THREE.Vector3(-slopeX, 1, -slopeZ).normalize()};
 }
 
@@ -32,7 +41,7 @@ test('tauntaun idle feet stay planted throughout breathing, on flat and sloped g
     const {system, v, normal} = fixture(x, z), point = new THREE.Vector3();
     const ranges = [[], []];
     for (let i = 0; i < 480; i++) {
-      stepPrediction(system, 1 / 60, v, {});
+      advance(system, 1 / 60, v, {});
       ['bone_l_pad', 'bone_r_pad'].forEach((name, side) => {
         v.byName[name].getWorldPosition(point);
         ranges[side].push(point.dot(normal));
@@ -59,7 +68,7 @@ test('tauntaun runs at its authored cadence, reverses its gait, and stops withou
     assert.ok(Math.abs(v.speed - clip.stride * 30 / clip.frames) < .001);
     let cycles = 0, previous = v.walkPhase, planted = null, contactSamples = 0;
     for (let i = 0; i < rate * 3; i++) {
-      stepPrediction(system, 1 / rate, v, {forward: 1});
+      advance(system, 1 / rate, v, {forward: 1});
       if (v.walkPhase < previous) cycles++;
       previous = v.walkPhase;
       // During the middle of a half-stride, the supporting pad must stay
@@ -69,7 +78,7 @@ test('tauntaun runs at its authored cadence, reverses its gait, and stops withou
         const side = v.walkPhase < clip.duration ? 'l' : 'r';
         const point = v.byName[`bone_${side}_pad`].getWorldPosition(new THREE.Vector3());
         assert.ok(point.y > .025 && point.y < .09, `running pad y=${point.y}`);
-        if (planted?.side === side) assert.ok(point.distanceTo(planted.point) < .06, 'supporting foot must not skate');
+        if (planted?.side === side) assert.ok(point.distanceTo(planted.point) < .06, `supporting foot must not skate: rate=${rate}, frame=${i}, phase=${v.walkPhase}, distance=${point.distanceTo(planted.point)}, position=${v.position.toArray()}, pad=${point.toArray()}`);
         planted = {side, point}; contactSamples++;
       } else planted = null;
     }
@@ -77,14 +86,14 @@ test('tauntaun runs at its authored cadence, reverses its gait, and stops withou
     assert.ok(contactSamples > 5);
     assert.ok(v.position.z > 55, `travel=${v.position.z}`);
     distances.push(v.position.z);
-    for (let i = 0; i < rate * 2; i++) stepPrediction(system, 1 / rate, v, {forward: -1});
+    for (let i = 0; i < rate * 2; i++) advance(system, 1 / rate, v, {forward: -1});
     const phase = v.walkPhase;
-    stepPrediction(system, 1 / rate, v, {forward: -1});
+    advance(system, 1 / rate, v, {forward: -1});
     const duration = clip.duration + v.clips.get('walk_rightfoot_leftfoot').duration;
     const backwards = (phase - v.walkPhase + duration) % duration;
     // Backward is the same gallop played in reverse: under a tick of clip time.
     assert.ok(backwards > 0 && backwards < 1 / rate, `backwards=${backwards}`);
-    for (let i = 0; i < rate * 2; i++) stepPrediction(system, 1 / rate, v, {});
+    for (let i = 0; i < rate * 2; i++) advance(system, 1 / rate, v, {});
     assert.ok(v.velocity.length() < .001); assert.ok(v.walkBlend < .001);
     system.dispose();
   }

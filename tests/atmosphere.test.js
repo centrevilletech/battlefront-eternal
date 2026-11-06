@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -103,7 +104,7 @@ const HAZE = {
   bes2: null, nab2: null, tat2: null,
 };
 for (const [map, expected] of Object.entries(HAZE)) {
-  const path = new URL(`../public/maps/${map}/map.json`, import.meta.url);
+  const path = contentURL(`maps/${map}/map.json`);
   const data = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path)) : null;
   test(`${map}: its imported haze builds`, { skip: !data || !('atmosphere' in data) }, () => {
     if (!expected) return assert.equal(data.atmosphere, null);

@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,7 +58,7 @@ test('mounted HUD selects a missile channel and falls back to primary for ordina
   assert.equal(targetingWeapon(null), undefined);
 });
 
-const maps = new URL('../public/maps/', import.meta.url);
+const maps = contentURL('maps/');
 const files = vehiclePacks(maps);
 test('all extracted ground vehicle missile launchers acquire and guide shots', { skip: !files.length }, () => {
   const checked = new Set();

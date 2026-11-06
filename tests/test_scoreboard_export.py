@@ -3,6 +3,7 @@ AWARDS, and the rasterHud entries that get the stat icons and list art 4x
 atlases. Synthetic inputs; the last class audits an existing extraction
 against docs/scoreboard-assets.md when there is one."""
 import json
+from helpers.content import content_path
 import sys
 import unittest
 from pathlib import Path
@@ -15,7 +16,7 @@ from zero_scoreboard import (
 )
 from zero_spawn_screen import RASTER_HUD
 
-PUBLIC = Path(__file__).resolve().parents[1] / 'public'
+PUBLIC = content_path()
 
 
 def table(**texts):

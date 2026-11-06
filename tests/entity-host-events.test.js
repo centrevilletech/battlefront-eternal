@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync} from 'node:fs';
@@ -132,7 +133,7 @@ test('content-free host delivers bolt launches and terminal replacements across 
   } finally {host.dispose();}
 });
 
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 test('every publication phase receives intervening combat events, repairs loss, and reseeds on resync', {skip: !existsSync(`${content}/maps/nab2/map.json`)}, async () => {
   process.env.BFE_CONTENT_DIR ||= content;
   const {headlessGame} = await import('../tools/headless-world.mjs');

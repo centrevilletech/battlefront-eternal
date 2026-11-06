@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
@@ -59,7 +60,7 @@ for (const height of [0.2, 0.4]) {
   assert(!world.overlapsSphere(new THREE.Vector3(0, 1, 2), 0.5), 'disabled live body permits clearance');
 }
 function retailWorld(name) {
-  const dir = new URL(`../public/maps/${name}/`, import.meta.url);
+  const dir = contentURL(`maps/${name}/`);
   if (!fs.existsSync(new URL('collision.bin', dir))) return null;
   const load = (file, Type) => {
     const bytes = fs.readFileSync(new URL(file, dir));

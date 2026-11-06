@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import { stepPrediction } from './helpers/hull-prediction.js';
 // Bots out of a hangar and over the terrain as the 2004 game's AI flies them
 // (docs/ai-vehicles.md "UnitFlyAgent" and "Vehicle input conversion"): the
@@ -12,7 +13,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { pilotInput, raiseOverTerrain } from '../src/flight/ai.js';
 import { throttleFor } from '../src/flight/config.js';
@@ -122,8 +122,7 @@ test('in the open the terrain warning still pulls the nose up and slows the craf
 // as his agent sends him out along the craft's heading, and flies out of
 // the door: every takeoff reaches open sky (nothing 100 m above) within a
 // few seconds, and none dies under the roof.
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CONTENT = process.env.BFE_CONTENT_DIR || path.join(ROOT, 'public');
+const CONTENT = contentPath();
 test('imported: Hoth\'s bot snowspeeders fly out of the hangar without hitting its roof', { skip: !fs.existsSync(path.join(CONTENT, 'maps/hot1/map.json')) && 'no hot1 extract' }, async () => {
   process.env.BFE_CONTENT_DIR = CONTENT;
   const { headlessGame, idleCommand } = await import('../tools/headless-world.mjs');

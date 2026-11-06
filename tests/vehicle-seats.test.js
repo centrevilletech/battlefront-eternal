@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 // Vehicle seats as the 2004 game reads them (docs/formats.md "Vehicle
 // seats"): who shows as a rider, the turret arcs, where the guns aim and fire
 // from, and the seat cameras. Optional: uses the extracted vehicle packs under
@@ -6,12 +7,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { CollisionWorld } from './helpers/native-vehicles.js';
+import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleCamera, VehicleDriver } from '../src/vehicles.js';
 import { packWith, vehiclePacks } from '../tools/vehicle-packs.mjs';
 
 const DEG = Math.PI / 180;
-const maps = new URL('../public/maps/', import.meta.url);
+const maps = contentURL('maps/');
 const has = (...list) => list.every((map) => vehiclePacks(maps, map).length);
 const binary = (file) => { const b = fs.readFileSync(file); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 const near = (a, b, eps, message) => assert.ok(Math.abs(a - b) <= eps, `${message}: ${a} vs ${b}`);
@@ -34,7 +35,7 @@ function hulls(map, names, yaw = 0) {
     buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)),
     texture: () => null, ordnance, effects: { play: () => null } });
   const byName = Object.fromEntries(names.map((name) => [name, system.vehicles.find((v) => v.name === name)]));
-  return { system, collision, fired, ...byName };
+  return { system, collision, fired, pack: { data: system.data, buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)) }, ...byName };
 }
 
 test('a rider shows exactly where its seat has a pilot animation', { skip: !has('nab2', 'geo1', 'hot1') }, () => {
@@ -161,11 +162,13 @@ test('the player\'s own body stays out of sight in an enclosed cockpit (Bespin: 
 });
 
 test('the seat camera hangs from the seat: chase at TrackCenter and TrackOffset, eye at EyePointOffset, the seat\'s field of view', { skip: !has('nab2') }, () => {
-  const { system, collision, rep_hover_fightertank: v } = hulls('nab2', ['rep_hover_fightertank']);
+  const { system, collision, pack, rep_hover_fightertank: v } = hulls('nab2', ['rep_hover_fightertank']);
   const camera = new THREE.PerspectiveCamera(50, 16 / 9, .1, 1000);
   const view = new VehicleCamera(camera, collision, true);
   v.driver = {}; v.seatIndex = 1; v.aimYaw = v.yaw + .5; v.pitch = .1;
+  nativeVehicles(system, pack);
   system.update(1 / 60);
+  v.render(1, 0);
   view.update(v, 1 / 60, false);
   const frame = v.seatFrame(1, new THREE.Matrix4());
   const rest = v.cameraRest(1, frame, new THREE.Vector3());

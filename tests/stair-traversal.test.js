@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
@@ -6,7 +7,7 @@ import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { ENGINE, Soldier } from '../src/soldier.js';
 
 function retailWorld(name) {
-  const dir = new URL(`../public/maps/${name}/`, import.meta.url);
+  const dir = contentURL(`maps/${name}/`);
   if (!fs.existsSync(new URL('collision.bin', dir))) return null;
   const load = (file, Type) => {
     const bytes = fs.readFileSync(new URL(file, dir));

@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // The Dark Trooper's blast cannon and the Rebel pilot's blaster cannon
 // (imp_/all_weap_inf_shotgun): five bolts a press, each drawing its own
 // spread, and the page's predicted copies flying where the authority's do.
@@ -124,7 +125,7 @@ test('the authority seeds a press from its trigger edge and the Rust page sessio
 });
 
 for (const [side, unit] of [['imp', 'imp_inf_dark_trooper'], ['imp', 'imp_inf_dark_troopersnow'], ['all', 'all_inf_pilot']]) {
-  const dir = process.env.BFE_TEST_CONTENT_DIR || 'public';
+  const dir = process.env.BFE_TEST_CONTENT_DIR || contentPath();
   const file = `${dir}/sides/${side}/units.json`;
   test(`retail ${unit} carries the five-bolt cannon`, { skip: !fs.existsSync(file) }, () => {
     const def = JSON.parse(fs.readFileSync(file)).units[unit]?.weapons?.find((w) => w.class === `${side}_weap_inf_shotgun`);

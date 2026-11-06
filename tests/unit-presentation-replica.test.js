@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import {presentUnit} from './helpers/presentation.js';
 import {EntityWorldCapture} from '../src/runtime/network-entity-capture.js';
 import {EntityGameState} from '../src/runtime/network-entity-game.js';
@@ -125,7 +126,7 @@ test('every life of a droideka starts with its shield full and down', () => {
 // A dedicated match (and a desktop host) retires the headless game's own
 // viewpoint, which spawned at load from the URL's side. Its body must leave
 // the world with it, or every client stands it at that spawn point.
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 test('a dedicated match leaves its own viewpoint body out of the world', { skip: !existsSync(`${content}/maps/bes2/map.json`) }, async () => {
   process.env.BFE_CONTENT_DIR ||= content;
   const { headlessGame, idleCommand } = await import('../tools/headless-world.mjs');

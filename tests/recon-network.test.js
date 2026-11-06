@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -5,7 +6,7 @@ import { existsSync } from 'node:fs';
 // A recon droid flown through the shared world under the snapshot host, as
 // the world worker (offline) and bfeserver (online) run it, with the
 // extracted content. Skipped without an import.
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 const owned = { skip: !existsSync(`${content}/maps/nab2/map.json`) && 'no import' };
 
 // Checks on the world's own objects (a droid, a weapon) compare them here and

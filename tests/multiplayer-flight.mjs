@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // Operator-owned Bespin content is required. Exercise the real map, army,
 // aircraft, input lanes and authoritative flight together without a renderer.
 import assert from 'node:assert/strict';
@@ -8,7 +9,7 @@ import { createMultiplayerWorld } from '../src/runtime/multiplayer-world.js';
 import { NetworkInputs } from '../src/runtime/network-inputs.js';
 import { DEFAULTS } from '../src/settings.js';
 
-const root=resolve(process.env.BFE_DATA_DIR || 'public');
+const root=resolve(process.env.BFE_DATA_DIR || contentPath());
 globalThis.fetch=async path=>{
   const filename=resolve(root,`.${path}`);assert.ok(filename.startsWith(root+sep));
   try{return new Response(await readFile(filename));}

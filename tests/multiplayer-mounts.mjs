@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // Owned-assets semantic lifecycle diagnostic, not a transport/prediction gate.
 // Each complete world lives in its own sequential process: capture authority,
 // exit it, then replay Alice and Bob independently. No three-world memory peak.
@@ -30,7 +31,7 @@ if (!phase) {
   process.exit(0);
 }
 assert.ok(['authority', 'alice', 'bob'].includes(phase));
-const root = resolve(process.env.BFE_DATA_DIR || 'public');
+const root = resolve(process.env.BFE_DATA_DIR || contentPath());
 globalThis.fetch = async path => {
   assert.match(path, /^\/(maps|sides|common|audio)\//);
   const filename = resolve(root, `.${path}`); assert.ok(filename.startsWith(root + sep));

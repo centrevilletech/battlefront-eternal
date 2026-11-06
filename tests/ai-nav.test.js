@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 // Classic AI navigation (src/ai/classic/nav): synthetic fixtures, plus
 // optional reference traces measured in the original game and the extracted
 // public/maps data when present (skipped otherwise; never copied here).
@@ -14,7 +15,7 @@ import {
 
 const f32 = Math.fround;
 const RESEARCH = new URL("../extract/ai-research/", import.meta.url);
-const MAPS = new URL("../public/maps/", import.meta.url);
+const MAPS = contentURL("maps/");
 
 function research(path) {
   const url = new URL(path, RESEARCH);

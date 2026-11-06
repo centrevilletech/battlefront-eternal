@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // Leaving the battlefield (src/battlefield.js): the original game's Character
 // countdown over what each Character controls, the kill when it runs out, the
 // player's warning and his side's voice-over. Synthetic boundaries; then, with
@@ -6,7 +7,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { Battlefield, LeavingWarning, LEAVING_TIME, boundaryFromNav } from '../src/battlefield.js';
 import { Boundary } from '../src/ai/classic/nav/boundary.js';
@@ -155,8 +155,7 @@ test('the page\'s warning: what he controls as it sees it, the voice-over once e
 });
 
 // With an import (BFE_CONTENT_DIR or public/): the battle's own boundary.
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CONTENT = process.env.BFE_CONTENT_DIR || path.join(ROOT, 'public');
+const CONTENT = contentPath();
 const imported = (map) => fs.existsSync(path.join(CONTENT, `maps/${map}/ai-nav.json`));
 
 test('imported maps: every command post inside its boundary; both Yavin maps have none', { skip: !imported('nab2') && 'no import' }, () => {

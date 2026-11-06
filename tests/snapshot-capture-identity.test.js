@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -258,7 +259,7 @@ test('a payload record is checked as encoding it checks it, without encoding it'
   }
 });
 
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 const owned = { skip: !existsSync(`${content}/maps/nab2/map.json`) };
 // A real battle: the host publishes as usual while the reference capture
 // takes the same world state each tick; every shared part the host sends

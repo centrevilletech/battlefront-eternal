@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import { stepPrediction, predictHull, registerHullFixture } from './helpers/hull-prediction.js';
 // A walker's legs and feet as a page draws them (src/vehicles.js
 // Vehicle.present, src/vehicle-feet.js, src/runtime/vehicle-prediction.js):
@@ -59,7 +60,7 @@ test('type 1: a foot comes down once its fall over an update drops under 0.1 m, 
 
 // A retail walker on flat ground, as tests/creature-motion.test.js builds one.
 function walker(name, map) {
-  const pack = packWith(new URL('../public/maps/', import.meta.url), [name], map);
+  const pack = packWith(contentURL('maps/'), [name], map);
   if (!pack) return null;
   const dir = new URL('./', pack);
   const bin = (file) => { const b = fs.readFileSync(new URL(file, dir)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
@@ -75,7 +76,7 @@ function walker(name, map) {
   return { system, v };
 }
 const WALKERS = [['imp_walk_atat', 'hot1'], ['imp_walk_atst_snow', 'hot1'], ['rep_walk_atte', 'geo1'], ['cis_walk_spider', 'geo1'], ['all_walk_tauntaun', 'hot1']];
-const available = WALKERS.filter(([name, map]) => packWith(new URL('../public/maps/', import.meta.url), [name], map));
+const available = WALKERS.filter(([name, map]) => packWith(contentURL('maps/'), [name], map));
 
 test('every walker\'s feet come down by its class rules, at most once a cycle, the same at any frame or record rate', { skip: !available.length }, () => {
   for (const [name, map] of available) {

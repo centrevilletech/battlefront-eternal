@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 // Local acceptance test; requires the operator's imported Theed assets.
 // Run: node tests/multiplayer-world.mjs
 import assert from 'node:assert/strict';
@@ -9,7 +10,7 @@ import {EntityGameState} from '../src/runtime/network-entity-game.js';
 import {EntitySeats} from '../src/runtime/entity-seats.js';
 import { createMultiplayerWorld } from '../src/runtime/multiplayer-world.js';
 import { Character } from '../src/battle.js';
-const root=resolve(process.env.BFE_DATA_DIR || 'public');
+const root=resolve(process.env.BFE_DATA_DIR || contentPath());
 globalThis.fetch=async path=>{
   assert.match(path,/^\/(maps|sides|common|audio)\//);
   const filename=resolve(root,`.${path}`); assert.ok(filename.startsWith(root+sep));

@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -50,7 +51,7 @@ test("setFog takes the sky's fog, or none", () => {
 // there is one): only Kashyyyk: Islands' fog is switched off by its range,
 // and the two Rhen Vars have none.
 const MAPS = 'bes1 bes2 end1 geo1 hot1 kam1 kas1 kas2 nab1 nab2 rhn1 rhn2 tat1 tat2 tat3 yav1 yav2'.split(' ');
-const prepared = (name) => new URL(`../public/maps/${name}/map.json`, import.meta.url);
+const prepared = (name) => contentURL(`maps/${name}/map.json`);
 test('the stock maps: which far scenes are fogged', { skip: !MAPS.every((name) => fs.existsSync(prepared(name))) }, () => {
   const fogged = MAPS.filter((name) => {
     const low = JSON.parse(fs.readFileSync(prepared(name))).distance?.lowRes;

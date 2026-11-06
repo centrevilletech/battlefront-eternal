@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -122,7 +123,7 @@ test('the stand-in AI keeps the battle\'s bots: it fields them itself', () => {
 });
 
 // The same through the world a server runs, where imported content is linked.
-const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+const content = contentPath();
 test('a server with ai "off" on Cloud City shows Tab the players alone', { skip: !existsSync(`${content}/maps/bes2/map.json`) }, async () => {
   process.env.BFE_CONTENT_DIR ||= content;
   const { headlessGame } = await import('../tools/headless-world.mjs');

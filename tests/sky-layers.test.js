@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -46,7 +47,7 @@ test('every sky model draws around the eye in the config order, horizon models b
   assert.ok('BLENDED' in mountains.defines);
 });
 
-const extracted = new URL('../public/maps/hot1/map.json', import.meta.url);
+const extracted = contentURL('maps/hot1/map.json');
 test('hot1: the imported sky keeps its mountains and ion cannon', { skip: !fs.existsSync(extracted) }, () => {
   const sky = JSON.parse(fs.readFileSync(extracted)).meshes.filter(m => m.sky);
   if (!sky.some(m => m.skyLayer)) return; // an import from before the sky's models

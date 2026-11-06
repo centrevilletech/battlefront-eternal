@@ -1,3 +1,4 @@
+import { contentPath, contentURL } from './helpers/content.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 // Riders in the open (docs/formats.md "Riders"): rounds meet a soldier shown
 // on an exposed seat where his body is drawn, he dies there as on foot, and
@@ -9,8 +10,7 @@ import riderGolden from './fixtures/f2-rider-golden.json' with { type: 'json' };
 import { goldenValue } from './helpers/golden-values.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { vehiclePacks } from '../tools/vehicle-packs.mjs';
 import * as THREE from 'three';
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleDriver } from "../src/vehicles.js";
@@ -302,9 +302,8 @@ test("the server's hit history keeps riders in the open", () => {
 // The imported battles (BFE_CONTENT_DIR, or public/): rifle bolts at the
 // riders the 2004 game shows, in the headless world the worker and the
 // server run.
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CONTENT = process.env.BFE_CONTENT_DIR || path.join(ROOT, 'public');
-const has = (...maps) => maps.every((m) => fs.existsSync(path.join(CONTENT, `maps/${m}/vehicles/vehicles.json`)));
+const CONTENT = contentPath();
+const has = (...maps) => maps.every((m) => vehiclePacks(contentURL('maps/'), m).length > 0);
 test('imported riders: speeder bikes, skiffs and a tauntaun die to rifle bolts; fighters\' pilots and the AT-ST\'s crew are out of reach', { skip: !has('tat1', 'hot1') && 'no tat1/hot1 extract' }, async () => {
   process.env.BFE_CONTENT_DIR = CONTENT;
   const { headlessGame } = await import('../tools/headless-world.mjs');
@@ -319,7 +318,10 @@ test('imported riders: speeder bikes, skiffs and a tauntaun die to rifle bolts; 
     let className = null;
     for (const s of Object.values(game.data.sides)) for (const [n, d] of Object.entries(s.units || {})) if (!className && d.base === 'soldier' && !d.hero && !Number(d.NoEnterVehicles ?? 0)) className = n;
     await game.factory.prepare(className);
-    const shooter = { id: 9999, generation: 1, team: 3, alive: true };
+    // Native rounds require a registered Unit owner, including for a shot
+    // fired outside a player's normal weapon update. Keep it off the field.
+    const shooter = game.factory.acquire(className);
+    shooter.team = shooter.combat.team = 3;
     const checked = new Set();
     for (const v of game.vehicles.vehicles) {
       if (!v.alive || checked.has(v.name)) continue;
@@ -360,6 +362,7 @@ test('imported riders: speeder bikes, skiffs and a tauntaun die to rifle bolts; 
         unit.remove();
       }
     }
+    shooter.remove();
     assert.ok([...checked].some((name) => /speederbike|tauntaun/.test(name)), 'a mount was checked');
   }
 });

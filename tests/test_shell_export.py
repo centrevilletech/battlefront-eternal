@@ -4,6 +4,7 @@ catalog, the loading screen's config, the music's order and names, and the
 asset lists. Synthetic inputs; the last class audits an existing extraction
 against docs/shell-assets.md when there is one."""
 import json
+from helpers.content import content_path
 import shutil
 import struct
 import subprocess
@@ -25,7 +26,7 @@ from zero_shell import (
 from zero_sound import hexname
 from zero_spawn_screen import RASTER_HUD
 
-PUBLIC = Path(__file__).resolve().parents[1] / 'public'
+PUBLIC = content_path()
 SHELL = PUBLIC / 'common' / 'shell'
 # The game's own maps, in its list's order; add-on maps (GameData/AddOn,
 # tools/zero_addon.py) follow them.

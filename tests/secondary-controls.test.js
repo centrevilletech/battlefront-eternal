@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -45,7 +46,7 @@ test('G cycles secondary items through world commands without switching the prim
   assert.equal(combat.arsenal.current(0), primary);
 });
 
-const unitsPath = process.env.BFE_CONTENT_DIR ? `${process.env.BFE_CONTENT_DIR}/sides/rep/units.json` : new URL('../public/sides/rep/units.json', import.meta.url);
+const unitsPath = contentURL('sides/rep/units.json');
 for (const native of [false, true]) {
 test(`G cycles and fires both secondary items in the retail clone trooper loadout (${native ? 'native' : 'JavaScript'} controls)`, { skip: !existsSync(unitsPath) }, async () => {
   const loadout = JSON.parse(readFileSync(unitsPath)).units.rep_inf_clone_trooper.weapons;

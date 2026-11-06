@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -47,7 +48,7 @@ test('snow builds one bounded instanced draw from the imported weather', () => {
   assert.equal(scene.children.length, 0);
 });
 
-const hoth = new URL('../public/maps/hot1/map.json', import.meta.url);
+const hoth = contentURL('maps/hot1/map.json');
 test('hot1: its imported precipitation is snow and builds', { skip: !fs.existsSync(hoth) }, () => {
   const data = JSON.parse(fs.readFileSync(hoth)).weather;
   assert.equal(data.precipitation.Type[0], 'Quads');

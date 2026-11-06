@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,7 +36,7 @@ test('hover is cosmetic, hides the hull in its eye view, and restores Classic an
 });
 
 for (const side of ['rep', 'cis', 'all', 'imp']) {
-  const path = `public/sides/${side}/units.json`;
+  const path = contentPath(`sides/${side}/units.json`);
   test(`${side}: all imported recon loadouts take over and send four bolts down from the sky`, { skip: !fs.existsSync(path) }, () => {
     const units = JSON.parse(fs.readFileSync(path)).units;
     let checked = 0;

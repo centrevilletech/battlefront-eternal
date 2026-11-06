@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -13,7 +14,7 @@ import { readRecords } from '../tools/sim-capture/format.mjs';
 // pilot's frames of a short battle and reads them back. It needs the game's
 // files (BFE_CONTENT_DIR, or public/), so CI, which has none, skips it.
 const root = fileURLToPath(new URL('../', import.meta.url));
-const content = process.env.BFE_CONTENT_DIR || `${root}public`;
+const content = contentPath();
 
 test('a capture changes no tick of the battle it records', { skip: !existsSync(`${content}/maps/nab2/map.json`) && 'no game files', timeout: 600000 }, () => {
   const out = mkdtempSync(join(tmpdir(), 'sim-capture-'));

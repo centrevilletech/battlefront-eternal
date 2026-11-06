@@ -1,10 +1,11 @@
+import { contentPath } from './helpers/content.js';
 // Requires the operator's imported Theed gameplay content.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { createGame } from '../src/game.js';
 import { createMultiplayerWorld } from '../src/runtime/multiplayer-world.js';
-const root = resolve(process.env.BFE_DATA_DIR || 'public');
+const root = resolve(process.env.BFE_DATA_DIR || contentPath());
 globalThis.fetch = async name => {
   const file = resolve(root, `.${name}`);
   assert.ok(file.startsWith(root + sep));

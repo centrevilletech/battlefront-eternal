@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync,readFileSync} from 'node:fs';
@@ -5,7 +6,7 @@ import * as THREE from 'three';
 import {buildActor} from '../src/actor.js';
 import {loadClips} from '../src/anim.js';
 import {Droideka} from '../src/droideka.js';
-const base=new URL('../public/sides/cis/actors/cis_walk_droideka',import.meta.url).pathname;
+const base=contentPath('sides/cis/actors/cis_walk_droideka');
 const available=existsSync(base+'.json');
 function buffer(path){const b=readFileSync(path);return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);}
 export function fixture(){

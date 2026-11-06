@@ -1,3 +1,4 @@
+import { contentPath } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -5,7 +6,7 @@ import * as THREE from 'three';
 import { buildActor } from '../src/actor.js';
 import { JetpackNozzles } from '../src/jetpack-nozzles.js';
 
-const path = 'public/sides/rep/actors/rep_inf_jettrooper';
+const path = contentPath('sides/rep/actors/rep_inf_jettrooper');
 const available = fs.existsSync(`${path}.bin`);
 function fixture(pathOverride = path) {
   const path = pathOverride;
@@ -63,8 +64,8 @@ test('anchors remain exactly at skinned outlets while the torso leans, rotates a
 });
 
 
-test('Dark Trooper tilted pack mouths follow the skinned rims', { skip: !fs.existsSync('public/sides/imp/actors/imp_inf_darktrooper.bin') }, () => {
-  const { actor, nozzles } = fixture('public/sides/imp/actors/imp_inf_darktrooper');
+test('Dark Trooper tilted pack mouths follow the skinned rims', { skip: !fs.existsSync(contentPath('sides/imp/actors/imp_inf_darktrooper.bin')) }, () => {
+  const { actor, nozzles } = fixture(contentPath('sides/imp/actors/imp_inf_darktrooper'));
   assert.equal(nozzles.frames.length, 2);
   actor.root.rotation.set(.2, 1.3, -.1);
   actor.byName.bone_ribcage.rotation.z += .4;

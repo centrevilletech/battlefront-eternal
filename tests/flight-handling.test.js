@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
 // How a craft handles and how its pilot sees it, from its own ODF as the
 // 2004 game reads it (docs/vehicles.md "Movement" and "Camera"): the
@@ -9,7 +10,6 @@ import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.j
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { pathToFileURL } from 'node:url';
 import * as THREE from 'three';
 import { fixture } from './flight-fixture.js';
 import { flightHandling } from '../src/vehicle-motion.js';
@@ -204,7 +204,7 @@ test('the snowspeeder\'s camera eases each axis at its MoveTension and turns at 
 // 1.5 rad/s), and its pilot's chase camera is ThirdPersonFOV across (48
 // degrees unless the section sets one) at cruise and at top speed, nothing
 // blurring.
-const content = process.env.BFE_CONTENT_DIR ? pathToFileURL(`${process.env.BFE_CONTENT_DIR}/`) : new URL('../public/', import.meta.url);
+const content = contentURL();
 const imported = vehiclePacks(new URL('maps/', content));
 const binary = (file) => { const b = fs.readFileSync(file); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 const across = (cam) => 2 * Math.atan(Math.tan(cam.fov * DEG / 2) * cam.aspect) / DEG;

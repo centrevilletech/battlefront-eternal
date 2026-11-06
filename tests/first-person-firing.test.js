@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -122,11 +123,11 @@ test('a weapon switch still lowers the old weapon and raises the new one', () =>
 // The retail arms and clips: the grip stays where it idles through a burst
 // of rifle fire. The shoot clip moves it by at most 0.16 m; lowered
 // (handsdown) it is 0.8 m away, beside the eye inside the near plane.
-const rigFile = new URL('../public/sides/rep/firstperson/rep_1st_trooper.json', import.meta.url);
-const clipFile = new URL('../public/common/anims_fp.json', import.meta.url);
+const rigFile = contentURL('sides/rep/firstperson/rep_1st_trooper.json');
+const clipFile = contentURL('common/anims_fp.json');
 test('retail clone trooper arms keep the rifle in view through held fire', { skip: !existsSync(rigFile) || !existsSync(clipFile) }, () => {
   const rig = JSON.parse(readFileSync(rigFile));
-  const bytes = readFileSync(new URL('../public/common/anims_fp.bin', import.meta.url));
+  const bytes = readFileSync(contentURL('common/anims_fp.bin'));
   const clips = loadClips(JSON.parse(readFileSync(clipFile)), bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), rig.bones.map((b) => b.name));
   const arms = page({ rig, clips });
   const at = () => arms.view.hand.getWorldPosition(new THREE.Vector3());

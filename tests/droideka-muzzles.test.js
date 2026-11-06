@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync,readFileSync} from 'node:fs';
@@ -9,7 +10,7 @@ import {Droideka} from '../src/droideka.js';
 import {FirstPersonView} from './helpers/presentation.js';
 import {DROIDEKA_OFFSET} from '../src/firstperson.js';
 import {PlayerCombat} from '../src/combat.js';
-const root=new URL('../public/',import.meta.url);
+const root=contentURL('');
 const json=path=>JSON.parse(readFileSync(new URL(path,root)));
 const buffer=path=>{const b=readFileSync(new URL(path,root));return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);};
 const available=existsSync(new URL('sides/cis/firstperson/cis_1st_droideka.json',root));

@@ -1,3 +1,4 @@
+import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -82,11 +83,11 @@ test('brief stair-contact flicker does not lower the first-person weapon',()=>{
   assert.notEqual(view.slot,'jump_land');
 });
 
-const rigFile=new URL('../public/sides/rep/firstperson/rep_1st_trooper.json',import.meta.url);
+const rigFile=contentURL('sides/rep/firstperson/rep_1st_trooper.json');
 test('retail first-person arms retain the same transition pose at different render rates',{skip:!existsSync(rigFile)},()=>{
   const rig=JSON.parse(readFileSync(rigFile));
-  const meta=JSON.parse(readFileSync(new URL('../public/common/anims_fp.json',import.meta.url)));
-  const bytes=readFileSync(new URL('../public/common/anims_fp.bin',import.meta.url));
+  const meta=JSON.parse(readFileSync(contentURL('common/anims_fp.json')));
+  const bytes=readFileSync(contentURL('common/anims_fp.bin'));
   const clips=loadClips(meta,bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),rig.bones.map(b=>b.name));
   const poses=[];
   for(const fps of [30,60,144]) {
