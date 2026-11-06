@@ -11,6 +11,10 @@ use crate::movement::soldier::V3;
 use crate::prediction::{actors, corrections, weapons};
 use three::clamp;
 
+pub mod hulls;
+mod hull_state;
+mod hull_correction;
+
 const INVALID: &str = "invalid prediction session frame";
 // PredictionWindow.begin retains a continuation when its authority is too old
 // to replay safely. Keep its 120-tick horizon in simulation ticks, not frames.
@@ -71,6 +75,7 @@ pub struct ClientPrediction {
     pub output: Vec<f64>,
     actor: actors::Session,
     arsenal: weapons::Session,
+    hull: Option<hulls::Session>,
     kind: u32,
     configured: bool,
     life: Option<[f64; 4]>,
@@ -95,6 +100,7 @@ impl ClientPrediction {
         self.actor.input.clear(); self.actor.input.extend_from_slice(input);
         self.actor.run(ACTOR_CONFIGURE, collision)?;
         self.configured = true; self.life = None;
+        if let Some(h) = &mut self.hull { h.reset(); }
         Ok(())
     }
     // WeaponPrediction.begin resolved the arsenal's definitions before ticks.
@@ -113,7 +119,22 @@ impl ClientPrediction {
     }
     // PredictionWindow.reset discards eligibility, not the allocated body or
     // weapon tables. A later frame must restore its authority checkpoint.
-    pub fn reset(&mut self) { self.life = None; }
+    pub fn reset(&mut self) { self.life = None; if let Some(h) = &mut self.hull { h.reset(); } }
+
+    /// predictionVehicle construction for native hosts and synthetic fixtures.
+    /// The caller transfers a private owner, never an authoritative pool row.
+    pub fn install_hull(&mut self, owner: hulls::Session) {
+        self.hull = Some(owner); self.life = None; self.configured = true;
+    }
+
+    // predictionVehicle resolves one private source, separate from F2's fleet.
+    // This operation is cold and cannot be called for an individual tick.
+    #[cfg(target_arch = "wasm32")]
+    fn configure_hull(&mut self, words: &[f64]) -> Result<(), &'static str> {
+        let r = crate::gen::ClientHullRef::take(span(words, 0, 1, crate::gen::ClientHullRef::WORDS)?, &[]);
+        self.install_hull(crate::vehicles::module::prediction_hull(crate::store::Ref::new(r.slot, r.generation)).ok_or(INVALID)?);
+        Ok(())
+    }
 
     /// game.js replayPrediction: continuation selection, correction restore,
     /// replayTicks ordering, look, movement, crowd push, kick and weapons.
@@ -124,7 +145,18 @@ impl ClientPrediction {
             || !frame.ignored.is_finite() || frame.ignored < -1.0 || frame.ignored.fract() != 0.0 { return Err(INVALID); }
         // MountedWeaponPrediction.predict shares weapon replay, but has no
         // infantry body, collision flags or actor continuation to restore.
-        if frame.mode == ClientMode::Mounted { return self.predict_mounted(&frame, words); }
+        if frame.mode == ClientMode::Mounted { self.life = None; return self.predict_mounted(&frame, words, None, None); }
+        if frame.mode == ClientMode::Hull {
+            self.life = None;
+            // predictVehicle completed movement/targeting before the old
+            // mounted timer replay. Publish both from this private owner.
+            self.output.clear(); self.output.resize(ClientResult::WORDS, 0.0);
+            let mut result = ClientResult::default();
+            let hull = self.hull.as_mut().ok_or(INVALID)?;
+            hull.predict(&frame, words, collision, &mut result, &mut self.output)?;
+            let lock = hull.flight_lock();
+            return self.predict_mounted(&frame, words, Some(result), lock);
+        }
         let commands = span(words, frame.commands_at, frame.commands_count, ClientCommand::WORDS)?;
         let crowd = span(words, frame.crowd_at, frame.crowd_count, ClientCrowd::WORDS)?;
         let flags = span(words, frame.flags_at, frame.flags_count, 1)?;
@@ -379,13 +411,22 @@ impl ClientPrediction {
 
     /// MountedWeaponPrediction.predict: replay timers, ammunition, heat and
     /// barrel progression without emitting authoritative rounds or callbacks.
-    fn predict_mounted(&mut self, frame: &ClientFrame, words: &[f64]) -> Result<(), &'static str> {
+    fn predict_mounted(&mut self, frame: &ClientFrame, words: &[f64], existing: Option<ClientResult>, flight_lock: Option<crate::flight::state::Lock>) -> Result<(), &'static str> {
         let commands = span(words, frame.commands_at, frame.commands_count, ClientCommand::WORDS)?;
         let mounts = span(words, frame.mounts_at, frame.mounts_count, ClientMount::WORDS)?;
         self.arsenal.input.clear();
         self.arsenal.input.extend_from_slice(span(words, frame.weapons_at, frame.weapons_words, 1)?);
         self.arsenal.run(WEAPON_RESTORE)?;
         if self.arsenal.weapons.len() != frame.mounts_count as usize { return Err(INVALID); }
+        // updateFlightTarget formerly wrote the clone's shared weapon array.
+        // Keep those predicted HUD/lock fields on the borrowed weapon view;
+        // the authoritative arsenal is restored after presentation as usual.
+        if let Some(lock) = flight_lock {
+            for w in &mut self.arsenal.weapons {
+                w.lock_target_id = lock.target_id; w.lock_generation = lock.generation;
+                w.lock_elapsed = lock.elapsed; w.lock_complete = lock.complete;
+            }
+        }
         // MountedWeaponPrediction.predict always restores the mounted arsenal
         // from authority. It does not borrow the actor continuation when a
         // human enters a seat, changes weapon roles or takes over a bot pilot.
@@ -424,7 +465,8 @@ impl ClientPrediction {
             self.arsenal.run(WEAPON_MOUNTED_STEP)?;
             result.tick = tick; result.ticks += 1; tick += 1.0;
         }
-        self.output.clear(); self.output.resize(ClientResult::WORDS, 0.0);
+        if existing.is_none() { self.output.clear(); self.output.resize(ClientResult::WORDS, 0.0); }
+        let mut result = existing.unwrap_or(result);
         result.weapons_at = self.output.len() as u32;
         self.output.extend_from_slice(&self.arsenal.output);
         result.weapons_words = self.arsenal.output.len() as u32;
@@ -582,6 +624,7 @@ mod module {
             Some(ClientOp::Predict) => s.predict_session(&words, crate::collision::state()),
             Some(ClientOp::Reset) => { s.reset(); Ok(()) },
             Some(ClientOp::ConfigureMuzzles) => s.configure_muzzles(&words),
+            Some(ClientOp::ConfigureHull) => s.configure_hull(&words),
             None => Err(INVALID),
         };
         s.input = words; s.error = result.err(); if s.error.is_some() { s.reset(); } u32::from(s.error.is_none())

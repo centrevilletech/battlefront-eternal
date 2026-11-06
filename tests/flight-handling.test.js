@@ -1,4 +1,4 @@
-import { stepPrediction } from './helpers/hull-prediction.js';
+import { stepPrediction, registerHullFixture } from './helpers/hull-prediction.js';
 // How a craft handles and how its pilot sees it, from its own ODF as the
 // 2004 game reads it (docs/vehicles.md "Movement" and "Camera"): the
 // turn and pitch rates and their filters, the flat turn and the drawn lean,
@@ -152,7 +152,7 @@ test('the pilot\'s chase camera is his section\'s: TrackCenter, TrackOffset in i
   // The X-wing's (the fixture's): TrackCenter (0, 2, -4), TrackOffset
   // (0, 2, 6), TiltValue 5, AimTension 20, MoveTension 4.25, no ThirdPersonFOV.
   const f = fixture(); f.v.flightState = 'Flying'; f.v.position.set(0, 300, 0); f.v.quaternion.identity(); f.v.bank = f.v.roll = 0;
-  f.v.captureTick(); f.v.present(1);
+  f.v.resetPresentationHistory(); f.v.present(1);
   const cam = new THREE.PerspectiveCamera(70, 16 / 10, .1, 5000), view = new VehicleCamera(cam, f.c);
   view.update(f.v, DT, false);
   const t = 5 * DEG;
@@ -175,24 +175,24 @@ test('the snowspeeder\'s camera eases each axis at its MoveTension and turns at 
   const f = cruising(), v = f.v;
   const cam = new THREE.PerspectiveCamera(70, 16 / 10, .1, 5000), view = new VehicleCamera(cam, f.c);
   v.velocity.set(0, 0, 0); v.airspeed = 0; stepPrediction(f.system, DT, v, { forward: 0 }); // hold still
-  v.position.set(0, 300, 0); v.quaternion.identity(); v.captureTick(); v.present(1);
+  v.position.set(0, 300, 0); v.quaternion.identity(); v.resetPresentationHistory(); v.present(1);
   view.update(v, DT, false);
   // At rest at TrackCenter (0, 3, -8) in the frame, looking along the nose.
   near(cam.position.distanceTo(new THREE.Vector3(0, 303, -8)), 0, 1e-9, 'rest');
   // The craft drops 1 m: the camera sinks toward it at 8.5/s; rises at 2.5/s.
-  const step = (dy) => { v.position.y += dy; v.captureTick(); v.present(1); const before = cam.position.y; view.update(v, DT, false); return (cam.position.y - before) / dy; };
+  const step = (dy) => { v.position.y += dy; v.resetPresentationHistory(); v.present(1); const before = cam.position.y; view.update(v, DT, false); return (cam.position.y - before) / dy; };
   near(step(-1), 1 - Math.exp(-8.5 * DT), 1e-9, 'sinking');
   for (let i = 0; i < 300; i++) view.update(v, DT, false);
   near(step(1), 1 - Math.exp(-2.5 * DT), 1e-9, 'rising');
   // A quarter turn of the frame: the camera turns toward it at 10/s.
   for (let i = 0; i < 300; i++) view.update(v, DT, false);
   const was = cam.quaternion.clone();
-  v.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); v.captureTick(); v.present(1);
+  v.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2); v.resetPresentationHistory(); v.present(1);
   view.update(v, DT, false);
   near(was.angleTo(cam.quaternion), (Math.PI / 2) * (1 - Math.exp(-10 * DT)), 1e-6, 'the turn eases');
   // The drawn hull leans; the frame the camera follows does not.
   for (let i = 0; i < 600; i++) view.update(v, DT, false);
-  v.bank = v.roll = .6; v.captureTick(); v.present(1);
+  v.bank = v.roll = .6; v.resetPresentationHistory(); v.present(1);
   const up = new THREE.Vector3(0, 1, 0);
   near(new THREE.Vector3(0, 1, 0).applyQuaternion(v.root.quaternion).angleTo(up), .6, 1e-9, 'the hull leans');
   view.update(v, DT, false);
@@ -223,6 +223,8 @@ test('every imported flyer turns flat at its own TurnRate and is seen at its own
     const system = new Vehicles({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), collision, data: { ...data, spawns, blockers: null },
       buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)),
       texture: () => null, effects: { play: () => null }, ordnance: { explosion() {} }, flightEnvironment: { bounds: null, ceiling: 1e4 } });
+    // The native fleet needs the imported model and clip buffers this world was built from.
+    registerHullFixture(system, { data: system.data, buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)) });
     system.cosmetic = false;
     for (const name of names) {
       const v = system.vehicles.find((x) => x.name === name), def = v.def;
@@ -240,7 +242,7 @@ test('every imported flyer turns flat at its own TurnRate and is seen at its own
       const fov = parseFloat(setting(def.seats[0]?.settings, 'ThirdPersonFOV'));
       const want = Number.isFinite(fov) ? fov : 48;
       const cam = new THREE.PerspectiveCamera(70, 16 / 10, .1, 5000), view = new VehicleCamera(cam, collision);
-      const look = () => { for (let i = 0; i < 30; i++) { fly(1, { forward: 1 }); v.captureTick(); v.present(1); view.update(v, DT, false); } };
+      const look = () => { for (let i = 0; i < 30; i++) { fly(1, { forward: 1 }); v.resetPresentationHistory(); v.present(1); view.update(v, DT, false); } };
       look();
       near(across(cam), want, 1e-9, `${name}: ${want} degrees across`);
       fly(600, { forward: 1 }); look();

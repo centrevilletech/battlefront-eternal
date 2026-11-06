@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from "../src/vehicles.js";
-import { stepFlight } from "../src/flight/model.js";
+import { stepPrediction } from './helpers/hull-prediction.js';
+const stepFlight = (v, dt, input) => stepPrediction(v.system, dt, v, input);
 import { pilotInput } from "../src/flight/ai.js";
 import { fixture, FIXTURE_SPEEDS } from "./flight-fixture.js";
 import { Units } from "../src/registry.js";
@@ -65,9 +66,14 @@ test("an AI pilot on the ground holds takeoff for half of each second of its tim
 
 test("a takeoff under a deck lifts until the deck holds it, and goes on by itself once the way is clear", () => {
   const roofed = () => {
-    const f = fixture();
+    const collision = solid(FLOOR), geometry = new THREE.BoxGeometry(40, 1, 60).translate(0, 3.5, 4);
+    const deck = collision.addBody(geometry.attributes.position.array, geometry.index.array, new Uint32Array(geometry.index.count / 3));
+    deck.enabled = true;
+    const f = fixture(undefined, 'ship', {}, undefined, collision); f.deck = deck;
+    // The pad is below the deck. Construction's top-down spawn would place
+    // the craft on its roof, so establish the below-deck birth pose first.
+    f.v.position.y = 0; f.v.floorY = 0; f.v.syncBody();
     stepFlight(f.v, DT, {});
-    f.system.collision = solid(FLOOR, [0, 3.5, 4, 40, 1, 60]); // a deck over the pad
     return f;
   };
   // An AI pilot's key, and a held one: either starts the lift, as the 2004
@@ -84,7 +90,7 @@ test("a takeoff under a deck lifts until the deck holds it, and goes on by itsel
     assert.ok(f.v.position.y + f.v.bounds.max.y <= 3 + 1e-6, `held under the deck (${f.v.position.y})`);
   }
   // What was over the pad moves off.
-  ai.system.collision = held.system.collision = solid(FLOOR);
+  ai.deck.enabled = held.deck.enabled = false;
   for (let i = 0; i < 600 && (ai.v.flightState !== "Flying" || held.v.flightState !== "Flying"); i++) tick();
   assert.equal(ai.v.flightState, "Flying");
   assert.equal(held.v.flightState, "Flying");

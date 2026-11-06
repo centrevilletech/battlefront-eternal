@@ -1,12 +1,13 @@
 // One whole ground/flight phase. Ordinary ticks import foreign inputs only.
 import * as THREE from 'three';
+import { VehicleContent } from './vehicle-content.js';
 import { applyDelta, deltaBuffer } from './f2-delta.js';
 import { F2Seats } from './f2-seats.js';
 import { F2Firing } from './f2-firing.js';
 import { F2Riders } from './f2-riders.js';
 import { Weapon } from './weapons.js';
 import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
-import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, putF2Bodies, F2PhaseFlag_INDEX, F2ColliderHeaderLayout as COLLIDER, F2BodyHeaderLayout as BODY_HEADER, F2BodyToggleLayout as TOGGLE, F2BodyPlacedLayout as PLACED, F2PhaseLayout as PHASE, F2PoseMirror, F2PoseSeatMirror, F2AimerMirror, syncF2Pose, F2InputLayout, F2FlightInLayout, F2FlightInMirror, putF2FlightIn, F2MemberLayout, F2PadTeamLayout, F2InputMirror, F2MemberMirror, putF2Input, putF2Member, putF2PadTeam } from './sim/gen/f2.js';
+import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, F2PhaseFlag_INDEX, F2BodyHeaderLayout as BODY_HEADER, F2BodyToggleLayout as TOGGLE, F2BodyPlacedLayout as PLACED, F2PhaseLayout as PHASE, F2PoseMirror, F2PoseSeatMirror, F2AimerMirror, syncF2Pose, F2InputLayout, F2FlightInLayout, F2FlightInMirror, putF2FlightIn, F2MemberLayout, F2PadTeamLayout, F2InputMirror, F2MemberMirror, putF2Input, putF2Member, putF2PadTeam } from './sim/gen/f2.js';
 import { MirrorPool } from './sim/runtime.js';
 import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, VEHICLE_KEYS } from './sim/gen/index.js';
 import { json, classKeys, giveMapRules, pullPose, flightKeys } from './vehicle-phase-data.js';
@@ -49,27 +50,25 @@ class FleetMirrors extends MirrorPool {
 }
 
 // Vehicles.update delegates only after construction has supplied the pack.
-// Page prediction creates private Vehicle copies with no F2 command owner, so
-// its existing JS methods cannot mutate this world's canonical fleet.
+// Page prediction loads shared resources through VehicleContent but never
+// constructs this canonical fleet, its clock, or its lease/weapon phase.
 export function attachF2(vehicles, bridge, map, pack, unitClass, debug = false) {
   const phase = new F2(vehicles, bridge, map, pack, unitClass, debug);
   vehicles.f2 = phase;
   return phase;
 }
 
-class F2 {
+class F2 extends VehicleContent {
   // Vehicle construction is the only full hull import. Immutable class keys,
   // rig topology, collision mappings and definition handles are resolved here.
   // Ordinary ticks have a separate generated input layout containing foreign
   // facts, rather than a snapshot of the Vehicle objects.
   constructor(vehicles, bridge, map, pack, unitClass, debug) {
+    super(vehicles, bridge);
     bridge.identify({ tests: ordnanceTests });
-    this.vehicles = vehicles; this.bridge = bridge;
-    this.x = bridge.x;
-    this.world = vehicles.world; this.collision = vehicles.collision;
+    this.world = vehicles.world;
     this.unitClass = unitClass; this.debug = debug;
     this.detector = new F2MirrorCheck();
-    this.kernel = false; this.bodiesVersion = -1; this.colliders = new WeakSet();
     this.mirrorRows = new WeakMap(); this.syncedRows = []; this.syncedCount = 0; this.syncStamp = 0;
     this.lifeScratch = new F2HullLifeMirror(); this.padScratch = new F2PadMirror();
     this.ownerScratch = new Float64Array(3);
@@ -130,7 +129,6 @@ class F2 {
     this.seats = new F2Seats(this);
     this.firing = new F2Firing(this);
     this.riders = new F2Riders(this);
-    this.bodyArgs = { words: this.x.f2_body_words(), put: putF2Bodies }; this.bodyRefs = { bodies: [] };
     for (const v of vehicles.vehicles) this.adopt(v);
     this.bodiesIn();
     const ptr = this.x.f2_init(bridge.strings.id(json(vehicles.slots.map(s => s.desc))), vehicles.time, vehicles.acc);
@@ -489,55 +487,6 @@ class F2 {
       }
     }
   }
-  retune(name, key, value) {
-    if (typeof value === "number") this.x.veh_flight_tune(this.bridge.strings.id(name), this.bridge.strings.id(key), value);
-  }
-
-  // Vehicle model and animation buffers are birth data. Preserve the JSON
-  // number spelling used by the old vehicle bridge, including negative zero,
-  // then let Rust retain the rigs instead of importing nodes every tick.
-  pack({ data, buffer, indexBuffer, animationBuffer }) {
-    const text = new TextEncoder().encode(json({ models: data.models, collision: data.collision, animations: data.animations, classes: data.classes }));
-    const head = Math.ceil(text.length / 4) * 4, floats = buffer?.byteLength ?? 0, indices = indexBuffer?.byteLength ?? 0, clips = animationBuffer?.byteLength ?? 0;
-    const ptr = this.x.veh_bytes(head + floats + indices + clips);
-    this.bridge.views();
-    const u8 = this.bridge.u8;
-    u8.set(text, ptr);
-    if (floats) u8.set(new Uint8Array(buffer), ptr + head);
-    if (indices) u8.set(new Uint8Array(indexBuffer), ptr + head + floats);
-    if (clips) u8.set(new Uint8Array(animationBuffer), ptr + head + floats + indices);
-    return this.x.veh_pack(text.length, floats / 4, indices / 4, clips / 4) > 0;
-  }
-
-  input(count) {
-    const ptr = this.x.veh_input(count);
-    this.bridge.views();
-    return ptr / 8;
-  }
-
-  // CollisionWorld.rayBodies establishes one stable order for native bodies.
-  // The F2 mapping names existing opaque body objects; it does not recreate the
-  // scene or let a stale hull command address a replacement collider.
-  bodiesIn() {
-    const c = this.collision, rays = c?.rays;
-    if (!rays) throw Error('The vehicle phase requires the native collision kernel');
-    if (!this.kernel) {
-      const blockers = c.vehicleBlockers ? rays.fixedSet(c.blockerSet(c.vehicleBlockers), c.vehicleBlockers.bvh) : -1;
-      this.x.veh_collision(c.rayWorld, blockers);
-      this.kernel = true;
-      this.bodiesVersion = -1;
-    }
-    c.rayBodies();
-    const bodies = c.bodies;
-    if (this.bodiesVersion !== c.bodiesVersion) {
-      const rows = this.bodyRefs.bodies; rows.length = bodies.length;
-      for (let i = 0; i < bodies.length; i++) { const row = rows[i] ??= { body: null, kernel: 0 }; row.body = bodies[i]; row.kernel = bodies[i].raySlot; }
-      this.bridge.callArgs(this.bodyArgs, this.bodyRefs); this.x.f2_bodies();
-      this.bodiesVersion = c.bodiesVersion;
-    }
-    for (const v of this.vehicles.vehicles) if (!this.colliders.has(v.body)) this.collider(v);
-    this.flags = this.x.veh_flags();
-  }
 
   // CollisionWorld's enabled flags may change between vehicle phases. Safe
   // exits and synchronous damage must see them even before the first tick.
@@ -554,25 +503,6 @@ class F2 {
       b.u8[this.flags + i] = enabled;
     }
 
-  }
-
-  // Vehicle wall and spring gather caches are retained with its collider.
-  // This is construction work, including cache registration that may grow WASM
-  // memory. Ordinary phase queries use those native cache handles directly.
-  collider(v) {
-    const rays = this.collision.rays, body = v.body;
-    // (Making a cache's copy may grow the memory: the ids first.)
-    const walls = (v.wallCaches ?? []).map((cache) => (cache ? rays.cache(cache) : -1));
-    const springs = (v.springCaches ?? []).map((cache) => (cache ? rays.cache(cache) : -1));
-    const slot = this.bridge.refs[KIND_BODY].slotOf(body);
-    const at = this.input(COLLIDER.words + walls.length + springs.length), f = this.bridge.f, b = body.localBounds;
-    f[at + COLLIDER.body] = slot; f[at + COLLIDER.kernel] = body.raySlot;
-    f[at + COLLIDER.min] = b.min.x; f[at + COLLIDER.min + 1] = b.min.y; f[at + COLLIDER.min + 2] = b.min.z;
-    f[at + COLLIDER.max] = b.max.x; f[at + COLLIDER.max + 1] = b.max.y; f[at + COLLIDER.max + 2] = b.max.z;
-    for (let i = 0; i < walls.length; i++) f[at + COLLIDER.words + i] = walls[i];
-    for (let i = 0; i < springs.length; i++) f[at + COLLIDER.words + walls.length + i] = springs[i];
-    this.x.veh_collider(walls.length, springs.length);
-    this.colliders.add(body);
   }
 
   // CollisionWorld.moveBody leaves bounds, matrix and inverse for unported

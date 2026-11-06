@@ -14,6 +14,11 @@ pub struct VehicleWheel {
 
 impl VehicleWheel {
     pub const WORDS: usize = 6;
+    pub const X: usize = 0;
+    pub const RADIUS: usize = 1;
+    pub const PHASE: usize = 2;
+    pub const PREVIOUS: usize = 3;
+    pub const TICK_FROM: usize = 4;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();

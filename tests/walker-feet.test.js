@@ -1,4 +1,4 @@
-import { stepPrediction } from './helpers/hull-prediction.js';
+import { stepPrediction, predictHull, registerHullFixture } from './helpers/hull-prediction.js';
 // A walker's legs and feet as a page draws them (src/vehicles.js
 // Vehicle.present, src/vehicle-feet.js, src/runtime/vehicle-prediction.js):
 // the hull he drives is posed though no record poses it, its predicted walk
@@ -12,7 +12,6 @@ import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { Footfalls, footSchedule, gait } from '../src/vehicle-feet.js';
-import { predictVehicle } from '../src/runtime/vehicle-prediction.js';
 import { packWith } from '../tools/vehicle-packs.mjs';
 
 const RULES = { detection: 0, threshold: .15, hydraulic: 1 };
@@ -143,7 +142,7 @@ test('the hull he drives is posed on the page, and its predicted legs keep up wi
   const foot = (v) => v.byName.bone_l_toe.getWorldPosition(new THREE.Vector3()).sub(v.root.position);
   // No record poses his own hull: present() does, from its walk cycle, and
   // runs the page's clock for what is only drawn.
-  b.sleeping = false; b.captureTick();
+  b.sleeping = false; b.resetPresentationHistory();
   b.present(1, 1 / 60);
   const idle = foot(b);
   b.walkPhase = .6; b.walkBlend = 1;
@@ -157,10 +156,10 @@ test('the hull he drives is posed on the page, and its predicted legs keep up wi
   const pending = Array.from({ length: 90 }, (_, i) => ({ tick: i + 1, sequence: i + 1, epoch: 1, generation: 1, down: ['KeyW'], actions: [], look: [], mouseScale: 1 }));
   for (const c of pending) {
     controls.accept(c);
-    const input = networkVehicleInput(a, 0, controls, c);
-    a.captureTick(); a.tick(1 / 120, input); a.tick(1 / 120, input); a.walk(1 / 60);
+    const input = { forward: 1, right: 0, turn: 0 };
+    stepPrediction(a.system, 1 / 60, a, input);
   }
-  const predicted = predictVehicle(b, pending, 0, 1);
+  const predicted = predictHull(b, pending, 0, 1);
   assert.ok(predicted.position.distanceTo(a.position) < 1e-8);
   assert.ok(Math.abs(predicted.walkPhase - a.walkPhase) < 1e-9 && a.walkPhase > .1);
   assert.equal(b.walkPhase, 0, 'the hull itself is left alone');

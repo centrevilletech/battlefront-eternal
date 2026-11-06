@@ -93,6 +93,36 @@ const TOGGLED: u8 = 1;
 const PLACED: u8 = 2;
 
 impl Collision {
+    /// predictionCollision shares immutable collider/cache handles, but owns
+    /// enabled flags and query scratch. A private hull never publishes changes.
+    /// Construction is cold; ordinary frames only refresh flags in this view.
+    pub fn prediction_view(&self) -> Self {
+        let mut view = Self::new(self.world, self.blockers);
+        view.kernel_of.clone_from(&self.kernel_of);
+        view.ref_of.clone_from(&self.ref_of);
+        view.colliders.clone_from(&self.colliders);
+        view
+    }
+
+    /// Import the page's body order once, before any pending ticks replay.
+    /// Query-local toggles remain private even when a replay exits early.
+    pub fn prediction_flags(&mut self, flags: &[f64]) -> bool {
+        if flags.len() > self.flags.len() { return false; }
+        for (out, &flag) in self.flags.iter_mut().zip(flags) {
+            if flag != 0.0 && flag != 1.0 { return false; }
+            *out = flag as u8;
+        }
+        true
+    }
+
+    /// New replicas may add opaque bodies after a pilot's session was born.
+    /// Refresh names without copying authoritative transforms or body flags.
+    pub fn prediction_names(&mut self, source: &Self) {
+        if self.world == source.world {
+            self.kernel_of.clone_from(&source.kernel_of);
+            self.ref_of.clone_from(&source.ref_of);
+        }
+    }
     pub fn new(world: usize, blockers: Option<usize>) -> Collision {
         Collision {
             world,
@@ -393,6 +423,7 @@ impl Collision {
 }
 
 /// The map's water as a world's hulls meet it (src/runtime/water-state.js).
+#[derive(Clone)]
 pub struct Water {
     cell: f64,
     offset: [f64; 2],
@@ -424,6 +455,7 @@ impl Water {
 }
 
 /// What the hulls ask of the map: its water and its death regions.
+#[derive(Clone)]
 pub struct MapRules {
     pub water: Option<Water>,
     /// The water's level this phase (`water.level`: it bobs).

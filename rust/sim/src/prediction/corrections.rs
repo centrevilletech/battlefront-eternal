@@ -187,7 +187,7 @@ fn orientation(q: &[f64; 4], error: &'static str) -> Result<()> {
 }
 
 /// Wire tags preserve null and undefined independently of the numeric payload.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SeatField {
     pub kind: u8,
     pub value: f64,
@@ -548,7 +548,7 @@ pub fn decode_ground(
     })
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FlightState {
     pub compact: bool,
     pub numbers: Vec<f64>,
@@ -601,126 +601,67 @@ fn flight_booleans(r: &mut Reader<'_>) -> Result<[u8; 10]> {
 }
 /// Object presence follows COMPACT_FLIGHT_OBJECTS; history is previous,
 /// tickFrom, flightPreviousQ and flightTickQ. Inactive objects are not checked.
-pub fn decode_compact_flight(
-    bytes: Option<&[u8]>,
-    supported: bool,
-    objects: [bool; 9],
-    history: [bool; 4],
-) -> Result<FlightState> {
-    if !supported {
-        return Err("unsupported compact flight correction");
-    }
-    let bytes = bytes
-        .filter(|b| b.len() >= 6)
-        .ok_or("invalid compact flight payload")?;
+pub fn decode_compact_flight(bytes: Option<&[u8]>, supported: bool, objects: [bool; 9], history: [bool; 4]) -> Result<FlightState> {
+    let mut out = FlightState::default();
+    decode_compact_flight_into(bytes, supported, objects, history, &mut out)?; Ok(out)
+}
+/// restoreCompactFlight's existing reader, with caller-owned vector capacity.
+/// Page prediction decodes once per frame and never allocates inside replay.
+/// An error may overwrite scratch, but callers apply it only after success.
+pub fn decode_compact_flight_into(bytes: Option<&[u8]>, supported: bool, objects: [bool; 9], history: [bool; 4], out: &mut FlightState) -> Result<()> {
+    if !supported { return Err("unsupported compact flight correction"); }
+    let bytes = bytes.filter(|b| b.len() >= 6).ok_or("invalid compact flight payload")?;
     let mut r = Reader::new(bytes);
     let enums = flight_enums(&mut r)?;
-    let transition = enums[0] == 1 || enums[0] == 3;
-    let trick = enums[1];
+    let transition = enums[0] == 1 || enums[0] == 3; let trick = enums[1];
     let number_count = 29 + usize::from(trick != 0) * 2;
-    let mut vectors = vec![(0, 0), (1, 2)];
-    if transition {
-        vectors.extend([(2, 4), (3, 5)]);
+    let vector_count = 2 + usize::from(transition) * 2 + usize::from(trick == 1);
+    let quaternion_count = 1 + usize::from(transition) + usize::from(trick == 3) * 2;
+    if bytes.len() != 6 + number_count * 8 + vector_count * 24 + quaternion_count * 32 + 10 + 54 { return Err("invalid compact flight length"); }
+    // Fixed topology replaces the temporary active-field lists. Their order
+    // and prerequisite errors remain the compact correction reader's order.
+    out.numbers.clear(); out.vectors.clear(); out.quaternions.clear();
+    for i in 0..number_count { out.numbers.push(r.number("nonfinite flight correction", i == 13)?); }
+    for (i, error) in [(0, 0), (1, 2), (2, 4), (3, 5), (4, 6)] {
+        if i >= 2 && (i < 4 && !transition || i == 4 && trick != 1) { continue; }
+        if !objects[i] { return Err(FLIGHT_MISSING[error]); }
+        out.vectors.push(r.vector("nonfinite flight correction")?);
     }
-    if trick == 1 {
-        vectors.push((4, 6));
+    for (i, error) in [(5, 7), (6, 10), (7, 11), (8, 12)] {
+        if i == 6 && !transition || i >= 7 && trick != 3 { continue; }
+        if !objects[i] { return Err(FLIGHT_MISSING[error]); }
+        let q = r.vector("nonfinite flight correction")?; orientation(&q, "invalid flight orientation")?;
+        out.quaternions.push(q);
     }
-    let mut quaternions = vec![(5, 7)];
-    if transition {
-        quaternions.push((6, 10));
-    }
-    if trick == 3 {
-        quaternions.extend([(7, 11), (8, 12)]);
-    }
-    if bytes.len() != 6 + number_count * 8 + vectors.len() * 24 + quaternions.len() * 32 + 10 + 54 {
-        return Err("invalid compact flight length");
-    }
-    let numbers = r.numbers(number_count, "nonfinite flight correction", Some(13))?;
-    let mut vector_values = Vec::new();
-    let mut quaternion_values = Vec::new();
-    for (i, error) in vectors {
-        if !objects[i] {
-            return Err(FLIGHT_MISSING[error]);
-        }
-        vector_values.push(r.vector("nonfinite flight correction")?);
-    }
-    for (i, error) in quaternions {
-        if !objects[i] {
-            return Err(FLIGHT_MISSING[error]);
-        }
-        let q = r.vector("nonfinite flight correction")?;
-        orientation(&q, "invalid flight orientation")?;
-        quaternion_values.push(q);
-    }
-    let booleans = flight_booleans(&mut r)?;
-    let seat = seats(&mut r, "nonfinite flight correction", "invalid flight seat")?;
-    for (valid, error) in history.into_iter().zip([
-        "missing flight history previous",
-        "missing flight history tickFrom",
-        "missing flight history flightPreviousQ",
-        "missing flight history flightTickQ",
-    ]) {
-        if !valid {
-            return Err(error);
-        }
-    }
-    Ok(FlightState {
-        compact: true,
-        numbers,
-        vectors: vector_values,
-        quaternions: quaternion_values,
-        booleans,
-        enums,
-        seat,
-    })
+    out.booleans = flight_booleans(&mut r)?;
+    out.seat = seats(&mut r, "nonfinite flight correction", "invalid flight seat")?;
+    for (valid, error) in history.into_iter().zip(["missing flight history previous", "missing flight history tickFrom",
+        "missing flight history flightPreviousQ", "missing flight history flightTickQ"]) { if !valid { return Err(error); } }
+    out.compact = true; out.enums = enums; Ok(())
 }
 /// Schema 2 accepts non-unit quaternion values, matching its original reader.
-pub fn decode_flight(
-    bytes: Option<&[u8]>,
-    schema: f64,
-    supported: bool,
-    objects: [bool; 13],
-    pilot_seat: bool,
-) -> Result<FlightState> {
-    if schema != 2.0 || !supported {
-        return Err("unsupported flight correction");
-    }
-    let bytes = bytes
-        .filter(|b| b.len() == 726)
-        .ok_or("unsupported flight correction")?;
+pub fn decode_flight(bytes: Option<&[u8]>, schema: f64, supported: bool, objects: [bool; 13], pilot_seat: bool) -> Result<FlightState> {
+    let mut out = FlightState::default();
+    decode_flight_into(bytes, schema, supported, objects, pilot_seat, &mut out)?; Ok(out)
+}
+/// restoreFlightCorrection's full schema uses the same retained storage as
+/// compact authority corrections. Schema 2 still accepts non-unit quaternions.
+pub fn decode_flight_into(bytes: Option<&[u8]>, schema: f64, supported: bool, objects: [bool; 13], pilot_seat: bool, out: &mut FlightState) -> Result<()> {
+    if schema != 2.0 || !supported { return Err("unsupported flight correction"); }
+    let bytes = bytes.filter(|b| b.len() == 726).ok_or("unsupported flight correction")?;
     let mut r = Reader::new(bytes);
-    let numbers = r.numbers(37, "nonfinite flight correction", Some(16))?;
-    let mut vectors = Vec::new();
-    let mut quaternions = Vec::new();
+    out.numbers.clear(); out.vectors.clear(); out.quaternions.clear();
+    for i in 0..37 { out.numbers.push(r.number("nonfinite flight correction", i == 16)?); }
     for i in 0..13 {
-        if !objects[i] {
-            return Err(FLIGHT_MISSING[i]);
-        }
-        if i < 7 {
-            vectors.push(r.vector("nonfinite flight correction")?);
-        } else {
-            quaternions.push(r.vector("nonfinite flight correction")?);
-        }
+        if !objects[i] { return Err(FLIGHT_MISSING[i]); }
+        if i < 7 { out.vectors.push(r.vector("nonfinite flight correction")?); }
+        else { out.quaternions.push(r.vector("nonfinite flight correction")?); }
     }
-    let booleans = flight_booleans(&mut r)?;
-    let enums = flight_enums(&mut r)?;
-    let seat = seats(
-        &mut r,
-        "nonfinite flight correction",
-        "invalid flight seat field",
-    )?;
-    if !pilot_seat {
-        return Err("missing pilot seat");
-    }
-    Ok(FlightState {
-        compact: false,
-        numbers,
-        vectors,
-        quaternions,
-        booleans,
-        enums,
-        seat,
-    })
+    out.booleans = flight_booleans(&mut r)?;
+    out.enums = flight_enums(&mut r)?;
+    out.seat = seats(&mut r, "nonfinite flight correction", "invalid flight seat field")?;
+    if !pilot_seat { return Err("missing pilot seat"); }
+    out.compact = false; Ok(())
 }
 
 /// Payload ranges retain the caller's slice semantics, including Buffer views.

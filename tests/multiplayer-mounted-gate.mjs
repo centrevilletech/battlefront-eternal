@@ -38,7 +38,7 @@ async function inputCadence(page) {
 
 // The optional authority fixture places each new life beside a reserved hull.
 // Both modes use ordinary use, seat-cycle and driving commands.
-export async function mountedGameGate([actor, observer], { spawnFixture = null } = {}) {
+export async function mountedGameGate([actor, observer], { spawnFixture = null, flying = false } = {}) {
   await actor.bringToFront();
   await actor.evaluate(()=>{__bf.controls.locked=true;if(__bf.menu.isOpen)__bf.menu.close(true);});
   await actor.evaluate(()=>{
@@ -47,7 +47,7 @@ export async function mountedGameGate([actor, observer], { spawnFixture = null }
     sender.add=(command,edge)=>{const value=add(command,edge);if(['team','spawn','suicide','cancel'].includes(edge.kind))window.__spawnEdges.push({sent:value});return value;};
     sender.feedback=message=>{if(message.results?.length)window.__spawnEdges.push({feedback:message});return feedback(message);};
   });
-  const choose=({nearby=false,spawnFixture=null}={})=>{
+  const choose=({nearby=false,spawnFixture=null,flying=false}={})=>{
     const options=[];
     for(const team of Object.keys(__bf.spawnPort.teams()).map(Number)) {
       const className=__bf.spawnPort.roster(team).find(({className})=>Object.values(__bf.data.sides).some(side=>{
@@ -56,7 +56,7 @@ export async function mountedGameGate([actor, observer], { spawnFixture = null }
       if(!className)continue;
       for(const v of __bf.vehicles.vehicles) {
         if(spawnFixture&&v.name!==spawnFixture)continue;
-        if(!v.alive||v.flying||v.seats.length<2||v.seats.every(s=>s.lease&&(s.lease.human||s.lease.unit?.networkHuman))||v.controllingTeam>0&&v.controllingTeam!==team)continue;
+        if(!v.alive||v.flying!==flying||v.seats.length<2||v.seats.every(s=>s.lease&&(s.lease.human||s.lease.unit?.networkHuman))||v.controllingTeam>0&&v.controllingTeam!==team)continue;
         for(const p of __bf.spawnPort.posts(team).filter(p=>p.eligible)) {
           const distance=Math.hypot(...p.position.map((n,i)=>n-v.position.toArray()[i]));
           options.push({team,className,post:p.name,vehicleId:v.aiTarget.id,vehicleGeneration:v.aiTarget.generation,distance,speed:Math.hypot(v.velocity.x,v.velocity.z)});
@@ -66,9 +66,9 @@ export async function mountedGameGate([actor, observer], { spawnFixture = null }
     return options.sort((a,b)=>spawnFixture?a.vehicleId-b.vehicleId||a.distance-b.distance:a.distance-b.distance).find(c=>spawnFixture||!nearby||c.distance<60&&c.speed<2);
   };
   let choice;
-  for(let attempt=0;attempt<60&&!choice;attempt++){choice=await actor.evaluate(choose,{spawnFixture});if(!choice)await actor.waitForTimeout(250);}
+  for(let attempt=0;attempt<60&&!choice;attempt++){choice=await actor.evaluate(choose,{spawnFixture,flying});if(!choice)await actor.waitForTimeout(250);}
   if(!choice)console.log('mounted-unavailable',await actor.evaluate(()=>({posts:__bf.spawnPort.posts(__bf.playerTeam),vehicles:__bf.vehicles.vehicles.map(v=>({id:v.aiTarget.id,alive:v.alive,team:v.controllingTeam,flying:v.flying,seats:v.seats.map(s=>s.lease?.unit?.id??null)}))})));
-  assert.ok(choice,'mission has an available ground pilot seat near an eligible spawn');
+  assert.ok(choice,`mission has an available ${flying?'flyer':'ground'} pilot seat near an eligible spawn`);
   console.log('mounted-spawn-choice',JSON.stringify(choice));
   // A new connection is unspawned, not a dead player waiting to respawn.
   // Establish a real first life before proving the death-screen transition.
@@ -101,7 +101,7 @@ export async function mountedGameGate([actor, observer], { spawnFixture = null }
   // A stationary hull within a short walk can be outside the spawn post's
   // immediate area. Vehicle destruction and respawns remain authoritative.
   choice=null;
-  for(let attempt=0;attempt<480&&!choice;attempt++){choice=await actor.evaluate(choose,{nearby:true,spawnFixture});if(!choice)await actor.waitForTimeout(250);}
+  for(let attempt=0;attempt<480&&!choice;attempt++){choice=await actor.evaluate(choose,{nearby:true,spawnFixture,flying});if(!choice)await actor.waitForTimeout(250);}
   assert.ok(choice,'a live hull becomes available near an eligible spawn');
   console.log('mounted-respawn-choice',JSON.stringify(choice));
   await spawn();
@@ -160,6 +160,12 @@ export async function mountedGameGate([actor, observer], { spawnFixture = null }
   await observer.waitForFunction(({id,vehicleId})=>__bf.units.byId(id)?.seat?.vehicle?.aiTarget.id===vehicleId,{...identity,...choice},{timeout:15000});
   await actor.evaluate(()=>{const host=__bf.client.host,receive=host.onEntities;window.__restoreMountedTransport=()=>host.onEntities=receive;host.onEntities=bytes=>setTimeout(()=>{try{receive(bytes);}catch(e){host.fail(e);}},180);});
   const start=await observer.evaluate(id=>__bf.vehicles.vehicles.find(v=>v.aiTarget.id===id).position.toArray(),choice.vehicleId);
+  // Aircraft use the ordinary reliable takeoff edge. The same movement and
+  // observer assertions below then cover the private flight session as well.
+  if(flying) {
+    await actor.keyboard.press('Space');
+    await actor.waitForFunction(()=>__bf.driver.vehicle.flightState==='Flying',null,{timeout:15000});
+  }
   await actor.keyboard.down('KeyW');
   await actor.waitForFunction(()=>{const p=__bf.client.vehiclePrediction,v=__bf.driver.vehicle;return p&&p.predictionTick>__bf.worldClock.tick&&p.position.distanceTo(v.position)>.02;},null,{timeout:15000});
   try {
@@ -177,7 +183,9 @@ export async function mountedGameGate([actor, observer], { spawnFixture = null }
     console.log('mounted-drive-timeout',JSON.stringify(await Promise.all([actor,observer].map(page=>page.evaluate(inspect,{id:choice.vehicleId,start})))));
     throw error;
   }
-  const pilot=await actor.evaluate(()=>({tick:__bf.client.vehiclePrediction.predictionTick,authority:__bf.worldClock.tick,control:__bf.client.entity.previous.controlMode}));
+  const pilot=await actor.evaluate(()=>({tick:__bf.client.vehiclePrediction.predictionTick,authority:__bf.worldClock.tick,control:__bf.client.entity.previous.controlMode,sessionMode:__bf.predictionSession.frame.mode,flightState:__bf.client.vehiclePrediction.flightState}));
+  assert.equal(pilot.sessionMode,'hull','pilot movement runs inside the required native session');
+  if(flying)assert.equal(pilot.flightState,'Flying','both the authoritative and private aircraft completed takeoff');
   await actor.keyboard.up('KeyW');await actor.mouse.click(320,240);
   await actor.evaluate(()=>window.__restoreMountedTransport());await actor.waitForTimeout(700);
   await actor.evaluate(()=>{__bf.pending.nextPrimary=true;});

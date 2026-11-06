@@ -13,9 +13,9 @@ export const FIXTURE_HANDLING = { PitchRate: '1.0', PitchFilter: '2.9', TurnRate
   LevelFilter: '2.0', TakeoffTime: '1.0', TakeoffSpeed: '3.0', LandingTime: '2.0', LandingSpeed: '5.0', TakeoffHeight: '2.5' };
 export const FIXTURE_CAMERA = { EyePointOffset: '0 1 1', TrackCenter: '0.0 2.0 -4.0', TrackOffset: '0.0 2.0 6.0', TiltValue: '5.0', FirstPersonFOV: '52',
   '5e3171cc': '20.0', '21050bf6': '4.25' }; // AimTension and MoveTension, kept hashed as the import keeps them
-export function fixture(settings = { ...FIXTURE_SPEEDS, ...FIXTURE_HANDLING }, name = 'ship', environment = {}, camera = FIXTURE_CAMERA) {
+export function fixture(settings = { ...FIXTURE_SPEEDS, ...FIXTURE_HANDLING }, name = 'ship', environment = {}, camera = FIXTURE_CAMERA, world = null) {
   const floor = box(0, -1, 0, 20000, 2, 20000);
-  const c = new CollisionWorld(floor.positions, floor.indices, floor.polygons);
+  const c = world || new CollisionWorld(floor.positions, floor.indices, floor.polygons);
   const hull = box(0, 1, 0, 2, 2, 4);
   const d = { model: 'ship', label: 'Test ship', base: 'flyer', settings, seats: [{ name: 'BODY', settings: camera, weapons: [] }], explosion: null };
   const data = { models: { ship: { bones: [], parts: [] } }, collision: { ship: hull }, classes: { [name]: d },

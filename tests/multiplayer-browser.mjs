@@ -196,7 +196,7 @@ try {
   } else if(process.env.BFE_TEST_STATIONARY_ONLY==='1'){
     const {stationaryTurretGate}=await import('./multiplayer-stationary-gate.mjs');await stationaryTurretGate(pages);assert.deepEqual(errors,[]);
   } else if(process.env.BFE_TEST_MOUNTED_ONLY==='1'){
-    const {mountedGameGate}=await import('./multiplayer-mounted-gate.mjs');await mountedGameGate(pages,{spawnFixture:process.env.BFE_TEST_MOUNTED_FIXTURE||null});assert.deepEqual(errors,[]);
+    const {mountedGameGate}=await import('./multiplayer-mounted-gate.mjs');await mountedGameGate(pages,{spawnFixture:process.env.BFE_TEST_MOUNTED_FIXTURE||null,flying:process.env.BFE_TEST_MOUNTED_FLYER==='1'});assert.deepEqual(errors,[]);
     {
       const counters = await Promise.all(pages.map(page => page.evaluate(() => ({ ...__bf.predictionSession.counters }))));
       assert.ok(counters[0].calls > 0 && counters[0].ticks > 0, 'the mounted actor executed infantry session replay before boarding');

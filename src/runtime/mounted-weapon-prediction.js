@@ -1,33 +1,57 @@
-import { captureWeaponState, decodeWeaponState, applyValidatedWeaponState } from './network-weapon-state.js';
+import { copyPredictionWeapon } from './prediction-arsenal.js';
 
-// Capture and restore the authoritative mirror around one Rust mounted replay.
+// MountedWeaponPrediction.predict saves the wire checkpoint's exact field set.
+// Authority and the drawn weapon keep their identities; only mutable timers,
+// ammunition, heat and barrel cursors are borrowed across the native frame.
 export class MountedWeaponPrediction {
-  constructor(session) { this.session = session; this.saved = []; this.tick = 0; }
-  restore() {
-    for (const entry of this.saved) {
-      applyValidatedWeaponState(entry);
-      entry.owner.barrel = entry.barrel;
-    }
-    this.saved.length = 0;
-    this.tick = 0;
+  constructor(session) {
+    // An array-like count retains property storage when the active list is
+    // empty; shrinking a JS Array to zero can discard its backing elements.
+    this.session = session; this.saved = { length: 0 }; this.pool = []; this.tick = 0;
+    this.turretEntry = { state: null, owner: null }; this.turretEntries = [this.turretEntry];
   }
-  dispose() { this.restore(); }
-  predict(unit, pending, from, held) {
+  restore() {
+    for (let i = 0; i < this.saved.length; i++) {
+      const entry = this.saved[i];
+      copyPredictionWeapon(entry.state, entry.weapon);
+      entry.owner.barrel = entry.barrel;
+      entry.weapon = null; entry.owner = null; this.saved[i] = null;
+    }
+    this.saved.length = 0; this.tick = 0;
+  }
+  dispose() { this.restore(); this.turretEntry.state = null; this.turretEntry.owner = null; }
+  predict(unit, pending, from, held, hull = null, epoch = 0, correction = null, correctionSchema = 0) {
     this.restore();
     const lease = unit?.seat;
     if (!lease || lease.released || !unit.alive || unit.combat?.dead) return from;
     const vehicle = lease.vehicle;
-    const entries = vehicle ? vehicle.seats[lease.index]?.weapons || []
-      : lease.turret?.weapon ? [{ state: lease.turret.weapon, owner: lease.turret }] : [];
-    // Shared Vehicle.fireSeat freezes weapons during takeoff/landing.
-    if (vehicle?.flying && vehicle.flightState !== 'Flying') return from;
-    for (const entry of entries) {
-      const weapon = entry.state, owner = entry.owner || entry;
-      // A tow gun whose cable holds takes no trigger (Vehicle.towHeld).
-      this.saved.push({ weapon, owner, barrel: owner.barrel, advancesBarrel: !vehicle || Boolean(entry.muzzles?.length), towHeld: Boolean(vehicle?.towHeld?.(entry)), state: decodeWeaponState(captureWeaponState(weapon)) });
+    let entries, count;
+    if (vehicle) { entries = vehicle.seats[lease.index].weapons; count = entries.length; }
+    else {
+      const turret = lease.turret;
+      this.turretEntry.state = turret.weapon; this.turretEntry.owner = turret;
+      entries = this.turretEntries; count = Number(Boolean(turret.weapon));
+    }
+    // Kept Vehicle.fireSeat quirk: authority's takeoff/landing state freezes
+    // weapon timers even when private hull replay predicts a flight transition.
+    const frozen = vehicle?.flying && vehicle.flightState !== 'Flying';
+    if (frozen && !hull) return from;
+    if (frozen) count = 0;
+    for (let i = 0; i < count; i++) {
+      const entry = entries[i], weapon = entry.state, owner = entry.owner || entry;
+      let saved = this.pool[i];
+      if (!saved) saved = this.pool[i] = { weapon: null, owner: null, barrel: 0,
+        advancesBarrel: false, towHeld: false, state: { levels: null, def: null } };
+      saved.weapon = weapon; saved.owner = owner; saved.barrel = owner.barrel;
+      saved.advancesBarrel = !vehicle || Boolean(entry.muzzles?.length);
+      // A tow gun with a cable takes no trigger. Snapshot this fact once,
+      // rather than asking its eligibility again for each pending tick.
+      saved.towHeld = Boolean(vehicle?.towHeld?.(entry));
+      saved.state.levels = weapon.levels; copyPredictionWeapon(weapon, saved.state);
+      this.saved[i] = saved; this.saved.length++;
     }
     try {
-      this.tick = this.session.mounted(unit, this.saved, pending, from, held);
+      this.tick = this.session.mounted(unit, this.saved, pending, from, held, hull, epoch, correction, correctionSchema);
       return this.tick;
     } catch (error) { this.restore(); throw error; }
   }

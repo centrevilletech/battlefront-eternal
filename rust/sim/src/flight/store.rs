@@ -45,6 +45,16 @@ impl FlightTextIds {
             messages: Message::TEXTS.map(|text| strings.intern_str(text)),
             locks: LockState::TEXTS.map(|text| strings.intern_str(text)) }
     }
+    /// A prediction correction already validated these wire enum indices.
+    /// Use the loaded text handles instead of interning strings per frame.
+    pub fn correction_enums(&self, v: &mut Vehicle, enums: [u8; 6]) {
+        v.flight_state = crate::gen::FlightState::from_u8(enums[crate::gen::ClientFlightEnumField::State as usize]);
+        v.trick = Some(self.tricks[enums[crate::gen::ClientFlightEnumField::Trick as usize] as usize]);
+        v.flight_lock_state = Some(self.locks[enums[crate::gen::ClientFlightEnumField::Lock as usize] as usize]);
+        v.flight_warning = Some(self.messages[enums[crate::gen::ClientFlightEnumField::Warning as usize] as usize]);
+        v.landing_message = Some(self.messages[enums[crate::gen::ClientFlightEnumField::Message as usize] as usize]);
+        v.landing_reason = Some(self.messages[enums[crate::gen::ClientFlightEnumField::Reason as usize] as usize]);
+    }
 }
 
 impl Flight {

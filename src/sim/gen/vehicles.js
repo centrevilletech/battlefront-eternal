@@ -5,6 +5,10 @@ import { KIND_SEAT_LEASE, KIND_UNIT, KIND_VEHICLE } from "./kinds.js";
 import { exportVehicle } from "./flight.js";
 import { exportOrdnanceOwner, putOrdnanceOwner, sameOrdnanceOwner, syncOrdnanceOwner } from "./ordnance.js";
 
+export const VehicleWheelLayout = Object.freeze({ words: 6, x: 0, radius: 1, phase: 2, previous: 3, tickFrom: 4 });
+export const VEHICLE_WHEEL_WORDS = VehicleWheelLayout.words;
+export const VEHICLE_WHEEL_OFFSETS = VehicleWheelLayout;
+
 export class VehicleWheelMirror {
   constructor() {
     this.x = NaN;

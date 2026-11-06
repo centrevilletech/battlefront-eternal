@@ -226,6 +226,9 @@ pub struct Hull {
     pub support_normal: Vector3,
     /// A walker's legs' sides (standOnLegs), once it has stood on them.
     pub leg_side: Option<Vec<f64>>,
+    /// A private correction can omit leg history repeatedly. Preserve its
+    /// capacity while retaining None's first-contact initialization semantics.
+    pub leg_side_scratch: Vec<f64>,
     pub seat_index: usize,
     /// Whether the page's player drives it (VehicleDriver; never in a world).
     pub driver: bool,

@@ -2789,6 +2789,523 @@ impl BfCharacters {
     }
 }
 
+impl ClientGroundNumbers {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientGroundNumbers {
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            team: { let p = format!("{path}.team"); num(v.get("team"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            tilt: { let p = format!("{path}.tilt"); num(v.get("tilt"), &p)? },
+            roll: { let p = format!("{path}.roll"); num(v.get("roll"), &p)? },
+            yaw_rate: { let p = format!("{path}.yawRate"); num(v.get("yawRate"), &p)? },
+            forward_input: { let p = format!("{path}.forwardInput"); num(v.get("forwardInput"), &p)? },
+            right_input: { let p = format!("{path}.rightInput"); num(v.get("rightInput"), &p)? },
+            tilt_rate: { let p = format!("{path}.tiltRate"); num(v.get("tiltRate"), &p)? },
+            roll_rate: { let p = format!("{path}.rollRate"); num(v.get("rollRate"), &p)? },
+            support: { let p = format!("{path}.support"); num(v.get("support"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(11);
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.team); fields.push(("team", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.tilt); fields.push(("tilt", x)); }
+        { let x = Value::Num(self.roll); fields.push(("roll", x)); }
+        { let x = Value::Num(self.yaw_rate); fields.push(("yawRate", x)); }
+        { let x = Value::Num(self.forward_input); fields.push(("forwardInput", x)); }
+        { let x = Value::Num(self.right_input); fields.push(("rightInput", x)); }
+        { let x = Value::Num(self.tilt_rate); fields.push(("tiltRate", x)); }
+        { let x = Value::Num(self.roll_rate); fields.push(("rollRate", x)); }
+        { let x = Value::Num(self.support); fields.push(("support", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientFlightNumbers {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientFlightNumbers {
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            team: { let p = format!("{path}.team"); num(v.get("team"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            previous_yaw: { let p = format!("{path}.previousYaw"); num(v.get("previousYaw"), &p)? },
+            tilt: { let p = format!("{path}.tilt"); num(v.get("tilt"), &p)? },
+            previous_tilt: { let p = format!("{path}.previousTilt"); num(v.get("previousTilt"), &p)? },
+            roll: { let p = format!("{path}.roll"); num(v.get("roll"), &p)? },
+            previous_roll: { let p = format!("{path}.previousRoll"); num(v.get("previousRoll"), &p)? },
+            yaw_rate: { let p = format!("{path}.yawRate"); num(v.get("yawRate"), &p)? },
+            forward_input: { let p = format!("{path}.forwardInput"); num(v.get("forwardInput"), &p)? },
+            right_input: { let p = format!("{path}.rightInput"); num(v.get("rightInput"), &p)? },
+            altitude: { let p = format!("{path}.altitude"); num(v.get("altitude"), &p)? },
+            throttle: { let p = format!("{path}.throttle"); num(v.get("throttle"), &p)? },
+            airspeed: { let p = format!("{path}.airspeed"); num(v.get("airspeed"), &p)? },
+            tilt_rate: { let p = format!("{path}.tiltRate"); num(v.get("tiltRate"), &p)? },
+            state_time: { let p = format!("{path}.stateTime"); num(v.get("stateTime"), &p)? },
+            floor_y: { let p = format!("{path}.floorY"); num(v.get("floorY"), &p)? },
+            bank: { let p = format!("{path}.bank"); num(v.get("bank"), &p)? },
+            power: { let p = format!("{path}.power"); num(v.get("power"), &p)? },
+            stick_x: { let p = format!("{path}.stickX"); num(v.get("stickX"), &p)? },
+            stick_y: { let p = format!("{path}.stickY"); num(v.get("stickY"), &p)? },
+            flight_roll_rate: { let p = format!("{path}.flightRollRate"); num(v.get("flightRollRate"), &p)? },
+            trick_time: { let p = format!("{path}.trickTime"); num(v.get("trickTime"), &p)? },
+            trick_cooldown: { let p = format!("{path}.trickCooldown"); num(v.get("trickCooldown"), &p)? },
+            trick_pending: { let p = format!("{path}.trickPending"); num(v.get("trickPending"), &p)? },
+            trick_direction: { let p = format!("{path}.trickDirection"); num(v.get("trickDirection"), &p)? },
+            gear: { let p = format!("{path}.gear"); num(v.get("gear"), &p)? },
+            landing_message_time: { let p = format!("{path}.landingMessageTime"); num(v.get("landingMessageTime"), &p)? },
+            flight_clock: { let p = format!("{path}.flightClock"); num(v.get("flightClock"), &p)? },
+            flight_assist_id: { let p = format!("{path}.flightAssistId"); num(v.get("flightAssistId"), &p)? },
+            flight_lock_id: { let p = format!("{path}.flightLockId"); num(v.get("flightLockId"), &p)? },
+            flight_lock_generation: { let p = format!("{path}.flightLockGeneration"); num(v.get("flightLockGeneration"), &p)? },
+            flight_lock_timer: { let p = format!("{path}.flightLockTimer"); num(v.get("flightLockTimer"), &p)? },
+            flight_lost_los: { let p = format!("{path}.flightLostLOS"); num(v.get("flightLostLOS"), &p)? },
+            tick_from_yaw: { let p = format!("{path}.tickFromYaw"); num(v.get("tickFromYaw"), &p)? },
+            tick_from_tilt: { let p = format!("{path}.tickFromTilt"); num(v.get("tickFromTilt"), &p)? },
+            tick_from_roll: { let p = format!("{path}.tickFromRoll"); num(v.get("tickFromRoll"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(37);
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.team); fields.push(("team", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.previous_yaw); fields.push(("previousYaw", x)); }
+        { let x = Value::Num(self.tilt); fields.push(("tilt", x)); }
+        { let x = Value::Num(self.previous_tilt); fields.push(("previousTilt", x)); }
+        { let x = Value::Num(self.roll); fields.push(("roll", x)); }
+        { let x = Value::Num(self.previous_roll); fields.push(("previousRoll", x)); }
+        { let x = Value::Num(self.yaw_rate); fields.push(("yawRate", x)); }
+        { let x = Value::Num(self.forward_input); fields.push(("forwardInput", x)); }
+        { let x = Value::Num(self.right_input); fields.push(("rightInput", x)); }
+        { let x = Value::Num(self.altitude); fields.push(("altitude", x)); }
+        { let x = Value::Num(self.throttle); fields.push(("throttle", x)); }
+        { let x = Value::Num(self.airspeed); fields.push(("airspeed", x)); }
+        { let x = Value::Num(self.tilt_rate); fields.push(("tiltRate", x)); }
+        { let x = Value::Num(self.state_time); fields.push(("stateTime", x)); }
+        { let x = Value::Num(self.floor_y); fields.push(("floorY", x)); }
+        { let x = Value::Num(self.bank); fields.push(("bank", x)); }
+        { let x = Value::Num(self.power); fields.push(("power", x)); }
+        { let x = Value::Num(self.stick_x); fields.push(("stickX", x)); }
+        { let x = Value::Num(self.stick_y); fields.push(("stickY", x)); }
+        { let x = Value::Num(self.flight_roll_rate); fields.push(("flightRollRate", x)); }
+        { let x = Value::Num(self.trick_time); fields.push(("trickTime", x)); }
+        { let x = Value::Num(self.trick_cooldown); fields.push(("trickCooldown", x)); }
+        { let x = Value::Num(self.trick_pending); fields.push(("trickPending", x)); }
+        { let x = Value::Num(self.trick_direction); fields.push(("trickDirection", x)); }
+        { let x = Value::Num(self.gear); fields.push(("gear", x)); }
+        { let x = Value::Num(self.landing_message_time); fields.push(("landingMessageTime", x)); }
+        { let x = Value::Num(self.flight_clock); fields.push(("flightClock", x)); }
+        { let x = Value::Num(self.flight_assist_id); fields.push(("flightAssistId", x)); }
+        { let x = Value::Num(self.flight_lock_id); fields.push(("flightLockId", x)); }
+        { let x = Value::Num(self.flight_lock_generation); fields.push(("flightLockGeneration", x)); }
+        { let x = Value::Num(self.flight_lock_timer); fields.push(("flightLockTimer", x)); }
+        { let x = Value::Num(self.flight_lost_los); fields.push(("flightLostLOS", x)); }
+        { let x = Value::Num(self.tick_from_yaw); fields.push(("tickFromYaw", x)); }
+        { let x = Value::Num(self.tick_from_tilt); fields.push(("tickFromTilt", x)); }
+        { let x = Value::Num(self.tick_from_roll); fields.push(("tickFromRoll", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientCompactFlightNumbers {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientCompactFlightNumbers {
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            team: { let p = format!("{path}.team"); num(v.get("team"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            tilt: { let p = format!("{path}.tilt"); num(v.get("tilt"), &p)? },
+            roll: { let p = format!("{path}.roll"); num(v.get("roll"), &p)? },
+            yaw_rate: { let p = format!("{path}.yawRate"); num(v.get("yawRate"), &p)? },
+            forward_input: { let p = format!("{path}.forwardInput"); num(v.get("forwardInput"), &p)? },
+            right_input: { let p = format!("{path}.rightInput"); num(v.get("rightInput"), &p)? },
+            altitude: { let p = format!("{path}.altitude"); num(v.get("altitude"), &p)? },
+            throttle: { let p = format!("{path}.throttle"); num(v.get("throttle"), &p)? },
+            airspeed: { let p = format!("{path}.airspeed"); num(v.get("airspeed"), &p)? },
+            tilt_rate: { let p = format!("{path}.tiltRate"); num(v.get("tiltRate"), &p)? },
+            state_time: { let p = format!("{path}.stateTime"); num(v.get("stateTime"), &p)? },
+            floor_y: { let p = format!("{path}.floorY"); num(v.get("floorY"), &p)? },
+            bank: { let p = format!("{path}.bank"); num(v.get("bank"), &p)? },
+            power: { let p = format!("{path}.power"); num(v.get("power"), &p)? },
+            stick_x: { let p = format!("{path}.stickX"); num(v.get("stickX"), &p)? },
+            stick_y: { let p = format!("{path}.stickY"); num(v.get("stickY"), &p)? },
+            flight_roll_rate: { let p = format!("{path}.flightRollRate"); num(v.get("flightRollRate"), &p)? },
+            trick_cooldown: { let p = format!("{path}.trickCooldown"); num(v.get("trickCooldown"), &p)? },
+            trick_pending: { let p = format!("{path}.trickPending"); num(v.get("trickPending"), &p)? },
+            gear: { let p = format!("{path}.gear"); num(v.get("gear"), &p)? },
+            landing_message_time: { let p = format!("{path}.landingMessageTime"); num(v.get("landingMessageTime"), &p)? },
+            flight_clock: { let p = format!("{path}.flightClock"); num(v.get("flightClock"), &p)? },
+            flight_assist_id: { let p = format!("{path}.flightAssistId"); num(v.get("flightAssistId"), &p)? },
+            flight_lock_id: { let p = format!("{path}.flightLockId"); num(v.get("flightLockId"), &p)? },
+            flight_lock_generation: { let p = format!("{path}.flightLockGeneration"); num(v.get("flightLockGeneration"), &p)? },
+            flight_lock_timer: { let p = format!("{path}.flightLockTimer"); num(v.get("flightLockTimer"), &p)? },
+            flight_lost_los: { let p = format!("{path}.flightLostLOS"); num(v.get("flightLostLOS"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(29);
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.team); fields.push(("team", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.tilt); fields.push(("tilt", x)); }
+        { let x = Value::Num(self.roll); fields.push(("roll", x)); }
+        { let x = Value::Num(self.yaw_rate); fields.push(("yawRate", x)); }
+        { let x = Value::Num(self.forward_input); fields.push(("forwardInput", x)); }
+        { let x = Value::Num(self.right_input); fields.push(("rightInput", x)); }
+        { let x = Value::Num(self.altitude); fields.push(("altitude", x)); }
+        { let x = Value::Num(self.throttle); fields.push(("throttle", x)); }
+        { let x = Value::Num(self.airspeed); fields.push(("airspeed", x)); }
+        { let x = Value::Num(self.tilt_rate); fields.push(("tiltRate", x)); }
+        { let x = Value::Num(self.state_time); fields.push(("stateTime", x)); }
+        { let x = Value::Num(self.floor_y); fields.push(("floorY", x)); }
+        { let x = Value::Num(self.bank); fields.push(("bank", x)); }
+        { let x = Value::Num(self.power); fields.push(("power", x)); }
+        { let x = Value::Num(self.stick_x); fields.push(("stickX", x)); }
+        { let x = Value::Num(self.stick_y); fields.push(("stickY", x)); }
+        { let x = Value::Num(self.flight_roll_rate); fields.push(("flightRollRate", x)); }
+        { let x = Value::Num(self.trick_cooldown); fields.push(("trickCooldown", x)); }
+        { let x = Value::Num(self.trick_pending); fields.push(("trickPending", x)); }
+        { let x = Value::Num(self.gear); fields.push(("gear", x)); }
+        { let x = Value::Num(self.landing_message_time); fields.push(("landingMessageTime", x)); }
+        { let x = Value::Num(self.flight_clock); fields.push(("flightClock", x)); }
+        { let x = Value::Num(self.flight_assist_id); fields.push(("flightAssistId", x)); }
+        { let x = Value::Num(self.flight_lock_id); fields.push(("flightLockId", x)); }
+        { let x = Value::Num(self.flight_lock_generation); fields.push(("flightLockGeneration", x)); }
+        { let x = Value::Num(self.flight_lock_timer); fields.push(("flightLockTimer", x)); }
+        { let x = Value::Num(self.flight_lost_los); fields.push(("flightLostLOS", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientTrickNumbers {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientTrickNumbers {
+            trick_time: { let p = format!("{path}.trickTime"); num(v.get("trickTime"), &p)? },
+            trick_direction: { let p = format!("{path}.trickDirection"); num(v.get("trickDirection"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.trick_time); fields.push(("trickTime", x)); }
+        { let x = Value::Num(self.trick_direction); fields.push(("trickDirection", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientHullRef {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientHullRef {
+            slot: { let p = format!("{path}.slot"); (int(v.get("slot"), &p, 0.0, u32::MAX as f64)? as u32) },
+            generation: { let p = format!("{path}.generation"); (int(v.get("generation"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.slot as f64); fields.push(("slot", x)); }
+        { let x = Value::Num(self.generation as f64); fields.push(("generation", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientHullState {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientHullState {
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            previous: { let p = format!("{path}.previous"); vec3(v.get("previous"), &p)? },
+            velocity: { let p = format!("{path}.velocity"); vec3(v.get("velocity"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            previous_yaw: { let p = format!("{path}.previousYaw"); num(v.get("previousYaw"), &p)? },
+            tilt: { let p = format!("{path}.tilt"); num(v.get("tilt"), &p)? },
+            roll: { let p = format!("{path}.roll"); num(v.get("roll"), &p)? },
+            previous_tilt: { let p = format!("{path}.previousTilt"); num(v.get("previousTilt"), &p)? },
+            previous_roll: { let p = format!("{path}.previousRoll"); num(v.get("previousRoll"), &p)? },
+            yaw_rate: { let p = format!("{path}.yawRate"); num(v.get("yawRate"), &p)? },
+            tilt_rate: { let p = format!("{path}.tiltRate"); num(v.get("tiltRate"), &p)? },
+            roll_rate: { let p = format!("{path}.rollRate"); num(v.get("rollRate"), &p)? },
+            support: { let p = format!("{path}.support"); num(v.get("support"), &p)? },
+            forward_input: { let p = format!("{path}.forwardInput"); num(v.get("forwardInput"), &p)? },
+            right_input: { let p = format!("{path}.rightInput"); num(v.get("rightInput"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            sleeping: { let p = format!("{path}.sleeping"); match v.get("sleeping").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("sleeping"), &p)?) } },
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            dying: { let p = format!("{path}.dying"); num(v.get("dying"), &p)? },
+            water_clock: { let p = format!("{path}.waterClock"); num(v.get("waterClock"), &p)? },
+            quaternion: { let p = format!("{path}.quaternion"); quat(v.get("quaternion"), &p)? },
+            matrix: { let p = format!("{path}.matrix"); mat4(v.get("matrix"), &p)? },
+            item_center: { let p = format!("{path}.itemCenter"); vec3(v.get("itemCenter"), &p)? },
+            support_normal: { let p = format!("{path}.supportNormal"); vec3(v.get("supportNormal"), &p)? },
+            tick_from: { let p = format!("{path}.tickFrom"); match v.get("tickFrom").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(vec3(v.get("tickFrom"), &p)?) } },
+            tick_from_yaw: { let p = format!("{path}.tickFromYaw"); match v.get("tickFromYaw").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("tickFromYaw"), &p)?) } },
+            tick_from_tilt: { let p = format!("{path}.tickFromTilt"); match v.get("tickFromTilt").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("tickFromTilt"), &p)?) } },
+            tick_from_roll: { let p = format!("{path}.tickFromRoll"); match v.get("tickFromRoll").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("tickFromRoll"), &p)?) } },
+            flight_state: { let p = format!("{path}.flightState"); match v.get("flightState").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(FlightState::from_u8(name_of(v.get("flightState"), &FlightState::NAMES, &p)?).unwrap()) } },
+            grounded: { let p = format!("{path}.grounded"); boolean(v.get("grounded"), &p)? },
+            altitude: { let p = format!("{path}.altitude"); num(v.get("altitude"), &p)? },
+            throttle: { let p = format!("{path}.throttle"); num(v.get("throttle"), &p)? },
+            airspeed: { let p = format!("{path}.airspeed"); num(v.get("airspeed"), &p)? },
+            state_time: { let p = format!("{path}.stateTime"); num(v.get("stateTime"), &p)? },
+            floor_y: { let p = format!("{path}.floorY"); num(v.get("floorY"), &p)? },
+            bank: { let p = format!("{path}.bank"); num(v.get("bank"), &p)? },
+            team: { let p = format!("{path}.team"); match v.get("team").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("team"), &p)?) } },
+            power: { let p = format!("{path}.power"); match v.get("power").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("power"), &p)?) } },
+            stick_x: { let p = format!("{path}.stickX"); match v.get("stickX").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("stickX"), &p)?) } },
+            stick_y: { let p = format!("{path}.stickY"); match v.get("stickY").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("stickY"), &p)?) } },
+            flight_roll_rate: { let p = format!("{path}.flightRollRate"); match v.get("flightRollRate").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightRollRate"), &p)?) } },
+            roll_lock: { let p = format!("{path}.rollLock"); match v.get("rollLock").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("rollLock"), &p)?) } },
+            boosting: { let p = format!("{path}.boosting"); match v.get("boosting").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("boosting"), &p)?) } },
+            trick: { let p = format!("{path}.trick"); match v.get("trick").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("trick"), &p)?) } },
+            trick_time: { let p = format!("{path}.trickTime"); match v.get("trickTime").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("trickTime"), &p)?) } },
+            trick_cooldown: { let p = format!("{path}.trickCooldown"); match v.get("trickCooldown").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("trickCooldown"), &p)?) } },
+            trick_pending: { let p = format!("{path}.trickPending"); match v.get("trickPending").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("trickPending"), &p)?) } },
+            trick_direction: { let p = format!("{path}.trickDirection"); match v.get("trickDirection").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("trickDirection"), &p)?) } },
+            gear: { let p = format!("{path}.gear"); match v.get("gear").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("gear"), &p)?) } },
+            landing_message: { let p = format!("{path}.landingMessage"); match v.get("landingMessage").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("landingMessage"), &p)?) } },
+            landing_message_time: { let p = format!("{path}.landingMessageTime"); match v.get("landingMessageTime").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("landingMessageTime"), &p)?) } },
+            flight_trick_right: { let p = format!("{path}.flightTrickRight"); match v.get("flightTrickRight").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(vec3(v.get("flightTrickRight"), &p)?) } },
+            flight_clock: { let p = format!("{path}.flightClock"); match v.get("flightClock").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightClock"), &p)?) } },
+            boost_exhausted: { let p = format!("{path}.boostExhausted"); match v.get("boostExhausted").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("boostExhausted"), &p)?) } },
+            landing_reason: { let p = format!("{path}.landingReason"); match v.get("landingReason").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("landingReason"), &p)?) } },
+            flight_warning: { let p = format!("{path}.flightWarning"); match v.get("flightWarning").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("flightWarning"), &p)?) } },
+            terrain_warning: { let p = format!("{path}.terrainWarning"); match v.get("terrainWarning").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("terrainWarning"), &p)?) } },
+            flight_assist_id: { let p = format!("{path}.flightAssistId"); match v.get("flightAssistId").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightAssistId"), &p)?) } },
+            flight_lock_id: { let p = format!("{path}.flightLockId"); match v.get("flightLockId").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightLockId"), &p)?) } },
+            flight_lock_generation: { let p = format!("{path}.flightLockGeneration"); match v.get("flightLockGeneration").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightLockGeneration"), &p)?) } },
+            flight_lock_timer: { let p = format!("{path}.flightLockTimer"); match v.get("flightLockTimer").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightLockTimer"), &p)?) } },
+            flight_lost_los: { let p = format!("{path}.flightLostLOS"); match v.get("flightLostLOS").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightLostLOS"), &p)?) } },
+            flight_lock_state: { let p = format!("{path}.flightLockState"); match v.get("flightLockState").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("flightLockState"), &p)?) } },
+            flight_start: { let p = format!("{path}.flightStart"); match v.get("flightStart").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(vec3(v.get("flightStart"), &p)?) } },
+            flight_end: { let p = format!("{path}.flightEnd"); match v.get("flightEnd").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(vec3(v.get("flightEnd"), &p)?) } },
+            flight_start_q: { let p = format!("{path}.flightStartQ"); match v.get("flightStartQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightStartQ"), &p)?) } },
+            flight_trick_loop_q: { let p = format!("{path}.flightTrickLoopQ"); match v.get("flightTrickLoopQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightTrickLoopQ"), &p)?) } },
+            flight_trick_end_q: { let p = format!("{path}.flightTrickEndQ"); match v.get("flightTrickEndQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightTrickEndQ"), &p)?) } },
+            flight_previous_q: { let p = format!("{path}.flightPreviousQ"); match v.get("flightPreviousQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightPreviousQ"), &p)?) } },
+            flight_tick_q: { let p = format!("{path}.flightTickQ"); match v.get("flightTickQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightTickQ"), &p)?) } },
+            flight_action_held: { let p = format!("{path}.flightActionHeld"); match v.get("flightActionHeld").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("flightActionHeld"), &p)?) } },
+            trick_held: { let p = format!("{path}.trickHeld"); match v.get("trickHeld").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("trickHeld"), &p)?) } },
+            immelmann_held: { let p = format!("{path}.immelmannHeld"); match v.get("immelmannHeld").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("immelmannHeld"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(73);
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.previous); fields.push(("previous", x)); }
+        { let x = a.vec3(self.velocity); fields.push(("velocity", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.previous_yaw); fields.push(("previousYaw", x)); }
+        { let x = Value::Num(self.tilt); fields.push(("tilt", x)); }
+        { let x = Value::Num(self.roll); fields.push(("roll", x)); }
+        { let x = Value::Num(self.previous_tilt); fields.push(("previousTilt", x)); }
+        { let x = Value::Num(self.previous_roll); fields.push(("previousRoll", x)); }
+        { let x = Value::Num(self.yaw_rate); fields.push(("yawRate", x)); }
+        { let x = Value::Num(self.tilt_rate); fields.push(("tiltRate", x)); }
+        { let x = Value::Num(self.roll_rate); fields.push(("rollRate", x)); }
+        { let x = Value::Num(self.support); fields.push(("support", x)); }
+        { let x = Value::Num(self.forward_input); fields.push(("forwardInput", x)); }
+        { let x = Value::Num(self.right_input); fields.push(("rightInput", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = match &self.sleeping { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("sleeping", x)); }
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.dying); fields.push(("dying", x)); }
+        { let x = Value::Num(self.water_clock); fields.push(("waterClock", x)); }
+        { let x = a.quat(self.quaternion); fields.push(("quaternion", x)); }
+        { let x = mat4_value(a, self.matrix); fields.push(("matrix", x)); }
+        { let x = a.vec3(self.item_center); fields.push(("itemCenter", x)); }
+        { let x = a.vec3(self.support_normal); fields.push(("supportNormal", x)); }
+        { let x = match &self.tick_from { Some(v) => a.vec3((*v)), None => Value::Undefined }; fields.push(("tickFrom", x)); }
+        { let x = match &self.tick_from_yaw { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("tickFromYaw", x)); }
+        { let x = match &self.tick_from_tilt { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("tickFromTilt", x)); }
+        { let x = match &self.tick_from_roll { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("tickFromRoll", x)); }
+        { let x = match &self.flight_state { Some(v) => Value::Str(FlightState::NAMES[(*v) as usize].to_string()), None => Value::Null }; fields.push(("flightState", x)); }
+        { let x = Value::Bool(self.grounded); fields.push(("grounded", x)); }
+        { let x = Value::Num(self.altitude); fields.push(("altitude", x)); }
+        { let x = Value::Num(self.throttle); fields.push(("throttle", x)); }
+        { let x = Value::Num(self.airspeed); fields.push(("airspeed", x)); }
+        { let x = Value::Num(self.state_time); fields.push(("stateTime", x)); }
+        { let x = Value::Num(self.floor_y); fields.push(("floorY", x)); }
+        { let x = Value::Num(self.bank); fields.push(("bank", x)); }
+        { let x = match &self.team { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("team", x)); }
+        { let x = match &self.power { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("power", x)); }
+        { let x = match &self.stick_x { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("stickX", x)); }
+        { let x = match &self.stick_y { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("stickY", x)); }
+        { let x = match &self.flight_roll_rate { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightRollRate", x)); }
+        { let x = match &self.roll_lock { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("rollLock", x)); }
+        { let x = match &self.boosting { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("boosting", x)); }
+        { let x = match &self.trick { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("trick", x)); }
+        { let x = match &self.trick_time { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("trickTime", x)); }
+        { let x = match &self.trick_cooldown { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("trickCooldown", x)); }
+        { let x = match &self.trick_pending { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("trickPending", x)); }
+        { let x = match &self.trick_direction { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("trickDirection", x)); }
+        { let x = match &self.gear { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("gear", x)); }
+        { let x = match &self.landing_message { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("landingMessage", x)); }
+        { let x = match &self.landing_message_time { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("landingMessageTime", x)); }
+        { let x = match &self.flight_trick_right { Some(v) => a.vec3((*v)), None => Value::Undefined }; fields.push(("flightTrickRight", x)); }
+        { let x = match &self.flight_clock { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightClock", x)); }
+        { let x = match &self.boost_exhausted { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("boostExhausted", x)); }
+        { let x = match &self.landing_reason { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("landingReason", x)); }
+        { let x = match &self.flight_warning { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("flightWarning", x)); }
+        { let x = match &self.terrain_warning { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("terrainWarning", x)); }
+        { let x = match &self.flight_assist_id { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightAssistId", x)); }
+        { let x = match &self.flight_lock_id { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightLockId", x)); }
+        { let x = match &self.flight_lock_generation { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightLockGeneration", x)); }
+        { let x = match &self.flight_lock_timer { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightLockTimer", x)); }
+        { let x = match &self.flight_lost_los { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightLostLOS", x)); }
+        { let x = match &self.flight_lock_state { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("flightLockState", x)); }
+        { let x = match &self.flight_start { Some(v) => a.vec3((*v)), None => Value::Undefined }; fields.push(("flightStart", x)); }
+        { let x = match &self.flight_end { Some(v) => a.vec3((*v)), None => Value::Undefined }; fields.push(("flightEnd", x)); }
+        { let x = match &self.flight_start_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightStartQ", x)); }
+        { let x = match &self.flight_trick_loop_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightTrickLoopQ", x)); }
+        { let x = match &self.flight_trick_end_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightTrickEndQ", x)); }
+        { let x = match &self.flight_previous_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightPreviousQ", x)); }
+        { let x = match &self.flight_tick_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightTickQ", x)); }
+        { let x = match &self.flight_action_held { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("flightActionHeld", x)); }
+        { let x = match &self.trick_held { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("trickHeld", x)); }
+        { let x = match &self.immelmann_held { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("immelmannHeld", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientHull {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientHull {
+            slot: { let p = format!("{path}.slot"); (int(v.get("slot"), &p, 0.0, u32::MAX as f64)? as u32) },
+            generation: { let p = format!("{path}.generation"); (int(v.get("generation"), &p, 0.0, u32::MAX as f64)? as u32) },
+            state_at: { let p = format!("{path}.stateAt"); (int(v.get("stateAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            seats_at: { let p = format!("{path}.seatsAt"); (int(v.get("seatsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            seats_count: { let p = format!("{path}.seatsCount"); (int(v.get("seatsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            wheels_at: { let p = format!("{path}.wheelsAt"); (int(v.get("wheelsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            wheels_count: { let p = format!("{path}.wheelsCount"); (int(v.get("wheelsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            legs_at: { let p = format!("{path}.legsAt"); (int(v.get("legsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            legs_count: { let p = format!("{path}.legsCount"); (int(v.get("legsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            has_legs: { let p = format!("{path}.hasLegs"); boolean(v.get("hasLegs"), &p)? },
+            walk_phase: { let p = format!("{path}.walkPhase"); num(v.get("walkPhase"), &p)? },
+            walk_blend: { let p = format!("{path}.walkBlend"); num(v.get("walkBlend"), &p)? },
+            walk_from_phase: { let p = format!("{path}.walkFromPhase"); num(v.get("walkFromPhase"), &p)? },
+            walk_from_blend: { let p = format!("{path}.walkFromBlend"); num(v.get("walkFromBlend"), &p)? },
+            level: { let p = format!("{path}.level"); num(v.get("level"), &p)? },
+            assists: { let p = format!("{path}.assists"); boolean(v.get("assists"), &p)? },
+            correction_schema: { let p = format!("{path}.correctionSchema"); (int(v.get("correctionSchema"), &p, 0.0, u32::MAX as f64)? as u32) },
+            check_tick: { let p = format!("{path}.checkTick"); num(v.get("checkTick"), &p)? },
+            members_at: { let p = format!("{path}.membersAt"); (int(v.get("membersAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            members_count: { let p = format!("{path}.membersCount"); (int(v.get("membersCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            teams_at: { let p = format!("{path}.teamsAt"); (int(v.get("teamsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            teams_count: { let p = format!("{path}.teamsCount"); (int(v.get("teamsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            relations_at: { let p = format!("{path}.relationsAt"); (int(v.get("relationsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(23);
+        { let x = Value::Num(self.slot as f64); fields.push(("slot", x)); }
+        { let x = Value::Num(self.generation as f64); fields.push(("generation", x)); }
+        { let x = Value::Num(self.state_at as f64); fields.push(("stateAt", x)); }
+        { let x = Value::Num(self.seats_at as f64); fields.push(("seatsAt", x)); }
+        { let x = Value::Num(self.seats_count as f64); fields.push(("seatsCount", x)); }
+        { let x = Value::Num(self.wheels_at as f64); fields.push(("wheelsAt", x)); }
+        { let x = Value::Num(self.wheels_count as f64); fields.push(("wheelsCount", x)); }
+        { let x = Value::Num(self.legs_at as f64); fields.push(("legsAt", x)); }
+        { let x = Value::Num(self.legs_count as f64); fields.push(("legsCount", x)); }
+        { let x = Value::Bool(self.has_legs); fields.push(("hasLegs", x)); }
+        { let x = Value::Num(self.walk_phase); fields.push(("walkPhase", x)); }
+        { let x = Value::Num(self.walk_blend); fields.push(("walkBlend", x)); }
+        { let x = Value::Num(self.walk_from_phase); fields.push(("walkFromPhase", x)); }
+        { let x = Value::Num(self.walk_from_blend); fields.push(("walkFromBlend", x)); }
+        { let x = Value::Num(self.level); fields.push(("level", x)); }
+        { let x = Value::Bool(self.assists); fields.push(("assists", x)); }
+        { let x = Value::Num(self.correction_schema as f64); fields.push(("correctionSchema", x)); }
+        { let x = Value::Num(self.check_tick); fields.push(("checkTick", x)); }
+        { let x = Value::Num(self.members_at as f64); fields.push(("membersAt", x)); }
+        { let x = Value::Num(self.members_count as f64); fields.push(("membersCount", x)); }
+        { let x = Value::Num(self.teams_at as f64); fields.push(("teamsAt", x)); }
+        { let x = Value::Num(self.teams_count as f64); fields.push(("teamsCount", x)); }
+        { let x = Value::Num(self.relations_at as f64); fields.push(("relationsAt", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientHullSeat {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientHullSeat {
+            aim_yaw: { let p = format!("{path}.aimYaw"); num(v.get("aimYaw"), &p)? },
+            pitch: { let p = format!("{path}.pitch"); num(v.get("pitch"), &p)? },
+            look_yaw: { let p = format!("{path}.lookYaw"); match v.get("lookYaw").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("lookYaw"), &p)?) } },
+            look_pitch: { let p = format!("{path}.lookPitch"); match v.get("lookPitch").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("lookPitch"), &p)?) } },
+            yaw_rate: { let p = format!("{path}.yawRate"); num(v.get("yawRate"), &p)? },
+            last_yaw: { let p = format!("{path}.lastYaw"); match v.get("lastYaw").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("lastYaw"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
+        { let x = Value::Num(self.aim_yaw); fields.push(("aimYaw", x)); }
+        { let x = Value::Num(self.pitch); fields.push(("pitch", x)); }
+        { let x = match &self.look_yaw { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("lookYaw", x)); }
+        { let x = match &self.look_pitch { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("lookPitch", x)); }
+        { let x = Value::Num(self.yaw_rate); fields.push(("yawRate", x)); }
+        { let x = match &self.last_yaw { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("lastYaw", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientHullMember {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientHullMember {
+            id: { let p = format!("{path}.id"); num(v.get("id"), &p)? },
+            generation: { let p = format!("{path}.generation"); match v.get("generation").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("generation"), &p)?) } },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            team: { let p = format!("{path}.team"); match v.get("team").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("team"), &p)?) } },
+            own: { let p = format!("{path}.own"); boolean(v.get("own"), &p)? },
+            unit: { let p = format!("{path}.unit"); boolean(v.get("unit"), &p)? },
+            body: { let p = format!("{path}.body"); num(v.get("body"), &p)? },
+            point: { let p = format!("{path}.point"); vec3(v.get("point"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(8);
+        { let x = Value::Num(self.id); fields.push(("id", x)); }
+        { let x = match &self.generation { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("generation", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = match &self.team { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("team", x)); }
+        { let x = Value::Bool(self.own); fields.push(("own", x)); }
+        { let x = Value::Bool(self.unit); fields.push(("unit", x)); }
+        { let x = Value::Num(self.body); fields.push(("body", x)); }
+        { let x = a.vec3(self.point); fields.push(("point", x)); }
+        a.object("", fields)
+    }
+}
+
 impl ClientWeapons {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -2895,6 +3412,7 @@ impl ClientFrame {
             source: { let p = format!("{path}.source"); num(v.get("source"), &p)? },
             authority_tick: { let p = format!("{path}.authorityTick"); num(v.get("authorityTick"), &p)? },
             mode: { let p = format!("{path}.mode"); ClientMode::from_u8(name_of(v.get("mode"), &ClientMode::NAMES, &p)?).unwrap() },
+            hull_at: { let p = format!("{path}.hullAt"); (int(v.get("hullAt"), &p, 0.0, u32::MAX as f64)? as u32) },
             mounts_at: { let p = format!("{path}.mountsAt"); (int(v.get("mountsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
             mounts_count: { let p = format!("{path}.mountsCount"); (int(v.get("mountsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             world: { let p = format!("{path}.world"); (int(v.get("world"), &p, 0.0, u32::MAX as f64)? as u32) },
@@ -2916,6 +3434,7 @@ impl ClientFrame {
             crowd_at: { let p = format!("{path}.crowdAt"); (int(v.get("crowdAt"), &p, 0.0, u32::MAX as f64)? as u32) },
             crowd_count: { let p = format!("{path}.crowdCount"); (int(v.get("crowdCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             held: { let p = format!("{path}.held"); (int(v.get("held"), &p, 0.0, u32::MAX as f64)? as u32) },
+            flight_held: { let p = format!("{path}.flightHeld"); (int(v.get("flightHeld"), &p, 0.0, u32::MAX as f64)? as u32) },
             presented_through: { let p = format!("{path}.presentedThrough"); num(v.get("presentedThrough"), &p)? },
             cosmetic_slots: { let p = format!("{path}.cosmeticSlots"); (int(v.get("cosmeticSlots"), &p, 0.0, u32::MAX as f64)? as u32) },
             mouse_scale: { let p = format!("{path}.mouseScale"); num(v.get("mouseScale"), &p)? },
@@ -2927,13 +3446,14 @@ impl ClientFrame {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(33);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(35);
         { let x = Value::Num(self.epoch); fields.push(("epoch", x)); }
         { let x = Value::Num(self.identity); fields.push(("identity", x)); }
         { let x = Value::Num(self.generation); fields.push(("generation", x)); }
         { let x = Value::Num(self.source); fields.push(("source", x)); }
         { let x = Value::Num(self.authority_tick); fields.push(("authorityTick", x)); }
         { let x = Value::Str(ClientMode::NAMES[self.mode as usize].to_string()); fields.push(("mode", x)); }
+        { let x = Value::Num(self.hull_at as f64); fields.push(("hullAt", x)); }
         { let x = Value::Num(self.mounts_at as f64); fields.push(("mountsAt", x)); }
         { let x = Value::Num(self.mounts_count as f64); fields.push(("mountsCount", x)); }
         { let x = Value::Num(self.world as f64); fields.push(("world", x)); }
@@ -2955,6 +3475,7 @@ impl ClientFrame {
         { let x = Value::Num(self.crowd_at as f64); fields.push(("crowdAt", x)); }
         { let x = Value::Num(self.crowd_count as f64); fields.push(("crowdCount", x)); }
         { let x = Value::Num(self.held as f64); fields.push(("held", x)); }
+        { let x = Value::Num(self.flight_held as f64); fields.push(("flightHeld", x)); }
         { let x = Value::Num(self.presented_through); fields.push(("presentedThrough", x)); }
         { let x = Value::Num(self.cosmetic_slots as f64); fields.push(("cosmeticSlots", x)); }
         { let x = Value::Num(self.mouse_scale); fields.push(("mouseScale", x)); }
@@ -2980,6 +3501,7 @@ impl ClientCommand {
             look_count: { let p = format!("{path}.lookCount"); (int(v.get("lookCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             mouse_scale: { let p = format!("{path}.mouseScale"); match v.get("mouseScale").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("mouseScale"), &p)?) } },
             invert: { let p = format!("{path}.invert"); match v.get("invert").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("invert"), &p)?) } },
+            flight_at: { let p = format!("{path}.flightAt"); (int(v.get("flightAt"), &p, 0.0, u32::MAX as f64)? as u32) },
             primary_count: { let p = format!("{path}.primaryCount"); (int(v.get("primaryCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             primary_id: { let p = format!("{path}.primaryId"); num(v.get("primaryId"), &p)? },
             secondary_count: { let p = format!("{path}.secondaryCount"); (int(v.get("secondaryCount"), &p, 0.0, u32::MAX as f64)? as u32) },
@@ -2989,7 +3511,7 @@ impl ClientCommand {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(15);
         { let x = Value::Num(self.tick); fields.push(("tick", x)); }
         { let x = Value::Num(self.generation); fields.push(("generation", x)); }
         { let x = Value::Num(self.sequence); fields.push(("sequence", x)); }
@@ -3000,10 +3522,42 @@ impl ClientCommand {
         { let x = Value::Num(self.look_count as f64); fields.push(("lookCount", x)); }
         { let x = match &self.mouse_scale { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("mouseScale", x)); }
         { let x = match &self.invert { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("invert", x)); }
+        { let x = Value::Num(self.flight_at as f64); fields.push(("flightAt", x)); }
         { let x = Value::Num(self.primary_count as f64); fields.push(("primaryCount", x)); }
         { let x = Value::Num(self.primary_id); fields.push(("primaryId", x)); }
         { let x = Value::Num(self.secondary_count as f64); fields.push(("secondaryCount", x)); }
         { let x = Value::Num(self.secondary_id); fields.push(("secondaryId", x)); }
+        a.object("", fields)
+    }
+}
+
+impl ClientFlightCommand {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(ClientFlightCommand {
+            held: { let p = format!("{path}.held"); (int(v.get("held"), &p, 0.0, u32::MAX as f64)? as u32) },
+            default_held: { let p = format!("{path}.defaultHeld"); (int(v.get("defaultHeld"), &p, 0.0, u32::MAX as f64)? as u32) },
+            actions: { let p = format!("{path}.actions"); (int(v.get("actions"), &p, 0.0, u32::MAX as f64)? as u32) },
+            scale: { let p = format!("{path}.scale"); num(v.get("scale"), &p)? },
+            invert: { let p = format!("{path}.invert"); boolean(v.get("invert"), &p)? },
+            curve: { let p = format!("{path}.curve"); num(v.get("curve"), &p)? },
+            pad_axes: { let p = format!("{path}.padAxes"); numbers::<4>(v.get("padAxes"), &p)? },
+            pad_buttons: { let p = format!("{path}.padButtons"); (int(v.get("padButtons"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(8);
+        { let x = Value::Num(self.held as f64); fields.push(("held", x)); }
+        { let x = Value::Num(self.default_held as f64); fields.push(("defaultHeld", x)); }
+        { let x = Value::Num(self.actions as f64); fields.push(("actions", x)); }
+        { let x = Value::Num(self.scale); fields.push(("scale", x)); }
+        { let x = Value::Bool(self.invert); fields.push(("invert", x)); }
+        { let x = Value::Num(self.curve); fields.push(("curve", x)); }
+        { let x = { let items = self.pad_axes.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("padAxes", x)); }
+        { let x = Value::Num(self.pad_buttons as f64); fields.push(("padButtons", x)); }
         a.object("", fields)
     }
 }
@@ -3068,6 +3622,8 @@ impl ClientResult {
             weapons_words: { let p = format!("{path}.weaponsWords"); (int(v.get("weaponsWords"), &p, 0.0, u32::MAX as f64)? as u32) },
             shots_at: { let p = format!("{path}.shotsAt"); (int(v.get("shotsAt"), &p, 0.0, u32::MAX as f64)? as u32) },
             shots_count: { let p = format!("{path}.shotsCount"); (int(v.get("shotsCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            hull_at: { let p = format!("{path}.hullAt"); (int(v.get("hullAt"), &p, 0.0, u32::MAX as f64)? as u32) },
+            hull_words: { let p = format!("{path}.hullWords"); (int(v.get("hullWords"), &p, 0.0, u32::MAX as f64)? as u32) },
             before_at: { let p = format!("{path}.beforeAt"); (int(v.get("beforeAt"), &p, 0.0, u32::MAX as f64)? as u32) },
             before_shot: { let p = format!("{path}.beforeShot"); (int(v.get("beforeShot"), &p, 0.0, u32::MAX as f64)? as u32) },
             look_yaw: { let p = format!("{path}.lookYaw"); num(v.get("lookYaw"), &p)? },
@@ -3079,7 +3635,7 @@ impl ClientResult {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(19);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(21);
         { let x = Value::Num(self.tick); fields.push(("tick", x)); }
         { let x = Value::Bool(self.continued); fields.push(("continued", x)); }
         { let x = Value::Num(self.sequence); fields.push(("sequence", x)); }
@@ -3093,6 +3649,8 @@ impl ClientResult {
         { let x = Value::Num(self.weapons_words as f64); fields.push(("weaponsWords", x)); }
         { let x = Value::Num(self.shots_at as f64); fields.push(("shotsAt", x)); }
         { let x = Value::Num(self.shots_count as f64); fields.push(("shotsCount", x)); }
+        { let x = Value::Num(self.hull_at as f64); fields.push(("hullAt", x)); }
+        { let x = Value::Num(self.hull_words as f64); fields.push(("hullWords", x)); }
         { let x = Value::Num(self.before_at as f64); fields.push(("beforeAt", x)); }
         { let x = Value::Num(self.before_shot as f64); fields.push(("beforeShot", x)); }
         { let x = Value::Num(self.look_yaw); fields.push(("lookYaw", x)); }

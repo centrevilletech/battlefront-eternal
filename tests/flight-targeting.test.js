@@ -1,40 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { updateFlightTarget } from '../src/flight/targeting.js';
-import { Units } from '../src/registry.js';
+import { fixture } from './flight-fixture.js';
+import { createHullReplay } from './helpers/hull-prediction.js';
 
-// A fighter of team 1 at the origin, nose along +Z, over a clear sky (no
-// cast hits), with a teammate dead ahead and an enemy a little off the nose.
-function sky() {
-  const units = new Units();
-  units.teams = { relations: { 1: { 1: 1, 2: -1 }, 2: { 1: -1, 2: 1 } }, factions: {}, capture: {} };
-  const unit = (id, team, x, z) => ({ id, team, alive: true, generation: 1, position: new THREE.Vector3(x, 0, z) });
-  const friend = unit(2, 1, 0, 200), enemy = unit(3, 2, 4, 200);
+// These are real native collision and registry facts. A JavaScript cast stub
+// cannot observe or replace a query made inside the prediction session.
+function sky(blocked = false) {
+  const f = fixture();
+  f.v.position.set(0, 50, 0); f.v.flightState = 'Flying'; f.v.airspeed = 20;
+  f.system.flightEnvironment.space = true; f.system.flightAssists = true;
+  const friend = { id: 2, generation: 1, alive: true, team: blocked ? 2 : 1, position: new THREE.Vector3(0, 50, 200) };
+  const enemy = { id: 3, generation: 1, alive: true, team: 2, position: new THREE.Vector3(4, 50, 200) };
   const all = [friend, enemy];
-  units.all = () => all;
-  units.byId = (id) => all.find((u) => u.id === id);
-  const v = { team: 1, aiTarget: { id: 1, team: 1 }, position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), body: {}, seats: [],
-    flightConfig: { assistCone: 3, lockCone: 15, retainCone: 25, lockRange: 1600, lockDwell: 1, losGrace: .3 },
-    flightLockId: -1, flightLockTimer: 0, flightLostLOS: 0,
-    system: { flightAssists: true, units, collision: { cast: () => null } } };
-  return { v, friend, enemy };
+  f.system.units = { all: () => all, byId: id => all.find(t => t.id === id), relation: (a, b) => a === b ? 1 : -1, remove() {} };
+  if (blocked) {
+    const wall = new THREE.BoxGeometry(1, 20, 1).translate(0, 50, 100);
+    f.c.addBody(wall.attributes.position.array, wall.index.array, new Uint32Array(wall.index.count / 3));
+  }
+  f.v.resetPresentationHistory();
+  return { ...f, friend, enemy, replay: createHullReplay(f.v) };
 }
-
-test('a fighter assists and locks onto enemies, never a teammate in front of it', () => {
-  const { v, enemy } = sky();
-  updateFlightTarget(v, 1 / 60, false);
-  assert.equal(v.flightAssistId, enemy.id, 'the aim assist takes the enemy off the nose, not the teammate on it');
-  updateFlightTarget(v, 1 / 60, true);
-  assert.equal(v.flightLockId, enemy.id, 'a lock press locks the enemy');
+const command = (tick, actions = []) => ({ tick, sequence: tick, generation: 1, down: [], actions, look: [] });
+test('a native flyer session assists and locks an enemy while ignoring the teammate ahead', () => {
+  const f = sky();
+  try {
+    const pending = [command(1)];
+    assert.equal(f.replay.predict(pending, 0).flightAssistId, f.enemy.id);
+    pending.push(command(2, ['targetLock']));
+    assert.equal(f.replay.predict(pending, 0).flightLockId, f.enemy.id);
+  } finally { f.replay.dispose(); f.system.dispose(); }
 });
-
-test('the best target is the highest score it can see, the sight ray going to each in score order', () => {
-  const { v, friend, enemy } = sky();
-  friend.team = 2;  // now both enemies: the one on the nose scores higher
-  const rays = [];
-  v.system.collision.cast = (from, dir, distance) => { rays.push(dir.x); return rays.length === 1 ? { distance: distance / 2, body: { owner: null } } : null; };
-  updateFlightTarget(v, 1 / 60, false);
-  assert.equal(v.flightAssistId, enemy.id, 'the higher scorer was hidden, so the next one');
-  assert.equal(rays.length, 2, 'a ray for each candidate in score order until one passes');
+test('native target acquisition rejects the obscured higher score before selecting the visible enemy', () => {
+  const f = sky(true);
+  try {
+    const predicted = f.replay.predict([command(1)], 0);
+    assert.equal(predicted.flightAssistId, f.enemy.id);
+    assert.notEqual(predicted.flightAssistId, f.friend.id);
+  } finally { f.replay.dispose(); f.system.dispose(); }
 });

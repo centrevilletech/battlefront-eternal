@@ -252,14 +252,16 @@ export function buildModel(files) {
       // tells them apart by it). `$layout` exports its flat row size for
       // phase boundaries; `$publish` lists mutable fields to assign directly
       // from a generated mirror. Every other key is a field.
-      const { $class = null, $layout = false, $publish = [], ...plain } = fields;
+      const { $class = null, $layout = false, $publish = [], $view = false, ...plain } = fields;
       if (!Array.isArray($publish) || new Set($publish).size !== $publish.length || $publish.some(name => !(name in plain))) fail(where, '$publish names distinct fields of this record');
       const parsed = Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`));
       // Publication may copy a vector or assign a scalar. A nested row, table
       // or reference requires ownership rules; silently aliasing it is unsafe.
+      if (typeof $view !== 'boolean') fail(where, '$view is a boolean');
+      if ($view && parsed.some(f => !['f64', 'f32', 'u32', 'i32', 'u8', 'bool', 'str', 'enum', 'vec3', 'quat', 'mat4'].includes(f.type.base))) fail(where, '$view supports flat scalar and math fields');
       const publishTypes = new Set(['f64', 'f32', 'i32', 'u32', 'u8', 'bool', 'enum', 'vec3']);
       for (const field of parsed) if ($publish.includes(field.name) && (!publishTypes.has(field.type.base) || field.type.base === 'vec3' && optional(field.type))) fail(where, '$publish supports scalar and vec3 fields; vectors cannot be optional');
-      model.records.set(name, { name, file, layout: $layout, publish: $publish, classes: [$class ?? []].flat(), fields: parsed });
+      model.records.set(name, { name, file, layout: $layout, publish: $publish, view: $view, classes: [$class ?? []].flat(), fields: parsed });
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {
       const where = `${file} kind ${name}`;
@@ -1287,9 +1289,39 @@ function jsSyncFn(model, name, placed, target = 'm') {
   return lines;
 }
 
-function jsPutFn(model, name, placed) {
+function jsPutFn(model, name, placed, split = false) {
+  // Large optional records can exceed V8's optimizing bytecode limit. Keep
+  // fixed generated chunks small enough to eliminate boxed float temporaries.
+  const chunk = 12;
+  if (split && placed.length > chunk * 2) {
+    const lines = [`export function ${name}(b, o, f, at, heap) {`];
+    for (let i = 0; i < placed.length; i += chunk) lines.push(`  ${name}Part${i / chunk}(b, o, f, at, heap);`);
+    lines.push('}', '');
+    for (let i = 0; i < placed.length; i += chunk) {
+      lines.push(`function ${name}Part${i / chunk}(b, o, f, at, heap) {`);
+      for (const {field, at} of placed.slice(i, i + chunk)) lines.push(`  ${jsPutField(model, field.type, jsGet(field), at)}`);
+      lines.push('}', '');
+    }
+    return lines;
+  }
   const lines = [`export function ${name}(b, o, f, at, heap) {`];
   for (const { field, at } of placed) lines.push(`  ${jsPutField(model, field.type, jsGet(field), at)}`);
+  lines.push('}', '');
+  return lines;
+}
+
+// A flat presentation view keeps scalar values and nullable tags in typed
+// storage. Only math objects publish in place, avoiding boxed scalar stores.
+function jsFlatView(model, rec, placed, size) {
+  const math = f => ['vec3', 'quat', 'mat4'].includes(f.type.base);
+  const names = JSON.stringify(placed.map(p => p.field.name));
+  const lines = [`const ${rec.name}ViewFields = new Set(${names});`, `export function create${rec.name}View(b, source) {`, `  const words = new Float64Array(${size});`, `  put${rec.name}(b, source, words, 0, null);`, '  const view = Object.create(Object.getPrototypeOf(source));', '  Object.defineProperties(view, {', '    predictionWords: { value: words },'];
+  for (const {field, at} of placed) {
+    if (math(field)) lines.push(`    ${field.name}: { enumerable: true, writable: true, value: source.${field.name}?.clone() ?? source.${field.name} },`);
+    else lines.push(`    ${field.name}: { enumerable: true, get() { const f = words, at = 0, h = 0; let value; ${jsSyncField(model, field.type, 'value', at)} return value; }, set(value) { const f = words, at = 0, heap = null; ${jsPutField(model, field.type, 'value', at)} } },`);
+  }
+  lines.push('  });', `  for (const key of Object.keys(source)) if (!${rec.name}ViewFields.has(key)) view[key] = source[key];`, '  return view;', '}', '', `export function sync${rec.name}ViewMath(b, view) {`, '  const f = view.predictionWords, at = 0, h = 0;');
+  for (const {field, at} of placed) if (math(field)) lines.push(`  ${jsSyncField(model, field.type, jsSet(field, 'view'), at)}`);
   lines.push('}', '');
   return lines;
 }
@@ -1301,7 +1333,8 @@ function jsRecord(model, rec) {
     ...(rec.layout ? [`export const ${rec.name}Layout = Object.freeze({ words: ${at}, ${placed.flatMap(p => p.field.type.base === 'list' ? [`${p.field.name}: ${p.at}`, `${p.field.name}Length: ${p.at + 1}`] : [`${p.field.name}: ${p.at}`]).join(', ')} });`, `export const ${upper(rec.name)}_WORDS = ${rec.name}Layout.words;`, `export const ${upper(rec.name)}_OFFSETS = ${rec.name}Layout;`, ''] : []),
     ...jsMirror(model, `${rec.name}Mirror`, rec.fields, false),
     ...jsSyncFn(model, `sync${rec.name}`, placed),
-    ...jsPutFn(model, `put${rec.name}`, placed),
+    ...jsPutFn(model, `put${rec.name}`, placed, rec.view),
+    ...(rec.view ? jsFlatView(model, rec, placed, at) : []),
     // Publication is a schema-owned whitelist: preserve live object identity
     // and avoid a string-key loop on every predicted body and weapon.
     ...(rec.publish.length ? [`export function publish${rec.name}(o, m) {`,

@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Soldier} from '../src/soldier.js';
@@ -24,7 +25,7 @@ test('every Soldier field has an explicit replay ownership classification',()=>{
  assert.deepEqual(Object.keys(new Soldier({},{})).sort(),classified(groups),'Classify new fields in docs/network-replay-contract.md and add a shared-simulation continuation case');
 });
 test('vehicle scalar additions require replay or presentation ownership review',()=>{
- const v=fixture().v;v.captureTick();v.flightState='Flying';v.position.y=100;v.tick(1/60,{});
+ const v=fixture().v;v.resetPresentationHistory();v.flightState='Flying';v.position.y=100;stepPrediction(v.system,1/60,v,{});
  const groups={
   exact:'health team yaw tilt roll rollRate support yawRate forwardInput rightInput altitude throttle airspeed tiltRate stateTime floorY bank power stickX stickY flightRollRate trickCooldown trickPending gear landingMessageTime flightClock flightAssistId flightLockId flightLockGeneration flightLockTimer flightLostLOS alive sleeping grounded rollLock boosting boostExhausted terrainWarning flightActionHeld trickHeld immelmannHeld flightState trick flightLockState flightWarning landingMessage landingReason',
   conditional:'trickTime trickDirection',
@@ -33,6 +34,7 @@ test('vehicle scalar additions require replay or presentation ownership review',
   externalLifecycle:'dying lastAttacker seatIndex',
   separateTowing:'towAngle towLeg towTarget towWinding',
   hostDamage:'waterClock',
+  nativeIdentity:'simSlot simGen f2Synced driver',
  };
  const fields=Object.keys(v).filter(k=>v[k]===null||['number','boolean','string'].includes(typeof v[k])).sort();
  assert.deepEqual(fields,classified(groups),'Classify new vehicle scalar state and add a shared-simulation continuation case');

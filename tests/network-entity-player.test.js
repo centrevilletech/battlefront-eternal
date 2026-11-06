@@ -1,3 +1,4 @@
+import { stepPrediction } from './helpers/hull-prediction.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {Soldier} from '../src/soldier.js';import {PlayerCombat} from '../src/combat.js';import {Arsenal,Weapon} from '../src/weapons.js';import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import {captureOwnPlayer,decodeOwnPlayer,applyOwnPlayer,OwnPlayerPrerequisiteError} from '../src/runtime/network-entity-player.js';
@@ -5,7 +6,7 @@ import {capturePlayerCorrection} from '../src/runtime/network-entity-capture.js'
 import {captureCompactSoldier as captureSoldierCorrection} from '../src/runtime/network-entity-soldier-compact.js';
 const SOLDIER_REPLAY_SCHEMA=6,soldierReplayBytes=124;
 import {encodeEntityPacket,decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
-import {fixture} from './flight-fixture.js';import {predictionVehicle} from '../src/runtime/vehicle-prediction.js';
+import {fixture} from './flight-fixture.js';import {presentationHull} from '../src/runtime/client-hull.js';
 import {captureCompactFlight as captureFlightCorrection} from '../src/runtime/network-entity-flight-compact.js';
 import {mountFixture} from './mount-fixture.js';
 import {captureMountedControl} from '../src/runtime/network-mounted-control.js';
@@ -133,7 +134,7 @@ test('omitting overwritten Soldier scratch preserves continuation including zoom
 });
 
 test('flyer own envelope fits with controls and two weapon channels and restores correct lease',()=>{
- const a=fixture().v;a.captureTick();a.tick(1/60,{takeoff:true,forward:1});a.captureTick();a.aiTarget={id:20,generation:2};const b=predictionVehicle(a),u=unit(),v=unit();
+ const a=fixture().v;a.resetPresentationHistory();stepPrediction(a.system,1/60,a,{takeoff:true,forward:1});a.resetPresentationHistory();a.aiTarget={id:20,generation:2};const b=presentationHull(a),u=unit(),v=unit();
  u.seat={vehicle:a,index:0};v.seat={vehicle:b,index:0};
  const record=capture(u,{vehicle:a,vehicleId:20,vehicleGeneration:2}),packet=encodeEntityPacket({epoch:3,packetId:1,tick:100,records:[record]});
  b.position.addScalar(10);assert.throws(()=>applyOwnPlayer({unit:v,vehicle:b,vehicleId:21,vehicleGeneration:2,epoch:3,registry,record}),/lease/);
@@ -152,7 +153,7 @@ test('compact bodies leave weapon eligibility boundary timers and recoil bit-exa
  }
 });
 test('ground pilot envelope restores body and rejects wrong lease without mutation',()=>{
- const a=fixture().v;a.flying=false;a.captureTick();a.aiTarget={id:20,generation:2};const b=predictionVehicle(a),u=unit(),v=unit();u.seat={vehicle:a,index:0};v.seat={vehicle:b,index:0};
+ const a=fixture().v;a.flying=false;a.resetPresentationHistory();a.aiTarget={id:20,generation:2};const b=presentationHull(a),u=unit(),v=unit();u.seat={vehicle:a,index:0};v.seat={vehicle:b,index:0};
  const record=capture(u,{vehicle:a,vehicleId:20,vehicleGeneration:2});assert.equal(decodeOwnPlayer(record).bodySchema,10);
  b.position.addScalar(10);assert.throws(()=>applyOwnPlayer({unit:v,vehicle:b,vehicleId:21,vehicleGeneration:2,epoch:3,registry,record}),/lease/);
  applyOwnPlayer({unit:v,vehicle:b,vehicleId:20,vehicleGeneration:2,epoch:3,registry,record});assert.deepEqual(b.position,a.position);assert.equal(b.yaw,a.yaw);
@@ -199,8 +200,8 @@ test('own team validates before restoring body or combat state',()=>{
 });
 
 test('pilot full gun heat, salvo and barrel state fits with worst flyer and gamepad context',()=>{
- const a=fixture().v;a.aiTarget={id:20,generation:2};a.captureTick();a.tick(1/60,{takeoff:true,forward:1});a.captureTick();
- const b=predictionVehicle(a),u=unit(),v=unit();u.seat={vehicle:a,index:0};v.seat={vehicle:b,index:0};
+ const a=fixture().v;a.aiTarget={id:20,generation:2};a.resetPresentationHistory();stepPrediction(a.system,1/60,a,{takeoff:true,forward:1});a.resetPresentationHistory();
+ const b=presentationHull(a),u=unit(),v=unit();u.seat={vehicle:a,index:0};v.seat={vehicle:b,index:0};
  const definition={class:'pilot-gun',base:'cannon',channel:0,RoundsPerClip:25,ammo:2,ShotDelay:.13,SalvoCount:3,ShotsPerSalvo:1,SalvoDelay:.07,HeatPerShot:.2,HeatRecoverRate:.1};
  const weapons=()=>[0,1].map(channel=>({state:new Weapon({...definition,channel},{random:()=>.5}),barrel:0}));
  a.seats[0].weapons=weapons();b.seats[0].weapons=weapons();
@@ -221,7 +222,7 @@ test('pilot full gun heat, salvo and barrel state fits with worst flyer and game
 });
 
 test('four dirty infantry slots and two actively firing pilot guns fit one correction datagram',()=>{
- const vehicle=fixture().v;vehicle.aiTarget={id:20,generation:2};vehicle.captureTick();vehicle.tick(1/60,{takeoff:true,forward:1});vehicle.captureTick();
+ const vehicle=fixture().v;vehicle.aiTarget={id:20,generation:2};vehicle.resetPresentationHistory();stepPrediction(vehicle.system,1/60,vehicle,{takeoff:true,forward:1});vehicle.resetPresentationHistory();
  const source=unit(),target=unit(),loadout=Array.from({length:4},(_,i)=>({...defs[0],class:`slot-${i}`,channel:i%2,ReloadTime:.1,HeatPerShot:.02,HeatRecoverRate:.001,SpreadPerShot:.1,SpreadRecoverRate:.001}));
  source.combat.arsenal=new Arsenal(loadout);target.combat.arsenal=new Arsenal(loadout);source.combat.zoomStep=0;
  const content={...registry,weapons:new Map(loadout.map((d,i)=>[i+1,d.class]))};

@@ -226,7 +226,7 @@ test('a hull\'s wall probes push it in the kernel match recorded results', async
       position: new THREE.Vector3(), velocity: new THREE.Vector3(), previous: new THREE.Vector3(), ownStart: new THREE.Quaternion(),
       probes: Array.from({ length: 6 }, (_, i) => new THREE.Vector3((i % 2 - 0.5) * 3, 0.4 + (i % 3) * 0.6, (Math.floor(i / 2) - 1) * 2.5)) };
     h.wallCaches = h.probes.map(() => w.gatherCache(0.75));
-    h.pushWalls = Vehicle.prototype.pushWalls;
+    h.ownQ = new THREE.Quaternion();
     return h;
   };
   const hulls = [hull(false), hull(true), hull(false), hull(true)];
@@ -244,7 +244,8 @@ test('a hull\'s wall probes push it in the kernel match recorded results', async
       const terrain = rand() < 0.5, oldYaw = rand();
       const run = (kernel) => {
         h.position.copy(position); h.velocity.copy(velocity); h.previous.copy(previous); h.yaw = 7;
-        if (kernel) h.pushWalls(oldYaw, q, terrain); else js(() => h.pushWalls(oldYaw, q, terrain));
+        const own = h.walking ? h.ownQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), h.previousYaw) : null;
+        if (w.rayPushWalls(h.probes, h.probeRadius, h.wallCaches, q, own, h.previous, h.position, h.velocity, terrain)) h.yaw = oldYaw;
         return [...h.position.toArray(), ...h.velocity.toArray(), h.yaw];
       };
       const b = run(true), a=b;

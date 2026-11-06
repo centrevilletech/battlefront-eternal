@@ -1,3 +1,4 @@
+import { stepPrediction, prepareHullFixture, predictHull } from './helpers/hull-prediction.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import { fixture as flightFixture } from './flight-fixture.js';
 import { initFlight } from '../src/flight/model.js';
@@ -316,16 +317,15 @@ test('the player\'s body stays hidden on an enclosed seat after a correction sho
  assert.ok(root.position.distanceTo(node.getWorldPosition(new THREE.Vector3()))<1e-9);
 });
 
-test('ground vehicle mouse aim responds on the next tick at any display rate while hull turn stays bounded', () => {
+test('ground vehicle mouse aim responds at the next fixed replay tick at every display rate', () => {
  for (const hz of [20, 30, 60, 144]) {
   const {v}=fixture(); v.driver={};
-  const driver=new VehicleDriver({}); driver.vehicle=v;
   const yaw=v.aimYaw, hull=v.yaw;
-  driver.look(64, -32, 8, false);
-  v.steer(1/hz, {forward:0,right:0,turn:0});
-  assert.ok(Math.abs(v.aimYaw-(yaw-.25))<1e-10);
-  assert.equal(v.pitch, .125);
-  assert.ok(Math.abs(v.yaw-hull)<=v.turnRate/hz);
+  const pending=[{tick:1,sequence:1,generation:1,down:[],actions:[],look:[[256,-128]],mouseScale:2}];
+  const predicted=predictHull(v,pending,0,1);
+  assert.ok(Math.abs(predicted.aimYaw-(yaw-.25))<1e-10, `${hz} Hz`);
+  assert.equal(predicted.pitch,.125);
+  assert.ok(Math.abs(predicted.yaw-hull)<=v.turnRate/60);
  }
 });
 
@@ -338,7 +338,7 @@ test('vehicle reticle previews queued input once, preserves per-command sensitiv
  const expected=new THREE.Vector3(Math.sin(-.25)*Math.cos(.0625),Math.sin(.0625),Math.cos(-.25)*Math.cos(.0625));
  assert.ok(driver.viewDirection(out).distanceTo(expected)<1e-10);
  assert.deepEqual(v.seat,before);
- driver.look(64,0,8,false); v.aimPlayerSeat(1/60);
+ prepareHullFixture(v.system); driver.look(64,0,8,false); v.system.f2.seats.network(v,v.seatIndex,null,{look:[]});
  driver.preview([],live,4,true);
  assert.ok(driver.viewDirection(out).distanceTo(expected)<1e-10,'acknowledgement must not double apply look');
  driver.preview([],[],4,true);
@@ -351,8 +351,9 @@ test('vehicle preview clamps each mouse event before a reversal at pitch and yaw
  const counts=[[2048,-2048],[-100,100]];
  driver.preview([],counts,1,false);
  const shown=driver.viewDirection(new THREE.Vector3()).clone();
+ prepareHullFixture(v.system);
  for (const [dx,dy] of counts) driver.look(dx,dy,1,false);
- v.aimPlayerSeat(1/60);
+ v.system.f2.seats.network(v,v.seatIndex,null,{look:[]});
  assert.ok(shown.distanceTo(v.viewDirection(new THREE.Vector3()))<1e-10);
 });
 

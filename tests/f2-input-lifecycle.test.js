@@ -16,8 +16,7 @@ import { Soldier } from '../src/soldier.js';
 import { seatLook, leaveKilled } from '../src/boarding.js';
 import { loadSim } from '../src/sim/module.js';
 import { loadRayKernel } from '../src/ray-kernel.js';
-import { predictionVehicle } from '../src/runtime/vehicle-prediction.js';
-import { predictionVehicleInput } from '../src/runtime/vehicle-prediction-input.js';
+import { predictHull } from './helpers/hull-prediction.js';
 import { CommandControls } from '../src/runtime/commands.js';
 
 function box(w, h, d, y) {
@@ -188,9 +187,9 @@ test('live F2 private hull replay leaves the native authority input untouched', 
     const v = system.vehicles[0], u = rider(system, 14);
     u.human = u.networkHuman = true;
     assert.equal(system.board(u, v), true);
-    const clone = predictionVehicle(v), before = observe(v), controls = new CommandControls();
+    const before = observe(v);
     const command = { tick: 1, sequence: 1, epoch: 1, generation: 1, down: [], actions: [], look: [[400, 100]], mouseScale: 1 };
-    controls.accept(command); predictionVehicleInput(clone, 0, controls, command);
+    const clone = predictHull(v, [command], 0, command.generation);
     assert.notEqual(clone.seats[0].aimYaw, v.seats[0].aimYaw);
     assert.deepEqual(observe(v), before);
     system.update(1 / 60);
