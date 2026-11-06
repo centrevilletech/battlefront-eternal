@@ -797,7 +797,7 @@ P switches between the chase camera and the soldier's eyes. Dying goes back to t
 ### HUD
 
 The multi-unit radar, targeting, hit/kill feedback, stats and squad display
-are implemented in `src/hud-units.js` and `src/hud.js`; their rules,
+are implemented in `rust/bfe-render/src/hud_model/` and `src/targeting-facts.js`; their rules,
 APIs and validation are in [ai-hud.md](ai-hud.md). Capture credit revisits up
 to 64 capture-region occupants on neutral-to-owned transitions and increments
 each living Character's tally, without repeating the team, seated-state or

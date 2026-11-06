@@ -177,6 +177,11 @@ export class PlayerCombat {
     this.lights = lights;
     this.texture = texture;
     this.hud = hud;
+    this.hudWeapons = [null, null];
+    // Static turrets share a retained HUD channel view. Rebuilding this
+    // wrapper every frame would allocate even while every scalar is steady.
+    this.hudTurret = null;
+    this.hudTurretArsenal = { current: channel => channel === 0 ? this.hudTurret?.weapon : null };
     this.maxHealth = def.MaxHealth || 300;
     this.health = this.maxHealth;
     this.dead = false;
@@ -1133,7 +1138,8 @@ export class PlayerCombat {
       this.droidHud(droid);
       return;
     }
-    const arsenal = turret?.arsenal || (turret?.weapon ? { current: (channel) => (channel === 0 ? turret.weapon : null) } : this.arsenal);
+    this.hudTurret = turret;
+    const arsenal = turret?.arsenal || (turret?.weapon ? this.hudTurretArsenal : this.arsenal);
     // His own health on the top bar, seated or not, with hud_health (a
     // class's HealthTexture is the icon others see it by); what he sits in
     // (a vehicle, from any of its seats, or a turret) on the panel under it.
@@ -1189,7 +1195,8 @@ export class PlayerCombat {
     // A craft's pilot's stays on the screen's centre line, as the
     // original game keeps every reticle, while his chase camera swings after
     // the nose in a turn; the port projects a ground seat's across.
-    const weapons = turret?.slot ? [arsenal.current(0), arsenal.current(1)] : null;
+    const weapons = turret?.slot ? this.hudWeapons : null;
+    if (weapons) { weapons[0] = arsenal.current(0); weapons[1] = arsenal.current(1); }
     const piloting = turret?.flying && turret.seatIndex === 0;
     this.hud.setReticle(0.5 - 0.5 * ndcY, weapon, turret?.slot && !piloting ? 0.5 + 0.5 * ndcX : 0.5, weapons);
   }

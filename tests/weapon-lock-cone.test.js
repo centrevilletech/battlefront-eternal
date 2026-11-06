@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Weapon } from '../src/weapons.js';
 import { updateWeaponLock, findLockTarget, botLockTarget, seatLockTarget } from '../src/weapon-targeting.js';
-import { findReticleTarget, lockSpan } from '../src/hud-units.js';
+import { findReticleTarget, lockSpan } from '../src/targeting-facts.js';
 
 const DEG = Math.PI / 180;
 // The heavy trooper's missile launcher (rep_weap_inf_torpedo_launcher).

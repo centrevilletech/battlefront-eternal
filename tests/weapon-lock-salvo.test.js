@@ -4,8 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { Weapon, Arsenal } from '../src/weapons.js';
-import { updateWeaponLock, lockTickRadii } from '../src/weapon-targeting.js';
-import { BattleHud } from '../src/hud.js';
+import { updateWeaponLock } from '../src/weapon-targeting.js';
 
 const aim = { stick: 0, posture: 'stand', zoomed: false };
 const released = { held: false, pressed: false }, pressed = { held: true, pressed: true };
@@ -109,27 +108,6 @@ test('guided missiles track moving targets and never adopt a recycled unit', () 
   ord.update(.1,false); assert.equal(guided.targetId, -1); assert.deepEqual(guided.desired, last);
 });
 
-test('native cursor uses eight aim ticks and a separate fading diamond, without a circle', () => {
-  const draw = (def, marker, texture = { image: { width: 64, height: 64 } }) => {
-    const quads = [];
-    const hud = Object.defineProperty(Object.create(BattleHud.prototype), 'height', { value: 768 });
-    Object.assign(hud, { reticle: { x: .5, y: .6, weapon: new Weapon(def) }, lockMarker: marker,
-      aimCamera: new THREE.PerspectiveCamera(46.826, 4 / 3),
-      texture: () => texture, anchor: (x, y) => new THREE.Matrix4().makeTranslation(x, y, 0),
-      batch: { quad: (...args) => quads.push(args) }, solid: {} });
-    hud.drawReticle(); hud.drawLockDiamond(); return quads;
-  };
-  const idle = draw(launcher(), null); assert.equal(idle.length, 9);
-  const locking = draw(launcher(), { x: .7, y: .4, progress: .5 }); assert.equal(locking.length, 13);
-  assert.equal(locking[9].at(-1)[3], 75 / 255);
-  const rifle = draw(launcher({ LockOffAngle: 0, base: 'cannon' }), { x: .7, y: .4, progress: 1 });
-  assert.equal(rifle.length, 1);
-  const upgraded = draw(launcher(), null, { image: { width: 256, height: 256 }, userData: { nativeWidth: 64, nativeHeight: 64 } });
-  assert.deepEqual(upgraded[0].slice(1, 5), [-32, -32, 32, 32]);
-  const cam = new THREE.PerspectiveCamera(65, 16 / 9), wide = lockTickRadii(launcher(), cam);
-  cam.fov = 35; const zoom = lockTickRadii(launcher(), cam);
-  assert.ok(zoom[0] > wide[0]);
-});
 
 for (const side of ['all', 'rep', 'cis', 'imp']) {
   const file = `public/sides/${side}/units.json`;

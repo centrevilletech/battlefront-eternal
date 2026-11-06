@@ -258,15 +258,6 @@ test('vehicle camera eases turns and follows motion without placing its eye behi
  assert.ok(system.camera.position.z>-4);
 });
 
-test('armed vehicle seats without retail reticle art still draw a readable aiming mark',async()=>{
- const {BattleHud}=await import('../src/hud.js');const hud=Object.defineProperty(Object.create(BattleHud.prototype),'height',{value:768});
- const quads=[];hud.vehicle={};hud.texture=()=>null;hud.solid={};hud.anchor=()=>identity();
- hud.batch={quad:(...args)=>quads.push(args)};
- hud.setReticle(.5,{def:{}},.6);hud.drawReticle();assert.equal(quads.length,4);
- hud.vehicle=null;quads.length=0;hud.drawReticle();assert.equal(quads.length,0);
-});
-
-
 
 test('skinned vehicle triangles retain different joints across a shared triangle',async()=>{
  const {vehicleBatches,attachVehicleBatches}=await import('../src/vehicle-rig.js');

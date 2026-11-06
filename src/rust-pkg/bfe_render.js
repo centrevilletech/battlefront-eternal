@@ -994,6 +994,90 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} id
+     * @param {number} texture
+     * @param {number} width
+     * @param {number} height
+     * @param {boolean} ready
+     */
+    hud_model_asset(id, texture, width, height, ready) {
+        wasm.bferenderer_hud_model_asset(this.__wbg_ptr, id, texture, width, height, ready);
+    }
+    /**
+     * @param {number} mode
+     * @param {boolean} full
+     * @returns {number}
+     */
+    hud_model_build(mode, full) {
+        const ret = wasm.bferenderer_hud_model_build(this.__wbg_ptr, mode, full);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} kind
+     * @param {number} a
+     * @param {number} b
+     * @param {number} c
+     * @param {number} d
+     */
+    hud_model_event(kind, a, b, c, d) {
+        wasm.bferenderer_hud_model_event(this.__wbg_ptr, kind, a, b, c, d);
+    }
+    /**
+     * @param {number} font
+     * @param {number} height
+     * @param {Float64Array | number[]} rows
+     */
+    hud_model_font(font, height, rows) {
+        const val2 = +font;
+        const val3 = +height;
+        const ptr0 = passArrayF64ToWasm0(rows, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_hud_model_font(this.__wbg_ptr, val2, val3, ptr0, len0);
+    }
+    /**
+     * @returns {number}
+     */
+    hud_model_input_len() {
+        const ret = wasm.bferenderer_hud_model_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_model_input_ptr() {
+        const ret = wasm.bferenderer_hud_model_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} kind
+     * @param {number} a
+     * @param {number} b
+     * @param {number} c
+     * @param {number} d
+     */
+    hud_model_observe(kind, a, b, c, d) {
+        wasm.bferenderer_hud_model_observe(this.__wbg_ptr, kind, a, b, c, d);
+    }
+    /**
+     * @param {string} text
+     * @param {boolean} uppercase
+     * @returns {number}
+     */
+    hud_model_text(text, uppercase) {
+        const val2 = +uppercase;
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_hud_model_text(this.__wbg_ptr, ptr0, len0, val2);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_model_update() {
+        const ret = wasm.bferenderer_hud_model_update(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * @returns {number}
      */
     hud_position_len() {

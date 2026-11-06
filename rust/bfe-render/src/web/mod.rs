@@ -44,6 +44,7 @@ impl MultiDraw for WebMultiDraw {
 pub struct BfeRenderer {
     r: Renderer<glow::Context, WebMultiDraw>,
     recovery: recovery::Recovery,
+    hud_model: crate::hud_model::HudModel,
     rebuilding: bool,
 }
 
@@ -53,7 +54,7 @@ impl BfeRenderer {
     pub fn new(context: web_sys::WebGl2RenderingContext) -> BfeRenderer {
         let ext = context.get_extension("WEBGL_multi_draw").ok().flatten().map(|e| e.unchecked_into::<web_sys::WebglMultiDraw>());
         let multi = WebMultiDraw(ext, context.clone());
-        BfeRenderer { r: Renderer::new(glow::Context::from_webgl2_context(context), multi), recovery: recovery::Recovery::default(), rebuilding: false }
+        BfeRenderer { r: Renderer::new(glow::Context::from_webgl2_context(context), multi), recovery: recovery::Recovery::default(), hud_model: crate::hud_model::HudModel::new(), rebuilding: false }
     }
 
     // Where the page writes the frame's values and records (f64), and the

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { unitsArray, defaultRelation, lockSpan } from './hud-units.js';
+import { unitsArray, defaultRelation, lockSpan } from './targeting-facts.js';
 import { weaponAI, categoryOf, relationBit } from './ai/classic/weapons-ai.js';
 import { derivedFrom } from './combat-sources.js';
 

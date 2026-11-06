@@ -745,9 +745,9 @@ every way there is (E on the ground and in flight, a seat switch and E, the
 hull destroyed, killed on the seat, shot off an open seat, each death
 followed by a respawn): seated, the HUD's quads are the hull's; after each,
 they are his own soldier's, with no hull icon, no craft prompt and no other
-canvas over the game's. `tests/vehicle-hud.test.js` covers the seated
-health group, the prompts, the seat names, the reticle colours, the map's
-reach and a seat switch on the page.
+canvas over the game's. `tests/vehicle-hud.test.js` covers page seat changes and reticle direction.
+Native HUD fixtures and the [frozen HUD corpus](hud.md) cover panel geometry,
+prompts, names, colours, map range, death and layer display ordering.
 
 ## Effects and sounds
 

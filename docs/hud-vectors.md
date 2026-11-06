@@ -59,23 +59,17 @@ Fonts use an upsampled alpha contour with polygon fitting to preserve angular
 stems; artwork uses spline/color tracing and can approximate tiny gradients or
 compressed pixels. Review new imports before treating their output as final art.
 
-The HUD loader automatically uses the generated atlas masters when available,
-rasterizing them at display density (bounded 2 to 8×) and uploading them once.
-Uploads are serialized across animation frames. HUD quads, original metrics,
-layout and animations remain in the existing batched renderer; resize changes
-the atlas density without changing UVs. Unconverted imports retain their PNGs.
-The SVG/TTF masters are also available for future vector-native UI/animation;
-the current GPU path uses cached textures rather than tessellating SVG each frame.
+The current HUD uses the lossless raster atlas pipeline. These vector masters
+remain offline conversion outputs; there is no runtime SVG rasterizer or
+display-density refresh path. HUD state, bitmap glyph geometry and layout are
+owned by the Rust [battle HUD](hud.md), with imported atlas coordinates retained.
 
-Verification with generated, non-retail fixtures:
+Verification of generated non-retail vector masters uses the Python tests:
 
 ```sh
-~/.venvs/battlefront-vectors/bin/python -m unittest discover -s tests -p 'test_vector_hud.py'
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/vector-hud.mjs
+python -m unittest discover -s tests -p 'test_vector_hud.py'
 ```
 
-The Python checks cover real paths/opacity masks, font counters, advances,
-original atlas coordinates, and source preservation. The browser checks cover
-partial opacity, holes, UV orientation, display-density refresh, unchanged-frame
-upload avoidance, original-bitmap fallback, and WebGL uploads. The browser test
-uses the same Vite URL configuration as `tests/rendering.mjs`.
+These checks cover paths, opacity masks, font counters, advances, original atlas
+coordinates and source preservation. Runtime raster atlas IO remains shared
+with the shell's interface resource host.

@@ -34,7 +34,7 @@ paths are under `src/ai/classic/` unless noted.
 | Difficulty, spawning, class choice, objectives (command post selection), mission and command post extraction | [ai-population.md](ai-population.md) | `difficulty.js`, `spawning.js`, `goals.js`, `tools/zero_ai_mission.py` |
 | Vehicles and turrets: seats, boarding, vehicles as targets, Classic vehicle AI | [ai-vehicles.md](ai-vehicles.md) | `vehicles/`, `src/vehicles.js`, `src/gunner.js`, `src/seats.js` |
 | Class jobs: sniping, mines, pilot repair and resupply, scouts, jet hints | [ai-classes.md](ai-classes.md) | `classes.js`, `nav/jet-hints.js` |
-| HUD toward other units: radar icons, reticle colour, hit ring, kill messages, enemy health, stats | [ai-hud.md](ai-hud.md) | `src/hud.js`, `src/hud-units.js` |
+| HUD toward other units: radar icons, reticle colour, hit ring, kill messages, enemy health, stats | [ai-hud.md](ai-hud.md) | `rust/bfe-render/src/hud_model/`, `src/hud.js` |
 | Controller FSM, scheduler, source goals, interrupts, agents, patrol, squads, the Classic entry point | [ai-controller.md](ai-controller.md) | `controller.js`, `scheduler.js`, `interrupts.js`, `agents.js`, `patrol.js`, `squads.js`, `index.js` |
 | Heroes and melee | [ai-heroes.md](ai-heroes.md) | `src/heroes.js` |
 | Enhanced AI | [ai-enhanced.md](ai-enhanced.md) | `src/ai/enhanced/` |

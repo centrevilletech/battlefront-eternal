@@ -49,7 +49,7 @@ import { LiveObjects } from "./props.js";
 import { killRegion, registerObjectives } from "./objectives.js";
 import { buildRegion, inRegion } from "./regions.js";
 import { CrowdShadows } from "./crowd-shadows.js";
-import { findReticleTarget, radarRelation } from "./hud-units.js";
+import { findReticleTarget, radarRelation } from "./targeting-facts.js";
 import { modelGroup, modelPack, partMaterial } from "./models.js";
 import { LightPool, Ordnance } from "./ordnance.js";
 import { BATTLE_SIZES, Settings, WORLD_SETTINGS } from "./settings.js";
@@ -551,7 +551,9 @@ async function start() {
   });
   // The key a craft's prompt names (src/hud.js flightPrompt): the flight
   // action's first binding, as the original names keys.
-  hud.keyName = (action) => keyName(flightBindings(settings.get("flightBindings"))[action]?.[0] ?? "");
+  let hudTakeoffKey = keyName(flightBindings(settings.get("flightBindings")).takeoff?.[0] ?? "");
+  hud.keyName = () => hudTakeoffKey;
+  settings.onChange(key => { if (key === "flightBindings") hudTakeoffKey = keyName(flightBindings(settings.get(key)).takeoff?.[0] ?? ""); });
   const battle = new Battle({
     teams,
     posts,
@@ -2579,6 +2581,13 @@ async function start() {
   // the map and the posts. The page showing the battle draws it once a frame
   // from the state it has, over the time the frame covers (clientFrame).
   const seatHeading = new THREE.Vector3();
+  // HUD publication reuses its foreign fact records. No frame constructs a
+  // new player snapshot, relationship callback set or stat tuple.
+  const hudPlayerFacts = { position: soldier.position, yaw: 0, team: playerTeam, dead: false, speed: 0 };
+  const hudStatFacts = { kills: 0, teamkills: 0, deaths: 0, captures: 0 };
+  const hudUnitFacts = { viewer: playerUnit, controllable: playerUnit, viewerTeam: playerTeam,
+    relations: new Float64Array(32 * 32), locals: new Uint8Array(32),
+    easy: TIER === 1, tickets: battle.reinforcements };
   function presentBattle(dt, yaw = soldier.aimYaw) {
     // The minimap follows a flown droid.
     const flown = remotes.piloted;
@@ -2588,14 +2597,25 @@ async function start() {
     if (driver?.active && !flown) { driver.reticleDirection(seatHeading); yaw = Math.atan2(seatHeading.x, seatHeading.z); }
     const moving = flown?.velocity ?? driver?.vehicle?.velocity ?? soldier.velocity;
     const speed = moving ? Math.hypot(moving.x, moving.z) : 0;
-    hud.setUnits(units, {
-      viewer: playerUnit, controllable: flown || driver?.vehicle?.aiTarget || gunner.turret?.aiTarget || playerUnit,
-      viewerTeam: playerTeam, relation: (a, b) => units.relation(a, b), locals: (team) => units.locals(team),
-      easy: TIER === 1, tickets: (team) => battle.reinforcements[team] ?? Infinity,
-    });
+    hudUnitFacts.controllable = flown || driver?.vehicle?.aiTarget || gunner.turret?.aiTarget || playerUnit;
+    hudUnitFacts.viewerTeam = playerTeam;
+    // Only the player and a shell map's viewing team need relationship rows.
+    // Team policy/count tables cross the HUD boundary once per update, not
+    // through four callbacks per unit. Registries may override mission allies.
+    const mapTeam = hud.layer?.battlefield?.team;
+    for (let team = 0; team < 32; team++) {
+      hudUnitFacts.locals[team] = units.locals(team);
+      hudUnitFacts.relations[playerTeam * 32 + team] = units.relation(playerTeam, team);
+      if (mapTeam != null && mapTeam !== playerTeam) hudUnitFacts.relations[mapTeam * 32 + team] = units.relation(mapTeam, team);
+    }
+    hud.setUnits(units, hudUnitFacts);
     const character = battle.human;
-    hud.stats({ kills: character?.kills, teamkills: character?.teamKills, deaths: character?.deaths, captures: character?.captures });
-    hud.update(dt, posts, flown ? { position: flown.position, yaw: flown.yaw, team: playerTeam, dead: combat.dead, speed } : { position: soldier.position, yaw, team: playerTeam, dead: combat.dead, speed }, battle);
+    hudStatFacts.kills = character?.kills ?? 0; hudStatFacts.teamkills = character?.teamKills ?? 0;
+    hudStatFacts.deaths = character?.deaths ?? 0; hudStatFacts.captures = character?.captures ?? 0;
+    hud.stats(hudStatFacts);
+    hudPlayerFacts.position = flown ? flown.position : soldier.position; hudPlayerFacts.yaw = flown ? flown.yaw : yaw;
+    hudPlayerFacts.team = playerTeam; hudPlayerFacts.dead = combat.dead; hudPlayerFacts.speed = speed;
+    hud.update(dt, posts, hudPlayerFacts, battle);
     if (!client) presentLeaving();
   }
   // Outside the battlefield: his warning, and his side's line as he goes
@@ -2647,6 +2667,7 @@ async function start() {
     hud.enemyHealth(relationOf(first) < 0 ? first.unit : null);
   }
 
+  const hudLockMarker = { x: 0, y: 0, progress: 0 };
   // Project against the camera actually drawn, every render frame. Lock
   // time comes from simulation (also in worker mode), never the HUD clock.
   function presentWeaponLock() {
@@ -2662,8 +2683,9 @@ async function start() {
     hudAim.project(camera);
     if (hudAim.z < -1 || hudAim.z > 1) return;
     const duration = weapon.def.LockTime > 0 ? weapon.def.LockTime : weapon.def.MaxPressedTime;
-    hud.lockMarker = { x: (hudAim.x + 1) / 2, y: (1 - hudAim.y) / 2,
-      progress: duration > 0 ? Math.min(1, weapon.lockElapsed / duration) : 0 };
+    hudLockMarker.x = (hudAim.x + 1) / 2; hudLockMarker.y = (1 - hudAim.y) / 2;
+    hudLockMarker.progress = duration > 0 ? Math.min(1, weapon.lockElapsed / duration) : 0;
+    hud.lockMarker = hudLockMarker;
   }
 
   // Every page joins an authoritative server: a worker locally, WebRTC online.

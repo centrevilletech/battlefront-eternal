@@ -75,7 +75,7 @@ mission's armies, and the roster drops them
 | `src/bot-names.js` | Bot names, each team from its own generator |
 | `src/runtime/network-entity-summary.js`, `src/runtime/snapshot-host.js` | The scores and records on their way to the page, a world worker's or a server's (see [The page's numbers](#the-pages-numbers)) |
 | `src/hud.js` | The stat popup (`drawStats`), the dead player's HUD, `watch()`, a layer's `teams: false` |
-| `src/hud-units.js` | The message feed names the player by his Character's name, "Player 1" |
+| `src/hud.js`, `rust/bfe-render/src/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
 | `src/audio/game.js` | The `busFade` event; `interface` plays a sound by its own name too |
 
 ## Tab

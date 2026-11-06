@@ -20,3 +20,6 @@ pub mod water;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 pub mod world;
+
+pub mod interface;
+pub mod hud_model;

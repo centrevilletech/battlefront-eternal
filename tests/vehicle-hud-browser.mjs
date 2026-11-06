@@ -33,13 +33,29 @@ const MAPS = ALL_MAPS.filter(({ map }) => !process.env.VEHICLE_HUD_MAPS || proce
 // drawn frame of the HUD puts on screen (the textures of its quads and its
 // text), with the hull's and the soldier's own icons for comparison.
 const shown = async (page, name) => page.evaluate(async (name) => {
-  const b = __bf, hud = b.hud, quads = [], texts = [];
-  const { quad, quadCorners } = hud.batch, draw = hud.fonts.draw;
-  hud.batch.quad = function (...args) { quads.push(args[5]); return quad.apply(this, args); };
-  hud.batch.quadCorners = function (...args) { quads.push(args[5]); return quadCorners.apply(this, args); };
-  hud.fonts.draw = function (...args) { texts.push(String(args[4])); return draw.apply(this, args); };
-  try { await b.lockstep(1 / 60, true); } finally { Object.assign(hud.batch, { quad, quadCorners }); hud.fonts.draw = draw; }
-  const used = (texture) => Boolean(texture) && quads.includes(texture);
+  const b = __bf, hud = b.hud, core = b.graphics.rust;
+  const { HudRenderFrame: L, HudDraw: D } = await import('/src/hud-layout.js');
+  await b.lockstep(1 / 60, true); core.views();
+  const input = core.hudInput, maps = new Set(), texts = [];
+  let promptGlyphs = '';
+  const font = hud.fonts.fonts.gamefont_small;
+  for (let i = 0; i < input[L.groups]; i++) {
+    const o = L.words + i * D.words, texture = input[o + D.texture]; maps.add(texture);
+    // Read actual native glyph quads, not calls to the deleted JS drawer.
+    // Prompt text is the small font below the screen's centre; spaces have
+    // no quad, so compare its visible glyph sequence to registered strings.
+    for (let index = input[o + D.first]; index < input[o + D.first] + input[o + D.count]; index += 6) {
+      const quad = index / 6;
+      if (core.hudPosition[quad * 12 + 1] >= -150) continue;
+      for (const [code, glyph] of font.glyphs) {
+        if (core.texture(font.pages[glyph.page]) !== texture) continue;
+        const uv = glyph.uv, at = quad * 8;
+        if (core.hudUv[at] === Math.fround(uv[0]) && core.hudUv[at + 1] === Math.fround(uv[1]) && core.hudUv[at + 6] === Math.fround(uv[2]) && core.hudUv[at + 7] === Math.fround(uv[3])) { promptGlyphs += String.fromCharCode(code); break; }
+      }
+    }
+  }
+  for (const text of hud.input.textValues) if (text && /TAKE ?OFF|TO LAND/i.test(text) && text.replace(/\s/g, '') === promptGlyphs) texts.push(text);
+  const used = texture => Boolean(texture) && maps.has(core.texture(texture));
   const v = b.vehicles.vehicles.find((x) => x.name === name);
   const icons = (weapons) => weapons.map((w) => w?.def?.IconTexture).filter(Boolean);
   const hullIcons = [...new Set([v.def.settings.HealthTexture, ...v.seats.flatMap((seat) => icons(seat.weapons.map((w) => w.state)))])]

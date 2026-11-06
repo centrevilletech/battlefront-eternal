@@ -6,7 +6,6 @@ import * as THREE from "three";
 import { PlayerCombat } from "../src/combat.js";
 import { Lightning } from "../src/lightning.js";
 import { presentEntityEvent } from "../src/runtime/entity-presentation-events.js";
-import { BattleHud } from "../src/hud.js";
 import { Arsenal } from "../src/weapons.js";
 
 const BOLT = { Texture: "arccaster_lightning", Width: 0.5, FadeTime: 0.6, SpreadFactor: 0.8, InterpolationSpeed: 5, BranchFactor: 0.15, BranchSpreadFactor: 0.8, BranchLength: 4, MaxBranches: 3, BreakDistance: 1, TextureSize: 3.5, ChildBreakDistance: 1.5, ChildTextureSize: 2, ChildWidth: 0.4, ChildSpreadFactor: 1, NumChildren: 3, Color: [130, 170, 255, 250], ChildColor: [140, 180, 255, 100] };
@@ -164,35 +163,4 @@ test("a repair tick plays the tool's shoot in first person and holds the body al
   combat.repairLock = "";
   combat.presentCharge(1 / 60);
   assert.equal(alerts, 1);
-});
-
-test("a held charge fills the weapon panel's bar in green, as the original game's state 4 does", () => {
-  const arsenal = new Arsenal([ARC, CUTTER], { player: true });
-  const arc = arsenal.current(0);
-  const bars = [];
-  const hud = Object.create(BattleHud.prototype);
-  Object.defineProperty(hud, "height", { value: 768 });
-  Object.assign(hud, {
-    arsenal, vehicle: null, strings: {}, supply: { ammo: false }, numbers: ["", ""], named: [null, null], nameLeft: [0, 0],
-    weaponFader: { alpha: 1, wake() {} },
-    texture: (name) => (name ? { name } : null),
-    anchor: () => new THREE.Matrix4(),
-    batch: { quad: (m, x0, y0, x1, y1, texture, uv, color) => { if (texture?.name === "hud1" && y0 === 2) bars.push({ width: x1 - x0, color }); } },
-    fonts: { draw() {} },
-  });
-  const draw = () => { bars.length = 0; hud.drawWeapons(); return bars[0]; };
-  // Half charged: half the bar, green.
-  arc.charging = true;
-  arc.held = ARC.MaxPressedTime / 2;
-  let bar = draw();
-  assert.ok(Math.abs(bar.width - 84 / 2) < 1e-9);
-  assert.deepEqual(bar.color.slice(0, 3).map((c) => Math.round(c * 255)), [32, 223, 32]);
-  // Let go and overheated: what heat leaves, in red.
-  arc.charging = false;
-  arc.held = 0;
-  arc.heat = 0.75;
-  arc.overheated = true;
-  bar = draw();
-  assert.ok(Math.abs(bar.width - 84 / 4) < 1e-9);
-  assert.deepEqual(bar.color.slice(0, 3).map((c) => Math.round(c * 255)), [223, 32, 32]);
 });

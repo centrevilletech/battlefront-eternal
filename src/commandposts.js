@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { radarRelation } from "./hud-units.js";
+import { radarRelation } from "./targeting-facts.js";
 import { MobilePosts } from "./mobile-posts.js";
 import { buildRegion, inRegion } from "./regions.js";
 
@@ -368,7 +368,7 @@ export class CommandPosts {
     return this.look(this.playerTeam, team);
   }
 
-  // How a team looks to the viewer's team (src/hud-units.js radarRelation).
+  // How a team looks to the viewer's team (src/targeting-facts.js radarRelation).
   look(viewer, team) {
     const teams = this.teams;
     return teams ? radarRelation(viewer, team, (a, b) => teams.relation(a, b), (t) => teams.locals(t)) : radarRelation(viewer, team);

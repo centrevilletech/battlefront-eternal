@@ -14,8 +14,7 @@ import { missionTeams } from "../src/ai/classic/spawning.js";
 import { Units } from "../src/registry.js";
 import { CommandPosts } from "../src/commandposts.js";
 import { Battle } from "../src/battle.js";
-import { RadarUnits, radarRelation } from "../src/hud-units.js";
-import { BattleHud } from "../src/hud.js";
+import { radarRelation } from "../src/targeting-facts.js";
 
 const call = (name, ...args) => ({ name, args });
 const named = (team, name) => call("SetTeamName", team, name);
@@ -139,32 +138,6 @@ test("campfires and drops aren't on the maps and have no hologram; locals' posts
   assert.equal(old.posts[0].mapped, true);
 });
 
-test("the maps leave the campfires out and draw the locals' posts yellow", () => {
-  const { posts, post } = battlefield(MISSIONS.tusken);
-  post("cp3").team = 3;
-  const quads = [], labels = [];
-  const hud = Object.create(BattleHud.prototype);
-  Object.assign(hud, {
-    frame: { center: [150, 0], half: 300 }, mapImage: "map", mapScale: 1, time: 0,
-    player: { position: new THREE.Vector3(150, 0, 0), yaw: 0, team: 1 }, unitSource: [], radar: new RadarUnits(), posts,
-    anchor: () => new THREE.Matrix4(), texture: (name) => name,
-    batch: { quad: (...args) => quads.push(args), quadCorners() {} }, fonts: { draw: (batch, m, x, y, text) => labels.push(text) },
-  });
-  const rgb = (quad) => quad[7].slice(0, 3).map((v) => Math.round(v * 255)).join(" ");
-  const flags = () => quads.filter((quad) => quad[5] === "hud_flag_icon").map(rgb);
-  hud.drawMap();
-  assert.deepEqual(flags(), ["32 223 32", "223 32 32", "223 223 32"], "the minimap: CP1 ours, CP2 theirs, CP3 the raiders'; no campfire");
-  assert.deepEqual(labels, ["CP1", "CP2", "CP3"]);
-  quads.length = labels.length = 0;
-  hud.expanded = true;
-  hud.drawMap();
-  assert.deepEqual(flags(), ["32 223 32", "223 32 32", "223 223 32"]);
-  assert.deepEqual(labels, ["CP1", "CP2", "CP3"], "the M map names no campfire");
-  quads.length = 0;
-  hud.spawnMapPlace = () => ({ x: 0, y: 0, size: 500 });
-  hud.drawSpawnMap({ team: 2, rings: [] });
-  assert.deepEqual(flags(), ["223 32 32", "32 223 32", "223 223 32"], "the CIS spawn screen's map, as the CIS sees it");
-});
 
 const living = (counts) => (team) => counts[team] ?? 0;
 function battle(mission, posts, counts = {}) {
@@ -175,6 +148,7 @@ function battle(mission, posts, counts = {}) {
     relation: (a, b) => units.relation(a, b), living: living(counts) });
 }
 const held = (team, valueBleed = 10) => ({ team, desc: { valueBleed } });
+
 
 test("locals keep coming: no bleed, no countdown, unlimited reinforcements", () => {
   const b = battle(MISSIONS.jawa, [held(1), held(2)]);

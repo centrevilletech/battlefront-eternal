@@ -27,6 +27,8 @@ methods = []
 # Borrowed texture handles are supplied afresh by the caller; only their slots
 # are recorded separately. Frame/pointer/query methods must never be replayed.
 # Replacing a sampled handle is likewise external ownership, not a GL payload.
+# hud_model_* owns CPU-only presentation state outside Renderer. It survives
+# replacement directly; replaying its commands would duplicate clocks/events.
 skip = {'new', 'add_texture', 'near_begin', 'transparent_segment', 'foliage_selected', 'records_at', 'record_stride', 'motion_record_stride', 'motion_records_at', 'transparent_object_stride', 'far_items', 'rebuild', 'frame', 'replace_sample_texture'}
 # Files and declarations define a reproducible API-tag order for coalescing.
 # Never parse the generated replay implementation as another registration API.
@@ -42,7 +44,7 @@ for path in sorted(web.glob('*.rs')):
     # it must not rewrite arbitrary Rust expressions or private helpers.
     for m in re.finditer(r'pub fn (\w+)\((.*?)\)\s*(?:->\s*([^\{]+))?\{', text, re.S):
         name, args, ret = m.group(1), m.group(2), (m.group(3) or '').strip()
-        if name in skip or name.endswith(('_ptr', '_len', '_frame')) or '&mut self' not in args: continue
+        if name.startswith('hud_model_') or name in skip or name.endswith(('_ptr', '_len', '_frame')) or '&mut self' not in args: continue
         parsed = []
         for arg in args.split(','):
             arg = arg.strip()

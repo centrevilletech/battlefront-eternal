@@ -1,5 +1,5 @@
 import { damageDirection } from '../combat-input.js';
-import { radarRelation } from '../hud-units.js';
+import { radarRelation } from '../targeting-facts.js';
 // Damage/death notifications never apply health. Health and dead state remain
 // independently replicated actor state; losing this record cannot revive a body.
 export function feedbackRecord({id,generation,tick,event,native=null}){

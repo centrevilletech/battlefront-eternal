@@ -1,9 +1,10 @@
 # Classic AI HUD
 
-`src/hud-units.js` implements unit visibility, relation colours, reticle
-selection, hit feedback and kill-message selection. `src/hud.js` draws them
-through the existing raster HUD batch. No DOM labels, overhead health bars
-or damage numbers are added.
+`bfe-render::hud_model` owns radar visibility, HUD relationship colours, hit
+feedback, messages, stats and geometry. `src/hud.js` publishes page game facts
+and semantic commands. `src/targeting-facts.js` retains gameplay target queries
+used by the page and headless game. [Battle HUD](hud.md) describes the generated
+boundary and native/shared interface modules.
 
 ## Runtime API
 
@@ -18,8 +19,7 @@ also be an array. Context has:
 - `tickets(team)`: remaining reinforcements.
 - `objects`: optional additional vehicle/turret objects, deduplicated against
   the registry. `classDef.settings` and `def.settings` are supported.
-- `living(team)`, `sensors`: optional overrides for non-hero live counts and
-  sensor circles (`{position: Vector3, radius}`); normally computed locally.
+- `living(team)`: optional foreign living count; normally computed by Rust.
 
 `hud.update(dt, posts, player, battle)` advances all presentation timers and
 the radar. Its existing `player.position/yaw` specify the map centre and
@@ -145,31 +145,14 @@ owns the credit; the HUD only observes the Character counter.
 
 ## Validation
 
-`timeout 40s node --max-old-space-size=1024 --test tests/hud-units.test.js`
-covers relation/death/shot colour, visibility ordering and fades, strict
-sensor boundaries and transmitter reach, pool generations, mounted/removed
-units, non-hero counts, hit-ring mixing, cone ordering, LOS, target masks,
-range overrides, localized kill gating, stat penalties, enemy snapshots and
-map clipping/orientation/draw order. Fixtures are synthetic.
+`tests/hud-units.test.js` covers the remaining gameplay relationship and target
+queries. Native `bfe-render` tests cover radar sensor boundaries/transmitters,
+life-generation resets, visual/authoritative position separation, heading poles,
+health/stat/hit/message clocks, prompt selection, objective capture and frame
+ordering. `rust/bfe-render/tests/hud_frame.rs` counts allocations across complete
+non-empty update/build cycles, including death, layer and overlay frames.
 
-`tests/ai-hud-browser.mjs` uses real Classic actors and the `src/game.js`
-integration: enemy selection, hidden/revealed radar, real combat damage/death
-and human credit, mixed hit feedback, stat and command fades, and an actual
-neutral post capture with two contributors plus a non-contributing hostile
-hero. The latter checks the separate capture-credit loop and 16-bit wrapping.
-It saves `feedback.png`, `faded.png`, `capture.png` and `report.json` under
-`AI_TEST_ARTIFACTS` (default: a `bf-ai-hud` folder in the temp directory). Set
-`PLAYWRIGHT_MODULE` and `AI_TEST_URL` as for the ordinary AI browser test. Bot
-movement is held for deterministic actor placement; the shot event invokes the
-game's real adapter in `src/game.js`, while the damage and capture checks run
-their actual simulation methods.
-
-The fixture runs on Theed with Medium Classic AI. In the capture check the
-counters go from `[0, 0, 65535]` to `[1, 1, 0]` for the player, the allied
-contributor and the hostile non-contributor respectively (the last by 16-bit
-wrapping), and the HUD shows the player's new capture.
-
-## Contract changes
-
-The HUD methods above change no registry or simulation contract.
-`src/game.js` owns event dispatch and reticle collision/projection.
+`tools/hud-corpus/capture.mjs` replaces the former JS-model browser probe with
+fixed-tick frozen-reference captures of the Rust-owned battle HUD. Its fixture
+commands exercise UI presentation; authoritative combat and capture-credit rules
+remain covered by their simulation phase tests. See [Battle HUD](hud.md).
