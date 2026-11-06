@@ -63,7 +63,7 @@ impl<'f> Served<'f> {
             match Vehicle::value_in(h.get("hull"), cx, "extra.hull") {
                 Ok(r) if r == self.refs[k] => {
                     let stored = cx.store.vehicle.get(r).unwrap().clone();
-                    self.fleet[k].load(&stored, &cx.strings);
+                    self.fleet[k].load(&stored);
                 }
                 Ok(_) => self.fail(format!("{}: a call's record names hull {index} by another handle", call.name)),
                 Err(e) => self.fail(e),
