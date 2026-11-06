@@ -76,6 +76,9 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
   for (let i = 0; i < program.uniforms.length; i++) {
     if (!writeUniform(core, out, o + STEP.FIRST + i * UNIFORM, i, program.uniforms[i], material, object, camera)) return false;
   }
+  // Resource commands share this heap. Refresh state views after binding
+  // uniforms as well, before addressing the independent state record.
+  core.views();
   const state = stateOf(material), blend = blendOf(material), s = core.postStates, at = k * STATE.SIZE;
   s.fill(0, at, at + STATE.SIZE);
   s[at + STATE.FLAGS] = (state.flags & 1 ? DEPTH_TEST : 0) | (state.flags & 2 ? DEPTH_WRITE : 0) | (blend[0] ? BLEND : 0) | (geometry ? OWN_GEOMETRY : 0);

@@ -1,37 +1,32 @@
-// A texture's pixels, for the few things that read them on the CPU (lamp
-// detection, a laser's hue). A GPU-compressed texture (textures.js) can't be
-// read back; it names its PNG in userData.png, fetched on first request.
-//
-// Returns { data, width, height } (RGBA bytes), or null while not ready.
+// CPU lamp and hue discovery reads the original PNG, including when the GPU
+// samples compressed blocks. Rust preserves the old Canvas byte conversion;
+// GPU uploads keep straight alpha and never use those converted CPU values.
+import { pngSource, pngCpuPixels, pngImage } from "./texture-images.js";
+import { rendererFailure } from "./rust-render/failure.js";
 const entries = new WeakMap();
-
-function read(image) {
-  const canvas = document.createElement("canvas");
-  canvas.width = image.width;
-  canvas.height = image.height;
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  context.drawImage(image, 0, 0);
-  return { data: context.getImageData(0, 0, image.width, image.height).data, width: image.width, height: image.height };
-}
 
 export function texturePixels(texture) {
   if (!texture) return null;
   const known = entries.get(texture);
+  if (known?.failure) throw known.failure;
   if (known) return known.pixels;
-  const png = texture.userData?.png;
+  const source = pngSource(texture), png = source?.url || texture.userData?.png;
   if (png) {
     const entry = { pixels: null };
+    // Preserve the asynchronous null-until-ready contract used by discovery.
+    // Sampler clones can share decoded pixels without sharing their filters.
     entries.set(texture, entry);
-    fetch(png)
-      .then((response) => (response.ok ? response.blob() : Promise.reject(new Error(response.statusText))))
-      .then((blob) => createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" }))
-      .then((bitmap) => { entry.pixels = read(bitmap); bitmap.close?.(); })
-      .catch((error) => console.warn(`texture pixels: ${png}: ${error.message}`));
+    const ready = source ? pngCpuPixels(source) : pngImage(png, 16384, true);
+    ready.then(image => {
+      entry.pixels = { data: image.data, width: image.width, height: image.height };
+    }).catch(cause => {entry.failure=rendererFailure(null,cause);});
     return null;
   }
+  // Procedural texels are already CPU arrays supplied by presentation. They
+  // have no PNG decode or Canvas conversion; retain their existing row order.
   const image = texture.image;
-  if (!image?.width || !image?.height || texture.isCompressedTexture) return null;
-  const pixels = image.data ? { data: image.data, width: image.width, height: image.height } : read(image);
+  if (!image?.data || !image.width || !image.height || texture.isCompressedTexture) return null;
+  const pixels = { data: image.data, width: image.width, height: image.height };
   entries.set(texture, { pixels });
   return pixels;
 }

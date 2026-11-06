@@ -8,6 +8,8 @@ console.log(`Electron app runtime ${process.versions.electron}, Chromium ${proce
 // A URL followed by another argument is rejected by Electron on Windows.
 const url = process.env.BFE_SMOKE_URL, backend = process.env.BFE_SMOKE_BACKEND;
 const manifests=JSON.parse(fs.readFileSync(process.env.BFE_SMOKE_MANIFESTS,'utf8'));
+// Keep catalog compilation bounded on CI runners and developer machines.
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096');
 app.commandLine.appendSwitch('use-gl', 'angle');
 app.commandLine.appendSwitch('use-angle', backend === 'warp' ? 'd3d11-warp' : backend);
 app.commandLine.appendSwitch('ignore-gpu-blocklist');

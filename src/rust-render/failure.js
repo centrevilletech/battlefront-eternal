@@ -6,7 +6,7 @@ export function rendererFailure(renderer, cause) {
   // even when only its generic renderer string is available to identify it.
   let gpu = "unknown GPU";
   try {
-    const gl = renderer.getContext();
+    const gl = renderer ? renderer.getContext() : (typeof OffscreenCanvas === "function" ? new OffscreenCanvas(1,1).getContext("webgl2") : document.createElement("canvas").getContext("webgl2"));
     const info = gl.getExtension("WEBGL_debug_renderer_info");
     gpu = (info && gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || gpu;
   } catch {}

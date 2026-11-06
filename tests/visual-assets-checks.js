@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RasterHudAssets } from '../src/raster-hud.js';
+import { installResources } from '../src/render-resources.js';
 import { addFabricWind } from '../src/fabric.js';
 import { zeroMaterial, worldMaterial, lighting } from '../src/materials.js';
 import { Graphics } from '../src/graphics.js';
@@ -9,13 +10,18 @@ import { PlayerCombat } from '../src/combat.js';
 export async function checkVisualAssets() {
     const result = [], assert = (name, ok) => { if (!ok) throw new Error(name); result.push(name); };
     const renderer = new THREE.WebGLRenderer(); renderer.setSize(256, 256);
+    await installResources(renderer);
     const original = document.createElement('canvas'); original.width = original.height = 16;
     const texture = new THREE.Texture(original); texture.flipY = false;
     const assets = new RasterHudAssets(renderer); await assets.upgrade(texture, '/common/test.png');
     assert('Raster atlas uploads at 4x with original UV orientation', texture.image.width === 64 && texture.flipY === false);
-    const sample = document.createElement('canvas'); sample.width = sample.height = 64;
-    const context = sample.getContext('2d'); context.drawImage(texture.image, 0, 0);
-    assert('Graded coverage and counters survive loading', context.getImageData(12, 12, 1, 1).data[3] === 128 && context.getImageData(32, 32, 1, 1).data[3] === 0);
+    // Source metadata no longer exposes a browser Image. Inspect the Rust
+    // upload itself by attaching its RGBA storage for a generated readback.
+    const gl=renderer.getContext(),fb=gl.createFramebuffer(),pixels=new Uint8Array(64*64*4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,renderer.properties.get(texture).__webglTexture,0);
+    gl.readPixels(0,0,64,64,gl.RGBA,gl.UNSIGNED_BYTE,pixels);gl.deleteFramebuffer(fb);renderer.setRenderTarget(null);
+    assert('Graded coverage and counters survive loading',pixels[4*(12*64+12)+3]===128&&pixels[4*(32*64+32)+3]===0);
     const image = texture.image; await assets.upgrade(texture, '/common/test.png');
     assert('Repeated requests retain the uploaded atlas', texture.image === image);
     const fallback = new THREE.Texture(original); await assets.upgrade(fallback, '/common/unknown.png');
@@ -42,10 +48,11 @@ export async function checkVisualAssets() {
     renderer.dispose(); target.dispose(); return result;
 }
 
-export function checkWeaponShadows() {
+export async function checkWeaponShadows() {
   const results = [], assert = (name, ok) => { if (!ok) throw new Error(name); results.push(name); };
   const settings = new Settings({ shadows: 'low', antialiasing: 'off', bloom: false, softFocus: false, renderScale: 1, upscaler: 'off' });
   const g = new Graphics(document.body, settings);
+  await g.rustReady;
   g.setMap({ lighting: { sunDirection: [0.4, -1, 0.3], ambient: [70,70,70], sunColor: [180,180,180] }, distance: { nearScene: [40,40,80,80] } });
   const white = new THREE.DataTexture(new Uint8Array([255,255,255,255]), 1, 1); white.needsUpdate = true;
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), zeroMaterial('lit', { map: white }));

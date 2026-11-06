@@ -3,8 +3,8 @@
 // GPU reconstruction for RustRender.rebuild in src/rust-render/index.js.
 // The browser invalidates programs, buffers, VAOs and framebuffer objects
 // on context loss. This journal keeps CPU descriptions, not those handles.
-// The caller first recreates its Three-owned textures and targets, then
-// passes their new texture objects in the old logical slot order.
+// The Rust resource bank first recreates textures and targets, then
+// passes their stable resource ids in the old logical slot order.
 //
 // Constructors remain append-only: replaying the same allocation calls
 // in the same order recreates program/geometry/batch ids. Frame records
@@ -1266,10 +1266,9 @@ impl BfeRenderer {
 }
 #[wasm_bindgen]
 impl BfeRenderer {
-    // Called by RustRender.rebuild after its borrowed texture handles are fresh.
+    // Called by RustRender.rebuild after the Rust image bank has rebuilt its textures.
     // No frame, callbacks, GPU queries or fences may run until this returns Ok.
-    pub fn rebuild(&mut self, context: web_sys::WebGl2RenderingContext, textures: js_sys::Array) -> Result<(), JsValue> {
-        use wasm_bindgen::JsCast;
+    pub fn rebuild(&mut self, context: web_sys::WebGl2RenderingContext, resources: &crate::resources::GpuResources, textures: &[u32]) -> Result<(), JsValue> {
         // Detach the journal before replacing GPU ownership. The old renderer
         // still owns CPU mirrors needed below, but none of its GL handles is valid.
         let saved = std::mem::take(&mut self.recovery);
@@ -1282,7 +1281,7 @@ impl BfeRenderer {
         // bind new dependencies too early and corrupt overlapping buffer edits.
         order.sort_by_key(|&i| saved.commands[i].0);
         for recovery_at in order { match &saved.commands[recovery_at].1 {
-            Command::Texture(slot) => { let texture = textures.get(*slot).dyn_into::<web_sys::WebGlTexture>().map_err(|_| JsValue::from_str("Missing restored texture"))?; self.add_texture(texture); },
+            Command::Texture(slot) => { let texture = *textures.get(*slot as usize).ok_or_else(|| JsValue::from_str("Missing restored texture id"))?; self.add_texture(resources,texture)?; },
             Command::canopies_mesh { geometry, locations, sizes, max } => { let _ = self.canopies_mesh(*geometry, locations, sizes, *max); },
             Command::fx_reserve { floats } => { let _ = self.fx_reserve(*floats); },
             Command::fx_add_owner { tracks, track_rows } => { let _ = self.fx_add_owner(*tracks, *track_rows); },

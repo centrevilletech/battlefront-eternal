@@ -43,15 +43,11 @@ const TYPES = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-// The inline ?noreload script in index.html needs 'unsafe-inline'. The KTX2
-// transcoder (three's basis_transcoder, Emscripten) needs 'wasm-unsafe-eval'
-// and 'unsafe-eval': embind builds its call wrappers with new Function, in
-// the decoding workers, which inherit this policy. Without it every KTX2
-// decode throws and no texture arrives. The renderer is sandboxed, loads
-// nothing from the network, and evaluates no untrusted strings.
+// The inline ?noreload script needs unsafe-inline. Rust modules compile as
+// WebAssembly with wasm-unsafe-eval; no JavaScript string evaluation is needed.
 export const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "media-src 'self' data: blob:",

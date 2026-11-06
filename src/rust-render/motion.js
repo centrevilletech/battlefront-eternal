@@ -246,6 +246,12 @@ class MotionPass {
       instanced.push({ attribute, size });
     }
     // Every uniform it reads has a value the renderer can set.
+    // Extra meshes are independent of colour-pass visibility. Prepare their
+    // samplers before validation and before taking shared motion-input views.
+    if (program) for (const uniform of program.uniforms) if (uniform.type >= 32) {
+      const texture = material.uniforms?.[uniform.name]?.value ?? material[uniform.name];
+      if (texture?.isTexture) core.texture(texture);
+    }
     for (let k = 0; ok && k < program.uniforms.length; k++) ok = writeUniform(core, this.scratch, 0, k, program.uniforms[k], material, mesh, camera);
     if (ok) {
       const g = core.geometry(geometry, { id: program.id, attributes: attributes.filter(([name]) => !perInstance(name)) });

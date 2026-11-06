@@ -73,12 +73,20 @@ export class LocalLights {
     this.now = performance.now() / 1000;
     // Read pixels only once after each source texture finishes loading.
     if (!this.pending.length) return;
-    this.pending = this.pending.filter((item) => {
+    // Decoding can finish out of order, and several meshes can share one
+    // image. Preserve registration order for equal-ranked lamps: their shader
+    // sum must not depend on which worker reply happened to arrive first.
+    // Request every pending image now, but publish only the ready prefix.
+    let completed=0;
+    for(let i=0;i<this.pending.length;i++) {
+      const item=this.pending[i];
       const pixels = texturePixels(item.mesh.material.uniforms?.map?.value);
-      if (!pixels) return true;
+      if (!pixels || i!==completed) continue;
       this.emitters(item, pixels.data, pixels.width, pixels.height);
-      return false;
-    });
+      completed++;
+    }
+    for(let i=completed;i<this.pending.length;i++)this.pending[i-completed]=this.pending[i];
+    this.pending.length-=completed;
   }
 
   emitters({ mesh, lamp, triangles }, data, width, height) {

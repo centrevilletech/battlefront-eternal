@@ -45,6 +45,9 @@ extraResources:
   - from: rust/audio-decode/licenses
     to: legal/audio-codecs
     filter: ["*.txt"]
+  - from: rust/image-codec/licenses
+    to: legal/image-codecs
+    filter: ["*.txt"]
   - from: electron/ui/fonts
     to: legal
     filter: ["OFL.txt"]

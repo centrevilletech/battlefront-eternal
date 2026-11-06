@@ -1,6 +1,6 @@
+import { COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT } from "./render-resources.js";
 import * as THREE from 'three';
 import { lighting } from './materials.js';
-import { drawFramebuffer } from './render-targets.js';
 import { JET_APEX, TIER } from './fountain-jets.js';
 
 const vertexShader=/* glsl */`
@@ -217,16 +217,13 @@ export class FountainWater {
   // The composite samples the opaque colour/depth at its ordered boundary.
   // Copy only once for this frame and only from the main scene target; mirrors
   // have their own inputs and cannot reuse a partially drawn main surface.
-  // Target binding is still owned by Three, while the eventual composite draw
-  // belongs to the required Rust transparent pass.
+  // The Rust resource bank owns the colour/depth copy; the transparent pass
+  // samples it later at this surface's authored position in the draw order.
   capture(renderer,camera){
     const source=renderer.getRenderTarget();if(this.captured||source!==this.graphics.sceneTarget)return;
     this.captured=true;this.surface.setSize(source.width,source.height);
-    const gl=renderer.getContext(),framebuffer=drawFramebuffer(renderer,source);
-    renderer.setRenderTarget(this.surface);renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER,null);
-    renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER,framebuffer);
-    gl.blitFramebuffer(0,0,source.width,source.height,0,0,source.width,source.height,gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT,gl.NEAREST);
-    renderer.setRenderTarget(source);this.material.uniforms.waterResolution.value.set(source.width,source.height);
+    renderer.resources.copy(source,this.surface,COLOR_BUFFER_BIT|DEPTH_BUFFER_BIT);
+    this.material.uniforms.waterResolution.value.set(source.width,source.height);
     this.material.uniforms.cameraRange.value.set(camera.near,camera.far);
   }
   // Start another frame's opaque copy. Basin reflection samples that copy;

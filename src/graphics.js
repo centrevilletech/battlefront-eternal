@@ -7,7 +7,6 @@ import { Bloom, applyValues, fullScreenPass, ownedFullScreenPass } from "./rende
 import { ParticleDepth } from "./particle-depth.js";
 import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
 import { CascadeWindow, planCascades } from "./shadow-cascades.js";
-import { drawFramebuffer } from "./render-targets.js";
 import { RenderProfiler } from "./render-profiler.js";
 import { LocalLights } from "./local-lights.js";
 import { installPointLights } from "./point-lights.js";
@@ -1082,7 +1081,8 @@ export class Graphics {
       shadowPasses: { ...this.shadowPasses },
       timings: this.profiler.report(),
       lampLights: { sources: this.localLights.sources.length, occlusionRays: this.localLights.rays },
-      memory: { ...this.renderer.info.memory },
+      // Native geometry counters remain; texture/target storage belongs to Rust.
+      memory: { ...this.renderer.info.memory, resources: JSON.parse(this.renderer.resources.gpu.memory()) },
       gpu: pageGpu(),
     };
   }

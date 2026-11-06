@@ -61,9 +61,7 @@ test("cover: three's start of a render, the phase, and three's end when every pa
   calls.length = 0;
   assert.equal(core.cover("view", renderer, scene, camera), true);
   assert.equal(after, 1);
-  const blit = calls.find((c) => c[0] === "blitFramebuffer");
-  assert.deepEqual(blit.slice(1), [0, 0, 8, 4, 0, 0, 8, 4, GL.COLOR_BUFFER_BIT, GL.NEAREST]);
-  assert.deepEqual(calls.filter((c) => c[0] === "bindFramebuffer").map((c) => c.slice(1)), [[GL.READ_FRAMEBUFFER, "ms"], [GL.DRAW_FRAMEBUFFER, "fb"], [GL.READ_FRAMEBUFFER, null], [GL.DRAW_FRAMEBUFFER, null], [GL.DRAW_FRAMEBUFFER, "ms"]]);
+  assert.ok(calls.some(c=>c[0]==="resolveTarget"),"the Rust resource owner resolves the target");
   complete = false;
   assert.throws(() => core.cover("view", renderer, scene, camera), /Incomplete Rust/);
   complete = true;
@@ -149,9 +147,7 @@ test("the view scene: three's start of a render, the phase, and three left out w
   assert.equal(core.input[o], 2, "a rigid record");
   assert.deepEqual([core.input[o + 52], core.input[o + 53], core.input[o + 54], core.input[o + 55]].map((v) => +v.toFixed(3)), [0.5, 0.1, 0.2, 0.9]);
   // three's resolve of the multisampled target, as its render ends.
-  const blit = calls.find((c) => c[0] === "blitFramebuffer");
-  assert.deepEqual(blit.slice(1), [0, 0, 8, 4, 0, 0, 8, 4, GL.COLOR_BUFFER_BIT, GL.NEAREST]);
-  assert.deepEqual(calls.filter((c) => c[0] === "bindFramebuffer").map((c) => c.slice(1)), [[GL.READ_FRAMEBUFFER, "ms"], [GL.DRAW_FRAMEBUFFER, "fb"], [GL.READ_FRAMEBUFFER, null], [GL.DRAW_FRAMEBUFFER, null], [GL.DRAW_FRAMEBUFFER, "ms"]]);
+  assert.ok(calls.some(c=>c[0]==="resolveTarget"),"the Rust resource owner resolves the target");
 });
 
 test("the view scene: a part the renderer can't draw leaves three to render the scene, without the parts it drew", () => {
@@ -564,7 +560,7 @@ test("the near scene: Rust draws every registered item", () => {
     .applyMatrix4(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)).z;
   assert.deepEqual([...core.transparentObjects.subarray(0, 6)], [1, 7, 0, 2, z, holo.id]);
   assert.equal(renderer.info.render.frame, 1);
-  assert.ok(calls.some((c) => c[0] === "blitFramebuffer"), "the target resolved");
+  assert.ok(calls.some((c) => c[0] === "resolveTarget"), "the target resolved");
   assert.ok(!calls.some((c) => c[0] === "resetState"), "three's state is reset when three is next used");
   assert.equal(core.stale, true);
 });
@@ -595,8 +591,8 @@ test("phases drawn between three's renders reset three's state once, when three 
   core.phase("hud", renderer, scene, camera, true);
   assert.equal(calls.filter((c) => c[0] === "resetState").length, 0, "none yet");
   assert.equal(core.stale, true);
-  renderer.setRenderTarget(null);
-  assert.deepEqual(calls.slice(-3).map((c) => c[0]), ["resetState", "setRenderTarget", "setRenderTarget"]);
+  core.settle();
+  assert.deepEqual(calls.slice(-2).map((c) => c[0]), ["resetState", "setRenderTarget"]);
   assert.equal(calls.filter((c) => c[0] === "resetState").length, 1, "one for the three phases");
   // A phase drawn inside three's render resets at once.
   calls.length = 0;

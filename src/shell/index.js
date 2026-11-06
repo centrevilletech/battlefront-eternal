@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { installResources } from "../render-resources.js";
 import { InterfaceSurface } from "../interface/index.js";
 import { ScreenStack, ClassicTheme, bindMenuInput, SOUNDS } from "../menus/index.js";
 import { PageTheme } from "../menus/themes/page/index.js";
@@ -167,6 +168,7 @@ export async function createShell({ query = location.search, parent = document.b
   };
   if (!theme) {
     renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    await installResources(renderer);
     renderer.setClearColor(0, 0);
     renderer.domElement.style.cssText = "position:fixed;inset:0;z-index:1;width:100%;height:100%";
     parent.appendChild(renderer.domElement);

@@ -1,6 +1,6 @@
 // Rust draws every cascade: cached static depth, followed by moving casters.
 // The scene walk respects camera layers, frusta, groups and custom depth
-// materials. Three compiles those materials and allocates the depth targets.
+// materials. Three compiles those materials; Rust owns their depth targets.
 import * as THREE from "three";
 import { compileFor } from "./instances.js";
 import { lighting } from "../materials.js";
@@ -214,6 +214,13 @@ class ShadowPass {
     sides.set(depth, depth.side);
     const program = plainProgram(this.core, depth, null);
     if (!program) { this.why = `${depth.name || depth.type}: ${program === undefined ? "not compiled yet" : "program"}`; return; }
+    // Cutout casters can be encountered before their colour pass, especially
+    // during preparation. Register depth-material maps here rather than
+    // assuming another pass already published their logical sampler ids.
+    for (const uniform of program.uniforms) if (uniform.type === SAMPLER && uniform.name !== "boneTexture") {
+      const texture = depth.uniforms?.[uniform.name]?.value ?? depth[uniform.name];
+      if (texture?.isTexture) this.core.texture(texture);
+    }
     // renderBufferDirect's range: the draw range within the group, the index.
     const index = geometry.index;
     if (!index) { this.why = `${object.name || object.type}: no index`; return; }

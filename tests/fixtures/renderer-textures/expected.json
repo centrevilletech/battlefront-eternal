@@ -1,0 +1,200 @@
+[
+  {
+    "file": "opaque.ktx2",
+    "width": 16,
+    "height": 8,
+    "levels": 5,
+    "alpha": false,
+    "uastc": true,
+    "formats": {
+      "bc1": {
+        "bytes": 104,
+        "hash": "fa1cd8fa33be80192d077393bca604482227e65fb92c658eb77e6e749fad1aa6"
+      },
+      "bc3": {
+        "bytes": 208,
+        "hash": "1cbc526ce1923c501695c5307bd31d40037e533228c7ef300335e07c2b91c502"
+      },
+      "bc7": {
+        "bytes": 208,
+        "hash": "80ce659c4cdfd6fc1cbf7a0327e6b922bf77dd637ffe1b3318641cdd7b2ae274"
+      },
+      "astc": {
+        "bytes": 208,
+        "hash": "a230aaa40cfdfdc64c3242fe21e3231bda026212f66ab8a1533fec015a0cc722"
+      },
+      "etc1": {
+        "bytes": 104,
+        "hash": "9e1e48bee319c59d1ae4cf61960b100d4e8e07babba5baffe25ba16472b0d676"
+      },
+      "etc2": {
+        "bytes": 208,
+        "hash": "6fe00013962de5c0f5fea1b4da856a59b0f6afa9615b98b1fe3d32281a345998"
+      },
+      "rgba": {
+        "bytes": 684,
+        "hash": "b6de8ce910817534593e991fd397d6352a15b577f0d2870a4dcc5f37de96d63d"
+      },
+      "pvrtc-rgb": {
+        "bytes": 192,
+        "hash": "4e21cdbdfe15770210da1330c886dddcd361a753dbf89c9cc1c69f2e0eea82c5"
+      },
+      "pvrtc-rgba": {
+        "bytes": 192,
+        "hash": "4e21cdbdfe15770210da1330c886dddcd361a753dbf89c9cc1c69f2e0eea82c5"
+      }
+    }
+  },
+  {
+    "file": "alpha.ktx2",
+    "width": 16,
+    "height": 8,
+    "levels": 5,
+    "alpha": true,
+    "uastc": true,
+    "formats": {
+      "bc1": {
+        "bytes": 104,
+        "hash": "1cb90d4882817ab9c99cbb6aab931a75345962ece1481473bfaa83c766f72627"
+      },
+      "bc3": {
+        "bytes": 208,
+        "hash": "60482b83b41a1aa256b6a748f5eb97f92036f71fd5ca17d7419b8a0b12473b18"
+      },
+      "bc7": {
+        "bytes": 208,
+        "hash": "420ef4ff007ffde684962a2eeadc61da80e0cd22c82b9d6496060e060671ea09"
+      },
+      "astc": {
+        "bytes": 208,
+        "hash": "2af6afcfd46e46cb03404b9a8db7a7535dd0b74ea0899ffa624610d0e39316b0"
+      },
+      "etc1": {
+        "bytes": 104,
+        "hash": "bcbdd23ad2bfec30bf4f4fedb0b8274a47b8cdc28d5731484b9536078f105a1c"
+      },
+      "etc2": {
+        "bytes": 208,
+        "hash": "cff3c207126c68cb8eda5173d3bb1c7ae0f2564ff0dd72a1f8aa0cdddd0f6779"
+      },
+      "rgba": {
+        "bytes": 684,
+        "hash": "518df8551071d5863a540703c4ea7d19738620c11a736c46faded2657be8173b"
+      },
+      "pvrtc-rgb": {
+        "bytes": 192,
+        "hash": "70cd48098817bd5d5e53feec3c1947f0e8206874fa3d725a90905c93eabe1a28"
+      },
+      "pvrtc-rgba": {
+        "bytes": 192,
+        "hash": "48be8a2bd8fca58c88592d5b99d775eb16c29981eaf89604bf1bb0c117e00719"
+      }
+    }
+  },
+  {
+    "file": "opaque-etc1s.ktx2",
+    "width": 13,
+    "height": 7,
+    "levels": 4,
+    "alpha": false,
+    "uastc": false,
+    "formats": {
+      "bc1": {
+        "bytes": 96,
+        "hash": "4ac961c402eea3bf1f734c7914d28b154d59606357ac6ada98fb51483c809959"
+      },
+      "bc3": {
+        "bytes": 192,
+        "hash": "7c4a1df75fffff07ee2f95fa5b0a8fea1113b75271f91ee5e27a0474c64cc6d3"
+      },
+      "bc7": {
+        "bytes": 192,
+        "hash": "d22182366833c0a99491e47cb7a4fd41197ac517606cf5e8742a273443126572"
+      },
+      "etc1": {
+        "bytes": 96,
+        "hash": "4e1dc63bb1438c353a2584ee53c80a3aeb07b59aa183a7a659eb6196f213a208"
+      },
+      "etc2": {
+        "bytes": 192,
+        "hash": "8ecc1c231d0363ab5795eaf84152e930e50f01caa4ba037dcb26e01ca6fbf0bf"
+      },
+      "rgba": {
+        "bytes": 452,
+        "hash": "c0fdb8b15a444a6d71c1c3209bab7af2ba9998f91d5c3e2cc326ea9777d9ccbf"
+      }
+    }
+  },
+  {
+    "file": "alpha-etc1s.ktx2",
+    "width": 13,
+    "height": 7,
+    "levels": 4,
+    "alpha": true,
+    "uastc": false,
+    "formats": {
+      "bc1": {
+        "bytes": 96,
+        "hash": "22d04fe2bba34f9d4b7f465ac416644d35f32147e1610dd7df850de090ae2299"
+      },
+      "bc3": {
+        "bytes": 192,
+        "hash": "92f762d49042b26790c00f2d104dfdcb39a6384dc63e5242f1b2e12b3e8546e0"
+      },
+      "bc7": {
+        "bytes": 192,
+        "hash": "770d821cc50a2aa07e2eebe04b2b7d2a3049f1e66b60ebce6689f6a93242c7db"
+      },
+      "etc1": {
+        "bytes": 96,
+        "hash": "4a706bbd0e8efe9b864d735d5d87974e2b26315807cf43ad661c7c66cf1689b0"
+      },
+      "etc2": {
+        "bytes": 192,
+        "hash": "c8a90b8ac0a69a5d2ecf42453adc77a4127bb41c7990b4198af30b517858cc53"
+      },
+      "rgba": {
+        "bytes": 452,
+        "hash": "8f7e7926ce4b374707ae5cb82b810fef77ff97faa25ae7f356eefa142be891e3"
+      }
+    }
+  },
+  {
+    "file": "alpha-odd.ktx2",
+    "width": 13,
+    "height": 7,
+    "levels": 4,
+    "alpha": true,
+    "uastc": true,
+    "formats": {
+      "bc1": {
+        "bytes": 96,
+        "hash": "0a677e7b857cd99799bb2703a6c9f30a5fc5701557823e9217ad946994766100"
+      },
+      "bc3": {
+        "bytes": 192,
+        "hash": "09f4ba10598fd8a7e070e5b57bfe76b0ab1ff2cecaa07f5b9c83ac72be2c5098"
+      },
+      "bc7": {
+        "bytes": 192,
+        "hash": "96fb65d10920b1c25081b4420b05442748c5b86e1d5e1846cd4d94dbedfc872c"
+      },
+      "astc": {
+        "bytes": 192,
+        "hash": "0acada2a682fb3a6fe32810bd333efb2e9c84a2ce471424f57e3f2905286ba61"
+      },
+      "etc1": {
+        "bytes": 96,
+        "hash": "bad0bdbb14ea20bdd5e3bfa6fba3911687aaf88a4716781fd9030d76c879377e"
+      },
+      "etc2": {
+        "bytes": 192,
+        "hash": "d7b7910907c7345f71106e41a0708ea391f95a699ea7e71f2589926b59dfae23"
+      },
+      "rgba": {
+        "bytes": 452,
+        "hash": "09e7934ee453314d1829ccb03fb080fe4f5fd53010e6a7a3fbb7f087876caaac"
+      }
+    }
+  }
+]

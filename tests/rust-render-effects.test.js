@@ -1,3 +1,4 @@
+import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -92,6 +93,7 @@ function bridge() {
   const background = new THREE.Object3D();
   list.opaque.push({ object: background });
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
+  standinResources(renderer,calls);
   const core = new RustRender(graphics, { memory }, BfeRenderer);
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   // A frame's transparent phase, as the transparent pass runs it.
@@ -614,6 +616,38 @@ test("the steam's wisps and the wake splashes: single-sided batches of fixed see
   } finally {
     particleDepth.map.value = null;
   }
+});
+
+// A target's sampler can be requested before the fountain has ever drawn.
+// The ordinary texture initializer deliberately cannot allocate that target.
+// Hidden fountains must finish registration instead of retrying every frame.
+test("fountain spray registration initializes its cold frame-copy target once", async () => {
+  const { FountainJets } = await import("../src/fountain-jets.js");
+  const { FountainSpray } = await import("../src/fountain-spray.js");
+  const { EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { core, calls, scene, camera, drawn, renderer, fx } = bridge();
+  const jets = new FountainJets(scene, new FountainSpray(new THREE.Group(), new EnvironmentWakes()), core.graphics);
+  delete renderer.properties.get(jets.behind.texture).__webglTexture;
+  let initialized = 0;
+  renderer.initRenderTarget = target => {
+    assert.equal(target, jets.behind);
+    renderer.properties.get(target.texture).__webglTexture = {};
+    initialized++;
+  };
+  const composites = jets.meshes.filter(mesh => mesh.userData.spray);
+  for (const mesh of composites) {
+    drawn(mesh.userData.spray.material, program(["projectionMatrix", "sceneColor"], ["corner", "seed"]));
+    fx.glowList.push({ mesh });
+  }
+  fx.beforeSort(renderer, scene, camera, core.graphics.sceneTarget, []);
+  assert.ok(fx.glowList.every(record => record.volume), "both offscreen spray batches register before drawing");
+  const batches = calls.filter(call => call[0] === "fx_add_batch").length;
+  assert.equal(batches, 2);
+  // A second frame must neither allocate another target nor retry either
+  // shader/attribute registration while the fountain remains invisible.
+  fx.beforeSort(renderer, scene, camera, core.graphics.sceneTarget, []);
+  assert.equal(initialized, 1);
+  assert.equal(calls.filter(call => call[0] === "fx_add_batch").length, batches);
 });
 
 test("the fountains' jets: batches on bases of their own after three's copy of the frame so far; their spray halves composited", async () => {
@@ -1533,7 +1567,7 @@ test("the fountains' water: every mesh drawn with its material a shader model at
   list.transparent.length = 0;
   frame();
   assert.equal(core.fxInput[0], 2, "both drawn by the renderer");
-  assert.equal(blits.length, 1, "the frame so far copied once, by its onBeforeRender");
+  assert.equal(calls.filter(c=>c[0]==="copyTarget").length, 1, "the Rust owner copies the frame once from onBeforeRender");
 });
 
 test('effect capacity overflow stops the frame instead of dropping owners', () => {

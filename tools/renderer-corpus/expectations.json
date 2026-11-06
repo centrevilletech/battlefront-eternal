@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "explanation": "Enhanced soft particles depth-test against the multisampled depth of an opaque instanced prop drawn earlier in the frame. Every draw input that WebGL exposes is identical in both builds: programs, uniforms, buffers, texture contents at every level, sampler and fixed-function state. Disabling the depth test for blended draws makes the builds agree. A few edge pixels of those particles then differ by one level in one channel. Each bound is the largest count measured at any capture point of that case; any other difference, a larger count or a larger channel delta fails.",
+  "bounded": {
+    "balanced-bes1": { "maxPixels": 7, "maxDelta": 1 },
+    "balanced-end1": { "maxPixels": 7, "maxDelta": 1 },
+    "balanced-geo1": { "maxPixels": 16, "maxDelta": 1 },
+    "balanced-hot1": { "maxPixels": 5, "maxDelta": 1 },
+    "balanced-kam1": { "maxPixels": 1, "maxDelta": 1 },
+    "balanced-nab1": { "maxPixels": 1, "maxDelta": 1 },
+    "balanced-yav1": { "maxPixels": 7, "maxDelta": 1 },
+    "high-bes1": { "maxPixels": 7, "maxDelta": 1 },
+    "high-end1": { "maxPixels": 2, "maxDelta": 1 },
+    "high-geo1": { "maxPixels": 28, "maxDelta": 1 },
+    "high-hot1": { "maxPixels": 5, "maxDelta": 1 },
+    "high-kam1": { "maxPixels": 1, "maxDelta": 1 },
+    "high-nab1": { "maxPixels": 1, "maxDelta": 1 },
+    "high-yav1": { "maxPixels": 3, "maxDelta": 1 },
+    "mirror-kam1": { "maxPixels": 1, "maxDelta": 1 }
+  }
+}

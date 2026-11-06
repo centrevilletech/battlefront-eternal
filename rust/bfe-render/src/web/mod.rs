@@ -8,6 +8,7 @@ mod effects;
 mod far;
 mod foliage;
 mod hud;
+mod images;
 mod interface;
 mod instances;
 mod motion;
@@ -75,14 +76,16 @@ impl BfeRenderer {
         self.remember_set_shadow_maps(ids); // recovery
  self.r.core.set_shadow_maps(ids) }
 
-    pub fn add_texture(&mut self, texture: web_sys::WebGlTexture) -> u32 {
+    pub fn add_texture(&mut self, resources: &crate::resources::GpuResources, id: u32) -> Result<u32, JsValue> {
+        let texture = resources.texture(id)?;
         self.remember_texture();
         let key = unsafe { self.r.core.gl.register_external_texture(texture) };
-        self.r.core.add_texture(key)
+        Ok(self.r.core.add_texture(key))
     }
 
     // The journal keeps the logical id; restoration receives its current handle.
-    pub fn replace_sample_texture(&mut self, id: u32, texture: web_sys::WebGlTexture) -> Result<(), JsValue> {
+    pub fn replace_sample_texture(&mut self, id: u32, resources: &crate::resources::GpuResources, source: u32) -> Result<(), JsValue> {
+        let texture = resources.texture(source)?;
         let key = unsafe { self.r.core.gl.register_external_texture(texture) };
         let old = self.r.replace_sample_texture(id as usize, key).map_err(|e| JsValue::from_str(&e))?;
         self.r.core.gl.unregister_external_texture(old);

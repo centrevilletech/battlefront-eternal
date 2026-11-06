@@ -1,0 +1,4 @@
+{
+  "mesaCodes": ["SNB", "ILK", "ELK", "CTG", "CL", "BW"],
+  "mesaNames": ["Sandybridge", "Ironlake", "G45", "GM45", "G41", "Q45", "Q43", "B43", "965", "G35"]
+}

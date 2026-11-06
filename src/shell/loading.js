@@ -3,6 +3,8 @@ import { CanvasFonts, tint } from "./text.js";
 import { LoadingSound } from "./loading-audio.js";
 import { Settings } from "../settings.js";
 import { themeOf } from "../menus/themes/page/looks.js";
+import { pngCanvas } from "../texture-decode.js";
+import { rendererFailure } from "../rust-render/failure.js";
 
 // The loading screen, shown over the battle page while the map loads, as the
 // original's LoadDisplay draws it (Load/load.lvl and Load/<map>.lvl;
@@ -346,13 +348,10 @@ function recolor(image, { segments, ring }, i) {
   return copy;
 }
 
-// A picture as an ImageBitmap, or null (a missing file is Vite's index page).
+// A decoded image surface, or null when the optional picture is unavailable.
 function bitmap(url) {
   if (!url) return Promise.resolve(null);
-  return fetch(url)
-    .then((r) => (r.ok && !/text\/html/.test(r.headers.get("content-type") || "") ? r.blob() : Promise.reject(new Error(url))))
-    .then((blob) => createImageBitmap(blob))
-    .catch(() => null);
+  return pngCanvas(url).catch(cause=>{throw rendererFailure(null,cause);});
 }
 
 // The screen itself: its pictures, art and timeline, drawn onto a 2D
@@ -728,6 +727,19 @@ export function createLoadingScreen({ query = location.search, parent = document
 
   let progress = 0;
   let closed = false;
+  // Asset failure stops handover and stays visible above the loading canvas.
+  // A worker reports its cause to the page; neither path starts an empty view.
+  let assetsReady,assetsFailed;
+  const assets=new Promise((resolve,reject)=>{assetsReady=resolve;assetsFailed=reject;});
+  assets.catch(()=>{});
+  function fail(cause){
+    const error=rendererFailure(null,cause);
+    assetsFailed(error);
+    const message=document.createElement("pre");
+    message.textContent=error.message;
+    message.style.cssText="position:fixed;inset:10%;z-index:30;white-space:pre-wrap;color:white;background:#111;padding:2em";
+    parent.append(message);
+  }
   const screen = {
     canvas,
     // The look the disk is drawn in (LOOKS).
@@ -759,7 +771,7 @@ export function createLoadingScreen({ query = location.search, parent = document
     // isn't drawn under it until its last two frames (game.unveil()).
     done(game) {
       report("shaders");
-      const loaded = game?.loaded ? game.loaded() : Promise.resolve(game?.ready);
+      const loaded = Promise.all([assets,game?.loaded ? game.loaded() : Promise.resolve(game?.ready)]);
       return handover({
         loaded,
         onReady: () => report("ready"),
@@ -784,6 +796,7 @@ export function createLoadingScreen({ query = location.search, parent = document
   // on the audio clock first.
   function go(plan) {
     if (closed || screen.start !== null) return;
+    assetsReady();
     const start = clock() + LEAD * 1000;
     screen.plan = plan;
     screen.start = start;
@@ -807,16 +820,14 @@ export function createLoadingScreen({ query = location.search, parent = document
       } else if (message.type === "state") {
         screen.sequence = message.state;
         screen.frames = message.state.frames;
-      }
+      } else if(message.type==="error")fail(new Error(message.message));
     };
+    thread.onerror=event=>fail(new Error(event.message||"Loading-screen worker failed"));
     send = (message) => thread.postMessage(message);
     stop = () => thread.terminate();
   } else {
     const view = new LoadingView(map, { look });
-    view.load().then(go, (error) => {
-      console.warn(`loading screen: ${error.message}`);
-      go(view.plan());
-    });
+    view.load().then(go,fail);
     const halt = runView(view, canvas, size);
     const poll = setInterval(() => { screen.sequence = view.state(); screen.frames = view.frames; }, 100);
     send = (message) => {

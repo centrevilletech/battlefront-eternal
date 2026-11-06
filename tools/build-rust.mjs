@@ -8,7 +8,7 @@
 // running the game needs no Rust; CI rebuilds them with --check and fails
 // when a byte differs (docs/development.md, "The Rust parts").
 //
-//   node tools/build-rust.mjs [sim] [audio] [codec] [renderer]
+//   node tools/build-rust.mjs [sim] [audio] [codec] [renderer] [textures]
 //                                                  build (all by default)
 //                                                  and write them into src/
 //   node tools/build-rust.mjs --check [...]        build and compare with
@@ -92,12 +92,37 @@ function checkBindgen() {
 // The crate's .wasm, named after its library (`lib`, when the crate names
 // it otherwise than itself).
 function cargoBuild(crate, env, lib = crate) {
+  if (crate === 'texture-codec') {
+    // The vendored Basis C++ boundary uses the same compiler on every wasm
+    // build. Normalize source paths just as rustc does, including libc++'s
+    // headers in Cargo's registry; host paths must not enter committed bytes.
+    env = { ...env };
+    for (const name of Object.keys(env)) if (/^(CC|CXX|AR|CFLAGS|CXXFLAGS)(_|$)/.test(name)) delete env[name];
+    const compiler = run('clang-20', ['--version'], { env, encoding: 'utf8' });
+    if (!compiler.includes('version 20.1.2')) throw Error('Renderer builds require Clang 20.1.2 (docs/development.md)');
+    env.CC_wasm32_unknown_unknown = 'clang-20';
+    env.CXX_wasm32_unknown_unknown = 'clang++-20';
+    env.AR_wasm32_unknown_unknown = 'llvm-ar-20';
+    const paths = `-ffile-prefix-map=${ROOT}=/source -ffile-prefix-map=${process.env.CARGO_HOME || join(homedir(), '.cargo')}=/cargo`;
+    env.CFLAGS_wasm32_unknown_unknown = paths;
+    env.CXXFLAGS_wasm32_unknown_unknown = paths;
+  }
   run('cargo', ['build', '--release', '--locked', '--target', 'wasm32-unknown-unknown', '--target-dir', TARGET, '-p', crate,
     ...(process.env.CARGO_JOBS ? ['-j', process.env.CARGO_JOBS] : [])], { env, stdio: 'inherit' });
   return join(TARGET, 'wasm32-unknown-unknown', 'release', `${lib.replaceAll('-', '_')}.wasm`);
 }
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+// Renderer and codec artifacts use identical bindgen settings. A separate
+// module keeps Basis tables out of the drawer and PNG-only worker heaps.
+function stageBindgen(wasm) {
+  checkBindgen();
+  const out = join(STAGE, this.path);
+  rmSync(out, { recursive: true, force: true });
+  run('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', out, wasm], { stdio: 'inherit' });
+  new WebAssembly.Module(readFileSync(join(out, `${this.lib.replaceAll('-', '_')}_bg.wasm`)));
+}
 
 // Each artifact: the crate, what it puts in src/ (a file, or a folder), and
 // how its staged copy is made.
@@ -195,13 +220,22 @@ ${lines.map((line) => `  "${line}"`).join(',\n')}
     folder: true,
     // wasm-bindgen's ES module and the .wasm it fetches (by a URL relative
     // to the module, which Vite turns into a hashed asset).
-    stage(wasm) {
-      checkBindgen();
-      const out = join(STAGE, this.path);
-      rmSync(out, { recursive: true, force: true });
-      run('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', out, wasm], { stdio: 'inherit' });
-      new WebAssembly.Module(readFileSync(join(out, 'bfe_render_bg.wasm')));
-    },
+    lib: 'bfe_render',
+    stage: stageBindgen,
+  },
+  images: {
+    crate: 'image-codec',
+    lib: 'bfe_image',
+    path: 'image-pkg',
+    folder: true,
+    stage: stageBindgen,
+  },
+  textures: {
+    crate: 'texture-codec',
+    lib: 'bfe_texture',
+    path: 'texture-pkg',
+    folder: true,
+    stage: stageBindgen,
   },
 };
 
@@ -213,6 +247,7 @@ export async function main(args) {
   const check = args.includes('--check');
   // (rays and anim, the crates rust/sim took in, name it too.)
   const names = [...new Set(args.filter((arg) => arg !== '--check').map((arg) => (arg === 'rays' || arg === 'anim' ? 'sim' : arg)))];
+  if (names.includes('renderer')) for (const name of ['textures','images']) if (!names.includes(name)) names.push(name);
   for (const name of names) if (!ARTIFACTS[name]) throw Error(`usage: node tools/build-rust.mjs [--check] [${Object.keys(ARTIFACTS).join('] [')}]`);
   const env = cargoEnv();
   const rustc = rustcVersion(env);

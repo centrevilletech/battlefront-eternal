@@ -231,6 +231,12 @@ class ViewPass {
       input[o + D.SIDES] = record.sides.length; input[o + D.SIDES + 1] = record.sides[0]; input[o + D.SIDES + 2] = record.sides[1] ?? 0;
       input[o + D.RANGE] = first; input[o + D.RANGE + 1] = last - first;
       input[o + D.UNIFORMS] = program.uniforms.length;
+      // Built-in view materials store maps as fields, shader shells in
+      // uniforms. Publish both before writing their scalar draw record.
+      for(const uniform of program.uniforms)if(uniform.type>=32){
+        const texture=material.uniforms?.[uniform.name]?.value ?? material[uniform.name];
+        if(texture?.isTexture)core.texture(texture);
+      }
       let failed = null;
       for (let k = 0; k < program.uniforms.length && !failed; k++) if (!writeUniform(core, input, o + D.FIRST + k * UNIFORM, k, program.uniforms[k], material, mesh, camera)) failed = program.uniforms[k].name;
       if (failed) {

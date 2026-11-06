@@ -44,8 +44,8 @@ jobs:
     # rust/rust-toolchain.toml pins and fails when a committed byte differs,
     # keeping the rebuilt files as the run's rust-generated artifact
     # (docs/development.md, "The Rust parts").
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -56,6 +56,10 @@ jobs:
           cache: npm
       - name: Install JavaScript dependencies for the Rust test oracles
         run: npm ci
+      - name: Pinned renderer C++ compiler
+        # Freeze the Ubuntu archive as well as the package versions. New LLVM
+        # point releases must not change committed C++ WebAssembly bytes.
+        run: bash build/install-render-compiler.sh
       - name: The Rust toolchain rust/rust-toolchain.toml pins
         working-directory: rust
         run: rustup toolchain install
@@ -80,7 +84,7 @@ jobs:
         # The content BVH oracle uses the installed three and three-mesh-bvh.
         # sim-replay's format test has Node write a made-up capture; the
         # replays of real battles need game data, so they pass empty here.
-        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p bfe-environment -p audio-control --features sim/replay
+        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control --features sim/replay
       - name: Keep the rebuilt files
         if: failure()
         uses: actions/upload-artifact@v7

@@ -99,6 +99,12 @@ the context-loss case on it. `BFE_APP_URL` defaults to the desktop application.
 The runner must propagate capture failures. Use Node with built-in fetch and
 WebSocket. No content is distributed with the corpus.
 
+Comparison is exact for every byte. The only exceptions are the named cases in
+`tools/renderer-corpus/expectations.json`, each with its measured pixel count,
+channel delta and the explanation of where the difference comes from. A bound
+applies to that case's candidate only: its control stays exact, and a larger
+count or delta fails. The summary records the expectations file's hash.
+
 The manifest freezes all 17 maps at Classic/Balanced/High, valid first-person
 player queries, requested 2x MSAA, four walking/turning points and four history
 frames. Supplemental cases cover Ultra water and mirrors, upscaling and context

@@ -15,21 +15,23 @@ const {RustRender}=await import('../src/rust-render/index.js');
 // A retained draw can outlive image decode. Its sampler id must not move when
 // the transparent placeholder is replaced by the texture owner's real handle.
 // Checking only the texture registry size would miss a stale bound sampler.
-test('a lazy image keeps its Rust texture id when its transparent sample is replaced', () => {
- const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,handle){calls.push(['replace_sample_texture',id,handle]);}}});
- const {renderer,graphics}=standinThree(calls),image=new THREE.Texture();
- const props=renderer.properties.get(image);delete props.__webglTexture;
- let ready=false;
- renderer.initTexture=texture=>{if(texture===image&&!ready)return;const p=renderer.properties.get(texture);p.__webglTexture??={};p.__version=texture.version;};
- const core=new RustRender(graphics,{memory},BfeRenderer),id=core.texture(image);
- assert.ok(id>=0);assert.equal(core.texture(image),id);assert.equal(core.pendingTextures.length,1);
- const pixel=core.textureSources[id],oldHandle=renderer.properties.get(pixel).__webglTexture;
- assert.deepEqual([...pixel.image.data],[0,0,0,0]);
- image.image={width:2,height:2};image.needsUpdate=true;ready=true;
- core.refreshTextures();
- assert.equal(core.texture(image),id);assert.equal(core.textureSources[id],image);assert.equal(core.pendingTextures.length,0);
- assert.deepEqual(calls.find(c=>c[0]==='replace_sample_texture'),['replace_sample_texture',id,props.__webglTexture]);
- assert.equal(core.textures.has(oldHandle),false);
+test('a lazy source replaces its retained Rust binding without changing the draw id',()=>{
+ const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,owner,resource){calls.push(['replace_sample_texture',id,owner,resource]);}}});
+ const {renderer,graphics}=standinThree(calls),texture=new THREE.Texture();
+ const placeholder={},decoded={};renderer.properties.get(texture).__webglTexture=placeholder;
+ let ready=false,resolutions=0;
+ renderer.initTexture=t=>{resolutions++;const p=renderer.properties.get(t);p.__webglTexture=ready?decoded:placeholder;p.__version=t.version;};
+ const core=new RustRender(graphics,{memory},BfeRenderer),id=core.texture(texture);
+ for(let i=0;i<1000;i++)assert.equal(core.texture(texture),id);
+ assert.equal(resolutions,1,'ordinary draws do not re-enter the resource resolver');
+ texture.image={width:2,height:2};texture.needsUpdate=true;ready=true;
+ assert.equal(core.texture(texture),id);assert.equal(core.textureSources[id],texture);
+ assert.equal(calls.filter(c=>c[0]==='add_texture').length,1);
+ assert.deepEqual(calls.find(c=>c[0]==='replace_sample_texture'),['replace_sample_texture',id,renderer.resources.gpu,0]);
+ assert.equal(core.textures.has(placeholder),false);assert.equal(core.textures.get(decoded),id);
+ // RenderTarget.setSize changes dimensions without incrementing Texture.version.
+ // That descriptor change must bypass the draw lookup cache before a copy.
+ texture.image.width=4;assert.equal(core.texture(texture),id);assert.equal(resolutions,3);
 });
 
 // Grow actual WebAssembly.Memory inside add_texture, detaching old views.
@@ -85,7 +87,7 @@ test('a screen pass prepares a pending image before taking shared views',async()
 // Changing one sampler can split them later, so ids belong to texture objects.
 // Only the changed clone's retained binding may be replaced.
 test('texture clones keep independent Rust bindings when a sampler change replaces one native handle', () => {
- const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,handle){calls.push(['replace_sample_texture',id,handle]);}}});
+ const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,owner,resource){calls.push(['replace_sample_texture',id,owner,resource]);}}});
  const {renderer,graphics}=standinThree(calls),first=new THREE.Texture({width:1,height:1}),second=first.clone();
  const shared={};
  renderer.properties.get(first).__webglTexture=shared;
@@ -94,23 +96,23 @@ test('texture clones keep independent Rust bindings when a sampler change replac
  assert.notEqual(a,b);
  assert.equal(core.texture(first),a);
  const replacement={};second.needsUpdate=true;
- renderer.initTexture=texture=>{const props=renderer.properties.get(texture);props.__webglTexture=replacement;props.__version=texture.version;};
+ renderer.initTexture=texture=>{const props=renderer.properties.get(texture);if(props.__version!==texture.version)props.__webglTexture=replacement;props.__version=texture.version;};
  assert.equal(core.texture(second),b);
  assert.equal(core.texture(first),a);
- assert.deepEqual(calls.filter(c=>c[0]==='replace_sample_texture'),[['replace_sample_texture',b,replacement]]);
+ assert.deepEqual(calls.filter(c=>c[0]==='replace_sample_texture'),[['replace_sample_texture',b,renderer.resources.gpu,renderer.resources.textureId(second)]]);
 });
 
 // A filtering revision may replace handles without changing source images.
 // Refresh registered samples before submitting any phase that still uses them.
 // The already retained ids and geometry must remain usable across that epoch.
 test('an anisotropy revision uploads and rebinds retained static texture samples before drawing', () => {
- const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,handle){calls.push(['replace_sample_texture',id,handle]);}}});
+ const {BfeRenderer,memory,calls}=standinModule({methods:{replace_sample_texture(id,owner,resource){calls.push(['replace_sample_texture',id,owner,resource]);}}});
  const {renderer,graphics}=standinThree(calls),texture=new THREE.Texture({width:1,height:1});
  const core=new RustRender(graphics,{memory},BfeRenderer),id=core.texture(texture),replacement={};
  texture.needsUpdate=true;graphics.textureRevision=1;
  renderer.initTexture=t=>{const p=renderer.properties.get(t);p.__webglTexture=replacement;p.__version=t.version;};
  core.phase('post',renderer,new THREE.Scene(),new THREE.Camera());
  assert.equal(core.texture(texture),id);
- assert.deepEqual(calls.find(c=>c[0]==='replace_sample_texture'),['replace_sample_texture',id,replacement]);
+ assert.deepEqual(calls.find(c=>c[0]==='replace_sample_texture'),['replace_sample_texture',id,renderer.resources.gpu,renderer.resources.textureId(texture)]);
  assert.ok(calls.findIndex(c=>c[0]==='replace_sample_texture')<calls.findIndex(c=>c[0]==='post_frame'));
 });

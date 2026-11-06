@@ -42,7 +42,6 @@ export class InterfacePass {
     this.frustum.setFromProjectionMatrix(this.screen);
     this.frame++; this.count = 0;
     this.walk(scene, camera, 0);
-    core.refreshTextures();
     // Resource creation may touch VAOs, textures or framebuffer bindings. Restore
     // the host's target once before handing the whole ordered packet to Rust.
     core.stale = true;

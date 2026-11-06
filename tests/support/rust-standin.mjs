@@ -141,7 +141,7 @@ export function standinThree(calls, { graphics: extra = {}, context = standinCon
     properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },
     initRenderTarget() {},
     compile() {},
-    initTexture(texture) { calls.push(["initTexture", texture.name]); properties.get(texture).__version = texture.version; },
+    initTexture(texture) { calls.push(["initTexture", texture.name]); renderer.properties.get(texture).__version = texture.version; },
     shadowMap: { enabled: false },
     state: { bindFramebuffer: (t, fb) => calls.push(["bindFramebuffer", t, fb]) },
     getRenderTarget: () => target,
@@ -153,9 +153,29 @@ export function standinThree(calls, { graphics: extra = {}, context = standinCon
     getViewport: (v) => v.set(0, 0, 400, 300),
     getPixelRatio: () => 2,
   };
+  standinResources(renderer,calls);
   const graphics = {
     renderer, scene, camera, farScene: new THREE.Scene(), farCamera: camera, viewScene: new THREE.Scene(), sceneTarget, farTarget,
     background: new THREE.Object3D(), settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null, ...extra,
   };
   return { renderer, graphics, scene, camera, list, properties: renderer.properties, setTarget: (t) => { target = t; } };
+}
+
+// Presentation tests isolate the command boundary from real WebGL storage.
+// Backend smoke tests exercise GpuResources itself, including restore/copies.
+export function standinResources(renderer, calls) {
+  const ids = new WeakMap(); let next = 0;
+  const owner = {
+    gpu: { epoch: () => 0, retired_sample: () => next++ },
+    owns: texture => ids.has(texture),
+    textureId(texture) {
+      renderer.initTexture(texture);
+      if (!ids.has(texture)) ids.set(texture,next++);
+      return ids.get(texture);
+    },
+    resolve(target) { if (target?.samples) calls.push(["resolveTarget",target]); },
+    copy(source,target,mask,mipmaps=false) { calls.push(["copyTarget",source,target,mask,mipmaps]); },
+    beforeInterface() {},
+  };
+  renderer.resources=owner; return owner;
 }

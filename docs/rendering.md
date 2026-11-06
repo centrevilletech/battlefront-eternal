@@ -5,7 +5,7 @@ scene dissolve, map blur, and HUD ordering are preserved. Bloom, FXAA, and soft
 particle intersections are optional additions.
 
 Rust is the required battle drawer on the shared WebGL2 context. Three.js
-still provides shader compilation, textures, targets and scene objects, but
+still provides unported shader compilation and scene/resource descriptors, but
 cannot submit battle draws. The runtime draw guard rejects accidental three.js
 render calls; only the explicitly listed menu, spawn-screen and scoreboard
 preview scenes retain their interface renderer. Module or shader-link failure
@@ -13,6 +13,35 @@ stops the battle with the GPU name and error. Context loss suspends drawing;
 restoration rebuilds Rust's GPU resources and resumes the same battle.
 Tow cables and flight/navigation helpers also draw through Rust, preserving
 line strips, segments, loops, vertex colours and dynamic buffer updates.
+
+## Texture and target ownership
+
+Rust decodes PNG rows and lossless WebP HUD atlases in a decoder-only worker
+module; Basis tables load separately for KTX2 content. Completed images awaiting
+paced upload have a bounded queue. A declared asset failure stops loading with
+the GPU name and cause, rather than choosing another image format.
+It keeps the original gamma-space values, authored compressed mip chain and
+premultiplied-alpha flag. Format selection preserves the old capability order,
+including BC1/BC3 instead of BC7 on drivers that unpack BC7 into RGBA storage.
+CPU texture reads use the same PNG decoder with the original Canvas rounding.
+
+The Rust resource bank creates and uploads textures, applies filtering, wrap,
+flip, anisotropy and depth comparison, and owns framebuffer/renderbuffer storage.
+It binds far/near, shadow, post, temporal, particle-depth, mirror and probe targets,
+resolves MSAA and performs color/depth copies. Three Texture/RenderTarget objects
+remain CPU descriptors. The retained interface drawer borrows initialized Rust
+handles and cannot allocate their storage. Loading-screen canvas composition and
+the frontend video's separate sharpening context remain host presentation.
+
+Sampler clones share source storage while their settings agree. A changed sampler
+can split without moving its logical draw id. PNG sources retain encoded bytes
+rather than a second full RGBA copy; compressed sources retain one block chain.
+The bank detaches consumed PNG transport buffers after retaining encoded bytes
+and after the first upload. Unused interface preloads keep their initial rows
+until that upload; CPU discovery keeps its separate pixel arrays.
+Dynamic arrays use subimage updates. Restore reacquires context extensions, rebuilds
+source images and attachments, then replays draw registrations using stable ids.
+No image decoding, upload or target allocation falls back to three.js.
 
 ## Findings and fixes
 
@@ -1082,7 +1111,7 @@ costs:
   to the render worker through a `MessageChannel`, which is the right
   shape: page = input, audio, DOM; worker A = world; worker B = scene and
   draw.
-- `graphics.js`, `hud.js`, `textures.js`, `raster-hud.js`, `vector-hud.js`
+- `graphics.js`, `hud.js`, `textures.js`, `raster-hud.js`
   and the menus read `window`, `document`, `localStorage`, `Image`
   elements and `requestAnimationFrame`. Workers have `OffscreenCanvas`,
   `createImageBitmap`, `fetch` and `requestAnimationFrame` (Chromium and

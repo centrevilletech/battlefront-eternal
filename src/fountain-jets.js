@@ -1,7 +1,7 @@
+import { COLOR_BUFFER_BIT } from "./render-resources.js";
 import * as THREE from 'three';
 import { lighting } from './materials.js';
 import { particleDepth } from './particle-depth.js';
-import { drawFramebuffer } from './render-targets.js';
 
 // A fountain in Enhanced: the stock plume's size and timing, drawn as water
 // lit by the scene. The stock jet (effects.json `waterfountain`, its water1
@@ -1233,17 +1233,10 @@ export class FountainJets {
     if (source !== this.graphics.sceneTarget) return false;
     if (this.captured) return true;
     this.captured = true;
-    const { width, height } = source, gl = renderer.getContext();
-    this.behind.setSize(width, height);
-    renderer.setRenderTarget(this.behind);
-    renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, drawFramebuffer(renderer, source));
-    gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-    // A blit leaves the smaller mipmaps stale.
-    renderer.state.bindTexture(gl.TEXTURE_2D, renderer.properties.get(this.behind.texture).__webglTexture);
-    gl.generateMipmap(gl.TEXTURE_2D);
-    renderer.state.unbindTexture();
-    renderer.setRenderTarget(source);
+    const { width, height } = source;
+    this.behind.setSize(width,height);
+    // The copied base image and its blurred mips form one Rust resource step.
+    renderer.resources.copy(source,this.behind,COLOR_BUFFER_BIT,true);
     this.core.material.uniforms.sceneResolution.value.set(width, height);
     return true;
   }

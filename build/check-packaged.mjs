@@ -26,10 +26,11 @@ for (const archive of files) {
   console.log('Packaged resources verified:', archive);
   const resources = dirname(archive), app = dirname(resources);
   for (const file of ['server/src/main.js', 'server/src/udp-server.js', 'server/node_modules/ws/package.json', 'engine/src/game.js', 'engine/src/net/endpoint.js', 'engine/node_modules/three/package.json']) if (!existsSync(join(resources, 'host-runtime', file))) throw Error(`Missing bundled host resource ${file}`);
-  if (existsSync(join(resources, 'host-runtime/engine/src/rust-pkg'))) throw Error('The host runtime must not carry the Rust renderer');
+  for (const folder of ['rust-pkg','texture-pkg','image-pkg']) if (existsSync(join(resources, 'host-runtime/engine/src',folder))) throw Error(`The host runtime must not carry browser codecs or GPU modules (${folder})`);
   for (const stack of ['node-datachannel', 'werift']) if (existsSync(join(resources, 'host-runtime/server/node_modules', stack))) throw Error(`Host package must not contain the retired WebRTC stack (${stack})`);
   if (!existsSync(join(resources, 'tools/content-version.json'))) throw Error('Missing preparation version resource');
   for (const file of ["Claxon.txt", "Opus.txt"]) if (!existsSync(join(resources, "legal", "audio-codecs", file))) throw Error(`Missing codec license ${file}`);
+  for(const file of ['Basis-Universal.txt','Zstandard.txt','Basisu-Wasm-Libcxx.txt','Musl.txt','Libcxx.txt','Libcxxabi.txt','Compiler-rt.txt','Blue-Oak-Signal.txt','Nanoprintf.txt','Png.txt','Image-Webp.txt','adler2.txt','bitflags.txt','byteorder-lite.txt','cfg-if.txt','crc32fast.txt','fdeflate.txt','flate2.txt','miniz_oxide.txt','quick-error.txt','simd-adler32.txt'])if(!existsSync(join(resources,'legal/image-codecs',file)))throw Error(`Missing image codec license ${file}`);
   // The updater reuses an installed build's files by this index (build/tree-index.cjs).
   if (!existsSync(join(resources, 'bfe-tree.json'))) throw Error('Missing the build file index (resources/bfe-tree.json)');
   // Cross-built Windows archives receive all structural checks above.

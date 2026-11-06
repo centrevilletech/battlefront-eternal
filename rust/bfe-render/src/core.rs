@@ -425,13 +425,24 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         (self.textures.len() - 1) as u32
     }
 
-    // Pending image uploads replace a transparent sample with its real handle.
-    // Target attachments are allocated before registration and never use this.
+    // Logical samples survive immutable image/depth storage replacement. FBO
+    // cache rows also keep their ids, because retained passes address them;
+    // rebuild their GL attachments before the next shadow draw or depth copy.
     pub fn replace_sample_texture(&mut self, id: usize, texture: C::Texture) -> Result<C::Texture, String> {
         let old = *self.textures.get(id).ok_or("Unknown sample texture")?;
         self.textures[id] = texture;
         if self.far_map == Some(old) { self.far_map = Some(texture); }
         for map in &mut self.shadow_maps { if *map == old { *map = texture; } }
+        if old != texture {
+            for i in 0..self.framebuffers.len() {
+                let (color, depth, previous) = self.framebuffers[i];
+                if color == Some(id as u32) || depth == Some(id as u32) {
+                    let replacement = self.make_framebuffer(color, depth)?;
+                    unsafe { self.gl.delete_framebuffer(previous); }
+                    self.framebuffers[i].2 = replacement;
+                }
+            }
+        }
         self.state.reset();
         Ok(old)
     }
@@ -806,6 +817,15 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         if let Some(i) = self.framebuffers.iter().position(|f| f.0 == color && f.1 == depth) {
             return Ok(i as u32);
         }
+        let fb = self.make_framebuffer(color, depth)?;
+        self.framebuffers.push((color, depth, fb));
+        Ok((self.framebuffers.len() - 1) as u32)
+    }
+
+    // Storage replacement uses the same attachment rules as first creation.
+    // Delete the obsolete FBO only once its replacement is complete, so failed
+    // GPU allocation cannot leave a live cache row pointing at a deleted name.
+    fn make_framebuffer(&mut self, color: Option<u32>, depth: Option<u32>) -> Result<C::Framebuffer, String> {
         let gl = &self.gl;
         let texture = |id: Option<u32>| id.and_then(|i| self.textures.get(i as usize).copied());
         unsafe {
@@ -827,9 +847,8 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
                 gl.delete_framebuffer(fb);
                 return Err(format!("framebuffer incomplete: 0x{status:x}"));
             }
-            self.framebuffers.push((color, depth, fb));
+            Ok(fb)
         }
-        Ok((self.framebuffers.len() - 1) as u32)
     }
 
     // One of the renderer's framebuffers (None: the canvas's) on a target.

@@ -300,7 +300,7 @@ world space rather than view space.
   of a copy of it; FXAA reads its five-pixel cross before the diagonals.
 - **FXAA (FAST)** (`fxaa.js`): FXAA 3.11's console path, 2.9 ms against 7.6
   at 960x540. The Performance preset uses it.
-- **BC1/BC3 where BC7 is unpacked** (`textures.js`, `gpu-info.js`):
+- **BC1/BC3 where BC7 is unpacked** (`rust/bfe-render/src/texture_format.rs`, `gpu-info.js`):
   `unpacksBc7` matches Mesa's names for Intel before Ivy Bridge. GPU memory
   for a map fell by about 80 MB and the near scene by 0.8 ms.
 - **Audio:** on a PC with 4 GB or less, decoded stream audio is kept for two
@@ -987,7 +987,8 @@ Cross-build pixel checks use `tools/renderer-corpus.mjs --against` with a frozen
 reference dist. Each case runs a reference session, another reference session
 as a noise control, and a candidate session at the same seed and ticks. A noisy
 control fails the comparison instead of increasing the allowed candidate
-error. The corpus includes all 17 maps at Classic, Balanced and High plus the
+error. Named per-case bounds (`tools/renderer-corpus/expectations.json`) are
+the only accepted candidate differences. The corpus includes all 17 maps at Classic, Balanced and High plus the
 first-person, water, mirror, upscaling and context-restoration cases. Farm
 correctness runs are not performance measurements; load and frame timings must
 come from local emulator slots or physical hardware.
@@ -1280,3 +1281,40 @@ against 1.17 on Bespin Platforms and 0.45 against 0.69 on Hoth.
   still in JavaScript, as are the hulls.
 - The kernel stays behind `movement=wasm`; making it the default goes with
   the ray kernel's.
+
+## Texture storage lifetime
+
+Rust selects compressed formats and owns uploads and render-target attachments.
+Sampler clones share physical storage until their settings diverge. PNG upload
+releases host RGBA rows while retaining encoded source bytes for restoration;
+KTX2 releases its encoded container after retaining the exact transcoded blocks.
+The Basis module loads only for compressed content, keeping its tables out of
+the drawer and PNG-only worker heaps. Unused interface preloads retain encoded
+source bytes without allocating GPU storage. A shared decoder worker retires
+after an idle loading burst so its peak WASM
+heap does not stay resident throughout play. Upload completion is paced in
+1 MiB batches and participates in loading-manager completion.
+
+`renderer.resources.gpu.memory()` returns a JSON storage ledger: retained source
+bytes, physical texture storage and renderbuffer bytes. It excludes driver padding
+and process overhead; compare process peaks separately when measuring old GPUs.
+Unchanged source/sampler generations make no WASM or WebGL call during a draw.
+Fountain spray registration initializes its scene-copy target once, avoiding
+repeated attempts to upload an unallocated target every frame.
+
+## Texture loading and resource lookups
+
+PNG/WebP workers load a decoder-only module; compressed content alone loads
+Basis tables. Decoded rows awaiting paced uploads have a 2 MiB budget plus one
+in-flight image, rather than a whole-map RGBA backlog. Encoded PNGs and authored
+compressed mip blocks are retained once per shared source for restoration.
+Loading-screen and canvas-font bitmaps are composed in the decoder worker from
+borrowed Rust rows and transferred as finished bitmaps, avoiding another full
+RGBA allocation in the consumer. Unused interface pages retain worker rows until first use, then release
+them after upload. Consumed PNG transport buffers are detached immediately,
+so their backing stores do not await a later JavaScript garbage collection.
+CPU discovery arrays remain live for their readers. Decoder output has a
+128 MiB limit before allocation.
+Filtering-only revisions reuse existing storage or copy shared PNG mip texels
+on the GPU. Ordinary draw lookups resolve resource ids only when descriptor
+versions, dimensions or the resource owner's revision change.

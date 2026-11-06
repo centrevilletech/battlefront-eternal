@@ -131,10 +131,8 @@ class WaterPass {
     this.prepareMeshes();
     const core = this.core, water = this.water;
     if (!this.surfaces.length) return;
-    core.views();
-    const input = core.waterInput, camera = ctx.camera;
+    const camera = ctx.camera;
     frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    input[RING_UPLOAD] = 0; input[RING_UPLOAD + 1] = 0;
     // The tint pass's copy of the opaque scene (its onBeforeRender), before
     // the list's first item: the renderer draws the tint pass first.
     // Each shown surface's own onBeforeRender, as three calls it before the
@@ -147,7 +145,17 @@ class WaterPass {
       // it was asked for (else taken now, as before).
       particleDepth.ahead(hook, surface.requested === true);
     }
+    // Reflection and depth targets can be allocated by those hooks. Complete
+    // sampler registration before taking any shared view of the Rust heap.
+    // Hidden quality variants write no draw record and need no sampler. In
+    // particular Low water must not allocate the dormant planar mirror image.
+    for(const surface of this.surfaces)if(this.shown(surface,camera,ctx.scene))for(const uniform of surface.program.uniforms)if(uniform.type>=32){
+      const texture=surface.material.uniforms?.[uniform.name]?.value;
+      if(texture?.isTexture)core.texture(texture);
+    }
     core.views();
+    const input=core.waterInput;
+    input[RING_UPLOAD]=0;input[RING_UPLOAD+1]=0;
     this.surfaces.forEach((surface, s) => this.write(surface, s, input, camera, ctx.scene));
     for (const set of this.sets.values()) this.instances(set, input);
   }

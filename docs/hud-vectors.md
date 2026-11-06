@@ -19,7 +19,7 @@ with Vite running, `node tests/visual-assets.mjs` (set `PLAYWRIGHT_MODULE` if
 Playwright is installed outside the repo).
 
 The following documents the older optional tracing experiment, retained for
-reference. Its runtime description applies only to the retired vector loader.
+reference. The unused browser atlas loader and its browser check have been removed.
 
 `tools/vectorize_hud.py` is an optional post-extraction step. It traces the
 original HUD art into SVG paths and bitmap font glyphs into SVG outlines and
@@ -36,8 +36,7 @@ python3 -m venv ~/.venvs/battlefront-vectors
 Run after `tools/extract.py` has produced `common.json`, including its `fonts`
 metadata and referenced textures. The converter defaults to nine HUD atlases
 and icons plus every font page. `--art name1 name2` changes the artwork list;
-`--output path` changes the output directory. Keep the default
-`public/common/vector-hud/` for automatic runtime loading.
+`--output path` changes the output directory. The default output folder is `public/common/vector-hud/`; gameplay does not load it.
 
 Outputs:
 

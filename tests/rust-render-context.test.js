@@ -35,7 +35,8 @@ test('context loss suspends drawing without releasing materials, then Rust rebui
   renderer.domElement.dispatchEvent(new Event('webglcontextrestored'));
   const rebuild = calls.find(c => c[0] === 'rebuild');
   assert.ok(rebuild, 'the Rust renderer rebuilds its GPU resources');
-  assert.equal(rebuild[2][id], newHandle);
+  assert.equal(rebuild[2], renderer.resources.gpu);
+  assert.equal(rebuild[3][id], renderer.resources.textureId(texture));
   assert.equal(core.textures.has(oldHandle), false);
   assert.equal(core.texture(texture), id, 'logical texture identity is retained');
   assert.equal(core.contextLost, false);

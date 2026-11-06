@@ -1,3 +1,4 @@
+import { checkResources } from "./renderer-resource-checks.js";
 import * as THREE from 'three';
 import { Graphics } from '../src/graphics.js';
 import { ParticleRenderer } from '../src/particles.js';
@@ -54,7 +55,7 @@ export async function checkRenderer(backend, manifests) {
   // Hook the context prototype before initialization so Rust's WASM imports
   // and the remaining native compiler both pass through the same diagnostics.
   // The current catalog key tags even a failure inside a driver's compile call.
-  for (const name of ['compileShader', 'linkProgram', 'drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
+  for (const name of ['texImage2D','texSubImage2D','texImage3D','texSubImage3D','compressedTexImage2D','renderbufferStorage','renderbufferStorageMultisample','framebufferTexture2D','blitFramebuffer','compileShader', 'linkProgram', 'drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) {
     const original = proto[name]; originals.set(name, original);
     proto[name] = function (...args) {
       const result = original.apply(this, args);
@@ -70,7 +71,10 @@ export async function checkRenderer(backend, manifests) {
         if(name.startsWith('draw') && this.isEnabled(this.SAMPLE_ALPHA_TO_COVERAGE) && this.getParameter(this.SAMPLES)>1){alphaCoverageDraws++;alphaSamples.add(this.getParameter(this.SAMPLES));}
         if(name.startsWith('draw')) draws[name] = (draws[name] ?? 0) + 1;
         const error = this.getError();
-        if (error && error !== this.CONTEXT_LOST_WEBGL) throw new Error(`${name}: WebGL 0x${error.toString(16)}`);
+        if (error && error !== this.CONTEXT_LOST_WEBGL) {
+          console.log('renderer smoke: gl-error '+JSON.stringify({name,error,stack:new Error().stack.split('\n').slice(0,6),args:args.map(a=>typeof a==='number'?a:a?.buffer?{type:a.constructor.name,length:a.length,bytes:a.byteLength,offset:a.byteOffset}:a?.constructor?.name),unpack:[this.UNPACK_ROW_LENGTH,this.UNPACK_SKIP_ROWS,this.UNPACK_SKIP_PIXELS,this.UNPACK_ALIGNMENT].map(p=>this.getParameter(p))}));
+          throw new Error(`${name}: WebGL 0x${error.toString(16)}`);
+        }
       }
       return result;
     };
@@ -86,6 +90,7 @@ export async function checkRenderer(backend, manifests) {
     const gl = g.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
     const renderer = debug && gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
     assert('Requested ANGLE backend selected', backend === 'warp' ? /Direct3D11/i.test(renderer) && /Microsoft|WARP|Basic Render/i.test(renderer) : backend === 'gl' ? /ANGLE.*OpenGL/i.test(renderer) : /SwiftShader/i.test(renderer), renderer);
+    await checkResources(g.renderer,assert);
     // Every family is discovered by the launcher from its manifest at runtime.
     // Register before fixture draws, so the Rust cache is cold for every key.
     // Register before any fixture draws so each manifest key reaches a cold
@@ -207,6 +212,7 @@ export async function checkRenderer(backend, manifests) {
     let poison = makePoison();
     g.renderer.resetState();
     const rust = g.rust.rust;
+    let checkShadowAttachments=false,shadowAttachments=0;
     g.rust.rust = new Proxy(rust, { get(target, name) {
       const fn = target[name];
       if (typeof fn !== 'function') return fn;
@@ -216,6 +222,13 @@ export async function checkRenderer(backend, manifests) {
         if(name==='hud_frame')ownedDraws.add(g.rust.hudInput[1]);
         if (name === 'frame') { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, poison); }
         const value = fn.apply(target, args);
+        if(checkShadowAttachments && name==='shadow_frame' && g.rust.casterInput[0]>=0){
+          const texture=g.rust.textureSources[g.rust.casterInput[0]];
+          const expected=g.renderer.properties.get(texture).__webglTexture;
+          const actual=gl.getFramebufferAttachmentParameter(gl.DRAW_FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
+          assert('Shadow draw attaches the current depth storage',actual===expected);
+          shadowAttachments++;
+        }
         if(name==='add_owned_program')ownedIds.set(args[0],value);
         if (/frame$|_segment$|near_begin$/.test(name) && value?.length) {
           phaseDraws[name] = (phaseDraws[name] ?? 0) + value[3];
@@ -276,6 +289,24 @@ export async function checkRenderer(backend, manifests) {
     };
     const shadowPixels=terrainShadowPixels();
     assert('Multi-draw terrain receives an occluding mesh shadow',shadowPixels>0,{terrainShadowPixels:shadowPixels});
+    // Settings can rebuild shadow storage after a battle has cached its FBOs.
+    // Also resize the same descriptors: immutable depth changes its GL handle
+    // while retained sampler/FBO ids must keep addressing the replacement.
+    const resizeShadows=size=>{
+      g.csm.shadowMapSize=size;
+      for(let i=0;i<g.csm.lights.length;i++){
+        g.csm.lights[i].shadow.mapSize.set(size,size);
+        g.shadowMaps[i].setSize(size,size);g.shadowCaches[i].setSize(size,size);
+        g.cascadeWindows[i].invalidate();
+      }
+      g.projection='';
+    };
+    const resizedDepth=g.shadowMaps[0].depthTexture,depthId=g.rust.texture(resizedDepth),depthHandle=g.renderer.properties.get(resizedDepth).__webglTexture;
+    const shadowSize=g.csm.shadowMapSize;
+    checkShadowAttachments=true;resizeShadows(shadowSize*2);capture();
+    assert('Mid-frame shadow resize replaces storage while retaining its sampler id',g.rust.texture(resizedDepth)===depthId&&g.renderer.properties.get(resizedDepth).__webglTexture!==depthHandle);
+    assert('Resized maps still draw shadowed receivers',terrainShadowPixels()>0&&shadowAttachments>0);
+    resizeShadows(shadowSize);capture();checkShadowAttachments=false;
     lighting.bump.value = 0; compare('bump switched off'); lighting.bump.value = 1;
     settings.set('bloom', true); settings.set('softFocus', true); g.setVehicleMotion(.8,.2); const effects=compare('bloom, soft focus and speed blur');
     assert('Post settings change visible pixels',effects.some((v,i)=>i%4!==3&&v!==baseline[i]));
@@ -304,7 +335,9 @@ export async function checkRenderer(backend, manifests) {
     assert('Temporal post sequence repeats exactly',temporalA.every((v,i)=>v===temporalB[i]));
     settings.set('upscaler','off');settings.set('renderScale',1);
     settings.set('shadows','off');compare('shadows switched off');
-    settings.set('shadows','medium');compare('three cascade shadow receivers');
+    settings.set('shadows','medium');checkShadowAttachments=true;compare('three cascade shadow receivers');
+    assert('Settings shadow-resolution change still draws shadows',terrainShadowPixels()>0);
+    checkShadowAttachments=false;
     settings.set('shadows','high');compare('four cascade shadow receivers');
     settings.set('shadows','low');compare('shadows restored');
     settings.set('lampLighting',true);compare('lamps enabled');
@@ -472,6 +505,10 @@ export async function checkRenderer(backend, manifests) {
     const lost = new Promise(resolve => canvas.addEventListener('webglcontextlost', resolve, { once: true }));
     loss.loseContext();
     await lost;
+    // Loading and window changes can create/resize descriptors while drawing
+    // is suspended. They must be realized by restoration, never by native GL.
+    const duringLoss=new THREE.WebGLRenderTarget(16,8,{depthBuffer:false});
+    g.renderer.initRenderTarget(duringLoss);duringLoss.setSize(8,4);g.renderer.initRenderTarget(duringLoss);
     await new Promise(resolve => setTimeout(resolve, 100));
     const restored = new Promise((resolve,reject) => {
       const timer=setTimeout(()=>reject(new Error(`Context restore timeout: ${g.rust.failure?.stack || "no renderer error"}`)),30000);
@@ -494,6 +531,10 @@ export async function checkRenderer(backend, manifests) {
     assert('Restored Rust frame matches its generated fixture', beforeLoss.every((v,i) => v === afterLoss[i]));
     const retainedAfter=retainedPixels();
     assert('Overlapping vertex and index updates survive restoration',retainedBefore.every((v,i)=>v===retainedAfter[i]));
+    g.renderer.setRenderTarget(duringLoss);gl.clearColor(1,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);
+    const recoveredTarget=new Uint8Array(8*4*4);g.renderer.readRenderTargetPixels(duringLoss,0,0,8,4,recoveredTarget);
+    assert('Targets published and resized during loss rebuild correctly',recoveredTarget.every((v,i)=>v===[255,0,0,255][i%4]));
+    g.renderer.setRenderTarget(null);duringLoss.dispose();
     const uiRestored = ui.pixels();
     assert('Restored interface quads, offscreen target and skinned model match',ui.before.every((v,i)=>v===uiRestored[i]));
     ui.dispose();

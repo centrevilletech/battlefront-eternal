@@ -224,7 +224,7 @@ async function start() {
   const ready = new Promise((resolve) => {
     markReady = resolve;
   });
-  const texLoader = headless ? null : new THREE.TextureLoader(new THREE.LoadingManager(markReady, (url, loaded, total) => onProgress?.("textures", loaded, total), markReady));
+  const textureManager = headless ? null : new THREE.LoadingManager(markReady, (url, loaded, total) => onProgress?.("textures", loaded, total), markReady);
   if (headless) markReady();
   // The battle holds still until the loading screen hands over (begin()):
   // no tick runs, here or in a worker, so nothing happens unseen. Nor is it
@@ -237,8 +237,8 @@ async function start() {
   // models ask for more after that (loaded() waits for the quiet).
   const texturesOut = new Map(); // url -> requests still out
   let texturesChanged = performance.now();
-  if (texLoader) {
-    const manager = texLoader.manager, start = manager.itemStart.bind(manager), end = manager.itemEnd.bind(manager);
+  if (textureManager) {
+    const manager = textureManager, start = manager.itemStart.bind(manager), end = manager.itemEnd.bind(manager);
     manager.itemStart = (url) => { texturesOut.set(url, (texturesOut.get(url) || 0) + 1); texturesChanged = performance.now(); start(url); };
     manager.itemEnd = (url) => {
       const left = (texturesOut.get(url) || 1) - 1;
@@ -378,8 +378,9 @@ async function start() {
   // stay as stored (no sRGB decode): the game lit and blended in gamma space.
   // GPU-compressed (KTX2) where the import made them (textures.js).
   const textures = new Map();
+  if (!headless) await graphics.rustReady;
   const library = headless ? null : new TextureLibrary({
-    renderer: graphics.renderer, manager: texLoader.manager, compressed: settings.get("textureCompression") !== false,
+    renderer: graphics.renderer, manager: textureManager, compressed: settings.get("textureCompression") !== false,
   });
   if (library) {
     const tables = [[mapDir, world.textures], [sideDir, side.textures], ["/common", common.textures], [vehicleDir, vehicleDef?.textures],
@@ -3830,35 +3831,10 @@ async function start() {
     while (performance.now() < deadline && (texturesOut.size > 0 || performance.now() - texturesChanged < quiet)) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    const pending = new Set();
-    const gather = (texture) => {
-      if (texture?.isTexture && (texture.image || texture.mipmaps?.length)) pending.add(texture);
-    };
-    for (const texture of library?.cache.values() || []) gather(texture);
-    for (const root of [graphics.scene, graphics.viewScene, graphics.farScene]) {
-      root?.traverse((object) => {
-        for (const material of [].concat(object.material || [])) {
-          for (const value of Object.values(material)) if (value?.isTexture) gather(value);
-          for (const uniform of Object.values(material.uniforms || {})) gather(uniform?.value);
-        }
-      });
-    }
-    // A batch of uploads at a time, the next only once the GPU has done the
-    // last: a few milliseconds of the page's time queue far more of the GPU
-    // process's, which the loading screen waits behind.
-    const bytes = (texture) => texture.isCompressedTexture
-      ? (texture.mipmaps || []).reduce((sum, level) => sum + (level.data?.byteLength || 0), 0)
-      : (texture.image?.width || 0) * (texture.image?.height || 0) * (texture.generateMipmaps ? 5.4 : 4);
-    const batch = 1 << 20;
-    let queued = 0;
-    for (const texture of pending) {
-      renderer.initTexture(texture);
-      queued += bytes(texture);
-      if (queued >= batch) {
-        await gpuIdle();
-        queued = 0;
-      }
-    }
+    if (library.images.failure) throw library.images.failure;
+    // World-image loading already awaits Rust's paced uploads. Render-target
+    // images belong to their first binding, not this image preload pass: eager
+    // uploads would allocate dormant water variants and temporary old sizes.
     graphics.warmup();
     const programs = () => renderer.info.programs || [];
     while (performance.now() < deadline && programs().some((program) => program.isReady && !program.isReady())) await frame();

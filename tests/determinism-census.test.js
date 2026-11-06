@@ -46,6 +46,7 @@ const CENSUS = {
     'src/game.js': { page: 20 }, // frames, loading and the page's own clocks
     'src/local-lights.js': { page: 1 },
     'src/point-lights.js': { page: 1 },
+    'src/render-resources.js': { page: 2 }, // upload-fence deadline while loading, never a world step
     'src/runtime-profiler.js': { host: 1 },
     'src/runtime/fixed-clock.js': { host: 1 }, // pacing; a world's step runs unlimited and reads none
     'src/runtime/input-latency-trace.js': { page: 1 },

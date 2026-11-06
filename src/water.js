@@ -1,5 +1,5 @@
+import { COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT } from "./render-resources.js";
 import { WaterState } from "./runtime/water-state.js";
-import { drawFramebuffer } from "./render-targets.js";
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
@@ -754,18 +754,9 @@ export class Water extends WaterState {
     if (source !== this.graphics.sceneTarget) return;
     const target = this.surfaceBuffer;
     target.setSize(source.width, source.height);
-    const gl = renderer.getContext();
-    const framebuffer = drawFramebuffer(renderer, source);
-    renderer.setRenderTarget(target);
-    // r170 tracks READ separately but FRAMEBUFFER binds change it too.
-    // Invalidate that cache entry before selecting the source for the blit.
-    renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, framebuffer);
-    // Resolve opaque color/depth before the water's first transparent draw;
-    // no second geometry pass, including when the scene uses multisampling.
-    gl.blitFramebuffer(0, 0, source.width, source.height, 0, 0, target.width, target.height,
-      gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, gl.NEAREST);
-    renderer.setRenderTarget(source);
+    // Colour and depth are resolved together before the first water reader.
+    // The Rust bank preserves the source's multisample framebuffer binding.
+    renderer.resources.copy(source,target,COLOR_BUFFER_BIT | DEPTH_BUFFER_BIT);
     const u = this.tintPass.material.uniforms;
     u.resolution.value.set(source.width, source.height);
     u.cameraRange.value.set(camera.near, camera.far);

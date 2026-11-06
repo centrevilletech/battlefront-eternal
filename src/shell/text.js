@@ -4,6 +4,8 @@
 // line's top, and its place on the page), measured in interface units, as
 // src/hud.js draws them; the pages are the 4x upscales where there are some.
 // The pages are white, so a colour is the page tinted.
+import { pngCanvas } from "../texture-decode.js";
+import { rendererFailure } from "../rust-render/failure.js";
 
 // A copy of an image in one colour, its shapes kept in its alpha (a font's
 // page, the loading screen's disk). A worker has no document, but has
@@ -45,14 +47,12 @@ export class CanvasFonts {
   page(name) {
     if (!this.images.has(name)) {
       const url = this.urls[name];
-      const promise = url ? fetch(url)
-        .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(r.statusText))))
-        .then((blob) => createImageBitmap(blob))
+      const promise = url ? pngCanvas(url)
         .then((image) => {
           this.loaded.set(name, image);
           return image;
         })
-        .catch(() => null) : Promise.resolve(null);
+        .catch(cause=>{throw rendererFailure(null,cause);}) : Promise.resolve(null);
       this.images.set(name, promise);
     }
     return this.images.get(name);

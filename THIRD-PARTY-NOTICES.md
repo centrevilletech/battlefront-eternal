@@ -28,8 +28,17 @@ the game, on the player's machine.
 | --- | --- | --- |
 | [Claxon](https://github.com/ruuda/claxon) 0.4.3, pure Rust FLAC decoder | Copyright 2014-2019 Ruud van Asseldonk and contributors | Apache-2.0 (full text in `rust/audio-decode/licenses/Claxon.txt`, installed as `legal/audio-codecs/Claxon.txt`) |
 | [opus-pure](https://github.com/stephenberry/opus-pure) 0.2.2, pure Rust Opus decoder | Copyright 2026 Stephen Berry; Copyright 2026 restsend.com; Copyright 2001-2023 Xiph.Org and contributors | BSD-3-Clause (full notices in `rust/audio-decode/licenses/Opus.txt`, installed as `legal/audio-codecs/Opus.txt`) |
-| [three.js](https://threejs.org), including addons such as CSM, KTX2Loader and FXAAShader (FXAA algorithm by NVIDIA; C# implementation by Jasper Flick; GLSL port by Dave Hoskins) | Copyright 2010-2024 three.js authors | MIT |
-| [Basis Universal](https://github.com/BinomialLLC/basis_universal) transcoder (shipped with three.js) | Copyright Binomial LLC | Apache-2.0 |
+| [three.js](https://threejs.org), including addons such as CSM and FXAAShader (FXAA algorithm by NVIDIA; C# implementation by Jasper Flick; GLSL port by Dave Hoskins) | Copyright 2010-2024 three.js authors | MIT |
+| [Basis Universal](https://github.com/BinomialLLC/basis_universal) 2.50 transcoder, vendored through basisu_c_sys 0.9.1 | Copyright Binomial LLC | Apache-2.0; `legal/image-codecs/Basis-Universal.txt` |
+| Zstandard 1.5.7 decompressor | Copyright Meta Platforms, Inc. and affiliates | BSD-3-Clause; `legal/image-codecs/Zstandard.txt` |
+| basisu_wasm_libcxx 0.1.0 and its bare-WebAssembly support | Copyright Gyungmin Myung and contributors | MIT; `legal/image-codecs/Basisu-Wasm-Libcxx.txt` |
+| musl libc, built by basisu_wasm_libcxx | Copyright 2005-2020 Rich Felker et al.; additional authors listed in its notices | MIT with retained sub-notices; `legal/image-codecs/Musl.txt` |
+| Emscripten LLVM libc++, libc++abi and compiler-rt, built by basisu_wasm_libcxx | Copyright LLVM contributors and the University of Illinois | Apache-2.0 WITH LLVM-exception and retained legacy notices; `legal/image-codecs/Libcxx.txt`, `Libcxxabi.txt`, `Compiler-rt.txt` |
+| Signal shim in basisu_wasm_libcxx | Copyright Gyungmin Myung | Blue Oak Model License 1.0.0; `legal/image-codecs/Blue-Oak-Signal.txt` |
+| nanoprintf 0.5.2 | Copyright 2019- Charles Nicholson | 0BSD (selected from 0BSD OR Unlicense); `legal/image-codecs/Nanoprintf.txt` |
+| png 0.18.1 | Copyright 2015 nwin and image-rs contributors | MIT (selected from MIT OR Apache-2.0); `legal/image-codecs/Png.txt` |
+| image-webp 0.2.4 | image-rs contributors | MIT (selected from MIT OR Apache-2.0); `legal/image-codecs/Image-Webp.txt` |
+| Decoder dependencies: adler2, bitflags, byteorder-lite, cfg-if, crc32fast, fdeflate, flate2, miniz_oxide, quick-error and simd-adler32 | Their respective contributors, as listed in the shipped texts | MIT, Apache-2.0, BSD-3-Clause and Zlib as applicable; complete texts under `legal/image-codecs/` |
 | [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) | Copyright (c) 2018 Garrett Johnson | MIT |
 | [ws](https://github.com/websockets/ws) | Copyright (c) 2011 Einar Otto Stangvik; Copyright (c) 2013 Arnout Kazemier and contributors | MIT |
 | [yauzl](https://github.com/thejoshwolfe/yauzl), [yazl](https://github.com/thejoshwolfe/yazl) | Copyright (c) 2014 Josh Wolfe | MIT |

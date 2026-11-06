@@ -19,8 +19,7 @@ self.onmessage = (event) => {
     size = [message.canvas.width, message.canvas.height];
     const ready = () => self.postMessage({ type: "ready", plan: view.plan() });
     view.load().then(ready, (error) => {
-      console.warn(`loading screen: ${error.message}`);
-      ready();
+      self.postMessage({type:"error",message:error.message});
     });
     const frame = typeof requestAnimationFrame === "function" ? (fn) => requestAnimationFrame(fn) : (fn) => setTimeout(fn, 1000 / 60);
     runView(view, message.canvas, () => size, frame);

@@ -15,10 +15,14 @@ pub mod renderer;
 pub mod shader;
 pub mod shadow;
 pub mod transparent;
+pub mod texture_image;
+pub mod texture_format;
 pub mod view;
 pub mod water;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
+#[cfg(target_arch = "wasm32")]
+pub mod resources;
 pub mod world;
 
 pub mod interface;

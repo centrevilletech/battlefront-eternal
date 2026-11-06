@@ -14,7 +14,9 @@ export function comparePixels(reference, candidate) {
 
 // Reference/control are separate application sessions. A noisy control is a
 // failed gate, never a tolerance that can conceal a candidate regression.
-export function compareCase(directory,id,expected){
+// A case may name a measured bound (expectations.json). It applies to that
+// candidate only; exceeding its pixel count or channel delta still fails.
+export function compareCase(directory,id,expected,bound=null){
   const roles=['reference','control','candidate'];
   const reports=Object.fromEntries(roles.map(role=>[role,JSON.parse(readFileSync(join(directory,role,`${id}.json`)))]));
   const points=[];
@@ -25,9 +27,11 @@ export function compareCase(directory,id,expected){
   for(let k=0;k<expected;k++){
     const meta=roles.map(role=>reports[role].points[k]);
     if(meta.some(m=>m.w!==meta[0].w||m.h!==meta[0].h||m.tick!==meta[0].tick))throw Error(`Point ${k}: dimensions or ticks differ`);
+    if(meta.some(m=>m.renderFrame!==meta[0].renderFrame||m.rendererFrame!==meta[0].rendererFrame))throw Error(`Point ${k}: render phases differ`);
     const buffers=roles.map((role,i)=>gunzipSync(readFileSync(join(directory,role,meta[i].file))));
     const control=comparePixels(buffers[0],buffers[1]),candidate=comparePixels(buffers[0],buffers[2]);
-    points.push({k,tick:meta[0].tick,control,candidate,pass:control.differing===0&&candidate.differing===0});
+    const bounded=Boolean(bound)&&candidate.differing>0&&candidate.differing<=bound.maxPixels&&candidate.maxDelta<=bound.maxDelta;
+    points.push({k,tick:meta[0].tick,control,candidate,bounded,pass:control.differing===0&&(candidate.differing===0||bounded)});
   }
   return {id,complete:points.length===expected,pass:points.every(p=>p.pass),points,restore:reports.candidate.restore,materials:reports.candidate.materials};
 }

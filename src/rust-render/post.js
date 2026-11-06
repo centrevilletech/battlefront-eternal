@@ -137,10 +137,11 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
     // read behind a switch that is off (the composite's glow without bloom).
     if (value === null || value === undefined) { out[o + 2] = -1; return true; }
     if (!value.isTexture) return false;
-    const p = core.renderer.properties.get(value);
-    // An image three would upload as it draws.
-    if (!value.isRenderTargetTexture && value.version > 0 && p.__version !== value.version && value.image) core.renderer.initTexture(value);
-    out[o + 2] = core.texture(value);
+    // Registration precedes record writes. A repeated sampler read must not
+    // allocate storage or detach the shared input view halfway through it.
+    const sample=core.sampleTextures.get(value);
+    if(!sample)throw new Error(`Sampler ${name} was not prepared before writing uniforms`);
+    out[o + 2] = sample.id;
     return true;
   }
   if (typeof value === "number") { out[o + 2] = value; return true; }

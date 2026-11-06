@@ -65,6 +65,9 @@ try {
       await new Promise(resolve=>setTimeout(resolve,100));
       const restored=once('webglcontextrestored');ext.restoreContext();await restored;
       if(g.rust.contextLost||g.rust.failure)throw g.rust.failure||Error('Rust did not rebuild');
+      // Three resets this diagnostic counter while recreating its context.
+      // Match the retained Rust frame phase before comparing restored draws.
+      b.renderer.info.render.frame=g.frameCount;
       return {lost:window.__gateGl.lost,restored:window.__gateGl.restored};
     })()`);
   }
@@ -82,7 +85,7 @@ try {
     })()`);
     const raw=await c.ev(`(async()=>{const b=__bf,g=b.graphics,R=b.renderer,gl=R.getContext(),T=__capture;__gate.resetFrame();T.want=true;T.shot=null;const tick=await b.lockstep(0,true);T.want=false;
       if(!T.shot)throw Error('No drawn HUD capture');const {w,h,buf}=T.shot;let text='';for(let i=0;i<buf.length;i+=32768)text+=String.fromCharCode.apply(null,buf.subarray(i,i+32768));
-      return {w,h,data:btoa(text),tick:b.worldClock.tick,draws:__gate.rustDraws(),errors:g.rust.errors,battleThreeCalls:R.battleThreeCalls??null,contextLost:gl.isContextLost(),error:gl.getError(),events:window.__gateGl};})()`);
+      return {w,h,data:btoa(text),tick:b.worldClock.tick,renderFrame:g.frameCount,rendererFrame:R.info.render.frame,draws:__gate.rustDraws(),errors:g.rust.errors,battleThreeCalls:R.battleThreeCalls??null,contextLost:gl.isContextLost(),error:gl.getError(),events:window.__gateGl};})()`);
     // Read the finished target, including alpha. Retain a content hash in the
     // metadata so recorded measurements remain identifiable after pixel cleanup.
     // Compressed pixels are only an intermediate comparison artifact.

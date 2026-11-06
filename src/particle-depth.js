@@ -1,4 +1,4 @@
-import { drawFramebuffer } from "./render-targets.js";
+import { DEPTH_BUFFER_BIT } from "./render-resources.js";
 import * as THREE from "three";
 
 // Shared by particle batches; the renderer installs the callbacks.
@@ -93,11 +93,17 @@ export class ParticleDepth {
     particleDepth.cameraRange.value.set(camera.near, camera.far);
     particleDepth.resolution.value.set(source.width, source.height);
     this.target.setSize(source.width, source.height);
+    // RenderTarget.setSize updates colour metadata only. Depth readers can
+    // register before the first copy allocates the framebuffer, so publish
+    // its dimensions now without allocating an unused target on low settings.
+    this.target.depthTexture.image.width=source.width;
+    this.target.depthTexture.image.height=source.height;
   }
 
   prepare(width, height) {
     this.target.setSize(width, height);
-    this.renderer.initRenderTarget(this.target);
+    // Allocation is lazy in the Rust bank. Construction can resize descriptors
+    // before the WASM module finishes loading; no native target may be made.
   }
 
   capture(camera, required = false) {
@@ -119,18 +125,9 @@ export class ParticleDepth {
 
   copy() {
     const renderer = this.renderer;
-    const gl = renderer.getContext();
-    const sourceFramebuffer = drawFramebuffer(renderer, this.source);
-    const { width, height } = this.source;
-    // setRenderTarget initializes the texture and destination framebuffer.
-    // Bind through Three's state cache so the next draw restores correctly.
-    renderer.setRenderTarget(this.target);
-    // r170 tracks READ separately but FRAMEBUFFER binds change it too.
-    // Invalidate that cache entry before selecting the source for the blit.
-    renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, sourceFramebuffer);
-    gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height, gl.DEPTH_BUFFER_BIT, gl.NEAREST);
-    renderer.setRenderTarget(this.source);
+    // The resource bank resolves the current multisample depth directly into
+    // the snapshot attachment and restores the source binding before drawing.
+    renderer.resources.copy(this.source,this.target,DEPTH_BUFFER_BIT);
     this.copies++;
   }
 

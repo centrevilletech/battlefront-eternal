@@ -31,7 +31,7 @@ try {
     const read=(name,target)=>{
       const w=target?.width || gl.drawingBufferWidth,h=target?.height || gl.drawingBufferHeight;
       const half=target?.texture.type===1016,buf=half?new Uint16Array(w*h*4):new Uint8Array(w*h*4);
-      if(target){const old=gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,R.properties.get(target).__webglFramebuffer);gl.readPixels(0,0,w,h,gl.RGBA,half?gl.HALF_FLOAT:gl.UNSIGNED_BYTE,buf);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,old);}
+      if(target){const old=gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,R.resources.gpu.framebuffer(R.resources.targetId(target),false,0));gl.readPixels(0,0,w,h,gl.RGBA,half?gl.HALF_FLOAT:gl.UNSIGNED_BYTE,buf);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,old);}
       else {R.setRenderTarget(null);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,buf);}
       const error=gl.getError();if(error)throw Error(name+' read GL '+error);
       T.stages[name]={w,h,bytes:half?2:1,buf};

@@ -117,6 +117,11 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
   const nodraw = process.env.EMU_NODRAW ? `(() => { for (const C of [self.WebGL2RenderingContext, self.WebGLRenderingContext]) if (C) for (const m of ['drawElements','drawArrays','drawElementsInstanced','drawArraysInstanced','drawRangeElements']) if (C.prototype[m]) C.prototype[m] = function () {};
     const ge = WebGL2RenderingContext.prototype.getExtension; WebGL2RenderingContext.prototype.getExtension = function (n) { const e = ge.call(this, n); if (e && /multi_draw/i.test(n)) for (const k of Object.keys(Object.getPrototypeOf(e))) if (/^multiDraw/.test(k)) e[k] = function () {}; return e; }; })();` : '';
   const { identifier } = await c.psend('Page.addScriptToEvaluateOnNewDocument', { source: `${nodraw}${SEED_SRC}${CONTEXT_SRC}
+    // GPU slots share a desktop. Another slot taking focus must not clear
+    // this scripted input stream; visibility/blur are not authority commands.
+    window.__gateFocus={blur:0,visibilitychange:0};
+    window.addEventListener('blur',event=>{__gateFocus.blur++;event.stopImmediatePropagation();},true);
+    document.addEventListener('visibilitychange',event=>{__gateFocus.visibilitychange++;event.stopImmediatePropagation();},true);
     const raf = requestAnimationFrame.bind(window);
     window.requestAnimationFrame = f => f.name === 'loop' ? 0 : raf(f);
     localStorage.setItem('battlefront-eternal.settings', ${JSON.stringify(JSON.stringify(settings))});
@@ -131,6 +136,13 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
   });
   await c.psend('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
   const q = query || process.env.Q || `map=${map}&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1`;
+  // Loading must see the final viewport; otherwise decoder speed decides
+  // whether preparation creates and resizes an oversized initial target.
+  const wh = (process.env.EMU_SCREEN || '').match(/^(\d+)x(\d+)/);
+  if (wh) {
+    try { await c.psend('Emulation.setDeviceMetricsOverride', { width: Number(wh[1]), height: Number(wh[2]), deviceScaleFactor: 1, mobile: false }); }
+    catch (e) { console.log('metrics override failed', e.message); }
+  }
   const t0 = Date.now();
   await c.psend('Page.navigate', { url: `${process.env.BFE_APP_URL || "app://bfe/"}?${q}` });
   let failed = null;
@@ -146,11 +158,6 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
   await c.psend('Target.setAutoAttach', { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
   off();
   if (failed) return { error: failed, seconds: (Date.now() - t0) / 1000, spawned: false };
-  const wh = (process.env.EMU_SCREEN || '').match(/^(\d+)x(\d+)/);
-  if (wh) {
-    try { await c.psend('Emulation.setDeviceMetricsOverride', { width: Number(wh[1]), height: Number(wh[2]), deviceScaleFactor: 1, mobile: false }); }
-    catch (e) { console.log('metrics override failed', e.message); }
-  }
   if (!process.env.WINDOWED) { await fitWindow(c); await c.psend('Runtime.evaluate', { expression: 'document.fullscreenElement || document.documentElement.requestFullscreen().catch(e => String(e))', userGesture: true, awaitPromise: true }); }
   const load = await c.ev(`(async () => { const b = __bf; await Promise.race([b.ready, new Promise(r => setTimeout(r, 180000))]); const prepareStart=performance.now(); await b.loaded?.(); const prepareMs=performance.now()-prepareStart; b.begin?.(); b.pause(); b.controls.locked = true; b.controls.enabled = true;
     const startTick=await (${LOCKSTEP_START_SRC})(b);
@@ -166,6 +173,10 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
 // phase that did not run this frame reports nothing), and a frame counter.
 export const HELPERS_SRC = `(() => { const b = __bf, g = b.graphics;
   if (window.__gate) return 1;
+  // Loading draws vary with decoder latency. The last shadow cascade updates
+  // on alternating render frames, so fixed authority ticks and TAA jitter alone
+  // cannot define its phase. Start beyond all preparation cache stamps.
+  g.frameCount=1000000;b.renderer.info.render.frame=1000000;
   const G = window.__gate = { frameStats: {}, phaseCalls: 0, inRust: 0 };
   G.key = (code, down) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key: code, bubbles: true }));
   G.look = (x, y) => document.dispatchEvent(new MouseEvent('mousemove', { movementX: x, movementY: y || 0, bubbles: true }));

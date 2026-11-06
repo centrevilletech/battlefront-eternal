@@ -1,3 +1,4 @@
+import policy from "./gpu-policy.json" with {type:"json"};
 // The GPU the page draws with, and what keeps it from drawing fast: a
 // software renderer standing in for a missing or blocked GPU, or (the
 // desktop app's report of Chromium's feature status, chrome://gpu) the
@@ -49,7 +50,7 @@ export function gpuLabel(renderer) {
 // uploads: four times BC7's memory and bandwidth, and slow loads. They read
 // BC1 and BC3 (DXT) themselves. Mesa names them by codename:
 // "Mesa Intel(R) HD Graphics 2000 (SNB GT1)" (through ANGLE as well).
-const UNPACKED_BC7 = /\bMesa\b.*\((SNB|ILK|ELK|CTG|CL|BW)( GT\d)?\)|\bMesa DRI Intel\(R\) (Sandybridge|Ironlake|G45|GM45|G41|Q45|Q43|B43|965|G35)/i;
+const UNPACKED_BC7 = new RegExp(String.raw`\bMesa\b.*\((${policy.mesaCodes.join("|")})( GT\d)?\)|\bMesa DRI Intel\(R\) (${policy.mesaNames.join("|")})`,"i");
 export function unpacksBc7(renderer) {
   return UNPACKED_BC7.test(String(renderer || ""));
 }

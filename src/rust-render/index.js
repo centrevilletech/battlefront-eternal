@@ -1,7 +1,10 @@
 // Rust draws every battle phase. Three supplies scene updates, compiled GLSL,
-// textures and targets. This core registers those resources, publishes frame
+// and CPU descriptors. Rust owns texture storage and targets. This core
+// registers those resources, publishes frame
 // inputs, and treats incomplete coverage or a failed program as a fatal error.
 import { rendererFailure } from "./failure.js";
+import { rendererModule } from "./load.js";
+import { installResources } from "../render-resources.js";
 import * as THREE from "three";
 import { lighting } from "../materials.js";
 import { packed } from "../point-lights.js";
@@ -98,8 +101,7 @@ const PHASES = {
 
 // three's renderer's entry points that read or change its state cache, each
 // settling a deferred phase's GL state first (watchThree).
-const SETTLES = ["render", "setRenderTarget", "clear", "clearColor", "clearDepth", "clearStencil", "setClearColor", "setClearAlpha", "readRenderTargetPixels",
-  "readRenderTargetPixelsAsync", "copyFramebufferToTexture", "copyTextureToTexture", "copyTextureToTexture3D", "initTexture", "initRenderTarget", "compile",
+const SETTLES = ["render", "clear", "clearColor", "clearDepth", "clearStencil", "setClearColor", "setClearAlpha", "compile",
   "compileAsync", "setViewport", "setScissor", "setScissorTest", "resetState", "dispose"];
 
 // The renderer with each registration call it is given kept (typed arrays
@@ -113,7 +115,7 @@ function recorder(rust, recording) {
       if (/frame$|_segment$|_(ptr|len)$|^(records_at|record_stride|rebuild|replace_sample_texture)$/.test(String(name))) return value.bind(target);
       return (...args) => {
         const result = value.apply(target, args);
-        recording.calls.push([name, args.map((a) => (ArrayBuffer.isView(a) ? a.slice() : a?.constructor?.name === "WebGLTexture" ? null : a)), result]);
+        recording.calls.push([name, name === "add_texture" ? [null] : args.map((a) => (ArrayBuffer.isView(a) ? a.slice() : a?.constructor?.name === "WebGLTexture" ? null : a)), result]);
         return result;
       };
     },
@@ -137,15 +139,16 @@ function groupsOf(geometry) {
 }
 
 export async function createRustRender(graphics) {
-  const { default: init, BfeRenderer } = await import("../rust-pkg/bfe_render.js");
-  const wasm = await init();
-  return new RustRender(graphics, wasm, BfeRenderer);
+  const { module, wasm } = await rendererModule();
+  await installResources(graphics.renderer);
+  return new RustRender(graphics, wasm, module.BfeRenderer);
 }
 
 export class RustRender {
   constructor(graphics, wasm, BfeRenderer) {
     this.graphics = graphics;
     this.renderer = graphics.renderer;
+    this.resources = graphics.renderer.resources;
     this.gl = this.renderer.getContext();
     this.wasm = wasm;
     this.rust = new BfeRenderer(this.gl);
@@ -160,9 +163,7 @@ export class RustRender {
     this.textureSources = [];
     this.sampleTextures = new WeakMap();
     this.textureRevision = graphics.textureRevision ?? 0;
-    this.pendingTextures = [];
-    this.pendingTextureMap = new WeakMap();
-    this.textureTargets = new Map();
+    this.resourceEpoch = 0;
     this.textures = new Map(); // WebGLTexture -> Rust texture
     this.farTexture = null;
     this.phaseStats = {};
@@ -191,12 +192,6 @@ export class RustRender {
     this.stale = false;
     this.settleThree = null;
     this.watchThree();
-    const initTarget = this.renderer.initRenderTarget?.bind(this.renderer);
-    if (initTarget) this.renderer.initRenderTarget = (target) => {
-      this.textureTargets.set(target.texture, target);
-      if (target.depthTexture) this.textureTargets.set(target.depthTexture, target);
-      return initTarget(target);
-    };
     this.contextLost = false;
     this.renderer.domElement?.addEventListener?.("webglcontextlost", (event) => {
       event.preventDefault();
@@ -229,28 +224,19 @@ export class RustRender {
   // retained resource descriptions into the restored context, preserving ids.
   rebuild() {
     this.stale = false;
-    const renderer = this.renderer, handles = [];
+    const renderer = this.renderer, ids = new Uint32Array(this.textureSources.length);
     this.graphics.warmup();
-    // Native program objects change on restore; Rust replay keeps its ids.
     for (const entry of this.byName.transparent.taken.values()) entry.program = renderer.properties.get(entry.material).currentProgram;
-    const targets = new Set();
-    for (const texture of this.textureSources) {
-      const target = this.textureTargets.get(texture);
-      if (target) targets.add(target);
-    }
-    for (const target of targets) renderer.initRenderTarget(target);
     this.textures.clear();
     this.sampleTextures = new WeakMap();
     for (let id = 0; id < this.textureSources.length; id++) {
       const texture = this.textureSources[id];
-      if (!texture.isRenderTargetTexture && !texture.isDepthTexture) renderer.initTexture(texture);
+      ids[id] = this.resources.owns(texture) ? this.resources.textureId(texture) : this.resources.gpu.retired_sample();
       const handle = renderer.properties.get(texture).__webglTexture;
-      if (!handle) throw new Error(`Missing restored texture ${texture.name || id}`);
-      handles[id] = handle;
-      this.textures.set(handle, id);
-      if (!texture.isRenderTargetTexture && !texture.isDepthTexture) this.sampleTextures.set(texture,{id,handle});
+      this.textures.set(handle,id);
+      this.sampleTextures.set(texture,{id,handle,version:this.resources.owns(texture)?texture.version:-1,source:texture.source,sourceVersion:texture.source.version,revision:this.resources.revision,width:texture.image?.width,height:texture.image?.height,depth:texture.image?.depth});
     }
-    this.rust.rebuild(this.gl, handles);
+    this.rust.rebuild(this.gl,this.resources.gpu,ids);
     this.buffer = null;
     this.views();
     this.shadowMaps = "";
@@ -310,76 +296,46 @@ export class RustRender {
 
   views() {
     if (this.buffer === this.wasm.memory.buffer) return;
+    // Query every address before acquiring views: a lazy pass may allocate
+    // during its pointer getter and grow the shared resource/renderer heap.
+    for (const spec of this.viewSpecs) { spec.address=spec.ptr();spec.length=spec.len(); }
     this.buffer = this.wasm.memory.buffer;
-    for (const { name, Type, ptr, len } of this.viewSpecs) this[name] = new Type(this.buffer, ptr(), len());
+    for (const spec of this.viewSpecs) this[spec.name] = new spec.Type(this.buffer,spec.address,spec.length);
   }
 
-  texture(texture) {
+  texture(texture,refresh=false) {
     if (!texture) return -1;
-    const pending=this.pendingTextureMap.get(texture);
-    if(pending)return pending.id;
-    const props=this.renderer.properties.get(texture);
-    if (!props.__webglTexture || !texture.isRenderTargetTexture && texture.version > 0 && props.__version !== texture.version && texture.image) this.renderer.initTexture(texture);
-    const handle = props.__webglTexture;
-    if (!handle) {
-      // A lazily requested image draws the same transparent texel as Three's
-      // empty sampler while it loads. Its logical id survives the real upload.
-      const loading=texture.version===0 || !texture.image || texture.image.complete===false;
-      if(!loading || texture.isRenderTargetTexture || texture.isDepthTexture || texture.isCubeTexture || texture.isData3DTexture || texture.isDataArrayTexture)return -1;
-      const pixel=new THREE.DataTexture(new Uint8Array(4),1,1);
-      pixel.needsUpdate=true;
-      const id=this.texture(pixel);
-      if(id<0)this.fail(new Error("Cannot initialize pending image texture"));
-      const entry={texture,pixel,id};
-      this.pendingTextures.push(entry);
-      this.pendingTextureMap.set(texture,entry);
-      return id;
-    }
-    const sample = !texture.isRenderTargetTexture && !texture.isDepthTexture;
-    const known = sample && this.sampleTextures.get(texture);
+    const known = this.sampleTextures.get(texture);
+    // Resource generations are resolved once per descriptor change. Ordinary
+    // draw lookups only compare scalar versions; no image/sampler scan runs.
+    if(!refresh && known && known.revision===this.resources.revision && known.version===texture.version && known.source===texture.source && known.sourceVersion===texture.source.version && known.width===texture.image?.width && known.height===texture.image?.height && known.depth===texture.image?.depth)return known.id;
+    const resource = this.resources.textureId(texture);
+    const handle = this.renderer.properties.get(texture).__webglTexture;
     if(known){
-      if(known.handle!==handle)this.replaceTexture(known.id,texture,known.handle,handle);
+      if(known.handle!==handle)this.replaceTexture(known.id,texture,known.handle,handle,resource);
+      known.revision=this.resources.revision;known.version=texture.version;known.source=texture.source;known.sourceVersion=texture.source.version;known.width=texture.image?.width;known.height=texture.image?.height;known.depth=texture.image?.depth;
       return known.id;
     }
     // Clones can initially share a native handle and later acquire different
     // sampler settings. Keep their logical ids independent from the outset.
-    let id = sample ? undefined : this.textures.get(handle);
-    if (id === undefined) {
-      id = this.rust.add_texture(handle);
-      this.textureSources[id] = texture;
-      this.textures.set(handle, id);
-      if (this.recording) this.recording.textures[id] = { handle, width: texture.image?.width ?? texture.mipmaps?.[0]?.width ?? texture.width ?? 0, height: texture.image?.height ?? texture.mipmaps?.[0]?.height ?? texture.height ?? 0 };
-    }
-    if(sample)this.sampleTextures.set(texture,{id,handle});
+    const id = this.rust.add_texture(this.resources.gpu,resource);
+    this.textureSources[id] = texture;
+    this.textures.set(handle, id);
+    if (this.recording) this.recording.textures[id] = { handle, width: texture.image?.width ?? texture.mipmaps?.[0]?.width ?? texture.width ?? 0, height: texture.image?.height ?? texture.mipmaps?.[0]?.height ?? texture.height ?? 0 };
+    this.sampleTextures.set(texture,{id,handle,version:texture.version,source:texture.source,sourceVersion:texture.source.version,revision:this.resources.revision,width:texture.image?.width,height:texture.image?.height,depth:texture.image?.depth});
     return id;
   }
 
-  replaceTexture(id,texture,previous,handle){
-    this.rust.replace_sample_texture(id,handle);
+  replaceTexture(id,texture,previous,handle,resource){
+    this.rust.replace_sample_texture(id,this.resources.gpu,resource ?? this.resources.textureId(texture));
     if(this.textures.get(previous)===id)this.textures.delete(previous);
     this.textures.set(handle,id);
     this.textureSources[id]=texture;
-    this.sampleTextures.set(texture,{id,handle});
+    this.sampleTextures.set(texture,{id,handle,version:texture.version,source:texture.source,sourceVersion:texture.source.version,revision:this.resources.revision,width:texture.image?.width,height:texture.image?.height,depth:texture.image?.depth});
     if(this.recording)this.recording.textures[id]={handle,width:texture.image?.width??0,height:texture.image?.height??0};
     this.stale=true;
   }
 
-  refreshTextures() {
-    for(let i=0;i<this.pendingTextures.length;i++){
-      const entry=this.pendingTextures[i],texture=entry.texture;
-      if(!(texture.version>0) || !texture.image || texture.image.complete===false)continue;
-      this.renderer.initTexture(texture);
-      const props=this.renderer.properties.get(texture),handle=props.__webglTexture;
-      if(!handle || props.__version!==texture.version)continue;
-      const previous=this.renderer.properties.get(entry.pixel).__webglTexture;
-      this.replaceTexture(entry.id,texture,previous,handle);
-      this.sampleTextures.delete(entry.pixel);
-      this.pendingTextureMap.delete(texture);
-      this.pendingTextures.splice(i--,1);
-      entry.pixel.dispose();
-      this.stale=true;
-    }
-  }
 
   // Rust's program for three's (made once), or null when the renderer can't
   // give it what it reads. kind: the pass's (add_program's); material: one
@@ -654,12 +610,13 @@ export class RustRender {
   // values: more of the phase's values (ctx), for its passes and its call.
   phase(name, renderer, scene, camera, defer = false, walked = null, values = null) {
     if (this.contextLost) return;
-    const revision=this.graphics.textureRevision??0;
-    if(revision!==this.textureRevision){
+    if(this.resources.failure)throw this.resources.failure;
+    const revision=this.graphics.textureRevision ?? 0;
+    if(revision!==this.textureRevision || this.resources.gpu.epoch()!==this.resourceEpoch){
       this.textureRevision=revision;
-      for(const texture of this.textureSources)if(this.sampleTextures.has(texture))this.texture(texture);
+      for(const texture of this.textureSources)if(this.resources.owns(texture))this.texture(texture,true);
+      this.resourceEpoch=this.resources.gpu.epoch();
     }
-    if(this.pendingTextures.length)this.refreshTextures();
 
     const phase = PHASES[name], target = renderer.getRenderTarget();
     if (phase.view !== null) this.writeFrame(scene, camera, phase.view);
@@ -712,11 +669,6 @@ export class RustRender {
       if (typeof f !== "function") continue;
       const bridge = this;
       renderer[name] = function (...args) {
-        if (name === "setRenderTarget" && args[0]) {
-          const target = args[0];
-          bridge.textureTargets.set(target.texture, target);
-          if (target.depthTexture) bridge.textureTargets.set(target.depthTexture, target);
-        }
         bridge.settleThree?.();
         return f.apply(this, args);
       };
@@ -767,21 +719,7 @@ export class RustRender {
   // With three's state stale (a deferred phase), the binds are made directly
   // (three's cache is reset before its next use anyway).
   resolve(target) {
-    if (!target || !(target.samples > 0)) return;
-    const gl = this.gl, p = this.renderer.properties.get(target);
-    if (!p.__webglMultisampledFramebuffer) return;
-    const state = this.stale ? { bindFramebuffer: (t, f) => gl.bindFramebuffer(t, f) } : this.renderer.state;
-    let mask = gl.COLOR_BUFFER_BIT;
-    if (target.resolveDepthBuffer) {
-      if (target.depthBuffer) mask |= gl.DEPTH_BUFFER_BIT;
-      if (target.stencilBuffer && target.resolveStencilBuffer) mask |= gl.STENCIL_BUFFER_BIT;
-    }
-    state.bindFramebuffer(gl.READ_FRAMEBUFFER, p.__webglMultisampledFramebuffer);
-    state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, p.__webglFramebuffer);
-    gl.blitFramebuffer(0, 0, target.width, target.height, 0, 0, target.width, target.height, mask, gl.NEAREST);
-    state.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-    state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, p.__webglMultisampledFramebuffer);
+    this.resources.resolve(target);
   }
 
   // graphics.js: draw every post step; incomplete ownership is fatal.

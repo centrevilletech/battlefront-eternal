@@ -1,3 +1,4 @@
+import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -95,6 +96,7 @@ function bridge() {
     },
   };
   const graphics = { renderer, scene, farScene, camera, farCamera: camera, sceneTarget, farTarget, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
+  standinResources(renderer,calls);
   const core = new RustRender(graphics, { memory }, BfeRenderer);
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   return { core, calls, renderer, farScene, camera, far: core.byName.far };
@@ -119,8 +121,7 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   // and no render by three. Three's state is reset when three is next used
   // (the core's settle), once, whatever the renderer drew in between.
   const after = calls.slice(calls.findIndex((c) => c[0] === "far_frame"));
-  assert.deepEqual(after.map((c) => c[0]), ["far_frame", "bindFramebuffer", "bindFramebuffer", "blitFramebuffer", "bindFramebuffer", "bindFramebuffer", "bindFramebuffer"]);
-  assert.deepEqual(after[3].slice(1), [0, 0, 4, 4, 0, 0, 4, 4, GL.COLOR_BUFFER_BIT, GL.NEAREST]);
+  assert.deepEqual(after.map((c) => c[0]), ["far_frame", "resolveTarget"]);
   // The input: the clear colour premultiplied, the pass drawing, each item
   // drawn, the sky's matrix where it stands this frame.
   core.views();
@@ -133,8 +134,8 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   const sources = calls.filter((c) => c[0] === "far_source" && c[1] === far.all.find((i) => i.object === a).id);
   assert.deepEqual(sources.map((c) => c[3]), [0, 2]); // brightness (floats), map (texture)
   calls.length = 0;
-  renderer.setRenderTarget(null);
-  assert.deepEqual(calls.map((c) => c[0]), ["resetState", "setRenderTarget", "setRenderTarget"]);
+  core.settle();
+  assert.deepEqual(calls.map((c) => c[0]), ["resetState", "setRenderTarget"]);
   assert.equal(calls[1][1], "far", "the target three believed bound, bound again");
   calls.length = 0;
   core.cover("far", renderer, farScene, camera);

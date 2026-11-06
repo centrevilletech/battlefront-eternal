@@ -32,3 +32,22 @@ test('cross-build parity rejects session noise, candidate changes and tick drift
 // Alpha is part of the target contract, including multisampled edge coverage.
 // An RGB-only check would falsely accept this deliberately changed pixel.
 test('frozen pixel comparison includes alpha',()=>{assert.equal(comparePixels(Uint8Array.of(1,2,3,255),Uint8Array.of(1,2,3,254)).differing,1);});
+
+// A named bound accepts only its measured candidate difference. The control
+// stays exact, and one more pixel or a larger channel delta fails the case.
+test('a named per-case bound never relaxes the control or other cases',()=>{
+  const root=mkdtempSync(join(tmpdir(),'renderer-bound-'));
+  const put=(role,pixels)=>{const dir=join(root,role);mkdirSync(dir,{recursive:true});
+    writeFileSync(join(dir,'case.json'),JSON.stringify({complete:true,pass:true,points:[{w:3,h:1,tick:7,file:'pixels.gz'}]}));
+    writeFileSync(join(dir,'pixels.gz'),gzipSync(Buffer.from(pixels.flatMap(v=>[v,20,30,255]))));};
+  const bound={maxPixels:1,maxDelta:1};
+  try{
+    put('reference',[10,10,10]);put('control',[10,10,10]);
+    put('candidate',[11,10,10]);
+    assert.equal(compareCase(root,'case',1).pass,false,'unlisted cases stay exact');
+    const accepted=compareCase(root,'case',1,bound);assert.equal(accepted.pass,true);assert.equal(accepted.points[0].bounded,true);
+    put('candidate',[11,11,10]);assert.equal(compareCase(root,'case',1,bound).pass,false,'more pixels than the bound');
+    put('candidate',[12,10,10]);assert.equal(compareCase(root,'case',1,bound).pass,false,'a larger channel delta');
+    put('candidate',[11,10,10]);put('control',[11,10,10]);assert.equal(compareCase(root,'case',1,bound).pass,false,'the control remains exact');
+  }finally{rmSync(root,{recursive:true,force:true});}
+});

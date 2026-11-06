@@ -1,0 +1,18 @@
+[package]
+name = "image-codec"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+name = "bfe_image"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+png = "0.18"
+image-webp = "=0.2.4"
+wasm-bindgen = "=0.2.130"
+
+[dev-dependencies]
+sha2 = "0.10"

@@ -71,7 +71,7 @@ export function installWorldReplay(layouts) {
   };
   const read=target=>{
     const half=target.texture.type===1016,float=target.texture.type===1015,buf=half?new Uint16Array(target.width*target.height*4):float?new Float32Array(target.width*target.height*4):new Uint8Array(target.width*target.height*4),old=gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER,R.properties.get(target).__webglFramebuffer);gl.readPixels(0,0,target.width,target.height,gl.RGBA,half?gl.HALF_FLOAT:float?gl.FLOAT:gl.UNSIGNED_BYTE,buf);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,old);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER,R.resources.gpu.framebuffer(R.resources.targetId(target),false,0));gl.readPixels(0,0,target.width,target.height,gl.RGBA,half?gl.HALF_FLOAT:float?gl.FLOAT:gl.UNSIGNED_BYTE,buf);gl.bindFramebuffer(gl.READ_FRAMEBUFFER,old);
     const error=gl.getError();if(error)throw Error('World replay read GL '+error);return {blob:store(buf),w:target.width,h:target.height,bytes:half?2:float?4:1};
   };
   const textureSnapshot=handle=>{
@@ -90,7 +90,7 @@ export function installWorldReplay(layouts) {
       R.resetState();
       let target=depthCopies.get(key);
       if(!target){target=new b.THREE.WebGLRenderTarget(meta.w,meta.h,{type:b.THREE.FloatType,depthBuffer:false,minFilter:b.THREE.NearestFilter,magFilter:b.THREE.NearestFilter});R.initRenderTarget(target);depthCopies.set(key,target);}
-      const id=core.rust.add_texture(handle),program=core.rust.add_owned_program('post-hud/copy'),output=core.byName.post.target(target);
+      const id=core.textures.get(handle),program=core.rust.add_owned_program('post-hud/copy'),output=core.byName.post.target(target);
       core.views();const saved=core.postInput.slice();core.postInput.fill(0);core.postInput.set([program,output,meta.w,meta.h,1,0,32,id]);
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,handle);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_COMPARE_MODE,gl.NONE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
       try{check('Depth copy setup');postFrame(1);check('Depth copy draw '+JSON.stringify({format:meta.format,w:meta.w,h:meta.h,compare:gl.getTexParameter(gl.TEXTURE_2D,gl.TEXTURE_COMPARE_MODE),status:gl.checkFramebufferStatus(gl.FRAMEBUFFER),blend:gl.isEnabled(gl.BLEND)}));const captured=read(target),data=T.blobs[captured.blob],texels=new Float32Array(meta.w*meta.h);for(let i=0;i<texels.length;i++)texels[i]=data[4*i];delete T.blobs[captured.blob];return {w:meta.w,h:meta.h,params,levels:[store(texels)],depth:meta.format,type:gl.FLOAT};}

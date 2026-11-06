@@ -261,7 +261,7 @@ this:
 
 - **PNG listed in a manifest:** returns a texture at once, as
   `TextureLoader` would, so materials can hold it from the start.
-  - Three's `KTX2Loader` fetches the KTX2 and transcodes it in workers to
+  - Rust's Basis decoder fetches the KTX2 through host IO and transcodes it in a worker to
     what the GPU samples directly: BC7 on desktop, ASTC or ETC2 on mobile,
     or BC1/BC3 failing those. Intel GPUs before Ivy Bridge under Mesa get
     BC1/BC3 too: the driver offers BC7 there but unpacks it to RGBA8 on the
@@ -270,8 +270,9 @@ this:
     `generateMipmaps`), `flipY = false`, and `NoColorSpace` so values are
     sampled raw, as with the PNGs.
   - The loading manager counts the transcode, so `ready` waits for it.
-  - If the KTX2 fails, the PNG fills the texture instead and a warning is
-    logged.
+  - A listed KTX2 failure stops loading with the GPU name and cause. Only a
+    missing optional index or an unlisted PNG chooses the original PNG before
+    loading; failed decodes and uploads never change the selected format.
 - **Normal maps (`*_bump.png`) stay PNG.** They measured worst (see
   above), and their block noise shows in the lighting.
 - **CPU readers** call `texturePixels()` (`src/texture-pixels.js`) instead of
@@ -288,8 +289,9 @@ Checked on Theed (SwiftShader):
 - The frame matches the PNG run at 47.7 dB PSNR, which is visually identical.
 - Lamp detection finds the same 107 lights once the PNG fetches complete.
 
-The transcoder (`three/addons/libs/basis/basis_transcoder.{js,wasm}`) is
-imported with Vite's `?url`. A loading-manager URL modifier points
-`KTX2Loader`'s fixed file names at those URLs, so dev and production builds
-both find it.
-
+The decoder worker loads the independent PNG/WebP and Basis Rust modules from
+Vite's hashed assets. It bounds completed decoded bytes awaiting paced uploads.
+Each upload batch also waits asynchronously for Rust's GPU fence before the
+next batch, so ANGLE's staging buffers cannot grow behind animation frames.
+Rust selects formats, owns texture and target storage, and retains encoded PNGs
+or transcoded blocks for restoration; no three.js transcoder ships.

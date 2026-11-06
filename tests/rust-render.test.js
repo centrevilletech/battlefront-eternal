@@ -1,3 +1,4 @@
+import { standinResources } from "./support/rust-standin.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -47,6 +48,7 @@ function bridge() {
   };
   const background = new THREE.Object3D();
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
+  standinResources(renderer,calls);
   const core = new RustRender(graphics, { memory }, BfeRenderer);
   core.sceneItems = core.renderer.renderLists?.get(core.graphics.scene, 0);
   const setSegments = (values) => { segments.length = 0; segments.push(...values); new Uint32Array(memory.buffer, region("transparent_segments"), values.length).set(values); };

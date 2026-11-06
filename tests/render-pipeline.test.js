@@ -5,7 +5,6 @@ import { Controls } from '../src/input.js';
 import { LocalLights } from '../src/local-lights.js';
 import { TreeCanopies } from '../src/tree-canopies.js';
 import { RenderProfiler } from '../src/render-profiler.js';
-import { drawFramebuffer } from '../src/render-targets.js';
 
 test('controls retain axes, simultaneous bindings, short clicks and focus cleanup',()=>{
   const oldWindow=globalThis.window,oldDocument=globalThis.document;
@@ -63,16 +62,6 @@ test('canopy selection and every uploaded leaf match the original equations',()=
   // Distinct camera objects/projections are used for near and far scenes.
   const far=camera.clone();far.far=3000;far.updateProjectionMatrix();far.updateMatrixWorld();trees.update(far);
   assert.deepEqual(Object.values(attributes).map(a=>a.version),versions);assert.equal(trees.stateMap.version,stateVersion);
-});
-
-test('framebuffer lookup follows single-sample and both MSAA paths without GL queries',()=>{
-  const resolved={},multisample={};const properties={__webglFramebuffer:resolved};
-  const renderer={properties:{get:()=>properties}};
-  assert.equal(drawFramebuffer(renderer,{samples:0}),resolved);
-  assert.equal(drawFramebuffer(renderer,{samples:4}),resolved); // render-to-texture extension
-  properties.__webglMultisampledFramebuffer=multisample;
-  assert.equal(drawFramebuffer(renderer,{samples:4}),multisample);
-  assert.equal(drawFramebuffer(renderer,{samples:0}),resolved);
 });
 
 test('GPU profiling polls sparsely, never reads unavailable results, and discards disjoint samples',()=>{

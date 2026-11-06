@@ -513,6 +513,10 @@ class EffectsPass {
   registerSpray(composite, camera) {
     const owner = fountainJets.get(composite), mesh = composite.userData.spray;
     const renderer = this.core.renderer;
+    // The spray samples the frame-copy target before its first visible draw.
+    // initTexture cannot allocate a render target: leaving it uninitialized
+    // makes every hidden spray retry registration on every subsequent frame.
+    if (!renderer.properties.get(owner.behind.texture).__webglTexture) renderer.initRenderTarget(owner.behind);
     if (unbuilt(renderer, mesh.material)) compileFor(renderer, [[mesh, mesh.material]], camera, composite.userData.scene);
     const record = this.registerBatch(instancedOf(mesh), "jetsSpray", null);
     if (!record) return record;

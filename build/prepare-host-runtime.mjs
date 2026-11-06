@@ -32,9 +32,9 @@ try {
   // patched WebRTC stack ships with the desktop host.
   for (const file of ['package.json', 'package-lock.json']) await cp(join(source, file), join(server, file));
   run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], server);
-  // The server never draws: the Rust renderer's WebAssembly (src/rust-pkg)
-  // stays out of its copy of the engine.
-  await cp('src', join(engine, 'src'), { recursive: true, filter: (source) => relative('src', source) !== 'rust-pkg' });
+  // The server never draws or decodes images. Browser GPU and image modules
+  // stay out of the dedicated host's copy of the engine.
+  await cp('src', join(engine, 'src'), { recursive: true, filter: (source) => !['rust-pkg','texture-pkg','image-pkg'].includes(relative('src', source)) });
   await writeFile(join(engine, 'package.json'), JSON.stringify({ type: 'module', private: true }));
   for (const dependency of ['three', 'three-mesh-bvh']) await cp(join('node_modules', dependency), join(engine, 'node_modules', dependency), { recursive: true });
   // The dedicated server's updater (docs/server-updates.md) and the signed
