@@ -146,9 +146,9 @@ test('a recon droid\'s orbital strike reaches a client on its own path, and each
   // The strike: a press, the 3 s countdown, four bolts 0.75 s apart, each
   // about 2 s from 600 m up the sky.
   const impacts = [];
-  const explode = game.factory.context.blastNotice;
-  game.factory.context.blastNotice = (def, event) => { if (/orbital/.test(def.class)) impacts.push(event.position.clone()); return explode(def,event); };
-  t.after(() => { game.factory.context.blastNotice = explode; });
+  const explode = game.ordnance.onExplosion;
+  game.ordnance.onExplosion = (def, position, ...rest) => { if (/orbital/.test(def.class)) impacts.push(position.clone()); return explode(def, position, ...rest); };
+  t.after(() => { game.ordnance.onExplosion = explode; });
   for (let i = 0; i < 3; i++) page(step({ down: ['Mouse2'] }));
   for (let i = 0; i < 9 * 60 && impacts.length < 4; i++) page(step());
   for (let i = 0; i < 10; i++) page(step());

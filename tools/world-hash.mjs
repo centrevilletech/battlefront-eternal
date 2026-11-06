@@ -71,8 +71,6 @@ const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = a
 const unit = opt('unit', null), mount = Number(opt('mount', -1));
 const aiSim = opt('ai-sim', 'js');
 if (!['rust', 'js'].includes(aiSim)) throw Error(`--ai-sim ${aiSim}: rust or js`);
-const battleRules = opt('battle', 'js');
-if (!['rust', 'js'].includes(battleRules)) throw Error(`--battle ${battleRules}: rust or js`);
 const nativeRandom = opt('random', 'seeded') === 'native';
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
@@ -95,8 +93,8 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}&battle=${battleRules}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, battle: battleRules, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 
@@ -105,12 +103,7 @@ async function battle(index) {
   const game = await headlessGame(query);
   if ((aiSim === 'rust') !== Boolean(game.aiSim)) throw Error('AI navigation does not match the requested module');
   if (aiSim === 'rust' && (!game.aiSim.navigation || game.aiSim.navigation.planner.constructor.name !== 'NativePlanner')) throw Error('native AI navigation did not attach');
-  if ((battleRules === 'rust') !== Boolean(game.battleSim)) throw Error('battle rules do not match the requested module');
-  if ((battleRules === 'rust') !== Boolean(game.battlePhaseSim)) throw Error('battle phase does not match the requested module');
-  if (battleRules === 'rust' && !game.worldSim) throw Error('native world phase did not attach');
-  if (battleRules === 'rust' && !game.worldSim.ownsEvents(game.simEvents)) throw Error('native event journal did not attach');
-  if (battleRules === 'rust' && game.turretSeats && !game.turretSeatsSim && !game.vehicles?.f2?.seats.crews) throw Error('native turret crews did not attach');
-  if (battleRules === 'rust' && (!game.postsSim || !game.battlefieldSim || game.ai?.spawning && !game.spawningSim || game.live && !game.propsSim || game.live?.traps.length && !game.trapsSim)) throw Error('a requested native battle phase was not attached');
+  if (!game.liveOwner) throw Error('native live-object phase did not attach');
   // Collision, movement, rounds and items are required on the battle instance.
   if (!game.collision.rays || !game.collision.movement || !game.ordnance.sim || !game.items.sim) throw Error('required simulation kernels did not attach');
   if (!game.vehicles?.f2) throw Error('required vehicle phase did not attach');

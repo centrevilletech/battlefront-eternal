@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { AnimatedProp } from '../src/props.js';
 import { f3World } from './fixtures/f3-world.js';
 
 const soldier = {class:'soldier',base:'soldier',MaxHealth:2000,weapons:[]};
@@ -28,8 +27,7 @@ function prepareUnit(unit) {
 function prop() {
   const root = new THREE.Group(), node = new THREE.Object3D();
   root.add(node); node.position.set(10,7,4);
-  return {rig:{root},grabs:[{clip:'hold',node}],
-    seize:AnimatedProp.prototype.seize,carry:AnimatedProp.prototype.carry};
+  return {rig:{root},grabs:[{clip:'hold',node}]};
 }
 
 test('a prop command owns seizure, root placement and lazy held shapes', async() => {
@@ -37,13 +35,13 @@ test('a prop command owns seizure, root placement and lazy held shapes', async()
   const unit = world.factory.acquire('soldier');
   const position = unit.position, previous = unit.soldier.previous, settled = unit.soldier.settled;
   const shapes = unit.hitShapes(), stamp = unit.spheresTick, tick = unit.tickCount;
-  const p = prop(); p.seize(unit,p.grabs[0],12);
+  const p = prop(); world.phase.seize(unit,p,p.grabs[0],12);
   assert.equal(unit.held.prop,p); assert.equal(unit.held.grab,p.grabs[0]);
   assert.equal(unit.held.since,12); assert.equal(unit.held.frame,undefined);
   assert.equal(unit.combat.mounted,true); assert.equal(unit.soldier.air,null);
   assert.equal(unit.soldier.dive,0); assert.deepEqual(unit.velocity.toArray(),[0,0,0]);
   assert.equal(unit.tickCount,tick); assert.equal(unit.spheresTick,stamp);
-  p.carry(18);
+  p.rig.root.updateMatrixWorld(true);world.phase.carryHeld(unit,p.grabs[0].node.matrixWorld,0.1);
   const held = unit.held, frame = held.frame;
   assert.deepEqual(position.toArray(),[10,6,4]);
   assert.deepEqual(previous.toArray(),[10,6,4]); assert.deepEqual(settled.toArray(),[10,6,4]);
@@ -56,7 +54,7 @@ test('a prop command owns seizure, root placement and lazy held shapes', async()
   world.phase.check();
   held.time = 99;
   assert.throws(()=>world.phase.check(),/mirror write: held.time/);
-  p.grabs[0].node.position.x = 11; p.carry(19);
+  p.grabs[0].node.position.x = 11;p.rig.root.updateMatrixWorld(true);world.phase.carryHeld(unit,p.grabs[0].node.matrixWorld,7/60);
   world.phase.check();
   assert.equal(unit.held,held); assert.equal(held.frame,frame);
   assert.deepEqual(position.toArray(),[11,6,4]);
@@ -65,7 +63,6 @@ test('a prop command owns seizure, root placement and lazy held shapes', async()
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);
   unit.letGo(); assert.equal(unit.held,null); assert.equal(unit.combat.mounted,false);
-  p.carry(20); assert.equal(p.victim,null);
 });
 
 test('a missing held clip preserves placement and cache invalidation', async() => {
@@ -73,7 +70,7 @@ test('a missing held clip preserves placement and cache invalidation', async() =
   const unit = world.factory.acquire('soldier'), p = prop();
   p.grabs[0].clip = 'absent'; unit.hitShapes();
   const tick = unit.tickCount, stamp = unit.spheresTick, position = unit.position.toArray();
-  p.seize(unit,p.grabs[0],0); p.carry(1);
+  world.phase.seize(unit,p,p.grabs[0],0);p.rig.root.updateMatrixWorld(true);world.phase.carryHeld(unit,p.grabs[0].node.matrixWorld,1/60);
   assert.deepEqual(unit.position.toArray(),position);
   assert.equal(unit.tickCount,tick); assert.equal(unit.spheresTick,stamp);
   assert.equal(unit.held.frame,undefined);

@@ -3,7 +3,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 
-import { LiveObjects } from "../src/props.js";
+import {f3World} from './fixtures/f3-world.js';
+import {fleetFixture} from './fixtures/f3-fleet.js';
+import {weaponDefinition} from './fixtures/client-weapons.js';
 import { createServiceCandidates } from "../src/ai/services.js";
 import { dispatch } from "../src/ai/classic/combat.js";
 
@@ -58,17 +60,16 @@ test("repair candidates retain dead build pads and stable underlying object iden
   assert.deepEqual(query(new THREE.Vector3(100, 0, 0), 5), []);
 });
 
-test("bot fusion cutters repair their own team independently of the human's side", () => {
-  const service = Object.create(LiveObjects.prototype);
-  service.playerTeam = 1;
-  const vehicle = { team: 2, alive: true, healthType: "vehicle", health: 40, maxHealth: 100,
-    setHealth(health) { this.health = health; } };
-  const tool = { VehicleHealth: 10, TargetVehicle: 1, TargetFriendly: 1, TargetEnemy: 0 };
-  assert.equal(service.repair(tool, vehicle, 1), false);
-  assert.equal(service.repair(tool, vehicle, 2), true);
-  assert.equal(vehicle.health, 50);
+test("bot fusion cutters repair their own team independently of the human's side", async () => {
+  const tool=weaponDefinition('repair',0,{base:'repair',VehicleHealth:1,TargetVehicle:1,TargetFriendly:1,TargetEnemy:0,LockOnRange:12,LockOnAngle:30,HeatPerShot:0,HeatThreshold:1,ShotDelay:1/60});
+  const w=await f3World({soldier:{class:'soldier',base:'soldier',MaxHealth:100,weapons:[tool]}},
+    {prepareFleet:fleetFixture({positions:[0]}),prepareLive:()=>({buildings:[],playerTeam:2})});
+  const hull=w.factory.context.vehicles.vehicles[0];hull.setHealth(40);
+  const unit=w.spawn('soldier',0,-4);unit.team=unit.combat.team=2;unit.intent.buttons[0]=1;
+  w.phase.phase(1/60);assert.equal(hull.health,40,'enemy hull is not repaired');
+  unit.team=unit.combat.team=1;
+  w.phase.phase(1/60);assert.equal(hull.health,41,'the bot repairs its own army despite the viewer team');
 });
-
 test("mine limits belong to each soldier life, without merging object owners", () => {
   const items = rustItems({ scene: new THREE.Scene(), collision: {}, effects: {}, lights: {}, model: () => null, explode() {} });
   const a = { id: 1, generation: 1 }, b = { id: 2, generation: 1 };

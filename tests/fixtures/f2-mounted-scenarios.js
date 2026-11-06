@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Vector3 } from 'three';
 import { weaponDefinition } from './f2-weapon.js';
-import { PowerupStation } from '../../src/props.js';
 
 const fields = ['timer', 'clip', 'reserve', 'heat', 'overheated', 'wait', 'reloadLeft', 'salvosLeft', 'salvoWait', 'kick', 'pattern', 'firing', 'lockTargetId', 'lockGeneration', 'lockElapsed', 'lockComplete'];
 const number = (_key, value) => typeof value !== 'number' ? value : Object.is(value, -0) ? '-0' : Number.isNaN(value) ? 'NaN' : value === Infinity ? '+Infinity' : value === -Infinity ? '-Infinity' : value;
@@ -56,7 +55,7 @@ export async function mountedScenario(make, name, sample = null) {
       }
       f.vs.update(1 / 60);
       f.o.update(1 / 60);
-      if (basic && tick === 180) PowerupStation.prototype.serve.call({ vehicleHealth: 0, giveHealth: 0, vehicleAmmo: 2, giveAmmo: 2 }, f.v);
+      if (basic && tick === 180) f.vs.f2.firing.supply(f.v,2);
       const state = observation(f);
       if (sample) sample(tick, state);
       hash.update(JSON.stringify(state, number));

@@ -18,10 +18,6 @@ const around = (name, anchor) => {
 const span = (name, from, to) => [{ anchor: from, text: `${enter(name)}${from}` }, { anchor: to, text: `${exit(name)}${to}` }];
 
 export const EDITS = {
-  '/src/props-sim.js': [
-    { anchor: 'found = Boolean(riderPoints(unit.animator, { clip: unit.animator.clips.get(text), pitch: 0, turn: 0, time: value }, this.points));',
-      text: 'found = Boolean(riderPoints(unit.animator, { clip: unit.animator.clips.get(text), pitch: 0, turn: 0, time: value }, this.points)); globalThis.__bfePropsRider?.(unit, text, value, found, this.points.root, this.points.rootTurn);' },
-  ],
   '/src/props.js': [
     { anchor: 'if (!riderPoints(animator, sample, heldScratch.points)) return null;',
       text: 'const sampled = riderPoints(animator, sample, heldScratch.points); globalThis.__bfePropsRider?.(unit, grab.clip, sample.time, Boolean(sampled), heldScratch.points.root, heldScratch.points.rootTurn); if (!sampled) return null;' },
@@ -33,14 +29,14 @@ export const EDITS = {
     // The unit owner includes fleet, seats, recon and separation. Their
     // old individual markers remain only in historical capture metadata.
     around('unitTick', '          unitsSim.phase(dt, tick);'),
-    around('live', "        case 'live': live.update(dt, served, tick); break;"),
+    around('live', "        case 'live': game.liveOwner.step(dt, tick); break;"),
     around('ordnance', "        case 'ordnance': ordnance.update(dt, false); break;"),
     around('items', "        case 'items': items.update(dt, mineTargets); break;"),
-    around('battlefield', "        case 'battlefield': battlefield.update(dt, battle.characters); break;"),
-    around('battle', "        case 'battle': updateBattle(dt); break;"),
+    around('battlefield', "        case 'battlefield': game.tailOwner.step(dt,tick,Boolean(game.serverWorld),tickHuman); tickHuman=null; break;"),
+    around('battle', "        case 'battle': presentBattle(dt); break;"),
     around('targetHud', "        case 'target': updateTargetHud(dt); break;"),
-    { anchor: "        case 'grenades': context.grenades = ordnance.grenades[Symbol.iterator](); break;", text: `        case 'grenades': ${enter('aiGrenades')}context.grenades = ordnance.grenades[Symbol.iterator](); break;` },
-    { anchor: '          if (next.done) { context.grenades = null; return { flag: false }; }', text: `          if (next.done) { ${exit('aiGrenades')}context.grenades = null; return { flag: false }; }` },
+    { anchor: "        case 'grenades': context.grenades = ordnance.grenades; context.grenadeIndex = 0; break;", text: `        case 'grenades': ${enter('aiGrenades')}context.grenades = ordnance.grenades; context.grenadeIndex = 0; break;` },
+    { anchor: '          if (context.grenadeIndex >= context.grenades.length) { context.grenades = null; return false; }', text: `          if (context.grenadeIndex >= context.grenades.length) { ${exit('aiGrenades')}context.grenades = null; return false; }` },
     around('spawnFlush', "        case 'spawnFlush': humanSpawn.flush(); if (vehicles?.f2?.debug) vehicles.f2.check(); break;"),
   ],
   '/src/runtime/multiplayer-world.js': [

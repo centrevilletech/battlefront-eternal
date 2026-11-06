@@ -1,3 +1,6 @@
+// The native battle owns tallying and its spree ring. This module constructs
+// record facades and formats published records for DETAILS and AWARDS.
+
 // What the end-of-match screens report for each Character (DETAILS and
 // AWARDS; docs/scoreboard.md), kept as the 2004 game keeps its
 // per-Character stats record.
@@ -33,15 +36,9 @@
 // The time tables hold 5 classes, 10 weapons and 5 vehicles a slot; a new
 // one takes the place of the one with the least time.
 
-export const SPREE_WINDOW = 5; // s
 export const RING_SIZE = 100;
-export const CAMP_RADIUS = 10; // m
-export const SURVIVAL_HEALTH = 64; // of 255
-export const ESCAPE_LOW = 0.1;
-const TABLES = { classes: 5, weapons: 10, vehicles: 5 };
 
 export const slotOf = (team) => (team === 2 ? 1 : 0);
-const u8 = (value) => value & 0xff;
 
 function slotRecord() {
   return {
@@ -71,53 +68,7 @@ export function recordOf(character) {
   return character.record;
 }
 
-// The slot a Character's numbers go to now.
-function slot(character) {
-  return recordOf(character).slots[slotOf(character.team)];
-}
-
-// Seconds into a time table (the least-used entry gives way when full).
-function addTime(table, size, key, label, dt) {
-  if (!key) return;
-  const entry = table.find((e) => e.key === key);
-  if (entry) {
-    entry.time += dt;
-    if (label) entry.label = label;
-    return;
-  }
-  if (table.length < size) {
-    table.push({ key, label: label || null, time: dt });
-    return;
-  }
-  let least = table[0];
-  for (const e of table) if (e.time < least.time) least = e;
-  least.key = key;
-  least.label = label || null;
-  least.time = dt;
-}
-
 const text = (value) => String(value ?? "").trim().replace(/\n/g, " ") || null;
-
-// What a Character's tallies see of him this tick: the body he controls
-// (his soldier, or the vehicle or turret he sits in), the weapon he holds
-// or his seat's first, the vehicle he sits in, and his soldier's health
-// (0..1, while it lives). Null with no body.
-export function observe(character) {
-  const unit = character.unit;
-  if (!unit || unit.removed) return null;
-  const seat = unit.seat && !unit.seat.released ? unit.seat : null;
-  const vehicle = seat?.vehicle ?? null;
-  const mount = vehicle ?? seat?.turret ?? null;
-  const weapon = vehicle ? vehicle.seats?.[seat.index]?.weapons?.[0]?.state : seat?.turret ? seat.turret.weapon : unit.combat?.arsenal?.current(0);
-  const combat = unit.combat;
-  return {
-    position: mount?.position ?? unit.position,
-    health: unit.alive && combat && !combat.dead ? combat.health / Math.max(combat.maxHealth || 1, 1e-6) : null,
-    weapon: weapon ? { key: weapon.name ?? weapon.def?.class ?? null, label: text(weapon.def?.displayName ?? weapon.def?.label) } : null,
-    vehicle: vehicle ? { key: vehicle.name ?? null, label: text(vehicle.label) } : null,
-    classLabel: text(unit.classDef?.displayName),
-  };
-}
 
 export class BattleStats {
   constructor() {
@@ -125,107 +76,6 @@ export class BattleStats {
     this.ring = { killers: new Array(RING_SIZE).fill(null), times: new Float64Array(RING_SIZE), slots: new Int32Array(RING_SIZE), head: 0, tail: 0 };
   }
 
-  // A kill: killer (a Character or null) of victim, relation the killer's
-  // team's to the victim's. The killer's own last health (0..255) is the
-  // tallies' (recordOf(killer).health).
-  kill(killer, victim, relation) {
-    if (!killer || relation === 0) return;
-    const record = slot(killer);
-    if (victim) record.victims.set(victim, u8((record.victims.get(victim) || 0) + 1));
-    if (relation > 0) {
-      record.teamKills = u8(record.teamKills + 1);
-      return;
-    }
-    if (recordOf(killer).health < SURVIVAL_HEALTH) record.survivalist = u8(record.survivalist + 1);
-    record.lifeKills = u8(record.lifeKills + 1);
-    record.lifeKillsBest = Math.max(record.lifeKillsBest, record.lifeKills);
-    this.spree(killer);
-  }
-
-  // The ring of recent kills: the killer's kills in the last 5 s, counted
-  // only when the slot at the ring's next free entry is his (the
-  // original game's).
-  spree(killer) {
-    const ring = this.ring;
-    const next = (i) => (i + 1) % RING_SIZE;
-    const now = this.time;
-    while (ring.tail !== ring.head && !(now - SPREE_WINDOW < ring.times[ring.tail])) ring.tail = next(ring.tail);
-    const head = next(ring.head);
-    if (head === ring.tail) return; // full
-    const own = slotOf(killer.team);
-    ring.killers[ring.head] = killer;
-    ring.times[ring.head] = now;
-    ring.slots[ring.head] = own;
-    ring.head = head;
-    let count = 0;
-    for (let i = ring.tail; i !== head; i = next(i)) if (ring.killers[i] === killer && ring.slots[head] === own) count++;
-    const record = slot(killer);
-    record.spree = Math.max(record.spree, u8(count));
-  }
-
-  // A death: BANTHA FODDER; the life's kills and clock and the low-health
-  // mark start again.
-  death(victim) {
-    if (!victim) return;
-    const record = slot(victim);
-    record.deaths = u8(record.deaths + 1);
-    record.lifeKills = 0;
-    record.life = 0;
-    recordOf(victim).low = false;
-  }
-
-  // A head hit, for whoever had hurt the soldier last before it.
-  headshot(credited) {
-    if (!credited) return;
-    const record = slot(credited);
-    record.headshots = (record.headshots + 1) & 0xffff;
-  }
-
-  // A vehicle destroyed, for whoever hurt it last.
-  vehicleDestroyed(destroyer) {
-    if (!destroyer) return;
-    const record = slot(destroyer);
-    record.vehiclesDestroyed = u8(record.vehiclesDestroyed + 1);
-  }
-
-  // One world tick of dt seconds for each Character whose tallies run.
-  // see(character): observe(character) by default.
-  tick(dt, characters, active = () => true, see = observe) {
-    this.time += dt;
-    for (const character of characters) {
-      if (!active(character)) continue;
-      const record = recordOf(character);
-      const own = slot(character);
-      const seen = character.className || character.unit ? see(character) : null;
-      if (character.className) {
-        addTime(own.classes, TABLES.classes, character.className, seen?.classLabel, dt);
-        own.life += dt;
-        own.lifeBest = Math.max(own.lifeBest, own.life);
-      }
-      if (!seen) continue;
-      if (seen.health !== null) {
-        record.health = Math.min(Math.max(Math.trunc(seen.health * 255), 0), 255);
-        if (seen.health < ESCAPE_LOW) record.low = true;
-        else if (record.low && seen.health >= 1) {
-          record.low = false;
-          own.escapes = u8(own.escapes + 1);
-        }
-      }
-      const p = seen.position;
-      if (p) {
-        const a = record.anchor;
-        if (!a || (p.x - a.x) ** 2 + (p.y - a.y) ** 2 + (p.z - a.z) ** 2 > CAMP_RADIUS * CAMP_RADIUS) {
-          record.anchor = { x: p.x, y: p.y, z: p.z };
-          own.camp = 0;
-        } else {
-          own.camp += dt;
-          own.campBest = Math.max(own.campBest, own.camp);
-        }
-      }
-      if (seen.weapon) addTime(own.weapons, TABLES.weapons, seen.weapon.key, seen.weapon.label, dt);
-      if (seen.vehicle) addTime(own.vehicles, TABLES.vehicles, seen.vehicle.key, seen.vehicle.label, dt);
-    }
-  }
 }
 
 // ---------------------------------------------------------------- sharing

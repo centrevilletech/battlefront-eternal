@@ -44,7 +44,7 @@ test('weapon checkpoints: the reference bytes for every value, and its errors fo
       if (roll < 0.5) set(pick(r, NUMBERS), r() < 0.7 ? Math.fround(r() * 40 - 10) : pick(r, ODD));
       else if (roll < 0.8) set(pick(r, FLAGS), r() < 0.9 ? r() < 0.5 : pick(r, ODD));
       else if (roll < 0.9 && weapon.levels.length > 1) weapon.def = pick(r, weapon.levels);
-      else if (weapon.melee) weapon.update(1 / 60, r() < 0.5, { pressed: r() < 0.3, held: r() < 0.5 }, false, {stick:0,posture:'stand',zoomed:false});
+      else if (weapon.melee) weapon.melee.time = r();
       // Twice: a second capture of an unchanged weapon comes from each one's cache.
       for (let n = 0; n < 2; n++) assert.deepEqual(outcome(() => captureArsenalWeapon(weapon)), outcome(() => reference.captureArsenalWeapon(weapon)), `round ${round} step ${i}`);
       if (restore.some(([key]) => !Number.isFinite(weapon[key]) && typeof weapon[key] !== 'boolean')) for (const [key, value] of restore.reverse()) weapon[key] = value;

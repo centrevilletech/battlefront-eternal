@@ -149,7 +149,6 @@ export function createEntityHost({ game, world, stateBytesPerSecond, epoch = 1, 
           if (fullTurn) {
             if (!semanticRecords) {
               const tick = game.worldClock.tick;
-              for(const [slot,c]of game.battle.characters.entries())c.rosterSlot=slot;
               semanticRecords = [...capture.capture(tick),
                 ...[...game.units.all()].filter(u=>u.soldier&&u.combat&&!u.removed).map(u=>captureUnitState(u,registry,tick)),
                 ...captureWorldPresentation(game,tick,epoch)].map(prepareEntityRecord);

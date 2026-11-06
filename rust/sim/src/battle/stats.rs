@@ -16,9 +16,9 @@ pub const RING_SIZE: usize = 100;
 pub const CAMP_RADIUS: f64 = 10.0;
 pub const SURVIVAL_HEALTH: f64 = 64.0;
 pub const ESCAPE_LOW: f64 = 0.1;
-const CLASSES: usize = 5;
-const WEAPONS: usize = 10;
-const VEHICLES: usize = 5;
+pub(super) const CLASSES: usize = 5;
+pub(super) const WEAPONS: usize = 10;
+pub(super) const VEHICLES: usize = 5;
 
 /// slotOf(team): team 2's slot 1, every other team's slot 0.
 pub fn slot_of(team: f64) -> usize {
@@ -220,44 +220,50 @@ pub fn tick(
         }
         record_of(character);
         let seen = if truthy(strings, character.class_name) || character.unit.is_some() { see(r, character) } else { None };
-        let class_name = character.class_name;
-        let own = slot_of(character.team);
-        let record = record_of(character);
-        if truthy(strings, class_name) {
+        tick_character(dt, character, strings, seen);
+    }
+}
+
+/// The native battle phase observes the canonical unit store between short
+/// Character borrows, then applies the same tally arithmetic to that record.
+pub fn tick_character(dt: f64, character: &mut Character, strings: &dyn Text, seen: Option<Seen>) {
+    let class_name = character.class_name;
+    let own = slot_of(character.team);
+    let record = record_of(character);
+    if truthy(strings, class_name) {
+        let s = &mut record.slots[own];
+        add_time(&mut s.classes, CLASSES, class_name, seen.as_ref().and_then(|s| s.class_label), dt, strings);
+        s.life += dt;
+        s.life_best = v8math::max(s.life_best, s.life);
+    }
+    let Some(seen) = seen else { return };
+    if let Some(health) = seen.health {
+        record.health = v8math::min(v8math::max(v8math::trunc(health * 255.0), 0.0), 255.0);
+        if health < ESCAPE_LOW {
+            record.low = true;
+        } else if record.low && health >= 1.0 {
+            record.low = false;
+            record.slots[own].escapes = u8_of(record.slots[own].escapes + 1.0);
+        }
+    }
+    if let Some(p) = seen.position {
+        let far = match &record.anchor {
+            None => true,
+            Some(a) => v8math::pow(p[0] - a.x, 2.0) + v8math::pow(p[1] - a.y, 2.0) + v8math::pow(p[2] - a.z, 2.0) > CAMP_RADIUS * CAMP_RADIUS,
+        };
+        if far {
+            record.anchor = Some(Anchor { x: p[0], y: p[1], z: p[2] });
+            record.slots[own].camp = 0.0;
+        } else {
             let s = &mut record.slots[own];
-            add_time(&mut s.classes, CLASSES, class_name, seen.as_ref().and_then(|s| s.class_label), dt, strings);
-            s.life += dt;
-            s.life_best = v8math::max(s.life_best, s.life);
+            s.camp += dt;
+            s.camp_best = v8math::max(s.camp_best, s.camp);
         }
-        let Some(seen) = seen else { continue };
-        if let Some(health) = seen.health {
-            record.health = v8math::min(v8math::max(v8math::trunc(health * 255.0), 0.0), 255.0);
-            if health < ESCAPE_LOW {
-                record.low = true;
-            } else if record.low && health >= 1.0 {
-                record.low = false;
-                record.slots[own].escapes = u8_of(record.slots[own].escapes + 1.0);
-            }
-        }
-        if let Some(p) = seen.position {
-            let far = match &record.anchor {
-                None => true,
-                Some(a) => v8math::pow(p[0] - a.x, 2.0) + v8math::pow(p[1] - a.y, 2.0) + v8math::pow(p[2] - a.z, 2.0) > CAMP_RADIUS * CAMP_RADIUS,
-            };
-            if far {
-                record.anchor = Some(Anchor { x: p[0], y: p[1], z: p[2] });
-                record.slots[own].camp = 0.0;
-            } else {
-                let s = &mut record.slots[own];
-                s.camp += dt;
-                s.camp_best = v8math::max(s.camp_best, s.camp);
-            }
-        }
-        if let Some((key, label)) = seen.weapon {
-            add_time(&mut record.slots[own].weapons, WEAPONS, key, label, dt, strings);
-        }
-        if let Some((key, label)) = seen.vehicle {
-            add_time(&mut record.slots[own].vehicles, VEHICLES, key, label, dt, strings);
-        }
+    }
+    if let Some((key, label)) = seen.weapon {
+        add_time(&mut record.slots[own].weapons, WEAPONS, key, label, dt, strings);
+    }
+    if let Some((key, label)) = seen.vehicle {
+        add_time(&mut record.slots[own].vehicles, VEHICLES, key, label, dt, strings);
     }
 }

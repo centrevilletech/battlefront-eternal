@@ -49,7 +49,7 @@ import {PageEffects,loadPresentation} from "./presentation/effects.js";
 import {PageUnits} from "./presentation/units.js";
 import { Gunner } from "./gunner.js";
 import { LiveObjects } from "./props.js";
-import { killRegion, registerObjectives } from "./objectives.js";
+import { registerObjectives } from "./objectives.js";
 import { buildRegion, inRegion } from "./regions.js";
 import { CrowdShadows } from "./crowd-shadows.js";
 import { findReticleTarget, radarRelation } from "./targeting-facts.js";
@@ -63,6 +63,7 @@ import { makeHit } from "./collision.js";
 import { Battlefield, LeavingWarning, loadBoundary } from "./battlefield.js";
 import { Units } from "./registry.js";
 import { SimEvents } from "./sim-events.js";
+import { stepWorld } from './f4-world-step.js';
 import { Unit, UnitFactory } from "./units.js";
 import { goneUp } from "./droideka.js";
 import { ClassicRandom, RandomStreams } from "./ai/random.js";
@@ -82,7 +83,7 @@ import { RuntimeProfiler } from "./runtime-profiler.js";
 import { attachPostAI, factionOf, friendlySpawn } from "./ai/classic/goals.js";
 import { callsFromMapMission, missionTeams, teamTable } from "./ai/classic/spawning.js";
 import { Trap, padOnGround, sideOfTeams } from "./traps.js";
-import { CORPSE_LINGER, HumanSpawn, RESPAWN_DELAY, choosePost, spawnPointAt, switchHumanTeam, applyAuthoritativeHumanTeam } from "./human-spawn.js";
+import { HumanSpawn, RESPAWN_DELAY, choosePost, applyAuthoritativeHumanTeam } from "./human-spawn.js";
 import { PlayerBodies } from "./player-body.js";
 import { playableClasses, spawnPolicy } from "./spawn-screen/policy.js";
 import { selectAIMission, selectMission } from "./mission.js";
@@ -107,11 +108,16 @@ async function loadSimInstance() {
 // The battle's store on its instance of the module (src/sim/runtime.js
 // SimBridge: the kinds Rust owns, the imports it asks the battle), with the
 // rounds in flight and the things lying about handed over to it.
-async function attachSimStore(instance, ordnance, items) {
+async function attachSimStore(instance, ordnance, items, profileBoundary) {
   const [{ bridgeFor }, { attachOrdnanceSim, ordnanceTests }, { attachItemsSim }] = await Promise.all([import("./sim/runtime.js"), import("./ordnance-sim.js"), import("./items-sim.js")]);
   // The instance's one bridge (made here, or joined: another phase's own
   // attach gets the same one with bridgeFor).
   const bridge = bridgeFor(instance, { classes: { Unit, Vehicle }, tests: ordnanceTests });
+  if (profileBoundary) {
+    const { F4Counters, countedF4Exports } = await import('./f4-counters.js');
+    bridge.boundaryCounters = new F4Counters();
+    bridge.x = countedF4Exports(bridge.x, bridge.boundaryCounters);
+  }
   // Room for the store's rows now, so play does not grow the memory.
   bridge.reserve(4 << 20);
   attachItemsSim(items, attachOrdnanceSim(ordnance, bridge));
@@ -441,9 +447,6 @@ async function start() {
   // The terrain's water, where the map has some.
   const water = world.water ? (headless ? new WaterState(world.water) : new Water({ data: world.water, texture: mapTexture, graphics, weather: world.weather })) : null;
   const groundPositions = new Float32Array(groundBuf);
-  // Battle phases migrate together behind this opt-in switch. The player's
-  // spawn state machine is the first live owner (human-spawn-sim.js).
-  const wantBattle = headless && (params.get("battle") ?? globalThis.process?.env?.BFE_BATTLE) === "rust";
   const wantAiSim = headless && (params.get("aiSim") ?? globalThis.process?.env?.BFE_AI_SIM) === "rust";
   // The kernels and the store on the battle's one instance of the module.
   const simInstance = await loadSimInstance();
@@ -845,12 +848,11 @@ async function start() {
     explode: (explosion, position, owner) => ordnance.explosion(explosion, position, owner),
   });
   // The world hands rounds and items to Rust before any is made.
-  const simBridge = headless ? await attachSimStore(simInstance, ordnance, items) : null;
+  const simBridge = headless ? await attachSimStore(simInstance, ordnance, items,
+    params.get('profileBoundary') === '1' || globalThis.process?.env?.BFE_PROFILE_BOUNDARY === '1') : null;
   // The dormant viewpoint shares native combat with factory soldiers. It
   // receives its Unit owner after the registry assigns that object's id.
   const combatSim = headless ? await attachOwnedCombat(simInstance) : null;
-  // The map's placed power-ups lie where the world put them from the start
-  // (src/placed-items.js); the world alone makes them, a page shows records.
   ordnance.water = water;
   // The player's bodies (src/player-body.js): the class played first, from
   // what was fetched above, and any other the first time he takes it. The
@@ -1041,14 +1043,7 @@ async function start() {
     simulationView.reset();
     deathView.stop();
   }
-  // His body leaves the world CORPSE_LINGER after his death, as a bot's does.
-  function removeCorpse() {
-    playerUnit.alive = false;
-    playerUnit.removed = true;
-    playerUnit.targetable = false;
-    actor.root.visible = false;
-    if (jetFlame) { jetFlame.stop(); jetFlame = null; }
-  }
+
   // The player's way into the battle (src/human-spawn.js): the spawn
   // screen's phases and queued choices; when the URL names his unit, that
   // choice is confirmed at load and after every death instead.
@@ -1062,17 +1057,11 @@ async function start() {
       get classic() { return ai?.awaitingHuman ? ai : null; },
       roster: (team) => rosterOf(team),
       canSpawn: (className) => bodies.ready(className),
-      setTeam: (team) => setHumanTeam(team),
-      spawn: (className, post) => spawnHuman(className, post),
-      ready: (className, post) => readyHuman(className, post),
-      kill: () => killHuman(),
-      cancel: () => cancelHuman(),
       over: () => battle.over,
     },
   });
   // The player's end-of-match record tallies from his spawn until his spawn
   // screen opens, as the original's does.
-  const humanSpawnSim = wantBattle && simInstance ? (await import("./human-spawn-sim.js")).attachHumanSpawnSim(simInstance, humanSpawn) : null;
   battle.statsActive = (character) => !character.human || humanSpawn.phase === "alive" || humanSpawn.phase === "dying";
   if (policy.auto) {
     const choices = spawnPosts();
@@ -1230,14 +1219,6 @@ async function start() {
         onDestroyed: (building) => {
           if (gunner?.active && gunner.turret === building) combat.damage(Infinity, Infinity, null, building.lastAttacker ?? null);
         },
-        // A droid's pulse that gave someone on foot something: the soldier's
-        // gain effects at his feet, as a power-up's (units.js). Recorded in
-        // a worker and played on its page like any effect.
-        onServe: (target, gave) => {
-          const def = target.def || factory?.built.find((unit) => unit.supply === target)?.classDef || {};
-          if (gave & 1) presentEffect(def.HealthGainEffect || "Powerup_blue", target.position);
-          if (gave & 2) presentEffect(def.AmmoGainEffect || "Powerup_red", target.position);
-        },
       })
     : null;
   if (vehicleDef) {
@@ -1290,12 +1271,12 @@ async function start() {
   // from whatever hulls and turrets this page shows (src/vehicle-effects.js).
   if (!headless) vehicleEffects = new VehicleEffects({ effects, water, debris });
   destruction?.watch(live);
-  // Endor's log traps (src/traps.js): whose they are and whose walkers set
-  // them off, from the battle's teams; their crush effect, as any effect.
+  // Endor's log traps (src/traps.js): whose they are, from the battle's
+  // teams. The live phase in Rust sets them off and crushes walkers.
   if (live?.traps.length) {
     const sideOf = sideOfTeams(world.mission?.teams);
     const teamOfSide = (side) => Number(Object.keys(world.mission?.teams || {}).find((team) => sideOf(team) === side)) || 0;
-    live.attachTraps({ sideOf, teamOf: teamOfSide, effect: (name, position) => presentEffect(name, position) });
+    live.attachTraps({ teamOf: teamOfSide });
   }
   hud.preload(
     (propsDef?.instances || []).flatMap((i) => [i.weapon?.IconTexture, i.weapon?.ReticuleTexture, i.settings?.HealthTexture]).filter(Boolean),
@@ -1361,7 +1342,6 @@ async function start() {
 
   // The bots: both sides' classes (sides, above), bodies built ahead, and a
   // brain.
-  const unitCenter = new THREE.Vector3();
   const deathRelation = (a,b) => units.relation(a,b);
   const deathLocals = team => units.locals(team);
   // The combats of the units it builds on the module, when the world asked.
@@ -1371,22 +1351,6 @@ async function start() {
     reconFirePoints: remotes.firePoints,
     maxFlyHeight: world.mission?.maxFlyHeight ?? 200,
     onBuilt: instrument,
-    // Character tallies are still foreign. Call the JS rule directly so this
-    // synchronous credit leaf cannot enter a legacy battle method adapter.
-    headshotCredit: character => Battle.prototype.headshot.call(battle, character),
-    hullDestroyedCredit: character => Battle.prototype.vehicleDestroyed.call(battle, character),
-    // Unit death has already changed canonical flags, detached its seat and
-    // stopped its jet. This synchronous leaf touches Character records only;
-    // its controller pointer is returned in the generated death reply.
-    deathCredit: (unit,killer) => {
-      const character = unit.character;
-      if (character) {
-        character.diedAt = simTime;
-        if (character.unit === unit) character.unit = null;
-      }
-      characterDied(character,unit.team,true);
-      Battle.prototype.credit.call(battle,character,killer,killer ? units.relation(killer.team,unit.team) : 0);
-    },
     deathNotice: (unit,event) => {
       const attacker = event.attacker === "player" ? playerUnit : event.attacker;
       simEvents.emit("death", {
@@ -1461,43 +1425,10 @@ async function start() {
   // A death costs the team a reinforcement: through the Classic spawn
   // manager when it runs the battle (it keeps the living counts too), else
   // directly.
-  function characterDied(character, team, owned = false) {
-    if (ai?.died) ai.died(character,owned);
-    else if (owned) Battle.prototype.spend.call(battle,team);
-    else battle.spend(team);
-  }
   // A Character into the world as `className` at `point` facing `yaw`. The
   // human's Character is the player's own soldier, placed there.
-  function spawnUnit(character, className, post, point, yaw) {
-    if (character.human) {
-      // His body for the class, if he played another last time.
-      const next = bodies.get(className);
-      if (next && next !== body) adopt(next);
-      driver?.release();
-      if (gunner?.active) { gunner.exit(soldier); combat.mounted = false; }
-      placePlayer(point[0], point[1], point[2], yaw);
-      revivePlayer();
-      character.unit = playerUnit;
-      character.className = playerUnit.className;
-      playerUnit.character = character;
-      simEvents.emit("spawn", { target: units.ref(playerUnit), team: playerUnit.team, position: playerUnit.position, className: playerUnit.className, post: post?.name ?? null });
-      humanSpawn.spawned(playerUnit.className, post?.name ?? null);
-      return playerUnit;
-    }
-    if (!factory.prepared(className)) return null;
-    const unit = factory.acquire(className);
-    unit.team = character.team;
-    unit.combat.team = character.team;
-    unit.character = character;
-    character.unit = unit;
-    character.className = className;
-    unit.spawn(point[0], point[1], point[2], yaw);
-    unit.hero = Boolean(character.hero);
-    if (headless) unitsSim.publishMetadata(unit);
-    unit.waterContact = {};
-    simEvents.emit("spawn", { target: units.ref(unit), team: unit.team, position: unit.position, className, post: post?.name ?? null });
-    ai?.spawned?.(character);
-    return unit;
+  function spawnUnit(character,className,post,point,yaw) {
+    return game.tailOwner.spawnUnit(character,className,post,point,yaw);
   }
   // Sight: terrain, buildings, props, vehicles, and soldiers other than the
   // two named, between two points.
@@ -1611,29 +1542,6 @@ async function start() {
   // page that shows the player works out his warning.
   const battlefield = new Battlefield(ai?.nav?.boundary ?? await loadBoundary(`${mapDir}/ai-nav.json`));
   const leavingWarning = headless ? null : new LeavingWarning();
-  // The player, as a droid serves him (PowerupStation): marked player so the
-  // HUD can tell a droid serving him from one serving a bot beside him.
-  const supplied = {
-    player: true,
-    get def() {
-      return soldierDef;
-    },
-    get position() {
-      return soldier.position;
-    },
-    get health() {
-      return combat.health;
-    },
-    set health(value) {
-      combat.health = value;
-    },
-    get maxHealth() {
-      return combat.maxHealth;
-    },
-    get weapons() {
-      return combat.arsenal.weapons;
-    },
-  };
   const eyePoint = new THREE.Vector3();
 
   // The jetpack's flames (the class's JetEffect; its effects come with the
@@ -1692,31 +1600,11 @@ async function start() {
   // Every hull's own sounds read the hulls this page shows (rust/audio-control/src/vehicles.rs).
   audio.retarget({ vehicles });
 
-  // Killed: a reinforcement is spent, and the soldier deploys again after
-  // the death clip. Without the spawn screen the URL's choice is confirmed
-  // again: the Classic AI's spawn manager spawns the player like everyone
-  // else (ready now, placed by spawnUnit on its next update), else he is
-  // placed at once. With the screen, its choice comes through humanSpawn.
-  function onRespawn() {
-    if (!policy.auto) return;
-    if (ai?.humanReady) {
-      ai.humanReady(battle.human, { className: UNIT, post: spawnPosts()[spawnIndex] });
-      return;
-    }
-    respawn();
-    revivePlayer();
-    humanSpawn.spawned(playerUnit.className, spawnPosts()[spawnIndex]?.name ?? null);
-  }
   // A fresh life's loadout draws its spread from a stream of its own, so
   // the world worker and replays shoot alike (the first life's weapons draw
   // from the gameplay stream, as they always have).
   const playerSpread = streams.draw("player-weapons");
-  function revivePlayer() {
-    combat.reset();
-    for (const weapon of combat.arsenal.weapons) weapon.random = playerSpread;
-    actor.root.visible = true;
-    hud.wake();
-  }
+
   // A droid blowing apart: its explosion, and its pieces flying in place of
   // the body.
 
@@ -1840,7 +1728,6 @@ async function start() {
     combat.vehicles = vehicles;
     combat.effects = effects;
     combat.view = firstPersonView;
-    combat.onRespawn = onRespawn;
 
     instrument(playerUnit);
     combat.random = gameplayRandom;
@@ -1857,12 +1744,10 @@ async function start() {
   }
   wireBody();
 
-  // He takes another class's body (src/player-body.js), only between lives,
-  // while he has no unit. The old body is put away; the new one lies where it
-  // lay, dead, until he spawns. Every stored reference to the body moves
-  // with it: the cameras, the vehicle and turret seats, the sounds, the
-  // first-person scene. His Unit stays the same object.
+  // A page follows an authoritative class replacement with prepared shown
+  // resources. Native spawning never calls this presentation operation.
   function adopt(next) {
+    if(headless)throw Error('native authority cannot adopt a shown body');
     if (!next || next === body || !combat.dead) return false;
     const old = body;
     old.actor.root.visible = false;
@@ -1893,22 +1778,13 @@ async function start() {
     if (driver) Object.assign(driver, { soldier, combat, actor, animator, clips, presentation });
     gunner.combat = combat;
     gunner.animator = animator;
-    playerUnit.waterContact = undefined;
+    for (const key of Object.keys(waterContact)) delete waterContact[key];
     wireBody();
     setPerspective(firstPerson);
     audio.retarget({ soldier, combat, actor, unit: next.className, def: soldierDef });
     return true;
   }
 
-  // He moves to the other team between lives (the spawn screen's team
-  // switch), everywhere his team is kept (src/human-spawn.js
-  // switchHumanTeam). No ticket is spent: his death already cost one.
-  // `announce` false: the page following the world's switch, whose own
-  // teamChanged comes with the tick's calls (it would be heard twice).
-  function setHumanTeam(team, announce = true) {
-    if (team === playerTeam || !teams[team] || !combat.dead) return false;
-    return changeHumanTeam(team, false, announce);
-  }
   function validateNetworkHumanTeam(team) {
     if (!client || (team !== 1 && team !== 2) || !teams[team]) throw Error('Unsupported authoritative human team');
   }
@@ -1919,10 +1795,10 @@ async function start() {
   }
   function changeHumanTeam(team, authoritative, announce = true) {
     const previous = playerTeam;
-    const moved = (authoritative ? applyAuthoritativeHumanTeam : switchHumanTeam)({
+    const moved = applyAuthoritativeHumanTeam({
       setTeams: (own, foe) => { playerTeam = own; enemyTeam = foe; },
       character: battle.human,
-      ai: ai?.switchTeam ? ai : null,
+      ai,
       posts,
       battle,
       live,
@@ -1954,83 +1830,33 @@ async function start() {
     return [...posts.all().filter((post) => post.active !== false), ...transportPosts(vehicles)];
   }
 
-  // Without the Classic AI: into the world now as className at the named
-  // post, at a random point of its spawn path (src/human-spawn.js). A post
-  // that no longer serves gives way to the eligible one nearest it, or the
-  // front line; with none eligible, his team's first post with a spawn path,
-  // as before the screen. False if there is no post at all.
-  function spawnHuman(className, postName) {
-    const choices = spawnChoices();
-    const named = choices.find((post) => post.name === postName) || null;
-    const post = choosePost(choices, playerTeam, named, spawnRelation, gameplayRandom) || spawnPosts()[0];
-    const next = bodies.get(className);
-    if (!post || !next) return false;
-    if (next !== body) adopt(next);
-    const fallback = friendlySpawn(post, playerTeam, spawnRelation) ? null : spawns[post.desc.spawnPath];
-    const [x, y, z, yaw = 0] = fallback ? fallback[Math.floor(gameplayRandom() * fallback.length)] : spawnPointAt(post, playerTeam, gameplayRandom);
-    driver?.release();
-    if (gunner?.active) { gunner.exit(soldier); combat.mounted = false; }
-    placePlayer(x, y, z, yaw);
-    revivePlayer();
-    spawnIndex = Math.max(spawnPosts().indexOf(post), 0);
-    if (battle.human) {
-      battle.human.unit = playerUnit;
-      battle.human.className = className;
-      playerUnit.character = battle.human;
-    }
-    simEvents.emit("spawn", { target: units.ref(playerUnit), team: playerUnit.team, position: playerUnit.position, className, post: post.name ?? null });
-    humanSpawn.spawned(className, post.name ?? null);
-    return true;
-  }
-  // With the Classic AI: the choice goes to the spawn manager, which places
-  // him on its next update. A choice it took while he waited for a post gives
-  // way to this one (the screen's BACK, then SPAWN again).
-  function readyHuman(className, postName) {
-    const character = battle.human;
-    if (!character?.spawn || character.unit) return false;
-    const transport = transportPosts(vehicles).find(p => p.name === postName && p.team === playerTeam);
-    if (transport && character.spawn.timer <= 0) return spawnHuman(className, postName);
-    character.spawn.ready = false;
-    const post = postName ? posts.all().find((each) => each.name === postName) : undefined;
-    ai.humanReady(character, { className, post });
-    return character.spawn.ready;
-  }
-  // The screen's BACK while a choice waits: with the Classic AI the spawn
-  // manager lets go of it (the Character's ready flag), as the original's
-  // uncommit does; he stays on the screen.
-  function cancelHuman() {
-    const character = battle.human;
-    if (ai?.spawning && character?.spawn && !character.unit) character.spawn.ready = false;
-  }
-  // The pause menu's RESPAWN: a normal death, out of any vehicle or turret
-  // first (a ticket is spent, then the timer and the screen).
-  function killHuman() {
-    if (combat.dead) return;
-    driver?.release();
-    if (gunner?.active) { gunner.exit(soldier); combat.mounted = false; }
-    combat.damage(Infinity);
-  }
-
   const input = { forward: 0, right: 0, turn: 0, jump: false, crouch: false, prone: false };
   // The keys while flying a droid.
   const droidInput = { forward: 0, right: 0, turn: 0 };
   const mineTargets = [];
-  const served = [];
-  // This tick's spawn screen choices (command.human), applied in updateBattle.
+  // This tick's spawn screen choices, consumed by the native battle tail.
   let tickHuman = null;
   // How far this tick's mouse look turned him (a page showing a worker's
   // battle keeps it out of the body's interpolation, as previousYaw does).
   let tickLookYaw = 0;
-  // The native driver chooses phase order and branches. These ports retain
-  // object identity and the presentation or not-yet-owned phase boundaries.
+  // The outer coordinator retains presentation order around the native
+  // phase owners. Its cold ports read current facades without tick tables.
   const stepSquads = [["squadMoveOut", 0, "moveout"], ["squadHold", 2, "hold"], ["squadFollow", 3, "follow"], ["squadAtEase", 1, "atease"]];
 
   const worldStepHost = {
-    state: () => ({ water: Boolean(water), remote: Boolean(remotes.active), walker, dead: combat.dead, server: Boolean(game.serverWorld),
-      deathCamera: Boolean(deathView.active), driver: Boolean(driver?.active), gunner: Boolean(gunner.active), vehicles: Boolean(vehicles),
-      ai: Boolean(ai), units: Boolean(unitsSim), turretSeats: Boolean(turretSeats), networkRemotes: Boolean(networkRemotes), removed: Boolean(playerUnit.removed),
-      grenadeUpdate: Boolean(ai?.grenadeUpdate), playerCommand: Boolean(ai?.playerCommand), eyeView: Boolean(combat.usesEyeView), live: Boolean(live),
-      playerWalker: Boolean(playerUnit.walker), playerTicks: playerUnit.tickCount, forward: input.forward, right: input.right, aimPitch: soldier.aimPitch }),
+    get water() { return Boolean(water); },
+    get dead() { return Boolean(combat.dead); },
+    get playerCommand() { return Boolean(ai?.playerCommand); },
+    get eyeView() { return Boolean(combat.usesEyeView); },
+    get deathCamera() { return Boolean(deathView.active); },
+    get remote() { return Boolean(remotes.active); },
+    get driver() { return Boolean(driver?.active); },
+    get gunner() { return Boolean(gunner.active); },
+    get server() { return Boolean(game.serverWorld); },
+    get removed() { return Boolean(playerUnit.removed); },
+    get ai() { return Boolean(ai); },
+    get live() { return Boolean(live); },
+    get grenadeUpdate() { return Boolean(ai?.grenadeUpdate); },
     call(op, context, value, flag) {
       const { dt, tick } = context, command = context.command, tickControls = worldControls;
       switch (op) {
@@ -2060,10 +1886,10 @@ async function start() {
           simTime = value; simEvents.time = simTime;
           input.forward = tickControls.axis('forward'); input.right = tickControls.axis('right'); input.turn = tickControls.axis('turn');
           droidInput.forward = input.forward; droidInput.right = input.right; droidInput.turn = input.turn; break;
-        case 'takeSquad': return { flag: tickControls.take(stepSquads[value][0]) };
+        case 'takeSquad': return tickControls.take(stepSquads[value][0]);
         case 'squad': ai.playerCommand(stepSquads[value][1]); hud.squadCommand(stepSquads[value][2]); break;
-        case 'takeUse': return { flag: tickControls.take('use') };
         case 'playerCount':
+          unitsSim.x.f4_viewpoint_clock();
           unitsSim.sync();
           break;
         case 'eye': combat.eye(soldier.position, simulationEye); simulationZoom = 1; break;
@@ -2087,12 +1913,7 @@ async function start() {
           // separation. The dormant viewpoint only supplies its scope.
           unitsSim.phase(dt, tick);
           break;
-        case 'served':
-          served.length = 0;
-          if (!combat.dead && !driver?.active) served.push(supplied);
-          for (const unit of factory?.built || []) if (unit.alive && !unit.seat && !unit.held) served.push(unit.supply);
-          break;
-        case 'live': live.update(dt, served, tick); break;
+        case 'live': game.liveOwner.step(dt, tick); break;
         case 'ordnance': ordnance.update(dt, false); break;
         case 'mineTargets':
           bodyMiddle.set(soldier.position.x, soldier.position.y + BODY_MIDDLE, soldier.position.z);
@@ -2102,97 +1923,26 @@ async function start() {
           if (vehicles) for (const v of vehicles.vehicles) if (v.alive) mineTargets.push(v.itemTarget);
           break;
         case 'items': items.update(dt, mineTargets); break;
-        case 'battlefield': battlefield.update(dt, battle.characters); break;
-        case 'battle': updateBattle(dt); break;
+        case 'battlefield': game.tailOwner.step(dt,tick,Boolean(game.serverWorld),tickHuman); tickHuman=null; break;
+        case 'battle': presentBattle(dt); break;
         case 'target': updateTargetHud(dt); break;
-        case 'grenades': context.grenades = ordnance.grenades[Symbol.iterator](); break;
+        case 'grenades': context.grenades = ordnance.grenades; context.grenadeIndex = 0; break;
         case 'nextGrenade': {
-          context.grenadeBody = false;
-          const next = context.grenades.next();
-          if (next.done) { context.grenades = null; return { flag: false }; }
-          context.grenade = next.value; context.grenadeBody = true;
-          return { flag: true, value: Boolean(context.grenade.gone) ? 1 : 0 };
+          // Retain the selected array as a for-of loop does. Its live length
+          // observes appended grenades without allocating an iterator result.
+          if (context.grenadeIndex >= context.grenades.length) { context.grenades = null; return false; }
+          context.grenade = context.grenades[context.grenadeIndex++];return true;
         }
-        case 'grenade': { const g = context.grenade; ai.grenadeUpdate(g, g.owner === 'player' ? playerUnit : g.owner); break; }
+        case 'grenade': { const g = context.grenade;if(!g.gone) ai.grenadeUpdate(g,g.owner==='player'?playerUnit:g.owner);break; }
         case 'spawnFlush': humanSpawn.flush(); if (vehicles?.f2?.debug) vehicles.f2.check(); break;
       }
     },
   };
+  const stepContext = {dt:0,tick:0,recordedCommand:null,command:null,grenades:null,grenade:null,grenadeIndex:0};
+  function stepCall(op,value=0,flag=false) { return worldStepHost.call(op,stepContext,value,flag); }
   function step(dt, tick, recordedCommand = null) {
-    return game.worldSim.step(worldStepHost, dt, tick, recordedCommand);
-  }
-
-  const localWorldHost = {
-    state: () => ({ input, walker, dead: combat.dead, remote: Boolean(remotes.active), gunner: Boolean(gunner.active), driver: Boolean(driver?.active),
-      removed: Boolean(playerUnit.removed), held: Boolean(playerUnit.held), server: Boolean(game.serverWorld), auto: Boolean(policy.auto),
-      humanReady: Boolean(ai?.humanReady), human: Boolean(battle.human), deathTime: combat.deathTime, corpseLinger: CORPSE_LINGER }),
-    publish(state) {
-      for (const key of ['forward', 'right', 'turn', 'jump', 'crouch', 'prone']) input[key] = state.input[key];
-      if (state.input.use !== undefined || Object.hasOwn(input, 'use')) input.use = state.input.use;
-    },
-    call(op, dt) {
-      switch (op) {
-        case 'battle': if (game.battlePhaseSim) game.battlePhaseSim.update(dt); else updateBattleRules(dt); break;
-        case 'ready': ai.humanReady(battle.human, { className: UNIT, post: spawnPosts()[spawnIndex] }); break;
-        case 'spawn': humanSpawn.update(dt, tickHuman); break;
-        case 'clearHuman': tickHuman = null; break;
-        case 'remove': removeCorpse(); break;
-        case 'present': presentBattle(dt); break;
-      }
-    },
-  };
-
-  // Command posts, the victory timer, and the HUD. A team that holds no post
-  // while none are neutral has 20 s before it loses.
-  const capturers = [];
-  function updateBattle(dt) {
-    return game.worldSim.battleTail(localWorldHost, dt);
-  }
-
-  function updateBattleRules(dt) {
-    // Who counts toward a post: living soldiers on foot whose class captures
-    // (CapturePosts, 1 for soldiers and droidekas, 0 for heroes); never
-    // anyone seated in a vehicle or turret.
-    capturers.length = 0;
-    for (const unit of units.all()) {
-      if (!unit.soldier || !unit.alive || unit.seat || unit.held || (unit.classDef?.CapturePosts ?? 1) === 0) continue;
-      if (unit === playerUnit && (driver?.active || gunner.active)) continue;
-      capturers.push(unit);
-    }
-    posts.update(dt, capturers);
-    for (const event of posts.events.splice(0)) {
-      // The native award pass revisits the capture region's first 64
-      // objects. It credits living Characters without repeating the
-      // contribution team's, CapturePosts, or seated-state gates.
-      if (event.kind === "captured") {
-        let seen = 0;
-        for (const unit of units.all()) {
-          if (unit.removed || !event.post.contains(unit.position, unitCenter)) continue;
-          if (++seen > 64) break;
-          if (unit.alive) battle.point(unit.character);
-        }
-      }
-      // A destructible post destroyed (src/objectives.js): a post point for
-      // whoever hurt it last unless he is its owner's friend, and its
-      // KillRegion goes off.
-      if (event.destroyed) objectiveDestroyed(event);
-      announcePost(event);
-    }
-    // The command vehicles' posts (src/mobile-posts.js): one whose vehicle
-    // died is lost, and whoever hurt the vehicle last earns a post point
-    // unless he is its owner's friend; one an enemy boarded
-    // changes hands. The AI hears of either.
-    for (const event of posts.mobileEvents()) {
-      if (event.kind === "lost") {
-        const attacker = event.vehicle?.lastAttacker === "player" ? playerUnit : event.vehicle?.lastAttacker;
-        const destroyer = attacker?.character ?? null;
-        if (destroyer) battle.postDestroyed(destroyer, units.relation(destroyer.team, event.from));
-      }
-      announceMobile(event);
-    }
-    ai?.beforeBattle?.(dt);
-    battle.update(dt);
-    ai?.afterBattle?.(dt);
+    stepContext.dt=dt;stepContext.tick=tick;stepContext.recordedCommand=recordedCommand;
+    stepWorld(worldStepHost,stepCall,tick);
   }
 
   function announcePost(event) {
@@ -2207,24 +1957,6 @@ async function start() {
   function announceMobile(event) {
     if (event.kind === "lost") announceLost(event);
     ai?.postEvent?.(event);
-  }
-
-  function objectiveDestroyed(event) {
-    const building = event.post.building;
-    const attacker = building?.lastAttacker === "player" ? playerUnit : building?.lastAttacker;
-    const destroyer = attacker?.character ?? null;
-    if (destroyer) battle.postDestroyed(destroyer, units.relation(destroyer.team, event.from));
-    killRegion(event.post.desc.killRegion, {
-      random: gameplayRandom,
-      play: presentEffect,
-      victims: () => [
-        ...[...units.all()].filter((unit) => unit.soldier && unit.alive && !unit.removed).map((unit) => ({
-          position: unit.position,
-          kill: () => (unit === playerUnit ? combat.damage(Infinity) : unit.combat.damage(Infinity)),
-        })),
-        ...(vehicles?.vehicles || []).filter((v) => v.alive).map((v) => ({ position: v.position, kill: () => v.setHealth(0) })),
-      ],
-    });
   }
 
   // A command vehicle's post lost with it, announced as a post's loss is
@@ -2766,7 +2498,7 @@ async function start() {
     runtimeProfile?.finish("timelinePresentation", timelineStart);
     // A command vehicle lost is announced from the hulls this page shows:
     // the server's post summaries carry only the placed posts.
-    for (const event of posts.mobileEvents()) if (event.kind === "lost") announceLost(event);
+    for (const event of posts.presentMobileEvents()) if (event.kind === "lost") announceLost(event);
     // The HUD (the minimap's heading, the radar) follows the look he sees,
     // not the aim the server has acknowledged.
     presentBattle(dt, soldier.aimYaw + previewYaw);
@@ -3366,11 +3098,10 @@ async function start() {
     // The spawn screen's world side.
     spawnPort,
     humanSpawn,
-    humanSpawnSim,
     bodies,
     policy,
     adopt,
-    setHumanTeam,
+    setHumanTeam: team=>queueHuman({kind:"team",team}),
     applyAuthoritativeHumanTeam: applyNetworkHumanTeam,
     validateAuthoritativeHumanTeam: validateNetworkHumanTeam,
     get playerTeam() { return playerTeam; },
@@ -3507,20 +3238,6 @@ async function start() {
     if (!headless) followBattle({ spawnPort, scoreboardPort: { players: () => game.scoreboardPort?.players() ?? null } });
   };
   chatReady = true;
-  game.postsSim = wantBattle && simInstance ? (await import("./posts-sim.js")).attachPostsSim(simInstance, posts) : null;
-  game.battleSim = wantBattle && simInstance ? (await import("./battle-sim.js")).attachBattleSim(simInstance, battle) : null;
-  game.spawningSim = game.battleSim && ai?.spawning ? (await import("./spawning-sim.js")).attachSpawningSim(ai.spawning, game.battleSim, game.postsSim) : null;
-  game.trapsSim = wantBattle && simInstance && live?.traps.length ? (await import("./traps-sim.js")).attachTrapsSim(simInstance, live.traps) : null;
-  game.battlefieldSim = wantBattle && simInstance ? (await import("./battlefield-sim.js")).attachBattlefieldSim(simInstance, battlefield, leavingWarning) : null;
-  game.propsSim = wantBattle && simInstance && live ? (await import("./props-sim.js")).attachPropsSim(simInstance, live) : null;
-  game.battlePhaseSim = game.battleSim ? (await import("./battle-phase-sim.js")).attachBattlePhaseSim({
-    battleSim: game.battleSim, postsSim: game.postsSim, spawningSim: game.spawningSim,
-    units, vehicles: () => vehicles?.vehicles ?? [], playerUnit, playerMounted: () => driver?.active || gunner.active,
-    random: gameplayRandom, effect: presentEffect, postEvent: announcePost, mobileEvent: announceMobile,
-    killUnit: unit => (unit === playerUnit ? combat : unit.combat).damage(Infinity),
-  }) : null;
-  game.inputSim = game.battleSim ? (await import("./runtime/input-sim.js")).createInputSim(simInstance) : null;
-  game.inputSim?.controls(worldControls);
   game.worldSim = (await import("./runtime/world-sim.js")).createWorldSim(simInstance);
   game.worldSim.clock(worldClock);
   game.worldSim.events(simEvents);
@@ -3532,15 +3249,57 @@ async function start() {
     // stock covers a class's first hero or a later connection without adding
     // hidden members to the registry's observable insertion sequence.
     unitsSim.construction.reserve(units.nextId + 512);
-    const stock = new Map();
-    for (const team of Object.keys(teams).map(Number)) for (const [name,count] of classesFor(team)) {
-      stock.set(name,(stock.get(name) || 0) + Math.ceil(count * 1.5));
-    }
+    for (const names of rosters.values()) for (const name of names) await factory.prepare(name);
     for (const side of Object.values(sides)) for (const name of Object.keys(side.units)) {
-      // A new wave can overlap the complete previous corpse roster. Stock
-      // stays outside registry order until those actual cold acquisitions.
-      if (factory.prepared(name)) unitsSim.construction.prepare(name,Math.max(2,stock.get(name) || 0));
+      if(factory.prepared(name)) {
+        // A zero-target local class may acquire the padded roster. Reserve
+        // bodies for its whole possible population and retained corpses;
+        // warm LIFO bodies count toward that bound before cold activation.
+        let population=0;
+        for(const team of ai?.spawning?.teams??[])if(team.classes.some(c=>c.name===name))population+=team.unitCount;
+        let warm=0;for(const unit of factory.built)if(unit.className===name)warm++;
+        unitsSim.construction.prepare(name,Math.max(2,population*2-warm));
+      }
     }
+  }
+  // Rust owns the live objects' tick: one call at the live slot.
+  if (headless) {
+    const { F4Live } = await import("./f4-live.js");
+    game.liveOwner = new F4Live(unitsSim,{local:playerUnit,unitCapacity:Math.max(64,factory.built.length),effect:presentEffect,
+      debug:globalThis.process?.env?.BFE_F4_DEBUG === "1"});
+    const { F4Tail } = await import("./f4-tail.js");
+    const classes=[...new Set([...rosters.values()].flat())];
+    const heroNames=[];
+    for(const side of Object.values(sides)) for(const [className,def] of Object.entries(side.units)) {
+      if(factory.prepared(className)) heroNames.push({className,name:def.displayName??null});
+    }
+    game.tailOwner=new F4Tail(unitsSim,battle,{posts,spawning:ai?.spawning,human:humanSpawn,
+      boundary:battlefield.boundary,local:playerUnit,character:battle.human,random,gameplay:gameplayRandom,
+      rosters:[[],rosterOf(1),rosterOf(2)],classes,paths:spawns,heroNames,captureTeams:units.teams?.capture??[],
+      spawnIndex,ai,onPost:announcePost,onMobile:announceMobile,onOver:battle.onOver,
+      retarget(team) {
+        playerTeam=team;enemyTeam=3-team;posts.setPlayerTeam(team);live.playerTeam=team;
+        ai?.presentHumanTeam?.(team);audio.retarget({team,foe:enemyTeam});
+      },
+      onSpawn(event) {
+        if(event.local) {
+          // Structural birth already rebound the native viewpoint facade.
+          // Follow its prepared body resources without resetting gameplay.
+          if(soldier!==playerUnit.soldier) {
+            soldierDef=playerUnit.classDef;actor=playerUnit.actor;soldier=playerUnit.soldier;
+            animator=playerUnit.animator;walker=playerUnit.walker;presentation=playerUnit.presentation;combat=playerUnit.combat;
+            visual=presentation.position;view.setDef(soldierDef);simulationView.setDef(soldierDef);
+          }
+          presentation.reset();view.reset();simulationView.reset();deathView.stop();actor.root.visible=true;
+        }
+        simEvents.emit("spawn",{target:units.ref(event.unit),team:event.team,position:event.position,className:event.className,post:event.post});
+      },
+      onHuman(event) {
+        humanSpawn.emit(event.kind,event.state??{team:event.team,previous:event.previous,className:event.className,post:event.post});
+      },
+      debug:globalThis.process?.env?.BFE_F4_DEBUG === "1"});
+    unitsSim.construction.bindPlayer(battle.human,playerUnit,{local:true,combatRandom:gameplayRandom,weaponRandom:playerSpread,
+      reconKey:unitsSim.recon.keys.get('local')??null,reconSeed:SEED});
   }
   game.aiSim = aiSim;
   const predictionSession = headless ? null

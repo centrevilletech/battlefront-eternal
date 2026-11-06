@@ -1,3 +1,4 @@
+import {unitCommands} from './fixtures/unit-command-port.js';
 // Bots that stop moving: one test per root cause found by
 // tools/ai-stuck-probe.mjs (docs/ai.md "Stuck bots"). Synthetic fixtures.
 import test from "node:test";
@@ -137,7 +138,7 @@ test("a tool that never comes to bear gives up after 8 s instead of standing for
 
 function makeUnit(units, team, x) {
   const position = v(x, 0, 0);
-  const unit = { team, kind: 0, alive: true, dead: false, generation: 1, character: null, controller: null,
+  const unit = { team, kind: 0, alive: true, dead: false, generation: 1, character: null, controller: null,...unitCommands,
     classDef: { UnitType: "trooper", MaxSpeed: 6 }, soldier: { maxSpeed: 6, aimYaw: 0, aimPitch: 0, posture: "stand" },
     position, velocity: v(), sphere: { center: position, radius: 0.5 }, intent: { buttons: [0, 0] },
     forward: (out) => out.set(0, 0, 1), aimPoint: (out) => out.copy(position), origin: (out) => out.copy(position).setY(1.6) };

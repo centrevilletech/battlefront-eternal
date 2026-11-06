@@ -19,8 +19,5 @@ export default {
     BfActionArgs: { op: 'enum:BfActionOp', unit: 'ref:unit|null', vehicle: 'ref:vehicle|null', countdowns: 'list:rec:BfCountdown' },
     BfCharacters: { characters: 'list:ref:character' },
   },
-  imports: {
-    battlefieldQuery: { args: 'BfQueryArgs', result: 'BfQueryResult' },
-    battlefieldAction: { args: 'BfActionArgs', result: 'BfCharacters' },
-  },
+
 };

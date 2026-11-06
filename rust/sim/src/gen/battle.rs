@@ -750,6 +750,10 @@ pub struct HsCommand {
 
 impl HsCommand {
     pub const WORDS: usize = 6;
+    pub const KIND: usize = 0;
+    pub const TEAM: usize = 1;
+    pub const CLASS_NAME: usize = 2;
+    pub const POST: usize = 4;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
@@ -2861,7 +2865,7 @@ pub struct Post {
 impl Post {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 21;
+    pub const EXPORT_STRIDE: usize = 35;
     pub const IMPORT_STRIDE: usize = 74;
     pub const FULL_STRIDE: usize = 74;
 
@@ -2910,7 +2914,7 @@ impl Post {
     }
 
     pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 21] = (&mut row[..21]).try_into().unwrap();
+        let row: &mut [f64; 35] = (&mut row[..35]).try_into().unwrap();
         row[2] = self.name.0 as f64;
         match &self.label { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v).0 as f64; } None => { row[3] = 2.0; row[3 + 1..3 + 2].fill(0.0); } }
         row[5] = self.team;
@@ -2923,10 +2927,11 @@ impl Post {
         match &self.building { Some(v) => { row[15] = 0.0; row[15 + 1] = (*v).slot as f64; row[15 + 1 + 1] = (*v).gen as f64; } None => { row[15] = 1.0; row[15 + 1..15 + 3].fill(0.0); } }
         row[18] = if self.active { 1.0 } else { 0.0 };
         match &self.radius { Some(v) => { row[19] = 0.0; row[19 + 1] = (*v); } None => { row[19] = 2.0; row[19 + 1..19 + 2].fill(0.0); } }
+        match &self.ai { Some(v) => { row[21] = 0.0; v.put(&mut row[21 + 1..], heap); } None => { row[21] = 2.0; row[21 + 1..21 + 14].fill(0.0); } }
     }
 
     pub fn take_export(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 21] = (&row[..21]).try_into().unwrap();
+        let row: &[f64; 35] = (&row[..35]).try_into().unwrap();
         self.name = StrId(word_u32(row[2]));
         self.label = if row[3] == 0.0 { Some(StrId(word_u32(row[3 + 1]))) } else { None };
         self.team = row[5];
@@ -2939,6 +2944,7 @@ impl Post {
         self.building = if row[15] == 0.0 { Some(Ref::new(word_u32(row[15 + 1]), word_u32(row[15 + 1 + 1]))) } else { None };
         self.active = row[18] != 0.0;
         self.radius = if row[19] == 0.0 { Some(row[19 + 1]) } else { None };
+        self.ai = if row[21] == 0.0 { Some(PostAi::take(&row[21 + 1..], heap)) } else { None };
     }
 
     #[inline(always)]

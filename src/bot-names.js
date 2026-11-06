@@ -17,11 +17,17 @@ import { ClassicRandom } from "./ai/random.js";
 
 export const LOCALS = 5;
 const LIST_LIMIT = 64;
+const generators = new WeakMap();
+export function botNameGenerator(draw) { return generators.get(draw); }
 
 // lists: ai-mission.json `names` ({ 0..4: { first, last }, local }); faction:
 // the team's side type. Returns a function giving the team's next name.
 export function botNames(lists, faction) {
-  if (faction === LOCALS) return () => lists?.local || "LOCAL";
+  if (faction === LOCALS) {
+    const draw = () => lists?.local || "LOCAL";
+    generators.set(draw,{random:null,first:[],last:[],local:lists?.local || "LOCAL"});
+    return draw;
+  }
   const side = faction >= 1 && faction <= 4 ? faction : 0;
   const random = new ClassicRandom(side);
   const first = (lists?.[side]?.first || []).slice(0, LIST_LIMIT);
@@ -29,11 +35,13 @@ export function botNames(lists, faction) {
   const pick = (count) => random.next() % count;
   const letter = () => String.fromCharCode(65 + pick(26));
   const digit = () => String.fromCharCode(48 + pick(10));
-  return () => {
+  const draw = () => {
     const given = first.length ? first[pick(first.length)] : letter() + letter();
     const family = last.length ? last[pick(last.length)] : digit() + digit() + digit();
     return `${given} ${family}`;
   };
+  generators.set(draw,{random,first,last,local:null});
+  return draw;
 }
 
 // The human's name offline: the original's profile name, or "Player n" (his

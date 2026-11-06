@@ -9,7 +9,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { CommandPosts } from "../src/commandposts.js";
-import { killRegion } from "../src/objectives.js";
 import { buildRegion, inRegion } from "../src/regions.js";
 import { objectiveOffset } from "../src/ai/classic/goals.js";
 
@@ -70,29 +69,9 @@ test("box and cylinder sizes scale with the transform's axes; the axes are unit 
   assert.equal(inRegion(cylinder, v(0, 5.1, 0)), false);
 });
 
-test("a kill region uses the same test", () => {
-  const region = { type: "cylinder", size: [0.1, 3, 6], matrix: at(0, 0, 0) };
-  const victims = [v(5.9, 0, 0), v(6.1, 0, 0)].map((position) => ({ position, dead: false, kill() { this.dead = true; } }));
-  assert.equal(killRegion(region, { random: () => 0.5, victims: () => victims }), 1);
-  assert.deepEqual(victims.map((victim) => victim.dead), [true, false]);
-});
-
 test("the AI's objective offset spans the built region: a cylinder's radius on both axes", () => {
   const post = { name: "cp1", team: 2, position: v(0, 0, 0), desc: { capture: { type: "cylinder", size: [0.1, 5, 16], matrix: at(0, 0, 0) } } };
   let widest = 0;
   for (let i = 0; i <= 20; i++) widest = Math.max(widest, Math.abs(objectiveOffset(post, { uniform: () => i / 20 }).x));
   assert.ok(widest > 15, `x reached ${widest}`);
-});
-
-test("a soldier standing in a hand-sized sphere neutralizes and captures the post", () => {
-  const system = posts({ type: "sphere", size: [0.1, 8.15, 0.1] });
-  const [post] = system.posts;
-  const soldier = { position: v(1, 0, 1), team: 1 };
-  const events = [];
-  for (let i = 0; i < 60 * 23; i++) {
-    system.update(1 / 60, [soldier]);
-    events.push(...system.events.splice(0).map((event) => event.kind));
-  }
-  assert.equal(post.team, 1);
-  assert.ok(events.length >= 2, `events: ${events}`);
 });

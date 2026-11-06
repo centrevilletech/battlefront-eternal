@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET, KIND_UNIT, KIND_VEHICLE } from "./kinds.js";
 import { exportAttacker, exportRepairTarget, putAttacker, putRepairTarget, sameAttacker, sameRepairTarget, syncAttacker, syncRepairTarget } from "./combat.js";
+import { F4BuildingBirthMirror, F4TrapBirthMirror, exportF4BuildingBirth, exportF4TrapBirth, putF4BuildingBirth, putF4TrapBirth, sameF4BuildingBirth, sameF4TrapBirth, syncF4BuildingBirth, syncF4TrapBirth } from "./f4.js";
 import { SeatAiControlMirror, SeatHitMirror, SeatReason_INDEX, SeatReason_NAMES, SeatRole_INDEX, SeatRole_NAMES, exportSeatAiControl, exportSeatHit, putSeatAiControl, putSeatHit, sameSeatAiControl, sameSeatHit, syncSeatAiControl, syncSeatHit } from "./seats.js";
 import { TrStateMirror, exportTrState, putTrState, sameTrState, syncTrState } from "./traps.js";
 import { BoundsMirror, exportBounds, exportMember, putBounds, putMember, sameBounds, sameMember, syncBounds, syncMember } from "./units.js";
@@ -162,6 +163,8 @@ export class F3BuildingSetupMirror {
     this.key = '';
     this.settings = new PbSettingsMirror();
     this.state = new F3BuildingStateMirror();
+    this.live = new F4BuildingBirthMirror();
+    this.trap = null;
     this.bodies = [];
     this.explosion = null;
     this.damaged = false;
@@ -178,12 +181,14 @@ export function syncF3BuildingSetup(b, f, at, h, m) {
   m.key = b.strings.at(f[at + 8]);
   m.settings = syncPbSettings(b, f, at + 9, h, m.settings ?? new PbSettingsMirror());
   m.state = syncF3BuildingState(b, f, at + 35, h, m.state ?? new F3BuildingStateMirror());
-  { const items = (m.bodies ??= []), start = h + f[at + 59], n = f[at + 60]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_BODY].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
-  { const tag = f[at + 61]; if (tag === 0) { m.explosion = f[at + 62] >>> 0; } else m.explosion = tag === 1 ? null : undefined; }
-  m.damaged = f[at + 63] !== 0;
-  m.category = f[at + 64] >>> 0;
-  m.kind = f[at + 65];
-  { const tag = f[at + 66]; if (tag === 0) { m.trapSphere = syncBounds(b, f, at + 67, h, m.trapSphere ?? new BoundsMirror()); } else m.trapSphere = tag === 1 ? null : undefined; }
+  m.live = syncF4BuildingBirth(b, f, at + 59, h, m.live ?? new F4BuildingBirthMirror());
+  { const tag = f[at + 113]; if (tag === 0) { m.trap = syncF4TrapBirth(b, f, at + 114, h, m.trap ?? new F4TrapBirthMirror()); } else m.trap = tag === 1 ? null : undefined; }
+  { const items = (m.bodies ??= []), start = h + f[at + 146], n = f[at + 147]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_BODY].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
+  { const tag = f[at + 148]; if (tag === 0) { m.explosion = f[at + 149] >>> 0; } else m.explosion = tag === 1 ? null : undefined; }
+  m.damaged = f[at + 150] !== 0;
+  m.category = f[at + 151] >>> 0;
+  m.kind = f[at + 152];
+  { const tag = f[at + 153]; if (tag === 0) { m.trapSphere = syncBounds(b, f, at + 154, h, m.trapSphere ?? new BoundsMirror()); } else m.trapSphere = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -194,12 +199,14 @@ export function putF3BuildingSetup(b, o, f, at, heap) {
   f[at + 8] = b.strings.id(o.key);
   putPbSettings(b, o.settings, f, at + 9, heap);
   putF3BuildingState(b, o.state, f, at + 35, heap);
-  heap.items(o.bodies, f, at + 59, 3, (f, at, v) => { { const $x = v; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; } else { f[at + 0] = 0; b.refs[KIND_BODY].put($x, f, at + 1); } } });
-  { const $x = o.explosion; if ($x === null || $x === undefined) { f[at + 61] = $x === null ? 1 : 2; f[at + 62] = 0; } else { f[at + 61] = 0; f[at + 62] = $x; } }
-  f[at + 63] = o.damaged ? 1 : 0;
-  f[at + 64] = o.category;
-  f[at + 65] = o.kind;
-  { const $x = o.trapSphere; if ($x === null || $x === undefined) { f[at + 66] = $x === null ? 1 : 2; f[at + 67] = 0; f[at + 68] = 0; f[at + 69] = 0; f[at + 70] = 0; } else { f[at + 66] = 0; putBounds(b, $x, f, at + 67, heap); } }
+  putF4BuildingBirth(b, o.live, f, at + 59, heap);
+  { const $x = o.trap; if ($x === null || $x === undefined) { f[at + 113] = $x === null ? 1 : 2; f.fill(0, at + 114, at + 146); } else { f[at + 113] = 0; putF4TrapBirth(b, $x, f, at + 114, heap); } }
+  heap.items(o.bodies, f, at + 146, 3, (f, at, v) => { { const $x = v; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; } else { f[at + 0] = 0; b.refs[KIND_BODY].put($x, f, at + 1); } } });
+  { const $x = o.explosion; if ($x === null || $x === undefined) { f[at + 148] = $x === null ? 1 : 2; f[at + 149] = 0; } else { f[at + 148] = 0; f[at + 149] = $x; } }
+  f[at + 150] = o.damaged ? 1 : 0;
+  f[at + 151] = o.category;
+  f[at + 152] = o.kind;
+  { const $x = o.trapSphere; if ($x === null || $x === undefined) { f[at + 153] = $x === null ? 1 : 2; f[at + 154] = 0; f[at + 155] = 0; f[at + 156] = 0; f[at + 157] = 0; } else { f[at + 153] = 0; putBounds(b, $x, f, at + 154, heap); } }
 }
 
 export function sameF3BuildingSetup(a, b) {
@@ -209,6 +216,8 @@ export function sameF3BuildingSetup(a, b) {
   if (!Object.is(a.key, b.key)) return ".key";
   { const d = samePbSettings(a.settings, b.settings); if (d) return ".settings" + d; }
   { const d = sameF3BuildingState(a.state, b.state); if (d) return ".state" + d; }
+  { const d = sameF4BuildingBirth(a.live, b.live); if (d) return ".live" + d; }
+  { const p = a.trap, q = b.trap; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".trap"; } else { { const d = sameF4TrapBirth(p, q); if (d) return ".trap" + d; } } }
   if (!sameEach(a.bodies, b.bodies, (x, y) => (x === null || x === undefined || y === null || y === undefined ? x === y : Object.is(x, y)))) return ".bodies";
   { const p = a.explosion, q = b.explosion; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".explosion"; } else { if (!Object.is(p, q)) return ".explosion"; } }
   if (!Object.is(a.damaged, b.damaged)) return ".damaged";
@@ -229,6 +238,8 @@ export function exportF3BuildingSetup(o, cx) {
   v.key = o.key;
   v.settings = exportPbSettings(o.settings, cx);
   v.state = exportF3BuildingState(o.state, cx);
+  v.live = exportF4BuildingBirth(o.live, cx);
+  v.trap = ((x) => (x === null || x === undefined ? x : exportF4TrapBirth(x, cx)))(o.trap);
   v.bodies = o.bodies.map((x) => (x === null || x === undefined ? x : cx.ref("body", x)));
   v.explosion = o.explosion;
   v.damaged = o.damaged;

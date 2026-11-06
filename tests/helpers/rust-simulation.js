@@ -24,7 +24,15 @@ function bridge() {
 export function rustOrdnance(options) {
   const ordnance = new Ordnance(options);
   attachOrdnanceSim(ordnance, bridge());
-  fixtureServices(ordnance);
+  ordnance.sim.nativeServices = {
+    owner(){},ordnance(){},explosion(){},item(){},itemTargets(){},
+    beforeStep(){},afterStep(){},
+    explode(def,position,owner,visual) {
+      const wet=ordnance.presentExplosion(visual??def,position);
+      ordnance.onExplode(def,position.clone(),owner,{wet});
+      ordnance.onExplosion(def,position,owner,{wet});
+    },
+  };
   const update = ordnance.update.bind(ordnance);
   ordnance.update = (dt, draw = true) => { update(dt); if (draw) ordnance.present(); };
   return ordnance;
@@ -39,18 +47,4 @@ export function rustItems(options) {
     items.sim.bridge.sync(KIND_ITEMS,items);
   };
   return items;
-}
-
-// Isolated F1 goldens supply a small explicit world trait. Battles attach the
-// canonical unit owner instead; this helper is never imported by game code.
-export function fixtureServices(ordnance) {
-  ordnance.sim.nativeServices = {
-    owner(){},ordnance(){},explosion(){},item(){},itemTargets(){},
-    beforeStep(){},afterStep(){},
-    explode(def,position,owner,presentation=def) {
-      const wet=ordnance.presentExplosion(presentation,position);
-      ordnance.onExplode(def,position.clone(),owner,{wet});
-      ordnance.onExplosion(def,position,owner,{wet});
-    },
-  };
 }

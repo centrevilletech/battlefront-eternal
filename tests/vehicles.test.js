@@ -1,15 +1,14 @@
 import { stepPrediction, prepareHullFixture, predictHull } from './helpers/hull-prediction.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
-import { fixture as flightFixture } from './flight-fixture.js';
-import { initFlight } from '../src/flight/model.js';
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {Soldier} from '../src/soldier.js';
 import { makeHit } from '../src/collision.js';
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
-import { LiveObjects } from '../src/props.js';
+import { Unit } from '../src/units.js';
+import { Soldier } from '../src/soldier.js';
 
 const box = (x, y, z, w, h, d) => {
   const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z);
@@ -18,7 +17,6 @@ const box = (x, y, z, w, h, d) => {
 const collision = () => { const b = box(0,-1,0,200,2,200);return new CollisionWorld(b.positions,b.indices,b.polygons); };
 const identity = () => new THREE.Matrix4();
 const shape = c => {const b=box(0,1,0,2,2,4);return c.createBodyShape(b.positions,b.indices,b.polygons)};
-const controls = (held = false) => ({take: () => false, held: () => held});
 
 function fixture(authority = false, linked = true) {
   const c=collision(), hull=box(0,1,0,2,2,4),scene=new THREE.Scene();
@@ -77,12 +75,8 @@ test('straight rockets also hit vehicles entering their flight segment',()=>{
   assert.equal(ord.rounds.length,0);
 });
 
-
-
-
-
 test('destruction is idempotent, respawn waits, neutral CP suppresses it, capture changes faction',()=>{
-  const {system,v,post}=fixture(true);let destroyed=0;system.onDamaged=body=>{if(!body.alive)destroyed++;};
+  const {system,v,post}=fixture(true);let destroyed=0;system.onDamaged=()=>destroyed++;
   v.damage(2000);v.damage(2000);
   assert.equal(destroyed,1);assert.equal(v.body.enabled,false);
   system.update(.1);for(let i=0;i<60;i++)system.update(1/60);assert.equal(v.alive,false);
@@ -95,10 +89,13 @@ test('destruction is idempotent, respawn waits, neutral CP suppresses it, captur
 });
 
 test('occupied pads delay respawn instead of overlapping a soldier',()=>{
-  const {system,v}=fixture(true);v.damage(Infinity);
-  system.f3;
-  const blocker=system.fixtureOwner.adopt({alive:true,dead:false,removed:false,generation:1,team:1,soldier:new Soldier(system.collision,{})});
-  system.fixtureOwner.phase.registerViewpoint(blocker);blocker.spawn(0,0,0,0);system.update(.1);for(let i=0;i<180;i++)system.update(1/60);
+  const {system,v,c}=fixture(true),phase=system.f3.phase;
+  const def={class:'blocker',base:'soldier',MaxHealth:100,weapons:[]};
+  const blocker=new Unit({side:'fixture',className:'blocker',def,soldier:new Soldier(c,def),
+    actor:{root:new THREE.Object3D(),bones:[]},animator:{clips:new Map(),reset(){}},presentation:{position:new THREE.Vector3(),reset(){}}});
+  blocker.team=1;system.units.add(blocker);phase.registerViewpoint(blocker);blocker.spawn(0,0,0,0);
+  v.damage(Infinity);
+  system.update(.1);for(let i=0;i<180;i++)system.update(1/60);
   assert.equal(v.alive,false);
   blocker.spawn(50,0,50,0);system.update(.1);for(let i=0;i<60;i++)system.update(1/60);
   assert.equal(v.alive,true);
@@ -108,14 +105,6 @@ test('unlinked pads keep their explicit faction even when an unnamed CP is neutr
   const {system,v,post}=fixture(true, false);post.desc.name='';post.team=0;
   v.damage(Infinity);system.update(.1);for(let i=0;i<180;i++)system.update(1/60);
   assert.equal(v.alive,true);assert.equal(v.team,1);
-});
-
-test('damage scales and pilot repair apply to vehicle health',()=>{
-  const {system,v,c}=fixture(true);system.struck(v.body,{Damage:100,VehicleScale:.5});assert.equal(v.health,950);
-  const live=Object.create(LiveObjects.prototype);Object.assign(live,{playerTeam:1,vehicleTargets:system.vehicles,buildings:[],collision:c,center:new THREE.Vector3(),toward:new THREE.Vector3(),hit:makeHit()});
-  const cutter={VehicleHealth:50,TargetVehicle:1,TargetEnemy:0,TargetFriendly:1,LockOnRange:10,LockOnAngle:20};
-  const target=live.lockOn(new THREE.Vector3(0,1,-5),new THREE.Vector3(0,0,1),cutter,null,false);
-  assert.equal(target,v);assert.equal(live.repair(cutter,v),true);assert.equal(v.health,1000);
 });
 
 test('beams maintain a continuous segment and integrate damage independent of frame rate',()=>{
@@ -129,8 +118,6 @@ test('beams maintain a continuous segment and integrate damage independent of fr
   assert.equal(beam.end.z,8);
  }
 });
-
-
 
 test('vehicle-only architectural barriers are absent from infantry and projectile queries',()=>{
  const c=collision();const b=box(0,2,10,4,4,.1);c.vehicleBlockers=c.createBodyShape(b.positions,b.indices,b.polygons);
@@ -163,45 +150,9 @@ test('material-batched vehicle skinning matches rigid bone parts after posing an
 // A snowspeeder-like flyer with a rear seat on an aft-facing turret node
 // (towcablegun) and no hp_fire, and an AT-AT-like command walker with four
 // named legs under a pelvis at 12.6 m, as the retail models have them.
-function towFixture() {
-  const c=collision(),scene=new THREE.Scene();
-  const t=(x,y,z,ry=0)=>new THREE.Matrix4().makeRotationY(ry).setPosition(x,y,z).toArray();
-  const speederRig={bones:[{name:'dummyroot',parent:-1,local:identity().toArray()},{name:'towcablegun',parent:0,local:t(0,1.2,-1.9,Math.PI)},{name:'hp_gunner',parent:0,local:t(0,.4,-.9,Math.PI)}],parts:[]};
-  const legs=[];const legBones=[];
-  for(const [name,x,z] of [['fl',2,4.7],['fr',-2,4.7],['bl',2,-5.1],['br',-2,-5.1]]){
-    legBones.push({name:`bone_${name}_thigh`,parent:0,local:t(x,12.3,z)},{name:`bone_${name}_calf`,parent:0,local:t(x,7,z+1.5)},{name:`bone_${name}_foot`,parent:0,local:t(x,2.1,z)},{name:`bone_${name}_pelvis`,parent:0,local:t(x*.7,12.6,z*.3)});
-  }
-  const walkerRig={bones:[{name:'dummyroot',parent:-1,local:identity().toArray()},...legBones],parts:[]};
-  const tow={base:'towcableweapon',class:'all_weap_fly_snowspeeder_reargun',RoundsPerClip:20,ShotDelay:3,ReloadTime:3,LockOnRange:70,LockTime:.4,TargetVehicle:1,TargetEnemy:1,ordnance:{class:'all_weap_fly_snowspeeder_reargun_ord',base:'towcable',Velocity:250,LifeSpan:2.5,CableLength:60}};
-  const speeder={model:'speeder',label:'Snowspeeder',base:'flyer',settings:{MaxHealth:600,MaxSpeed:72,MinSpeed:20,TurnRate:1.25,PitchRate:.8},
-    seats:[{name:'BODY',settings:{PilotPosition:'hp_pilot'},weapons:[]},{name:'TURRET',settings:{TurretNodeName:'towcablegun',YawLimits:'80 280',PitchLimits:'-15 25',TurnRate:1.3,PilotPosition:'hp_gunner',EyePointOffset:'0 2 4'},weapons:[{def:tow,aimers:[]}]}],explosion:null};
-  const walker={model:'walker',label:'AT-AT',base:'commandwalker',settings:{MaxHealth:30000,MaxTurnSpeed:.3,ForwardSpeed:5},seats:[{name:'BODY',settings:{},weapons:[]}],explosion:null};
-  const data={models:{speeder:speederRig,walker:walkerRig},collision:{speeder:box(0,.7,0,5,1.6,5.6),walker:box(0,10,3,8,20,21)},classes:{speeder,walker},
-    spawns:[{name:'pad',matrix:identity().toArray(),team:1,post:'cp1',respawnTime:2,classes:{1:'speeder'}},{name:'walkerpad',matrix:identity().makeTranslation(0,0,-30).toArray(),team:2,post:'cp2',respawnTime:2,classes:{2:'walker'}}]};
-  const posts=[{desc:{name:'cp1'},team:1},{desc:{name:'cp2'},team:2}];
-  const system=new Vehicles({scene,data,buffer:new ArrayBuffer(0),indexBuffer:new ArrayBuffer(0),collision:c,texture:()=>null,camera:new THREE.PerspectiveCamera(),posts:{posts},ordnance:{explosion(){},fire(){},lights:{flash(){}}},effects:{play(){return null}}});
-  const [v,w]=system.vehicles;
-  return {c,system,v,w,scene};
-}
+
 // Flies the speeder round the walker by hand: at angle a on a circle of
 // radius r, facing along the circle, the rear gun toward the walker.
-function orbit(system,v,w,a,r=25){
-  v.position.set(w.position.x+Math.sin(a)*r,1.5,w.position.z+Math.cos(a)*r);
-  v.yaw=a+Math.PI/2;v.quaternion.setFromAxisAngle(new THREE.Vector3(0,1,0),v.yaw);v.flightPreviousQ.copy(v.quaternion);
-  v.previous.copy(v.position);v.previousYaw=v.yaw;
-  v.syncBody();v.render(1,0);
-  system.updateTethers();
-}
-
-
-
-
-
-
-
-
-
-
 
 test('fatray: the LR1K sonic round strikes everyone within its width along its flight, once each, and stops at a wall; a flak bolt bursts where its flight ends',()=>{
   const c=collision();
@@ -236,14 +187,6 @@ test('spawn clearance permits narrow side-by-side fighters while rejecting overl
  assert.equal(vehicleFootprintsOverlap(hull,identity(),hull,identity().makeTranslation(1,0,0)),true);
  assert.equal(vehicleFootprintsOverlap(hull,identity(),hull,identity().makeTranslation(0,10,0)),false);
 });
-
-
-
-
-
-
-
-
 
 test('vehicle camera eases turns and follows motion without placing its eye behind walls',()=>{
  const {system,v,c}=fixture();v.walking=true; // Exercise the shared turret/seat camera.

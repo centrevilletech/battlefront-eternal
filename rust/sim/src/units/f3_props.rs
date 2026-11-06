@@ -1,7 +1,8 @@
-//! LiveObjects' combat services (props.js). Building geometry and the existing
-//! lifecycle kernel run natively; only the touched prop's visibility and
-//! foreign callbacks cross synchronously. Ordinary prop updates remain foreign.
+//! LiveObjects' combat services (props.js). Prepared geometry and native
+//! lifecycle effects share F4's canonical health and trap rows. Only the
+//! touched prop's visibility and foreign notifications cross synchronously.
 use super::f3::{self, WorldServices};
+use crate::battle::f4;
 use crate::abi::sim;
 use crate::battle::{live, props, traps};
 use crate::combat::impacts::{BlastPacket, HealthScale, HitPacket};
@@ -10,25 +11,31 @@ use crate::ordnance::{defs::{ExplosionDef, Field}, world::DefArg};
 use crate::store::{DefId, Ref, StrId};
 use three::Vector3;
 
-// Building's immutable placement and its latest foreign health row travel
-// together. Attribution remains qualified even when the Unit that fired has
-// since returned to its pool; an opaque prop identity alone cannot retain it.
+// Targeting metadata names the canonical F4 row. Qualified attribution stays
+// with that row after the shooter returns to its pool; prepared bounds, body
+// handles and visitation order remain independent of the shooter's next life.
 struct Entry {
     target: RepairTarget,
     member: Option<Member>,
     lock_key: StrId,
     settings: props::Settings,
-    frame: props::Building,
-    attacker: Attacker,
+    owner: F4Handle,
+    geometry_state: props::State,
     team: f64,
     target_team: f64,
     gunner: Option<Ref<Unit>>,
     bodies: [Option<Ref<Body>>; 3],
     explosion: Option<DefId>,
     // Trap.sphere always observes the build pad, including while logs swing.
-    // Its health kernel keeps its own clock fields beside the foreign frame.
-    trap: Option<traps::Trap>,
     trap_sphere: Option<(Vector3, f64)>,
+}
+impl Entry {
+    fn frame(&self) -> props::Building { f4::frame(&self.owner) }
+    fn attacker(&self) -> Attacker { f4::attacker(&self.owner) }
+    fn trap(&self) -> Option<traps::Trap> { f4::trap(&self.owner) }
+    fn put_frame(&self, frame: &props::Building) { f4::put_frame(&self.owner, frame); }
+    fn put_attacker(&self, attacker: Attacker) { f4::set_attacker(&self.owner, attacker); }
+    fn put_trap(&self, trap: traps::Trap) { f4::put_trap(&self.owner, trap); }
 }
 // Prepared order and reverse lookups never grow during a phase. Buildings
 // absent from the mixed registry still participate in repair, blast and melee.
@@ -72,17 +79,6 @@ pub(crate) fn member(target: RepairTarget) -> Option<Member> {
     props.index(target).and_then(|index| props.entries.get(index)).and_then(|entry| entry.member)
 }
 
-// TurretTarget.team is a live lease read, unlike foreign objective teams.
-// Resolve the prop once by registry id, then consult the canonical crew row.
-pub(crate) fn member_team(id: u32) -> Option<f64> {
-    let props = f3::props();
-    let index = props.member_slots.get(id as usize).copied().flatten()?;
-    let entry = &props.entries[index];
-    match entry.target {
-        RepairTarget::Turret(turret) => crate::vehicles::module::f2::live_seats::turret_team(turret, entry.team),
-        _ => None,
-    }
-}
 // LiveObjects construction gives each collision look its own body identity.
 // Precompute reverse indices now so struck never searches the building list.
 fn bind(slots: &mut Vec<Option<usize>>, slot: u32, index: usize) {
@@ -123,7 +119,7 @@ pub extern "C" fn f3_building() {
     let index = input.index as usize;
     let all = f3::props();
     assert_eq!(index, all.entries.len(), "building construction order");
-    let mut settings = crate::battle::props_module::settings(input.settings);
+    let mut settings = crate::battle::props::Settings::from(input.settings);
     settings.has_damaged = input.damaged;
     let frame = input.state;
     let bodies: [Option<Ref<Body>>; 3] = input.bodies.try_into().expect("three building bodies");
@@ -138,38 +134,34 @@ pub extern "C" fn f3_building() {
     // heroes.meleeStrike appends only buildings without an AI target after
     // the mixed registry. Keep that stable suffix without a query-time filter.
     if input.member.is_none() { all.extra_melee.push(index); }
+    if let Some(member) = input.member { bind(&mut all.member_slots, super::registry::target_id(member), index); }
     all.entries.push(Entry {
         target: input.target,
         member: input.member,
         lock_key: input.key,
         settings,
-        frame: props::Building {
-            state: state(frame.state), health: frame.health, add_health: frame.add_health,
-            last_attacker: identity(frame.attacker, index), target_generation: frame.generation,
-        },
-        attacker: frame.attacker,
+        owner: f4::adopt(input.live, input.trap, sim().store.vehicles.vehicles.len()),
+        geometry_state: state(frame.state),
         team: frame.team,
         target_team: frame.target_team,
         gunner: frame.gunner,
         bodies,
         explosion: input.explosion.map(DefId),
-        trap: frame.trap_mode.then(|| frame.trap_state.into()),
         trap_sphere: input.trap_sphere.map(|b| (v(b.center), b.radius)),
     });
     // TurretTarget and ObjectiveTarget already have their mixed registry ids.
     // Install their geometry from the prepared native model, avoiding a second
     // JS sphere query for every unchanged building during each world tick.
     if let Some(member) = input.member {
-        bind(&mut all.member_slots, super::registry::target_id(member), index);
         let entry = &all.entries[index];
-        let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame.sphere(&entry.settings));
+        let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame().sphere(&entry.settings));
         let mut position = Vector3::default();
         position.set_from_matrix_position(&entry.settings.matrix);
         f3::prepare_prop_target(F3PropFact {
-            id: super::registry::target_id(member), alive: entry.frame.alive(), dead: !entry.frame.alive(),
-            team: entry.target_team, bounds: Bounds { center: a(center), radius }, health: entry.frame.health,
+            id: super::registry::target_id(member), alive: entry.frame().alive(), dead: !entry.frame().alive(),
+            team: entry.target_team, bounds: Bounds { center: a(center), radius }, health: entry.frame().health,
             category: input.category, kind: input.kind, position: a(position), aim: a(center),
-            life: entry.frame.target_generation.unwrap_or(0.0), body: entry.bodies[0], ..Default::default()
+            life: entry.frame().target_generation.unwrap_or(0.0), body: entry.bodies[0], ..Default::default()
         });
     }
 }
@@ -187,29 +179,29 @@ pub(crate) fn melee_facts(index: usize) -> crate::combat::targeting::Facts {
     // Its melee direction must use the same point as its broadphase sphere.
     if let Some((center, _)) = entry.trap_sphere { position = center; }
     crate::combat::targeting::Facts {
-        alive: entry.frame.alive(), seated: false, exposed: false,
-        health: entry.frame.health, team: entry.team, category: 4, kind: 0.0, position,
+        alive: entry.frame().alive(), seated: false, exposed: false,
+        health: entry.frame().health, team: entry.team, category: 4, kind: 0.0, position,
     }
 }
 pub(crate) fn melee_volume(index: usize) -> crate::combat::targeting::Volume {
     let entry = &f3::props().entries[index];
-    let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame.sphere(&entry.settings));
+    let (center, radius) = entry.trap_sphere.unwrap_or_else(|| entry.frame().sphere(&entry.settings));
     crate::combat::targeting::Volume { center, radius, hull: None }
 }
 // LiveObjects.update runs outside this phase. Its next changed row replaces
 // only mutable foreign facts; geometry, body names and list order stay put.
 pub(crate) fn changed(frame: F3BuildingState) {
     let entry = &mut f3::props().entries[frame.index as usize];
-    entry.frame = props::Building {
+    entry.put_frame(&props::Building {
         state: state(frame.state), health: frame.health, add_health: frame.add_health,
         last_attacker: identity(frame.attacker, frame.index as usize), target_generation: frame.generation,
-    };
-    entry.attacker = frame.attacker;
+    });
+    entry.put_attacker(frame.attacker);
     entry.team = frame.team;
     entry.target_team = frame.target_team;
     entry.gunner = frame.gunner;
-    entry.trap = frame.trap_mode.then(|| frame.trap_state.into());
-    let body = entry.frame;
+    if frame.trap_mode { entry.put_trap(frame.trap_state.into()); }
+    let body = entry.frame();
     commit(frame.index as usize, &body);
 }
 // The synchronous foreign leaf receives only this touched row. Ordinary prop
@@ -217,26 +209,26 @@ pub(crate) fn changed(frame: F3BuildingState) {
 fn snapshot(index: usize) -> F3BuildingState {
     let entry = &f3::props().entries[index];
     F3BuildingState {
-        index: index as u32, state: state_name(entry.frame.state), health: entry.frame.health,
-        add_health: entry.frame.add_health, attacker: entry.attacker, generation: entry.frame.target_generation,
+        index: index as u32, state: state_name(entry.frame().state), health: entry.frame().health,
+        add_health: entry.frame().add_health, attacker: entry.attacker(), generation: entry.frame().target_generation,
         team: entry.team, target_team: entry.target_team, gunner: entry.gunner,
-        trap_mode: entry.trap.is_some(), trap_state: entry.trap.as_ref().map_or_else(TrState::default, Into::into),
+        trap_mode: entry.trap().is_some(), trap_state: entry.trap().as_ref().map_or_else(TrState::default, Into::into),
     }
 }
 // Building.show changes collision visibility before its next callback. Updating
 // the existing flag bytes here keeps an immediate nested blast off the old BVH.
 fn commit(index: usize, frame: &props::Building) {
     let entry = &mut f3::props().entries[index];
-    entry.frame = *frame;
-    if frame.last_attacker == props::Identity::Null { entry.attacker = Attacker::Null; }
+    entry.put_frame(frame); entry.geometry_state = frame.state;
+    if frame.last_attacker == props::Identity::Null { entry.put_attacker(Attacker::Null); }
     // Death does not advance a turret's target generation; a completed repair
     // does. Update the registry's health and life at the same write point.
     let member = entry.member;
     let (center, radius) = entry.trap_sphere.unwrap_or_else(|| frame.sphere(&entry.settings));
     let bodies = entry.bodies;
-    let team = entry.target_team;
+    let team = target_team(&sim().store, entry);
     if let RepairTarget::Turret(turret) = entry.target {
-        crate::vehicles::module::f2::live_seats::turret_life(turret, frame.alive(), entry.attacker,
+        crate::vehicles::module::f2::live_seats::turret_life(turret, frame.alive(), entry.attacker(),
             frame.target_generation.unwrap_or(0.0), center, radius);
     }
     if let Some(member) = member {
@@ -277,7 +269,7 @@ impl BuildingWorld<'_> {
     // Building.destroyed resumes after any immediate nested explosion. Reload
     // the live row, rather than overwriting what recursive damage left there.
     fn reload(&self, frame: &mut props::Building) {
-        *frame = f3::props().entries[self.index].frame;
+        *frame = f3::props().entries[self.index].frame();
     }
 }
 impl props::World for BuildingWorld<'_> {
@@ -323,7 +315,7 @@ impl props::World for BuildingWorld<'_> {
             _ => entry.target_team,
         };
         F3PropDamage {
-            index: self.index as u32, amount, attacker: entry.attacker,
+            index: self.index as u32, amount, attacker: entry.attacker(),
             // Game's damage journal reads the occupied target's team, while
             // friendly-fire policy above reads the building's authored team.
             has_direction: direction.is_some(), direction: direction.unwrap_or([0.0; 3]), untyped, typed, generic, position: a(position), team, generation: frame.target_generation,
@@ -338,19 +330,53 @@ impl props::World for BuildingWorld<'_> {
 impl traps::HealthWorld for BuildingWorld<'_> {
     fn health_show(&mut self, trap: &mut traps::Trap, built: bool) {
         let entry = &mut f3::props().entries[self.index];
-        entry.trap = Some(*trap);
-        let mut frame = entry.frame;
+        entry.put_trap(*trap);
+        let mut frame = entry.frame();
         frame.state = if built { props::State::Built } else { props::State::Unbuilt };
         frame.health = trap.health;
         self.leaf(&frame, F3PropEffectKind::Show);
     }
+}
+/// Native LiveObjects construction and regeneration share combat's owner.
+/// A phase reads fixed copies, never an entry borrow spanning a crew callback.
+pub(crate) fn count() -> usize { f3::props().entries.len() }
+pub(crate) fn owner(index: usize) -> F4Handle {
+    let handle = &f3::props().entries[index].owner;
+    match handle.kind {
+        F4ObjectKind::Trap => f4::live().traps.current(handle),
+        _ => f4::live().buildings.current(handle),
+    }.expect("current prop owner")
+}
+/// An idle prop has no world service to call. Check its canonical scalar
+/// frame before lending the complete Store around a regeneration callback.
+pub(crate) fn needs_regeneration(index: usize) -> bool {
+    let entry = &f3::props().entries[index];
+    if !entry.settings.regenerates { return false; }
+    let frame = entry.frame(); frame.add_health > 0.0 && frame.health < entry.settings.max_health
+}
+pub(crate) fn regenerate(index: usize, dt: f64, services: WorldServices<'_>) {
+    let entry = &f3::props().entries[index];
+    let mut frame = entry.frame(); let settings = entry.settings;
+    if !settings.regenerates || !(frame.add_health > 0.0 && frame.health < settings.max_health) { return; }
+    frame.regenerate(dt, &settings, &mut BuildingWorld { index, services, hit: None });
+    commit(index, &frame);
+}
+
+/// Explicit Turret.damage commands retain the same heading and scale sample as
+/// native ordnance. Journal delivery follows the completed destruction chain.
+pub(crate) fn command_hit(index:usize,value:f64,attacker:Option<Attacker>,hit:Option<F4HitInfo>,services:WorldServices<'_>){
+    let hit=hit.map(|h|HitInfo{direction:h.direction.map(|p|Vector3::new(p[0],p[1],p[2])),amount:h.amount,typed:h.typed,generic:h.generic});
+    mutate(index,value,attacker,hit,services);
+}
+pub(crate) fn trap_show(index: usize, trap: &mut traps::Trap, built: bool, services: WorldServices<'_>) {
+    traps::HealthWorld::health_show(&mut BuildingWorld { index, services, hit: None }, trap, built);
 }
 // Building.damage and setHealth share the existing lifecycle arithmetic. A
 // stack frame releases the foreign table before a crew death or explosion can
 // recurse; copying these fixed facts allocates neither a table nor a Vec.
 fn mutate(index: usize, amount: f64, attacker: Option<Attacker>, hit: Option<HitInfo>, services: WorldServices<'_>) {
     let entry = &mut f3::props().entries[index];
-    let mut frame = entry.frame;
+    let mut frame = entry.frame();
     let mut settings = entry.settings;
     settings.has_crew = match entry.target {
         RepairTarget::Turret(turret) => crate::vehicles::module::f2::live_seats::turret_gunner(turret).is_some(),
@@ -360,18 +386,18 @@ fn mutate(index: usize, amount: f64, attacker: Option<Attacker>, hit: Option<Hit
     // A repair has no attacker write, so an old repair lock or credit survives.
     if let Some(attacker) = attacker {
         if !frame.alive() || !(amount > 0.0) { return; }
-        entry.attacker = attacker;
+        entry.put_attacker(attacker);
         frame.last_attacker = identity(attacker, index);
     }
-    let trap = entry.trap;
-    entry.frame = frame;
+    let trap = entry.trap();
+    entry.put_frame(&frame);
     let mut world = BuildingWorld { index, services, hit };
     if let Some(mut trap) = trap {
         // Building.damage delegates to Trap.setHealth for this subclass. At
         // zero health it stays built until the next outside trap phase.
         let value = if attacker.is_some() { frame.health - amount } else { amount };
         trap.set_health_with(value, settings.max_health, &mut world);
-        f3::props().entries[index].trap = Some(trap);
+        f3::props().entries[index].put_trap(trap);
         frame.health = trap.health;
         frame.state = if trap.built { props::State::Built } else { props::State::Unbuilt };
     } else if attacker.is_some() {
@@ -402,7 +428,7 @@ impl live::World for QueryWorld<'_> {
                 body:Some(v.body.slot as usize), gunner:false, position:Vector3::new(v.position[0],v.position[1],v.position[2]), matrix };
         }
         let entry = &f3::props().entries[index];
-        let frame = &entry.frame;
+        let frame = entry.frame();
         let health_type = if entry.settings.kind == props::Kind::Objective && !frame.alive() { None } else {
             Some(match frame.state { props::State::Built => live::Health::Building,
                 props::State::Destroyed => live::Health::Rebuild, props::State::Unbuilt => live::Health::Build })
@@ -412,7 +438,8 @@ impl live::World for QueryWorld<'_> {
         live::Target {
             alive: frame.alive(), state: Some(frame.state), health_type, health: frame.health,
             max_health: entry.settings.max_health, team: entry.team,
-            body: entry.bodies[frame.state.index()].map(|b| b.slot as usize), gunner: entry.gunner.is_some(),
+            body: entry.bodies[frame.state.index()].map(|b| b.slot as usize),
+            gunner: match entry.target { RepairTarget::Turret(r) => crate::vehicles::module::f2::live_seats::turret_gunner(r).is_some(), _ => false },
             position, matrix: entry.settings.matrix,
         }
     }
@@ -424,7 +451,7 @@ impl live::World for QueryWorld<'_> {
         if index >= buildings { return super::f3_hulls::sphere(super::f3_hulls::reference(index - buildings), blast); }
         let entry = &f3::props().entries[index];
         if let Some(sphere) = entry.trap_sphere { return sphere; }
-        if blast { entry.frame.blast_sphere(&entry.settings) } else { entry.frame.sphere(&entry.settings) }
+        if blast { entry.frame().blast_sphere(&entry.settings) } else { entry.frame().sphere(&entry.settings) }
     }
     // blastBlocked ignores the victim's current collision look. Repair LOS
     // instead accepts a hit owned by the candidate itself. The native world
@@ -535,3 +562,41 @@ pub(crate) fn hit_policy(definition: DefArg) -> HitPacket {
 }
 fn a(value: Vector3) -> [f64; 3] { [value.x, value.y, value.z] }
 fn v(value: [f64; 3]) -> Vector3 { Vector3::new(value[0], value[1], value[2]) }
+
+/// Placed-post readers need only the canonical health and captured attacker.
+pub(crate) fn battle_building(r: Ref<Building>) -> (bool, Attacker) {
+    let p = f3::props(); let index = p.index(RepairTarget::Building(r)).expect("prepared post building");
+    (p.entries[index].frame().alive(),p.entries[index].attacker())
+}
+
+fn target_team(s: &Store, entry: &Entry) -> f64 {
+    match entry.target {
+        RepairTarget::Turret(r) => crate::vehicles::module::f2::live_seats::battle_team(s,r).unwrap_or(entry.team),
+        _ => entry.team,
+    }
+}
+/// Registry facts refresh from canonical owners at the read, including a
+/// lease acquired earlier in this same native phase. Geometry stays prepared.
+pub(crate) fn refresh(id: u32) {
+    let all = f3::props();
+    let Some(index) = all.member_slots.get(id as usize).copied().flatten() else {return};
+    let entry = &mut all.entries[index]; let frame = entry.frame();
+    let team = target_team(&sim().store, entry);
+    // Damage/regeneration already commit these same canonical facts. Most AI
+    // reads need neither another sphere transform nor another registry write.
+    if entry.geometry_state == frame.state && f3::prepared_target(id).is_some_and(|fact|
+        fact.alive == frame.alive() && fact.health.to_bits() == frame.health.to_bits() &&
+        fact.life.to_bits() == frame.target_generation.unwrap_or(0.0).to_bits() && fact.team.to_bits() == team.to_bits()) { return; }
+    let (center,radius) = entry.trap_sphere.unwrap_or_else(|| frame.sphere(&entry.settings));
+    entry.geometry_state = frame.state;
+    f3::prop_target(entry.member.expect("registered prop"),frame.alive(),frame.health,a(center),radius,
+        frame.target_generation,team);
+}
+pub(crate) fn battle_member(s: &Store, key: Member) -> Option<crate::battle::world::Member> {
+    let all = f3::props();
+    let index = all.member_slots.get(super::registry::target_id(key) as usize).copied().flatten()?;
+    let entry = &all.entries[index]; if entry.member != Some(key) {return None;}
+    let mut position = Vector3::default(); position.set_from_matrix_position(&entry.settings.matrix);
+    Some(crate::battle::world::Member {alive:entry.frame().alive(),team:target_team(s,entry),position:a(position),
+        ..crate::battle::world::Member::default()})
+}

@@ -732,9 +732,9 @@ impl CombatWorld for JsWorld<'_> {
             // does not create or change any BattleStats record.
             _ => None,
         };
-        if let Some(character) = character {
-            import_f3_head_credit(&F3HeadCredit { character });
-        }
+        if crate::battle::f4_core::active() {
+            crate::battle::f4_core::achievement(character, F4CommandOp::Headshot);
+        } else if let Some(character) = character { import_f3_head_credit(&F3HeadCredit { character }); }
     }
 
     fn fired(&mut self, shot: &Shot, unit: &mut Unit, combat: &mut Combat) {
@@ -828,8 +828,12 @@ impl CombatWorld for JsWorld<'_> {
         };
         let mut controller = None;
         self.changing(unit, combat, |_| {
-            crate::units::f3::foreign_barrier();
-            controller = import_f3_death_credit(&credit).controller;
+            if crate::battle::f4_core::owns_lifecycle() {
+                controller=crate::battle::f4_core::died(credit.unit,credit.killer,credit.relation);
+            } else {
+                crate::units::f3::foreign_barrier();
+                controller=import_f3_death_credit(&credit).controller;
+            }
         });
         unit.controller = controller;
         F3DeathNotice {
@@ -865,7 +869,11 @@ impl CombatWorld for JsWorld<'_> {
         return;
     }
 
-    fn respawn(&mut self, _unit: &mut Unit, combat: &mut Combat) {
+    fn respawn(&mut self, unit: &mut Unit, combat: &mut Combat) {
+        if crate::battle::f4_tail::owns_player(self.r) {
+            self.changing(unit,combat,|services| crate::battle::f4_tail::auto_respawn(services.expect("native player body services")));
+            return;
+        }
         // PlayerCombat.onRespawn only notifies the host. Deliver it after
         // the owning phase, when its canonical health is already published.
 

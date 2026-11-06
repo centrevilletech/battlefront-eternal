@@ -13,8 +13,5 @@ export default {
     RoActionArgs: { op: 'enum:RoActionOp', character: 'ref:character|null', unit: 'ref:unit|null', team: 'f64', name: 'str|null', players: 'rec:RoPlayers|null' },
     RoActionResult: { character: 'ref:character|null', name: 'str|null', players: 'rec:RoPlayers|null' },
   },
-  imports: {
-    rosterQuery: { args: 'RoQueryArgs', result: 'RoQueryResult' },
-    rosterAction: { args: 'RoActionArgs', result: 'RoActionResult' },
-  },
+
 };

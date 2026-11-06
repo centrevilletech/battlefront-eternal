@@ -68,18 +68,6 @@ class Post {
     this.active = true;
   }
 
-  // Its building destroyed: out of the battle, its owner kept (the
-  // original game leaves the team as it was).
-  destroy() {
-    this.active = false;
-    this.counts.clear();
-    this.neutralize = 0;
-    this.progress = 0;
-    this.toward = 0;
-    this.contested = false;
-    return { kind: "lost", from: this.team, destroyed: true };
-  }
-
   // Whether a point is in its capture region (src/regions.js, the
   // original game's region test).
   contains(point, scratch) {
@@ -99,43 +87,6 @@ class Post {
     return ((1 - this.progress) * this.rules.captureTime) / rate(n);
   }
 
-  update(dt) {
-    const teams = [...this.counts.entries()].filter(([, n]) => n > 0);
-    this.contested = teams.length > 1;
-    if (this.team) {
-      const attack = attackRate(this.counts, this.team);
-      if (!attack) {
-        this.neutralize = 0;
-        return null;
-      }
-      this.neutralize += (attack * dt) / this.rules.neutralizeTime;
-      if (this.neutralize >= 1) {
-        const lost = this.team;
-        this.team = 0;
-        this.neutralize = 0;
-        this.progress = 0;
-        this.toward = 0;
-        return { kind: "neutralized", from: lost };
-      }
-      return null;
-    }
-    if (teams.length !== 1) return null;
-    const [team, n] = teams[0];
-    const step = (rate(n) * dt) / this.rules.captureTime;
-    if (this.progress > 0 && team !== this.toward) {
-      this.progress = Math.max(this.progress - step, 0);
-      return null;
-    }
-    this.toward = team;
-    this.progress += step;
-    if (this.progress >= 1) {
-      this.team = team;
-      this.progress = 0;
-      this.toward = 0;
-      return { kind: "captured", by: team };
-    }
-    return null;
-  }
 }
 
 // The hologram over a post: the owner's logo (spinning, flickering, colored
@@ -348,14 +299,12 @@ export class CommandPosts {
   // Every post the battle counts and the AI walks: the placed ones, then
   // the command vehicles' as they are now (inactive while none lives).
   all() {
-    this.mobile?.refresh();
     return this.listed;
   }
 
-  // The command vehicles' posts lost or changed hands since the last call
-  // (MobilePosts.events), for the battle's authority.
-  mobileEvents() {
-    return this.mobile?.events() ?? [];
+  // A remote page derives mobile announcements from its replicated hulls.
+  presentMobileEvents() {
+    return this.mobile?.presentEvents() ?? [];
   }
 
   // The player changed teams: every post and hologram is recoloured from his
@@ -373,30 +322,6 @@ export class CommandPosts {
   look(viewer, team) {
     const teams = this.teams;
     return teams ? radarRelation(viewer, team, (a, b) => teams.relation(a, b), (t) => teams.locals(t)) : radarRelation(viewer, team);
-  }
-
-  // soldiers: [{ position, team }] for everyone who can capture; each counts
-  // for his team's capture team.
-  update(dt, soldiers, camera) {
-    this.time += dt;
-    for (const post of this.posts) {
-      if (post.active === false) continue;
-      if (post.building && !post.building.alive) {
-        this.events.push({ post, ...post.destroy() });
-        continue;
-      }
-      // Clearing a Map makes it a new table, even an empty one: most posts
-      // stand empty most ticks.
-      if (post.counts.size) post.counts.clear();
-      for (const soldier of soldiers) {
-        const team = this.teams ? this.teams.captureTeam(soldier.team) : soldier.team;
-        if (!team || !post.contains(soldier.position, this.scratch)) continue;
-        post.counts.set(team, (post.counts.get(team) || 0) + 1);
-      }
-      const change = post.update(dt);
-      if (change) this.events.push({ post, ...change });
-    }
-    if (camera) this.present(dt, camera);
   }
 
   present(dt, camera) {

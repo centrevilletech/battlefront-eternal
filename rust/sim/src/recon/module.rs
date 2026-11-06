@@ -646,6 +646,20 @@ pub extern "C" fn f3_recon_command() -> u32 {
     })
 }
 
+/// Battlefield reads the current piloted context through its explicit Store.
+/// The tail may own that Store locally while owner work buffers stay retained.
+pub(crate) fn piloted_in(s: &crate::gen::Store, owner: Ref<Unit>) -> Option<Ref<ReconDroid>> {
+    let unit = s.unit.get(owner)?;
+    let reference = f3::recon_services().contexts.get(owner.slot as usize).copied().flatten()?;
+    let c = s.recon_context.get(reference)?;
+    if c.owner.reference() != owner || c.owner.life != unit.generation || c.retired { return None; }
+    c.piloted.filter(|r| s.recon_droid.get(*r).is_some_and(|d| !d.dead))
+}
+pub(crate) fn kill_piloted(owner: Ref<Unit>, services: f3::WorldServices<'_>) {
+    let Some(droid) = piloted_in(&sim().store, owner) else { return };
+    services.recon.kill(&mut sim().store, &mut NativeWorld::idle(services.queries), droid);
+}
+
 /// Player and connection class realization rebinds the native context before
 /// spawning. Surviving droids keep their immutable launch owner and RNG state.
 pub(crate) fn rebind_native(owner:Ref<Unit>, key:u32, seed:u32, services:&mut f3::WorldServices<'_>) {

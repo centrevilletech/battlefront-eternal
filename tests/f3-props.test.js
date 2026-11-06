@@ -5,7 +5,7 @@ import { ObjectiveTarget } from '../src/objectives.js';
 import { Trap } from '../src/traps.js';
 import { f3World } from './fixtures/f3-world.js';
 import { building } from './fixtures/f3-building.js';
-import {PropsSim} from '../src/props-sim.js';
+import {F4Live} from '../src/f4-live.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
 
 const soldier = {class:'soldier',base:'soldier',MaxHealth:2000,weapons:[]};
@@ -119,13 +119,13 @@ test('a built trap reaches zero health by springing and a repair starts its unti
   assert.equal(trap.phase,'reset');assert.equal(trap.started,null);assert.equal(trap.sprung,true);
 });
 
-// Real foreign lifecycle writes end the reused read span before the next
+// Published native lifecycle writes end the reused read span before the next
 // native damage service consumes it. Nested spans must also leave no lease.
-test('AI sensor spans retain facts until a foreign prop changes',async()=>{
+test('AI sensor spans retain facts until a native prop changes',async()=>{
   const prop=building('station',0,2,{health:1000});prop.team=2;
   const live={buildings:[prop],animated:[]};
   const w=await f3World({soldier},{prepareLive:()=>live});
-  new PropsSim(w.phase.bridge,live);
+  new F4Live(w.phase,{sound(){}});
   const unit=w.spawn('soldier',0,0,true),registry=w.phase.registry;
   w.units.setRelation(1,2,-1);
   w.phase.begin(w.phase.bindings[unit.id],'team');

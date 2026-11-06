@@ -256,7 +256,6 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
   }
   function captureSnapshot(tick) {
     const characters = game.battle.characters;
-    for (const [slot, c] of characters.entries()) c.rosterSlot = slot;
     const records = native ? capture.captureNative(tick) : capture.capture(tick);
     // The fields captureWorldSummaries produces for everyone. Skipping the
     // roster when none of its chunks is due and its chunk count (set by the

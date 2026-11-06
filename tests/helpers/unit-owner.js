@@ -75,12 +75,7 @@ export function unitOwner(system,bridge) {
     return unit;
   };
   const prepareOwner=phase.owners.prepare.bind(phase.owners);
-  let viewpoint;
   phase.owners.prepare=owner=>{
-    if(owner==='player'&&!viewpoint) {
-      viewpoint=adopt({alive:false,dead:true,removed:true,generation:1,team:1});
-      phase.registerViewpoint(viewpoint);
-    }
     if(owner&&typeof owner==='object'&&!Object.isFrozen(owner)&&('generation' in owner)&&!owner.f3)adopt(owner);
     prepareOwner(owner);
   };

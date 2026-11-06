@@ -1,3 +1,6 @@
+import {turretAt} from './fixtures/f3-turret.js';
+import {f3World} from './fixtures/f3-world.js';
+import {F4Live} from '../src/f4-live.js';
 // Bots at turrets (docs/ai-vehicles.md "Turrets"): the drum's rest heading,
 // its yaw limits, a bot's analogs turning the drum and gun onto a target
 // wherever it stands, and damage to a turret reaching the AI as damage to
@@ -23,21 +26,6 @@ function floor() {
 // A turret at the origin whose instance faces +z (yaw `heading`): the drum
 // 1.5 m up, bound at `drumBind` radians (Tatooine's barge turret binds its
 // drum at 180 degrees), the gun on it, its fire point 1 m along the gun.
-function turretAt({ heading = 0, drumBind = 0, settings = {} } = {}) {
-  const rig = { root: new THREE.Group(), byName: {} };
-  for (const name of ['drum', 'gun', 'seat', 'hp_fire']) { const o = new THREE.Object3D(); o.name = name; rig.byName[name] = o; }
-  rig.root.add(rig.byName.drum); rig.byName.drum.add(rig.byName.gun); rig.byName.gun.add(rig.byName.hp_fire); rig.byName.drum.add(rig.byName.seat);
-  rig.byName.drum.position.y = 1.5; rig.byName.drum.quaternion.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, drumBind);
-  rig.byName.hp_fire.position.z = 1; rig.byName.seat.position.z = -0.6;
-  rig.bones = Object.values(rig.byName);
-  rig.model = { box: [[-1, 0, -1], [1, 2, 1]] };
-  const matrix = new THREE.Matrix4().makeRotationY(heading);
-  rig.root.applyMatrix4(matrix);
-  const desc = { base: 'armedbuilding', class: 'test_turret', matrix: matrix.toArray(),
-    settings: { TurretNodeName: 'drum', AimerNodeName: 'gun', PilotPosition: 'seat', FirePointName: 'hp_fire', MaxTurnSpeed: 2.85, MaxHealth: 300, AimerYawLimits: '-5 5', ...settings },
-    weapon: { class: 'test_turret_gun', base: 'cannon', ShotDelay: 0.4, RoundsPerClip: 0, ReloadTime: 0, ordnance: { base: 'bolt', Velocity: 80, LifeSpan: 2, Damage: 20 } } };
-  return new Turret(desc, { built: rig }, { built: null }, null);
-}
 
 const barrel = (turret) => {
   const p = new THREE.Vector3(), d = new THREE.Vector3();
@@ -123,17 +111,20 @@ for (const [label, heading, drumBind] of [['an ordinary turret', 0, 0], ['a drum
   });
 }
 
-test("damage to a turret is reported with the round's heading and factors", () => {
+test("damage to a turret is reported with the round's heading and factors", async () => {
   const turret = turretAt();
   const seen = [];
   turret.onDamaged = (object, amount, attacker, hit) => seen.push({ object, amount, attacker, hit });
-  const attacker = { team: 2 };
+  const w=await f3World({soldier:{class:'soldier',base:'soldier',MaxHealth:100,weapons:[]}},
+    {prepareLive:()=>({buildings:[turret],turrets:[turret],animated:[],traps:[]})});
+  new F4Live(w.phase,{sound(){}});
+  const attacker=w.spawn('soldier',20,20);attacker.team=attacker.combat.team=2;
   const direction = new THREE.Vector3(0, 0, -1);
   turret.damage(5, attacker, { direction, amount: 50, typed: 0.1, generic: 1 });
   assert.equal(seen.length, 1);
   assert.equal(seen[0].amount, 5);
   assert.equal(seen[0].attacker, attacker);
-  assert.equal(seen[0].hit.direction, direction);
+  assert.deepEqual(seen[0].hit.direction.toArray(), direction.toArray());
   assert.equal(turret.health, 295);
   turret.damage(0, attacker);
   assert.equal(seen.length, 1, 'nothing for no damage');

@@ -122,6 +122,7 @@ export class F3UnitBinding {
     unit.generation = view.key.life;
     // Unit's public scalar fields have stable storage. Named assignments
     // avoid generic property copies boxing every numeric mirror value.
+    unit.hero=view.hero;unit.human=view.human;unit.networkHuman=view.networkHuman;
     unit.team = view.team;
     unit.alive = view.alive;
     unit.dead = view.dead;

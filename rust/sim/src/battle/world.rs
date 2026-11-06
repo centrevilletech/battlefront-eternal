@@ -32,25 +32,42 @@ pub struct Body {
 pub trait PostsWorld {
     fn capture_team(&mut self, team: f64) -> f64;
     fn building_alive(&mut self, building: Ref<Building>) -> bool;
-    fn pad(&mut self, slot: f64) -> Pad;
-    fn vehicle_position(&mut self, vehicle: Ref<Vehicle>) -> [f64; 3];
+    fn pad(&mut self, s: &Store, slot: f64) -> Pad;
+    /// The native hull owner lends its prepared pad facts. Legacy capture
+    /// hosts retain their recorded pad observation through this default.
+    fn with_pad(&mut self, s: &mut Store, slot: f64, visit: &mut dyn FnMut(&mut Store, &Pad)) {
+        let pad = self.pad(s, slot); visit(s, &pad);
+    }
+    fn vehicle_position(&mut self, s: &Store, vehicle: Ref<Vehicle>) -> [f64; 3];
     fn class_spawn_world(&mut self, s: &Store, post: Ref<MobilePost>) -> Vec<[f64; 4]>;
+    /// Native hull services fill a retained buffer; capture hosts retain their
+    /// recorded whole-list observation through the default implementation.
+    fn class_spawn_world_into(&mut self, s: &Store, post: Ref<MobilePost>, into: &mut Vec<[f64; 4]>) {
+        into.clear(); into.extend(self.class_spawn_world(s, post));
+    }
 }
 
 impl<T: BattleWorld + ?Sized> PostsWorld for T {
     fn capture_team(&mut self, team: f64) -> f64 { BattleWorld::capture_team(self, team) }
     fn building_alive(&mut self, building: Ref<Building>) -> bool { BattleWorld::building_alive(self, building) }
-    fn pad(&mut self, slot: f64) -> Pad { BattleWorld::pad(self, slot) }
-    fn vehicle_position(&mut self, vehicle: Ref<Vehicle>) -> [f64; 3] { BattleWorld::vehicle_position(self, vehicle) }
+    fn pad(&mut self, _s: &Store, slot: f64) -> Pad { BattleWorld::pad(self, slot) }
+    fn vehicle_position(&mut self, _s: &Store, vehicle: Ref<Vehicle>) -> [f64; 3] { BattleWorld::vehicle_position(self, vehicle) }
     fn class_spawn_world(&mut self, _: &Store, post: Ref<MobilePost>) -> Vec<[f64; 4]> { BattleWorld::class_spawn_world(self, post) }
 }
 
 /// The spawn manager's foreign actions; its teams, Characters, queues
 /// and class choices remain in the caller's store.
 pub trait SpawningWorld: PostsWorld {
+    /// Clock reads only active/team/ally count. Native owners avoid building
+    /// complete spawn paths merely to count locals; capture hosts can retain
+    /// their full source observation sequence through the default reader.
+    fn clock_post(&mut self, s: &Store, post: SpawnPost) -> (bool, f64, f64) {
+        let view = super::posts::spawn_facts(s, post, self);
+        (view.active, view.owner, view.ally_count)
+    }
     /// Enhanced spawning's objective, when its nearest-post rule applies.
-    fn spawn_goal(&mut self, _: Ref<Character>) -> Option<[f64; 3]> { None }
-    fn health(&mut self, unit: Ref<Unit>) -> f64;
+    fn spawn_goal(&mut self, _: &Store, _: Ref<Character>) -> Option<[f64; 3]> { None }
+    fn health(&mut self, s: &Store, unit: Ref<Unit>) -> f64;
     fn force_kill(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>);
     fn request_objective(&mut self, s: &mut Store, character: Ref<Character>);
     fn republish(&mut self, s: &mut Store, character: Ref<Character>);
@@ -59,8 +76,8 @@ pub trait SpawningWorld: PostsWorld {
 }
 
 impl<T: BattleWorld + ?Sized> SpawningWorld for T {
-    fn spawn_goal(&mut self, character: Ref<Character>) -> Option<[f64; 3]> { BattleWorld::spawn_goal(self, character) }
-    fn health(&mut self, unit: Ref<Unit>) -> f64 { BattleWorld::health(self, unit) }
+    fn spawn_goal(&mut self, _: &Store, character: Ref<Character>) -> Option<[f64; 3]> { BattleWorld::spawn_goal(self, character) }
+    fn health(&mut self, _s: &Store, unit: Ref<Unit>) -> f64 { BattleWorld::health(self, unit) }
     fn force_kill(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>) { BattleWorld::force_kill(self, s, character, unit); }
     fn request_objective(&mut self, s: &mut Store, character: Ref<Character>) { BattleWorld::request_objective(self, s, character); }
     fn republish(&mut self, s: &mut Store, character: Ref<Character>) { BattleWorld::republish(self, s, character); }
@@ -201,4 +218,15 @@ pub struct Member {
 pub enum Victim {
     Unit { id: Ref<Unit>, position: [f64; 3] },
     Hull { id: Ref<Vehicle>, position: [f64; 3] },
+}
+
+impl Victim {
+    /// The victim array retains membership while its position remains live.
+    /// A retired slab object has no new position; retain its sampled value.
+    pub fn position_in(self, s: &Store) -> [f64; 3] {
+        match self {
+            Self::Unit { id, position } => s.unit.get(id).map_or(position, |u| { let p = u.position(); [p.x, p.y, p.z] }),
+            Self::Hull { id, position } => s.vehicle.get(id).map_or(position, |v| v.position),
+        }
+    }
 }

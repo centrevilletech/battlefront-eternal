@@ -51,7 +51,7 @@ export default {
     HsOwned: humanFields,
     HsState: { phase: 'enum:HumanPhase', team: 'f64', className: 'str', classIndex: 'f64', post: 'str|null', canSwitchTeams: 'bool', over: 'bool' },
     HsEvent: { kind: 'enum:HsEventKind', state: 'rec:HsState|null', team: 'f64', previous: 'f64', className: 'str|null', post: 'str|null' },
-    HsCommand: { kind: 'enum:HsCommandKind', team: 'f64', className: 'str|null', post: 'str|null' },
+    HsCommand: { $layout: true, kind: 'enum:HsCommandKind', team: 'f64', className: 'str|null', post: 'str|null' },
     HsAuthority: { phase: 'enum:HumanPhase', className: 'str|null', post: 'str|null', spawnedOnce: 'bool', ended: 'bool', deadTime: 'f64', pending: 'rec:HumanPick|null', auto: 'rec:HumanAuto|null' },
     HsInput: { op: 'enum:HsOperation', dt: 'f64', commands: 'list:rec:HsCommand', className: 'str|null', post: 'str|null', team: 'f64', previous: 'f64', authority: 'rec:HsAuthority|null' },
     HsResult: { events: 'list:rec:HsEvent', view: 'rec:HsState|null' },
@@ -84,23 +84,23 @@ export default {
     // A team as the mission's table gives it (map.json mission.teams).
     TeamDesc: { units: 'f64|undefined', reinforcements: 'f64|undefined', bleed: 'list:f64x2|undefined' },
     // The kills ring the sprees count in (battle-stats.js BattleStats.ring).
-    KillRing: { killers: 'list:(ref:character|null)', times: 'Float64Array(100)', slots: 'Int32Array(100)', head: 'f64', tail: 'f64' },
-    BattleStats: { time: 'f64', ring: 'rec:KillRing' },
+    KillRing: { $delta: ['killers', 'times', 'slots', 'head', 'tail'], killers: 'list:(ref:character|null)', times: 'Float64Array(100)', slots: 'Int32Array(100)', head: 'f64', tail: 'f64' },
+    BattleStats: { $delta: ['time', 'ring'], time: 'f64', ring: 'rec:KillRing' },
     // A time table's entry (a class, weapon or vehicle and its seconds).
-    TimeEntry: { key: 'str', label: 'str|null', time: 'f64' },
+    TimeEntry: { $observe: ['key','label','time'], $delta: ['key', 'label', 'time'], key: 'str', label: 'str|null', time: 'f64' },
     // A Character's tallies for one team slot (battle-stats.js slotRecord).
-    StatSlot: {
+    StatSlot: { $observe: ['teamKills','vehiclesDestroyed','spree','survivalist','lifeKills','lifeKillsBest','headshots','deaths','life','lifeBest','camp','campBest','escapes'], $delta: ['teamKills', 'vehiclesDestroyed', 'spree', 'survivalist', 'lifeKills', 'lifeKillsBest', 'headshots', 'deaths', 'life', 'lifeBest', 'camp', 'campBest', 'escapes', 'victims', 'classes', 'weapons', 'vehicles'],
       teamKills: 'f64', vehiclesDestroyed: 'f64', spree: 'f64', survivalist: 'f64', lifeKills: 'f64', lifeKillsBest: 'f64', headshots: 'f64',
       deaths: 'f64', life: 'f64', lifeBest: 'f64', camp: 'f64', campBest: 'f64', escapes: 'f64',
       victims: 'map:ref:character:f64', classes: 'list:rec:TimeEntry', weapons: 'list:rec:TimeEntry', vehicles: 'list:rec:TimeEntry',
     },
     // Where a Character camps (a plain { x, y, z }).
-    Anchor: { x: 'f64', y: 'f64', z: 'f64' },
+    Anchor: { $observe: ['x','y','z'], $delta: ['x', 'y', 'z'], x: 'f64', y: 'f64', z: 'f64' },
     // A Character's end-of-match record (battle-stats.js recordOf).
-    Record: { slots: 'list:rec:StatSlot', anchor: 'rec:Anchor|null', health: 'f64', low: 'bool' },
+    Record: { $observe: ['health','low'], $delta: ['slots', 'anchor', 'health', 'low'], slots: 'list:rec:StatSlot', anchor: 'rec:Anchor|null', health: 'f64', low: 'bool' },
     // A Character's next life (the spawn manager's; a network player's from
     // the roster holds only its timer and whether it is ready).
-    Spawn: { timer: 'f64', wave: 'f64|undefined', ordinal: 'f64|undefined', post: 'union:PostRef', ready: 'bool' },
+    Spawn: { $delta: ['timer', 'wave', 'ordinal', 'post', 'ready'], timer: 'f64', wave: 'f64|undefined', ordinal: 'f64|undefined', post: 'union:PostRef', ready: 'bool' },
     // A region as a world file gives it, and as buildRegion builds it
     // (src/regions.js).
     RegionDesc: { type: 'enum:RegionType', matrix: 'list:f64|undefined', center: 'list:f64|undefined', size: 'list:f64' },
@@ -135,6 +135,7 @@ export default {
       },
     },
     battle: {
+      delta: true,
       singleton: true,
       class: 'Battle',
       fields: {
@@ -170,6 +171,8 @@ export default {
       },
     },
     character: {
+      delta: true,
+      defer: ['record'],
       home: 'battle.characters',
       class: 'Character',
       fields: {
@@ -241,7 +244,7 @@ export default {
         building: 'ref:building|null',
         active: 'bool',
         radius: 'f64|undefined',
-        ai: { type: 'rec:PostAi|undefined', mirror: false },
+        ai: 'rec:PostAi|undefined',
       },
       skip: {
         desc: 'the world file\'s (its valueBleed and killRegion are read)',
@@ -319,13 +322,5 @@ export default {
       },
     },
   },
-  imports: {
-    hsQuery: { args: 'HsQueryArgs', result: 'HsQueryResult' },
-    hsAction: { args: 'HsActionArgs', result: 'HsActionResult' },
-    battleQuery: { args: 'BrQueryArgs', result: 'BrQueryResult' },
-    battleOver: { args: 'BrNumber', result: null },
-    postsQuery: { args: 'PsQueryArgs', result: 'PsQueryResult' },
-    spawningQuery: { args: 'SpQueryArgs', result: 'SpQueryResult' },
-    spawningAction: { args: 'SpActionArgs', result: 'SpActionResult' },
-  },
+
 };

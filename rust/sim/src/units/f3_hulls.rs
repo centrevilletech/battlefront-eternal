@@ -48,6 +48,9 @@ pub extern "C" fn f3_hull() {
     all.bodies[body.slot as usize] = Some(input.hull);
     let slot = input.hull.slot as usize;
     all.rows[slot] = Some(input);
+    // Traps may have been prepared before this variant existed. Fleet birth
+    // reserves their victim snapshots too, rather than growing them on crush.
+    crate::battle::f4::live().prepare_hulls(all.rows.len());
     // The first native sensor may run before the first fleet update.
     if let Some(id) = id { refresh(id as u32); }
     let count = all.rows.iter().flatten().count();
@@ -136,6 +139,16 @@ pub(crate) fn for_member(member: Member) -> Option<Ref<Vehicle>> {
     let r = hulls().members.get(super::registry::target_id(member) as usize).copied().flatten()?;
     let row = hulls().rows.get(r.slot as usize)?.as_ref().filter(|row|row.hull==r)?;
     (row.member == Some(member) && sim().store.vehicle.contains(r)).then_some(r)
+}
+/// Capture awards need current hull facts while the tail lends Store to its
+/// native services. Validate the retained reverse index before reading it.
+pub(crate) fn battle_member(s: &Store, key: Member) -> Option<crate::battle::world::Member> {
+    let r = hulls().members.get(super::registry::target_id(key) as usize).copied().flatten()?;
+    let row = hulls().rows.get(r.slot as usize)?.as_ref().filter(|row|row.hull==r)?;
+    if row.member != Some(key) { return None; }
+    let v = s.vehicle.get(r)?;
+    Some(crate::battle::world::Member { alive: v.alive, position: v.position, ..Default::default() })
+
 }
 // repairLockKey is an object's construction index, independent of its life.
 pub(crate) fn lock_key(r: Ref<Vehicle>) -> StrId { binding(r).key }
@@ -256,7 +269,9 @@ impl HullDamageWorld for DamageWorld<'_> {
             Attacker::OwnerSnapshot(r) => sim().store.owner_snapshot.get(r).and_then(|o| o.character),
             _ => None,
         };
-        if let Some(character) = character {
+        if crate::battle::f4_core::active() {
+            crate::battle::f4_core::achievement(character, F4CommandOp::VehicleDestroyed);
+        } else if let Some(character) = character {
             // Game.vehicleDestroyed updates an achievement immediately.
             // It sees committed mirrors but cannot call damage or a solver.
             f3::foreign_barrier();

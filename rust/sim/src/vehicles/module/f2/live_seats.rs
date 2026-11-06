@@ -995,8 +995,23 @@ pub(crate) fn leave_killed(unit: Ref<Unit>, services: crate::units::f3::WorldSer
 }
 // Building.destroyed keeps a turret's current gunner until crew destruction
 // completes. Its health owner updates the same retained crew row directly.
+/// Game's spawn/suicide path releases a seat without choosing a foot exit.
+/// Its subsequent placement or death supplies the final body position.
+pub(crate) fn leave_voluntary(unit: Ref<Unit>, services: crate::units::f3::WorldServices<'_>) {
+    let row=sim().store.unit.get(unit).expect("native seat occupant");
+    let Some(lease)=row.seat else{return};let life=row.generation;
+    internal(F2SeatCommand{op:F2SeatOp::Vacate,unit:Some(unit),unit_life:life,lease:Some(lease),
+        placement:false,reason:SeatReason::Exit,..Default::default()},Some(services));
+}
 pub(crate) fn turret_gunner(r: Ref<Turret>) -> Option<Ref<Unit>> {
     state().owner.crews.turrets.iter().find(|t| t.turret == r).and_then(|t| t.gunner).map(unit_ref)
+}
+/// TurretTarget.team observes the captured lease team, rather than the
+/// current occupant's team after a later team command.
+pub(crate) fn battle_team(s: &Store, r: Ref<Turret>) -> Option<f64> {
+    let st = unsafe { (*addr_of_mut!(STATE)).as_ref()? };
+    let lease = st.owner.crews.turrets.iter().find(|t| t.turret == r)?.lease?;
+    Some(s.seat_lease.get(lease).expect("current turret lease").team)
 }
 /// TurretTarget.team observes the current lease, including an exit or crew
 /// death reached during another native owner's phase. Unmanned guns use
@@ -1256,6 +1271,14 @@ fn turret_command(a: F2SeatCommand, services: Option<crate::units::f3::WorldServ
 // that earlier lifecycle slot, before crews steer and fire. Mark only
 // guns whose numeric aim changed so idle turrets need no publication.
 pub extern "C" fn f2_turrets_idle(dt: f64) {
+    idle_turrets(dt);
+    super::publish();
+}
+
+// The live owner joins the surrounding publication barrier. Empty maps do
+// not construct a fleet merely to discover that it has no idle turrets.
+pub(crate) fn idle_turrets(dt: f64) {
+    if unsafe { (*addr_of_mut!(STATE)).is_none() } { return; }
     for i in 0..state().owner.crews.turrets.len() {
         let t = &mut state().owner.crews.turrets[i];
         if !t.alive || t.gunner.is_some() { continue; }
@@ -1263,7 +1286,6 @@ pub extern "C" fn f2_turrets_idle(dt: f64) {
         t.aim_gun(dt, None);
         if before != [t.gun_yaw.to_bits(), t.gun_pitch.to_bits()] { touch_turret(t.turret); }
     }
-    super::publish();
 }
 
 // Native lease emitters use a disjoint generation namespace. A beam keeps its
@@ -1396,4 +1418,13 @@ pub fn rider_posed(unit: Ref<Unit>) {
     let flags = &mut state().rider_posed;
     if flags.len() <= unit.slot as usize { flags.resize(unit.slot as usize + 1, false); }
     flags[unit.slot as usize] = true; touch_unit(unit);
+}
+
+/// Statistics use Building.position and the turret's own weapon. The gun's
+/// animated muzzle/seat frame and a released rider do not supply these facts.
+pub(crate) fn battle_mount(turret: Ref<Turret>) -> Option<([f64; 3], Option<(crate::store::DefId, f64)>)> {
+    let st = state(); let index = st.owner.crews.turrets.iter().position(|t| t.turret == turret)?;
+    let position = st.owner.crews.turrets[index].desc.position;
+    let weapon = st.weapons[index].as_ref().map(|w| (w.state.def, w.state.level));
+    Some(([position.x, position.y, position.z], weapon))
 }

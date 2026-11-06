@@ -121,6 +121,7 @@ pub(crate) fn external() -> External {
     if outer { begin_events(); state().running = true; }
     External(outer)
 }
+impl External {pub(crate) fn is_outer(&self)->bool{self.0}}
 impl Drop for External {
     fn drop(&mut self) {
         if self.0 {
@@ -161,6 +162,8 @@ pub(crate) fn collision_world() -> usize {
 }
 pub(crate) fn tick() -> f64 { state().tick }
 pub(crate) fn viewpoint() -> Ref<Unit> { state().viewpoint.expect("registered player viewpoint") }
+pub(crate) fn built() -> &'static [Ref<Unit>] { state().owner.built() }
+pub(crate) fn unit_revision() -> u64 { state().owner.revision() }
 // Vehicles.presentRiders keeps a hidden destroyed crew out of sight for
 // that gameplay life. Pool reuse and slot reuse each invalidate this stamp.
 pub(crate) fn hide_destroyed_crew(reference: Ref<Unit>) {
@@ -184,7 +187,7 @@ pub(crate) fn item_target_input(index: usize) -> F3ItemTarget {
 /// Game.onExplode and LiveObjects share their mutable query vectors through
 /// recursive damage. The outer entry takes both resources once; nested F1,
 /// prop and recon services reborrow them without another global acquisition.
-pub(crate) struct WorldServices<'a> {
+pub struct WorldServices<'a> {
     pub recon: &'a mut crate::recon::Authority,
     pub queries: &'a mut crate::battle::live::Queries,
 }
@@ -234,6 +237,7 @@ pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f6
         unsafe { collision.share_flags(crate::movement::movement_flags_ptr()); }
     }
     module::setup(world);
+    crate::battle::f4::reset();
     if let Some(map) = crate::vehicles::module::map() { map.level = level; }
     crate::allocations::prepare();
     sim().events.reserve(65536, 128, 1024);
@@ -487,6 +491,8 @@ fn completed_tick(reference: Ref<Unit>) {
     state().completed.push(reference);
 }
 fn publish_changed_at(body_only:Option<Ref<Unit>>) {
+    crate::battle::f4_core::publish();
+    crate::battle::f4_live::publish();
     crate::vehicles::module::f2::publish_pending();
     let _allocations=crate::allocations::at(F3AllocationStage::Publication);
     acknowledge_publication();
@@ -887,7 +893,15 @@ pub(crate) fn spawn_occupant() -> Option<three::Vector3> {
 // A valid command can still be refused by gameplay, such as a busy selection.
 #[no_mangle]
 pub extern "C" fn f3_command() -> u32 {
-    with_services(command)
+    // ClassicCombatBinding.attachController binds weapon streams inside the
+    // tail's spawn hook. These scalar settings need no body/recon services;
+    // borrowing them again would conflict with the enclosing native phase.
+    if state().recon_borrowed {
+        let action=F3Change::take(&state().command,&[]).action;
+        assert!(matches!(action,F3Action::RandomBinding|F3Action::CombatField|F3Action::WeaponField),
+            "body command inside native world hook");
+        command(None)
+    } else {with_services(command)}
 }
 fn command(mut recon: Option<crate::units::f3::WorldServices<'_>>) -> u32 {
     let command = F3Change::take(&state().command, &[]);
@@ -1047,25 +1061,11 @@ fn command(mut recon: Option<crate::units::f3::WorldServices<'_>>) -> u32 {
         // MultiplayerWorld's between-lives body is removed and untargetable;
         // it is not a fresh spawn and must not advance gameplay generation.
         F3Action::Unspawn => {
-            let u = sim().store.unit.get_mut(reference).unwrap();
-            u.alive = false;
             if command.flag {
-                // MultiplayerWorld parks the original viewpoint without a
-                // corpse, timeout or new life. Preserve its remaining fields.
-                u.combat.dead = true; u.removed = true;
-            } else {
-                u.dead = true;
-                u.combat.dead = true;
-                u.removed = true;
-                u.targetable = Some(false);
-                u.dead_time = 4.0;
-                u.combat.death_time = 0.0;
-                match &mut u.soldier {
-                    UnitBody::Soldier(s) => s.dead = Some(true),
-                    UnitBody::Droideka(d) => d.dead = true,
-                }
-            }
+                let u=sim().store.unit.get_mut(reference).unwrap();u.alive=false;u.combat.dead=true;u.removed=true;
+            } else {unspawn_native(reference);}
         }
+
         F3Action::Reset | F3Action::Damage | F3Action::Explode => mutate_combat(reference, &command,recon.as_mut().map(crate::units::f3::WorldServices::reborrow)),
     }
     // Publish the command's row and every victim actually reached by its
@@ -1181,8 +1181,12 @@ pub(crate) fn seat_binding() -> u32 {
 // Mounted weapons can replace their default channel with the Classic AI's
 // shared generator. The retained numeric id follows that specific weapon.
 pub(crate) fn random_binding(binding: u32) -> f64 { draw_stream(binding) }
-fn draw_stream(stream: u32) -> f64 {
-    if stream>=RANDOM_CAPACITY as u32 {fail();return 0.;}
+fn draw_stream(stream: u32) -> f64 { (random_next(stream) >> 9) as f64 / 8388608.0 }
+/// Classic spawning uses raw modulo draws from the same generator as AI.
+/// Preserve the lazy channel stamp before advancing either representation.
+pub(crate) fn random_next(stream: u32) -> u32 {
+    if stream>=RANDOM_CAPACITY as u32 {fail();return 0;}
+
     // ClassicRandom changes only on an actual draw. The shared epoch lets
     // an aimer skip scanning all streams when no preceding weapon drew.
     let epoch=&mut state().random_epoch[F3RandomEpoch::REVISION];
@@ -1195,7 +1199,7 @@ fn draw_stream(stream: u32) -> f64 {
         row.sequence = state().random_sequence;
     }
     let mut generator = jsrt::rng::ClassicRandom::from_state(row.state);
-    let value = generator.uniform();
+    let value = generator.next_u32();
     row.state = generator.state;
     row.put(&mut state().random_states[at..], &mut state().block.heap);
     value
@@ -1402,11 +1406,10 @@ fn mutate_combat(reference: Ref<Unit>, command: &F3Change, recon: Option<crate::
 // Acquiring does not advance life, reset weapons or observe the shape cache.
 #[no_mangle]
 pub extern "C" fn f3_acquire(class: u32) -> i32 {
-    state()
-        .owner
-        .acquire(&sim().store, crate::store::StrId(class))
-        .map_or(-1, |key| key.slot as i32)
+    acquire_native(crate::store::StrId(class)).map_or(-1, |r| r.slot as i32)
 }
+
+
 
 /// Native Unit.sphere and hitShapes sensor service. Cache observation remains
 /// lazy; publication and damage never ask it to rebuild.
@@ -1675,12 +1678,13 @@ fn foreign_rows(offset: usize, count: u32) {
 // keeps a mixed query from looking up names or allocating per candidate.
 pub(crate) fn target(id: u32) -> Option<&'static F3PropFact> {
     super::f3_hulls::refresh(id);
-    // A unit earlier in this span may have killed a turret's gunner. The
-    // next launcher must see that lease change without a foreign snapshot.
-    let team = super::f3_props::member_team(id);
-    let row = state().foreign.get_mut(id as usize).filter(|f| f.id == id)?;
-    if let Some(team) = team { row.team = team; }
-    Some(row)
+    super::f3_props::refresh(id);
+    prepared_target(id)
+}
+/// Fixed prop facts require no mutable Store access. A phase holding Store
+/// locally uses its owner directly for dynamic hull facts before this reader.
+pub(crate) fn prepared_target(id: u32) -> Option<&'static F3PropFact> {
+    state().foreign.get(id as usize).filter(|f| f.id == id)
 }
 
 // UnitFactory attachment may follow existing registry construction. History
@@ -2020,6 +2024,8 @@ pub(crate) fn reserve_native_slots(count:usize) {
     s.items.reserve_unit(count);s.pushers.reserve(count);
     super::f3_hulls::reserve_members(count);
     prepare_bounds(count);
+    // Prepared future births may become flight targets without a JS registry add.
+    crate::vehicles::module::f2::reserve_registry(count);
 }
 pub(crate) fn take_bindings(slot:u32)->Vec<u32> {
     std::mem::take(&mut state().random_bindings[slot as usize])
@@ -2056,6 +2062,22 @@ pub(crate) fn bind_native_life(reference:Ref<Unit>, metadata:&F3Metadata, combat
             team:unit.team,life:unit.generation,human:unit.human,
             network_human:unit.network_human,hero:unit.hero}}.emit(&mut sim().events);
     changed(reference);
+}
+
+/// MultiplayerWorld.unspawn keeps the admitted body between lives without
+/// a death, ticket, corpse or new generation. Character ownership survives.
+pub(crate) fn unspawn_native(reference:Ref<Unit>) {
+    let u=sim().store.unit.get_mut(reference).expect("admitted connection body");
+    u.alive=false;u.dead=true;u.combat.dead=true;u.removed=true;u.targetable=Some(false);
+    u.dead_time=4.;u.combat.death_time=0.;
+    match &mut u.soldier {UnitBody::Soldier(s)=>s.dead=Some(true),UnitBody::Droideka(d)=>d.dead=true}
+    changed(reference);
+}
+/// Removed bodies are absent from Unit.tick, so their connection advances
+/// this one clock before the next network spawn decision.
+pub(crate) fn advance_removed_clock(reference:Ref<Unit>,dt:f64) {
+    let u=sim().store.unit.get_mut(reference).expect("current connection clock");
+    if !u.alive && u.removed && u.dead_time<4. {u.dead_time=v8math::min(4.,u.dead_time+dt);changed(reference);}
 }
 
 /// Inactive class storage retains its publication buffers as well as its rig.

@@ -1,4 +1,5 @@
 import { contentURL } from './helpers/content.js';
+import {unitCommands} from './fixtures/unit-command-port.js';
 // Classic AI navigation (src/ai/classic/nav): synthetic fixtures, plus
 // optional reference traces measured in the original game and the extracted
 // public/maps data when present (skipped otherwise; never copied here).
@@ -67,7 +68,7 @@ function barrier(index, center, hx, hz, flags = 1, angle = 0) {
 
 function kinematicUnit(position, options = {}) {
   return {
-    id: options.id ?? 1,
+    ...unitCommands,id: options.id ?? 1,
     kind: options.kind ?? KIND.soldier,
     generation: 1,
     alive: true,

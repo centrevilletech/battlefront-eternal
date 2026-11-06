@@ -210,7 +210,7 @@ const imported = vehiclePacks(new URL('maps/', content));
 const binary = (file) => { const b = fs.readFileSync(file); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 const across = (cam) => 2 * Math.atan(Math.tan(cam.fov * DEG / 2) * cam.aspect) / DEG;
 
-test('every imported flyer turns flat at its own TurnRate and is seen at its own field of view', { skip: !imported.length && 'no imported vehicles' }, () => {
+test('every imported flyer turns flat at its own TurnRate and is seen at its own field of view', { skip: !imported.length && 'no imported vehicles' }, async () => {
   const seen = new Set();
   for (const file of imported) {
     const data = JSON.parse(fs.readFileSync(file));

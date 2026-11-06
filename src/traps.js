@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { Pose } from "./anim.js";
-import { emitSound } from "./audio/events.js";
 import { Building } from "./props.js";
 
 // Endor's Ewok log trap (ODF base "trap", end_weap_treesmash), as the 2004
@@ -40,7 +39,6 @@ const TICK = 1 / 60;
 const FPS = 30; // the original game's clip length: frames at 30 a second
 export const TRAP_PHASES = ["down", "reset", "armed", "swing"];
 const length = (clip) => (clip ? clip.frames / FPS : 0);
-const _center = new THREE.Vector3();
 const _down = new THREE.Vector3(0, -1, 0);
 
 export class Trap extends Building {
@@ -75,10 +73,6 @@ export class Trap extends Building {
     this.origin = this.position.clone();
     this.padSphere = { center: this.position.clone(), radius: 1 };
     this.placePad(desc.padMatrix ? new THREE.Matrix4().fromArray(desc.padMatrix) : null);
-    // Who sets it off, and whose it is: sides ("imp", "all"); sideOf(team)
-    // gives a team's (LiveObjects.attachTraps).
-    this.sideOf = () => null;
-    this.onEffect = () => {}; // (name, position): DeathEffect
     // The world's state: the phase, the tick it began, seconds into it,
     // and whether it has been shot down while built (it falls when cocked).
     this.phase = "down";
@@ -133,29 +127,6 @@ export class Trap extends Building {
     return this.state === "built" ? "building" : "build";
   }
 
-  // A health change: built up to MaxHealth it is hauled up; shot down while
-  // built it falls. It is never a wreck.
-  setHealth(value) {
-    if (this.state === "built") {
-      this.health = THREE.MathUtils.clamp(value, 0, this.maxHealth);
-      if (!(this.health > 0)) this.sprung = true;
-      return;
-    }
-    this.health = THREE.MathUtils.clamp(value, 0, this.maxHealth);
-    if (this.health >= this.maxHealth) {
-      this.show("built");
-      this.health = this.maxHealth;
-      this.sprung = false;
-      this.begin("reset", null);
-    }
-  }
-
-  begin(phase, tick) {
-    this.phase = phase;
-    this.started = tick;
-    this.time = 0;
-  }
-
   sphere(out) {
     out.copy(this.padSphere.center);
     return this.padSphere.radius;
@@ -163,63 +134,6 @@ export class Trap extends Building {
 
   blastSphere(out) {
     return this.sphere(out);
-  }
-
-  // Whether a vehicle's collision sphere is larger than MinEnemyRadius and
-  // its box meets the box `reach` round the trigger point.
-  catches(vehicle) {
-    if (!vehicle?.alive) return false;
-    const radius = vehicle.blastSphere ? vehicle.blastSphere(_center) : (_center.copy(vehicle.position), vehicle.radius || 0);
-    if (!(radius > this.minRadius)) return false;
-    const r = this.reach + radius;
-    return Math.abs(_center.x - this.point.x) <= r && Math.abs(_center.y - this.point.y) <= r && Math.abs(_center.z - this.point.z) <= r;
-  }
-
-  // One world tick (the 2004 game's order). vehicles: every hull.
-  step(dt, tick, vehicles = []) {
-    this.tick = tick;
-    if (this.state !== "built") {
-      if (this.phase !== "down") this.begin("down", tick);
-      return;
-    }
-    if (this.started === null) this.started = tick;
-    if (this.phase === "down") this.begin("reset", tick);
-    if (this.phase === "reset") {
-      this.time += dt;
-      if (this.time >= length(this.buildClip)) this.begin("armed", tick);
-      return;
-    }
-    if (this.phase === "armed") {
-      const side = this.settings.triggerTeam;
-      const set = this.sprung || (side && vehicles.some((v) => this.catches(v) && this.sideOf(v.team) === side));
-      if (!set) return;
-      this.begin("swing", tick);
-      if (this.settings.sound) emitSound("sound", this.settings.sound, this.point);
-    }
-    // The swing: the crush at DeathTime, then unbuilt once it has played.
-    if (this.deathTime > 0 && this.time < this.deathTime && this.time + dt >= this.deathTime) this.crush(vehicles);
-    this.time += dt;
-    if (this.time >= length(this.triggerClip)) {
-      this.sprung = false;
-      this.health = 0;
-      this.show("unbuilt");
-      this.begin("down", tick);
-    }
-  }
-
-  // Everything in the box larger than MinEnemyRadius dies, no one credited,
-  // and is gone at once (the original game deletes it: no death animation).
-  crush(vehicles) {
-    let killed = 0;
-    for (const v of vehicles.filter((v) => this.catches(v))) {
-      v.lastAttacker = null;
-      v.setHealth(0);
-      v.dying = 0;
-      if (v.root) v.root.visible = false;
-      killed += 1;
-    }
-    this.crushed += killed;
-    if (killed && this.settings.deathEffect) this.onEffect(this.settings.deathEffect, this.effectAt.clone());
   }
 
   // The world's state for a page (schema 10): phase, the tick it began.

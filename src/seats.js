@@ -392,7 +392,7 @@ function seatArsenal(weapons, lease) {
     // Owned mounted weapons receive that scalar before any later publication.
     setRandom(draw) {
       for (let i = 0; i < weapons.length; i++) weapons[i].random = draw;
-      lease.unit.f3.mountedRandom(lease,draw);
+      lease.unit.bindMountedRandom(lease,draw);
     },
     current(channel = 0) { return channels[channel ?? 0]?.[0] || null; },
     select(weapon) { return weapons.includes(weapon); },
@@ -463,6 +463,10 @@ export class SeatUnit {
       grounded: true,
     };
   }
+
+  // This proxy carries AI planner state, independently of the occupant's
+  // canonical body. It never masquerades as a Unit slab reference.
+  bindController(controller) { this.controller=controller; }
 
   get alive() {
     const body = this.vehicle || this.turret;

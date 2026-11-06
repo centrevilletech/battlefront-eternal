@@ -27,7 +27,7 @@ export default {
     F3BuildingState: { index:'u32', state:'enum:PbStateName', health:'f64', addHealth:'f64', attacker:'union:Attacker',
       generation:'f64|null', team:'f64', targetTeam:'f64', gunner:'ref:unit|null', trapMode:'bool', trapState:'rec:TrState' },
     F3BuildingSetup: { index:'u32', target:'union:RepairTarget', member:'union:Member|null', key:'str', settings:'rec:PbSettings',
-      state:'rec:F3BuildingState', bodies:'list:(ref:body|null)', explosion:'u32|null', damaged:'bool', category:'u32', kind:'f64', trapSphere:'rec:Bounds|null' },
+      state:'rec:F3BuildingState', live:'rec:F4BuildingBirth', trap:'rec:F4TrapBirth|null', bodies:'list:(ref:body|null)', explosion:'u32|null', damaged:'bool', category:'u32', kind:'f64', trapSphere:'rec:Bounds|null' },
     // These leaves publish the touched prop and its collision visibility only.
     // Crew deaths and explosions complete in Rust before their caller resumes.
     F3PropEffect: { kind:'enum:F3PropEffectKind', state:'rec:F3BuildingState' },
@@ -125,7 +125,5 @@ export default {
       flag: 'bool', value: 'f64|undefined', point: 'vec3', shots: 'list:rec:PcShot' },
   },
   events: { f3PropDamage:'F3PropDamage' },
-  imports: { f3PropEffect:{ args:'F3PropEffect' }, pbAction: { args: 'PbAction', result: 'PbActionResult' }, paAction: { args: 'PaAction', result: 'PaActionResult' }, pqAction: { args: 'PqAction', result: 'PqActionResult' },
-    dbAction: { args: 'DbAction', result: 'DbActionResult' },
-    pcAction: { args: 'PcAction', result: 'PcActionResult' } },
+  imports: { f3PropEffect: { args:'F3PropEffect' } },
 };

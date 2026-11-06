@@ -1610,6 +1610,7 @@ export function syncF3WeaponView(b, f, at, h, m) {
 }
 
 export function syncF3WeaponViewDelta(b, f, at, h, m, d, force = false, base = 0) {
+  at |= 0; h |= 0; base |= 0;
   if (force) return syncF3WeaponView(b, f, at, h, m);
   const origin = at - base, end = origin + 42, first = origin >>> 5, last = (end - 1) >>> 5;
   for (let word = first; word <= last; word++) {
@@ -1881,6 +1882,7 @@ export function syncF3CombatView(b, f, at, h, m) {
 }
 
 export function syncF3CombatViewDelta(b, f, at, h, m, d, force = false, base = 0, deferred = false) {
+  at |= 0; h |= 0; base |= 0;
   if (force) {
     if ((force || (deltaChanged(d, at + 0, 1, base)))) { m.health = f[at + 0]; }
     if ((force || (deltaChanged(d, at + 1, 1, base)))) { m.dead = f[at + 1] !== 0; }
@@ -1901,7 +1903,7 @@ export function syncF3CombatViewDelta(b, f, at, h, m, d, force = false, base = 0
     if (!deferred && (force || (deltaChanged(d, at + 34, 3, base)))) { { const $v = (m.up ??= new THREE.Vector3()); $v.x = f[at + 34]; $v.y = f[at + 35]; $v.z = f[at + 36]; } }
     if (!deferred && (force || (deltaChanged(d, at + 37, 3, base)))) { { const $v = (m.pivot ??= new THREE.Vector3()); $v.x = f[at + 37]; $v.y = f[at + 38]; $v.z = f[at + 39]; } }
     if ((force || (deltaChanged(d, at + 40, 2, base)))) { { const a = ((m.arsenal ??= {}).selected ??= new Array(2)); a[0] = f[at + 40]; a[1] = f[at + 41]; } }
-    if (!deferred && (force || (deltaChanged(d, at + 42, 2, base) || deltaChanged(d, h + f[at + 42], f[at + 43] * 42, base)))) { { const items = ((m.arsenal ??= {}).weapons ??= []), start = h + f[at + 42], n = f[at + 43]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { const at = start + i * 42; if (force || (deltaChanged(d, at + 0, 42, base))) items[i] = syncF3WeaponViewDelta(b, f, at, h, items[i] ?? new F3WeaponViewMirror(), d, force, base); } } }
+    if (!deferred && (force || (deltaChanged(d, at + 42, 2, base) || deltaChanged(d, h + f[at + 42], f[at + 43] * 42, base)))) { { const items = ((m.arsenal ??= {}).weapons ??= []), start = (h + f[at + 42]) | 0, n = f[at + 43] | 0, fresh = force || deltaChanged(d, at + 42, 2, base); while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { const at = start + i * 42; if (fresh || (deltaChanged(d, at + 0, 42, base))) items[i] = syncF3WeaponViewDelta(b, f, at, h, items[i] ?? new F3WeaponViewMirror(), d, fresh, base); } } }
     return m;
   }
   const origin = at - base, end = origin + 44, first = origin >>> 5, last = (end - 1) >>> 5;
@@ -1943,7 +1945,7 @@ export function syncF3CombatViewDelta(b, f, at, h, m, d, force = false, base = 0
   if (!deferred && (force || (deltaChanged(d, at + 34, 3, base)))) { { const $v = (m.up ??= new THREE.Vector3()); $v.x = f[at + 34]; $v.y = f[at + 35]; $v.z = f[at + 36]; } }
   if (!deferred && (force || (deltaChanged(d, at + 37, 3, base)))) { { const $v = (m.pivot ??= new THREE.Vector3()); $v.x = f[at + 37]; $v.y = f[at + 38]; $v.z = f[at + 39]; } }
   if ((force || (deltaChanged(d, at + 40, 2, base)))) { { const a = ((m.arsenal ??= {}).selected ??= new Array(2)); a[0] = f[at + 40]; a[1] = f[at + 41]; } }
-  if (!deferred && (force || (deltaChanged(d, at + 42, 2, base) || deltaChanged(d, h + f[at + 42], f[at + 43] * 42, base)))) { { const items = ((m.arsenal ??= {}).weapons ??= []), start = h + f[at + 42], n = f[at + 43]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { const at = start + i * 42; if (force || (deltaChanged(d, at + 0, 42, base))) items[i] = syncF3WeaponViewDelta(b, f, at, h, items[i] ?? new F3WeaponViewMirror(), d, force, base); } } }
+  if (!deferred && (force || (deltaChanged(d, at + 42, 2, base) || deltaChanged(d, h + f[at + 42], f[at + 43] * 42, base)))) { { const items = ((m.arsenal ??= {}).weapons ??= []), start = (h + f[at + 42]) | 0, n = f[at + 43] | 0, fresh = force || deltaChanged(d, at + 42, 2, base); while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { const at = start + i * 42; if (fresh || (deltaChanged(d, at + 0, 42, base))) items[i] = syncF3WeaponViewDelta(b, f, at, h, items[i] ?? new F3WeaponViewMirror(), d, fresh, base); } } }
   return m;
 }
 

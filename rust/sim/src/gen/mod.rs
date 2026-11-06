@@ -56,6 +56,8 @@ mod f2_riders;
 pub use self::f2_riders::*;
 mod f2;
 pub use self::f2::*;
+mod f4;
+pub use self::f4::*;
 mod flight;
 pub use self::flight::*;
 mod input;
@@ -155,7 +157,7 @@ pub const KINDS: usize = 41;
 pub const KIND_NAMES: [&str; 42] = ["", "battle", "beam", "body", "bolt", "building", "character", "classicAI", "commandPosts", "controller", "emitter", "grenade", "humanSpawn", "item", "items", "mobilePost", "mobilePosts", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "post", "prop", "reconContext", "reconDroid", "round", "seatLease", "seatUnit", "seats", "serviceTarget", "spawning", "turret", "turretSeats", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 42] = [0, 0x4df890db, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0xa6ce9011, 0x9a4379ca, 0xa0adafe0, 0x1e6714ff, 0xc667f062, 0xa3e130ff, 0xf310d66e, 0x6fbbce3d, 0xb7430d64, 0x9fea083b, 0x28884b1f, 0x00a2177c, 0xf0c0d700, 0x65070dab, 0xb0dc71af, 0x85519934, 0x45784696, 0x0c2115b7, 0x9b924a1b, 0x5725456c, 0x451ff0f2, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x28cdb4e2, 0xf7223e60, 0x512f6f6c, 0x2547f2df, 0x99217969, 0x19c3d924, 0x03866fa6, 0xb30b4400, 0x7252759a, 0xccc6d401, 0x4998e382];
+pub const KIND_HASHES: [u32; 42] = [0, 0x4df890db, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0xa6ce9011, 0x9a4379ca, 0xa0adafe0, 0x1e6714ff, 0xc667f062, 0xa3e130ff, 0xf310d66e, 0x6fbbce3d, 0xb7430d64, 0x9fea083b, 0x28884b1f, 0x00a2177c, 0xf0c0d700, 0x65070dab, 0xb0dc71af, 0x85519934, 0x45784696, 0x9b959569, 0x9b924a1b, 0x5725456c, 0x451ff0f2, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x28cdb4e2, 0xf7223e60, 0x512f6f6c, 0x2547f2df, 0x99217969, 0x19c3d924, 0x03866fa6, 0xb30b4400, 0x7252759a, 0xccc6d401, 0x4998e382];
 /// Whether each kind's objects carry their own number (its slot), by code.
 pub const KIND_KEYED: [bool; 42] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, true, false, false, false, true, false];
 
@@ -1043,7 +1045,13 @@ pub const EVENT_F3_SHOT: u32 = 31;
 pub const EVENT_F3_SPLASH: u32 = 32;
 pub const EVENT_F3_TURRET: u32 = 33;
 pub const EVENT_F3_UNIT_BIRTH: u32 = 34;
-pub const EVENT_NAMES: [&str; 35] = ["", "echoed", "f2Shot", "f2Tow", "f3Blast", "f3Body", "f3Damage", "f3Death", "f3Dispenser", "f3Effect", "f3Held", "f3Hull", "f3HullBirth", "f3Item", "f3ItemRetired", "f3LifeStreams", "f3Ordnance", "f3OwnerCreated", "f3Pickup", "f3PowerupEffect", "f3Presentation", "f3PropDamage", "f3ReconContext", "f3ReconContextCreated", "f3ReconDroid", "f3ReconDroidCreated", "f3ReconRetired", "f3ReconShot", "f3Removed", "f3Seat", "f3Shield", "f3Shot", "f3Splash", "f3Turret", "f3UnitBirth"];
+pub const EVENT_F4_EFFECT: u32 = 35;
+pub const EVENT_F4_HELD: u32 = 36;
+pub const EVENT_F4_HUMAN: u32 = 37;
+pub const EVENT_F4_SERVE: u32 = 38;
+pub const EVENT_F4_SOUND: u32 = 39;
+pub const EVENT_F4_SPAWN: u32 = 40;
+pub const EVENT_NAMES: [&str; 41] = ["", "echoed", "f2Shot", "f2Tow", "f3Blast", "f3Body", "f3Damage", "f3Death", "f3Dispenser", "f3Effect", "f3Held", "f3Hull", "f3HullBirth", "f3Item", "f3ItemRetired", "f3LifeStreams", "f3Ordnance", "f3OwnerCreated", "f3Pickup", "f3PowerupEffect", "f3Presentation", "f3PropDamage", "f3ReconContext", "f3ReconContextCreated", "f3ReconDroid", "f3ReconDroidCreated", "f3ReconRetired", "f3ReconShot", "f3Removed", "f3Seat", "f3Shield", "f3Shot", "f3Splash", "f3Turret", "f3UnitBirth", "f4Effect", "f4Held", "f4Human", "f4Serve", "f4Sound", "f4Spawn"];
 
 pub const IMPORT_AI_AWARENESS: u32 = 1;
 pub const IMPORT_AI_BINDING: u32 = 2;
@@ -1061,101 +1069,82 @@ pub const IMPORT_AI_TRACKER: u32 = 13;
 pub const IMPORT_AI_VEHICLE_WORLD: u32 = 14;
 pub const IMPORT_AI_WEAPON: u32 = 15;
 pub const IMPORT_ASK: u32 = 16;
-pub const IMPORT_BATTLE_OVER: u32 = 17;
-pub const IMPORT_BATTLE_PHASE_ACTION: u32 = 18;
-pub const IMPORT_BATTLE_PHASE_QUERY: u32 = 19;
-pub const IMPORT_BATTLE_QUERY: u32 = 20;
-pub const IMPORT_BATTLEFIELD_ACTION: u32 = 21;
-pub const IMPORT_BATTLEFIELD_QUERY: u32 = 22;
-pub const IMPORT_BEAM_LOCAL_ORIGIN: u32 = 23;
-pub const IMPORT_BEAM_POSE: u32 = 24;
-pub const IMPORT_BLOCKED: u32 = 25;
-pub const IMPORT_BOUNCE: u32 = 26;
-pub const IMPORT_CAST: u32 = 27;
-pub const IMPORT_CAST_MOVING: u32 = 28;
-pub const IMPORT_DB_ACTION: u32 = 29;
-pub const IMPORT_DROP_ROLL: u32 = 30;
-pub const IMPORT_EXPLODE: u32 = 31;
-pub const IMPORT_EXPLOSION: u32 = 32;
-pub const IMPORT_F2_FIRED: u32 = 33;
-pub const IMPORT_F2_FOREIGN: u32 = 34;
-pub const IMPORT_F2_LIFE: u32 = 35;
-pub const IMPORT_F2_POSED: u32 = 36;
-pub const IMPORT_F2_SEAT_ACTION: u32 = 37;
-pub const IMPORT_F2_TARGET_FACTS: u32 = 38;
-pub const IMPORT_F2_TURRET_DRAW: u32 = 39;
-pub const IMPORT_F2_TURRET_HINT: u32 = 40;
-pub const IMPORT_F2_TURRET_TARGET: u32 = 41;
-pub const IMPORT_F2_VARIANT: u32 = 42;
-pub const IMPORT_F2_WEAPON_DRAW: u32 = 43;
-pub const IMPORT_F3_CHARACTER_RELEASE: u32 = 44;
-pub const IMPORT_F3_DEATH_CREDIT: u32 = 45;
-pub const IMPORT_F3_HEAD_CREDIT: u32 = 46;
-pub const IMPORT_F3_HULL_CREDIT: u32 = 47;
-pub const IMPORT_F3_PROP_EFFECT: u32 = 48;
-pub const IMPORT_FAT_QUERY: u32 = 49;
-pub const IMPORT_GIVE: u32 = 50;
-pub const IMPORT_GONE: u32 = 51;
-pub const IMPORT_GRENADE_CONTACT: u32 = 52;
-pub const IMPORT_HISTORY_TICK: u32 = 53;
-pub const IMPORT_HIT: u32 = 54;
-pub const IMPORT_HIT_UNIT: u32 = 55;
-pub const IMPORT_HS_ACTION: u32 = 56;
-pub const IMPORT_HS_QUERY: u32 = 57;
-pub const IMPORT_IMPACT: u32 = 58;
-pub const IMPORT_IS_DROID: u32 = 59;
-pub const IMPORT_ITEM_CAST: u32 = 60;
-pub const IMPORT_ITEM_MODEL: u32 = 61;
-pub const IMPORT_ITEM_RELATIONS: u32 = 62;
-pub const IMPORT_ITEM_TARGETS: u32 = 63;
-pub const IMPORT_ITEM_WATER_CROSSING: u32 = 64;
-pub const IMPORT_LAUNCH: u32 = 65;
-pub const IMPORT_MISSILE_TARGET: u32 = 66;
-pub const IMPORT_NAVIGATE_MISSILE: u32 = 67;
-pub const IMPORT_NETWORK_LIFECYCLE: u32 = 68;
-pub const IMPORT_NETWORK_SEATS_WORLD: u32 = 69;
-pub const IMPORT_OWNER_KEY: u32 = 70;
-pub const IMPORT_PA_ACTION: u32 = 71;
-pub const IMPORT_PB_ACTION: u32 = 72;
-pub const IMPORT_PC_ACTION: u32 = 73;
-pub const IMPORT_PICKUP: u32 = 74;
-pub const IMPORT_POSTS_QUERY: u32 = 75;
-pub const IMPORT_PQ_ACTION: u32 = 76;
-pub const IMPORT_PROJECTILE: u32 = 77;
-pub const IMPORT_RAYCAST_UNITS: u32 = 78;
-pub const IMPORT_RIDER_MOUNT: u32 = 79;
-pub const IMPORT_ROSTER_ACTION: u32 = 80;
-pub const IMPORT_ROSTER_QUERY: u32 = 81;
-pub const IMPORT_SEAT_CAST: u32 = 82;
-pub const IMPORT_SEAT_CONTROLLABLE: u32 = 83;
-pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 84;
-pub const IMPORT_SEAT_OVERLAPS: u32 = 85;
-pub const IMPORT_SEAT_POLICY: u32 = 86;
-pub const IMPORT_SHOOTER: u32 = 87;
-pub const IMPORT_SHOT_TICK: u32 = 88;
-pub const IMPORT_SPAWNING_ACTION: u32 = 89;
-pub const IMPORT_SPAWNING_QUERY: u32 = 90;
-pub const IMPORT_SPIN: u32 = 91;
-pub const IMPORT_TRAPS_ACTION: u32 = 92;
-pub const IMPORT_TRAPS_QUERY: u32 = 93;
-pub const IMPORT_UNIT_AIM: u32 = 94;
-pub const IMPORT_UNIT_SPHERE: u32 = 95;
-pub const IMPORT_VEH_AIM_POINT: u32 = 96;
-pub const IMPORT_VEH_AIM_POINTS: u32 = 97;
-pub const IMPORT_VEH_DAMAGED: u32 = 98;
-pub const IMPORT_VEH_DESTROYED: u32 = 99;
-pub const IMPORT_VEH_EFFECT: u32 = 100;
-pub const IMPORT_VEH_EXPLOSION: u32 = 101;
-pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 102;
-pub const IMPORT_WATER_CROSSING: u32 = 103;
-pub const IMPORT_WAVER: u32 = 104;
-pub const IMPORT_WORLD_CLOCK: u32 = 105;
-pub const IMPORT_WORLD_CONTROLS: u32 = 106;
-pub const IMPORT_WORLD_EVENTS: u32 = 107;
-pub const IMPORT_WORLD_LOCAL: u32 = 108;
-pub const IMPORT_WORLD_NETWORK: u32 = 109;
-pub const IMPORT_WORLD_STEP: u32 = 110;
-pub const IMPORT_NAMES: [&str; 111] = ["", "aiAwareness", "aiBinding", "aiCombatAgent", "aiControllerDriver", "aiCover", "aiDispatch", "aiFire", "aiFsm", "aiPattern", "aiRange", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "dbAction", "dropRoll", "explode", "explosion", "f2Fired", "f2Foreign", "f2Life", "f2Posed", "f2SeatAction", "f2TargetFacts", "f2TurretDraw", "f2TurretHint", "f2TurretTarget", "f2Variant", "f2WeaponDraw", "f3CharacterRelease", "f3DeathCredit", "f3HeadCredit", "f3HullCredit", "f3PropEffect", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkLifecycle", "networkSeatsWorld", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitSphere", "vehAimPoint", "vehAimPoints", "vehDamaged", "vehDestroyed", "vehEffect", "vehExplosion", "vehRaycastUnits", "waterCrossing", "waver", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
+pub const IMPORT_BEAM_LOCAL_ORIGIN: u32 = 17;
+pub const IMPORT_BEAM_POSE: u32 = 18;
+pub const IMPORT_BLOCKED: u32 = 19;
+pub const IMPORT_BOUNCE: u32 = 20;
+pub const IMPORT_CAST: u32 = 21;
+pub const IMPORT_CAST_MOVING: u32 = 22;
+pub const IMPORT_DROP_ROLL: u32 = 23;
+pub const IMPORT_EXPLODE: u32 = 24;
+pub const IMPORT_EXPLOSION: u32 = 25;
+pub const IMPORT_F2_FIRED: u32 = 26;
+pub const IMPORT_F2_FOREIGN: u32 = 27;
+pub const IMPORT_F2_LIFE: u32 = 28;
+pub const IMPORT_F2_POSED: u32 = 29;
+pub const IMPORT_F2_SEAT_ACTION: u32 = 30;
+pub const IMPORT_F2_TARGET_FACTS: u32 = 31;
+pub const IMPORT_F2_TURRET_DRAW: u32 = 32;
+pub const IMPORT_F2_TURRET_HINT: u32 = 33;
+pub const IMPORT_F2_TURRET_TARGET: u32 = 34;
+pub const IMPORT_F2_VARIANT: u32 = 35;
+pub const IMPORT_F2_WEAPON_DRAW: u32 = 36;
+pub const IMPORT_F3_CHARACTER_RELEASE: u32 = 37;
+pub const IMPORT_F3_DEATH_CREDIT: u32 = 38;
+pub const IMPORT_F3_HEAD_CREDIT: u32 = 39;
+pub const IMPORT_F3_HULL_CREDIT: u32 = 40;
+pub const IMPORT_F3_PROP_EFFECT: u32 = 41;
+pub const IMPORT_F4_AIHOOK: u32 = 42;
+pub const IMPORT_FAT_QUERY: u32 = 43;
+pub const IMPORT_GIVE: u32 = 44;
+pub const IMPORT_GONE: u32 = 45;
+pub const IMPORT_GRENADE_CONTACT: u32 = 46;
+pub const IMPORT_HISTORY_TICK: u32 = 47;
+pub const IMPORT_HIT: u32 = 48;
+pub const IMPORT_HIT_UNIT: u32 = 49;
+pub const IMPORT_IMPACT: u32 = 50;
+pub const IMPORT_IS_DROID: u32 = 51;
+pub const IMPORT_ITEM_CAST: u32 = 52;
+pub const IMPORT_ITEM_MODEL: u32 = 53;
+pub const IMPORT_ITEM_RELATIONS: u32 = 54;
+pub const IMPORT_ITEM_TARGETS: u32 = 55;
+pub const IMPORT_ITEM_WATER_CROSSING: u32 = 56;
+pub const IMPORT_LAUNCH: u32 = 57;
+pub const IMPORT_MISSILE_TARGET: u32 = 58;
+pub const IMPORT_NAVIGATE_MISSILE: u32 = 59;
+pub const IMPORT_NETWORK_LIFECYCLE: u32 = 60;
+pub const IMPORT_NETWORK_SEATS_WORLD: u32 = 61;
+pub const IMPORT_OWNER_KEY: u32 = 62;
+pub const IMPORT_PICKUP: u32 = 63;
+pub const IMPORT_PROJECTILE: u32 = 64;
+pub const IMPORT_RAYCAST_UNITS: u32 = 65;
+pub const IMPORT_RIDER_MOUNT: u32 = 66;
+pub const IMPORT_SEAT_CAST: u32 = 67;
+pub const IMPORT_SEAT_CONTROLLABLE: u32 = 68;
+pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 69;
+pub const IMPORT_SEAT_OVERLAPS: u32 = 70;
+pub const IMPORT_SEAT_POLICY: u32 = 71;
+pub const IMPORT_SHOOTER: u32 = 72;
+pub const IMPORT_SHOT_TICK: u32 = 73;
+pub const IMPORT_SPIN: u32 = 74;
+pub const IMPORT_UNIT_AIM: u32 = 75;
+pub const IMPORT_UNIT_SPHERE: u32 = 76;
+pub const IMPORT_VEH_AIM_POINT: u32 = 77;
+pub const IMPORT_VEH_AIM_POINTS: u32 = 78;
+pub const IMPORT_VEH_DAMAGED: u32 = 79;
+pub const IMPORT_VEH_DESTROYED: u32 = 80;
+pub const IMPORT_VEH_EFFECT: u32 = 81;
+pub const IMPORT_VEH_EXPLOSION: u32 = 82;
+pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 83;
+pub const IMPORT_WATER_CROSSING: u32 = 84;
+pub const IMPORT_WAVER: u32 = 85;
+pub const IMPORT_WORLD_CLOCK: u32 = 86;
+pub const IMPORT_WORLD_CONTROLS: u32 = 87;
+pub const IMPORT_WORLD_EVENTS: u32 = 88;
+pub const IMPORT_WORLD_LOCAL: u32 = 89;
+pub const IMPORT_WORLD_NETWORK: u32 = 90;
+pub const IMPORT_WORLD_STEP: u32 = 91;
+pub const IMPORT_NAMES: [&str; 92] = ["", "aiAwareness", "aiBinding", "aiCombatAgent", "aiControllerDriver", "aiCover", "aiDispatch", "aiFire", "aiFsm", "aiPattern", "aiRange", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "dropRoll", "explode", "explosion", "f2Fired", "f2Foreign", "f2Life", "f2Posed", "f2SeatAction", "f2TargetFacts", "f2TurretDraw", "f2TurretHint", "f2TurretTarget", "f2Variant", "f2WeaponDraw", "f3CharacterRelease", "f3DeathCredit", "f3HeadCredit", "f3HullCredit", "f3PropEffect", "f4AIHook", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkLifecycle", "networkSeatsWorld", "ownerKey", "pickup", "projectile", "raycastUnits", "riderMount", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spin", "unitAim", "unitSphere", "vehAimPoint", "vehAimPoints", "vehDamaged", "vehDestroyed", "vehEffect", "vehExplosion", "vehRaycastUnits", "waterCrossing", "waver", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1473,6 +1462,48 @@ impl F3UnitBirth {
     }
 }
 
+impl F4Effect {
+    /// Emits it as the event f4Effect (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F4_EFFECT, F4Effect::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F4Held {
+    /// Emits it as the event f4Held (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F4_HELD, F4Held::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl HsEvent {
+    /// Emits it as the event f4Human (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F4_HUMAN, HsEvent::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F4Serve {
+    /// Emits it as the event f4Serve (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F4_SERVE, F4Serve::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F4Sound {
+    /// Emits it as the event f4Sound (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F4_SOUND, F4Sound::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
+impl F4SpawnNotice {
+    /// Emits it as the event f4Spawn (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F4_SPAWN, F4SpawnNotice::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "bfe")]
 extern "C" {
@@ -1492,19 +1523,12 @@ extern "C" {
     fn bfe_import_ai_vehicle_world();
     fn bfe_import_ai_weapon();
     fn bfe_import_ask();
-    fn bfe_import_battle_over();
-    fn bfe_import_battle_phase_action();
-    fn bfe_import_battle_phase_query();
-    fn bfe_import_battle_query();
-    fn bfe_import_battlefield_action();
-    fn bfe_import_battlefield_query();
     fn bfe_import_beam_local_origin();
     fn bfe_import_beam_pose();
     fn bfe_import_blocked();
     fn bfe_import_bounce();
     fn bfe_import_cast();
     fn bfe_import_cast_moving();
-    fn bfe_import_db_action();
     fn bfe_import_drop_roll();
     fn bfe_import_explode();
     fn bfe_import_explosion();
@@ -1524,6 +1548,7 @@ extern "C" {
     fn bfe_import_f3_head_credit();
     fn bfe_import_f3_hull_credit();
     fn bfe_import_f3_prop_effect();
+    fn bfe_import_f4_aihook();
     fn bfe_import_fat_query();
     fn bfe_import_give();
     fn bfe_import_gone();
@@ -1531,8 +1556,6 @@ extern "C" {
     fn bfe_import_history_tick();
     fn bfe_import_hit();
     fn bfe_import_hit_unit();
-    fn bfe_import_hs_action();
-    fn bfe_import_hs_query();
     fn bfe_import_impact();
     fn bfe_import_is_droid();
     fn bfe_import_item_cast();
@@ -1546,17 +1569,10 @@ extern "C" {
     fn bfe_import_network_lifecycle();
     fn bfe_import_network_seats_world();
     fn bfe_import_owner_key();
-    fn bfe_import_pa_action();
-    fn bfe_import_pb_action();
-    fn bfe_import_pc_action();
     fn bfe_import_pickup();
-    fn bfe_import_posts_query();
-    fn bfe_import_pq_action();
     fn bfe_import_projectile();
     fn bfe_import_raycast_units();
     fn bfe_import_rider_mount();
-    fn bfe_import_roster_action();
-    fn bfe_import_roster_query();
     fn bfe_import_seat_cast();
     fn bfe_import_seat_controllable();
     fn bfe_import_seat_controller_state();
@@ -1564,11 +1580,7 @@ extern "C" {
     fn bfe_import_seat_policy();
     fn bfe_import_shooter();
     fn bfe_import_shot_tick();
-    fn bfe_import_spawning_action();
-    fn bfe_import_spawning_query();
     fn bfe_import_spin();
-    fn bfe_import_traps_action();
-    fn bfe_import_traps_query();
     fn bfe_import_unit_aim();
     fn bfe_import_unit_sphere();
     fn bfe_import_veh_aim_point();
@@ -1875,113 +1887,6 @@ pub fn import_ask_in(context: &crate::abi::context::Context, args: &Echo) -> Res
     Ok(reply.read(Echo::take))
 }
 
-/// Asks JavaScript (the import battleOver): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_battle_over(args: &BrNumber) -> () {
-    crate::store::calls::import_out(BrNumber::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_battle_over() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_battle_over_in(context: &crate::abi::context::Context, args: &BrNumber) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(BrNumber::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_BATTLE_OVER, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import battlePhaseAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_battle_phase_action(args: &BpActionArgs) -> BrNumber {
-    crate::store::calls::import_out(BpActionArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_battle_phase_action() };
-    crate::store::calls::import_in(|row, heap| BrNumber::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_battle_phase_action_in(context: &crate::abi::context::Context, args: &BpActionArgs) -> Result<BrNumber, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(BpActionArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_BATTLE_PHASE_ACTION, args)?;
-    Ok(reply.read(BrNumber::take))
-}
-
-/// Asks JavaScript (the import battlePhaseQuery): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_battle_phase_query(args: &BpQueryArgs) -> BpQueryResult {
-    crate::store::calls::import_out(BpQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_battle_phase_query() };
-    crate::store::calls::import_in(|row, heap| BpQueryResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_battle_phase_query_in(context: &crate::abi::context::Context, args: &BpQueryArgs) -> Result<BpQueryResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(BpQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_BATTLE_PHASE_QUERY, args)?;
-    Ok(reply.read(BpQueryResult::take))
-}
-
-/// Asks JavaScript (the import battleQuery): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_battle_query(args: &BrQueryArgs) -> BrQueryResult {
-    crate::store::calls::import_out(BrQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_battle_query() };
-    crate::store::calls::import_in(|row, heap| BrQueryResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_battle_query_in(context: &crate::abi::context::Context, args: &BrQueryArgs) -> Result<BrQueryResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(BrQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_BATTLE_QUERY, args)?;
-    Ok(reply.read(BrQueryResult::take))
-}
-
-/// Asks JavaScript (the import battlefieldAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_battlefield_action(args: &BfActionArgs) -> BfCharacters {
-    crate::store::calls::import_out(BfActionArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_battlefield_action() };
-    crate::store::calls::import_in(|row, heap| BfCharacters::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_battlefield_action_in(context: &crate::abi::context::Context, args: &BfActionArgs) -> Result<BfCharacters, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(BfActionArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_BATTLEFIELD_ACTION, args)?;
-    Ok(reply.read(BfCharacters::take))
-}
-
-/// Asks JavaScript (the import battlefieldQuery): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_battlefield_query(args: &BfQueryArgs) -> BfQueryResult {
-    crate::store::calls::import_out(BfQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_battlefield_query() };
-    crate::store::calls::import_in(|row, heap| BfQueryResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_battlefield_query_in(context: &crate::abi::context::Context, args: &BfQueryArgs) -> Result<BfQueryResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(BfQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_BATTLEFIELD_QUERY, args)?;
-    Ok(reply.read(BfQueryResult::take))
-}
-
 /// Asks JavaScript (the import beamLocalOrigin): its arguments go out in the import block,
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
@@ -2087,24 +1992,6 @@ pub fn import_cast_moving_in(context: &crate::abi::context::Context, args: &Cast
     let args = crate::abi::context::Record::new(CastArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_CAST_MOVING, args)?;
     Ok(reply.read(CastAnswer::take))
-}
-
-/// Asks JavaScript (the import dbAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_db_action(args: &DbAction) -> DbActionResult {
-    crate::store::calls::import_out(DbAction::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_db_action() };
-    crate::store::calls::import_in(|row, heap| DbActionResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_db_action_in(context: &crate::abi::context::Context, args: &DbAction) -> Result<DbActionResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(DbAction::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_DB_ACTION, args)?;
-    Ok(reply.read(DbActionResult::take))
 }
 
 /// Asks JavaScript (the import dropRoll): its arguments go out in the import block,
@@ -2438,6 +2325,23 @@ pub fn import_f3_prop_effect_in(context: &crate::abi::context::Context, args: &F
     Ok(())
 }
 
+/// Asks JavaScript (the import f4AIHook): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_f4_aihook(args: &F4AIHook) -> () {
+    crate::store::calls::import_out(F4AIHook::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_f4_aihook() };
+}
+
+/// Calls the explicitly owned native host; no context borrow spans dispatch.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub fn import_f4_aihook_in(context: &crate::abi::context::Context, args: &F4AIHook) -> Result<(), crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(F4AIHook::WORDS, |row, heap| args.put(row, heap));
+    let reply = context.call_import(IMPORT_F4_AIHOOK, args)?;
+    Ok(())
+}
+
 /// Asks JavaScript (the import fatQuery): its arguments go out in the import block,
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
@@ -2559,42 +2463,6 @@ pub fn import_hit_unit_in(context: &crate::abi::context::Context, args: &UnitStr
     let args = crate::abi::context::Record::new(UnitStrikeArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_HIT_UNIT, args)?;
     Ok(())
-}
-
-/// Asks JavaScript (the import hsAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_hs_action(args: &HsActionArgs) -> HsActionResult {
-    crate::store::calls::import_out(HsActionArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_hs_action() };
-    crate::store::calls::import_in(|row, heap| HsActionResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_hs_action_in(context: &crate::abi::context::Context, args: &HsActionArgs) -> Result<HsActionResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(HsActionArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_HS_ACTION, args)?;
-    Ok(reply.read(HsActionResult::take))
-}
-
-/// Asks JavaScript (the import hsQuery): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_hs_query(args: &HsQueryArgs) -> HsQueryResult {
-    crate::store::calls::import_out(HsQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_hs_query() };
-    crate::store::calls::import_in(|row, heap| HsQueryResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_hs_query_in(context: &crate::abi::context::Context, args: &HsQueryArgs) -> Result<HsQueryResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(HsQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_HS_QUERY, args)?;
-    Ok(reply.read(HsQueryResult::take))
 }
 
 /// Asks JavaScript (the import impact): its arguments go out in the import block,
@@ -2829,60 +2697,6 @@ pub fn import_owner_key_in(context: &crate::abi::context::Context, args: &OwnerA
     Ok(reply.read(KeyAnswer::take))
 }
 
-/// Asks JavaScript (the import paAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_pa_action(args: &PaAction) -> PaActionResult {
-    crate::store::calls::import_out(PaAction::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_pa_action() };
-    crate::store::calls::import_in(|row, heap| PaActionResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_pa_action_in(context: &crate::abi::context::Context, args: &PaAction) -> Result<PaActionResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(PaAction::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_PA_ACTION, args)?;
-    Ok(reply.read(PaActionResult::take))
-}
-
-/// Asks JavaScript (the import pbAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_pb_action(args: &PbAction) -> PbActionResult {
-    crate::store::calls::import_out(PbAction::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_pb_action() };
-    crate::store::calls::import_in(|row, heap| PbActionResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_pb_action_in(context: &crate::abi::context::Context, args: &PbAction) -> Result<PbActionResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(PbAction::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_PB_ACTION, args)?;
-    Ok(reply.read(PbActionResult::take))
-}
-
-/// Asks JavaScript (the import pcAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_pc_action(args: &PcAction) -> PcActionResult {
-    crate::store::calls::import_out(PcAction::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_pc_action() };
-    crate::store::calls::import_in(|row, heap| PcActionResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_pc_action_in(context: &crate::abi::context::Context, args: &PcAction) -> Result<PcActionResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(PcAction::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_PC_ACTION, args)?;
-    Ok(reply.read(PcActionResult::take))
-}
-
 /// Asks JavaScript (the import pickup): its arguments go out in the import block,
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
@@ -2898,42 +2712,6 @@ pub fn import_pickup_in(context: &crate::abi::context::Context, args: &PickupArg
     let args = crate::abi::context::Record::new(PickupArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_PICKUP, args)?;
     Ok(())
-}
-
-/// Asks JavaScript (the import postsQuery): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_posts_query(args: &PsQueryArgs) -> PsQueryResult {
-    crate::store::calls::import_out(PsQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_posts_query() };
-    crate::store::calls::import_in(|row, heap| PsQueryResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_posts_query_in(context: &crate::abi::context::Context, args: &PsQueryArgs) -> Result<PsQueryResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(PsQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_POSTS_QUERY, args)?;
-    Ok(reply.read(PsQueryResult::take))
-}
-
-/// Asks JavaScript (the import pqAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_pq_action(args: &PqAction) -> PqActionResult {
-    crate::store::calls::import_out(PqAction::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_pq_action() };
-    crate::store::calls::import_in(|row, heap| PqActionResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_pq_action_in(context: &crate::abi::context::Context, args: &PqAction) -> Result<PqActionResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(PqAction::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_PQ_ACTION, args)?;
-    Ok(reply.read(PqActionResult::take))
 }
 
 /// Asks JavaScript (the import projectile): its arguments go out in the import block,
@@ -2987,42 +2765,6 @@ pub fn import_rider_mount_in(context: &crate::abi::context::Context, args: &Body
     let args = crate::abi::context::Record::new(BodyArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_RIDER_MOUNT, args)?;
     Ok(reply.read(MountAnswer::take))
-}
-
-/// Asks JavaScript (the import rosterAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_roster_action(args: &RoActionArgs) -> RoActionResult {
-    crate::store::calls::import_out(RoActionArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_roster_action() };
-    crate::store::calls::import_in(|row, heap| RoActionResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_roster_action_in(context: &crate::abi::context::Context, args: &RoActionArgs) -> Result<RoActionResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(RoActionArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_ROSTER_ACTION, args)?;
-    Ok(reply.read(RoActionResult::take))
-}
-
-/// Asks JavaScript (the import rosterQuery): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_roster_query(args: &RoQueryArgs) -> RoQueryResult {
-    crate::store::calls::import_out(RoQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_roster_query() };
-    crate::store::calls::import_in(|row, heap| RoQueryResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_roster_query_in(context: &crate::abi::context::Context, args: &RoQueryArgs) -> Result<RoQueryResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(RoQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_ROSTER_QUERY, args)?;
-    Ok(reply.read(RoQueryResult::take))
 }
 
 /// Asks JavaScript (the import seatCast): its arguments go out in the import block,
@@ -3150,42 +2892,6 @@ pub fn import_shot_tick_in(context: &crate::abi::context::Context, args: &ShotAr
     Ok(reply.read(TickAnswer::take))
 }
 
-/// Asks JavaScript (the import spawningAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_spawning_action(args: &SpActionArgs) -> SpActionResult {
-    crate::store::calls::import_out(SpActionArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_spawning_action() };
-    crate::store::calls::import_in(|row, heap| SpActionResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_spawning_action_in(context: &crate::abi::context::Context, args: &SpActionArgs) -> Result<SpActionResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(SpActionArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_SPAWNING_ACTION, args)?;
-    Ok(reply.read(SpActionResult::take))
-}
-
-/// Asks JavaScript (the import spawningQuery): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_spawning_query(args: &SpQueryArgs) -> SpQueryResult {
-    crate::store::calls::import_out(SpQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_spawning_query() };
-    crate::store::calls::import_in(|row, heap| SpQueryResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_spawning_query_in(context: &crate::abi::context::Context, args: &SpQueryArgs) -> Result<SpQueryResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(SpQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_SPAWNING_QUERY, args)?;
-    Ok(reply.read(SpQueryResult::take))
-}
-
 /// Asks JavaScript (the import spin): its arguments go out in the import block,
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
@@ -3202,42 +2908,6 @@ pub fn import_spin_in(context: &crate::abi::context::Context, args: &NoArgs) -> 
     let args = crate::abi::context::Record::new(NoArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_SPIN, args)?;
     Ok(reply.read(NumberAnswer::take))
-}
-
-/// Asks JavaScript (the import trapsAction): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_traps_action(args: &TrActionArgs) -> TrActionResult {
-    crate::store::calls::import_out(TrActionArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_traps_action() };
-    crate::store::calls::import_in(|row, heap| TrActionResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_traps_action_in(context: &crate::abi::context::Context, args: &TrActionArgs) -> Result<TrActionResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(TrActionArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_TRAPS_ACTION, args)?;
-    Ok(reply.read(TrActionResult::take))
-}
-
-/// Asks JavaScript (the import trapsQuery): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_traps_query(args: &TrQueryArgs) -> TrQueryResult {
-    crate::store::calls::import_out(TrQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_traps_query() };
-    crate::store::calls::import_in(|row, heap| TrQueryResult::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_traps_query_in(context: &crate::abi::context::Context, args: &TrQueryArgs) -> Result<TrQueryResult, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(TrQueryArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_TRAPS_QUERY, args)?;
-    Ok(reply.read(TrQueryResult::take))
 }
 
 /// Asks JavaScript (the import unitAim): its arguments go out in the import block,

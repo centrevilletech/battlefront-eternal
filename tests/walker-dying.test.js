@@ -56,7 +56,7 @@ const tilt = (v) => 2 * Math.atan2(Math.hypot(v.byName.bone_body.quaternion.x, v
 
 test('a destroyed walker dies over its death animation, then its FinalExplosion goes off at its offset and it is gone', () => {
   const { system, v, blasts } = walker({ yaw: Math.PI / 2 });
-  v.damage(5000, 'player');
+  v.damage(5000);
   assert.equal(v.alive, false);
   assert.equal(v.body.enabled, false, 'nothing to walk into while it falls');
   assert.equal(v.root.visible, true, 'still drawn');

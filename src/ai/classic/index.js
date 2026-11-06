@@ -1,3 +1,4 @@
+import { characterController } from '../../f4-characters.js';
 import { ClassicRandom } from "../random.js";
 import { roleOf, ROLE, STATE, UnitController } from "./controller.js";
 import { DEFAULT_AGENTS, DirectHelper, FOLLOW_RADII, MineHelper, SnipeHelper, isFlyer } from "./agents.js";
@@ -467,7 +468,7 @@ export class ClassicAI {
     if (!controller) {
       controller = new UnitController(this, character);
       this.byCharacter.set(character, controller);
-      character.controller = controller;
+      characterController(character,controller);
     }
     if (character.unit?.alive && controller.unit !== character.unit) this.spawned(character);
     return controller;
@@ -478,7 +479,7 @@ export class ClassicAI {
     if (!controller) return;
     this.died(character);
     this.byCharacter.delete(character);
-    if (character.controller === controller) character.controller = null;
+    if (character.controller === controller) characterController(character,null);
   }
 
   // A Character's new body: reset its controller as the native builds a new

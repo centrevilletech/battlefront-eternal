@@ -303,7 +303,7 @@ test('imported riders: speeder bikes, skiffs and a tauntaun die to rifle bolts; 
     let className = null;
     for (const s of Object.values(game.data.sides)) for (const [n, d] of Object.entries(s.units || {})) if (!className && d.base === 'soldier' && !d.hero && !Number(d.NoEnterVehicles ?? 0)) className = n;
     await game.factory.prepare(className);
-    game.unitsSim.construction.prepare(className,32);
+    game.unitsSim.construction.prepare(className,64);
     // Native ordnance owns qualified Unit references. Keep a real dormant
     // body as the attacker; it has a team but does not tick or block a shot.
     const shooter = game.factory.acquire(className);

@@ -61,6 +61,7 @@ export class F3Hulls {
     const final = vehicle.def.finalExplosion || vehicle.def.explosion;
     row.finalExplosion = final ? ordnance.explosionId(final) : null;
     p.bridge.callArgs(this.record,row); p.x.f3_hull();
+    p.liveOwner?.prepareHull(vehicle);
     if (!vehicle.f2Prepared) this.members[vehicle.aiTarget.id] = true;
     // Private variants still have stable kernel and store body handles.
     // An instant first-spawn hit must resolve them without a naming import.

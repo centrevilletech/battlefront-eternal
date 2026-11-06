@@ -1,18 +1,16 @@
-import {entitySpawnPosts} from './entity-spawn-posts.js';
 import { blankSeatIntent } from '../seats.js';
 import { MAX_INPUT_LEAD_TICKS, ONLINE_PLAYOUT_MAX_TICKS } from './network-hit-limits.js';
 import { networkVehicleInput } from './network-vehicle.js';
 import { cycleNetworkSeat } from './network-seat.js';
 import { mountInReach, seatScheme } from '../boarding.js';
 import { Character } from '../battle.js';
-import { choosePost, spawnPointAt, RESPAWN_DELAY } from '../human-spawn.js';
 import { CommandControls } from './commands.js';
 import { FireCommands } from './fire-commands.js';
 import { InputMailbox } from './transport.js';
 import { InputActions } from './input-actions.js';
+import { F4Connections } from '../f4-connections.js';
 import { createMultiplayerRoster } from './multiplayer-roster.js';
 import { networkViews } from './network-views.js';
-import { createNetworkStepHost } from './world-network-host.js';
 
 // A disconnected player's body and roster place are held this long in
 // simulated seconds (60 s at the 60 Hz world clock), for a reconnect.
@@ -26,41 +24,23 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
   // is separated everywhere, and clients predict the same push.
   if (game.separationScope) game.separationScope.global = true;
   const players = new Map();
-  const inputActions = () => {
-    const source = new InputActions();
-    return game.inputSim ? game.inputSim.actions(source) : source;
-  };
-  const fireCommands = () => {
-    const source = new FireCommands();
-    return game.inputSim ? game.inputSim.fire(source) : source;
-  };
-  const inputMailbox = () => {
-    const source = new InputMailbox();
-    return game.inputSim ? game.inputSim.mailbox(source) : source;
-  };
-  const commandControls = () => {
-    const source = new CommandControls();
-    return game.inputSim ? game.inputSim.controls(source) : source;
-  };
+  const inputActions = () => new InputActions();
+  const fireCommands = () => new FireCommands();
+  const inputMailbox = () => new InputMailbox();
+  const commandControls = () => new CommandControls();
   const disconnectGraceTicks = Math.round(DISCONNECT_GRACE_SECONDS * (game.worldClock.hz ?? 60));
   game.serverWorld = true;
   let humanTraceLeft = globalThis.process?.env?.BFE_TRACE_HUMAN === '1' ? 64 : 0;
   const traceHuman = value => { if (humanTraceLeft > 0) { humanTraceLeft--; console.log('network-human-trace', JSON.stringify(value)); } };
   const remoteWorld = game.createNetworkRemotes?.(maxPlayers);
   const hitHistory = game.ordnance.hitHistory = game.unitsSim.history;
-  // The headless game's original viewpoint is not an extra player. Its body,
-  // spawned at load from the URL's side, leaves the world with it: every
-  // client is sent its visibility, and would stand it at that spawn point.
+  // The dedicated world's viewpoint remains a camera facade, never an extra
+  // player. Both its body flags and spawn records are cleared natively.
   game.unitsSim.parkViewpoint(game.playerUnit);
   game.playerUnit.undraw();
-  game.humanSpawn.auto = null;
-  game.humanSpawn.pending = null;
-  game.humanSpawn.spawnedOnce = true;
-  const dormant = game.battle.human;
-  if (dormant) dormant.unit = null;
+  const connections=new F4Connections(game.tailOwner);
   const roster = createMultiplayerRoster(game, armySize);
   const updateViews = networkViews(game, players);
-  const relation = (a,b) => game.units.relation(a,b);
   // A network player's weapons draw what no press seeds (a held trigger's
   // repeats, a charge's release, a throw, a melee swing) from the world's
   // network-weapons stream; a press's own fire cycle keeps its spread seed.
@@ -70,70 +50,19 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
   // hull's sticks and a flown recon droid's keys alike; leaving also hands
   // the droid back (removePlayer), but a pause or a gap in his input does not.
   function stopInput(p) {
-    if (game.worldSim?.networkStop) return game.worldSim.networkStop(game,p);
     p.mailbox.clear();p.controls.clear();p.fire.clear();p.actions.clear();
     const unit=p.unit;if(!unit)return;
     Object.assign(unit.intent,blankSeatIntent(),{flight:{}});
     unit.networkShot=null;unit.networkShots=[];unit.networkViewTick=null;unit.networkInputLeadTicks=null;unit.networkPlayoutMaxTicks=null;
     if(unit.seat?.vehicle && unit.seat.index===0) { game.vehicles.f2.seats.resetSticks(unit); }
   }
-  function spawn(p, className = p.className, postName = null) {
-    if (game.worldSim?.networkSpawn) return game.worldSim.networkSpawn({ game, player: p, className, postName, remoteWorld, networkWeapons, relation });
-    if (game.battle.gameOver || !game.spawnPort.roster(p.team).some(x => x.className === className)) return false;
-    if (p.unit && !p.unit.alive && p.unit.deadTime + 1e-6 < RESPAWN_DELAY) return false;
-    const posts = entitySpawnPosts(game);
-    const post = choosePost(posts, p.team, posts.find(x => x.name === postName), relation, () => 0.5);
-    if (!post || !game.factory.prepared(className)) return false;
-    // Keep connection IDs stable between lives; do not lend a player's body
-    // to the AI pool while the connection still owns it.
-    const previous = p.unit;
-    const unit = previous?.className === className ? previous : game.factory.acquire(className);
-    if (previous && previous !== unit) {
-      previous.human = previous.networkHuman = previous.combat.player = false;
-      previous.onRemoved = u => game.factory.release(u);
-      previous.remove();
-    }
-    unit.onRemoved = () => {};
-    unit.human = true;
-    unit.networkHuman = true;
-    unit.networkShot = null; unit.networkShots=[]; unit.networkViewTick = null; unit.networkInputLeadTicks = null; unit.networkPlayoutMaxTicks = null;
-    unit.combat.player = true;
-    unit.team = unit.combat.team = p.team;
-    unit.character = p.character;
-    p.character.unit = unit;
-    p.character.className = className;
-    p.character.spawn.ready = false;
-    p.character.spawn.timer = Infinity;
-    if (!previous?.alive && game.ai?.spawning?.teams?.[p.team]) game.ai.spawning.teams[p.team].living++;
-    if (remoteWorld) {
-      if(previous&&previous!==unit){previous.combat.remotes=null;previous.remoteStep=null;}
-      unit.combat.remotes=remoteWorld.rebind(p.id,unit);
-      unit.remoteStep=(dt,input,controls)=>remoteWorld.step(p.id,game.worldClock.tick+1,dt,input,controls);
-    }
-    p.unit = unit; p.className = className;
-    if (previous && previous !== unit) unit.generation = Math.max(unit.generation, previous.generation);
-    unit.spawn(...spawnPointAt(post,p.team,() => ((p.ordinal * 0.381966) % 1)));
-    // The life's arsenal is new (PlayerCombat.reset): its generator.
-    if (networkWeapons) for (const weapon of unit.combat.arsenal.weapons) weapon.random = networkWeapons;
-    p.spawn.phase = 'alive'; p.spawn.spawnedOnce = true; p.spawn.className = className; p.spawn.post = post.name;
-    game.simEvents.emit('spawn', { target: game.units.ref(unit), team:p.team, position:unit.position, className, post:post.name });
-    return true;
+  function spawn(p,className=p.className,postName=null) {
+    return connections.command('spawn',p,className,postName);
   }
-  // Off the field without a death: a joining player waits at the spawn screen
-  // as the original's Character does. No ticket is spent, no corpse lies,
-  // nothing counts, and his first choice may spawn at once. His body (and so
-  // his own corrections) exist; nobody else is sent it while it is removed.
   function unspawn(p) {
-    if (game.worldSim?.networkUnspawn) return game.worldSim.networkUnspawn(game, p);
-    const unit = p.unit;
-    unit.alive = false; unit.dead = unit.combat.dead = unit.soldier.dead = true; unit.removed = true; unit.targetable = false;
-    unit.actor.root.visible = false;
-    unit.deadTime = RESPAWN_DELAY; unit.combat.deathTime = 0;
-    if (game.ai?.spawning?.teams?.[p.team]) game.ai.spawning.teams[p.team].living--;
-    p.spawn.phase = 'unspawned'; p.spawn.spawnedOnce = false; p.spawn.post = null; p.spawn.deadTime = unit.deadTime;
+    connections.command('unspawn',p);p.unit.actor.root.visible=false;
   }
   function applyNetworkControls(p, u, command, tick) {
-    if (game.worldSim?.networkControls) return game.worldSim.networkControls(game, p, u, command, tick);
     const c=p.controls, intent=u.intent;
     for(const [action,kind,label]of [['squadMoveOut',0,'moveout'],['squadHold',2,'hold'],['squadFollow',3,'follow'],['squadAtEase',1,'atease']]){
       if(c.take(action)&&game.ai?.playerCommand){game.ai.playerCommand(kind,p.character);game.simEvents.emit('presentation',{event:{kind:'squad',ownerId:u.id,ownerGeneration:u.generation,label}});}
@@ -181,8 +110,6 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
       if(u.seat) intent.use=false;
     }
   }
-  const networkStepHost = createNetworkStepHost({ game, players, hitHistory, roster, remoteWorld,
-    stopInput, spawn, traceHuman, controls: applyNetworkControls, updateViews });
   return {
     players, roster, spawn,
     // spawn: false joins at the spawn screen (the original's Character starts
@@ -194,7 +121,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         if (!existing.disconnectedAt) throw new Error('player already joined');
         existing.disconnectedAt = null; existing.mailbox = inputMailbox(); existing.controls = commandControls(); existing.fire = fireCommands(); existing.reliableFire = reliableFire; existing.lastInputAt = performance.now(); existing.inputsStale=false;
         existing.actions = inputActions(); existing.separateActions = separateActions;
-        if (existing.unit) existing.unit.f3.advanceLife(existing.unit);
+        if(existing.unit)existing.unit.f3.advanceLife(existing.unit);
         return this.player(id);
       }
       if (players.size >= maxPlayers) throw new Error('server full');
@@ -204,12 +131,19 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
       await game.factory.prepare(className);
       // Admission is outside the unit phase. Reserve the new connection's
       // potential cold body before its native lifecycle can acquire it.
-      game.unitsSim.construction.prepare(className,1);
       const character = spectator ? new Character(-1,team,true) : roster.reserve(team,id,name);
       if (spectator) character.name = String(name).slice(0,32);
-      character.hero = false;
+      if(spectator)character.hero=false;
       const p = { id,team,className,character,spectator,reliableFire,separateActions,teamSelect:teamSelect!==false,actions:inputActions(),fire:fireCommands(),lastInputAt:performance.now(),inputsStale:false,ordinal:players.size+1, mailbox:inputMailbox(),controls:commandControls(),unit:null,
         spawn:{phase:'unspawned',className,post:null,spawnedOnce:false,deadTime:0,pending:null,ended:false,auto:null} };
+      if(!spectator) {
+        for(const team of [1,2]) for(const entry of game.spawnPort.roster(team)) {
+          await game.factory.prepare(entry.className);game.unitsSim.construction.prepare(entry.className,1);
+        }
+        game.unitsSim.construction.bindPlayer(character,null,{combatRandom:game.randomStream('gameplay'),weaponRandom:networkWeapons,
+          reconKey:remoteWorld?.admitKey(id)??null,reconSeed:remoteWorld?.randomFor(id).seed??0});
+        connections.command('admit',p,className);
+      }
       players.set(id,p);
       if (!spectator && !spawn(p)) { players.delete(id); roster.release(character); throw new Error('no eligible spawn'); }
       if (!spectator && !autoSpawn) unspawn(p);
@@ -218,7 +152,6 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     },
     player(id) { const p=players.get(id); return p ? { unitId:p.unit?.id ?? game.playerUnit.id, playerId:p.unit?.id ?? game.playerUnit.id,generation:p.unit?.generation ?? 0, team:p.team,className:p.className,spectator:p.spectator,teamSelect:p.teamSelect!==false,tick:game.worldClock.tick } : null; },
     removePlayer(id) {
-      if (game.worldSim?.networkRemove) return game.worldSim.networkRemove(game, players, id, stopInput, remoteWorld);
       const p=players.get(id); if(!p)return;
       p.disconnectedAt = game.worldClock.tick + 1;
       stopInput(p);
@@ -266,7 +199,6 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     // the step's one clock input: half a second of it without input stops a
     // player (stopInput).
     step(at = performance.now()) {
-      if (game.worldSim?.network) return game.worldSim.network(networkStepHost, game.worldClock.tick, at, disconnectGraceTicks, RESPAWN_DELAY);
       const tick=game.worldClock.tick+1;
       hitHistory.capture(game.worldClock.tick);
       for(const p of players.values()) {
@@ -274,7 +206,6 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         if (p.disconnectedAt) {
           if (tick - p.disconnectedAt >= disconnectGraceTicks) {
             if (!p.spectator) {
-              p.character.unit = p.unit;
               roster.release(p.character);
             }
             remoteWorld?.retire(p.id);
@@ -294,19 +225,17 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         p.controls.accept(command);
         for(const choice of command.human || []) {
           if(choice.kind==='suicide' && u.alive)u.combat.damage(Infinity);
-          if(choice.kind==='team' && !u.alive && p.teamSelect!==false && [1,2].includes(choice.team) && roster.switchTeam(p.character,choice.team)) { p.team=choice.team; u.team=u.combat.team=p.team;  }
+          if(choice.kind==='team' && !u.alive && p.teamSelect!==false && [1,2].includes(choice.team) && roster.switchTeam(p.character,choice.team)) { p.team=choice.team; connections.command('team',p); }
           const spawned=choice.kind==='spawn' && !p.unit.alive ? spawn(p,choice.className,choice.post) : null;
           traceHuman({stage:'decision',tick,choice,spawned,team:p.team,unit:{id:p.unit.id,generation:p.unit.generation,className:p.unit.className,alive:p.unit.alive,deadTime:p.unit.deadTime},phase:p.spawn.phase});
         }
         // A class change may replace the body. Continue this tick on the new
         // life instead of overwriting its phase from the removed corpse.
         u=p.unit;
-        // A body a death region took at once (a fall into Bespin's clouds after
-        // bailing out) is not ticked; its respawn delay still runs out.
-        if(!u.alive && u.removed && u.deadTime<RESPAWN_DELAY) u.deadTime=Math.min(RESPAWN_DELAY,u.deadTime+1/60);
-        if(!u.alive && p.autoRespawn && u.deadTime+1e-6>=RESPAWN_DELAY)spawn(p,p.className,p.spawn.post);
+        // Native removed-body clocks run before controls and the world.
+        if(!u.alive)connections.command('state',p);
         u=p.unit;
-        if(!u.alive) { p.spawn.phase=!p.spawn.spawnedOnce?'unspawned':u.deadTime+1e-6>=RESPAWN_DELAY?'awaiting':'dying'; p.spawn.deadTime=u.deadTime; continue; }
+        if(!u.alive)continue;
         applyNetworkControls(p, u, command, tick);
       }
       updateViews();

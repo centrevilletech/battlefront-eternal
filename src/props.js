@@ -2,7 +2,6 @@ import * as THREE from "three";
 import { ownedBasicEffect } from "./rust-render/effect-material.js";
 import { descendantMuzzles } from "./muzzles.js";
 import { gradientTexture } from "./commandposts.js";
-import { blastBlocked, blastDamage, blastDistance, healthScale } from "./ordnance.js";
 import { Weapon } from "./weapons.js";
 import { emitSound } from "./audio/events.js";
 import { vehicleBatches, attachVehicleBatches } from "./vehicle-rig.js";
@@ -219,46 +218,6 @@ export class Building {
     this.f2Seats?.turretLife(this);
   }
 
-  setHealth(value) {
-    if (value > 0) {
-      this.health = Math.min(value, this.maxHealth);
-      if (this.health >= this.maxHealth && this.state !== "built") this.built();
-    } else {
-      this.health = 0;
-      if (this.state === "built") this.destroyed();
-    }
-  }
-
-  built() {
-    this.show("built");
-    this.health = this.maxHealth;
-    this.addHealth = num(this.desc.settings.AddHealth);
-  }
-
-  destroyed() {
-    // A bot manning it dies first (src/seats.js TurretSeats).
-    this.crew?.destroyed?.(this);
-    this.onDestroyed(this);
-    if (this.looks.destroyed) this.show("destroyed");
-    else if (this.looks.unbuilt) this.show("unbuilt");
-    if (this.explosion) this.onExplode(this.explosion, this.center(new THREE.Vector3()));
-    this.addHealth = Number.isFinite(this.respawnTime) && this.respawnTime > 0 ? this.maxHealth / this.respawnTime : 0;
-  }
-
-  // Damage, which only a built building takes.
-  // attacker (optional): who is credited, for the gunner's death if it
-  // goes down.
-  damage(amount, attacker = null) {
-    if (!this.alive || !(amount > 0)) return;
-    this.lastAttacker = attacker;
-    this.setHealth(this.health - amount);
-  }
-
-  // Coming back by itself.
-  regenerate(dt) {
-    if (this.regenerates && this.addHealth > 0 && this.health < this.maxHealth) this.setHealth(this.health + this.addHealth * dt);
-  }
-
   // What locks and blasts go by: a pad's bounding sphere, otherwise the
   // middle of the model's box and half its diagonal.
   sphere(out) {
@@ -337,73 +296,9 @@ export class PowerupStation extends Building {
     this.servedPlayer = false;
     this.servedHealth = false;
     this.servedAmmo = false;
-    this.onServe = () => {}; // (target, gave) with gave bits 1 health, 2 ammo
     this.axisX = new THREE.Vector3(1, 0, 0);
     this.axisZ = new THREE.Vector3(0, 0, 1);
     this.q = new THREE.Quaternion();
-  }
-
-  // One tick. target: { position (feet), health, maxHealth, weapons }, or
-  // a list of them (everyone on foot: a droid serves whoever is near). Only
-  // state changes here, and only the serving's; the droid is posed from
-  // it (pose) by whoever shows it, this world's page or a worker's.
-  update(dt, target, vehicles = []) {
-    this.regenerate(dt);
-    if (!this.alive) return;
-    if (this.mode === "active") this.active += dt;
-    this.pulse += dt;
-    if (this.pulse >= this.delay) {
-      this.pulse -= this.delay;
-      let served = 0;
-      let first = null;
-      this.servedPlayer = false;
-      for (const one of Array.isArray(target) ? target : target ? [target] : []) {
-        if (one.position.distanceTo(this.position) >= this.radius) continue;
-        const gave = this.serve(one);
-        if (!gave) continue;
-        if (!first) first = one;
-        served |= gave;
-        if (one.player) this.servedPlayer = true;
-        this.onServe(one, gave);
-      }
-      if (this.vehicleHealth || this.vehicleAmmo) for (const vehicle of vehicles) {
-        if (vehicle.alive && vehicle.position.distanceTo(this.position) < this.radius + vehicle.radius * .5) served |= this.serve(vehicle);
-      }
-      this.servedHealth = (served & 1) !== 0;
-      this.servedAmmo = (served & 2) !== 0;
-      if (served) {
-        emitSound("serve", this, first);
-        if (this.mode !== "active") this.active = 0;
-        this.mode = "active";
-      } else if (this.mode === "active") this.mode = "waiting";
-    }
-  }
-
-  // What it gives one target: bit 1 health, bit 2 ammo (0: nothing).
-  serve(target) {
-    let served = 0;
-    const health = target.healthType === "vehicle" ? this.vehicleHealth : this.giveHealth;
-    const ammo = target.healthType === "vehicle" ? this.vehicleAmmo : this.giveAmmo;
-    if (health > 0 && target.health < target.maxHealth) {
-      if (target.seats) target.setHealth(Math.min(target.health + health, target.maxHealth));
-      else target.health = Math.min(target.health + health, target.maxHealth);
-      served |= 1;
-    }
-    if (ammo > 0 && target.seats) {
-      if (target.system.f2.firing.supply(target, ammo)) served |= 2;
-    } else if (ammo > 0) {
-      for (const weapon of target.weapons) {
-        if (weapon.bottomless || !(weapon.def.ammo > 0)) continue;
-        const loaded = weapon.clip >= weapon.perShot - 1e-6 ? 1 : 0;
-        const cap = weapon.def.ammo - loaded;
-        const next = THREE.MathUtils.clamp(weapon.reserve + ammo, 0, cap);
-        if (Math.abs(next - weapon.reserve) > 0.0001) {
-          weapon.reserve = next;
-          served |= 2;
-        }
-      }
-    }
-    return served;
   }
 
   // The idle cycle, the page's: while the droid serves it holds; after,
@@ -619,32 +514,6 @@ export class Turret extends Building {
     this.aim = new THREE.Vector3();
   }
 
-  built() {
-    super.built();
-    if (this.aiTarget) this.aiTarget.generation += 1;
-    this.lastAttacker = null;
-    this.f2Seats?.turretLife(this);
-  }
-
-  // Damage to the turret is damage to whoever mans it, for the AI: the
-  // 2004 game's damage alert resolves the damaged entity's
-  // controllables, which for an armed building is its mounted turret
-  // control, and notifies their UnitControllers. onDamaged
-  // (game.js) puts it on the event journal as a vehicle's damage is.
-  // hit (optional): { direction, amount, typed, generic } of a round.
-  damage(amount, attacker = null, hit = null) {
-    if (!this.alive || !(amount > 0)) return;
-    super.damage(amount, attacker);
-    this.onDamaged?.(this, amount, attacker, hit);
-  }
-
-  destroyed() {
-    super.destroyed();
-    // A turret without a wreck model still loses its live collision and
-    // target identity until fully rebuilt.
-    if (this.state === "built") this.show("destroyed");
-  }
-
   // The view direction: the building's heading turned by the yaw, tipped by
   // the pitch (up positive). yaw and pitch: the aim's (the turret's own by
   // default; a page passes the one it shows).
@@ -666,7 +535,6 @@ export class Turret extends Building {
 
   // Mouse turn and pitch rates (as the soldier reads them) steer the aim,
   // inside the class's yaw arc and pitch limits.
-  
 
   // The aim frame (the original game's camera subject for the seat): at the
   // drum's pivot, looking along the aim (yaw from the heading, pitch up
@@ -740,7 +608,6 @@ export class Turret extends Building {
   // part), then the drum and gun posed from the angles (present's). Both
   // hosts integrate; a page showing a worker's battle poses from the
   // replicated angles alone (LiveObjects.present).
-  
 
   // The drum and gun from the aim and the gun's own angles. The drum is the
   // aim frame's turn (by YawTurnFactor and PitchTurnFactor) about its pivot,
@@ -779,7 +646,6 @@ export class Turret extends Building {
 
   // The gun's aim integration alone: toward the target at its yaw and pitch
   // rates, inside its limits.
-  
 
   // The direction the gun points, and its fire point, in the world.
   muzzle(position, direction, advance = false) {
@@ -996,18 +862,12 @@ const ONE = new THREE.Vector3(1, 1, 1);
 //
 // A creature that seizes is the world's to run: the page follows its
 // state (src/runtime/entity-world-state.js) and draws whom it holds from
-// its own pose, so he moves with the tentacle frame by frame. Doors and the
-// rest step on every host from the soldiers it has (the page's own soldier
-// is predicted, so his trapdoor opens under him without waiting).
-const SOLDIER_MIDDLE = 1.048; // m: a soldier's collision sphere's centre above his feet (src/units.js)
-const SOLDIER_RADIUS = 1.278; // m: and its radius
+// its own pose, so he moves with the tentacle frame by frame. Trigger,
+// collision and held-body decisions belong to the native live phase.
 const TICK = 1 / 60;
 // The original game's length of a clip: its frames at 30 a second (one frame
 // past the port's duration, which ends on the last frame).
 const length = (clip) => (clip ? clip.frames / clip.fps : 0);
-// Whether a soldier with his feet at `feet` is within `reach` of `point`
-// as the 2004 game's region query has it: his
-// collision sphere's box against the box `reach` round the point.
 // A destructible command post's building (docs/objectives.md): Hoth's
 // shield generator, Geonosis' Techno Union ships and the Republic forward
 // command center, Endor's bunker control panel. Any team's rounds and
@@ -1037,17 +897,6 @@ export class ObjectivePost extends Building {
       : null;
     this.time = 0;
     this.dying = 0; // s of its death animation left (drawn while > 0)
-  }
-
-  // Gone for good: its wreck, or nothing where the class names none (the
-  // Techno Union ship, whose hulk is its static first chunk).
-  destroyed() {
-    this.crew?.destroyed?.(this);
-    this.onDestroyed(this);
-    const at = this.center(new THREE.Vector3());
-    this.show("destroyed");
-    if (this.explosion) this.onExplode(this.explosion, at);
-    this.addHealth = 0;
   }
 
   // A wreck is no one's to rebuild; built, it takes a repair weapon's
@@ -1095,20 +944,12 @@ export class ObjectivePost extends Building {
   }
 }
 
-function within(point, reach, feet) {
-  const r = reach + SOLDIER_RADIUS;
-  return Math.abs(feet.x - point.x) <= r && Math.abs(feet.y + SOLDIER_MIDDLE - point.y) <= r && Math.abs(feet.z - point.z) <= r;
-}
-// A body in the soldier list, as triggers see it: a soldier (not a
-// droideka) on foot, living or lying dead, not seated or held.
-const onFoot = (unit) => Boolean(unit?.soldier && !unit.walker && !unit.removed && (unit.alive || unit.dead) && !unit.seat && !unit.held);
-// A point of the idle clip of its own for each prop (the original game starts
-// each at a random frame), the same on every host.
-const phase = (index) => (((index + 1) * 2654435761) >>> 0) / 4294967296;
-
 const heldScratch = { points: { ...makeRiderPoints(), root: new THREE.Vector3(), rootTurn: new THREE.Quaternion() },
   sample: { clip: null, pitch: 0, turn: 0, time: null }, frame: new THREE.Matrix4(), root: new THREE.Matrix4() };
 const SCALE_ONE = new THREE.Vector3(1, 1, 1);
+
+// Stable construction offset gives each placed idle its authored phase.
+const phase = (index) => (((index + 1) * 2654435761) >>> 0) / 4294967296;
 
 export class AnimatedProp {
   constructor(desc, rig, body, clips, index = 0) {
@@ -1157,103 +998,54 @@ export class AnimatedProp {
     this.startTime = this.time; // and the time into it then
     this.victim = null; // { unit, generation, grab, since }: whom it holds
     this.openness = 0; // a door's, 0 shut to 1 open
-    this.point = new THREE.Vector3();
   }
 
-  // Doors: anyone's feet within the trigger's reach of its node.
-  near(positions) {
-    const trigger = this.trigger;
-    if (!trigger) return false;
-    for (const position of positions || []) if (position.distanceToSquared(trigger.point) <= trigger.radius * trigger.radius) return true;
-    return false;
-  }
-
-  // The clip in a slot, from the tick it starts on (as in the 2004 game:
-  // the same slot again changes nothing).
-  play(slot, loop, tick) {
-    if (slot === this.slot) return;
-    this.slot = slot;
-    this.loop = loop;
-    this.started = tick;
-    this.startTime = this.time;
-    if (this.body && !this.door && this.triggers.some((t) => t.action === "open")) this.body.enabled = !(!loop && this.names[slot] === "open");
-  }
-
-  // One step of the world (see the class note): its triggers and grabs
-  // from `bodies` (units), its clock, its pose, and whom it holds.
-  // positions: feet a door feels. tick: the world's.
-  step(dt, positions, bodies = [], tick = 0) {
-    if (!this.pose) return;
-    if (this.door) {
-      const near = this.near(positions);
-      const clip = this.doorClip;
-      const span = clip ? Math.max(clip.duration, 1e-3) : 1;
-      this.openness = THREE.MathUtils.clamp(this.openness + (near ? dt : -dt) / span, 0, 1);
-      this.pose.clear();
-      if (clip) this.pose.add(clip, this.openness * clip.duration, 1, false);
-      if (this.body) this.body.enabled = this.openness < 0.5;
-      for (const [bone, at] of this.rig.bind) { bone.quaternion.copy(at.q); bone.position.copy(at.p); }
-      this.pose.apply(this.rig.bones);
-      return;
+  // Page prediction only: until retained prop presentation moves native,
+  // doors pose from the soldiers the page draws. Authority never calls this
+  // method, and creatures with a published hold use follow/presentHeld.
+  presentStep(dt,positions,bodies=[],tick=0) {
+    if(!this.pose)return;
+    if(this.door) {
+      const trigger=this.trigger;
+      let near=false;
+      if(trigger)for(const p of positions)if(p.distanceToSquared(trigger.point)<=trigger.radius*trigger.radius){near=true;break;}
+      const clip=this.doorClip,span=clip?Math.max(clip.duration,1e-3):1;
+      this.openness=THREE.MathUtils.clamp(this.openness+(near?dt:-dt)/span,0,1);
+      this.pose.clear();if(clip)this.pose.add(clip,this.openness*clip.duration,1,false);
+      if(this.body)this.body.enabled=this.openness<.5;
+      for(const [bone,at]of this.rig.bind){bone.quaternion.copy(at.q);bone.position.copy(at.p);}
+      this.pose.apply(this.rig.bones);return;
     }
-    if (this.slot < 0) this.play(0, true, tick);
-    if (!this.loop) {
-      if (this.time > length(this.slots[this.slot])) {
-        this.time = 0;
-        this.weight = 0;
-        this.swallow();
-        this.play(0, true, tick);
-      }
-    } else if (this.victim) this.swallow();
-    // Idling with no one held and the idle half blended in: the first
-    // trigger with a soldier at its node plays its action.
-    if (this.loop && !this.victim && this.weight >= 0.5) {
-      for (const trigger of this.triggers) {
-        if (trigger.slot < 0 || trigger.slot === this.slot) continue;
-        if (!bodies.some((unit) => onFoot(unit) && within(trigger.point, trigger.radius, unit.position))) continue;
-        this.time = 0;
-        this.weight = 0;
-        this.play(trigger.slot, false, tick);
-        if (trigger.sound) emitSound("sound", trigger.sound, trigger.point);
-        break;
-      }
+    if(this.slot<0)this.presentClip(0,true,tick);
+    if(!this.loop && this.time>length(this.slots[this.slot])) {
+      this.time=0;this.weight=0;this.presentClip(0,true,tick);
     }
-    // Under way, a grab takes the first body it finds within reach of its
-    // node, if he lives (the original game's query takes one).
-    if (!this.victim) {
-      for (const grab of this.grabs) {
-        if (grab.slot !== this.slot || this.time > grab.window || !grab.node) continue;
-        this.rig.root.updateMatrixWorld(true);
-        grab.node.getWorldPosition(this.point);
-        const unit = bodies.find((b) => onFoot(b) && within(this.point, grab.radius, b.position));
-        if (!unit?.alive) continue;
-        this.seize(unit, grab, tick);
-        break;
+    if(this.loop && this.weight>=.5)for(const trigger of this.triggers) {
+      if(trigger.slot<0 || trigger.slot===this.slot)continue;
+      let near=false;
+      for(const unit of bodies) {
+        if(unit.soldier && !unit.walker && !unit.removed && (unit.alive||unit.dead) && !unit.seat && !unit.held &&
+          unit.position.distanceToSquared(trigger.point)<=trigger.radius*trigger.radius){near=true;break;}
       }
+      if(!near)continue;
+      this.time=0;this.weight=0;this.presentClip(trigger.slot,false,tick);
+      if(trigger.sound)emitSound('sound',trigger.sound,trigger.point);break;
     }
-    this.advance(dt);
-    if (this.victim) this.carry(tick);
-  }
-
-  // The clock and the pose by dt (the original game's order: the time, then
-  // the pose eased by the weight, then the weight).
-  advance(dt) {
-    let step = dt;
-    if (!this.loop) this.time += dt;
+    let step=dt;
+    if(!this.loop)this.time+=dt;
     else {
-      const span = length(this.slots[0]);
-      if (this.time + dt < span) this.time += dt;
-      else {
-        this.hold += dt;
-        if (this.hold > this.idleDelay) {
-          this.hold = 0;
-          this.time += dt;
-        } else step = 0;
-      }
-      if (span > 0 && this.time > span) this.time -= span;
+      const span=length(this.slots[0]);
+      if(this.time+dt<span)this.time+=dt;
+      else {this.hold+=dt;if(this.hold>this.idleDelay){this.hold=0;this.time+=dt;}else step=0;}
+      if(span>0 && this.time>span)this.time-=span;
     }
-    this.stand(this.weight, step);
-    this.weight += (this.slot === 0 ? 0.2 : 1) * step;
+    this.stand(this.weight,step);this.weight+=(this.slot===0?.2:1)*step;
+  }
+  // This changes a shown clip only; gameplay play is a qualified command.
+  presentClip(slot,loop,tick) {
+    if(slot===this.slot)return;
+    this.slot=slot;this.loop=loop;this.started=tick;this.startTime=this.time;
+    if(this.body && !this.door && this.triggers.some(t=>t.action==='open'))this.body.enabled=!(!loop && this.names[slot]==='open');
   }
 
   // The pose eased toward the clip's at this time: at 60 steps a second the
@@ -1285,44 +1077,6 @@ export class AnimatedProp {
       bones[i].quaternion.fromArray(q, i * 4);
       bones[i].position.fromArray(t, i * 3);
     }
-  }
-
-  // Seized (the 2004 game's grab): held at the node in his
-  // clip, out of his own control; his weapons wait (Unit.tick,
-  // PlayerCombat.mounted). since: the world tick.
-  seize(unit, grab, tick) {
-    this.victim = { unit, generation: unit.generation, grab, since: tick };
-    unit.f3.seize(unit,this,grab,tick);
-  }
-
-  // At the action's end the one it holds dies, no one credited, and his
-  // body is gone at once; the KillSoldierSound plays at the prop.
-  swallow() {
-    const victim = this.victim;
-    this.victim = null;
-    if (!victim) return;
-    const unit = victim.unit;
-    if (unit.generation !== victim.generation || unit.removed) return;
-    release(unit);
-    if (unit.alive) unit.combat?.damage(Infinity);
-    unit.remove?.();
-    if (this.killSound) emitSound("sound", this.killSound, this.position);
-  }
-
-  // Whom it holds, at the node this step: his body's place (his feet) and
-  // the frame he is drawn and struck in.
-  carry(tick) {
-    const victim = this.victim;
-    const unit = victim.unit;
-    if (unit.generation !== victim.generation || unit.removed || unit.held?.prop !== this) {
-      this.victim = null;
-      return;
-    }
-    // The creature's node is foreign until its phase moves. Rust composes
-    // the held root, owns the body and keeps the lazy shape clock unchanged.
-    if (!victim.grab.node) return;
-    this.rig.root.updateMatrixWorld(true);
-    unit.f3.carryHeld(unit,victim.grab.node.matrixWorld,(tick - victim.since) * TICK);
   }
 
   // The frame a held soldier is drawn in (his actor's root) at `time`
@@ -1438,7 +1192,7 @@ export function release(unit) {
 }
 
 export class LiveObjects {
-  constructor(scene, data, pack, { texture, caster, collision = null, triangles = null, explode = () => {}, onDestroyed = () => {}, onServe = () => {}, animationBuffer = null, soldiers = null, bodies = null, Trap = null, padOnGround = null }) {
+  constructor(scene, data, pack, { texture, caster, collision = null, triangles = null, explode = () => {}, onDestroyed = () => {}, animationBuffer = null, soldiers = null, bodies = null, Trap = null, padOnGround = null }) {
     this.stations = [];
     this.traps = []; // Endor's log traps (src/traps.js, passed in as Trap)
     this.turrets = [];
@@ -1525,10 +1279,7 @@ export class LiveObjects {
       building.onExplode = explode;
       building.onDestroyed = onDestroyed;
       this.buildings.push(building);
-      if (Kind === PowerupStation) {
-        building.onServe = onServe;
-        this.stations.push(building);
-      }
+      if (Kind === PowerupStation) this.stations.push(building);
       else if (Kind === ObjectivePost) this.objectives.push(building);
       else this.turrets.push(building);
     }
@@ -1546,29 +1297,10 @@ export class LiveObjects {
     return this.clipCache.get(model);
   }
 
-  // The world's tick. target: whoever the droids may serve (PowerupStation).
-  // tick: the world's.
-  update(dt, target, tick = 0) {
-    for (const station of this.stations) station.update(dt, target, this.vehicleTargets);
-    for (const turret of this.turrets) {
-      turret.regenerate(dt);
-    }
-    this.f2Seats?.idleTurrets(dt);
-    if ((this.animated || []).length) {
-      const positions = this.soldiers?.() || [];
-      const bodies = this.bodies?.() || [];
-      for (const prop of this.animated) prop.step(dt, positions, bodies, tick);
-    }
-    for (const trap of this.traps || []) trap.step(dt, tick, this.vehicleTargets || []);
-  }
-
-  // The traps' sides and their DeathEffect (src/traps.js): sideOf(team)
-  // gives a team's side ("all", "imp"...), teamOf(side) the team of one.
-  // A trap placed with Team 0 belongs to its ResetTeam's side.
-  attachTraps({ sideOf, teamOf, effect }) {
+  // A trap placed with Team 0 belongs to its ResetTeam's side; teamOf(side)
+  // gives that side's team.
+  attachTraps({ teamOf }) {
     for (const trap of this.traps || []) {
-      trap.sideOf = sideOf;
-      if (effect) trap.onEffect = effect;
       if (!trap.team && trap.settings.resetTeam) trap.team = teamOf(trap.settings.resetTeam) || 0;
     }
   }
@@ -1602,8 +1334,8 @@ export class LiveObjects {
       if (prop.grabs.length && prop.adopted !== undefined) {
         prop.follow(dt, tick);
         prop.presentHeld(tick);
-      } else if (prop.grabs.length) prop.step(dt, positions, [], Math.floor(tick));
-      else prop.step(dt, positions, bodies, Math.floor(tick));
+      } else if (prop.grabs.length) prop.presentStep(dt, positions, [], Math.floor(tick));
+      else prop.presentStep(dt, positions, bodies, Math.floor(tick));
     }
   }
 
@@ -1617,29 +1349,6 @@ export class LiveObjects {
   supplying(position) {
     for (const station of this.stations) if (station.supplying(position)) return station;
     return null;
-  }
-
-  // A blast: damage to each built building in its reach by BuildingScale
-  // (src/ordnance.js), unless terrain or another building shields it.
-  // teamScale(building): the battle's friendly fire factor for the owner.
-  blast(explosion, position, owner = null, teamScale = null) {
-    for (const building of this.buildings) {
-      if (!building.alive) continue;
-      const radius = building.blastSphere(this.center);
-      const damage = blastDamage(explosion, blastDistance(position, this.center, radius), "building");
-      if (!(damage > 0) || blastBlocked(this.collision, position, this.center, building.bodies[building.state])) continue;
-      building.damage(damage * (teamScale ? teamScale(building) : 1), owner);
-    }
-  }
-
-  // A round that hit a building's collision.
-  // direction: the round's, when known (what the AI hears its hit from).
-  struck(body, def, owner = null, teamScale = null, direction = null) {
-    const building = body?.owner;
-    if (!(building instanceof Building)) return;
-    const typed = healthScale(def, "building");
-    const team = teamScale ? teamScale(building) : 1;
-    building.damage((def.Damage || 0) * typed * team, owner, { direction, amount: (def.Damage || 0) * team, typed, generic: def.ShieldScale ?? 1 });
   }
 
   // The building a repair weapon locks onto, following the original game: of
@@ -1699,14 +1408,6 @@ export class LiveObjects {
     if (building.healthType === "vehicle" && (def.TargetVehicle === 0 || !building.alive || building.team !== team && def.TargetEnemy === 0)) return false;
     if (amount > 0 && building.health >= building.maxHealth) return false;
     return building.team === 0 ? def.TargetNeutral !== 0 : building.team !== team ? def.TargetEnemy !== 0 : def.TargetFriendly !== 0;
-  }
-
-  // A repair weapon's tick on a building. Returns whether it gave anything.
-  repair(def, building, team = this.playerTeam) {
-    if (!building || !this.repairs(def, building, team)) return false;
-    const [amountKey] = REPAIR[building.healthType];
-    building.setHealth(building.health + def[amountKey]);
-    return true;
   }
 
   // The turret a soldier would get into: the original game picks, among those

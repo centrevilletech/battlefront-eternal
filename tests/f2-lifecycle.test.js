@@ -22,7 +22,7 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   v.damage(Infinity);
   assert.equal(v.alive, false);
   assert.equal(v.slot.remaining, v.slot.desc.respawnTime);
-  for (let tick = 1; tick < 3000 && !v.alive; tick++) game.unitsSim.phase(1 / 60);
+  for (let tick = 1; tick < 3000 && !v.alive; tick++) vs.update(1 / 60);
   assert.ok(v.alive, 'the native spawn clock respawns the hull');
   assert.equal(v.aiTarget, target);
   assert.equal(v.position, position);
@@ -31,7 +31,8 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   assert.equal(f2.x.f2_command(slot, gen, generation, 0, 10, 0, 0, 0), 0, 'stale gameplay life rejected');
   const flyer = vs.vehicles.find(v => v.flying), flyerPad = flyer.slot;
   f2.retire(flyer);
-  game.unitsSim.phase(1 / 60);
+  f2.adopt(vs.variant(flyerPad,flyer.name));f2.bodiesIn();
+  vs.update(1 / 60);
   const fresh = flyerPad.vehicle;
   assert.notEqual(fresh, flyer);
   assert.ok(fresh.alive);
@@ -43,8 +44,9 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   assert.throws(() => f2.check(), /F2 mirror write: health/);
   v.health++;
   f2.retire(v);
+  f2.adopt(vs.variant(v.slot,v.name));f2.bodiesIn();
   assert.equal(f2.x.f2_command(slot, gen, target.generation, 1, 10, 0, 0, 0), 0);
-  game.unitsSim.phase(1 / 60);
+  vs.update(1 / 60);
   const replacement = v.slot.vehicle;
   assert.ok(replacement.alive);
   assert.notEqual(replacement, v);
@@ -57,6 +59,8 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   const index = game.units.all().indexOf(target);
   assert.ok(index >= 0, 'the retired target is still in registry order');
   assert.equal(target.alive,false);
-  assert.ok(!game.units.query(target.position,10,[]).includes(target), 'canonical queries skip the retired target');
+  const nearby=[];
+  game.units.query(target.position,1,nearby,member=>member===target);
+  assert.equal(nearby.includes(target),false,'the canonical registry never resolves a retired hull as its replacement');
   assert.equal(f2.x.f2_command(slot, gen, target.generation, 1, 10, 0, 0, 0), 0, 'slot reuse cannot retarget the old identity');
 });

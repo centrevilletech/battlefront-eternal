@@ -24,7 +24,12 @@ pub const MAX_TEAM_SIZE: f64 = 32.0;
 /// Name generators and Character construction can be native or supplied
 /// by the existing spawn manager during the live transition.
 pub trait RosterWorld {
-    fn unit_alive(&mut self, unit: Ref<Unit>) -> bool;
+    /// Recycle native backing storage before reset clears the public record.
+    /// This storage hook performs no gameplay callbacks.
+    fn recycle_record(&mut self, _s: &mut Store, _character: Ref<Character>) {}
+    fn unit_alive(&mut self, s: &Store, unit: Ref<Unit>) -> bool;
+    /// Reassignment changes the Character command life before AI observes it.
+    fn reassigned(&mut self, _s: &Store, _character: Ref<Character>) {}
     fn ai_detach(&mut self, s: &mut Store, character: Ref<Character>);
     fn ai_attach(&mut self, s: &mut Store, character: Ref<Character>);
     fn retire_unit(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>);
@@ -42,7 +47,7 @@ struct NativeWorld<'a> {
     random: Option<&'a mut dyn Draws>,
 }
 impl RosterWorld for NativeWorld<'_> {
-    fn unit_alive(&mut self, unit: Ref<Unit>) -> bool { self.world.unit_alive(unit) }
+    fn unit_alive(&mut self, _: &Store, unit: Ref<Unit>) -> bool { self.world.unit_alive(unit) }
     fn ai_detach(&mut self, s: &mut Store, character: Ref<Character>) { self.world.ai_detach(s, character); }
     fn ai_attach(&mut self, s: &mut Store, character: Ref<Character>) { self.world.ai_attach(s, character); }
     fn retire_unit(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>) { self.world.retire_unit(s, character, unit); }
@@ -72,7 +77,7 @@ pub fn retire<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: 
     let c = s.character.get(r).expect("a Character of the battle");
     if let Some(unit) = c.unit {
         let (team, hero) = (c.team, c.hero == Some(true));
-        if world.unit_alive(unit) && !hero {
+        if world.unit_alive(s, unit) && !hero {
             s.spawning.teams[team as usize].living -= 1.0;
         }
         world.retire_unit(s, r, unit);
@@ -99,10 +104,12 @@ fn bot<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W)
     c.human = false;
     c.player_id = PlayerId::F64(-1.0);
     let name = world.bot_name(s, team);
+    world.recycle_record(s, r);
     let c = ch_mut(s, r);
     c.name = Some(name);
     reset(c);
     c.spawn.as_mut().expect("a Character the spawn manager made").timer = 0.0;
+    world.reassigned(s, r);
     world.activate(s, r);
     world.ai_attach(s, r);
 }
@@ -176,16 +183,16 @@ pub fn create_with<W: RosterWorld + ?Sized>(s: &mut Store, army_size: Option<f64
 /// available(team) (multiplayer-roster.js:89): the team's first bot whose
 /// body is dead, else its first bot (a stable sort by whether it lives).
 fn available<W: RosterWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> Option<Ref<Character>> {
-    let mut bots: Vec<(Ref<Character>, f64)> = Vec::new();
+    let mut first = None; let mut dead = None;
     for &r in &s.spawning.teams[team as usize].characters {
         let c = s.character.get(r).unwrap();
         if !c.human {
-            let alive = c.unit.is_some_and(|u| world.unit_alive(u));
-            bots.push((r, if alive { 1.0 } else { 0.0 }));
+            let alive = c.unit.is_some_and(|u| world.unit_alive(s, u));
+            if first.is_none() { first = Some(r); }
+            if !alive && dead.is_none() { dead = Some(r); }
         }
     }
-    jsrt::sort::js_sort(&mut bots, &mut |a: &(Ref<Character>, f64), b: &(Ref<Character>, f64)| a.1 - b.1);
-    bots.first().map(|(r, _)| *r)
+    dead.or(first)
 }
 
 /// reserve(team, id, name) (multiplayer-roster.js:92): a player takes a
@@ -195,6 +202,7 @@ pub fn reserve_with<W: RosterWorld + ?Sized>(s: &mut Store, team: f64, id: Playe
     let Some(r) = available(s, team, world) else { return Err("team full") };
     retire(s, r, world);
     let name = world.player_name(name);
+    world.recycle_record(s, r);
     let c = ch_mut(s, r);
     reset(c);
     c.human = true;
@@ -204,6 +212,7 @@ pub fn reserve_with<W: RosterWorld + ?Sized>(s: &mut Store, team: f64, id: Playe
     let spawn = c.spawn.as_mut().expect("a Character the spawn manager made");
     spawn.ready = false;
     spawn.timer = f64::INFINITY;
+    world.reassigned(s, r);
     Ok(r)
 }
 
@@ -236,6 +245,7 @@ pub fn switch_team_with<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character
     swap(&mut s.spawning.teams[target as usize].characters, replacement, r);
     ch_mut(s, r).team = target;
     ch_mut(s, replacement).team = previous;
+    world.reassigned(s, r);
     bot(s, replacement, world);
     true
 }
@@ -267,6 +277,9 @@ pub fn switch_team(s: &mut Store, character: Ref<Character>, target: f64, naming
 /// A roster without Classic spawning. Only players consume its capacity;
 /// disconnected slots are reused without growing the replicated list.
 pub trait PlayersWorld {
+    fn recycle_record(&mut self, _s: &mut Store, _character: Ref<Character>) {}
+    /// Disconnect/reuse starts a new command life while keeping wire order.
+    fn reassigned(&mut self, _s: &Store, _character: Ref<Character>) {}
     fn player_name(&mut self, name: &[u16]) -> StrId;
     fn new_human(&mut self, players: &mut Players, s: &mut Store, team: f64) -> Ref<Character>;
     fn remove_body(&mut self, players: &mut Players, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>);
@@ -293,6 +306,7 @@ impl Players {
             c.human && c.team == 0.0 && !matches!(c.player_id, PlayerId::Undefined) && !self.reserved.contains(r)
         });
         let r = if let Some(r) = reuse {
+            world.recycle_record(s, r);
             let c = ch_mut(s, r);
             c.team = team;
             reset(c);
@@ -305,6 +319,7 @@ impl Players {
         c.player_id = id;
         c.spawn = Some(crate::gen::Spawn { ready: false, timer: f64::INFINITY, post: crate::gen::PostRef::Undefined, ..Default::default() });
         if !self.reserved.contains(&r) { self.reserved.push(r); }
+        world.reassigned(s, r);
         Ok(r)
     }
     pub fn release<W: PlayersWorld + ?Sized>(&mut self, s: &mut Store, r: Ref<Character>, world: &mut W) {
@@ -313,6 +328,7 @@ impl Players {
         c.unit = None;
         c.team = 0.0;
         self.reserved.retain(|v| *v != r);
+        world.reassigned(s, r);
     }
     pub fn switch_team(&self, s: &mut Store, r: Ref<Character>, team: f64) -> bool {
         if s.character.get(r).unwrap().team != team && self.full(s, team) { return false; }

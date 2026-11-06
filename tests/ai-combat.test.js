@@ -1,3 +1,4 @@
+import {unitCommands} from './fixtures/unit-command-port.js';
 // Classic AI combat: perception, aim, firing and weapon AI (docs/ai-combat.md).
 //
 //   node --test tests/ai-combat.test.js
@@ -90,7 +91,7 @@ function makeUnit({ team = 1, kind = 0, at = [0, 0, 0], yaw = 0, pitch = 0, weap
     position, velocity, soldier,
     combat: { maxHealth, arsenal: new Arsenal(weapons, { player: false }) },
     intent: { buttons: [0, 0], aim: null },
-    controller: null,
+    controller: null,...unitCommands,
     character: { team, unit: null },
     _sphere: { center: new THREE.Vector3(), radius: 1.2 },
     get sphere() {

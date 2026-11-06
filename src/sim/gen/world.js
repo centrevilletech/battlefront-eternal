@@ -26,9 +26,9 @@ export const WorldLocalCall_NAMES = ["battle","ready","spawn","clearHuman","remo
 export const WorldLocalCall_INDEX = new Map(WorldLocalCall_NAMES.map((name, i) => [name, i]));
 export const WorldLocalCall_VALUE = Object.freeze({"battle":0,"ready":1,"spawn":2,"clearHuman":3,"remove":4,"present":5});
 
-export const WorldStepCall_NAMES = ["start","water","clockAxes","takeSquad","squad","playerCount","eye","deathCamera","remoteCamera","driverCamera","gunnerCamera","zoom","camera","cameraMatrix","ai","nativeUnits","served","live","ordnance","mineTargets","items","battlefield","battle","target","grenades","nextGrenade","grenade","spawnFlush"];
+export const WorldStepCall_NAMES = ["start","water","clockAxes","takeSquad","squad","playerCount","eye","deathCamera","remoteCamera","driverCamera","gunnerCamera","zoom","camera","cameraMatrix","ai","nativeUnits","live","ordnance","mineTargets","items","battlefield","battle","target","grenades","nextGrenade","grenade","spawnFlush"];
 export const WorldStepCall_INDEX = new Map(WorldStepCall_NAMES.map((name, i) => [name, i]));
-export const WorldStepCall_VALUE = Object.freeze({"start":0,"water":1,"clockAxes":2,"takeSquad":3,"squad":4,"playerCount":5,"eye":6,"deathCamera":7,"remoteCamera":8,"driverCamera":9,"gunnerCamera":10,"zoom":11,"camera":12,"cameraMatrix":13,"ai":14,"nativeUnits":15,"served":16,"live":17,"ordnance":18,"mineTargets":19,"items":20,"battlefield":21,"battle":22,"target":23,"grenades":24,"nextGrenade":25,"grenade":26,"spawnFlush":27});
+export const WorldStepCall_VALUE = Object.freeze({"start":0,"water":1,"clockAxes":2,"takeSquad":3,"squad":4,"playerCount":5,"eye":6,"deathCamera":7,"remoteCamera":8,"driverCamera":9,"gunnerCamera":10,"zoom":11,"camera":12,"cameraMatrix":13,"ai":14,"nativeUnits":15,"live":16,"ordnance":17,"mineTargets":18,"items":19,"battlefield":20,"battle":21,"target":22,"grenades":23,"nextGrenade":24,"grenade":25,"spawnFlush":26});
 
 export const WorldNetworkChoice_NAMES = ["other","suicide","team","spawn"];
 export const WorldNetworkChoice_INDEX = new Map(WorldNetworkChoice_NAMES.map((name, i) => [name, i]));
@@ -713,6 +713,10 @@ export function exportWorldLocalReply(o, cx) {
   return v;
 }
 
+export const WorldStepStateLayout = Object.freeze({ words: 23, water: 0, remote: 1, walker: 2, dead: 3, server: 4, deathCamera: 5, driver: 6, gunner: 7, vehicles: 8, ai: 9, units: 10, turretSeats: 11, networkRemotes: 12, removed: 13, grenadeUpdate: 14, playerCommand: 15, eyeView: 16, live: 17, playerWalker: 18, playerTicks: 19, forward: 20, right: 21, aimPitch: 22 });
+export const WORLD_STEP_STATE_WORDS = WorldStepStateLayout.words;
+export const WORLD_STEP_STATE_OFFSETS = WorldStepStateLayout;
+
 export class WorldStepStateMirror {
   constructor() {
     this.water = false;
@@ -968,6 +972,10 @@ export function exportWorldStepReply(o, cx) {
   v.flag = o.flag;
   return v;
 }
+
+export const WorldNetworkStateLayout = Object.freeze({ words: 14, disconnected: 0, disconnectedAt: 1, spectator: 2, stale: 3, lastInputAt: 4, separateActions: 5, alive: 6, removed: 7, deadTime: 8, autoRespawn: 9, spawnedOnce: 10, teamSelect: 11, choice: 12, choiceTeam: 13 });
+export const WORLD_NETWORK_STATE_WORDS = WorldNetworkStateLayout.words;
+export const WORLD_NETWORK_STATE_OFFSETS = WorldNetworkStateLayout;
 
 export class WorldNetworkStateMirror {
   constructor() {

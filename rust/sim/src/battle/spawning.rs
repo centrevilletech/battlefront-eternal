@@ -17,7 +17,7 @@
 //! singleton (its teams, clocks and queues) and the battle's Characters.
 
 use super::names::{human_name, BotNames, NameLists};
-use super::posts::{self, post_ref, spawn_post, SpawnView};
+use super::posts::{self, post_ref, spawn_post, SpawnFacts};
 use super::rules::{new_character, spend};
 use super::world::SpawningWorld;
 use super::stats::Text;
@@ -326,16 +326,26 @@ fn is_hero(c: &Character) -> bool {
     c.hero == Some(true)
 }
 
-/// The places posts are in all()'s list, and how the manager sees each.
-struct Listed {
+/// Retained post choices and transformed mobile class points. Reserve from
+/// prepared mission geometry; paths stay on their canonical post rows.
+#[derive(Default)]
+pub struct Scratch {
     ids: Vec<SpawnPost>,
-    views: Vec<SpawnView>,
+    views: Vec<SpawnFacts>,
+    points: Vec<[f64; 4]>,
 }
-
-fn listed<W: SpawningWorld + ?Sized>(s: &mut Store, world: &mut W) -> Listed {
-    let ids = posts::all(s, world);
-    let views = ids.iter().map(|p| posts::spawn_view(s, *p, world)).collect();
-    Listed { ids, views }
+impl Scratch {
+    pub fn reserve_points(&mut self,points:usize){self.points.reserve(points.saturating_sub(self.points.len()));}
+    pub fn new(posts: usize, class_points: usize) -> Self {
+        Self { ids: Vec::with_capacity(posts), views: Vec::with_capacity(posts), points: Vec::with_capacity(class_points) }
+    }
+}
+fn listed<W: SpawningWorld + ?Sized>(s: &mut Store, world: &mut W, into: &mut Scratch) {
+    super::mobile::refresh_all(s, world);
+    into.ids.clear(); into.views.clear();
+    into.ids.extend(s.command_posts.posts.iter().copied().map(SpawnPost::Post));
+    into.ids.extend(s.mobile_posts.posts.iter().copied().map(SpawnPost::MobilePost));
+    for &p in &into.ids { into.views.push(posts::spawn_facts(s, p, world)); }
 }
 
 /// relation(a, b): team a's relation to team b (1 friend, 0 neutral, -1
@@ -506,7 +516,7 @@ pub fn activate<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, str
 /// friendlySpawn(post, team, relation) (goals.js:163): its own post with a
 /// spawn path or class spawn points, or a post held by a friend that has an
 /// ally path; never a neutral or inactive one.
-fn friendly_spawn(sp: &Spawning, post: &SpawnView, team: f64) -> bool {
+fn friendly_spawn(sp: &Spawning, post: &SpawnFacts, team: f64) -> bool {
     if !post.active {
         return false;
     }
@@ -515,25 +525,25 @@ fn friendly_spawn(sp: &Spawning, post: &SpawnView, team: f64) -> bool {
         return false;
     }
     if owner == team {
-        return post.spawn_path.as_ref().is_some_and(|p| p.present) || post.class_spawn_points > 0.0;
+        return post.spawn_path || post.class_spawn_points > 0.0;
     }
-    relation(sp, owner, team) > 0.0 && post.ally_path.as_ref().is_some_and(|p| p.present)
+    relation(sp, owner, team) > 0.0 && post.ally_path
 }
 
 /// selectSpawnPost (goals.js:278): uniformly among the posts its team can
 /// spawn at (no draw for just one), or nowhere.
-fn select_spawn_post(sp: &Spawning, list: &Listed, team: f64, random: &mut dyn Draws) -> Option<SpawnPost> {
-    let eligible: Vec<usize> = (0..list.ids.len()).filter(|&i| list.views[i].active && friendly_spawn(sp, &list.views[i], team)).collect();
-    if eligible.is_empty() {
-        return None;
-    }
-    let i = random.int(0.0, eligible.len() as f64 - 1.0);
-    Some(list.ids[eligible[i as usize]])
+fn select_spawn_post(sp: &Spawning, list: &Scratch, team: f64, random: &mut dyn Draws) -> Option<SpawnPost> {
+    let eligible = (0..list.ids.len()).filter(|&i| list.views[i].active && friendly_spawn(sp, &list.views[i], team)).count();
+    if eligible == 0 { return None; }
+    let pick = random.int(0.0, eligible as f64 - 1.0) as usize;
+    let index = (0..list.ids.len()).filter(|&i| list.views[i].active && friendly_spawn(sp, &list.views[i], team))
+        .nth(pick).expect("a selected eligible post");
+    Some(list.ids[index])
 }
 
 /// retainSpawnPost (goals.js:285): a bot keeps its post while it stays a
 /// valid spawn point for its team.
-fn retain_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Listed, team: f64, random: &mut dyn Draws) -> Option<SpawnPost> {
+fn retain_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Scratch, team: f64, random: &mut dyn Draws) -> Option<SpawnPost> {
     if let Some(p) = post {
         if let Some(i) = list.ids.iter().position(|x| *x == p) {
             let view = &list.views[i];
@@ -547,12 +557,11 @@ fn retain_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Listed, team
 
 /// humanSpawnPost (goals.js:300): the eligible post nearest the old one;
 /// with none yet, the eligible post nearest any post an enemy holds.
-fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Listed, team: f64) -> Option<SpawnPost> {
+fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Scratch, team: f64) -> Option<SpawnPost> {
     let distance = |a: &[f64; 3], b: &[f64; 3]| {
         let (x, y, z) = (a[0] - b[0], a[1] - b[1], a[2] - b[2]);
         fround(x * x + y * y + z * z)
     };
-    let active: Vec<usize> = (0..list.ids.len()).filter(|&i| list.views[i].active).collect();
     if let Some(p) = post {
         let at = list.ids.iter().position(|x| *x == p).expect("a post in the list");
         let view = &list.views[at];
@@ -562,7 +571,8 @@ fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Listed, team:
             }
             let mut best = FLT_MAX;
             let mut pick = None;
-            for &o in &active {
+            for o in 0..list.ids.len() {
+                if !list.views[o].active { continue; }
                 if !friendly_spawn(sp, &list.views[o], team) {
                     continue;
                 }
@@ -577,11 +587,13 @@ fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Listed, team:
     }
     let mut best = FLT_MAX;
     let mut pick = None;
-    for &o in &active {
+    for o in 0..list.ids.len() {
+        if !list.views[o].active { continue; }
         if !friendly_spawn(sp, &list.views[o], team) {
             continue;
         }
-        for &e in &active {
+        for e in 0..list.ids.len() {
+            if !list.views[e].active { continue; }
             if !(relation(sp, team, list.views[e].owner) < 0.0) {
                 continue;
             }
@@ -597,8 +609,13 @@ fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Listed, team:
 
 /// choosePost(character) (spawning.js:496).
 pub fn choose_post<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, random: &mut dyn Draws) -> Option<SpawnPost> {
-    let goal = if ch(s, r).human { None } else { world.spawn_goal(r) };
-    let list = listed(s, world);
+    choose_post_with_scratch(s, r, world, random, &mut Scratch::default())
+}
+
+pub fn choose_post_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) -> Option<SpawnPost> {
+    let goal = if ch(s, r).human { None } else { world.spawn_goal(s, r) };
+    listed(s, world, scratch);
+    let list = &*scratch;
     let c = ch(s, r);
     if let Some(goal) = goal {
         let mut best = None;
@@ -612,15 +629,26 @@ pub fn choose_post<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, 
     }
     let old = spawn_post(sp(c).post);
     if c.human {
-        human_spawn_post(&s.spawning, old, &list, c.team)
+        human_spawn_post(&s.spawning, old, list, c.team)
     } else {
-        retain_spawn_post(&s.spawning, old, &list, c.team, random)
+        retain_spawn_post(&s.spawning, old, list, c.team, random)
     }
 }
 
 /// The owner of a post, as the queues' categories ask it.
 fn own(s: &Store, c: &Character, post: SpawnPost) -> bool {
     c.team == owner_of(posts::team_of(s, post).0)
+}
+
+/// Construction reserves room without creating queue entries or changing
+/// Map insertion order. Team switches and first post reservations then reuse
+/// storage, including a team which begins with no Characters of its own.
+pub fn prepare_runtime(s: &mut Store, posts: usize, characters: usize) {
+    s.spawning.queues.reserve(posts);
+    s.spawning.characters.reserve(characters.saturating_sub(s.spawning.characters.len()));
+    for team in &mut s.spawning.teams {
+        team.characters.reserve(characters.saturating_sub(team.characters.len()));
+    }
 }
 
 // ---- Post queues.
@@ -702,6 +730,11 @@ pub fn spend_ticket(s: &mut Store, team: f64) {
 /// setClass(character, index) (spawning.js:433): a hero class takes the
 /// hero's name too.
 pub fn set_class<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, index: f64, strings: &dyn Text, world: &mut W) {
+    set_class_named(s,r,index,strings,|name|world.hero_name(name));
+}
+
+/// Class assignment reads only a prepared hero name; no body service runs.
+pub fn set_class_named(s:&mut Store,r:Ref<Character>,index:f64,strings:&dyn Text,mut hero_name:impl FnMut(StrId)->Option<StrId>) {
     let t = ch(s, r).team;
     let team = team(&s.spawning, t);
     let cls = (index >= 0.0 && index.fract() == 0.0).then(|| team.classes.get(index as usize)).flatten().cloned();
@@ -711,7 +744,7 @@ pub fn set_class<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, in
     c.class_name = Some(cls.name);
     c.hero = Some(cls.hero);
     if cls.hero {
-        if let Some(name) = world.hero_name(cls.name).filter(|n| strings.nonempty(*n)) {
+        if let Some(name) = hero_name(cls.name).filter(|n| strings.nonempty(*n)) {
             ch_mut(s, r).name = Some(name);
         }
     }
@@ -726,27 +759,31 @@ pub fn pick_class(s: &Store, r: Ref<Character>, random: &mut dyn Draws) -> f64 {
     if class_index(c).is_some() && class_of(class_index(c)).is_some_and(|k| k.hero) {
         return class_index(c).unwrap();
     }
-    let mut counts = vec![0.0; team.classes.len()];
+    // Mission loading admits at most CLASS_CAPACITY. Clamp the scratch view
+    // too: an oversized imported roster cannot index past the fixed counts.
+    let classes = team.classes.len().min(CLASS_CAPACITY);
+    let mut counts = [0.0; CLASS_CAPACITY];
     for &other in &team.characters {
         let o = ch(s, other);
         if let (Some(i), Some(_)) = (class_index(o), class_of(class_index(o))) {
-            counts[i as usize] += 1.0;
+            if let Some(count) = counts.get_mut(i as usize) { *count += 1.0; }
         }
     }
-    let n = team.classes.len() as f64 - team.hero_count;
-    let mut deficits = Vec::new();
+    let n = v8math::max(0.0, v8math::min(classes as f64, team.classes.len() as f64 - team.hero_count));
+    let mut deficits = [0.0; CLASS_CAPACITY];
+    let mut used = 0;
     let mut total = 0.0;
     let mut i = 0.0;
     while i < n {
         let d = v8math::max(team.classes[i as usize].target - counts[i as usize], 0.0);
-        deficits.push(d);
+        deficits[used] = d; used += 1;
         total += d;
         i += 1.0;
     }
     if total > 0.0 {
         let r = random.next() % total;
         let mut sum = 0.0;
-        for (i, d) in deficits.iter().enumerate() {
+        for (i, d) in deficits[..used].iter().enumerate() {
             sum += d;
             if r < sum {
                 return i as f64;
@@ -762,6 +799,10 @@ pub fn pick_class(s: &Store, r: Ref<Character>, random: &mut dyn Draws) -> f64 {
 /// queue, and is scheduled for the next wave (two ahead if the wave clock is
 /// overdue).
 pub fn prepare<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
+    prepare_with_scratch(s, r, strings, world, random, &mut Scratch::default())
+}
+
+pub fn prepare_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) {
     if !ch(s, r).human {
         if !is_hero(ch(s, r)) {
             let index = pick_class(s, r, random);
@@ -771,7 +812,7 @@ pub fn prepare<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, stri
     } else {
         sp_mut(ch_mut(s, r)).ready = false;
     }
-    let post = choose_post(s, r, world, random);
+    let post = choose_post_with_scratch(s, r, world, random, scratch);
     change_post(s, r, post);
     if let Some(post) = spawn_post(sp(ch(s, r)).post) {
         let (human, own) = (ch(s, r).human, own(s, ch(s, r), post));
@@ -794,13 +835,16 @@ pub fn awaiting_human(c: &Character) -> bool {
 pub fn clock<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, world: &mut W) {
     let dt = fround(dt);
     let mut cap = 0.0;
-    let list = listed(s, world);
-    let sp = &mut s.spawning;
-    for view in list.views.iter().filter(|v| v.active) {
-        if relation(sp, view.owner, 3.0) > 0.0 {
-            cap += to_int32(view.ally_count) as f64;
-        }
+    super::mobile::refresh_all(s, world);
+    for i in 0..s.command_posts.posts.len() {
+        let (active, owner, allies) = world.clock_post(s, SpawnPost::Post(s.command_posts.posts[i]));
+        if active && relation(&s.spawning, owner, 3.0) > 0.0 { cap += to_int32(allies) as f64; }
     }
+    for i in 0..s.mobile_posts.posts.len() {
+        let (active, owner, allies) = world.clock_post(s, SpawnPost::MobilePost(s.mobile_posts.posts[i]));
+        if active && relation(&s.spawning, owner, 3.0) > 0.0 { cap += to_int32(allies) as f64; }
+    }
+    let sp = &mut s.spawning;
     sp.locals_cap = v8math::min(cap, sp.teams[3].unit_count);
     let countdown = fround(sp.wave_countdown - dt);
     sp.wave_countdown = countdown;
@@ -831,22 +875,30 @@ pub fn waiting(sp: &Spawning, c: &Character) -> bool {
 
 /// updateCharacters(dt) (spawning.js:561): every Character in roster order.
 pub fn update_characters<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
+    update_characters_with_scratch(s, dt, strings, world, random, &mut Scratch::default())
+}
+
+pub fn update_characters_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) {
     let mut i = 0;
     while i < s.spawning.characters.len() {
         let r = s.spawning.characters[i];
-        update_character(s, r, dt, strings, world, random);
+        update_character_with_scratch(s, r, dt, strings, world, random, scratch);
         i += 1;
     }
 }
 
 /// updateCharacter(character, dt) (spawning.js:605).
 pub fn update_character<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
+    update_character_with_scratch(s, r, dt, strings, world, random, &mut Scratch::default())
+}
+
+pub fn update_character_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) {
     let dt = fround(dt);
     let mut t = ch(s, r).team;
     if let Some(unit) = ch(s, r).unit {
         // A hero dies when its team's tickets fall to its living count.
         let c = ch(s, r);
-        if is_hero(c) && tickets(s, c.team) <= team(&s.spawning, t).living && world.health(unit) > 0.0 {
+        if is_hero(c) && tickets(s, c.team) <= team(&s.spawning, t).living && world.health(s, unit) > 0.0 {
             world.force_kill(s, r, unit);
         }
         return;
@@ -857,7 +909,7 @@ pub fn update_character<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Charact
         return;
     }
     if timer > -dt {
-        prepare(s, r, strings, world, random);
+        prepare_with_scratch(s, r, strings, world, random, scratch);
     }
     let human = ch(s, r).human;
     if !human && tickets(s, t) <= team(&s.spawning, t).living {
@@ -865,11 +917,11 @@ pub fn update_character<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Charact
     }
     if !human && team(&s.spawning, t).characters.len() as f64 > team(&s.spawning, t).capacity {
         change_post(s, r, None);
-        switch_team(s, r, 3.0 - t, strings, world, random);
+        switch_team_with_scratch(s, r, 3.0 - t, strings, world, random, scratch);
         world.request_objective(s, r);
         t = ch(s, r).team;
     }
-    let post = choose_post(s, r, world, random);
+    let post = choose_post_with_scratch(s, r, world, random, scratch);
     change_post(s, r, post);
     let c = ch(s, r);
     if !sp(c).ready || spawn_post(sp(c).post).is_none() {
@@ -894,26 +946,36 @@ pub fn update_character<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Charact
             }
         }
     }
-    spawn(s, r, strings, world, random);
+    spawn_with_scratch(s, r, strings, world, random, scratch);
 }
 
 /// spawnPoint(post, allied) (spawning.js:651): a random point of the post's
 /// spawn path (its ally path when the post is an ally's), else a random
 /// class spawn point (own posts only), else the post itself.
-fn spawn_point<W: SpawningWorld + ?Sized>(s: &Store, post: SpawnPost, allied: bool, world: &mut W, random: &mut dyn Draws) -> [f64; 4] {
-    let view = posts::spawn_view(s, post, world);
-    let path = if allied { view.ally_path.as_ref() } else { view.spawn_path.as_ref() };
-    if let Some(points) = path.filter(|p| p.present).map(|p| &p.points) {
-        if !points.is_empty() {
-            let i = random.next() % points.len() as f64;
-            return points[i as usize];
+fn spawn_point<W: SpawningWorld + ?Sized>(s: &Store, post: SpawnPost, allied: bool, world: &mut W,
+    random: &mut dyn Draws, scratch: &mut Scratch) -> [f64; 4] {
+    let view = posts::spawn_facts(s, post, world);
+    if let SpawnPost::Post(r) = post {
+        let ai = s.post.get(r).expect("a post").ai.as_ref();
+        let path = ai.and_then(|a| if allied { a.ally_path.as_ref() } else { a.spawn_path.as_ref() });
+        if let Some(path) = path.filter(|p| p.present && !p.points.is_empty()) {
+            return path.points[(random.next() % path.points.len() as f64) as usize];
         }
     }
     if !allied && view.class_spawn_points > 0.0 {
-        let world_points = posts::class_spawn_world(s, post, world);
-        if !world_points.is_empty() {
+        let points = match post {
+            SpawnPost::Post(r) => s.post.get(r).expect("a post").ai.as_ref().map_or(&[][..], |a| a.class_spawn_world.as_slice()),
+            SpawnPost::MobilePost(r) => {
+                scratch.points.clear();
+                if s.mobile_post.get(r).expect("a mobile post").active {
+                    world.class_spawn_world_into(s, r, &mut scratch.points);
+                }
+                &scratch.points
+            }
+        };
+        if !points.is_empty() {
             let i = random.next() % view.class_spawn_points;
-            return world_points.get(i as usize).copied().unwrap_or(world_points[0]);
+            return points.get(i as usize).copied().unwrap_or(points[0]);
         }
     }
     let yaw = if view.yaw != 0.0 && !view.yaw.is_nan() { view.yaw } else { 0.0 };
@@ -923,10 +985,14 @@ fn spawn_point<W: SpawningWorld + ?Sized>(s: &Store, post: SpawnPost, allied: bo
 /// spawn(character) (spawning.js:664): into the world; if the class can't be
 /// made, class 0 is tried once.
 pub fn spawn<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) -> Option<Ref<Unit>> {
+    spawn_with_scratch(s, r, strings, world, random, &mut Scratch::default())
+}
+
+pub fn spawn_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) -> Option<Ref<Unit>> {
     let post = spawn_post(sp(ch(s, r)).post).expect("a post");
     let t = ch(s, r).team;
     let allied = t != owner_of(posts::team_of(s, post).0);
-    let point = spawn_point(s, post, allied, world, random);
+    let point = spawn_point(s, post, allied, world, random, scratch);
     let (xyz, yaw) = ([point[0], point[1], point[2]], Some(point[3]));
     let class_name = ch(s, r).class_name;
     let mut unit = world.spawn_unit(s, r, class_name, post, xyz, yaw);
@@ -995,16 +1061,22 @@ pub struct HumanChoice {
 /// team's roster (by name or index; a name outside it is his class, not
 /// counted) and a post if he chose one; he spawns on the next update.
 pub fn on_human_ready<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, choice: HumanChoice, strings: &dyn Text, world: &mut W) {
+    on_human_ready_named(s,r,choice,strings,|name|world.hero_name(name));
+}
+
+/// A waiting human has no body to change. Readiness updates only canonical
+/// Character/class/queue rows, including inside a synchronous AI hook.
+pub fn on_human_ready_named(s:&mut Store,r:Ref<Character>,choice:HumanChoice,strings:&dyn Text,mut hero_name:impl FnMut(StrId)->Option<StrId>) {
     let t = ch(s, r).team;
     if let Some(name) = choice.class_name {
         match team(&s.spawning, t).classes.iter().position(|c| c.name == name) {
-            Some(index) => set_class(s, r, index as f64, strings, world),
+            Some(index) => set_class_named(s, r, index as f64, strings, &mut hero_name),
             None => ch_mut(s, r).class_name = Some(name),
         }
     } else if let Some(index) = choice.class_index {
         let last = team(&s.spawning, t).classes.len() as f64 - 1.0;
         let index = v8math::min(v8math::max(to_int32(index) as f64, 0.0), last);
-        set_class(s, r, index, strings, world);
+        set_class_named(s, r, index, strings, &mut hero_name);
     }
     if let Some(post) = choice.post {
         change_post(s, r, post);
@@ -1015,6 +1087,10 @@ pub fn on_human_ready<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character
 /// switchTeam(character, to) (spawning.js:723): a non-hero Character to
 /// another team with room; a bot picks a class there.
 pub fn switch_team<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, to: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) -> bool {
+    switch_team_with_scratch(s, r, to, strings, world, random, &mut Scratch::default())
+}
+
+pub fn switch_team_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, to: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws, scratch: &mut Scratch) -> bool {
     let c = ch(s, r);
     if is_hero(c) || c.team == to || to < 1.0 || to >= TEAM_COUNT as f64 {
         return false;
@@ -1045,7 +1121,7 @@ pub fn switch_team<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, 
         let index = v8math::min(v8math::max(class_index(ch(s, r)).unwrap_or(0.0), 0.0), last);
         set_class(s, r, index, strings, world);
     }
-    let post = choose_post(s, r, world, random);
+    let post = choose_post_with_scratch(s, r, world, random, scratch);
     change_post(s, r, post);
     if let (true, Some(p)) = (held, post) {
         let human = ch(s, r).human;
@@ -1054,4 +1130,11 @@ pub fn switch_team<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, 
         sp_mut(ch_mut(s, r)).ordinal = Some(ordinal);
     }
     true
+}
+
+/// EnhancedSpawning.choosePost reads its retained objective before refreshing
+/// the post list. Canonical placed/mobile posts supply that position directly.
+pub fn objective_position<W: super::world::PostsWorld + ?Sized>(s: &Store, r: Ref<Character>, world: &mut W) -> Option<[f64; 3]> {
+    let post = spawn_post(ch(s, r).objective)?;
+    Some(posts::spawn_facts(s, post, world).position)
 }

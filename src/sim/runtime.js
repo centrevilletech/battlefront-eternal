@@ -410,6 +410,9 @@ export class SimBridge extends SimContext {
   constructor(instance, options = {}) {
     super(options);
     this.x = instance.exports;
+    // Optional boundary diagnostics count actual scalar copies. They do not
+    // choose simulation paths and remain absent from ordinary world ticks.
+    this.boundaryCounters = null;
     if (this.x.sim_abi() !== 1) throw Error(`the simulation's module has store ABI ${this.x.sim_abi()}, not 1`);
     // A module built from other schemas than the generated JavaScript's.
     if (this.x.sim_kinds() !== KIND_TABLE.length - 1) throw Error(`the simulation's module knows ${this.x.sim_kinds()} kinds, the store's JavaScript ${KIND_TABLE.length - 1}: rebuild it (npm run rust:build)`);
@@ -458,6 +461,7 @@ export class SimBridge extends SimContext {
     const f = this.f, at = ptr / 8 + HEADER, hw = heap.words;
     for (let i = 0; i < words; i++) f[at + i] = rows[i];
     for (let i = 0; i < hw.length; i++) f[at + words + i] = hw[i];
+    if (this.boundaryCounters) this.boundaryCounters.inputWords += words + hw.length;
   }
 
   // A record out of a block Rust wrote at `ptr`, into `into` (a new
@@ -465,6 +469,7 @@ export class SimBridge extends SimContext {
   callResult(record, ptr, into = null) {
     this.views();
     const f = this.f, base = ptr / 8;
+    if (this.boundaryCounters) this.boundaryCounters.outputWords += f[base] * f[base + 1] + f[base + 3];
     return record.sync(this, f, base + HEADER, base + f[base + 2], into ?? new record.Mirror());
   }
 
@@ -505,6 +510,7 @@ export class SimBridge extends SimContext {
     const ptr = this.x.sim_events();
     this.views();
     const f = this.f, base = ptr / 8, end = base + 1 + f[base];
+    if (this.boundaryCounters) this.boundaryCounters.outputWords += f[base];
     let count = 0;
     for (let at = base + 1; at < end; at += 2 + f[at + 1]) {
       const e = EVENT_TABLE[f[at]], r = e.record;
@@ -561,6 +567,10 @@ export class SimBridge extends SimContext {
     this.views();
     const f = this.f, counters = this.phaseCounters;
     if (counters) { counters.importCalls++; counters.outputFields += f[base] * f[base + 1] + f[base + 3]; }
+    if (this.boundaryCounters) {
+      this.boundaryCounters.importCalls++; this.boundaryCounters.hooks++;
+      this.boundaryCounters.outputWords += f[base] * f[base + 1] + f[base + 3];
+    }
     const result = handler(imp.args.sync(this, f, base + HEADER, base + f[base + 2], args));
     if (!imp.result) return;
     const record = imp.result, heap = this.heap, words = record.words;
@@ -575,6 +585,7 @@ export class SimBridge extends SimContext {
     g[base] = 1; g[base + 1] = words; g[base + 2] = HEADER + words; g[base + 3] = hw.length; g[base + 4] = 0;
     for (let i = 0; i < words; i++) g[at + i] = rows[i];
     for (let i = 0; i < hw.length; i++) g[at + words + i] = hw[i];
+    if (this.boundaryCounters) this.boundaryCounters.inputWords += words + hw.length;
   }
 
   // The memory's views, made again if it grew (a grown memory's old buffer
@@ -614,6 +625,10 @@ export class SimBridge extends SimContext {
     if (!ptr) throw Error(`${KIND_TABLE[kind].name}: the store holds no fields of it`);
     this.views();
     const f = this.f, base = ptr / 8, rows = f[base], stride = f[base + 1], h = base + f[base + 2], retired = f[base + 4];
+    if (this.boundaryCounters) {
+      this.boundaryCounters.outputWords += rows * stride + f[base + 3];
+      this.boundaryCounters.publishedRows += rows;
+    }
     for (let i = 0; i < rows; i++) {
       const at = base + HEADER + i * stride;
       visit(f, at, h, f[at], f[at + 1], i < retired);
@@ -691,6 +706,7 @@ export class SimBridge extends SimContext {
     const base = ptr / 8;
     this.f.set(rows.subarray(0, n * stride), base + HEADER);
     this.f.set(heap.words, base + HEADER + n * stride);
+    if (this.boundaryCounters) this.boundaryCounters.inputWords += n * stride + heap.words.length;
     if (this.x.sim_import(kind, (full ? 1 : 0) | (some ? 2 : 0)) !== 0) throw Error(`${k.name}: the store holds no fields of it`);
   }
 }

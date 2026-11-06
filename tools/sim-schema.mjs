@@ -258,9 +258,9 @@ export function buildModel(files) {
       // tells them apart by it). `$layout` exports its flat row size for
       // phase boundaries; `$publish` lists mutable fields to assign directly
       // from a generated mirror. Every other key is a field.
-      const { $class = null, $layout = false, $publish = [], $refresh = [], $delta = [], $view = false, $parts = [], ...plain } = fields;
+      const { $class = null, $layout = false, $publish = [], $refresh = [], $delta = [], $view = false, $parts = [], $observe = [], ...plain } = fields;
       if (!Array.isArray($publish) || new Set($publish).size !== $publish.length || $publish.some(name => !(name in plain))) fail(where, '$publish names distinct fields of this record');
-      for (const [name, list] of [['$refresh', $refresh], ['$delta', $delta], ['$parts', $parts]]) {
+      for (const [name, list] of [['$refresh', $refresh], ['$delta', $delta], ['$parts', $parts], ['$observe', $observe]]) {
         if (!Array.isArray(list) || new Set(list).size !== list.length || list.some(key => !(key in plain))) fail(where, `${name} names distinct fields of this record`);
       }
       const parsed = Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`));
@@ -271,17 +271,30 @@ export function buildModel(files) {
       const publishTypes = new Set(['f64', 'f32', 'i32', 'u32', 'u8', 'bool', 'enum', 'vec3']);
       for (const field of parsed) if ($publish.includes(field.name) && (!publishTypes.has(field.type.base) || field.type.base === 'vec3' && optional(field.type))) fail(where, '$publish supports scalar and vec3 fields; vectors cannot be optional');
 
-      model.records.set(name, { name, file, layout: $layout, publish: $publish, refresh: $refresh, delta: $delta, view: $view, parts: $parts, classes: [$class ?? []].flat(), fields: parsed });
+      if ($observe.some(name => {const f=parsed.find(f=>f.name===name);return f.js.length!==1||!['f64','f32','u32','i32','u8','bool','str','enum'].includes(f.type.base);})) fail(where, '$observe supports direct scalar fields');
+      model.records.set(name, { name, file, observe: $observe, layout: $layout, publish: $publish, refresh: $refresh, delta: $delta, view: $view, parts: $parts, classes: [$class ?? []].flat(), fields: parsed });
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {
       const where = `${file} kind ${name}`;
-      for (const k of Object.keys(spec)) if (!['singleton', 'key', 'home', 'identity', 'fields', 'skip', 'class', 'doc'].includes(k)) fail(where, `unknown kind option "${k}"`);
+      for (const k of Object.keys(spec)) if (!['singleton', 'key', 'home', 'identity', 'fields', 'skip', 'class', 'doc', 'delta', 'defer'].includes(k)) fail(where, `unknown kind option "${k}"`);
       let kind = model.kinds.get(name);
       if (!kind) {
         kind = { name, rust: pascal(name), singleton: false, key: null, home: null, classes: [], fields: [], skip: new Map(), file: null, facets: [] };
         model.kinds.set(name, kind);
       }
       kind.facets.push(file);
+      if (spec.defer !== undefined) {
+        if (!Array.isArray(spec.defer) || spec.defer.length!==1 || new Set(spec.defer).size!==spec.defer.length || spec.defer.some(name => !(name in spec.fields))) fail(where, 'defer names distinct fields');
+        for(const name of spec.defer) {
+          const field=spec.fields[name],type=parseType(typeof field==='string'?field:field.type,where);
+          if(type.base!=='rec'||!optional(type)||typeof field==='object'&&field.mirror===false)fail(where,'defer supports mirrored optional records');
+        }
+        kind.defer = spec.defer;
+      }
+      if (spec.delta !== undefined) {
+        if (typeof spec.delta !== 'boolean') fail(where, 'delta is a boolean');
+        kind.delta = spec.delta;
+      }
       for (const opt of ['singleton', 'key', 'home', 'identity']) {
         if (spec[opt] === undefined) continue;
         if (kind[`${opt}Set`] && JSON.stringify(kind[opt]) !== JSON.stringify(spec[opt])) fail(where, `${opt} differs from another declaration`);
@@ -1316,9 +1329,44 @@ function jsSyncFn(model, name, placed, target = 'm') {
 // A phase can refresh descriptor cursors without decoding immutable widths.
 // Sparse roots skip an unchanged field as a group; nested heap spans still
 // participate, so an unchanged list header cannot conceal a weapon timer.
+function recordHeap(model, name) {
+  return model.records.get(name).fields.some(({type}) => (container(type) || type.base === 'set') ||
+    (bare(type).base === 'rec' && recordHeap(model, type.of)));
+}
+// Only records reached through a masked container need a heap-list probe.
+// Other generated files keep their existing reader surface and imports.
+function heapHelpers(model) {
+  if (model.heapHelpers) return model.heapHelpers;
+  const needed = model.heapHelpers = new Set(), visited = new Set();
+  function visit(type) {
+    if (container(type)) {
+      const child=type.value;
+      if (child.base==='rec' && recordHeap(model,child.of)) needed.add(child.of);
+      visit(child);
+    } else if (type.base==='rec' && !visited.has(type.of)) {
+      visited.add(type.of);for(const f of model.records.get(type.of).fields) visit(f.type);
+    }
+  }
+  for(const r of model.records.values()) for(const f of r.fields) if(r.delta.includes(f.name)) visit(f.type);
+  for(const k of model.kinds.values()) if(k.delta) for(const f of k.fields) visit(f.type);
+  return needed;
+}
 function jsDeltaHeapTests(model, t, k) {
   const value = bare(t), start = k + (optional(t) ? 1 : 0);
-  if (value.base === 'list') return [`deltaChanged(d, h + f[at + ${start}], f[at + ${start + 1}] * ${words(model, value.value)}, base)`];
+  if (value.base === 'set') return [`deltaChanged(d, h + f[at + ${start}], f[at + ${start + 1}] * 2, base)`];
+  if (container(value)) {
+    const key = ['map','obj'].includes(value.base) ? keyWords(model, value) : 0;
+    const child = value.value, width = key + words(model, child);
+    const tests = [`deltaChanged(d, h + f[at + ${start}], f[at + ${start + 1}] * ${width}, base)`];
+    if (bare(child).base === 'rec' && recordHeap(model, child.of)) {
+      tests.push(`changed${child.of}HeapList(f, h + f[at + ${start}] + ${key + (optional(child) ? 1 : 0)}, f[at + ${start + 1}], h, d, base, ${width}, ${optional(child)})`);
+    } else if (container(bare(child))) {
+      // Nested containers have no fixed child layout. A changed enclosing
+      // heap forces this rare group; ordinary scalar/map fields stay sparse.
+      tests.push('deltaChanged(d, h, (d.length << 5) - (h - base), base)');
+    }
+    return tests;
+  }
   if (value.base !== 'rec') return [];
   const tests = [];
   let offset = start;
@@ -1331,28 +1379,97 @@ function jsDeltaHeapTests(model, t, k) {
 function jsDeltaTest(model, t, k) {
   return '(' + [`deltaChanged(d, at + ${k}, ${words(model, t)}, base)`, ...jsDeltaHeapTests(model, t, k)].join(' || ') + ')';
 }
-function jsDeltaRoot(model, rec, placed) {
+// Observed scalars need no eager decode. Container headers and ordinary map
+// values remain immediate, so retained lists/maps never conceal a shape edit.
+function observedType(model, type, seen = new Set()) {
+  if (container(type)) return observedType(model,type.value,seen);
+  const t=bare(type);if(t.base!=='rec'||seen.has(t.of))return false;
+  seen.add(t.of);const r=model.records.get(t.of);
+  return r.observe.length>0||r.fields.some(f=>observedType(model,f.type,seen));
+}
+function observedTest(model,type,k) {
+  const t=bare(type),start=k+(optional(type)?1:0),tests=[];
+  if(optional(type))tests.push(`deltaChanged(d, at + ${k}, 1, base)`);
+  if(t.base==='rec') {
+    const r=model.records.get(t.of);let offset=start;
+    for(const f of r.fields){if(!r.observe.includes(f.name))tests.push(observedTest(model,f.type,offset));offset+=words(model,f.type);}
+  } else if(t.base==='list'&&!optional(t.value)&&bare(t.value).base==='rec'&&observedType(model,t.value)) {
+    tests.push(`deltaChanged(d, at + ${start}, 2, base)`);
+    const child=bare(t.value);
+    if(child.base==='rec'&&observedTest(model,t.value,0)!=='(false)') tests.push(`changed${child.of}ObservedList(f, h + f[at + ${start}], f[at + ${start+1}], h, d, base, ${words(model,t.value)})`);
+  } else tests.push(jsDeltaTest(model,t,start));
+  return '('+(tests.length?tests.join(' || '):'false')+')';
+}
+// Build an eager-field mask only when a detailed record changes shape. A
+// clock-only publication then tests numeric mask words, without walking lists.
+// Eager readers already maintain record/list identity and map contents. An
+// observation fills only scalar leaves, without creating iterators or arrays.
+function jsSyncObserved(model,type,target,k) {
+  const t=bare(type),start=k+(optional(type)?1:0);let lines=[];
+  if(t.base==='rec') lines.push(`sync${t.of}Observed(b, f, at + ${start}, h, ${target});`);
+  else if(t.base==='list'&&!optional(t.value)&&t.value.base==='rec'&&observedType(model,t.value)) {
+    lines.push(`{ const start=(h + f[at + ${start}]) | 0, n=f[at + ${start+1}] | 0; for(let i=0;i<n;i++)sync${t.value.of}Observed(b,f,start+i*${words(model,t.value)},h,${target}[i]); }`);
+  }
+  if(optional(type)&&lines.length)return [`if(f[at + ${k}]===0) { ${lines.join(' ')} }`];
+  return lines;
+}
+function jsObservedReader(model,rec) {
+  const lines=[`export function sync${rec.name}Observed(b, f, at, h, m) {`, '  at |= 0; h |= 0;'];let offset=0;
+  for(const field of rec.fields) {
+    if(rec.observe.includes(field.name))lines.push('  '+jsSyncField(model,field.type,jsSet(field),offset));
+    else if(observedType(model,field.type))for(const line of jsSyncObserved(model,field.type,jsSet(field),offset))lines.push('  '+line);
+    offset+=words(model,field.type);
+  }
+  lines.push('}', '');return lines;
+}
+function jsMarkObserved(model,type,k) {
+  const t=bare(type),start=k+(optional(type)?1:0);let lines=[];
+  if(t.base==='rec') {
+    let offset=start;const r=model.records.get(t.of);
+    for(const f of r.fields){if(!r.observe.includes(f.name))lines.push(...jsMarkObserved(model,f.type,offset));offset+=words(model,f.type);}
+  } else if(container(t)) {
+    lines.push(`markDelta(d, at + ${start}, 2, base);`);
+    const child=t.value;
+    if(t.base==='list'&&!optional(child)&&child.base==='rec'&&observedType(model,child)) {
+      const read=jsMarkObserved(model,child,0);
+      if(read.length)lines.push(`{ const start = (h + f[at + ${start}]) | 0, n = f[at + ${start+1}] | 0; for(let i=0;i<n;i++) { const at=start+i*${words(model,child)}; ${read.join(' ')} } }`);
+    } else {
+      const keys=['map','obj'].includes(t.base)?keyWords(model,t):0;
+      lines.push(`markDelta(d, h + f[at + ${start}], f[at + ${start+1}] * ${keys+words(model,child)}, base);`);
+      if(child.base==='rec'&&recordHeap(model,child.of))lines.push('markDelta(d, h, (d.length << 5) - (h - base), base);');
+    }
+  } else lines.push(`markDelta(d, at + ${start}, ${words(model,t)}, base);`);
+  if(optional(type))return [`markDelta(d, at + ${k}, 1, base);`,...(lines.length?[`if(f[at + ${k}]===0) { ${lines.join(' ')} }`]:[])];
+  return lines;
+}
+function jsDeltaRoot(model, rec, placed, width = recordWords(model, rec.name)) {
   const deferred = rec.fields.some(field => rec.parts.includes(field.name) && ['list','vec3'].includes(field.type.base));
-  const lines = [`export function sync${rec.name}Delta(b, f, at, h, m, d, force = false, base = 0${deferred ? ', deferred = false' : ''}) {`];
+  const observed = rec.observe?.length || rec.fields.some(f=>observedType(model,f.type));
+  const lines = [`export function sync${rec.name}Delta(b, f, at, h, m, d, force = false, base = 0${deferred ? ', deferred = false' : ''}${observed ? ', observer = null' : ''}) {`,
+    '  at |= 0; h |= 0; base |= 0;'];
+  if(rec.observe?.length)lines.push(`  if (observer) observeRecord(m, ${rec.name}ObservedFields, observer);`);
   const readField = ({field,at}, indent) => {
     const target = jsSet(field), type = field.type;
     // Inline readers share the root mask, including absolute heap positions.
     const nested = type.base === 'rec' && model.records.get(type.of).delta.length;
-    let read = nested ? `${target} = sync${type.of}Delta(b, f, at + ${at}, h, ${target}, d, force, base);` : jsSyncField(model, type, target, at);
+    const childArgs=observedType(model,type)?', observer':'';
+    let read = nested ? `${target} = sync${type.of}Delta(b, f, at + ${at}, h, ${target}, d, force, base${childArgs});` : jsSyncField(model, type, target, at);
     // Optional motion rows retain their existing body. On a presence edge
     // decode the complete child once; ordinary ticks use its scalar mask.
     if (nested && optional(type)) {
-      read = `{ const tag = f[at + ${at}]; if (tag === 0) { const fresh = !${target} || deltaChanged(d, at + ${at}, 1, base); ${target} = sync${type.of}Delta(b, f, at + ${at + 1}, h, ${target} ?? new ${type.of}Mirror(), d, force || fresh, base); } else ${target} = tag === 1 ? null : undefined; }`;
+      read = `{ const tag = f[at + ${at}]; if (tag === 0) { const fresh = !${target} || deltaChanged(d, at + ${at}, 1, base); ${target} = sync${type.of}Delta(b, f, at + ${at + 1}, h, ${target} ?? new ${type.of}Mirror(), d, force || fresh, base${childArgs}); } else ${target} = tag === 1 ? null : undefined; }`;
     }
     // A changed weapon timer does not justify decoding the other weapons.
     // Children retain the root's mask and absolute heap-word positions.
-    if (type.base === 'list' && !optional(type) && type.value.base === 'rec' &&
+    if (type.base === 'list' && !optional(type) && type.value.base === 'rec' && !optional(type.value) &&
         model.records.get(type.value.of).delta.length) {
       const child = type.value.of, width = words(model, type.value);
-      read = `{ const items = (${target} ??= []), start = h + f[at + ${at}], n = f[at + ${at + 1}]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { const at = start + i * ${width}; if (force || ${jsDeltaTest(model, type.value, 0)}) items[i] = sync${child}Delta(b, f, at, h, items[i] ?? new ${child}Mirror(), d, force, base); } }`;
+      read = `{ const items = (${target} ??= []), start = (h + f[at + ${at}]) | 0, n = f[at + ${at + 1}] | 0, fresh = force || deltaChanged(d, at + ${at}, 2, base); while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { const at = start + i * ${width}; if (fresh || ${observedType(model,type.value)?`(observer ? ${observedTest(model,type.value,0)} : ${jsDeltaTest(model,type.value,0)})`:jsDeltaTest(model,type.value,0)}) items[i] = sync${child}Delta(b, f, at, h, items[i] ?? new ${child}Mirror(), d, fresh, base${childArgs}); } }`;
     }
-    const gate = deferred && rec.parts.includes(field.name) && ['list','vec3'].includes(type.base) ? '!deferred && ' : '';
-    return rec.delta.includes(field.name) ? `${indent}if (${gate}(force || ${jsDeltaTest(model, field.type, at)})) { ${read} }` : `${indent}${read}`;
+    const gate = rec.observe?.includes(field.name) ? '!observer && ' : deferred && rec.parts.includes(field.name) && ['list','vec3'].includes(type.base) ? '!deferred && ' : '';
+    const eager=rec.defer?.includes(field.name)?'observer.eagerChanged':observedTest(model,type,at);
+    const test=observedType(model,type)?`(observer ? ${eager} : ${jsDeltaTest(model,type,at)})`:jsDeltaTest(model,type,at);
+    return rec.delta.includes(field.name) ? `${indent}if (${gate}(force || ${test})) { ${read} }` : `${indent}${read}`;
   };
   // Fully masked scalar records can dispatch changed words directly. Weapon
   // clocks normally change only a few fields; scanning every field's mask
@@ -1362,12 +1479,12 @@ function jsDeltaRoot(model, rec, placed) {
   if (rec.delta.length === placed.length && placed.some(scalar)) {
     // A retained list may be observed later, directly from the same native
     // row. Force still initializes every non-deferred field on structural birth.
-    if (deferred) {
+    if (deferred || observed) {
       lines.push('  if (force) {');
       for (const p of placed) lines.push(readField(p, '    '));
       lines.push('    return m;', '  }');
     } else lines.push(`  if (force) return sync${rec.name}(b, f, at, h, m);`);
-    lines.push(`  const origin = at - base, end = origin + ${recordWords(model, rec.name)}, first = origin >>> 5, last = (end - 1) >>> 5;`,
+    lines.push(`  const origin = at - base, end = origin + ${width}, first = origin >>> 5, last = (end - 1) >>> 5;`,
       '  for (let word = first; word <= last; word++) {',
       '    let bits = d[word] >>> 0;',
       '    if (word === first) bits &= 0xffffffff << (origin & 31);',
@@ -1377,7 +1494,8 @@ function jsDeltaRoot(model, rec, placed) {
       '      switch ((word << 5) + bit - origin) {');
     for (const p of placed.filter(scalar)) {
       for (let k = 0; k < words(model, p.field.type); k++) lines.push(`        case ${p.at + k}:`);
-      lines.push(`          { ${jsSyncField(model, p.field.type, jsSet(p.field), p.at)} break; }`);
+      const read=jsSyncField(model,p.field.type,jsSet(p.field),p.at);
+      lines.push(`          { ${rec.observe?.includes(p.field.name)?`if (!observer) { ${read} }`:read} break; }`);
     }
     lines.push('      }', '      bits &= bits - 1;', '    }', '  }');
     for (const p of placed.filter(p => !scalar(p))) lines.push(readField(p,'  '));
@@ -1548,6 +1666,20 @@ function jsKind(model, k) {
   lines.push(`export const ${U}_KEYS = new Set([${[...new Set([...k.fields.map((f) => f.js[0]), ...k.skip.keys()])].map((n) => JSON.stringify(n)).join(', ')}]);`);
   lines.push(`export const ${U}_EXPORT_STRIDE = ${ex.stride}, ${U}_IMPORT_STRIDE = ${im.stride}, ${U}_FULL_STRIDE = ${full.stride};`, '');
   lines.push('// An export row (from `at`; the heap from `h`) into mirror `m`.', ...jsSyncFn(model, `sync${k.rust}`, ex.fields));
+  if (k.delta) lines.push(...jsDeltaRoot(model, {name:k.rust, fields:ex.fields.map(p=>p.field), delta:ex.fields.map(p=>p.field.name), parts:[], observe:[], defer:k.defer}, ex.fields, ex.stride));
+  if (k.defer?.length) {
+    const fields=ex.fields.filter(p=>k.defer.includes(p.field.name));
+    lines.push(`export function sync${k.rust}Deferred(b, f, at, h, m) {`);
+    for(const p of fields)for(const line of jsSyncObserved(model,p.field.type,jsSet(p.field),p.at))lines.push('  '+line);
+    lines.push('}', '', `export function identity${k.rust}Deferred(m) { return ${jsSet(fields[0].field)}; }`, '');
+    lines.push(`export function changed${k.rust}Deferred(f, at, h, d, base) {`,
+      `  return ${fields.map(p=>jsDeltaTest(model,p.field.type,p.at)).join(' || ')};`, '}', '');
+    lines.push(`export function mark${k.rust}Deferred(f, at, h, d, base) {`);
+    for(const p of fields)for(const line of jsMarkObserved(model,p.field.type,p.at))lines.push('  '+line);
+    lines.push('}', '');
+    lines.push(`export function removed${k.rust}Deferred(f, at, m) {`,
+      `  return ${fields.map(p=>`${jsSet(p.field)} != null && f[at + ${p.at}] !== 0`).join(' || ')};`, '}', '');
+  }
   lines.push('// A full row into object `m`.', ...jsSyncFn(model, `syncFull${k.rust}`, full.fields));
   lines.push('// Object `o`\'s import fields into a row (lists to `heap`).', ...jsPutFn(model, `put${k.rust}`, im.fields));
   lines.push('// Every field of object `o` into a row.', ...jsPutFn(model, `putFull${k.rust}`, full.fields));
@@ -1567,7 +1699,8 @@ function jsFile(model, file) {
   const codes = new Set();
   // The comparisons only some types need.
   const compare = new Set(['sameArray', 'sameEach', 'sameList', 'sameMap', 'sameQuat', 'sameVec']);
-  if ([...model.records.values()].some(r => r.file === file && r.delta.length)) compare.add('deltaChanged');
+  if(model.kindList.some(k=>k.file===file&&k.defer?.length))compare.add('markDelta');
+  if ([...model.records.values()].some(r => r.file === file && (r.delta.length || heapHelpers(model).has(r.name))) || [...model.kinds.values()].some(k=>k.facets.includes(file)&&k.delta)) compare.add('deltaChanged');
   let t0Field = null;
   const need = (t0) => {
     if (t0.base === 'obj') compare.add('sameObject');
@@ -1580,7 +1713,7 @@ function jsFile(model, file) {
     const t = container(t0) ? t0.value : t0;
     if (t.base === 'enum') { const e = model.enums.get(t.of); use(jsEnum(e), e.file); use(jsEnumIndex(e), e.file); }
     if (t.base === 'union') { const u = model.unions.get(t.of); for (const p of ['sync', 'put', 'export', 'same']) use(`${p}${u.name}`, u.file); }
-    if (t.base === 'rec') { const r = model.records.get(t.of); for (const p of ['sync', 'put', 'same', 'export']) use(`${p}${r.name}`, r.file); use(`${r.name}Mirror`, r.file); if (r.delta.length) use(`sync${r.name}Delta`, r.file); }
+    if (t.base === 'rec') { const r = model.records.get(t.of); for (const p of ['sync', 'put', 'same', 'export']) use(`${p}${r.name}`, r.file); use(`${r.name}Mirror`, r.file); if (r.delta.length) use(`sync${r.name}Delta`, r.file); if(heapHelpers(model).has(r.name)) use(`changed${r.name}HeapList`,r.file); }
     if (['ref', 'set'].includes(t.base) || (t0.base === 'list' && t.base === 'ref')) codes.add(kindConst(t.of));
     if (t0.base === 'list' && t.base === 'ref' && model.kinds.get(t.of).homeField === t0Field) use(`export${model.kinds.get(t.of).rust}`, model.kinds.get(t.of).file);
   };
@@ -1593,6 +1726,7 @@ function jsFile(model, file) {
   const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/${file}.mjs; do not edit.`, 'import * as THREE from "three";', `import { ${[...compare].sort().join(', ')} } from "${model.target.compare}";`];
   if (codes.size) lines.push(`import { ${[...codes].sort().join(', ')} } from "./kinds.js";`);
   for (const [from, names] of [...uses].sort()) lines.push(`import { ${[...names].sort().join(', ')} } from "./${from}.js";`);
+  if ([...model.records.values()].some(r=>r.file===file&&r.observe.length)) lines.push('import { observedFields, observeRecord } from "../observed.js";');
   lines.push('');
   for(const c of model.constants.values()) if(c.file===file) lines.push(`export const ${c.name} = ${c.value};`);
   for (const e of model.enums.values()) {
@@ -1600,7 +1734,26 @@ function jsFile(model, file) {
     lines.push(`export const ${jsEnum(e)} = ${JSON.stringify(e.values)};`, `export const ${jsEnumIndex(e)} = new Map(${jsEnum(e)}.map((name, i) => [name, i]));`, `export const ${e.name}_VALUE = Object.freeze(${JSON.stringify(Object.fromEntries(e.values.map((name,i)=>[name,i])))});`, '');
   }
   for (const u of model.unions.values()) if (u.file === file) lines.push(...jsUnion(model, u));
-  for (const r of model.records.values()) if (r.file === file) lines.push(...jsRecord(model, r));
+  for (const r of model.records.values()) if (r.file === file) {
+    if(r.observe.length)lines.push(`const ${r.name}ObservedFields = observedFields(${JSON.stringify(r.observe.map(name=>r.fields.find(f=>f.name===name).js[0]))});`, '');
+    lines.push(...jsRecord(model, r));
+    if(observedType(model,{base:'rec',of:r.name,nullable:{null:false,undefined:false}})) lines.push(...jsObservedReader(model,r));
+    const inList=[...model.records.values()].some(parent=>parent.fields.some(f=>f.type.base==='list'&&!optional(f.type.value)&&f.type.value.base==='rec'&&f.type.value.of===r.name));
+    if(inList&&observedType(model,{base:'rec',of:r.name,nullable:{null:false,undefined:false}})&&observedTest(model,{base:'rec',of:r.name,nullable:{null:false,undefined:false}},0)!=='(false)') {
+      const test=observedTest(model,{base:'rec',of:r.name,nullable:{null:false,undefined:false}},0);
+      lines.push(`export function changed${r.name}ObservedList(f, at, n, h, d, base, stride) {`,
+        '  at |= 0; n |= 0; h |= 0;', '  for(let i=0;i<n;i++,at+=stride) {',
+        `    if (${test}) return true;`, '  }', '  return false;', '}', '');
+    }
+    if (heapHelpers(model).has(r.name)) {
+      let offset=0;const tests=[];
+      for (const f of r.fields) { tests.push(...jsDeltaHeapTests(model,f.type,offset)); offset+=words(model,f.type); }
+      lines.push(`export function changed${r.name}HeapList(f, at, n, h, d, base, stride, nullable) {`,
+        '  for (let i=0; i<n; i++, at+=stride) {',
+        `    if ((!nullable || f[at - 1] === 0) && (${tests.join(' || ')})) return true;`,
+        '  }', '  return false;', '}', '');
+    }
+  }
   for (const k of model.kindList) if (k.file === file) lines.push(...jsKind(model, k));
   return lines.join('\n').replace(/\n\n+$/, '\n');
 }

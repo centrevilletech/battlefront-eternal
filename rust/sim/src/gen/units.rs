@@ -489,11 +489,11 @@ pub struct F3Publication {
 }
 
 impl F3Publication {
-    pub const WORDS: usize = 171;
+    pub const WORDS: usize = 175;
     pub const BODY: usize = 0;
-    pub const ARSENAL: usize = 99;
-    pub const COMBAT: usize = 100;
-    pub const CONTROLS: usize = 144;
+    pub const ARSENAL: usize = 103;
+    pub const COMBAT: usize = 104;
+    pub const CONTROLS: usize = 148;
 
     /// Update one fixed field in a retained encoding; other words stay consumed.
     pub fn put_body(&self, row: &mut [f64], heap: &mut Vec<f64>) {
@@ -502,24 +502,24 @@ impl F3Publication {
 
     /// Update one fixed field in a retained encoding; other words stay consumed.
     pub fn put_controls(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        match &self.controls { Some(v) => { row[144] = 0.0; v.put(&mut row[144 + 1..], heap); } None => { row[144] = 1.0; row[144 + 1..144 + 27].fill(0.0); } }
+        match &self.controls { Some(v) => { row[148] = 0.0; v.put(&mut row[148 + 1..], heap); } None => { row[148] = 1.0; row[148 + 1..148 + 27].fill(0.0); } }
     }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 171] = (&mut row[..171]).try_into().unwrap();
+        let row: &mut [f64; 175] = (&mut row[..175]).try_into().unwrap();
         self.body.put(&mut row[0..], heap);
-        row[99] = self.arsenal as f64;
-        self.combat.put(&mut row[100..], heap);
-        match &self.controls { Some(v) => { row[144] = 0.0; v.put(&mut row[144 + 1..], heap); } None => { row[144] = 1.0; row[144 + 1..144 + 27].fill(0.0); } }
+        row[103] = self.arsenal as f64;
+        self.combat.put(&mut row[104..], heap);
+        match &self.controls { Some(v) => { row[148] = 0.0; v.put(&mut row[148 + 1..], heap); } None => { row[148] = 1.0; row[148 + 1..148 + 27].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 171] = (&row[..171]).try_into().unwrap();
+        let row: &[f64; 175] = (&row[..175]).try_into().unwrap();
         Self {
             body: F3UnitMirror::take(&row[0..], heap),
-            arsenal: word_u32(row[99]),
-            combat: F3CombatView::take(&row[100..], heap),
-            controls: if row[144] == 0.0 { Some(F3ControlView::take(&row[144 + 1..], heap)) } else { None },
+            arsenal: word_u32(row[103]),
+            combat: F3CombatView::take(&row[104..], heap),
+            controls: if row[148] == 0.0 { Some(F3ControlView::take(&row[148 + 1..], heap)) } else { None },
         }
     }
 
@@ -1782,6 +1782,9 @@ impl F3ShieldView {
 pub struct F3UnitMirror {
     pub key: F3UnitKey,
     pub pooled: bool,
+    pub hero: bool,
+    pub human: bool,
+    pub network_human: Option<bool>,
     pub team: f64,
     pub alive: bool,
     pub dead: bool,
@@ -1806,84 +1809,93 @@ pub struct F3UnitMirror {
 }
 
 impl F3UnitMirror {
-    pub const WORDS: usize = 99;
+    pub const WORDS: usize = 103;
     pub const KEY: usize = 0;
     pub const POOLED: usize = 3;
-    pub const TEAM: usize = 4;
-    pub const ALIVE: usize = 5;
-    pub const DEAD: usize = 6;
-    pub const DEAD_TIME: usize = 7;
-    pub const REMOVED: usize = 8;
-    pub const CHARACTER: usize = 9;
-    pub const CONTROLLER: usize = 12;
-    pub const SEAT: usize = 15;
-    pub const HELD: usize = 18;
-    pub const VISIBLE: usize = 20;
-    pub const TARGETABLE: usize = 21;
-    pub const TICK_COUNT: usize = 23;
-    pub const REMOTE_ACTIVE: usize = 24;
-    pub const POSITION: usize = 26;
-    pub const PREVIOUS: usize = 29;
-    pub const SETTLED: usize = 32;
-    pub const VELOCITY: usize = 35;
-    pub const AVOIDANCE: usize = 38;
-    pub const SOLDIER: usize = 41;
-    pub const DROIDEKA: usize = 65;
-    pub const WATER_CONTACT: usize = 90;
+    pub const HERO: usize = 4;
+    pub const HUMAN: usize = 5;
+    pub const NETWORK_HUMAN: usize = 6;
+    pub const TEAM: usize = 8;
+    pub const ALIVE: usize = 9;
+    pub const DEAD: usize = 10;
+    pub const DEAD_TIME: usize = 11;
+    pub const REMOVED: usize = 12;
+    pub const CHARACTER: usize = 13;
+    pub const CONTROLLER: usize = 16;
+    pub const SEAT: usize = 19;
+    pub const HELD: usize = 22;
+    pub const VISIBLE: usize = 24;
+    pub const TARGETABLE: usize = 25;
+    pub const TICK_COUNT: usize = 27;
+    pub const REMOTE_ACTIVE: usize = 28;
+    pub const POSITION: usize = 30;
+    pub const PREVIOUS: usize = 33;
+    pub const SETTLED: usize = 36;
+    pub const VELOCITY: usize = 39;
+    pub const AVOIDANCE: usize = 42;
+    pub const SOLDIER: usize = 45;
+    pub const DROIDEKA: usize = 69;
+    pub const WATER_CONTACT: usize = 94;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 99] = (&mut row[..99]).try_into().unwrap();
+        let row: &mut [f64; 103] = (&mut row[..103]).try_into().unwrap();
         self.key.put(&mut row[0..], heap);
         row[3] = if self.pooled { 1.0 } else { 0.0 };
-        row[4] = self.team;
-        row[5] = if self.alive { 1.0 } else { 0.0 };
-        row[6] = if self.dead { 1.0 } else { 0.0 };
-        row[7] = self.dead_time;
-        row[8] = if self.removed { 1.0 } else { 0.0 };
-        match &self.character { Some(v) => { row[9] = 0.0; row[9 + 1] = (*v).slot as f64; row[9 + 1 + 1] = (*v).gen as f64; } None => { row[9] = 1.0; row[9 + 1..9 + 3].fill(0.0); } }
-        match &self.controller { Some(v) => { row[12] = 0.0; row[12 + 1] = (*v).slot as f64; row[12 + 1 + 1] = (*v).gen as f64; } None => { row[12] = 1.0; row[12 + 1..12 + 3].fill(0.0); } }
-        match &self.seat { Some(v) => { row[15] = 0.0; row[15 + 1] = (*v).slot as f64; row[15 + 1 + 1] = (*v).gen as f64; } None => { row[15] = 1.0; row[15 + 1..15 + 3].fill(0.0); } }
-        match &self.held { Nullable::Value(v) => { row[18] = 0.0; row[18 + 1] = if (*v) { 1.0 } else { 0.0 }; } Nullable::Null => { row[18] = 1.0; row[18 + 1..18 + 2].fill(0.0); } Nullable::Undefined => { row[18] = 2.0; row[18 + 1..18 + 2].fill(0.0); } }
-        row[20] = if self.visible { 1.0 } else { 0.0 };
-        match &self.targetable { Some(v) => { row[21] = 0.0; row[21 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[21] = 2.0; row[21 + 1..21 + 2].fill(0.0); } }
-        row[23] = self.tick_count;
-        match &self.remote_active { Some(v) => { row[24] = 0.0; row[24 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[24] = 2.0; row[24 + 1..24 + 2].fill(0.0); } }
-        row[26..26 + 3].copy_from_slice(&self.position);
-        row[29..29 + 3].copy_from_slice(&self.previous);
-        row[32..32 + 3].copy_from_slice(&self.settled);
-        row[35..35 + 3].copy_from_slice(&self.velocity);
-        row[38..38 + 3].copy_from_slice(&self.avoidance);
-        match &self.soldier { Some(v) => { row[41] = 0.0; v.put(&mut row[41 + 1..], heap); } None => { row[41] = 1.0; row[41 + 1..41 + 24].fill(0.0); } }
-        match &self.droideka { Some(v) => { row[65] = 0.0; v.put(&mut row[65 + 1..], heap); } None => { row[65] = 1.0; row[65 + 1..65 + 25].fill(0.0); } }
-        match &self.water_contact { Some(v) => { row[90] = 0.0; v.put(&mut row[90 + 1..], heap); } None => { row[90] = 2.0; row[90 + 1..90 + 9].fill(0.0); } }
+        row[4] = if self.hero { 1.0 } else { 0.0 };
+        row[5] = if self.human { 1.0 } else { 0.0 };
+        match &self.network_human { Some(v) => { row[6] = 0.0; row[6 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[6] = 2.0; row[6 + 1..6 + 2].fill(0.0); } }
+        row[8] = self.team;
+        row[9] = if self.alive { 1.0 } else { 0.0 };
+        row[10] = if self.dead { 1.0 } else { 0.0 };
+        row[11] = self.dead_time;
+        row[12] = if self.removed { 1.0 } else { 0.0 };
+        match &self.character { Some(v) => { row[13] = 0.0; row[13 + 1] = (*v).slot as f64; row[13 + 1 + 1] = (*v).gen as f64; } None => { row[13] = 1.0; row[13 + 1..13 + 3].fill(0.0); } }
+        match &self.controller { Some(v) => { row[16] = 0.0; row[16 + 1] = (*v).slot as f64; row[16 + 1 + 1] = (*v).gen as f64; } None => { row[16] = 1.0; row[16 + 1..16 + 3].fill(0.0); } }
+        match &self.seat { Some(v) => { row[19] = 0.0; row[19 + 1] = (*v).slot as f64; row[19 + 1 + 1] = (*v).gen as f64; } None => { row[19] = 1.0; row[19 + 1..19 + 3].fill(0.0); } }
+        match &self.held { Nullable::Value(v) => { row[22] = 0.0; row[22 + 1] = if (*v) { 1.0 } else { 0.0 }; } Nullable::Null => { row[22] = 1.0; row[22 + 1..22 + 2].fill(0.0); } Nullable::Undefined => { row[22] = 2.0; row[22 + 1..22 + 2].fill(0.0); } }
+        row[24] = if self.visible { 1.0 } else { 0.0 };
+        match &self.targetable { Some(v) => { row[25] = 0.0; row[25 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[25] = 2.0; row[25 + 1..25 + 2].fill(0.0); } }
+        row[27] = self.tick_count;
+        match &self.remote_active { Some(v) => { row[28] = 0.0; row[28 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[28] = 2.0; row[28 + 1..28 + 2].fill(0.0); } }
+        row[30..30 + 3].copy_from_slice(&self.position);
+        row[33..33 + 3].copy_from_slice(&self.previous);
+        row[36..36 + 3].copy_from_slice(&self.settled);
+        row[39..39 + 3].copy_from_slice(&self.velocity);
+        row[42..42 + 3].copy_from_slice(&self.avoidance);
+        match &self.soldier { Some(v) => { row[45] = 0.0; v.put(&mut row[45 + 1..], heap); } None => { row[45] = 1.0; row[45 + 1..45 + 24].fill(0.0); } }
+        match &self.droideka { Some(v) => { row[69] = 0.0; v.put(&mut row[69 + 1..], heap); } None => { row[69] = 1.0; row[69 + 1..69 + 25].fill(0.0); } }
+        match &self.water_contact { Some(v) => { row[94] = 0.0; v.put(&mut row[94 + 1..], heap); } None => { row[94] = 2.0; row[94 + 1..94 + 9].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 99] = (&row[..99]).try_into().unwrap();
+        let row: &[f64; 103] = (&row[..103]).try_into().unwrap();
         Self {
             key: F3UnitKey::take(&row[0..], heap),
             pooled: row[3] != 0.0,
-            team: row[4],
-            alive: row[5] != 0.0,
-            dead: row[6] != 0.0,
-            dead_time: row[7],
-            removed: row[8] != 0.0,
-            character: if row[9] == 0.0 { Some(Ref::new(word_u32(row[9 + 1]), word_u32(row[9 + 1 + 1]))) } else { None },
-            controller: if row[12] == 0.0 { Some(Ref::new(word_u32(row[12 + 1]), word_u32(row[12 + 1 + 1]))) } else { None },
-            seat: if row[15] == 0.0 { Some(Ref::new(word_u32(row[15 + 1]), word_u32(row[15 + 1 + 1]))) } else { None },
-            held: match word_u32(row[18]) { 0 => Nullable::Value(row[18 + 1] != 0.0), 1 => Nullable::Null, _ => Nullable::Undefined },
-            visible: row[20] != 0.0,
-            targetable: if row[21] == 0.0 { Some(row[21 + 1] != 0.0) } else { None },
-            tick_count: row[23],
-            remote_active: if row[24] == 0.0 { Some(row[24 + 1] != 0.0) } else { None },
-            position: [row[26], row[26 + 1], row[26 + 2]],
-            previous: [row[29], row[29 + 1], row[29 + 2]],
-            settled: [row[32], row[32 + 1], row[32 + 2]],
-            velocity: [row[35], row[35 + 1], row[35 + 2]],
-            avoidance: [row[38], row[38 + 1], row[38 + 2]],
-            soldier: if row[41] == 0.0 { Some(F3SoldierMotion::take(&row[41 + 1..], heap)) } else { None },
-            droideka: if row[65] == 0.0 { Some(F3DroidekaMotion::take(&row[65 + 1..], heap)) } else { None },
-            water_contact: if row[90] == 0.0 { Some(WaterContact::take(&row[90 + 1..], heap)) } else { None },
+            hero: row[4] != 0.0,
+            human: row[5] != 0.0,
+            network_human: if row[6] == 0.0 { Some(row[6 + 1] != 0.0) } else { None },
+            team: row[8],
+            alive: row[9] != 0.0,
+            dead: row[10] != 0.0,
+            dead_time: row[11],
+            removed: row[12] != 0.0,
+            character: if row[13] == 0.0 { Some(Ref::new(word_u32(row[13 + 1]), word_u32(row[13 + 1 + 1]))) } else { None },
+            controller: if row[16] == 0.0 { Some(Ref::new(word_u32(row[16 + 1]), word_u32(row[16 + 1 + 1]))) } else { None },
+            seat: if row[19] == 0.0 { Some(Ref::new(word_u32(row[19 + 1]), word_u32(row[19 + 1 + 1]))) } else { None },
+            held: match word_u32(row[22]) { 0 => Nullable::Value(row[22 + 1] != 0.0), 1 => Nullable::Null, _ => Nullable::Undefined },
+            visible: row[24] != 0.0,
+            targetable: if row[25] == 0.0 { Some(row[25 + 1] != 0.0) } else { None },
+            tick_count: row[27],
+            remote_active: if row[28] == 0.0 { Some(row[28 + 1] != 0.0) } else { None },
+            position: [row[30], row[30 + 1], row[30 + 2]],
+            previous: [row[33], row[33 + 1], row[33 + 2]],
+            settled: [row[36], row[36 + 1], row[36 + 2]],
+            velocity: [row[39], row[39 + 1], row[39 + 2]],
+            avoidance: [row[42], row[42 + 1], row[42 + 2]],
+            soldier: if row[45] == 0.0 { Some(F3SoldierMotion::take(&row[45 + 1..], heap)) } else { None },
+            droideka: if row[69] == 0.0 { Some(F3DroidekaMotion::take(&row[69 + 1..], heap)) } else { None },
+            water_contact: if row[94] == 0.0 { Some(WaterContact::take(&row[94 + 1..], heap)) } else { None },
         }
     }
 

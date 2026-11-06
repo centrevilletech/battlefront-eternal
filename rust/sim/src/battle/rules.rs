@@ -24,18 +24,31 @@ pub const NO_POST: f64 = 20.0;
 /// use BattleWorld below; the live module can also call these rules while
 /// the command posts and bodies still belong to JavaScript.
 pub trait RulesWorld {
+    fn stats_active(&mut self, _s: &Store, _r: Ref<Character>, _c: &Character, active: bool) -> bool { active }
+
+    /// Owned worlds move prepared storage into a lazy record at this slot.
+    /// Capture hosts retain recordOf's ordinary first-use construction.
+    fn prepare_record(&mut self, _s: &mut Store, _character: Ref<Character>) {}
     fn relation(&mut self, a: f64, b: f64) -> f64;
-    fn unit_alive(&mut self, unit: Ref<crate::gen::Unit>) -> bool;
-    fn observe(&mut self, character: Ref<Character>, unit: Option<Ref<crate::gen::Unit>>) -> Option<Seen>;
+    fn unit_alive(&mut self, s: &Store, unit: Ref<crate::gen::Unit>) -> bool;
+    fn observe(&mut self, s: &Store, character: Ref<Character>, unit: Option<Ref<crate::gen::Unit>>) -> Option<Seen>;
     fn living(&mut self, s: &Store, team: f64) -> Option<f64>;
     fn owned_values(&mut self, s: &mut Store, team: f64) -> Vec<Option<f64>>;
     fn battle_over(&mut self, s: &mut Store, loser: f64);
+    /// Native owners can sum their placed/mobile posts directly. The legacy
+    /// foreign host still supplies its value list while its callers migrate.
+    fn owned_summary(&mut self, s: &mut Store, team: f64) -> (usize, f64) {
+        let values = self.owned_values(s, team);
+        let mut sum = 0.0;
+        for value in &values { sum += value.unwrap_or(10.0); }
+        (values.len(), sum)
+    }
 }
 
 impl<T: BattleWorld + ?Sized> RulesWorld for T {
     fn relation(&mut self, a: f64, b: f64) -> f64 { BattleWorld::relation(self, a, b) }
-    fn unit_alive(&mut self, unit: Ref<crate::gen::Unit>) -> bool { BattleWorld::unit_alive(self, unit) }
-    fn observe(&mut self, character: Ref<Character>, unit: Option<Ref<crate::gen::Unit>>) -> Option<Seen> { BattleWorld::observe(self, character, unit) }
+    fn unit_alive(&mut self, _s: &Store, unit: Ref<crate::gen::Unit>) -> bool { BattleWorld::unit_alive(self, unit) }
+    fn observe(&mut self, _s: &Store, character: Ref<Character>, unit: Option<Ref<crate::gen::Unit>>) -> Option<Seen> { BattleWorld::observe(self, character, unit) }
     fn living(&mut self, _: &Store, team: f64) -> Option<f64> { BattleWorld::living(self, team) }
     fn owned_values(&mut self, s: &mut Store, team: f64) -> Vec<Option<f64>> {
         posts::owned(s, team, self).into_iter().map(|post| posts::value_bleed(s, post)).collect()
@@ -161,7 +174,7 @@ pub fn living<W: RulesWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> f6
     let mut n = 0.0;
     for &r in &s.battle.characters {
         let c = s.character.get(r).expect("a Character of the battle");
-        if c.team == team && c.hero != Some(true) && c.unit.is_some_and(|u| world.unit_alive(u)) {
+        if c.team == team && c.hero != Some(true) && c.unit.is_some_and(|u| world.unit_alive(s, u)) {
             n += 1.0;
         }
     }
@@ -172,8 +185,19 @@ pub fn living<W: RulesWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> f6
 /// this tick (battle.statsActive).
 pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stats::Text, stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut W) {
     if !s.battle.game_over {
-        let list = s.battle.characters.clone();
-        stats::tick(&mut s.battle.stats, dt, &list, &mut s.character, strings, stats_active, |r, c| -> Option<Seen> { world.observe(r, c.unit) });
+        s.battle.stats.time += dt;
+        for i in 0..s.battle.characters.len() {
+            let r = s.battle.characters[i];
+            let c = s.character.get(r).expect("a Character of the battle");
+            if !world.stats_active(s, r, c, stats_active(r, c)) { continue; }
+            world.prepare_record(s, r);
+            let c = s.character.get_mut(r).expect("active statistics Character");
+            stats::record_of(c);
+            let unit = c.unit;
+            let visible = stats::truthy(strings, c.class_name) || unit.is_some();
+            let seen = if visible { world.observe(s, r, unit) } else { None };
+            stats::tick_character(dt, s.character.get_mut(r).unwrap(), strings, seen);
+        }
     }
     let b = &mut s.battle;
     if b.over {
@@ -225,11 +249,8 @@ pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stat
 /// score(team) (battle.js:237): the ValueBleed of each post it holds (its
 /// command vehicles' too), plus 1 per neutral post.
 pub fn score<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, world: &mut W) -> f64 {
-    let mut owned = 0.0;
-    for value in world.owned_values(s, team) {
-        owned += value.unwrap_or(10.0);
-    }
-    owned + world.owned_values(s, 0.0).len() as f64
+    let (_, owned) = world.owned_summary(s, team);
+    owned + world.owned_summary(s, 0.0).0 as f64
 }
 
 /// updateTeam(team, dt) (battle.js:242).
@@ -238,12 +259,12 @@ pub fn update_team<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, dt: f64, wo
         update_locals(s, team, world);
         return;
     }
-    let owned = world.owned_values(s, team).len();
+    let owned = world.owned_summary(s, team).0;
     let score = score(s, team, world);
     let b = &mut s.battle;
-    let rules = b.bleed_rules.get(team).filter(|r| !r.is_empty()).cloned();
-    if let Some(rules) = rules {
-        let rate = rules.iter().find(|r| score <= r[0]).map(|r| r[1]).unwrap_or(0.0);
+    let rate = b.bleed_rules.get(team).filter(|r| !r.is_empty())
+        .map(|rules| rules.iter().find(|r| score <= r[0]).map(|r| r[1]).unwrap_or(0.0));
+    if let Some(rate) = rate {
         b.bleed.set(team, rate);
         // `(this.bleedClock[team] || 0) + this.bleed[team] * dt`
         let clock = b.bleed_clock.at(team).filter(|c| *c != 0.0 && !c.is_nan()).unwrap_or(0.0);

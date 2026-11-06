@@ -1,6 +1,4 @@
 import * as THREE from "three";
-import { buildRegion, inRegion } from "./regions.js";
-import { legacyRandom } from "./ai/random.js";
 
 // Destructible command posts, the rest of what the 2004 game does
 // with them (docs/objectives.md): the building is src/props.js
@@ -17,11 +15,6 @@ import { legacyRandom } from "./ai/random.js";
 //   (each axis uniform over its extent), then every soldier and vehicle
 //   whose origin is inside dies, no one credited. Hoth's shield generator
 //   has one (CP2_Death).
-
-export const KILL_REGION_BLASTS = 15;
-const BLASTS = ["explosion", "med_explosion", "small_explosion"];
-// The blasts' points with no generator given: Math.random.
-const legacyKillRegion = legacyRandom("kill-region");
 
 // The units registry's entry for a destructible post's building.
 export class ObjectiveTarget {
@@ -79,28 +72,4 @@ export function registerObjectives(live, units) {
     building.aiTarget ||= new ObjectiveTarget(building);
     if (units.byId(building.aiTarget.id) !== building.aiTarget) units.add(building.aiTarget);
   }
-}
-
-// A post's KillRegion ({ type, matrix, size }) as it goes: the effects'
-// points (random() draws), then whoever stands inside it dies.
-// play(name, point): an effect; victims(): the soldiers and vehicles to
-// test, each { position, kill() }.
-export function killRegion(region, { random = legacyKillRegion, play, victims }) {
-  if (!region) return 0;
-  const built = buildRegion(region);
-  const matrix = built.inverse.clone().invert();
-  const [a, b, c] = built.half;
-  const point = new THREE.Vector3();
-  for (let i = 0; i < KILL_REGION_BLASTS; i++) {
-    point.set((random() * 2 - 1) * a, (random() * 2 - 1) * b, (random() * 2 - 1) * c).applyMatrix4(matrix);
-    play?.(BLASTS[Math.floor(random() * 3) % 3], point.clone());
-  }
-  let killed = 0;
-  for (const victim of victims?.() || []) {
-    if (killed >= 64) break;
-    if (!inRegion(built, victim.position, point)) continue;
-    victim.kill();
-    killed += 1;
-  }
-  return killed;
 }

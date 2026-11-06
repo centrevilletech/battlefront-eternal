@@ -9,6 +9,6 @@ test('world step runs one owning phase before ordnance, items and battle', async
   const host = {state:() => state, call(op) { calls.push(op); return {}; }};
   world.step(host, 1/60, 1, null);
   assert.deepEqual(calls, ['start','water','clockAxes','takeSquad','takeSquad','takeSquad','takeSquad',
-    'playerCount','eye','zoom','cameraMatrix','ai','nativeUnits','served','live','ordnance',
+    'playerCount','eye','zoom','cameraMatrix','ai','nativeUnits','live','ordnance',
     'mineTargets','items','battlefield','battle','target','spawnFlush']);
 });

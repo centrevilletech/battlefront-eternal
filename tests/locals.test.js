@@ -1,4 +1,9 @@
 import { contentPath } from './helpers/content.js';
+import {ownBattle} from './fixtures/f4-owned-battle.js';
+import {f3World} from './fixtures/f3-world.js';
+import {F4Live} from '../src/f4-live.js';
+import {F4Tail} from '../src/f4-tail.js';
+import {HumanSpawnMirror} from '../src/sim/gen/index.js';
 // Locals (teams 3 and up: Tatooine's Tusken Raiders and Jawas, Naboo's
 // Gungans, Endor's Ewoks, Kashyyyk's Wookiees, Geonosis' Geonosians): the
 // mission's relations, factions and capture teams; command posts; the
@@ -86,35 +91,42 @@ function battlefield(mission, { headless = true } = {}) {
   return { units, posts, post: (name) => posts.posts.find((p) => p.name === name) };
 }
 const soldier = (team, x) => ({ team, position: new THREE.Vector3(x, 0, 0) });
-const run = (posts, soldiers, seconds) => {
-  for (let t = 0; t < seconds * 60; t++) posts.update(1 / 60, soldiers);
+const run = async (posts, soldiers, seconds) => {
+  const def={class:'soldier',base:'soldier',MaxHealth:100,weapons:[]};
+  const w=await f3World({soldier:def},{prepareLive:()=>({buildings:[],animated:[],traps:[]})});
+  w.units.setTeams(posts.teams.teams);
+  for(const input of soldiers){const u=w.spawn('soldier',input.position.x,input.position.z);u.team=u.combat.team=input.team;}
+  const b=new Battle({teams:{1:{reinforcements:100000},2:{reinforcements:100000},3:{}},posts,own:1,foe:2});
+  new F4Live(w.phase,{sound(){}});
+  const tail=new F4Tail(w.phase,b,{posts,human:new HumanSpawnMirror(),gameplay:w.ordnance.random,captureTeams:w.units.teams.capture});
+  for(let tick=1;tick<=seconds*60;tick++)tail.step(1/60,tick,true);
 };
 
-test("Jawas in a post count for nobody; Gungans count for their army", () => {
+test("Jawas in a post count for nobody; Gungans count for their army", async () => {
   const jawas = battlefield(MISSIONS.jawa);
-  run(jawas.posts, [soldier(3, 0), soldier(3, 0), soldier(3, 200)], 40);
+  await run(jawas.posts, [soldier(3, 0), soldier(3, 0), soldier(3, 200)], 40);
   assert.equal(jawas.post("cp1").team, 1, "friends of both, they don't neutralize the Republic's post");
   assert.equal(jawas.post("cp3").team, 0, "nor take the neutral one");
   const gungans = battlefield(MISSIONS.gungan);
-  run(gungans.posts, [soldier(3, 100), soldier(3, 100)], 30);
+  await run(gungans.posts, [soldier(3, 100), soldier(3, 100)], 30);
   assert.deepEqual([gungans.post("cp2").team, gungans.post("cp2").neutralize], [2, 0], "Gungans in the CIS post don't attack it");
-  run(gungans.posts, [soldier(3, 100), soldier(1, 100)], 6);
+  await run(gungans.posts, [soldier(3, 100), soldier(1, 100)], 6);
   assert.ok(Math.abs(gungans.post("cp2").neutralize - 0.5) < 0.01, "nor slow the Republic soldier neutralizing it");
   const helped = battlefield(MISSIONS.gungan);
-  run(helped.posts, [soldier(3, 200)], 12);
+  await run(helped.posts, [soldier(3, 200)], 12);
   assert.equal(helped.post("cp3").team, 2, "a Gungan alone takes the neutral post for the CIS");
 });
 
-test("Tusken Raiders take posts for themselves; two attacking teams add their rates", () => {
+test("Tusken Raiders take posts for themselves; two attacking teams add their rates", async () => {
   const raid = battlefield(MISSIONS.tusken);
-  run(raid.posts, [soldier(3, 100)], 12.1);
+  await run(raid.posts, [soldier(3, 100)], 12.1);
   assert.equal(raid.post("cp2").team, 0, "one raider neutralizes the CIS post in 12 s");
-  run(raid.posts, [soldier(3, 100)], 10.1);
+  await run(raid.posts, [soldier(3, 100)], 10.1);
   assert.equal(raid.post("cp2").team, 3, "and captures it in 10 more");
   const both = battlefield(MISSIONS.tusken);
-  both.posts.update(1 / 60, [soldier(1, 100), soldier(3, 100)]);
+  await run(both.posts,[soldier(1,100),soldier(3,100)],1/60);
   assert.ok(Math.abs(both.post("cp2").remaining() - (12 * (1 - both.post("cp2").neutralize)) / 2) < 1e-9, "1 + 1, not the rate of 2 (1.5)");
-  run(both.posts, [soldier(1, 300), soldier(2, 300), soldier(3, 300)], 60);
+  await run(both.posts, [soldier(1, 300), soldier(2, 300), soldier(3, 300)], 60);
   assert.equal(both.post("ts1").team, 3, "a post without a capture region never changes hands");
 });
 
@@ -140,46 +152,46 @@ test("campfires and drops aren't on the maps and have no hologram; locals' posts
 
 
 const living = (counts) => (team) => counts[team] ?? 0;
-function battle(mission, posts, counts = {}) {
+async function battle(mission, posts, counts = {}) {
   const units = new Units();
   units.setTeams(missionTeams(mission));
   const teams = { 1: { name: "Republic", reinforcements: 100, bleed: [[0, 1]] }, 2: { name: "CIS", reinforcements: 100 }, 3: { name: "locals" } };
-  return new Battle({ teams, posts: { posts, owned: (team) => posts.filter((p) => p.team === team) }, own: 1, foe: 2,
+  const b = new Battle({ teams, posts: { posts, owned: (team) => posts.filter((p) => p.team === team) }, own: 1, foe: 2,
     relation: (a, b) => units.relation(a, b), living: living(counts) });
+  const owner=await ownBattle(b,{counts});return {b,step:owner.step};
 }
 const held = (team, valueBleed = 10) => ({ team, desc: { valueBleed } });
 
-
-test("locals keep coming: no bleed, no countdown, unlimited reinforcements", () => {
-  const b = battle(MISSIONS.jawa, [held(1), held(2)]);
-  for (let t = 0; t < 30 * 60; t++) b.update(1 / 60);
+test("locals keep coming: no bleed, no countdown, unlimited reinforcements", async () => {
+  const {b,step} = await battle(MISSIONS.jawa, [held(1), held(2)]);
+  for (let t = 0; t < 30 * 60; t++) step(1 / 60);
   assert.equal(b.reinforcements[3], 2147483647, "holding no post, the Jawas still have every reinforcement after 30 s");
   assert.equal(b.over, false);
 });
 
-test("a local team friendly with one army runs out with it", () => {
-  const ewoks = battle(MISSIONS.ewok, [held(1), held(2)], { 1: 12 });
-  ewoks.reinforcements[1] = 13;
-  ewoks.update(1 / 60);
+test("a local team friendly with one army runs out with it", async () => {
+  const {b:ewoks,step:ewokStep} = await battle(MISSIONS.ewok, [held(1), held(2)], { 1: 12 });
+  ewoks.spend(1,87);
+  ewokStep(1 / 60);
   assert.equal(ewoks.reinforcements[3], 2147483647);
-  ewoks.reinforcements[1] = 12;
-  ewoks.update(1 / 60);
+  ewoks.spend(1);
+  ewokStep(1 / 60);
   assert.equal(ewoks.reinforcements[3], 0, "the Rebels' reinforcements are down to their living: no more Ewoks");
   assert.equal(ewoks.start[3], 2147483647, "their starting count stays");
-  const jawas = battle(MISSIONS.jawa, [held(1), held(2)], { 1: 12 });
-  jawas.reinforcements[1] = 0;
-  jawas.update(1 / 60);
+  const {b:jawas,step:jawaStep} = await battle(MISSIONS.jawa, [held(1), held(2)], { 1: 12 });
+  jawas.spend(1,100);
+  jawaStep(1 / 60);
   assert.equal(jawas.reinforcements[3], 2147483647, "friends of both armies follow neither");
 });
 
-test("an army whose posts are worth nothing counts down; a neutral post pauses it", () => {
+test("an army whose posts are worth nothing counts down; a neutral post pauses it", async () => {
   // Hoth's probe droid drop: the Empire's, worth nothing.
-  const b = battle(MISSIONS.probe, [held(1, 0), held(2), held(2)]);
-  for (let t = 0; t < 21 * 60; t++) b.update(1 / 60);
+  const {b,step} = await battle(MISSIONS.probe, [held(1, 0), held(2), held(2)]);
+  for (let t = 0; t < 21 * 60; t++) step(1 / 60);
   assert.equal(b.reinforcements[1], 0);
   assert.equal(b.loser, 1);
-  const paused = battle(MISSIONS.probe, [held(1, 0), held(2), held(0)]);
-  for (let t = 0; t < 21 * 60; t++) paused.update(1 / 60);
+  const {b:paused,step:pausedStep} = await battle(MISSIONS.probe, [held(1, 0), held(2), held(0)]);
+  for (let t = 0; t < 21 * 60; t++) pausedStep(1 / 60);
   assert.equal(paused.over, false);
   assert.equal(paused.noPost[1], 20);
 });

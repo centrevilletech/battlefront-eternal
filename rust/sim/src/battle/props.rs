@@ -3,6 +3,8 @@
 //! explosions and notifications cross World in their original order.
 
 use three::{Matrix4, Vector3};
+use crate::gen::{PbKind, PbSettings, PbSupply};
+fn v3(v: [f64; 3]) -> Vector3 { Vector3::new(v[0], v[1], v[2]) }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum State { #[default] Unbuilt, Built, Destroyed }
@@ -172,7 +174,7 @@ pub struct Target {
     pub max_health: f64,
     pub weapons: Vec<Weapon>,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Supply {
     pub position: Vector3,
     pub radius: f64,
@@ -182,7 +184,7 @@ pub struct Supply {
     pub vehicle_health: f64,
     pub vehicle_ammo: f64,
 }
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Station {
     pub building: Building,
     pub active_mode: bool,
@@ -196,23 +198,26 @@ impl Station {
     pub fn serve(supply: &Supply, target: &mut Target) -> u8 {
         let mut served = 0;
         let (health, ammo) = if target.vehicle { (supply.vehicle_health, supply.vehicle_ammo) } else { (supply.health, supply.ammo) };
-        if health > 0.0 && target.health < target.max_health {
-            target.health = min(target.health + health, target.max_health);
-            served |= 1;
+        if let Some(next) = supply_health(target.health, target.max_health, health) {
+            target.health = next; served |= 1;
         }
         if ammo > 0.0 {
             for weapon in &mut target.weapons {
-                if weapon.bottomless || !(weapon.ammo > 0.0) { continue; }
-                let loaded = if weapon.clip >= weapon.per_shot - 1e-6 { 1.0 } else { 0.0 };
-                let cap = weapon.ammo - loaded;
-                let next = max(0.0, min(cap, weapon.reserve + ammo));
-                if (next - weapon.reserve).abs() > 0.0001 { weapon.reserve = next; served |= 2; }
+                if let Some(next) = supply_reserve(weapon.bottomless, weapon.ammo, weapon.clip, weapon.per_shot, weapon.reserve, ammo) {
+                    weapon.reserve = next; served |= 2;
+                }
             }
         }
         served
     }
     pub fn update(&mut self, dt: f64, settings: &Settings, supply: &Supply, targets: &mut [Target], soldiers: &[usize], vehicles: &[usize], world: &mut impl World) {
         self.building.regenerate(dt, settings, world);
+        self.pulse(dt, supply, &mut SliceSupplies { targets, soldiers, vehicles, world });
+    }
+    /// PowerupStation.update after regeneration. Native services visit live
+    /// bodies in source order and write their canonical health/ammunition;
+    /// no complete target or weapon table must be copied for a pulse.
+    pub fn pulse<T: Supplies>(&mut self, dt: f64, supply: &Supply, targets: &mut T) {
         if !self.building.alive() { return; }
         if self.active_mode {
             // V8's += keeps a NaN right operand's payload. LLVM may
@@ -225,31 +230,31 @@ impl Station {
             let mut served = 0;
             let mut first = None;
             self.served_player = false;
-            for &index in soldiers {
-                let target = &mut targets[index];
+            for index in 0..targets.soldiers() {
+                let target = targets.soldier(index);
                 if target.position.distance_to(&supply.position) >= supply.radius { continue; }
-                let gave = Self::serve(supply, target);
+                let gave = targets.serve(target.key, supply);
                 if gave == 0 { continue; }
-                if first.is_none() { first = Some(target.id); }
+                if first.is_none() { first = Some(target.key); }
                 served |= gave;
                 if target.player { self.served_player = true; }
-                world.target_changed(target);
-                world.served(self, target, gave);
+                targets.changed(target.key);
+                targets.served(self, target.key, gave);
             }
             if truth(supply.vehicle_health) || truth(supply.vehicle_ammo) {
-                for &index in vehicles {
-                    let target = &mut targets[index];
+                for index in 0..targets.vehicles() {
+                    let target = targets.vehicle(index);
                     if target.alive && target.position.distance_to(&supply.position) < supply.radius + target.radius * 0.5 {
-                        let gave = Self::serve(supply, target);
+                        let gave = targets.serve(target.key, supply);
                         served |= gave;
-                        if gave != 0 { world.target_changed(target); }
+                        if gave != 0 { targets.changed(target.key); }
                     }
                 }
             }
             self.served_health = served & 1 != 0;
             self.served_ammo = served & 2 != 0;
             if served != 0 {
-                world.serve_sound(self, first);
+                targets.sound(self, first);
                 if !self.active_mode { self.active = 0.0; }
                 self.active_mode = true;
             } else if self.active_mode { self.active_mode = false; }
@@ -257,3 +262,87 @@ impl Station {
     }
 }
 fn truth(value: f64) -> bool { value != 0.0 && !value.is_nan() }
+
+// Generated reader records are scalar snapshots of canonical state.
+use crate::gen::{PbIdentity, PbState, PbStateName, PbStation, PbMode};
+impl From<&PbIdentity> for Identity {
+    fn from(v: &PbIdentity) -> Self { match v.kind as u32 { 0 => Self::Undefined, 1 => Self::Null, 2 => Self::Object(v.id as usize), _ => panic!("prop identity") } }
+}
+impl From<Identity> for PbIdentity {
+    fn from(v: Identity) -> Self { match v { Identity::Undefined => Self { kind: 0.0, id: 0.0 }, Identity::Null => Self { kind: 1.0, id: 0.0 }, Identity::Object(id) => Self { kind: 2.0, id: id as f64 } } }
+}
+impl From<PbState> for Building {
+    fn from(v: PbState) -> Self { Self { state: match v.state { PbStateName::Unbuilt => State::Unbuilt, PbStateName::Built => State::Built, PbStateName::Destroyed => State::Destroyed },
+        health: v.health, add_health: v.add_health, last_attacker: (&v.last_attacker).into(), target_generation: v.target_generation } }
+}
+impl From<&Building> for PbState {
+    fn from(v: &Building) -> Self { Self { state: match v.state { State::Unbuilt => PbStateName::Unbuilt, State::Built => PbStateName::Built, State::Destroyed => PbStateName::Destroyed },
+        health: v.health, add_health: v.add_health, last_attacker: v.last_attacker.into(), target_generation: v.target_generation } }
+}
+impl From<PbStation> for Station {
+    fn from(v: PbStation) -> Self { Self { building: v.building.into(), active_mode: v.mode == PbMode::Active, active: v.active, pulse: v.pulse,
+        served_player: v.served_player, served_health: v.served_health, served_ammo: v.served_ammo } }
+}
+impl From<&Station> for PbStation {
+    fn from(v: &Station) -> Self { Self { building: (&v.building).into(), mode: if v.active_mode { PbMode::Active } else { PbMode::Waiting }, active: v.active, pulse: v.pulse,
+        served_player: v.served_player, served_health: v.served_health, served_ammo: v.served_ammo } }
+}
+
+// Generated construction records are decoded once, before the live phase.
+impl From<PbSupply> for Supply {
+    fn from(v: PbSupply) -> Self { Self { position: v3(v.position), radius: v.radius, delay: v.delay, health: v.health, ammo: v.ammo, vehicle_health: v.vehicle_health, vehicle_ammo: v.vehicle_ammo } }
+}
+impl From<PbSettings> for Settings {
+fn from(v: PbSettings) -> Self {
+    let mut matrix = Matrix4::default(); matrix.from_array(&v.matrix, 0);
+    Settings { kind: match v.kind { PbKind::Building => Kind::Building, PbKind::Turret => Kind::Turret, PbKind::Objective => Kind::Objective },
+        max_health: v.max_health, respawn_time: v.respawn_time, built_add_health: v.built_add_health, regenerates: v.regenerates,
+        has_destroyed: v.has_destroyed, has_unbuilt: v.has_unbuilt, has_crew: false, has_explosion: v.has_explosion, has_damaged: false, matrix,
+        models: v.models.into_iter().map(|v| v.map(|m| Model { sphere: m.sphere, bounds: m.low.zip(m.high).map(|(lo, hi)| [v3(lo), v3(hi)]) })).collect::<Vec<_>>().try_into().expect("three building looks") }
+}
+}
+
+/// Health and reserve arithmetic shared with canonical Unit/hull services.
+pub fn supply_health(current: f64, maximum: f64, amount: f64) -> Option<f64> {
+    (amount > 0.0 && current < maximum).then(|| min(current + amount, maximum))
+}
+pub fn supply_reserve(bottomless: bool, ammo: f64, clip: f64, per_shot: f64, reserve: f64, amount: f64) -> Option<f64> {
+    if !(amount > 0.0) || bottomless || !(ammo > 0.0) { return None; }
+    let loaded = if clip >= per_shot - 1e-6 { 1.0 } else { 0.0 };
+    let next = max(0.0, min(ammo - loaded, reserve + amount));
+    ((next - reserve).abs() > 0.0001).then_some(next)
+}
+#[derive(Clone, Copy)]
+pub struct SupplyCandidate<K> {
+    pub key: K, pub position: Vector3, pub alive: bool, pub player: bool, pub radius: f64,
+}
+/// Native services lend one candidate's scalar facts at a time. Keys carry
+/// its full native identity; a notice never resolves a later pooled body.
+pub trait Supplies {
+    type Key: Copy;
+    fn soldiers(&self) -> usize;
+    fn soldier(&mut self, index: usize) -> SupplyCandidate<Self::Key>;
+    fn vehicles(&self) -> usize;
+    fn vehicle(&mut self, index: usize) -> SupplyCandidate<Self::Key>;
+    fn serve(&mut self, key: Self::Key, supply: &Supply) -> u8;
+    fn changed(&mut self, key: Self::Key);
+    fn served(&mut self, station: &Station, key: Self::Key, gave: u8);
+    fn sound(&mut self, station: &Station, first: Option<Self::Key>);
+}
+struct SliceSupplies<'a, W> { targets: &'a mut [Target], soldiers: &'a [usize], vehicles: &'a [usize], world: &'a mut W }
+impl<W> SliceSupplies<'_, W> {
+    fn candidate(&self, key: usize) -> SupplyCandidate<usize> {
+        let t = &self.targets[key]; SupplyCandidate { key, position: t.position, alive: t.alive, player: t.player, radius: t.radius }
+    }
+}
+impl<W: World> Supplies for SliceSupplies<'_, W> {
+    type Key = usize;
+    fn soldiers(&self) -> usize { self.soldiers.len() }
+    fn soldier(&mut self, i: usize) -> SupplyCandidate<usize> { self.candidate(self.soldiers[i]) }
+    fn vehicles(&self) -> usize { self.vehicles.len() }
+    fn vehicle(&mut self, i: usize) -> SupplyCandidate<usize> { self.candidate(self.vehicles[i]) }
+    fn serve(&mut self, key: usize, supply: &Supply) -> u8 { Station::serve(supply, &mut self.targets[key]) }
+    fn changed(&mut self, key: usize) { self.world.target_changed(&self.targets[key]); }
+    fn served(&mut self, station: &Station, key: usize, gave: u8) { self.world.served(station, &mut self.targets[key], gave); }
+    fn sound(&mut self, station: &Station, first: Option<usize>) { self.world.serve_sound(station, first.map(|key| self.targets[key].id)); }
+}

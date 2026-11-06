@@ -1,3 +1,5 @@
+// Page post presentation derives its view from replicated hull facts.
+// Native lifecycle and notices run in the f4-mobile phase fixture.
 // Command vehicles as command posts (src/mobile-posts.js): the AT-AT and
 // AT-TE are posts while they live, owned by their hull's team, spawn
 // soldiers at their class's spawn points as the hull stands now, count for
@@ -7,8 +9,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { MobilePosts, commandSpawnPoint, isCommandClass } from "../src/mobile-posts.js";
 import { CommandPosts } from "../src/commandposts.js";
-import { Battle } from "../src/battle.js";
-import { ClassicSpawning } from "../src/ai/classic/spawning.js";
+
 import { ClassicRandom } from "../src/ai/random.js";
 import { friendlySpawn, selectObjective } from "../src/ai/classic/goals.js";
 import { choosePost, eligiblePosts, spawnPointAt } from "../src/human-spawn.js";
@@ -92,14 +93,14 @@ test("a dead hull is no post; its pad's next one is", () => {
   const mobile = new MobilePosts(system([atat]), CLASSES);
   const post = mobile.posts[0];
   atat.alive = false;
-  mobile.refresh();
+  mobile.presentEvents();
   assert.equal(post.active, false);
   assert.deepEqual(post.position.toArray(), [10, 0, 5], "it stays where its hull died");
   assert.deepEqual(post.ai.classSpawnWorld, []);
   assert.equal(friendlySpawn(post, 1, relation), false);
   atat.position.set(0, 0, 0);
   atat.respawn();
-  mobile.refresh();
+  mobile.presentEvents();
   assert.equal(post.active, true);
   assert.equal(friendlySpawn(post, 1, relation), true);
 });
@@ -109,17 +110,17 @@ test("its owner is whoever took a seat last, and stays his when he leaves", () =
   const mobile = new MobilePosts(system([atat]), CLASSES);
   const post = mobile.posts[0];
   atat.seats[0].lease = { team: 2, released: false };
-  mobile.refresh();
+  mobile.presentEvents();
   assert.equal(post.team, 2, "the occupant's team");
   atat.seats[0].lease = null;
-  mobile.refresh();
+  mobile.presentEvents();
   assert.equal(post.team, 2, "a command class keeps it when it empties");
   assert.equal(friendlySpawn(post, 2, relation), true);
   assert.equal(friendlySpawn(post, 1, relation), false);
   atat.alive = false;
-  mobile.refresh();
+  mobile.presentEvents();
   atat.respawn();
-  mobile.refresh();
+  mobile.presentEvents();
   assert.equal(post.team, 1, "a new hull has its pad's team");
 });
 
@@ -137,7 +138,7 @@ test("spawn points turn and move with the hull", () => {
   atat.position.x -= 20;
   atat.yaw = 0;
   atat.place();
-  mobile.refresh();
+  mobile.presentEvents();
   assert.ok(near(mobile.posts[0].ai.classSpawnWorld[0], [146.172, -5.636, 119.584, (5 * Math.PI) / 180]));
 });
 
@@ -169,77 +170,13 @@ test("events: a post lost with its hull, a post taken with a seat", () => {
   const a = hull({ at: [0, 0, 0] });
   const b = hull({ at: [50, 0, 0] });
   const mobile = new MobilePosts(system([a, b]), CLASSES);
-  assert.deepEqual(mobile.events(), [], "nothing at the start");
+  assert.deepEqual(mobile.presentEvents(), [], "nothing at the start");
   b.seats[1].lease = { team: 2, released: false };
   a.alive = false;
-  const events = mobile.events();
+  const events = mobile.presentEvents();
   assert.deepEqual(events.map((e) => [e.kind, e.post.name, e.from, e.to]), [["lost", "transport-0", 1, undefined], ["owner", "transport-1", 1, 2]]);
   assert.equal(events[0].vehicle, a);
-  assert.deepEqual(mobile.events(), [], "each change once");
-});
-
-test("the battle counts living command vehicles: Hoth's AT-ATs stop the Empire's bleed", () => {
-  const map = { commandPosts: [placed("cp6", 1, 0), placed("cp5", 2, 100)] };
-  const posts = new CommandPosts(null, map, { logos: new Map(), textures: {}, playerTeam: 1, headless: true });
-  const walkers = [hull({ at: [200, 0, 0] }), hull({ at: [150, 0, 50] })];
-  posts.attachVehicles(system(walkers), CLASSES);
-  assert.deepEqual(posts.all().map((p) => p.name), ["cp6", "cp5", "transport-0", "transport-1"], "after the placed posts");
-  assert.equal(posts.posts.length, 2, "the placed list (holograms, capture, summaries) is unchanged");
-  const bleed = [[1, 3], [11, 2.25], [21, 0.75], [31, 0]];
-  const teams = { 1: { reinforcements: 250, bleed }, 2: { reinforcements: 250, bleed } };
-  const battle = new Battle({ teams, posts, own: 1, foe: 2 });
-  battle.update(1);
-  assert.equal(battle.score(1), 30, "cp6 and two AT-ATs, 10 each");
-  assert.equal(battle.bleed[1], 0);
-  walkers[0].alive = false;
-  battle.update(1);
-  assert.equal(battle.score(1), 20);
-  assert.equal(battle.bleed[1], 0.75);
-  walkers[1].alive = false;
-  battle.update(1);
-  assert.equal(battle.bleed[1], 2.25, "cp6 alone, as before the AT-ATs counted");
-});
-
-test("an AT-AT alone keeps a team in the battle: holding it resets the no-post count", () => {
-  const map = { commandPosts: [placed("cp5", 2, 100)] };
-  const posts = new CommandPosts(null, map, { logos: new Map(), textures: {}, playerTeam: 1, headless: true });
-  const atat = hull();
-  posts.attachVehicles(system([atat]), CLASSES);
-  const teams = { 1: { reinforcements: 250 }, 2: { reinforcements: 250 } };
-  const battle = new Battle({ teams, posts, own: 1, foe: 2 });
-  for (let i = 0; i < 30; i++) battle.update(1);
-  assert.equal(battle.noPost[1], 20);
-  assert.equal(battle.reinforcements[1], 250);
-  atat.alive = false;
-  for (let i = 0; i < 21; i++) battle.update(1);
-  assert.equal(battle.reinforcements[1], 0, "without it the Empire holds nothing");
-});
-
-test("bots spawn at their command vehicle's spawn points", () => {
-  const atat = hull({ yaw: Math.PI / 2, at: [40, -6, 10] });
-  const mobile = new MobilePosts(system([atat]), CLASSES);
-  const away = { name: "cp5", team: 2, position: { x: -100, y: 0, z: 0 }, ai: { atk: [100, 10, 10, 10, 10, 10], def: [100, 10, 10, 10, 10, 10], bans: 0, valueBleed: 10, spawnPath: { present: true, points: [[-100, 0, 0, 0]] }, allyPath: null, allyCount: 0, classSpawnPoints: 0, classSpawnWorld: [], capture: null, radius: 0, yaw: 0 } };
-  const spawned = [];
-  const sp = new ClassicSpawning({
-    calls: [
-      { name: "SetTeamName", args: [1, "Empire"] }, { name: "AddUnitClass", args: [1, "trooper", 1] }, { name: "SetUnitCount", args: [1, 1] },
-      { name: "SetTeamName", args: [2, "Alliance"] }, { name: "AddUnitClass", args: [2, "rebel", 1] }, { name: "SetUnitCount", args: [2, 1] },
-      { name: "SetReinforcementCount", args: [1, 10] }, { name: "SetReinforcementCount", args: [2, 10] }, { name: "SetSpawnDelay", args: [1, 0.5] },
-    ],
-    posts: () => [away, ...mobile.refresh()],
-    random: new ClassicRandom(7),
-    spawnUnit: (character, className, post, at, yaw) => {
-      const unit = { className, post, at, yaw, combat: { health: 100 } };
-      spawned.push({ character, unit });
-      return unit;
-    },
-  });
-  for (let i = 0; i < 60; i++) sp.update(Math.fround(1 / 30));
-  const bot = spawned.find((s) => s.character.team === 1);
-  assert.ok(bot, "the Empire's bot spawned");
-  assert.equal(bot.unit.post, mobile.posts[0], "at the AT-AT, its only post");
-  const points = mobile.posts[0].ai.classSpawnWorld;
-  assert.ok(points.some((p) => near([...bot.unit.at, bot.unit.yaw], p)), "at one of its spawn points as it stands");
+  assert.deepEqual(mobile.presentEvents(), [], "each change once");
 });
 
 test("the human's spawn screen offers it, keeps it, and gives it up when it dies", () => {
@@ -257,6 +194,7 @@ test("the human's spawn screen offers it, keeps it, and gives it up when it dies
   const [x, y, z, yaw] = spawnPointAt(post, 1, () => 0.5);
   assert.ok(near([x, y, z, yaw], post.ai.classSpawnWorld[3]), "a class spawn point: floor(0.5 x 6)");
   atat.alive = false;
+  posts.presentMobileEvents();
   const choices = entitySpawnPosts(game);
   assert.equal(choices.includes(post), false, "a dead hull is not offered");
   assert.equal(choosePost(choices, 1, choices.find((p) => p.name === post.name) || null, relation).name, "cp6", "the front line instead");
@@ -267,7 +205,8 @@ test("objectives: the defenders' weights of 0 never draw it, the attackers can't
   const mobile = new MobilePosts(system([atat]), CLASSES);
   const cp5 = { name: "cp5", team: 2, position: { x: -100, y: 0, z: 0 }, ai: { atk: [100, 10, 10, 10, 10, 10], def: [100, 10, 10, 10, 10, 10], bans: 0, spawnPath: { present: true, points: [[0, 0, 0, 0]] }, allyPath: null, classSpawnPoints: 0, classSpawnWorld: [], capture: null } };
   const cp6 = { ...cp5, name: "cp6", team: 1 };
-  const posts = [cp5, cp6, ...mobile.refresh()];
+  mobile.presentEvents();
+  const posts = [cp5, cp6, ...mobile.posts];
   const random = new ClassicRandom(3);
   for (let i = 0; i < 200; i++) {
     assert.notEqual(selectObjective({ posts, team: 2, faction: 1, random, relation }), mobile.posts[0], "Value_DEF_Alliance 0");

@@ -14,12 +14,30 @@
 // questions, what each Character's tallies see of him, the hulls on the
 // command pads, the bodies the battlefield tests. Those reads change
 // nothing, and nothing in the frame changes them.
-import { observe } from '../../src/battle-stats.js';
+
 import { isCommandClass } from '../../src/mobile-posts.js';
 import { RemoteDroids } from '../../src/remote.js';
 import { Vehicle } from '../../src/vehicles.js';
 import { PlayerCombat } from '../../src/combat.js';
 
+// Historical replay captures observe published facades; the world never calls this.
+const text=value=>String(value??'').trim().replace(/\n/g,' ')||null;
+function observe(character) {
+  const unit = character.unit;
+  if (!unit || unit.removed) return null;
+  const seat = unit.seat && !unit.seat.released ? unit.seat : null;
+  const vehicle = seat?.vehicle ?? null;
+  const mount = vehicle ?? seat?.turret ?? null;
+  const weapon = vehicle ? vehicle.seats?.[seat.index]?.weapons?.[0]?.state : seat?.turret ? seat.turret.weapon : unit.combat?.arsenal?.current(0);
+  const combat = unit.combat;
+  return {
+    position: mount?.position ?? unit.position,
+    health: unit.alive && combat && !combat.dead ? combat.health / Math.max(combat.maxHealth || 1, 1e-6) : null,
+    weapon: weapon ? { key: weapon.name ?? weapon.def?.class ?? null, label: text(weapon.def?.displayName ?? weapon.def?.label) } : null,
+    vehicle: vehicle ? { key: vehicle.name ?? null, label: text(vehicle.label) } : null,
+    classLabel: text(unit.classDef?.displayName),
+  };
+}
 const TEAMS = 8;
 const placeOf = (game, c) => (c ? game.battle.characters.indexOf(c) : null);
 

@@ -194,7 +194,7 @@ export class F3Registry {
       prior.box = box ? this.boxes[member.id] : null;
       if (box) { prior.box.min.copy(box.min); prior.box.max.copy(box.max); prior.box.matrix.copy(box.matrix); }
     }
-    const buildings = phase.props.foreign(at);
+    const buildings = phase.liveOwner ? 0 : phase.props.foreign(at);
     this.foreignHeader.count = count; this.foreignHeader.buildings = buildings; this.foreignHeader.network = networks;
     putF3ForeignHeader(b, this.foreignHeader, b.f, phase.layout.foreignHeader / 8, phase.heap);
     phase.counters.inputFields += buildings * phase.layout.buildingStateWords;

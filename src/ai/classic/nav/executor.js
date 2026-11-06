@@ -1,4 +1,3 @@
-import {Unit} from "../../../units.js";
 import * as THREE from "three";
 import { d2, f32, FLT_MAX, NEAR_WAYPOINT, TINY, normalize, same, set, copy, vec } from "./math.js";
 import { KIND } from "./units.js";
@@ -271,10 +270,7 @@ function contactSidestep(exec, unit, target) {
   }
   const s = 5 * exec.control.avoidSide;
   set(target, p.x + s * rx, p.y, p.z + s * rz);
-  // World bodies consume their native collision contact. Navigation previews
-  // also accept plain steering objects with a caller-owned contact vector.
-  if (unit instanceof Unit) unit.f3.consumeContact(unit);
-  else contact.x = contact.y = contact.z = 0;
+  unit.consumeContact();
 }
 
 // Segment lookahead: with A and B lifted to the unit's height,

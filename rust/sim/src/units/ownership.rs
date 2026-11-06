@@ -9,6 +9,7 @@ use super::{factory::Pools, world::UnitsWorld};
 #[derive(Default)]
 pub struct Ownership {
     built: Vec<Ref<Unit>>,
+    revision: u64,
     // The world's viewpoint shares registry geometry but is not constructed,
     // ticked or returned by UnitFactory. Its life still uses the same slab.
     passive: Vec<Ref<Unit>>,
@@ -74,6 +75,7 @@ impl Ownership {
     /// A prepared row has completed adoption but is not a live factory body.
     /// Withdrawing it neither returns a corpse nor changes registry order.
     pub(crate) fn withdraw(&mut self, reference: Ref<Unit>) {
+        self.revision = self.revision.wrapping_add(1);
         self.built.retain(|&r| r != reference);
         self.passive.retain(|&r| r != reference);
         self.changed.retain(|&r| r != reference);
@@ -83,6 +85,9 @@ impl Ownership {
         self.pooled[reference.slot as usize] = false;
     }
     pub fn built(&self) -> &[Ref<Unit>] { &self.built }
+    /// Structural admission only: gameplay life and ordinary movement retain
+    /// their existing body slot, so dependent phases need no membership scan.
+    pub fn revision(&self) -> u64 { self.revision }
     /// Seat solvers lend the Store shell across hooks. Resolve a qualified
     /// body identity even while its canonical row is in that local shell.
     pub fn reference(&self, slot: u32) -> Option<Ref<Unit>> {
@@ -120,6 +125,7 @@ impl Ownership {
     }
     fn adopt_as(&mut self, store: &Store, reference: Ref<Unit>, factory: bool) -> Result<F3UnitKey, Stale> {
         let unit = store.unit.get(reference).ok_or(Stale::Slot)?;
+        self.revision = self.revision.wrapping_add(1);
         self.references.resize(self.references.len().max(reference.slot as usize + 1), None);
         self.references[reference.slot as usize] = Some(reference);
         self.pooled.resize(self.references.len(),false);
@@ -256,7 +262,7 @@ impl Ownership {
 
 pub fn mirror(reference: Ref<Unit>, unit: &Unit) -> F3UnitMirror {
     let mut view = F3UnitMirror {
-        key: F3UnitKey::of(reference, unit), team: unit.team, alive: unit.alive, dead: unit.dead,
+        key: F3UnitKey::of(reference, unit), hero:unit.hero,human:unit.human,network_human:unit.network_human,team: unit.team, alive: unit.alive, dead: unit.dead,
         dead_time: unit.dead_time, removed: unit.removed, character: unit.character, controller: unit.controller, seat: unit.seat,
         held: match unit.held { crate::store::Nullable::Undefined => crate::store::Nullable::Undefined,
             crate::store::Nullable::Null => crate::store::Nullable::Null, _ => crate::store::Nullable::Value(true) },

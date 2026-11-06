@@ -1,3 +1,6 @@
+// Cold roster construction and read helpers. The native battle tail owns
+// waves, deaths, realization and runtime class/team/queue changes.
+
 // Classic population and spawning, as the 2004 game has it
 // (docs/ai-population.md).
 //
@@ -26,7 +29,7 @@
 // names come from each team's own generator (src/bot-names.js), so they
 // take nothing from it.
 
-import { ClassicObjectives, activePosts, humanSpawnPost, ownerOf, postAI, retainSpawnPost, factionOf } from "./goals.js";
+import { ClassicObjectives, humanSpawnPost, ownerOf, retainSpawnPost, factionOf } from "./goals.js";
 import { botNames, humanName } from "../../bot-names.js";
 
 const f32 = Math.fround;
@@ -542,29 +545,7 @@ export class ClassicSpawning {
     return r && typeof r[team] === "number" ? r[team] : this.teams[team].tickets;
   }
 
-  spendTicket(team, spend = this.battle?.spend) {
-    const r = this.battle?.reinforcements;
-    if (r && typeof r[team] === "number") {
-      if (spend) spend.call(this.battle, team);
-      else r[team] = Math.max(r[team] - 1, 0);
-    } else {
-      this.teams[team].tickets--;
-    }
-  }
-
   // ------------------------------------------------------------ the update
-
-  // The manager's clock, then every Character in roster order. A battle
-  // service that runs the teams' bleed between the two (as the 2004 game's
-  // manager does) calls clock() and updateCharacters() itself.
-  update(dt) {
-    this.clock(dt);
-    this.updateCharacters(dt);
-  }
-
-  updateCharacters(dt) {
-    for (const character of this.characters) this.updateCharacter(character, dt);
-  }
 
   // The human has been prepared for his next life and waits for the spawn
   // screen's choice (onHumanReady).
@@ -572,171 +553,4 @@ export class ClassicSpawning {
     return character.human && !character.unit && !character.spawn.ready && character.spawn.timer <= 0;
   }
 
-  // The spawn manager's clocks, one conditional step each. Also the locals'
-  // living cap: the AllyCount of posts held by teams friendly to team 3,
-  // at most team 3's unit count.
-  clock(dt) {
-    dt = f32(dt);
-    let cap = 0;
-    for (const post of activePosts(this.posts)) {
-      if (this.relation(ownerOf(post), 3) > 0) cap += postAI(post).allyCount | 0;
-    }
-    this.localsCap = Math.min(cap, this.teams[3].unitCount);
-    const countdown = f32(this.waveCountdown - dt);
-    this.waveCountdown = countdown;
-    let stagger = this.stagger;
-    if (!(countdown > 0)) {
-      this.waveCountdown = f32(this.A + countdown);
-      if (this.demo && this.wave < 3) this.waveCountdown = 1;
-      this.wave++;
-      stagger = 0;
-      this.released = 0;
-    }
-    stagger = f32(stagger - dt);
-    this.stagger = stagger;
-    if (stagger <= 0) {
-      this.released++;
-      this.stagger = f32(this.B + stagger);
-    }
-  }
-
-  // Whether the wave/stagger gate holds this Character back (strict).
-  waiting(character) {
-    return (character.spawn.wave - this.wave) * this.Q - this.released + character.spawn.ordinal >= 0;
-  }
-
-  updateCharacter(character, dt) {
-    dt = f32(dt);
-    let team = this.teams[character.team];
-    if (character.unit) {
-      // A hero dies when its team's tickets fall to its living count.
-      if (character.hero && this.tickets(character.team) <= team.living && this.health(character.unit) > 0) {
-        this.forceKill?.(character);
-      }
-      return;
-    }
-    const spawn = character.spawn;
-    const timer = f32(spawn.timer - dt);
-    spawn.timer = timer;
-    if (timer > 0) return;
-    if (timer > -dt) this.prepare(character);
-    if (!character.human && this.tickets(character.team) <= team.living) return;
-    if (!character.human && team.characters.length > team.capacity) {
-      this.changePost(character, null);
-      this.switchTeam(character, 3 - character.team);
-      this.objectives?.request(character);
-      team = this.teams[character.team];
-    }
-    this.changePost(character, this.choosePost(character));
-    if (!spawn.ready || !spawn.post) {
-      spawn.wave = this.wave + 1;
-      return;
-    }
-    if (!character.human) {
-      if (this.waiting(character)) return;
-      if (!character.hero && character.team > 2) {
-        let living = 0;
-        for (const other of team.characters) if (other.unit && !other.human) living++;
-        if (this.localsCap <= living) return;
-      }
-    }
-    this.spawn(character);
-  }
-
-  // Where at a post a Character appears: a random point of the post's spawn
-  // path (its ally path when the post is an ally's), else a random class
-  // spawn point (own posts only), else the post itself. [x, y, z, yaw].
-  spawnPoint(post, allied) {
-    const ai = postAI(post);
-    const path = allied ? ai.allyPath : ai.spawnPath;
-    const points = path?.present ? path.points : null;
-    if (points?.length) return points[this.random.next() % points.length];
-    if (!allied && ai.classSpawnPoints > 0 && ai.classSpawnWorld?.length) {
-      return ai.classSpawnWorld[this.random.next() % ai.classSpawnPoints] || ai.classSpawnWorld[0];
-    }
-    return [post.position.x, post.position.y, post.position.z, ai.yaw || 0];
-  }
-
-  // Into the world. If the class can't be made, class 0 is tried once; if
-  // that fails too, the Character keeps its place and tries again later.
-  spawn(character) {
-    const post = character.spawn.post;
-    const team = this.teams[character.team];
-    const point = this.spawnPoint(post, character.team !== ownerOf(post));
-    const at = [point[0], point[1], point[2]];
-    let unit = this.spawnUnit ? this.spawnUnit(character, character.className, post, at, point[3]) : null;
-    if (!unit) {
-      if (!character.classIndex) return null;
-      this.setClass(character, 0);
-      unit = this.spawnUnit ? this.spawnUnit(character, character.className, post, at, point[3]) : null;
-      if (!unit) return null;
-    }
-    character.unit = unit;
-    const cls = team.classes[character.classIndex];
-    character.hero = !!cls?.hero;
-    if (!character.hero) team.living++;
-    if (!character.human) this.objectives?.republish(character);
-    if (post && character.spawn.ordinal >= 0) {
-      this.release(post, character.human, character.team === ownerOf(post));
-      character.spawn.ordinal = -1;
-    }
-    return unit;
-  }
-
-  // ------------------------------------------------------------ events
-
-  // A Character's unit died: it prepares again in 4 s; a bot draws a fresh
-  // objective and forgets its post; the team's living count drops (heroes
-  // aren't counted) and it spends a reinforcement if it has any.
-  onDeath(character, tickets = this) {
-    const team = this.teams[character.team];
-    character.spawn.timer = RESPAWN_DELAY;
-    if (!character.human) {
-      this.objectives?.request(character);
-      character.spawn.post = null;
-    }
-    character.unit = null;
-    if (!character.hero) team.living--;
-    if (tickets.tickets(character.team) > 0) tickets.spendTicket(character.team);
-  }
-
-  // The human chose (on the spawn screen): a class from the team's roster (by
-  // name or index) and optionally a post; he spawns on the next update.
-  onHumanReady(character, { className = null, classIndex = null, post } = {}) {
-    const team = this.teams[character.team];
-    if (className != null) {
-      const index = team.classes.findIndex((c) => c.name === className);
-      if (index >= 0) this.setClass(character, index);
-      else character.className = className; // outside the roster: not counted
-    } else if (classIndex != null) {
-      this.setClass(character, Math.min(Math.max(classIndex | 0, 0), team.classes.length - 1));
-    }
-    if (post !== undefined) this.changePost(character, post);
-    character.spawn.ready = true;
-  }
-
-  // Moves a non-hero Character to another team when it has room; a bot picks
-  // a class there. (Offline the over-capacity branch that calls this cannot
-  // trigger: teams hold 200.)
-  switchTeam(character, to) {
-    if (character.hero || character.team === to || to < 1 || to >= TEAM_COUNT) return false;
-    const from = this.teams[character.team];
-    const target = this.teams[to];
-    if (target.characters.length >= target.capacity) return false;
-    // A place held in a post's queue is given up while the old team still
-    // decides its category (its own post or an ally's), as the over-capacity
-    // branch does before calling this, and taken again at the post chosen
-    // for the new team.
-    const held = character.spawn.ordinal >= 0;
-    this.changePost(character, null);
-    from.characters.splice(from.characters.indexOf(character), 1);
-    target.characters.push(character);
-    character.team = to;
-    if (!character.human) this.setClass(character, this.pickClass(character));
-    else this.setClass(character, Math.min(Math.max(character.classIndex ?? 0, 0), target.classes.length - 1));
-    const post = this.choosePost(character);
-    this.changePost(character, post);
-    if (held && post) character.spawn.ordinal = this.reserve(post, character.human, to === ownerOf(post));
-    return true;
-  }
 }

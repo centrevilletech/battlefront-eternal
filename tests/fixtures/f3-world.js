@@ -85,7 +85,7 @@ export async function f3World(definitions, {
   for (const name of passiveClasses) passive.push(factory.build(name,true));
   const live = prepareLive ? prepareLive(collision, units, factory.context) : null;
   factory.context.live = live;
-  const separation = {global:true,playerOut:false,camera:new THREE.Vector3()};
+  const separation = {global:true,camera:new THREE.Vector3()};
   const phase = attachF3(instance, { Unit, Soldier, Droideka, ObjectiveTarget, Building, Turret, Vehicle, VehicleTarget, TurretTarget, SeatUnit }, {
     factory, combatSim, collision, water,
     separation,

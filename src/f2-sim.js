@@ -220,6 +220,9 @@ class F2 extends VehicleContent {
   // loop or rig update on this path.
   step(dt, tick) {
     const vs = this.vehicles, owned = vs.f3;
+    // Structural hull replacement prepares shared native query storage before
+    // the no-growth window, just as the owning unit coordinator does.
+    owned.phase.bodiesIn();
     this.prepareStep();
     // A standalone fleet entry can still kill an owned crew. Join the same
     // outer command boundary used by incoming hull damage, including RNG.

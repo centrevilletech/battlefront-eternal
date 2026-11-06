@@ -354,6 +354,12 @@ export class Unit {
   }
 
   // Into the world at (x, y, z) facing yaw, fresh.
+  // Controller and navigation writers use the body's qualified native
+  // command port. A SeatUnit exposes the same planner-facing interface.
+  bindController(controller) { this.f3.controller(this,controller); }
+  consumeContact() { this.f3.consumeContact(this); }
+  bindMountedRandom(lease,draw) { this.f3.mountedRandom(lease,draw); }
+
   spawn(x, y, z, yaw) {
     this.seat = null;
     this.letGo();

@@ -13,8 +13,5 @@ export default {
     BpQueryResult: { members: 'list:rec:BpMember', hulls: 'list:rec:BpHull', character: 'ref:character|null', number: 'f64' },
     BpActionArgs: { op: 'enum:BpActionOp', post: 'rec:PostEvent|null', mobile: 'rec:PsMobileEvent|null', unit: 'ref:unit|null', vehicle: 'ref:vehicle|null', name: 'str|null', position: 'f64x3', number: 'f64' },
   },
-  imports: {
-    battlePhaseQuery: { args: 'BpQueryArgs', result: 'BpQueryResult' },
-    battlePhaseAction: { args: 'BpActionArgs', result: 'BrNumber' },
-  },
+
 };

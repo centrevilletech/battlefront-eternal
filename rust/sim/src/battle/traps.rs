@@ -4,6 +4,7 @@
 //! bodies; animation and page presentation stay outside this state machine.
 
 use crate::store::StrId;
+use crate::gen::{TrPhase, TrState, TrSettings};
 use super::stats::Text;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -22,7 +23,7 @@ impl Phase {
 }
 
 /// Class data after the JavaScript constructor's defaults and placement.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Settings {
     pub max_health: f64,
     pub reach: f64,
@@ -127,11 +128,19 @@ impl Trap {
     }
 
     pub fn crush<W: World>(&mut self, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W) {
-        // Array.filter finishes before the first death callback. One
-        // victim's death can change another hull, but not this selection.
-        let victims: Vec<_> = vehicles.iter().copied().filter(|&v| self.catches(settings, v, world)).collect();
+        let mut victims = Vec::new();
+        self.crush_with_scratch(settings, strings, vehicles, world, &mut victims);
+    }
+
+    /// Native phase callers reserve the selection buffer at construction.
+    /// Selection still finishes before any death can mutate another hull.
+    pub fn crush_with_scratch<W: World>(&mut self, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W, victims: &mut Vec<W::Vehicle>) {
+        victims.clear();
+        for &vehicle in vehicles {
+            if self.catches(settings, vehicle, world) { victims.push(vehicle); }
+        }
         let mut killed = 0.0;
-        for vehicle in victims {
+        for &vehicle in victims.iter() {
             world.clear_attacker(self, vehicle);
             world.set_health(self, vehicle, 0.0);
             world.set_dying(self, vehicle, 0.0);
@@ -145,6 +154,12 @@ impl Trap {
     }
 
     pub fn step<W: World>(&mut self, dt: f64, tick: f64, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W) {
+        let mut victims = Vec::new();
+        self.step_with_scratch(dt, tick, settings, strings, vehicles, world, &mut victims);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn step_with_scratch<W: World>(&mut self, dt: f64, tick: f64, settings: &Settings, strings: &dyn Text, vehicles: &[W::Vehicle], world: &mut W, victims: &mut Vec<W::Vehicle>) {
         self.tick = tick;
         if !self.built {
             if self.phase != Phase::Down { self.begin(Phase::Down, Some(tick)); }
@@ -168,7 +183,7 @@ impl Trap {
             if let Some(sound) = text(settings.sound, strings) { world.sound(self, sound, settings.point); }
         }
         if settings.death_time > 0.0 && self.time < settings.death_time && self.time + dt >= settings.death_time {
-            self.crush(settings, strings, vehicles, world);
+            self.crush_with_scratch(settings, strings, vehicles, world, victims);
         }
         self.time += dt;
         if self.time >= settings.trigger_frames.map_or(0.0, |frames| frames / 30.0) {
@@ -183,4 +198,23 @@ impl Trap {
     pub fn state_record(&self) -> [f64; 3] {
         [self.phase.index(), self.started.unwrap_or(self.tick), if self.sprung { 1.0 } else { 0.0 }]
     }
+}
+
+// Generated birth and reader records share the native trap state machine.
+impl From<TrPhase> for Phase {
+    fn from(p: TrPhase) -> Self { match p { TrPhase::Down => Self::Down, TrPhase::Reset => Self::Reset, TrPhase::Armed => Self::Armed, TrPhase::Swing => Self::Swing } }
+}
+impl From<Phase> for TrPhase {
+    fn from(p: Phase) -> Self { match p { Phase::Down => Self::Down, Phase::Reset => Self::Reset, Phase::Armed => Self::Armed, Phase::Swing => Self::Swing } }
+}
+impl From<TrState> for Trap {
+    fn from(s: TrState) -> Self { Self { built: s.built, health: s.health, phase: s.phase.into(), started: s.started, time: s.time, sprung: s.sprung, tick: s.tick, crushed: s.crushed } }
+}
+impl From<&Trap> for TrState {
+    fn from(s: &Trap) -> Self { Self { built: s.built, health: s.health, phase: s.phase.into(), started: s.started, time: s.time, sprung: s.sprung, tick: s.tick, crushed: s.crushed } }
+}
+impl From<TrSettings> for Settings {
+    fn from(s: TrSettings) -> Self { Self { max_health: s.max_health, reach: s.reach, min_radius: s.min_radius, death_time: s.death_time,
+        build_frames: s.build_frames, trigger_frames: s.trigger_frames, trigger_team: s.trigger_team, sound: s.sound,
+        death_effect: s.death_effect, point: s.point, effect_at: s.effect_at } }
 }

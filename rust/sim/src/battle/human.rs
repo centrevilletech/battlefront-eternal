@@ -9,7 +9,7 @@ use crate::store::{StrId, Strings};
 pub const RESPAWN_DELAY: f64 = 4.0;
 pub const TIME_SLACK: f64 = 1e-6;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct State {
     pub phase: HumanPhase,
     pub team: f64,
@@ -20,7 +20,7 @@ pub struct State {
     pub over: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     AwaitingSpawn(State),
     Spawned { team: f64, class_name: StrId, post: Option<StrId> },
@@ -67,7 +67,7 @@ pub trait World {
     fn team(&mut self) -> f64;
     fn dead(&mut self) -> bool;
     fn over(&mut self) -> bool;
-    fn roster(&mut self, team: f64) -> Vec<StrId>;
+    fn roster(&mut self, team: f64) -> &[StrId];
     fn classic(&mut self) -> bool;
     /// character?.spawn: whether he has a unit, and the spawn timer.
     fn character_spawn(&mut self) -> Option<(bool, f64)>;
@@ -152,9 +152,8 @@ pub fn apply_authoritative_normalized(
 }
 
 pub fn died(s: &mut HumanSpawn, events: &mut Vec<Event>, world: &mut dyn World) {
-    s.phase = HumanPhase::Dying;
-    s.dead_time = 0.0;
-    events.push(Event::PlayerDied { team: world.team(), class_name: s.class_name });
+    let class_name = died_frame(s);
+    events.push(Event::PlayerDied { team: world.team(), class_name });
 }
 
 pub fn spawned(
@@ -168,15 +167,21 @@ pub fn spawned_normalized(
     s: &mut HumanSpawn, events: &mut Vec<Event>, class_name: StrId,
     post: Option<StrId>, world: &mut dyn World,
 ) {
-    let was = s.phase;
-    s.class_name = class_name;
-    if post.is_some() { s.post = post; }
-    s.phase = HumanPhase::Alive;
-    s.spawned_once = true;
-    s.pending = None;
-    if was != HumanPhase::Alive {
+    if spawned_frame(s, class_name, post) {
         events.push(Event::Spawned { team: world.team(), class_name, post });
     }
+}
+
+/// Native body lifecycle services update the same small frame before
+/// publishing a journal notice, without borrowing Human's command buffer.
+pub fn died_frame(s: &mut HumanSpawn) -> StrId {
+    s.phase = HumanPhase::Dying; s.dead_time = 0.0; s.class_name
+}
+pub fn spawned_frame(s: &mut HumanSpawn, class_name: StrId, post: Option<StrId>) -> bool {
+    let was = s.phase; s.class_name = class_name;
+    if post.is_some() { s.post = post; }
+    s.phase = HumanPhase::Alive; s.spawned_once = true; s.pending = None;
+    was != HumanPhase::Alive
 }
 
 pub fn team_changed(s: &mut HumanSpawn, events: &mut Vec<Event>, team: f64, previous: f64, world: &mut dyn World) {
@@ -258,5 +263,35 @@ pub fn realize(s: &mut HumanSpawn, events: &mut Vec<Event>, world: &mut dyn Worl
         if world.ready(s, events, &choice) { s.pending = None; }
     } else {
         world.spawn(s, events, &choice);
+    }
+}
+
+// Screen notices use the shared generated journal record. Their class/post
+// identities are captured before a pooled body or Character can be reused.
+use crate::gen::{HsState, HsEvent, HsEventKind};
+impl From<State> for HsState {
+    fn from(s: State) -> Self {
+        Self { phase: s.phase, team: s.team, class_name: s.class_name,
+            class_index: s.class_index, post: s.post,
+            can_switch_teams: s.can_switch_teams, over: s.over }
+    }
+}
+
+impl From<Event> for HsEvent {
+    fn from(event: Event) -> Self {
+        let mut out = Self::default();
+        match event {
+            Event::AwaitingSpawn(s) => { out.kind = HsEventKind::AwaitingSpawn; out.state = Some(s.into()); }
+            Event::Spawned { team, class_name, post } => {
+                out.kind = HsEventKind::Spawned; out.team = team; out.class_name = Some(class_name); out.post = post;
+            }
+            Event::TeamChanged { team, previous } => {
+                out.kind = HsEventKind::TeamChanged; out.team = team; out.previous = previous;
+            }
+            Event::PlayerDied { team, class_name } => {
+                out.kind = HsEventKind::PlayerDied; out.team = team; out.class_name = Some(class_name);
+            }
+        }
+        out
     }
 }

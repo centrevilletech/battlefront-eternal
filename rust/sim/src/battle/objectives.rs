@@ -5,7 +5,7 @@
 //! vehicle whose origin is inside dies (at most 64), no one credited.
 
 use super::regions::{build_region, in_region};
-use crate::gen::RegionDesc;
+use crate::gen::{Built, RegionDesc};
 use three::{Matrix4, Vector3};
 
 pub const KILL_REGION_BLASTS: usize = 15;
@@ -18,6 +18,12 @@ pub trait KillRegionHost {
     fn random(&mut self) -> f64;
     fn play(&mut self, name: &str, point: Vector3);
     fn victims(&mut self) -> Vec<Vector3>;
+    fn victims_into(&mut self, into: &mut Vec<Vector3>) {
+        into.clear(); into.extend(self.victims());
+    }
+    /// Membership is frozen, but source positions are object references: an
+    /// earlier death can move a later seated body before its containment test.
+    fn position(&mut self, _victim: usize, sampled: Vector3) -> Vector3 { sampled }
     fn kill(&mut self, victim: usize);
 }
 
@@ -27,6 +33,12 @@ pub trait KillRegionHost {
 pub fn kill_region(region: Option<&RegionDesc>, host: &mut dyn KillRegionHost) -> usize {
     let Some(region) = region else { return 0 };
     let built = build_region(region);
+    kill_region_built(&built, host, &mut Vec::new())
+}
+
+/// The authority retains both its cooked region and victim-position buffer.
+/// Effects still precede victim selection, and selection precedes every death.
+pub fn kill_region_built(built: &Built, host: &mut dyn KillRegionHost, points: &mut Vec<Vector3>) -> usize {
     let mut matrix = Matrix4::default();
     matrix.from_array(&built.inverse, 0);
     matrix.invert();
@@ -41,11 +53,13 @@ pub fn kill_region(region: Option<&RegionDesc>, host: &mut dyn KillRegionHost) -
         host.play(BLASTS[pick as usize], point);
     }
     let mut killed = 0;
-    for (i, at) in host.victims().iter().enumerate() {
+    host.victims_into(points);
+    for (i, at) in points.iter().enumerate() {
         if killed >= 64 {
             break;
         }
-        if !in_region(&built, at) {
+        let at = host.position(i, *at);
+        if !in_region(built, &at) {
             continue;
         }
         host.kill(i);

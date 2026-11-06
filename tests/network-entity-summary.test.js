@@ -80,12 +80,13 @@ test('end-of-match records travel as datagram-sized chunks and show the same DET
  const registry={classes:new Map([[1,names[0]],[3,names[2]]]),classIds:new Map([[names[0],1],[names[2],3]]),weapons:new Map([[2,names[1]]]),weaponIds:new Map([[names[1],2]]),posts:new Map()};
  const make=()=>Array.from({length:40},(_,index)=>({index,team:index%2?2:1,name:`C${index}`}));
  const world=make(),stats=new BattleStats();
- for(let i=0;i<40;i++)for(let k=0;k<i%5;k++)stats.kill(world[i],world[(i*7+k)%40],-1);
- stats.headshot(world[3]);stats.vehicleDestroyed(world[5]);stats.death(world[8]);
+ // Fixed published tallies exercise chunking independently of the native scorer.
+ for(let i=0;i<40;i++)for(let k=0;k<i%5;k++)recordOf(world[i]).slots[i%2].victims.set(world[(i*7+k)%40],1);
+ recordOf(world[3]).slots[1].headshots=1;recordOf(world[5]).slots[1].vehiclesDestroyed=1;recordOf(world[8]).slots[0].deaths=1;
  const body=(weapon,vehicle)=>({position:{x:0,y:0,z:0},alive:true,combat:{health:1,maxHealth:1,arsenal:{current:()=>({name:weapon,def:{displayName:'GUN'}})}},
   seat:vehicle?{vehicle:{name:vehicle,label:'TANK',seats:[{weapons:[{state:{name:weapon,def:{displayName:'GUN'}}}]}]},index:0}:null,classDef:{displayName:'TROOPER'}});
  for(const [i,c] of world.entries()){c.className=names[0];c.unit=body(i===6?names[3]:names[1],i===7?names[2]:null);}
- for(let i=0;i<120;i++)stats.tick(1/60,world);
+ for(const [i,c] of world.entries()){const slot=recordOf(c).slots[i%2];slot.lifeBest=2;slot.classes=[{key:names[0],label:'TROOPER',time:2}];slot.weapons=[{key:i===6?names[3]:names[1],label:'GUN',time:2}];if(i===7)slot.vehicles=[{key:names[2],label:'TANK',time:2}];}
  const options={tick:600,epoch:1},records=captureRecordSummaries({characters:world},registry,options);
  assert.ok(records.length>1,'a whole roster is several chunks');
  records.forEach((r,i)=>assert.equal(r.id,RECORD_SUMMARY_ID+i));

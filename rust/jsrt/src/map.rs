@@ -190,6 +190,15 @@ impl<K: JsKey, V> JsMap<K, V> {
         }
     }
 
+    /// Prepare storage for at least `entries` live keys without inserting any.
+    /// Tombstones keep their iterator positions; reserving only rebuilds the
+    /// private bucket index and leaves observable insertion order unchanged.
+    pub fn reserve(&mut self, entries: usize) {
+        self.slots.reserve(entries.saturating_sub(self.live));
+        let buckets = entries.max(self.live).saturating_mul(4).div_ceil(3).max(16).next_power_of_two();
+        if self.buckets.len() < buckets { self.rehash(buckets); }
+    }
+
     /// `map.size`.
     pub fn size(&self) -> usize {
         self.live
@@ -215,7 +224,10 @@ impl<K: JsKey, V> JsMap<K, V> {
     }
 
     fn rehash(&mut self, capacity: usize) {
-        self.buckets = vec![0; capacity];
+        // Capture counts and other retained maps are cleared and refilled
+        // every tick. Reuse the table without changing its logical size.
+        self.buckets.clear();
+        self.buckets.resize(capacity, 0);
         self.filled = 0;
         let mask = capacity - 1;
         for (index, slot) in self.slots.iter().enumerate() {

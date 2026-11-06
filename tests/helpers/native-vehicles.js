@@ -6,7 +6,6 @@ import * as THREE from 'three';
 export { CollisionWorld } from '../../tools/collision-fixture.mjs';
 import { bridgeFor } from '../../src/sim/runtime.js';
 import { Unit } from '../../src/units.js';
-import {Units} from '../../src/registry.js';
 import { Vehicle, Vehicles } from '../../src/vehicles.js';
 import { Ordnance } from '../../src/ordnance.js';
 import { attachOrdnanceSim, ordnanceTests } from '../../src/ordnance-sim.js';
@@ -15,9 +14,6 @@ export function nativeVehicles(system, pack) {
   const bridge = bridgeFor(system.collision.fixtureInstance, { classes: { Unit, Vehicle }, tests: {
     ...ordnanceTests, unit: v => Boolean(v && !v.seats && !v.rig && (v.soldier || v.constructor === Object && 'generation' in v && 'team' in v)),
   } });
-  if(system.fixtureRegistryStart&&!system.units) {
-    const units=new Units();units.nextId=system.fixtureRegistryStart;system.attachUnits(units);
-  }
   const rounds = new Ordnance({ scene: new THREE.Scene(), collision: system.collision,
     texture: () => null, effects: { play() {} }, lights: { flash() {}, add() {} } });
   const previousRounds = system.ordnance;

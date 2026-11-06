@@ -1,12 +1,12 @@
 // Exercise the actual Debris methods with synthetic geometry. Compare the
-// JS and --module traces byte for byte, including every callback argument
+// page traces byte for byte, including every callback argument
 // and the piece state visible at that call. No float normalization.
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Debris } from '../src/debris.js';
-import { DebrisIds, debrisState } from '../src/debris-sim.js';
+import { DebrisIds, debrisState } from './sim-capture/debris-state.mjs';
 import { ClassicRandom } from '../src/ai/random.js';
 import { Handle, MAGIC, RECORD, Writer, readRecords } from './sim-capture/format.mjs';
 
@@ -74,7 +74,6 @@ for (let fixture = 0; fixture < Number(option('fixtures', 18)); fixture++) {
     };
   };
   debris = new Debris({ scene, collision, effects: fx, model });
-  if (args.includes('--module')) (await import('../src/debris-sim.js')).attachDebrisSim(await (await import('../src/sim/module.js')).loadSim(), debris);
   const bone = new THREE.Object3D(), ignored = new THREE.Object3D();
   bone.position.set(2, fixture % 4, -3); bone.quaternion.setFromEuler(new THREE.Euler(.02 * fixture, .1, -.05));
   bone.scale.set(fixture % 5 === 0 ? -1 : 1, 1, 1); bone.updateMatrixWorld(true);

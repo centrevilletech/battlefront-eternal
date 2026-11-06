@@ -126,44 +126,61 @@ fn hull(pad: &Pad) -> Option<&Hull> {
     found
 }
 
-/// refresh() (mobile-posts.js:139).
+/// Reserve every prepared variant's largest class table before play. A new
+/// hull life then changes values while retaining this post's existing arrays.
+pub fn reserve_class(post: &mut MobilePost, atk: usize, def: usize, points: usize) {
+    post.ai.atk.reserve(atk.saturating_sub(post.ai.atk.len()));
+    post.ai.def.reserve(def.saturating_sub(post.ai.def.len()));
+    post.ai.points.reserve(points.saturating_sub(post.ai.points.len()));
+}
+fn copy_class(ai: &mut MobileAi, setting: f64, record: Option<&ClassRecord>) {
+    let defaults = [100.0; 6];
+    let atk = record.and_then(|r| r.atk.as_deref()).unwrap_or(&defaults);
+    let def = record.and_then(|r| r.def.as_deref()).unwrap_or(&defaults);
+    ai.atk.clear(); ai.atk.extend_from_slice(atk); ai.def.clear(); ai.def.extend_from_slice(def);
+    ai.value_bleed = record.map_or_else(|| if setting.is_finite() { setting } else { 100.0 }, |r| r.value_bleed.unwrap_or(100.0));
+    ai.points.clear(); if let Some(r) = record { ai.points.extend_from_slice(&r.spawn_points); }
+    ai.class_spawn_points = ai.points.len() as f64;
+}
+
+/// refresh() (mobile-posts.js:139). Native services lend their prepared facts;
+/// no pad, class or path table is cloned for a living unchanged command hull.
 pub fn refresh<W: PostsWorld + ?Sized>(s: &mut Store, r: Ref<MobilePost>, world: &mut W) {
-    let slot = s.mobile_post.get(r).expect("a command vehicle's post").index;
-    let pad = world.pad(slot);
-    let Some(v) = hull(&pad) else {
-        let old = s.mobile_post.get(r).unwrap().vehicle;
-        let last = old.map(|old| world.vehicle_position(old));
-        let post = s.mobile_post.get_mut(r).unwrap();
-        if let Some(p) = last {
-            post.last_position = p;
-        }
-        post.active = false;
-        return;
-    };
-    let post = s.mobile_post.get_mut(r).unwrap();
-    let life = v.generation;
-    if Some(v.id) != post.vehicle || Some(life) != post.life {
-        // A new hull on the pad: its class's post data, and its team.
-        post.vehicle = Some(v.id);
-        post.life = Some(life);
-        post.team = v.team;
-        let data = class_data(v.value_bleed_setting, v.record.as_ref());
-        post.ai.atk = data.atk;
-        post.ai.def = data.def;
-        post.ai.value_bleed = data.value_bleed;
-        post.ai.class_spawn_points = data.points.len() as f64;
-        post.ai.points = data.points;
-        post.label = v.label;
-        post.desc = MobileDesc { name: v.name, display_name: post.label, value_bleed: data.value_bleed, mobile: true };
-        post.radius = v.radius;
-        post.speed = v.speed;
+    let slot=s.mobile_post.get(r).expect("a command vehicle's post").index;
+    let mut found=false;
+    world.with_pad(s,slot,&mut |s,pad|{found=refresh_pad(s,r,pad);});
+    if !found {
+        let old=s.mobile_post.get(r).unwrap().vehicle;
+        let last=old.map(|old|world.vehicle_position(s,old));
+        deactivate(s,r,last);
     }
-    // Whoever takes a seat makes it his team's; it stays his after.
-    if v.seated {
-        post.team = v.controlling_team;
+}
+// The same refresh serves the native pre-AI read boundary. Its prepared pad
+// already borrows current hull facts, so no callback world or copy is needed.
+pub(crate) fn refresh_native(s:&mut Store,r:Ref<MobilePost>,pad:&Pad){
+    if !refresh_pad(s,r,pad){
+        let old=s.mobile_post.get(r).unwrap().vehicle;
+        let last=old.and_then(|r|s.vehicle.get(r)).map(|v|v.position);
+        deactivate(s,r,last);
     }
-    post.yaw = v.yaw;
-    post.active = true;
+}
+fn deactivate(s:&mut Store,r:Ref<MobilePost>,last:Option<[f64;3]>){
+    let post=s.mobile_post.get_mut(r).unwrap();
+    if let Some(p)=last{post.last_position=p;}
+    post.active=false;
+}
+fn refresh_pad(s:&mut Store,r:Ref<MobilePost>,pad:&Pad)->bool{
+    let Some(v)=hull(pad) else{return false};
+    let post=s.mobile_post.get_mut(r).unwrap();let life=v.generation;
+    if Some(v.id)!=post.vehicle || Some(life)!=post.life {
+        post.vehicle=Some(v.id);post.life=Some(life);post.team=v.team;
+        copy_class(&mut post.ai,v.value_bleed_setting,v.record.as_ref());
+        post.label=v.label;
+        post.desc=MobileDesc{name:v.name,display_name:post.label,value_bleed:post.ai.value_bleed,mobile:true};
+        post.radius=v.radius;post.speed=v.speed;
+    }
+    if v.seated{post.team=v.controlling_team;}
+    post.yaw=v.yaw;post.active=true;true
 }
 
 /// state(post) (mobile-posts.js:179).
@@ -200,19 +217,42 @@ pub fn refresh_all<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) {
 
 /// events() (mobile-posts.js:191).
 pub fn events<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) -> Vec<MobileEvent> {
-    let mut out = Vec::new();
+    let mut out = Vec::new(); events_into(s, world, &mut out); out
+}
+
+/// The phase retains its event list; refreshing an unchanged command vehicle
+/// does not allocate another collection every tick.
+pub fn events_into<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W, out: &mut Vec<MobileEvent>) {
+    out.clear();
     for i in 0..s.mobile_posts.posts.len() {
         let r = s.mobile_posts.posts[i];
-        let was = s.mobile_post.get(r).unwrap().reported.clone();
+        let was = &s.mobile_post.get(r).unwrap().reported;
+        let (active, team, vehicle, life) = (was.active, was.team, was.vehicle, was.life);
         refresh(s, r, world);
         let post = s.mobile_post.get_mut(r).unwrap();
-        let replaced = post.vehicle != was.vehicle || post.life != was.life;
-        if was.active && (!post.active || replaced) {
-            out.push(MobileEvent::Lost { post: r, vehicle: was.vehicle, from: was.team });
-        } else if was.active && post.active && was.team != post.team {
-            out.push(MobileEvent::Owner { post: r, from: was.team, to: post.team });
+        let replaced = post.vehicle != vehicle || post.life != life;
+        if active && (!post.active || replaced) {
+            out.push(MobileEvent::Lost { post: r, vehicle: vehicle, from: team });
+        } else if active && post.active && team != post.team {
+            out.push(MobileEvent::Owner { post: r, from: team, to: post.team });
         }
         post.reported = state(post);
     }
-    out
+}
+
+/// commandSpawnPoint (mobile-posts.js): transform in the hull frame, then
+/// retract toward its collision centre to the first static surface. The hull
+/// owner supplies the cast with its own body excluded, preserving mask 0x48.
+pub fn command_spawn_point(matrix: &three::Matrix4, center: three::Vector3, yaw: f64, point: [f64; 4],
+    mut cast: impl FnMut(three::Vector3, three::Vector3, f64) -> Option<three::Vector3>) -> [f64; 4] {
+    let mut local = three::Vector3::new(point[0], point[1], point[2]); local.apply_matrix4(matrix);
+    let yaw = yaw + point[3] * (std::f64::consts::PI / 180.0);
+    let mut from = center; from.apply_matrix4(matrix);
+    let mut direction = three::Vector3::default(); direction.sub_vectors(&local, &from);
+    let span = direction.length();
+    if span > 1e-6 {
+        direction.divide_scalar(span);
+        if let Some(hit) = cast(from, direction, span) { local = hit; }
+    }
+    [local.x, local.y, local.z, yaw]
 }

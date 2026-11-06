@@ -136,7 +136,9 @@ export class MobilePost {
     return found;
   }
 
-  refresh() {
+  // A page derives its displayed post from replicated hulls. The native
+  // world publishes these fields and never calls this presentation method.
+  present() {
     const v = this.hull();
     if (!v) {
       if (this.vehicle) this.lastPosition.copy(this.vehicle.position);
@@ -174,26 +176,20 @@ export class MobilePosts {
       const names = Object.values(slot.desc?.classes || {});
       if (names.some((name) => isCommandClass(system.data?.classes?.[name]))) this.posts.push(new MobilePost(system, slot, index, classes));
     });
-    for (const post of this.posts) post.reported = this.state(post.refresh());
+    for (const post of this.posts) post.reported = this.state(post.present());
   }
 
   state(post) {
     return { active: post.active, team: post.team, vehicle: post.vehicle, life: post.life };
   }
-
-  refresh() {
-    for (const post of this.posts) post.refresh();
-    return this.posts;
-  }
-
-  // What changed since the last call, for the battle's authority: posts
-  // lost (their vehicle died) and posts that changed hands.
+  // Page announcements since the previous presentation: posts lost with
+  // their replicated hulls and posts that changed hands.
   //   { kind: "lost", post, vehicle, from }   { kind: "owner", post, from, to }
-  events() {
+  presentEvents() {
     const out = [];
     for (const post of this.posts) {
       const was = post.reported;
-      post.refresh();
+      post.present();
       const replaced = post.vehicle !== was.vehicle || post.life !== was.life;
       if (was.active && (!post.active || replaced)) out.push({ kind: "lost", post, vehicle: was.vehicle, from: was.team });
       else if (was.active && post.active && was.team !== post.team) out.push({ kind: "owner", post, from: was.team, to: post.team });

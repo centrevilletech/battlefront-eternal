@@ -8,9 +8,8 @@ import { bridgeFor, Heap } from '../src/sim/runtime.js';
 import { IMPORT_TABLE } from '../src/sim/gen/index.js';
 import * as worldRecords from '../src/sim/gen/world.js';
 
-const names = new Set(['input_actions_run', 'input_fire_run', 'input_mailbox_run', 'input_queue_run',
-  'input_controls_run', 'input_controls_axis', 'world_events_run', 'world_local_run', 'world_step_run', 'world_network_run']);
-const stateRecords = { world_step_run: ['WorldStepState', 23], world_network_run: ['WorldNetworkState', 14] };
+const names = new Set(['world_events_run', 'world_local_run', 'world_step_run']);
+const stateRecords = { world_step_run: ['WorldStepState', worldRecords.WorldStepStateLayout.words], world_network_run: ['WorldNetworkState', worldRecords.WorldNetworkStateLayout.words] };
 const counts = Object.fromEntries([...names].map(n => [n, 0]));
 const bridges = new WeakMap(); let next = 0, failures = 0, tests = 0;
 const hex = values => { const bytes = Buffer.alloc(values.length * 8); values.forEach((v, i) => bytes.writeDoubleLE(v, i * 8)); return bytes.toString('hex'); };
@@ -52,8 +51,7 @@ function instrument(instance) {
       frames.push(frame);
       try {
         const value = original(...args);
-        if (name === 'input_controls_axis') frame.scalar = hex([value]);
-        else if (stateRecords[name]) {
+        if (stateRecords[name]) {
           assert.ok(frame.state, 'a completed world operation must reply at least once');
           if (name === 'world_network_run') frame.scalar = hex([value]);
         } else frame.output = block(b, value);
@@ -84,8 +82,8 @@ function instrument(instance) {
 // The test files own their JS references, mutations and assertions. Evaluate
 // their fixture definitions with only the factories instrumented; no core or
 // runtime module is rewritten and no test bodies are duplicated here.
-for (const file of ['input-sim.test.js', 'command-controls-sim.test.js', 'world-events-sim.test.js',
-  'world-local-sim.test.js', 'world-step-sim.test.js', 'world-network-sim.test.js']) {
+for (const file of ['world-events-sim.test.js',
+  'world-local-sim.test.js', 'world-step-sim.test.js']) {
   const url = new URL(`../tests/${file}`, import.meta.url), tasks = [], env = {};
   let source = readFileSync(url, 'utf8');
   const imports = [...source.matchAll(/^import (.+?) from ['"](.+?)['"];$/gm)];
@@ -96,14 +94,7 @@ for (const file of ['input-sim.test.js', 'command-controls-sim.test.js', 'world-
     else if (binding.startsWith('{')) for (const spec of binding.slice(1, -1).split(',')) {
       const [name, alias = name] = spec.trim().split(/\s+as\s+/);
       const original = module[name];
-      if (name === 'networkPorts') {
-        env[alias] = bridge => {
-          instrument({exports:bridge.x,holder:{bridge}});
-          return original(bridge);
-        };
-        continue;
-      }
-      env[alias] = ['createInputSim', 'createWorldSim'].includes(name)
+      env[alias] = name === 'createWorldSim'
         ? (instance, ...args) => { instrument(instance); return original(instance, ...args); } : original;
     } else env[binding] = module.default;
     source = source.replace(line, '');
@@ -114,6 +105,9 @@ for (const file of ['input-sim.test.js', 'command-controls-sim.test.js', 'world-
   for (const [name, run] of tasks) { await run(); tests++; }
 }
 assert.ok(Object.values(counts).every(n => n > 0));
-assert.ok(next > 2 && failures > 0 && tests > 20);
+// Six journal fixtures and the two remaining context-driver fixtures.
+// The retired input/roster adapters no longer contribute tests here.
+assert.equal(tests, 8);
+assert.ok(next > 2 && failures > 0);
 const summary = { summary: true, contexts: next, tests, callbackFailuresCheckedByJs: failures, counts };
 emit(summary); console.error(JSON.stringify(summary));

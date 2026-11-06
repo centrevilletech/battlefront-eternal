@@ -49,30 +49,6 @@ function soldier(x, { player = false, health = 100, reserve = 0 } = {}) {
     weapons: [{ def: { ammo: 5 }, clip: 1, perShot: 1, reserve, bottomless: false }] };
 }
 
-test('a serve pulse says who it served and what it gave, and tells the hook', () => {
-  const droid = station();
-  const given = [];
-  droid.onServe = (target, gave) => given.push([target, gave]);
-  const me = soldier(2, { player: true, health: 100, reserve: 1 });
-  const bot = soldier(3, { health: 300, reserve: 0 });
-  const far = soldier(9, { player: true });
-  droid.update(1, [me, bot, far]);
-  assert.equal(droid.mode, 'active');
-  assert.equal(droid.servedPlayer, true);
-  assert.equal(droid.servedHealth, true);
-  assert.equal(droid.servedAmmo, true);
-  assert.deepEqual(given, [[me, 3], [bot, 2]]);
-  assert.equal(me.health, 115);
-  assert.equal(far.health, 100);
-  assert.ok(droid.supplying(me.position));
-  assert.ok(!droid.supplying(far.position));
-  // Nobody left to serve: the next pulse ends the service.
-  droid.update(1, [far]);
-  assert.equal(droid.mode, 'waiting');
-  assert.equal(droid.servedPlayer, false);
-  assert.ok(!droid.supplying(me.position));
-});
-
 test('a page poses a droid from the replicated plain state alone; the idle cycle is the page\'s and never travels', () => {
   const world = station();
   const page = station();
@@ -85,7 +61,9 @@ test('a page poses a droid from the replicated plain state alone; the idle cycle
   let t = 0, turned = false, served = false;
   for (let i = 0; i < 600; i++) {
     t += 1 / 60;
-    world.update(1 / 60, t > 6 ? [me] : []);
+    // These are published world fields, not a second supply simulation.
+    if (i === 360) Object.assign(world, { mode: 'active', servedPlayer: true, servedHealth: true, servedAmmo: true });
+    if (i >= 360) world.active = (i - 360) / 60;
     assert.deepEqual(rigOf(world), untouched, `tick ${i}: the tick poses nothing`);
     const fields = plain(world);
     for (const key of ['t', 'direction', 'rate', 'yaw']) assert.ok(!(key in fields), `${key} never travels`);
@@ -124,7 +102,7 @@ test('LiveObjects.present poses living stations and names the serving one', () =
   const a = station(), b = station();
   Object.assign(live, { stations: [a, b], holograms: [], time: 0 });
   const me = soldier(1, { player: true, health: 10 });
-  b.update(1, [me]);
+  Object.assign(b, { mode: 'active', active: 1, servedPlayer: true });
   b.idle.yaw = 1.25;
   a.state = 'destroyed';
   a.idle.yaw = 2;

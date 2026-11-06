@@ -316,3 +316,14 @@ test('direct publication names only mutable scalar or vector fields', () => {
   assert.throws(() => model({ $publish: ['history'], history: 'list:f64' }), /scalar and vec3/);
   assert.throws(() => model({ $publish: ['position'], position: 'vec3|null' }), /vectors cannot be optional/);
 });
+
+test('observed scalar metadata and deferred records keep the store layout unchanged',()=>{
+  const schema={records:{Detail:{$observe:['time'],time:'f64',entries:'list:f64'}},kinds:{item:{singleton:true,delta:true,defer:['detail'],fields:{detail:'rec:Detail|null'}}}};
+  const model=buildModel([{file:'observed',schema}]);
+  assert.deepEqual(model.records.get('Detail').observe,['time']);
+  assert.equal(model.records.get('Detail').fields.length,2);
+  const bad=fields=>buildModel([{file:'observed',schema:{records:{Detail:fields}}}]);
+  assert.throws(()=>bad({$observe:['entries'],entries:'list:f64'}),/direct scalar/);
+  assert.throws(()=>bad({$observe:['absent'],time:'f64'}),/distinct fields/);
+  assert.throws(()=>buildModel([{file:'observed',schema:{kinds:{item:{singleton:true,defer:['time'],fields:{time:'f64'}}}}}]),/optional records/);
+});

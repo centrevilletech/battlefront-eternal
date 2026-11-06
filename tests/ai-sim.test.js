@@ -1,3 +1,4 @@
+import {unitCommands} from './fixtures/unit-command-port.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
@@ -1415,7 +1416,7 @@ function controlView(c) {
 
 test('native navigation controls retain executors, trails, contacts and life changes', async () => {
   const {js,native}=await pair();
-  const unit = tag => ({tag,kind:0,generation:1,alive:true,position:new Vector3(-12,0,0),velocity:new Vector3(0,0,3),
+  const unit = tag => ({...unitCommands,tag,kind:0,generation:1,alive:true,position:new Vector3(-12,0,0),velocity:new Vector3(0,0,3),
     soldier:{aimYaw:-0,avoidance:new Vector3()},forward:out=>out.set(.6,0,.8)});
   const ju=unit('unit'),nu=unit('unit'),jl=unit('leader'),nl=unit('leader');
   const jw={randomB:new ClassicRandom(367)},nw={randomB:new ClassicRandom(367)};

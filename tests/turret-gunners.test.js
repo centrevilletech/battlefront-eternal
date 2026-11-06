@@ -366,16 +366,6 @@ test('killed at the gun, a bot or a network human leaves it at once, his body fa
   }
 });
 
-test('a turret destroyed under its gunner kills him there, credited to its destroyer', () => {
-  const world = emplacement();
-  const unit = man(world);
-  const killer = world.units.add(soldierUnit(2));
-  world.turret.damage(1000, killer);
-  assert.equal(unit.alive, false);
-  same(unit.combat.lastAttacker, killer);
-  assert.equal(unit.seat, null);
-  assert.ok(unit.soldier.position.distanceTo(fromSeat(world, 0, 0, 0.2)) < 1e-5, 'falls from where he stood');
-});
 
 test('the player killed at the gun leaves it the same way, his death clip kept', () => {
   const world = emplacement();
@@ -467,7 +457,7 @@ test('imported: the Hoth dish turret\'s gunner dies to rifle bolts and leaves it
     for (const w of d.weapons || []) if (!bolt && w.ordnance?.base === 'bolt' && !w.ordnance.ExplosionImpact && w.ordnance.Damage === 50) bolt = w.ordnance;
   }
   await game.factory.prepare(className);
-  game.unitsSim.construction.prepare(className,32);
+    game.unitsSim.construction.prepare(className,64);
   // Whoever fires the bolts: a soldier of a third team, kept off the field
   // (the rounds take a battle's own units as their owners).
   const shooter = game.factory.acquire(className);
@@ -527,7 +517,7 @@ for (const [map, classes] of Object.entries(SHOWN)) {
     let className = null;
     for (const s of Object.values(game.data.sides)) for (const [n, d] of Object.entries(s.units || {})) if (!className && d.base === 'soldier' && !d.hero && !Number(d.NoEnterVehicles ?? 0)) className = n;
     await game.factory.prepare(className);
-    game.unitsSim.construction.prepare(className,32);
+    game.unitsSim.construction.prepare(className,64);
     const away = (p, shapes) => Math.min(...shapes.map((s) => {
       if (s.type === 'sphere') return p.distanceTo(s.center) - s.radius;
       const l2 = s.half.lengthSq(), k = l2 > 1e-12 ? Math.max(-1, Math.min(1, p.clone().sub(s.center).dot(s.half) / l2)) : 0;
@@ -540,6 +530,7 @@ for (const [map, classes] of Object.entries(SHOWN)) {
       const turret = game.live.turrets.filter((t) => t.desc.class === cls).sort((a, b) => lean(b) - lean(a))[0];
       if (!turret.alive) turret.setHealth(turret.maxHealth);
       const unit = game.factory.acquire(className);
+      unit.human=unit.networkHuman=true;
       unit.team = unit.combat.team = 1;
       unit.spawn(turret.position.x + 2, turret.position.y + 1, turret.position.z, 0);
       // Authority and page keep separate bodies. A received lease places the

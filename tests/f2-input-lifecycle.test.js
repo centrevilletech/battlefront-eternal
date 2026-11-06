@@ -192,7 +192,7 @@ test('live F2 private hull replay leaves the native authority input untouched', 
   try {
     const v = system.vehicles[0], u = rider(system, 14);
     u.human = u.networkHuman = true;
-    assert.equal(system.board(u, v), true);
+    same(system.board(u, v), true);
     const before = observe(v);
     const command = { tick: 1, sequence: 1, epoch: 1, generation: 1, down: [], actions: [], look: [[400, 100]], mouseScale: 1 };
     const clone = predictHull(v, [command], 0, command.generation);
@@ -216,6 +216,13 @@ function turret(x, base = 'bolt', height = 3) {
   return new Turret({ base: 'armedbuilding', matrix: root.matrix.toArray(), weapon: def,
     settings: { MaxHealth: 100, TurretNodeName: 'drum', AimerNodeName: 'gun', PilotPosition: 'seat', FirePointName: 'fire' } },
     { built: rig }, {}, null);
+}
+
+// These fleet-only fixtures have no live-object owner. Deliver its public
+// built/destroyed facts explicitly, then exercise the real native crew entry.
+function externalTurretHealth(crews,t,value){
+  t.health=value;t.show(value>0?'built':'destroyed');
+  if(value<=0)crews.destroyed(t);
 }
 
 test('live F2 Classic turret exits exhaust unsupported candidates before fallback', async () => {
@@ -245,12 +252,12 @@ test('live F2 turret exits use built bounds after construction and rebuild', asy
       system.f2.seats.attachTurrets(crews);
       const results = [];
       for (let i = 0; i < 2; i++) {
-        t.setHealth(t.maxHealth);
+        externalTurretHealth(crews,t,t.maxHealth);
         const u = rider(system, 30 + i); u.human = u.networkHuman = true;
         same(crews.man(u, t), true);
         same(crews.leave(u), true);
         results.push(u.position.toArray());
-        t.setHealth(0);
+        externalTurretHealth(crews,t,0);
       }
       return results;
     } finally { system.dispose(); }
@@ -279,9 +286,9 @@ test('live native turret crews retain sampled owners and publish their bodies', 
     same(ordnance.bolts.length, 2);
     same(crews.leave(a, { placement: false }), true);
     same(a.seat, null); same(turrets[0].gunner, null);
-    const old = b.seat; turrets[1].setHealth(0);
+    const old = b.seat; externalTurretHealth(crews,turrets[1],0);
     same(b.alive, false); same(b.seat, null); same(old.released, true);
-    turrets[1].setHealth(turrets[1].maxHealth);
+    externalTurretHealth(crews,turrets[1],turrets[1].maxHealth);
     const c = rider(system, 22); c.human = c.networkHuman = true;
     same(crews.man(c, turrets[1]), true);
     assert.notEqual(c.seat, old); same(old.unit, b); same(turrets[1].gunner, c.soldier);
@@ -337,7 +344,7 @@ test('an observer death preserves the remaining sampled native crew notices', as
     const fired = [], old = b.seat;
     crews.onFired=(turret,index,shot,owner)=>{
       fired.push(owner.id);
-      if(owner===a)turrets[1].setHealth(0);
+      if(owner===a)externalTurretHealth(crews,turrets[1],0);
     };
     a.intent.buttons[0] = b.intent.buttons[0] = 1;
     system.update(1 / 60);

@@ -1,3 +1,5 @@
+import {unitCommands} from './fixtures/unit-command-port.js';
+import {SeatUnit} from '../src/seats.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -69,6 +71,7 @@ function makeUnit(units, team, x, z, { kind = 0, unitType = "trooper", speed = 6
     generation: 1,
     character: null,
     controller: null,
+    ...unitCommands,
     classDef: { UnitType: unitType, MaxSpeed: speed },
     soldier: { maxSpeed: speed, maxStrafe: 4.5, maxTurn: 4, aimYaw: 0, aimPitch: 0, posture: "stand", mode: 0, rolled: false },
     position,
@@ -1448,4 +1451,12 @@ test("Combat's own alert responses reach the patrolling agents' policies", async
       assert.equal(controller.commands.queue[0].kind, GOAL.COMBAT);
     }
   }
+});
+
+test('seat control proxies keep their own planner binding without impersonating native bodies',()=>{
+  const world=makeWorld(),ai=makeAI(world),{controller}=spawnBot(ai,world,1,0,0);
+  const proxy=makeUnit(world.units,1,0,0);
+  Object.setPrototypeOf(proxy,SeatUnit.prototype);delete proxy.bindController;
+  controller.bind(proxy);assert.equal(proxy.controller,controller);
+  controller.unbind();assert.equal(proxy.controller,null);
 });

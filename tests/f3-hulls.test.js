@@ -387,6 +387,30 @@ test('Classic seat attachment publishes its generator before later native mirror
   assert.equal(world.phase.counters.commandCalls,0,'the consuming phase performs no setter exports');
 });
 
+test('prepared cold unit births fit the retained native flight target cache',async()=>{
+  const gun=weaponDefinition('lock',0,{LockOnRange:100,LockOnAngle:90,LockOffAngle:100,LockTime:.1,
+    ordnance:{class:'lock-round',base:'missile',Velocity:40,LifeSpan:1}});
+  const w=await f3World({soldier},{prepareFleet:fleetFixture({base:'flyer',positions:[0],weapon:gun})});
+  const hull=w.factory.context.vehicles.vehicles[0],pilot=w.spawn('soldier',0,0,true);
+  assert.equal(w.factory.context.vehicles.board(pilot,hull),true);
+  // Factory births bypass Units.add, and therefore must use its cold reserved
+  // target capacity rather than the registry length at factory preparation.
+  for(let i=0;i<3;i++){const u=w.spawn('soldier',i*3,30);u.team=u.combat.team=2;}
+  pilot.intent.aim=new Vector3(0,0,1);
+  for(let i=0;i<30;i++)w.phase.phase(1/60);
+  assert.equal(hull.alive,true);assert.equal(pilot.seat.vehicle,hull);
+});
+
+test('retiring a live hull publishes dead registry facts before releasing its slot',async()=>{
+  const w=await f3World({soldier},{prepareFleet:fleetFixture({positions:[0]})});
+  const vehicles=w.factory.context.vehicles,hull=vehicles.vehicles[0],target=hull.aiTarget;
+  const out=[];w.units.query(hull.position,10,out);
+  assert.ok(out.includes(target));
+  vehicles.f2.retire(hull);
+  w.units.query(target.position,10,out);
+  assert.equal(out.includes(target),false);
+});
+
 // A legSide list starts absent and appears at the first ground sample. Both
 // encoding buffers and every native working copy must already have capacity.
 test('the first walker leg sample and its respawn reuse cold native storage',async()=>{

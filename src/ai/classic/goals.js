@@ -1,3 +1,4 @@
+import { characterObjective } from '../../f4-characters.js';
 // Classic objectives: which command post a bot is sent to, and when it is
 // sent somewhere else (docs/ai-population.md).
 //
@@ -474,7 +475,7 @@ export class ClassicObjectives {
       else if (controller.publishObjective) controller.publishObjective(post);
       else controller.onObjective?.(post);
     }
-    character.objective = post;
+    characterObjective(character,post);
   }
 
   // On spawn or controller attachment: the existing objective again, no draw.

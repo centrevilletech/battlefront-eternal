@@ -74,7 +74,7 @@ impl World for Served<'_, '_> {
     fn team(&mut self) -> f64 { self.reads.team }
     fn dead(&mut self) -> bool { self.reads.dead }
     fn over(&mut self) -> bool { self.reads.over }
-    fn roster(&mut self, team: f64) -> Vec<StrId> { self.reads.rosters.get(team as usize).cloned().unwrap_or_default() }
+    fn roster(&mut self, team: f64) -> &[StrId] { self.reads.rosters.get(team as usize).map(Vec::as_slice).unwrap_or(&[]) }
     fn classic(&mut self) -> bool { self.reads.classic }
     fn character_spawn(&mut self) -> Option<(bool, f64)> { self.reads.character }
     fn can_spawn(&mut self, name: StrId) -> bool {

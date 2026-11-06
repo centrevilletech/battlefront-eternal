@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { VehicleEffects } from '../src/vehicle-effects.js';
 import { Effects } from '../src/effects.js';
-import { DebrisIds, debrisState } from '../src/debris-sim.js';
+import { DebrisIds, debrisState } from './sim-capture/debris-state.mjs';
 import { MAGIC, RECORD, Writer } from './sim-capture/format.mjs';
 let game, spawned = 0, flights = 0, rests = 0, settles = 0, removed = 0;
 const traceAt = process.argv.indexOf('--debris-trace'), trace = traceAt < 0 ? null : process.argv[traceAt + 1];

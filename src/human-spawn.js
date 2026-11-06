@@ -1,3 +1,6 @@
+// HumanSpawn is a stable publication facade and page event queue. Native
+// human/connection services own command decisions and gameplay clocks.
+
 // The player's way into the battle: the spawn screen's world side, as the
 // original's spawn display and Character run it (docs/human-spawn.md).
 // Headless: it decides when he may spawn, keeps his queued choices, and
@@ -27,7 +30,6 @@
 // the battle is over nobody spawns: team and spawn choices are ignored and
 // the screen doesn't open again.
 
-import { humanEntry } from "./runtime/commands.js";
 import { activePosts, friendlySpawn, humanSpawnPost, ownerOf, postAI } from "./ai/classic/goals.js";
 import { legacyRandom } from "./ai/random.js";
 
@@ -223,13 +225,6 @@ export class HumanSpawn {
     this.flush();
   }
 
-  // He died (combat.onDeath): the timer starts.
-  died() {
-    this.phase = "dying";
-    this.deadTime = 0;
-    this.emit("playerDied", { team: this.world.team(), className: this.className });
-  }
-
   // He has a unit again, as className at the named post.
   spawned(className, post = null) {
     const was = this.phase;
@@ -250,77 +245,4 @@ export class HumanSpawn {
     this.emit("teamChanged", { team, previous });
   }
 
-  // One world tick's part, where the spawn manager's choices are made (after
-  // the battle's update): the tick's commands, then the phase, then a waiting
-  // choice if he may spawn now.
-  update(dt, commands = null) {
-    const world = this.world;
-    if (world.dead()) this.deadTime += dt;
-    if (commands) for (let i = 0; i < commands.length; i++) this.apply(humanEntry(commands[i]));
-    // The battle has ended: a choice waiting here, or one the spawn manager
-    // took and hasn't carried out, is dropped (once).
-    if (!this.auto && !this.ended && world.over?.()) {
-      this.ended = true;
-      this.pending = null;
-      world.cancel?.();
-    }
-    this.updatePhase();
-    if (this.pending && (this.phase === "unspawned" || this.phase === "awaiting")) this.realize();
-  }
-
-  apply(entry) {
-    if (!entry) return;
-    const world = this.world;
-    if (entry.kind === "suicide") {
-      if (!world.dead()) world.kill();
-      return;
-    }
-    // Without a screen the game confirms the URL's choice itself; once the
-    // battle is over nobody spawns.
-    if (this.auto || world.over?.()) return;
-    if (entry.kind === "team") {
-      if (world.dead() && entry.team !== world.team()) world.setTeam(entry.team);
-    } else if (entry.kind === "spawn") {
-      if (!world.dead()) return;
-      this.pending = { className: entry.className, post: entry.post };
-    } else if (entry.kind === "cancel") {
-      this.pending = null;
-      world.cancel?.();
-    }
-  }
-
-  updatePhase() {
-    const world = this.world;
-    const was = this.phase;
-    if (!world.dead()) this.phase = "alive";
-    else if (!this.spawnedOnce) this.phase = "unspawned";
-    else {
-      const classic = world.classic;
-      const character = world.character();
-      const open = !world.over?.() && (classic && character?.spawn
-        ? !character.unit && character.spawn.timer <= 0
-        : this.deadTime >= RESPAWN_DELAY - TIME_SLACK);
-      this.phase = open ? "awaiting" : "dying";
-    }
-    if (this.phase === "awaiting" && was !== "awaiting") this.emit("awaitingSpawn", this.state());
-  }
-
-  // The waiting choice, if it can be had: a class of his team's roster that
-  // can be built; the post as asked (the world falls back as the original
-  // does when it doesn't serve).
-  realize() {
-    const world = this.world;
-    const { className, post } = this.pending;
-    if (!world.roster(world.team()).includes(className) || !world.canSpawn(className)) {
-      console.warn(`spawn port: ${className} can't be spawned on team ${world.team()}`);
-      this.pending = null;
-      return;
-    }
-    this.className = className;
-    if (world.classic) {
-      if (world.ready(className, post)) this.pending = null;
-    } else {
-      world.spawn(className, post);
-    }
-  }
 }

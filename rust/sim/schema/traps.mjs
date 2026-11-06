@@ -17,8 +17,5 @@ export default {
     TrActionArgs: { op: 'enum:TrActionOp', index: 'f64', state: 'rec:TrState', vehicle: 'ref:vehicle|null', number: 'f64', flag: 'bool', name: 'str|null', position: 'f64x3' },
     TrActionResult: { state: 'rec:TrState' },
   },
-  imports: {
-    trapsQuery: { args: 'TrQueryArgs', result: 'TrQueryResult' },
-    trapsAction: { args: 'TrActionArgs', result: 'TrActionResult' },
-  },
+
 };

@@ -84,7 +84,9 @@ test('everyone\'s records reach a client during play, then exact once the scores
   assert.ok(Number.isInteger(lifeBest(page.battle.characters[bot])), 'in whole seconds');
   assert.ok(lifeBest(characters[bot]) - lifeBest(page.battle.characters[bot]) < 6.5, 'no more than a refresh behind');
   // The scores stop: each chunk's next refresh is exact.
-  game.battle.over = true; game.battle.gameOver = true;
+  game.battle.spend(2,game.battle.reinforcements[2]);
+  run(125);
+  assert.equal(game.battle.gameOver,true);
   page.battle.gameOver = true;
   run(60 * 6);
   assert.equal(Math.floor(lifeBest(page.battle.characters[bot]) * 1000), Math.floor(lifeBest(characters[bot]) * 1000), 'to the millisecond');
@@ -98,7 +100,7 @@ test('until the scores stop, everyone\'s records leave the player\'s own slot to
   const registry = { classes: new Map(), classIds: new Map(), weapons: new Map(), weaponIds: new Map(), posts: new Map() };
   const make = () => Array.from({ length: 6 }, (_, index) => ({ index, team: index % 2 ? 2 : 1, name: `C${index}` }));
   const world = make(), stats = new BattleStats();
-  stats.kill(world[2], world[1], -1); stats.kill(world[3], world[0], -1); stats.death(world[1]); stats.death(world[0]);
+  recordOf(world[2]).slots[0].victims.set(world[1],1); recordOf(world[3]).slots[1].victims.set(world[0],1); recordOf(world[1]).slots[1].deaths=1; recordOf(world[0]).slots[0].deaths=1;
   const page = make(), game = { battle: { characters: page, local: page[2], gameOver: false } };
   const options = { tick: 60, epoch: 1, quantum: 1000 };
   // His own record, then everyone's with a later count of his kills of C1.

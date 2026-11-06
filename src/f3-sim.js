@@ -83,6 +83,7 @@ class F3 {
     // Game.separateSoldiers reads one camera scope after recon finishes.
     // This retained generated row contains no body or registry snapshots.
     this.separation = new F3SeparationMirror();
+    this.globalSeparationCamera = new THREE.Vector3();
     this.separation.global = true;
     this.separationScope = separation ?? this.separation;
     this.aiming = false;
@@ -285,6 +286,7 @@ class F3 {
     this.sync();
     this.random.refresh(binding);
     this.items.schedule(binding);this.items.flush();
+    this.liveOwner?.prepareUnit(unit);
     if (passive) this.construction.resident(binding);
   }
 
@@ -584,10 +586,10 @@ class F3 {
     this.counters.wasmCalls++;
     this.counters.commandCalls++;
     this.counters.inputFields += this.layout.commandWords;
-    const previous = b.phaseCounters; b.phaseCounters = this.counters;
+    const previous = b.phaseCounters, active = this.active; b.phaseCounters = this.counters;
     this.active = true;
     try { if (!this.x.f3_command()) throw Error('native unit command rejected invalid state or input'); }
-    finally { this.active = false;b.phaseCounters = previous; }
+    finally { this.active = active;b.phaseCounters = previous; }
     this.random.pull();
     this.sync();
   }
@@ -713,6 +715,7 @@ class F3 {
   }
   unspawn(unit) { this.begin(this.bindings[unit.id], 'unspawn'); this.commit(); }
   controller(unit, controller) {
+    if (this.tailOwner) return this.tailOwner.controller(unit,controller);
     // ClassicController.unbind runs inside the synchronous Character leaf.
     // Its pointer becomes the leaf's typed reply, with no nested setter call.
     if (unit === this.deathUnit) { unit.controller = controller;return; }
@@ -734,6 +737,7 @@ class F3 {
         this.birthWords === f[d + F3BoundaryLayout.eventWords] &&
         (!fleet || fleet.lastVersion === f[fleet.descriptor + F2PhaseLayout.version])) {
       this.counters.outputFields += fleet ? 4 : 3;
+      this.liveOwner?.sync();this.tailOwner?.sync();
       return;
     }
     this.readLayout();
@@ -741,7 +745,7 @@ class F3 {
     // Hull damage and lease changes share this mirror barrier. Resolve new
     // leases before a Unit publication names them, without another export.
     if (this.fleet) this.fleet.sync();
-    if (this.lastVersion === this.layout.version) { this.drainEvents(); this.items.flush(); this.construction.finish(); return; }
+    if (this.lastVersion === this.layout.version) { this.liveOwner?.sync();this.tailOwner?.sync(); this.drainEvents(); this.items.flush(); this.construction.finish(); return; }
     this.lastVersion = this.layout.version;
     this.counters.unitRows += this.layout.outputRows;
     this.counters.unitWords += this.layout.outputWords;
@@ -783,6 +787,16 @@ class F3 {
       // mutates the existing weapon rows read by AI and network capture.
       if (binding.life !== this.key.life) {
         binding.life = this.key.life;
+        // Native waves reset the same canonical intent as Unit.spawn. This
+        // scalar mirror reset precedes the spawned AI hook, including reuse
+        // of a corpse whose old axes/aim are still visible in JavaScript.
+        const intent=binding.unit.intent;
+        intent.forward=0;intent.right=0;intent.turn=0;intent.pitch=0;
+        intent.jump=false;intent.crouch=false;intent.prone=false;intent.use=false;
+        intent.buttons[0]=0;intent.buttons[1]=0;intent.reload=false;intent.nextPrimary=false;
+        intent.previousPrimary=false;intent.nextSecondary=false;intent.zoom=false;
+        intent.aim=null;intent.jetDirection=null;intent.exit=false;
+        delete intent.flight;delete intent.brake;delete intent.up;delete intent.down;
         binding.arsenalKey.life = this.key.life;
         this.items.schedule(binding);
       }
@@ -860,6 +874,7 @@ class F3 {
     this.acknowledgement.version = this.layout.version;
     putF3Acknowledgement(b,this.acknowledgement,b.f,this.layout.acknowledgement/8,this.heap);
     this.counters.inputFields += F3AcknowledgementLayout.words;
+    this.liveOwner?.sync();this.tailOwner?.sync();
     this.drainEvents();
     this.items.flush();
     this.construction.finish();
@@ -1126,8 +1141,7 @@ class F3 {
     this.registry.foreign(count, networks);
     const scope = this.separationScope;
     this.separation.global = scope.global;
-    // Global separation never reads the dormant viewpoint camera.
-    if (!scope.global) this.separation.camera.copy(scope.camera);
+    this.separation.camera = scope.global ? this.globalSeparationCamera : scope.camera;
     putF3Separation(b, this.separation, b.f, this.layout.separation / 8, this.heap);
     this.counters.ticks++;
     this.counters.phaseCalls++;

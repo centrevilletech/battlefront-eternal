@@ -845,3 +845,15 @@ pub(crate) fn supply(hull: Ref<Vehicle>, amount: f64, powerup: bool) -> bool {
     }}
     changed
 }
+
+/// Native stations reject an old hull life before changing its retained guns.
+pub(crate) fn supply_station(hull: Ref<Vehicle>,life:f64,amount:f64)->bool{
+    if !sim().store.vehicle.get(hull).is_some_and(|v|v.target_generation==life){return false;}
+    supply(hull,amount,false)
+}
+/// Statistics observe the seat's first weapon, independently of selection.
+pub(crate) fn first_weapon(hull:Ref<Vehicle>,seat:usize)->Option<(crate::store::DefId,f64)>{
+    let st=state();let craft=st.crafts.get(hull.slot as usize)?.as_ref()?;
+    if craft.id!=hull{return None;}let weapon=*craft.seats.get(seat)?.first()?;
+    let w=&st.weapons.get(weapon)?.state;Some((w.def,w.level))
+}

@@ -28,8 +28,10 @@ pub struct Settings {
 pub struct Victim { pub unit: usize, pub generation: f64, pub grab: usize, pub since: f64 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Held { pub prop: usize, pub grab: usize, pub since: f64, pub frame: Option<Matrix4>, pub time: Option<f64> }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Body {
+    /// Canonical slab identity, independent of gameplay generation below.
+    pub reference: Option<crate::store::Ref<crate::gen::Unit>>,
     /// Its identity in the caller's body table, separate from a public id.
     pub key: usize,
     pub id: f64,
@@ -76,10 +78,24 @@ pub struct Animated {
     pub bind: Vec<(Quaternion, Vector3)>,
 }
 pub trait World {
+    /// Positions keep the phase's original membership but follow live carries.
+    /// Capture replays use the sampled slice; native owners read current rows.
+    fn near(&mut self, prop: &Animated, settings: &Settings, positions: &[Vector3]) -> bool {
+        prop.near(settings, positions)
+    }
+    /// Refresh scalar body facts before a reader, without changing body order.
+    fn refresh_body(&mut self, _prop: &Animated, _unit: &mut Body) {}
+    /// Commit held/movement writes before a later prop or nested death reads.
+    fn body_changed(&mut self, _prop: &Animated, _unit: &Body) {}
     fn sound(&mut self, prop: &Animated, name: StrId, position: Vector3);
     fn let_go(&mut self, prop: &Animated, unit: &mut Body);
     fn damage(&mut self, prop: &Animated, unit: &mut Body, amount: f64);
     fn remove(&mut self, prop: &Animated, unit: &mut Body);
+    /// Native owners read prepared clip bindings without copying a per-body
+    /// clip-presence table into the working frame.
+    fn has_rider_clip(&mut self, _prop: &Animated, unit: &Body, grab: usize) -> bool {
+        unit.rider_clips.get(grab).copied().unwrap_or(false)
+    }
     /// The soldier's root from its rider clip, before the prop places it.
     fn rider_root(&mut self, prop: &Animated, unit: &Body, clip: StrId, time: f64) -> Option<(Vector3, Quaternion)>;
 }
@@ -102,7 +118,7 @@ impl Animated {
     pub fn step(&mut self, dt: f64, positions: &[Vector3], bodies: &mut [Body], order: &[usize], tick: f64, settings: &Settings, world: &mut impl World) {
         if self.pose.is_none() { return; }
         if settings.door {
-            let near = self.near(settings, positions);
+            let near = world.near(self, settings, positions);
             let span = if settings.door_clip.is_some() { max(settings.door_duration, 1e-3) } else { 1.0 };
             self.openness = max(0.0, min(1.0, self.openness + (if near { dt } else { -dt }) / span));
             let pose = self.pose.as_mut().unwrap(); pose.clear();
@@ -128,7 +144,10 @@ impl Animated {
         if self.looping && self.victim.is_none() && self.weight >= 0.5 {
             for trigger in &settings.triggers {
                 if trigger.slot < 0 || trigger.slot == self.slot { continue; }
-                if !order.iter().any(|&i| bodies[i].on_foot() && within(trigger.point, trigger.radius, bodies[i].position)) { continue; }
+                if !order.iter().any(|&i| {
+                    world.refresh_body(self, &mut bodies[i]);
+                    bodies[i].on_foot() && within(trigger.point, trigger.radius, bodies[i].position)
+                }) { continue; }
                 self.time = 0.0; self.weight = 0.0; self.play(trigger.slot, false, tick, settings);
                 if let Some(sound) = trigger.sound { world.sound(self, sound, trigger.point); }
                 break;
@@ -142,8 +161,15 @@ impl Animated {
                 self.rig.tree.get_world_position(self.rig.bones[grab.node.unwrap()], &mut point);
                 // Array.find stops at the first body, even a dead body;
                 // the alive check happens after that selection.
-                let unit = order.iter().copied().find(|&i| bodies[i].on_foot() && within(point, grab.radius, bodies[i].position));
-                if let Some(i) = unit.filter(|&i| bodies[i].alive) { self.seize(i, &mut bodies[i], g, tick); break; }
+                let unit = order.iter().copied().find(|&i| {
+                    world.refresh_body(self, &mut bodies[i]);
+                    bodies[i].on_foot() && within(point, grab.radius, bodies[i].position)
+                });
+                if let Some(i) = unit.filter(|&i| bodies[i].alive) {
+                    self.seize(i, &mut bodies[i], g, tick);
+                    world.body_changed(self, &bodies[i]);
+                    break;
+                }
             }
         }
         self.advance(dt, settings);
@@ -195,20 +221,24 @@ impl Animated {
     pub fn swallow(&mut self, bodies: &mut [Body], settings: &Settings, world: &mut impl World) {
         let Some(victim) = self.victim.take() else { return };
         let unit = &mut bodies[victim.unit];
+        world.refresh_body(self, unit);
         if unit.generation != victim.generation || unit.removed { return; }
-        if unit.held.is_some() { if unit.let_go { world.let_go(self, unit); } else { unit.held = None; } }
+        if unit.held.is_some() { if unit.let_go { world.let_go(self, unit); } else { unit.held = None; world.body_changed(self, unit); } }
         if unit.alive && unit.combat { world.damage(self, unit, f64::INFINITY); }
+        // Damage can recurse through another creature or pool the body.
+        world.refresh_body(self, unit);
         if unit.remove { world.remove(self, unit); }
         if let Some(sound) = settings.kill_sound { world.sound(self, sound, settings.position); }
     }
     pub fn carry(&mut self, tick: f64, bodies: &mut [Body], settings: &Settings, world: &mut impl World) {
         let victim = self.victim.as_ref().expect("carry victim");
         let unit = &mut bodies[victim.unit];
+        world.refresh_body(self, unit);
         if unit.generation != victim.generation || unit.removed || !unit.held.as_ref().is_some_and(|h| h.prop == self.index) { self.victim = None; return; }
         let time = (tick - victim.since) * TICK;
         let grab = &settings.grabs[unit.held.as_ref().unwrap().grab];
         let Some(node) = grab.node else { return };
-        if !unit.rider_clips.get(unit.held.as_ref().unwrap().grab).copied().unwrap_or(false) { return; }
+        if !world.has_rider_clip(self, unit, unit.held.as_ref().unwrap().grab) { return; }
         let Some((point, turn)) = world.rider_root(self, unit, grab.clip, max(time, 0.0)) else { return };
         self.rig.tree.update_matrix_world(self.rig.root, true);
         let mut root = Matrix4::default(); root.compose(&point, &turn, &Vector3::new(1.0, 1.0, 1.0)); root.invert();
@@ -219,6 +249,7 @@ impl Animated {
         unit.velocity.set(0.0, 0.0, 0.0);
         let held = unit.held.as_mut().unwrap(); held.frame = Some(frame); held.time = Some(time);
         let count = unit.tick_count.unwrap_or(0.0); unit.tick_count = Some(if count.is_nan() { 1.0 } else { count + 1.0 });
+        world.body_changed(self, unit);
     }
     pub fn state_record(&self, bodies: &[Body]) -> [f64; 7] {
         let time = jsrt::numfmt::to_fixed(self.start_time, 4.0).unwrap().parse::<f64>().unwrap();

@@ -76,7 +76,6 @@ const LEGACY_STREAMS = {
   'missile-waver': 'none in a world (Ordnance.random is the gameplay stream)',
   'item-drop': 'none in a world (Items.random is the gameplay stream)',
   'recon-strike': 'none in a world (each recon context has its own stream)',
-  'kill-region': 'none in a world (objectiveDestroyed passes the gameplay stream)',
   'spawn-post': 'none in a world step (the spawn screen\'s pick of a default post)',
 };
 

@@ -1,3 +1,4 @@
+import {ownBattle} from './fixtures/f4-owned-battle.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -103,7 +104,7 @@ test("event journal: snapshots, independent readers, overflow accounting", () =>
   assert.deepEqual(lateGot, [2, 3, 4, 5]);
 });
 
-test("battle: characters include the human; bleed and loss", () => {
+test("battle: characters include the human; bleed and loss", async () => {
   const posts = { posts: [{ team: 1, desc: { valueBleed: 10 } }], owned: (t) => posts.posts.filter((p) => p.team === t) };
   const teams = { 1: { units: 3, reinforcements: 5, bleed: [[31, 0], [1, 4]] }, 2: { units: 2, reinforcements: 1, bleed: [[1, 4]] } };
   let lost = null;
@@ -112,8 +113,9 @@ test("battle: characters include the human; bleed and loss", () => {
   assert.equal(characters.length, 5);
   assert.equal(characters.filter((c) => c.human).length, 1);
   assert.equal(battle.human.team, 1);
+  const owned=await ownBattle(battle);
   battle.spend(2);
-  battle.update(0.1);
+  owned.step(0.1);
   assert.equal(lost, 2);
   assert.ok(battle.over);
 });
@@ -140,27 +142,28 @@ test("classic random: the double LCG step and float construction", () => {
   assert.equal(new ClassicRandom(1).int(5, 2), 5);
 });
 
-test("battle team update: one debit per update, no-post countdown pauses, resets, expires", () => {
+test("battle team update: one debit per update, no-post countdown pauses, resets, expires", async () => {
   const posts = { posts: [{ team: 2, desc: { valueBleed: 10 } }, { team: 0, desc: {} }], owned: (t) => posts.posts.filter((p) => p.team === t) };
   const teams = { 1: { units: 1, reinforcements: 100, bleed: [[1, 3], [31, 0]] }, 2: { units: 1, reinforcements: 100, bleed: [[31, 0]] }, 3: { units: 2 } };
   const battle = new Battle({ teams, posts, own: 1, foe: 2 });
   assert.equal(battle.reinforcements[3], 2147483647);
   // Team 1 holds nothing; one neutral post scores 1, rate 3: a big step debits once.
-  battle.update(10);
+  let owned=await ownBattle(battle);
+  owned.step(10);
   assert.equal(battle.reinforcements[1], 99);
   assert.ok(battle.bleedClock[1] >= 4); // the rest of the debt stays
   // A neutral post pauses the no-post count.
   assert.equal(battle.noPost[1], 20);
   posts.posts[1].team = 2; // no neutral left: team 1 counts down
-  battle.update(1);
+  owned=await ownBattle(battle);owned.step(1);
   assert.equal(battle.noPost[1], 19);
   assert.ok(battle.losing);
   assert.equal(battle.countdown, 19);
   posts.posts[1].team = 1; // holding a post resets it
-  battle.update(0.5);
+  owned=await ownBattle(battle);owned.step(0.5);
   assert.equal(battle.noPost[1], 20);
   posts.posts[1].team = 2;
-  battle.update(20); // expires at <= 0: tickets and the starting count go
+  owned=await ownBattle(battle);owned.step(20); // expires at <= 0: tickets and the starting count go
   assert.equal(battle.reinforcements[1], 0);
   assert.equal(battle.start[1], 0);
   assert.ok(battle.over);

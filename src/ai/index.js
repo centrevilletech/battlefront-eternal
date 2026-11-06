@@ -10,7 +10,8 @@
 // tools/zero_ai_classes.py). A map without them still plays; the AI says what
 // it is missing in the console.
 
-import { Battle, Character } from "../battle.js";
+import { readyCharacter } from "../f4-characters.js";
+import { Character } from "../battle.js";
 import { selectAIMission } from "../mission.js";
 import { ClassicRandom } from "./random.js";
 import { createClassicAI, loadClassicModules } from "./classic/index.js";
@@ -80,15 +81,11 @@ export async function loadAIData(map, sides) {
 //   update(h)                 every simulation step, before units tick
 //   aim(unit, h)              after a bot's soldier moves, before it fires
 //   spawned(character)        from world.spawnUnit
-//   died(character)           a Character's unit died (spends its ticket)
-//   beforeBattle(dt) / afterBattle(dt)   around battle.update (the spawn
-//                             manager's clock, then each Character)
 //   grenadeUpdate(round, owner)  each live grenade, each step (danger warnings)
 //   postEvent(event)          a command post was captured or neutralized, or
 //                             a command vehicle's was lost or changed hands
 //   humanReady(character, choice)  the player is ready to respawn
 //   awaitingHuman(character)  the spawn manager waits for his choice
-//   switchTeam(character, team)    he moves team while he has no unit
 export async function createAI(mode, world, options) {
   if (mode === "off") return null;
   if (mode === "stub") return new StubAI(options.stub);
@@ -161,13 +158,6 @@ export async function createAI(mode, world, options) {
   for (const character of world.spawning.characters) classic.attach(character);
   const combat = classic.ai.combat;
   const spawning = world.spawning;
-  // Game's owned-unit death leaf keeps population and ticket updates in JS
-  // until those records move. Call the rules directly even when their older
-  // method adapters are installed; population and tickets use no nested export.
-  const deathTickets = {
-    tickets: team => ClassicSpawning.prototype.tickets.call(spawning,team),
-    spendTicket: team => ClassicSpawning.prototype.spendTicket.call(spawning,team,Battle.prototype.spend),
-  };
   return {
     mode,
     enhanced,
@@ -195,18 +185,6 @@ export async function createAI(mode, world, options) {
     spawned(character) {
       classic.spawned(character);
     },
-    died(character, owned = false) {
-      if (!character) return;
-      if (owned) ClassicSpawning.prototype.onDeath.call(spawning,character,deathTickets);
-      else spawning.onDeath(character);
-      classic.died(character);
-    },
-    beforeBattle(dt) {
-      spawning.clock(dt);
-    },
-    afterBattle(dt) {
-      spawning.updateCharacters(dt);
-    },
     grenadeUpdate(round, owner) {
       combat?.grenadeUpdate?.(round, round.position, owner && typeof owner === "object" ? owner : null, round.contactTime ?? Infinity);
     },
@@ -221,25 +199,17 @@ export async function createAI(mode, world, options) {
       else if (event.kind === "owner") objectives.onOwnerChanged(event.post, event.from, event.to, spawning.characters);
     },
     humanReady(character, choice = {}) {
-      if (character && spawning.awaitingHuman(character)) spawning.onHumanReady(character, choice);
+      return readyCharacter(character,choice);
     },
     // Whether the human waits for the spawn screen's choice: no unit, and
     // his respawn timer done.
     awaitingHuman(character) {
       return Boolean(character) && spawning.awaitingHuman(character);
     },
-    // The human moves to another team while he has no unit: the rosters,
-    // his class and post (spawning.switchTeam), and the aim curves of the
-    // bots on his side, the living ones included.
+    // A published human-team change retargets the foreign AI aim curves.
     presentHumanTeam(team) {
       world.difficulty.playerTeam = team;
       refreshCurves(classic.ai, classic.controllers);
-    },
-    switchTeam(character, team) {
-      if (!character || !spawning.switchTeam(character, team)) return false;
-      world.difficulty.playerTeam = team;
-      refreshCurves(classic.ai, classic.controllers);
-      return true;
     },
     debug: classic.debug,
   };

@@ -3,7 +3,7 @@
 // piece motion and lifetime are always computed by native Debris.
 import * as THREE from 'three';
 import { EffectHandle } from '../../src/presentation/effects.js';
-import { DebrisIds, debrisChunk, debrisState } from '../../src/debris-sim.js';
+import { DebrisIds, debrisChunk, debrisState } from './debris-state.mjs';
 
 const books = new WeakMap();
 const meshState = (mesh, ids) => ({ id: ids.key('mesh', mesh), position: mesh.position, quaternion: mesh.quaternion, scale: mesh.scale,

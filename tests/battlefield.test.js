@@ -8,11 +8,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as THREE from 'three';
-import { Battlefield, LeavingWarning, LEAVING_TIME, boundaryFromNav } from '../src/battlefield.js';
+import { Battlefield, LeavingWarning, boundaryFromNav } from "../src/battlefield.js";
 import { Boundary } from '../src/ai/classic/nav/boundary.js';
 import { Character } from '../src/battle.js';
 
-const TICK = 1 / 60;
 // A square 200 m across, clockwise in x/z as the maps' are.
 const SQUARE = [[-100, 0, -100], [-100, 0, 100], [100, 0, 100], [100, 0, -100]];
 const square = () => new Boundary([SQUARE]);
@@ -25,11 +24,6 @@ function soldier(x = 0, z = 0) {
   };
   return { unit, damage };
 }
-function character(unit) {
-  const c = new Character(0, 1, false);
-  c.unit = unit;
-  return c;
-}
 
 test('the map\'s boundary from ai-nav.json: a polygon per resolved Boundary path, missing ones skipped', () => {
   const nav = { paths: [{ name: 'CP1Spawn', points: [[5, 0, 5, 1, 0, 0, 0]] }, { name: 'Boundary', points: SQUARE.map((p) => [...p, 1, 0, 0, 0]) }],
@@ -41,84 +35,6 @@ test('the map\'s boundary from ai-nav.json: a polygon per resolved Boundary path
   // No bnd_ (both Yavin maps): nothing is outside.
   assert.equal(boundaryFromNav({ paths: [], boundary: { configs: [], references: [] } }).outside({ x: 1e4, z: 1e4 }), false);
   assert.equal(new Character(0, 1).outOfBounds, -1);
-});
-
-test('outside, a Character has 10 s: the count starts at 10, runs while he stays out, and kills him once below 0', () => {
-  const field = new Battlefield(square());
-  const { unit, damage } = soldier(150, 0);
-  const c = character(unit);
-  field.update(TICK, [c]);
-  assert.ok(Math.abs(c.outOfBounds - (LEAVING_TIME - TICK)) < 1e-12);
-  let ticks = 1;
-  while (!unit.combat.dead && ticks < 2000) { field.update(TICK, [c]); ticks++; }
-  // 600 ticks of 1/60 s: 10 s.
-  assert.equal(ticks, 600);
-  assert.deepEqual(damage, [Infinity]);
-  assert.ok(c.outOfBounds < 0);
-  // Dead, his count is left alone (the original game lets go of the body).
-  const left = c.outOfBounds;
-  field.update(TICK, [c]);
-  assert.equal(c.outOfBounds, left);
-});
-
-test('back inside, even for a tick, the count resets; the next time out starts again from 10 s', () => {
-  const field = new Battlefield(square());
-  const { unit } = soldier(150, 0);
-  const c = character(unit);
-  for (let i = 0; i < 540; i++) field.update(TICK, [c]);
-  assert.ok(c.outOfBounds > 0.9 && c.outOfBounds < 1.1);
-  unit.position.x = 50;
-  field.update(TICK, [c]);
-  assert.equal(c.outOfBounds, -1);
-  unit.position.x = 150;
-  field.update(TICK, [c]);
-  assert.ok(Math.abs(c.outOfBounds - (LEAVING_TIME - TICK)) < 1e-12);
-  assert.equal(unit.combat.dead, false);
-});
-
-test('in a hull, the hull counts: when the time is up it goes, crediting nobody, and he with it', () => {
-  const field = new Battlefield(square());
-  const { unit } = soldier(0, 0);
-  const destroyed = [];
-  const vehicle = { position: new THREE.Vector3(0, 30, 160), lastAttacker: { someone: true }, damage(amount) { destroyed.push([amount, this.lastAttacker]); } };
-  // The boundary delegates attribution to the native vehicle owner. This
-  // fixture observes that scalar seam rather than keeping JS hull authority.
-  vehicle.system = { f2: { command(v, op) { assert.equal(op, 3); v.lastAttacker = null; } } };
-  unit.seat = { vehicle };
-  const c = character(unit);
-  for (let i = 0; i < 599; i++) field.update(TICK, [c]);
-  assert.equal(destroyed.length, 0);
-  field.update(TICK, [c]);
-  assert.deepEqual(destroyed, [[Infinity, null]]);
-  assert.equal(unit.combat.dead, true);
-});
-
-test('a recon droid he flies outside is lost when the time is up; his body inside lives', () => {
-  const field = new Battlefield(square());
-  const { unit } = soldier(0, 0);
-  const droid = { dead: false, position: new THREE.Vector3(160, 5, 0) };
-  const killed = [];
-  unit.combat.remotes = { piloted: droid, kill(d) { killed.push(d); d.dead = true; this.piloted = null; } };
-  const c = character(unit);
-  for (let i = 0; i < 600; i++) field.update(TICK, [c]);
-  assert.deepEqual(killed, [droid]);
-  assert.equal(unit.combat.dead, false);
-  field.update(TICK, [c]);
-  assert.equal(c.outOfBounds, -1);
-});
-
-test('no unit, a dead or removed one, or no boundary: no count', () => {
-  const none = character(null);
-  const { unit: dead } = soldier(150, 0); dead.combat.dead = true;
-  const { unit: removed } = soldier(150, 0); removed.removed = true;
-  const field = new Battlefield(square());
-  const cs = [none, character(dead), character(removed)];
-  field.update(TICK, cs);
-  assert.deepEqual(cs.map((c) => c.outOfBounds), [-1, -1, -1]);
-  const { unit } = soldier(1e4, 0);
-  const c = character(unit);
-  new Battlefield(new Boundary()).update(TICK, [c]);
-  assert.equal(c.outOfBounds, -1);
 });
 
 test('the page\'s warning: what he controls as it sees it, the voice-over once each time out, the flashing spring', () => {
@@ -182,7 +98,8 @@ test('Theed: a trooper left outside the battlefield dies 10 s after he went out'
   // Out past the boundary's first edge, on the ground there (or where it would be).
   const e = game.battlefield.boundary.polygons[0][1];
   const len = Math.hypot(e.nx, e.nz);
-  game.playerUnit.spawn(e.x + (e.nx / len) * 20, s.position.y, e.z + (e.nz / len) * 20, 0);
+  // The native unit store owns his body: move it there, not on its mirror.
+  game.unitsSim.placeBody(game.playerUnit, e.x + (e.nx / len) * 20, s.position.y, e.z + (e.nz / len) * 20, game.playerUnit.yaw ?? 0);
   assert.equal(game.battlefield.outside(s.position), true);
   let ticks = 0;
   while (!game.combat.dead && ticks < 900) { step(); ticks++; }

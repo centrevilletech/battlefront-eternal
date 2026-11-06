@@ -4,7 +4,6 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { loadSim } from '../src/sim/module.js';
 import { createWorldSim } from '../src/runtime/world-sim.js';
-import { createInputSim } from '../src/runtime/input-sim.js';
 import { CommandControls } from '../src/runtime/commands.js';
 import { FireCommands } from '../src/runtime/fire-commands.js';
 import { InputActions } from '../src/runtime/input-actions.js';
@@ -27,7 +26,7 @@ function section(begin, end) {
   return source.slice(at, to);
 }
 const stopSource = section('  function stopInput(p) {', '\n  function spawn(');
-const applySource = section('  function applyNetworkControls(p, u, command, tick) {', '\n  const networkStepHost');
+const applySource = section('  function applyNetworkControls(p, u, command, tick) {', '\n  return {');
 assert.ok(stopSource.includes('p.mailbox.clear()') && applySource.includes("while(c.take('nextSpawn'))"));
 const sourceApi = Function('game', 'blankSeatIntent', 'ONLINE_PLAYOUT_MAX_TICKS', 'seatScheme',
   'cycleNetworkSeat', 'networkVehicleInput', 'mountInReach',
@@ -41,7 +40,7 @@ function recordWorld(world) {
   const wasm = Buffer.from(SIM_WASM, 'base64');
   const files = ['tests/world-network-controls-sim.test.js', 'src/runtime/multiplayer-world.js',
     'src/runtime/world-sim.js', 'src/runtime/world-network-controls-sim.js', 'src/f2-seats.js',
-    'src/runtime/network-seat.js', 'src/runtime/network-vehicle.js', 'src/runtime/input-sim.js',
+    'src/runtime/network-seat.js', 'src/runtime/network-vehicle.js',
     'src/runtime/commands.js', 'src/runtime/fire-commands.js', 'src/runtime/input-actions.js',
     'src/runtime/transport.js', 'src/boarding.js', 'src/flight/controls.js', 'src/seats.js',
     'src/sim/runtime.js', 'src/sim/gen/world.js', 'src/sim/gen/network-seats.js',
@@ -89,11 +88,11 @@ function recordWorld(world) {
 }
 function runtime() {
   return ready ??= (async () => {
-    const instance = await loadSim(), world = createWorldSim(instance), input = createInputSim(instance);
+    const instance = await loadSim(), world = createWorldSim(instance);
     assert.equal(typeof world.networkControls, 'function', 'the built artifact exposes networkControls');
     assert.equal(typeof world.networkStop, 'function', 'the built artifact exposes networkStop');
     recordWorld(world);
-    return { instance, world, input };
+    return { instance, world };
   })();
 }
 
@@ -145,7 +144,6 @@ function fixture(rt, native, options = {}) {
   }
   f.makeControls = (label = 'controls', actions = []) => {
     const c = f.name(new CommandControls(), label);
-    if (options.inputNative) rt.input.controls(c);
     c.accept({ epoch: 1, generation: 3, sequence: 1, down: ['KeyW', 'KeyD', 'Mouse0', 'Space', 'ControlLeft'], actions });
     for (const key of ['take', 'held', 'axis', 'clear']) method(c, key, `${label}.${key}`,
       (result, args) => f.results[key] ? f.results[key](result, ...args) : result);
@@ -232,7 +230,6 @@ function fixture(rt, native, options = {}) {
   f.name(f.command.look, 'initial.look');
   f.c = f.makeControls('controls', f.command.actions);
   const mailbox = f.name(new InputMailbox(), 'mailbox'), fire = f.name(new FireCommands(), 'fire'), actions = f.name(new InputActions(), 'actions');
-  if (options.inputNative) { rt.input.mailbox(mailbox); rt.input.fire(fire); rt.input.actions(actions); }
   mailbox.push(f.command); mailbox.stateTick = 100;
   actions.push({ epoch: 1, id: 1, tick: 100, generation: 3, actions: ['reload'] }, 100, 3);
   for (let button = 0; button < 2; button++) assert.equal(fire.push({ epoch: 1, id: button + 1, tick: 97 + button * 2, generation: 3, button, pressed: true }, 100, 3), true);
@@ -247,8 +244,8 @@ function fixture(rt, native, options = {}) {
   f.p = f.name({ unit: f.u, controls: f.c, mailbox, fire, actions, character: f.name({ name: 'human' }, 'character'),
     inputsStale: options.stale ?? false, inputLeadTicks: 7, reliableFire: options.reliable ?? true }, 'player');
   f.api = sourceApi(f.game, blankSeatIntent, ONLINE_PLAYOUT_MAX_TICKS, seatScheme, cycleNetworkSeat, networkVehicleInput, mountInReach);
-  f.apply = (command = f.command) => f.api.apply(f.p, f.u, command, 100);
-  f.stop = () => f.api.stop(f.p);
+  f.apply = (command = f.command) => native ? f.game.worldSim.networkControls(f.game,f.p,f.u,command,100) : f.api.apply(f.p, f.u, command, 100);
+  f.stop = () => native ? f.game.worldSim.networkStop(f.game,f.p) : f.api.stop(f.p);
   f.view = () => ({ playerUnit: f.id(f.p.unit), playerControls: f.id(f.p.controls),
     retainedIntent: { identity: f.id(f.intent), values: data(f.intent) },
     numericIntent: options.numericBits ? data(f.intent, new Set(), true) : undefined,
@@ -277,7 +274,7 @@ function twin(rt, options = {}, setup = () => {}, operation = 'apply') {
   const js = fixture(rt, false, options), native = fixture(rt, true, options);
   setup(js); setup(native);
   const expected = run(js, operation), actual = run(native, operation);
-  assert.ok(native.nativeCalls[operation] > 0, 'the extracted source entered the native fast path');
+  assert.ok(native.nativeCalls[operation] > 0, 'the retained context API entered the native control service');
   assert.deepEqual(actual, expected, 'result / original exception');
   assert.deepEqual(native.trace, js.trace, 'ordered callbacks and visible partial intent');
   assert.deepEqual(native.view(), js.view(), 'state, property presence and identities');
@@ -286,18 +283,18 @@ function twin(rt, options = {}, setup = () => {}, operation = 'apply') {
 
 test('network control sequencing twins the source with real input owners and seat helpers', async () => {
   const rt = await runtime();
-  for (const inputNative of [false, true]) for (const mode of ['foot', 'remote', 'drive', 'gunner', 'flight', 'turret']) {
+  for (const mode of ['foot', 'remote', 'drive', 'gunner', 'flight', 'turret']) {
     for (const reliable of [false, true]) for (const stale of [false, true]) {
-      const pair = twin(rt, { inputNative, mode, reliable, stale });
-      assert.equal(pair.result.threw, false, `${mode}/${reliable}/${stale}/${inputNative}`);
+      const pair = twin(rt, { mode, reliable, stale });
+      assert.equal(pair.result.threw, false, `${mode}/${reliable}/${stale}`);
     }
   }
 });
 
 test('control calls retain c, intent, u and command while callbacks replace their public owners', async () => {
   const rt = await runtime();
-  for (const inputNative of [false, true]) {
-    const pair = twin(rt, { inputNative }, f => {
+  {
+    const pair = twin(rt, {}, f => {
       let changed = false;
       f.hook = (op) => {
         if (op !== 'playerCommand' || changed) return;
@@ -336,8 +333,8 @@ test('legacy nextSpawn drains fully and repeated key queries observe intervening
 
 test('reliable fire retains shot identity and assigns lateness before publishing the shot list', async () => {
   const rt = await runtime();
-  for (const inputNative of [false, true]) {
-    const { native: f } = twin(rt, { inputNative });
+  {
+    const { native: f } = twin(rt, {});
     assert.equal(f.u.networkShots, f.fireResults[0].shots);
     assert.equal(f.u.networkShots[0], f.initialShots[0]); assert.equal(f.u.networkShots[1], f.initialShots[1]);
     assert.deepEqual(f.u.networkShots.map(s => s.late), [3, 1]);
@@ -575,13 +572,13 @@ test('falsy callback throws preserve the original value, partial state and dispa
 
 test('nested controls keep outer identities and results across other players and memory growth', async () => {
   const rt = await runtime();
-  for (const inputNative of [false, true]) {
-    const pair = twin(rt, { inputNative, mode: 'flight' }, f => {
+  {
+    const pair = twin(rt, { mode: 'flight' }, f => {
       let entered = false;
       f.hook = op => {
         if (op !== 'soldier.lookRaw' || entered) return;
         entered = true;
-        const other = fixture(rt, f.native, { inputNative, reliable: false });
+        const other = fixture(rt, f.native, { reliable: false });
         assert.equal(run(other).threw, false);
         const nested = { ...f.command, look: [], flightSettings: { bindings: { firePrimary: ['KeyX'] }, curve: undefined } };
         f.apply(nested);

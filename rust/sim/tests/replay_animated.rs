@@ -35,7 +35,7 @@ fn settings(v: V, capture: &Capture, strings: &mut Strings) -> Settings {
             node: g.get("node").opt_num().map(|n| n as usize), clip: string(g.get("clip"), strings) }).collect() }
 }
 fn body(v: V, key: usize) -> Body {
-    Body { key, id: v.get("id").num(), generation: v.get("generation").num(), soldier: v.get("soldier").bool(), walker: v.get("walker").bool(),
+    Body { reference: None, key, id: v.get("id").num(), generation: v.get("generation").num(), soldier: v.get("soldier").bool(), walker: v.get("walker").bool(),
         removed: v.get("removed").bool(), alive: v.get("alive").bool(), dead: v.get("dead").bool(), seated: v.get("seated").bool(),
         held: (!v.get("held").is_nullish()).then(|| { let h = v.get("held"); Held { prop: h.get("prop").num() as usize, grab: h.get("grab").num() as usize,
             since: h.get("since").num(), frame: (!h.get("frame").is_null()).then(|| matrix(h.get("frame"))), time: h.get("time").opt_num() } }),

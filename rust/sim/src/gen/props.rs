@@ -560,6 +560,8 @@ pub struct F3BuildingSetup {
     pub key: StrId,
     pub settings: PbSettings,
     pub state: F3BuildingState,
+    pub live: F4BuildingBirth,
+    pub trap: Option<F4TrapBirth>,
     pub bodies: Vec<Option<Ref<Body>>>,
     pub explosion: Option<u32>,
     pub damaged: bool,
@@ -569,26 +571,28 @@ pub struct F3BuildingSetup {
 }
 
 impl F3BuildingSetup {
-    pub const WORDS: usize = 71;
+    pub const WORDS: usize = 158;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 71] = (&mut row[..71]).try_into().unwrap();
+        let row: &mut [f64; 158] = (&mut row[..158]).try_into().unwrap();
         row[0] = self.index as f64;
         self.target.put(&mut row[1..1 + 3], heap);
         match &self.member { Some(v) => { row[4] = 0.0; (*v).put(&mut row[4 + 1..4 + 1 + 3], heap); } None => { row[4] = 1.0; row[4 + 1..4 + 4].fill(0.0); } }
         row[8] = self.key.0 as f64;
         self.settings.put(&mut row[9..], heap);
         self.state.put(&mut row[35..], heap);
-        { let at = heap.len(); row[59] = at as f64; row[59 + 1] = self.bodies.len() as f64; heap.resize(at + self.bodies.len() * 3, 0.0); for (i, e) in self.bodies.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } } } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
-        match &self.explosion { Some(v) => { row[61] = 0.0; row[61 + 1] = (*v) as f64; } None => { row[61] = 1.0; row[61 + 1..61 + 2].fill(0.0); } }
-        row[63] = if self.damaged { 1.0 } else { 0.0 };
-        row[64] = self.category as f64;
-        row[65] = self.kind;
-        match &self.trap_sphere { Some(v) => { row[66] = 0.0; v.put(&mut row[66 + 1..], heap); } None => { row[66] = 1.0; row[66 + 1..66 + 5].fill(0.0); } }
+        self.live.put(&mut row[59..], heap);
+        match &self.trap { Some(v) => { row[113] = 0.0; v.put(&mut row[113 + 1..], heap); } None => { row[113] = 1.0; row[113 + 1..113 + 33].fill(0.0); } }
+        { let at = heap.len(); row[146] = at as f64; row[146 + 1] = self.bodies.len() as f64; heap.resize(at + self.bodies.len() * 3, 0.0); for (i, e) in self.bodies.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } } } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        match &self.explosion { Some(v) => { row[148] = 0.0; row[148 + 1] = (*v) as f64; } None => { row[148] = 1.0; row[148 + 1..148 + 2].fill(0.0); } }
+        row[150] = if self.damaged { 1.0 } else { 0.0 };
+        row[151] = self.category as f64;
+        row[152] = self.kind;
+        match &self.trap_sphere { Some(v) => { row[153] = 0.0; v.put(&mut row[153 + 1..], heap); } None => { row[153] = 1.0; row[153 + 1..153 + 5].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 71] = (&row[..71]).try_into().unwrap();
+        let row: &[f64; 158] = (&row[..158]).try_into().unwrap();
         Self {
             index: word_u32(row[0]),
             target: RepairTarget::take(&row[1..1 + 3], heap),
@@ -596,12 +600,14 @@ impl F3BuildingSetup {
             key: StrId(word_u32(row[8])),
             settings: PbSettings::take(&row[9..], heap),
             state: F3BuildingState::take(&row[35..], heap),
-            bodies: { let (at, n) = (word_u32(row[59]) as usize, word_u32(row[59 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(if row[0] == 0.0 { Some(Ref::new(word_u32(row[0 + 1]), word_u32(row[0 + 1 + 1]))) } else { None }); } out },
-            explosion: if row[61] == 0.0 { Some(word_u32(row[61 + 1])) } else { None },
-            damaged: row[63] != 0.0,
-            category: word_u32(row[64]),
-            kind: row[65],
-            trap_sphere: if row[66] == 0.0 { Some(Bounds::take(&row[66 + 1..], heap)) } else { None },
+            live: F4BuildingBirth::take(&row[59..], heap),
+            trap: if row[113] == 0.0 { Some(F4TrapBirth::take(&row[113 + 1..], heap)) } else { None },
+            bodies: { let (at, n) = (word_u32(row[146]) as usize, word_u32(row[146 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(if row[0] == 0.0 { Some(Ref::new(word_u32(row[0 + 1]), word_u32(row[0 + 1 + 1]))) } else { None }); } out },
+            explosion: if row[148] == 0.0 { Some(word_u32(row[148 + 1])) } else { None },
+            damaged: row[150] != 0.0,
+            category: word_u32(row[151]),
+            kind: row[152],
+            trap_sphere: if row[153] == 0.0 { Some(Bounds::take(&row[153 + 1..], heap)) } else { None },
         }
     }
 

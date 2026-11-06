@@ -126,7 +126,7 @@ const imported = vehiclePacks(maps);
 const binary = (file) => { const b = fs.readFileSync(file); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 const number = (def, name, fallback) => { const n = parseFloat(classSetting(def, name)); return Number.isFinite(n) ? n : fallback; };
 
-test('every imported vehicle tops out at its own imported speed', { skip: !imported.length && 'no imported vehicles' }, () => {
+test('every imported vehicle tops out at its own imported speed', { skip: !imported.length && 'no imported vehicles' }, async () => {
   const seen = new Set();
   for (const file of imported) {
     const data = JSON.parse(fs.readFileSync(file));

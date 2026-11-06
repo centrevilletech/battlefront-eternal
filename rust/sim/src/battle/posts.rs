@@ -52,6 +52,38 @@ pub struct SpawnView {
     pub yaw: f64,
 }
 
+/// Scalar spawn choices; prepared paths remain on their canonical post.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SpawnFacts {
+    pub active: bool,
+    pub owner: f64,
+    pub position: [f64; 3],
+    pub spawn_path: bool,
+    pub ally_path: bool,
+    pub ally_count: f64,
+    pub class_spawn_points: f64,
+    pub yaw: f64,
+}
+
+/// spawn_view without copying the prepared path and class-point tables.
+pub fn spawn_facts<W: PostsWorld + ?Sized>(s: &Store, p: SpawnPost, world: &mut W) -> SpawnFacts {
+    match p {
+        SpawnPost::Post(r) => {
+            let p = s.post.get(r).expect("a post"); let ai = p.ai.as_ref();
+            SpawnFacts { active: p.active, owner: jsrt::conv::to_int32(p.team) as f64, position: p.position,
+                spawn_path: ai.is_some_and(|a| a.spawn_path.as_ref().is_some_and(|p| p.present)),
+                ally_path: ai.is_some_and(|a| a.ally_path.as_ref().is_some_and(|p| p.present)),
+                ally_count: ai.map_or(0.0, |a| a.ally_count), class_spawn_points: ai.map_or(0.0, |a| a.class_spawn_points), yaw: ai.map_or(0.0, |a| a.yaw) }
+        }
+        SpawnPost::MobilePost(r) => {
+            let p = s.mobile_post.get(r).expect("a mobile post");
+            SpawnFacts { active: p.active, owner: jsrt::conv::to_int32(p.team) as f64,
+                position: match p.vehicle { Some(v) if p.active => world.vehicle_position(s, v), _ => p.last_position },
+                class_spawn_points: p.ai.class_spawn_points, yaw: p.yaw, ..SpawnFacts::default() }
+        }
+    }
+}
+
 /// A post changing: what Post.update and destroy() return.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Change {
@@ -89,22 +121,26 @@ pub fn contains(post: &Post, point: &Vector3) -> bool {
 }
 
 /// The teams in a post's region, in the counts' order.
-fn present(post: &Post) -> Vec<(f64, f64)> {
-    post.counts.iter().filter(|(_, n)| **n > 0.0).map(|(t, n)| (t, *n)).collect()
+fn present(post: &Post) -> (usize, Option<(f64, f64)>) {
+    let mut count = 0; let mut first = None;
+    for (team, &n) in post.counts.iter() {
+        if n > 0.0 { count += 1; if first.is_none() { first = Some((team, n)); } }
+    }
+    (count, first)
 }
 
 /// remaining() (commandposts.js:86): seconds until the current capture or
 /// neutralize lands, or Infinity.
 pub fn remaining(post: &Post) -> f64 {
-    let teams = present(post);
+    let (teams, first) = present(post);
     if post.team != 0.0 && !post.team.is_nan() {
         let attack = attack_rate(&post.counts, post.team);
         return if attack != 0.0 && !attack.is_nan() { ((1.0 - post.neutralize) * post.neutralize_time) / attack } else { f64::INFINITY };
     }
-    if teams.len() != 1 {
+    if teams != 1 {
         return f64::INFINITY;
     }
-    let (team, n) = teams[0];
+    let (team, n) = first.expect("one present capture team");
     if team != post.toward && post.progress > 0.0 {
         return f64::INFINITY;
     }
@@ -113,8 +149,8 @@ pub fn remaining(post: &Post) -> f64 {
 
 /// update(dt) (commandposts.js:99).
 pub fn update_post(post: &mut Post, dt: f64) -> Option<Change> {
-    let teams = present(post);
-    post.contested = teams.len() > 1;
+    let (teams, first) = present(post);
+    post.contested = teams > 1;
     if post.team != 0.0 && !post.team.is_nan() {
         let attack = attack_rate(&post.counts, post.team);
         if attack == 0.0 || attack.is_nan() {
@@ -132,10 +168,10 @@ pub fn update_post(post: &mut Post, dt: f64) -> Option<Change> {
         }
         return None;
     }
-    if teams.len() != 1 {
+    if teams != 1 {
         return None;
     }
-    let (team, n) = teams[0];
+    let (team, n) = first.expect("one present capture team");
     let step = (rate(n) * dt) / post.capture_time;
     if post.progress > 0.0 && team != post.toward {
         post.progress = v8math::max(post.progress - step, 0.0);
@@ -221,7 +257,7 @@ pub fn spawn_view<W: PostsWorld + ?Sized>(s: &Store, p: SpawnPost, world: &mut W
         SpawnPost::MobilePost(r) => {
             let post = s.mobile_post.get(r).expect("a command vehicle's post");
             let position = match post.vehicle {
-                Some(v) if post.active => world.vehicle_position(v),
+                Some(v) if post.active => world.vehicle_position(s, v),
                 _ => post.last_position,
             };
             SpawnView {

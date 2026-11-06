@@ -70,35 +70,6 @@ export class Battlefield {
     return this.outside(hull ? hull.position : unit.position) || Boolean(droid && this.outside(droid.position));
   }
 
-  // Every Character's countdown, once a simulation step.
-  update(dt, characters) {
-    if (this.boundary.empty) return;
-    for (const character of characters) {
-      const unit = character.unit;
-      // Only while he has a body: the original game lets go of it at his death.
-      if (!unit || unit.removed || !unit.alive || unit.combat?.dead) continue;
-      const hull = unit.seat?.vehicle ?? unit.seat?.turret ?? null;
-      const droid = flown(unit);
-      const bodyOut = this.outside(hull ? hull.position : unit.position);
-      const droidOut = Boolean(droid && this.outside(droid.position));
-      if (!bodyOut && !droidOut) {
-        character.outOfBounds = -1;
-        continue;
-      }
-      if (!(character.outOfBounds >= 0)) character.outOfBounds = LEAVING_TIME;
-      character.outOfBounds -= dt;
-      if (!(character.outOfBounds < 0)) continue;
-      if (droidOut) unit.combat.remotes.kill(droid);
-      if (!bodyOut) continue;
-      if (unit.seat?.vehicle) {
-        // The hull goes, and everyone aboard with it.
-        const vehicle = unit.seat.vehicle;
-        vehicle.system.f2.command(vehicle, 3);
-        vehicle.damage(Infinity);
-      }
-      if (!unit.combat.dead) unit.combat.damage(Infinity);
-    }
-  }
 }
 
 // The player's warning, on the page that shows him: whether it shows, and

@@ -32,7 +32,6 @@ pub fn step(state: &mut WorldStepState, tick: f64, host: &mut impl Host) {
     // Unit.tick, fleet/seat updates, recon finish and separation form one
     // ownership interval. No JavaScript body or combat callback follows it.
     host.call(state, Call::NativeUnits, 0.0, false);
-    host.call(state, Call::Served, 0.0, false);
     if state.live { host.call(state, Call::Live, 0.0, false); }
     host.call(state, Call::Ordnance, 0.0, false);
     host.call(state, Call::MineTargets, 0.0, false);

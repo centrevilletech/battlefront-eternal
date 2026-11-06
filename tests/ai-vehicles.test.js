@@ -1,3 +1,4 @@
+import {unitCommands} from './fixtures/unit-command-port.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -52,7 +53,7 @@ function bot(team = 1, { classDef = {} } = {}) {
   soldier.spawn = function(x, y, z, yaw) { this.position.set(x,y,z); this.aimYaw = yaw; this.velocity.set(0,0,0); this.fuel = .5; this.spawns++; };
   const unit = {
     id: nextId++, generation: 1, team, alive: true, dead: false, human: false, walker: false, seat: null, controller: null, character: { kills: 0 },
-    classDef, intent: blankIntent(), soldier,
+    classDef, intent: blankIntent(), soldier,...unitCommands,
     actor: { root: new THREE.Group(), byName: {} },
     animator: { clips: new Map(), gunning: null, gunner(clip) { this.gunning = clip; }, reset() {} },
     presentation: { reset() {} },

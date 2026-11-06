@@ -187,7 +187,7 @@ pub(crate) fn player(character: Ref<Character>, previous: Option<Ref<Unit>>, cla
     let request=F3PlayerRealization {class_name:class,previous,local,metadata,
         combat_random,weapon_random,recon_key,recon_seed};
     let reference=realize(&request,services.reborrow())?;
-    sim().store.unit.get_mut(reference).unwrap().combat.player=local;
+    sim().store.unit.get_mut(reference).unwrap().combat.player=true;
     f3::spawn_native(reference,character,position,yaw,services.reborrow());
     // PlayerCombat.reset creates fresh weapon state. Rebind after that reset,
     // preserving the connection's spread stream rather than the class stock's.

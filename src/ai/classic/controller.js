@@ -1,4 +1,3 @@
-import {Unit} from "../../units.js";
 import * as THREE from "three";
 
 // The Classic unit controller: the per-bot state machine the 2004 game
@@ -458,10 +457,7 @@ export class UnitController extends Fsm {
     this.generation = unit.generation;
     // Controller binding follows spawn. Publish that touched metadata now so
     // the owned Unit.tick can run its post-movement aimer on the first tick.
-    // A soldier is owned by F3. A SeatUnit is a distinct AI control object;
-    // its controller remains foreign input to the native seat latch.
-    if (unit instanceof Unit) unit.f3.controller(unit, this);
-    else unit.controller = this;
+    unit.bindController(this);
     this.state = 0;
     this.pending = 0;
     this.commands = new CommandQueue();
@@ -507,8 +503,7 @@ export class UnitController extends Fsm {
     // searching for a body that is gone, on the budget the living wait for.
     this.navControl?.reset?.();
     if (this.unit && this.unit.controller === this) {
-      if (this.unit instanceof Unit) this.unit.f3.controller(this.unit, null);
-      else this.unit.controller = null;
+      this.unit.bindController(null);
     }
     this.ai.combat?.detachController?.(this);
     this.unit = null;

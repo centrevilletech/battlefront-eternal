@@ -6,7 +6,8 @@ import * as THREE from 'three';
 
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles } from '../src/vehicles.js';
-import { LiveObjects } from '../src/props.js';
+import {f3World} from './fixtures/f3-world.js';
+import {building} from './fixtures/f3-building.js';
 import { RemoteDroids } from '../src/remote.js';
 import { blastDistance, blastDamage, healthScale } from "../src/ordnance.js";
 
@@ -68,17 +69,17 @@ test('a hull is measured from its model\'s bounding sphere, takes friendly fire\
   near(1000 - v.health, 500);
 });
 
-test('a building is measured from its model\'s bounding sphere and shielded by a wall', () => {
-  const taken = [];
-  const turret = { alive: true, state: 'built', bodies: { built: null }, blastSphere(out) { out.set(0, 1.65, 0.32); return 2.25; }, damage(amount) { taken.push(amount); } };
-  const live = (w) => ({ buildings: [turret], collision: w, center: new THREE.Vector3() });
-  // 2 m from the sphere's centre less 1.125: 0.875 m, inside 0.75..2 by 0.9.
-  LiveObjects.prototype.blast.call(live(world()), ROCKET, new THREE.Vector3(2, 1.65, 0.32), null);
-  near(taken[0], 320 * (2 - 0.875) / 1.25 * 0.25);
-  LiveObjects.prototype.blast.call(live(world(1, 5)), ROCKET, new THREE.Vector3(2, 1.65, 0.32), null);
-  assert.equal(taken.length, 1, 'the wall shields it');
+test('a building is measured from its model\'s bounding sphere and shielded by a wall', async () => {
+  for(const wall of [false,true]){
+    const object=building('building',0,0,{health:1000});
+    object.looks.built.model.sphere=[0,1.65,.32,2.25];
+    const w=await f3World({}, {prepareLive:()=>({buildings:[object]}),prepareCollision:collision=>{
+      if(wall)collision.addBody(new Float32Array([1,0,-50,1,5,-50,1,5,50,1,0,50]),new Uint32Array([0,1,2,0,2,3]),new Uint32Array([0,0]));
+    }});
+    w.ordnance.explosion(ROCKET,new THREE.Vector3(2,1.65,.32),null);
+    near(1000-object.health,wall?0:320*(2-.875)/1.25*.25);
+  }
 });
-
 test('a mine is reached only once it has landed; a recon droid takes DroidScale and the push', () => {
   const items = rustItems({ scene: new THREE.Scene(), collision: { cast: () => null }, effects: {}, lights: { add() {} }, model: () => null, explode() {} });
   const mine = items.spawn({ base: 'mine', MaxHealth: 200 }, new THREE.Vector3(1, 0.1, 0), new THREE.Vector3(), 0);

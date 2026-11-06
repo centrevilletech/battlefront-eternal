@@ -83,7 +83,7 @@ pub(crate) fn reserve_registry(count: usize) {
     let wanted = unsafe { &mut *addr_of_mut!(AIM_WANTED) };
     wanted.reserve(count.saturating_sub(wanted.len()));
     let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) };
-    cache.resize(count,None);
+    cache.resize(count.max(cache.len()),None);
     live_seats::reserve_riders(count);
 }
 // initFlight uses immutable class/gear handles. GearClip shares its clip by
@@ -396,7 +396,10 @@ fn foreign() {
     // FlightWorld caches canonical Unit aim points even when the foreign
     // member block is empty. Its capacity was reserved at registry creation.
     let count=if crate::units::f3::active() { sim().store.units.list.len() } else { h.member_length as usize };
-    let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) }; cache.resize(count, None); cache.fill(None);
+    let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) };
+    // A later native birth can be observed before the next fleet input.
+    // Retain the admitted future range as well as the current registry.
+    cache.resize(count.max(cache.len()), None); cache.fill(None);
     let teams = unsafe { &mut *addr_of_mut!(TEAMS) }; teams.clear();
     for i in 0..h.team_count as usize { let t = F2PadTeam::take(&io()[h.teams as usize + i * F2PadTeam::WORDS..], &[]); teams.push(team(if t.has_team { 1.0 } else { 0.0 }, t.team)); }
     let rel = unsafe { &mut *addr_of_mut!(RELATIONS) }; rel.clear();
@@ -534,6 +537,10 @@ pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 {
     if crate::units::f3::active() { crate::units::f3_hulls::refresh(v.target_id as u32); }
     firing::retire(r);
     live_seats::retire(r);
+    // A retired registry member outlives its hull slot. Commit its dead facts
+    // before releasing the generation; a later query must not retain alive.
+    if crate::units::f3::active() { crate::units::f3_hulls::refresh(sim().store.vehicle.get(r).unwrap().target_id as u32); }
+    crate::battle::f4_tail::refresh_mobile_views();
     if !sim().store.vehicle.retire(r) { return 0; }
     sim().store.vehicles.vehicles.retain(|&x| x != r);
     for (index, pad) in sim().store.vehicles.slots.iter_mut().enumerate() {

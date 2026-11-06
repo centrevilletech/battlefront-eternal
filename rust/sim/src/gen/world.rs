@@ -152,22 +152,21 @@ pub enum WorldStepCall {
     CameraMatrix = 13,
     Ai = 14,
     NativeUnits = 15,
-    Served = 16,
-    Live = 17,
-    Ordnance = 18,
-    MineTargets = 19,
-    Items = 20,
-    Battlefield = 21,
-    Battle = 22,
-    Target = 23,
-    Grenades = 24,
-    NextGrenade = 25,
-    Grenade = 26,
-    SpawnFlush = 27,
+    Live = 16,
+    Ordnance = 17,
+    MineTargets = 18,
+    Items = 19,
+    Battlefield = 20,
+    Battle = 21,
+    Target = 22,
+    Grenades = 23,
+    NextGrenade = 24,
+    Grenade = 25,
+    SpawnFlush = 26,
 }
 
 impl WorldStepCall {
-    pub const NAMES: [&'static str; 28] = ["start", "water", "clockAxes", "takeSquad", "squad", "playerCount", "eye", "deathCamera", "remoteCamera", "driverCamera", "gunnerCamera", "zoom", "camera", "cameraMatrix", "ai", "nativeUnits", "served", "live", "ordnance", "mineTargets", "items", "battlefield", "battle", "target", "grenades", "nextGrenade", "grenade", "spawnFlush"];
+    pub const NAMES: [&'static str; 27] = ["start", "water", "clockAxes", "takeSquad", "squad", "playerCount", "eye", "deathCamera", "remoteCamera", "driverCamera", "gunnerCamera", "zoom", "camera", "cameraMatrix", "ai", "nativeUnits", "live", "ordnance", "mineTargets", "items", "battlefield", "battle", "target", "grenades", "nextGrenade", "grenade", "spawnFlush"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -187,18 +186,17 @@ impl WorldStepCall {
             13 => Some(WorldStepCall::CameraMatrix),
             14 => Some(WorldStepCall::Ai),
             15 => Some(WorldStepCall::NativeUnits),
-            16 => Some(WorldStepCall::Served),
-            17 => Some(WorldStepCall::Live),
-            18 => Some(WorldStepCall::Ordnance),
-            19 => Some(WorldStepCall::MineTargets),
-            20 => Some(WorldStepCall::Items),
-            21 => Some(WorldStepCall::Battlefield),
-            22 => Some(WorldStepCall::Battle),
-            23 => Some(WorldStepCall::Target),
-            24 => Some(WorldStepCall::Grenades),
-            25 => Some(WorldStepCall::NextGrenade),
-            26 => Some(WorldStepCall::Grenade),
-            27 => Some(WorldStepCall::SpawnFlush),
+            16 => Some(WorldStepCall::Live),
+            17 => Some(WorldStepCall::Ordnance),
+            18 => Some(WorldStepCall::MineTargets),
+            19 => Some(WorldStepCall::Items),
+            20 => Some(WorldStepCall::Battlefield),
+            21 => Some(WorldStepCall::Battle),
+            22 => Some(WorldStepCall::Target),
+            23 => Some(WorldStepCall::Grenades),
+            24 => Some(WorldStepCall::NextGrenade),
+            25 => Some(WorldStepCall::Grenade),
+            26 => Some(WorldStepCall::SpawnFlush),
             _ => None,
         }
     }
@@ -933,6 +931,29 @@ pub struct WorldStepState {
 
 impl WorldStepState {
     pub const WORDS: usize = 23;
+    pub const WATER: usize = 0;
+    pub const REMOTE: usize = 1;
+    pub const WALKER: usize = 2;
+    pub const DEAD: usize = 3;
+    pub const SERVER: usize = 4;
+    pub const DEATH_CAMERA: usize = 5;
+    pub const DRIVER: usize = 6;
+    pub const GUNNER: usize = 7;
+    pub const VEHICLES: usize = 8;
+    pub const AI: usize = 9;
+    pub const UNITS: usize = 10;
+    pub const TURRET_SEATS: usize = 11;
+    pub const NETWORK_REMOTES: usize = 12;
+    pub const REMOVED: usize = 13;
+    pub const GRENADE_UPDATE: usize = 14;
+    pub const PLAYER_COMMAND: usize = 15;
+    pub const EYE_VIEW: usize = 16;
+    pub const LIVE: usize = 17;
+    pub const PLAYER_WALKER: usize = 18;
+    pub const PLAYER_TICKS: usize = 19;
+    pub const FORWARD: usize = 20;
+    pub const RIGHT: usize = 21;
+    pub const AIM_PITCH: usize = 22;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
@@ -1096,6 +1117,20 @@ pub struct WorldNetworkState {
 
 impl WorldNetworkState {
     pub const WORDS: usize = 14;
+    pub const DISCONNECTED: usize = 0;
+    pub const DISCONNECTED_AT: usize = 1;
+    pub const SPECTATOR: usize = 2;
+    pub const STALE: usize = 3;
+    pub const LAST_INPUT_AT: usize = 4;
+    pub const SEPARATE_ACTIONS: usize = 5;
+    pub const ALIVE: usize = 6;
+    pub const REMOVED: usize = 7;
+    pub const DEAD_TIME: usize = 8;
+    pub const AUTO_RESPAWN: usize = 9;
+    pub const SPAWNED_ONCE: usize = 10;
+    pub const TEAM_SELECT: usize = 11;
+    pub const CHOICE: usize = 12;
+    pub const CHOICE_TEAM: usize = 13;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();

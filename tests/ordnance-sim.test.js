@@ -1,11 +1,7 @@
-import {fixtureServices} from './helpers/rust-simulation.js';
+import {rustOrdnance} from './helpers/rust-simulation.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { Ordnance } from "../src/ordnance.js";
-import { loadSim } from "../src/sim/module.js";
-import { SimBridge } from "../src/sim/runtime.js";
-import { attachOrdnanceSim, ordnanceTests } from "../src/ordnance-sim.js";
 import { KIND_BEAM, KIND_BOLT, KIND_GRENADE, KIND_ROUND, KIND_TABLE } from "../src/sim/gen/index.js";
 
 const LISTS = [["bolts", KIND_BOLT], ["beams", KIND_BEAM], ["grenades", KIND_GRENADE], ["rounds", KIND_ROUND]];
@@ -100,7 +96,7 @@ const name = (x) => (x === null || x === undefined ? x : typeof x === "string" ?
 const v3 = (v) => (v ? [v.x, v.y, v.z] : v);
 
 function ordnance(world, log) {
-  const o = new Ordnance({ scene: new THREE.Scene(), collision: world.collision, effects: { play: () => null }, lights: { add() {}, flash() {}, update() {} }, texture: () => null, model: () => null,
+  const o = rustOrdnance({ scene: new THREE.Scene(), collision: world.collision, effects: { play: () => null }, lights: { add() {}, flash() {}, update() {} }, texture: () => null, model: () => null,
     onExplode: (def, position, owner, context) => log.push(["explode", def.class, v3(position), name(owner), context.wet]),
     onHit: (body, def, owner, direction) => log.push(["hit", name(body), def.class, def.Damage, name(owner), v3(direction)]) });
   o.units = world.registry;
@@ -120,7 +116,6 @@ import { createHash } from 'node:crypto';
 
 test('Rust ordnance synthetic fixture matches recorded flight and events',async()=>{
 const world = battle(), log = [], o = ordnance(world, log);
-attachOrdnanceSim(o,new SimBridge(await loadSim(),{tests:{...ordnanceTests,unit:v=>v instanceof FakeUnit}}));fixtureServices(o);
 const digest = createHash('sha256');
 const shots = ['bolt','beam','grenade','sticky','rocket','missile','shell','fatray'];
 for (let tick=0;tick<300;tick++) {

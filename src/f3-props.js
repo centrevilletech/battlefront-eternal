@@ -2,8 +2,7 @@
 // queries and Building's native kernel own combat traversal and recursive damage;
 // this bridge retains ordinary prop objects for the unported world and page.
 import { KIND_PROP, F3BuildingSetupMirror, F3BuildingStateMirror, putF3BuildingSetup, putF3BuildingState, sameTrState } from './sim/gen/index.js';
-
-import { ObjectivePost, Turret } from './props.js';
+import { ObjectivePost, PowerupStation, Turret } from './props.js';
 
 const LOOKS = ['built', 'destroyed', 'unbuilt'];
 
@@ -45,7 +44,7 @@ export class F3Props {
       this.members[row.member.id] = true;
       row.category = p.registry.facts[row.member.id].category; row.kind = row.member.kind;
     }
-    // Constructor identity survives minification and preserves subtype policy.
+    // Constructors retain identity when the desktop bundler renames classes.
     settings.kind = building instanceof Turret ? 'turret' : building instanceof ObjectivePost ? 'objective' : 'building';
     this.objectives[index] = settings.kind === 'objective';
     settings.maxHealth = building.maxHealth; settings.respawnTime = building.respawnTime;
@@ -68,6 +67,21 @@ export class F3Props {
     // Queries may then reuse an unchanged AI span without polling all props.
     building.f3Facts = this;
     this.fill(index, row.state);
+    // Construction seeds the shared F4 row once, including station clocks and
+    // the trap's prepared settings. Combat retains no second health frame.
+    const live = row.live, station = live.state, health = station.building, source = row.state;
+    live.settings = settings; live.attacker = source.attacker; live.crew = Boolean(building.crew); live.damaged = row.damaged;
+    health.state = source.state; health.health = source.health; health.addHealth = source.addHealth;
+    health.lastAttacker.kind = source.attacker === undefined ? 0 : source.attacker === null ? 1 : 2;
+    health.lastAttacker.id = 0; health.targetGeneration = source.generation;
+    station.mode = building.mode ?? 'waiting'; station.active = building.active ?? 0; station.pulse = building.pulse ?? 0;
+    station.servedPlayer = Boolean(building.servedPlayer); station.servedHealth = Boolean(building.servedHealth); station.servedAmmo = Boolean(building.servedAmmo);
+    live.supply = building instanceof PowerupStation ? {position:building.position, radius:building.radius, delay:building.delay,
+      health:building.giveHealth, ammo:building.giveAmmo, vehicleHealth:building.vehicleHealth, vehicleAmmo:building.vehicleAmmo} : null;
+    row.trap = this.traps[index] ? {state:source.trapState, attacker:source.attacker, settings:{maxHealth:building.maxHealth,
+      reach:building.reach, minRadius:building.minRadius, deathTime:building.deathTime, buildFrames:building.buildClip?.frames ?? null,
+      triggerFrames:building.triggerClip?.frames ?? null, triggerTeam:building.settings.triggerTeam ?? null,
+      sound:building.settings.sound ?? null, deathEffect:building.settings.deathEffect ?? null, point:building.point, effectAt:building.effectAt}} : null;
     b.callArgs(this.record, row); p.x.f3_building();
     // The first phase still sends mutable state: callback installation can
     // finish after construction without requiring a full geometry reimport.
@@ -141,8 +155,8 @@ export class F3Props {
   // Building.show is a foreign visibility operation. Use the arrays prepared
   // at construction, rather than Object.entries allocating on every mutation.
   // ObjectivePost's old-state test must happen before publishing the new state.
-  show(index, shown) {
-    const b = this.buildings[index], old = b.state;
+  show(index, shown, old = this.buildings[index].state) {
+    const b = this.buildings[index];
     const looks = this.looks[index], bodies = this.bodies[index];
     b.state = shown;
     for (let k = 0; k < LOOKS.length; k++) {
@@ -171,6 +185,7 @@ export class F3Props {
     const p = this.phase, row = effect.state, index = row.index;
     // The owner birth pass runs before import decoding. Mirror synchronization
     // here also exposes Unit victims killed by an earlier recursive prop blast.
+    const old = this.buildings[index].state;
     p.sync();
     const b = this.buildings[index];
     b.health = row.health; b.addHealth = row.addHealth;
@@ -183,7 +198,7 @@ export class F3Props {
       b.phase = state.phase; b.started = state.started; b.time = state.time;
       b.sprung = state.sprung; b.tick = state.tick; b.crushed = state.crushed;
     }
-    if (effect.kind === 'show') this.show(index, row.state);
+    if (effect.kind === 'show') this.show(index, row.state, old);
     else b.state = row.state;
     this.remember(index, row);
     // Game's headless callback changes foreign bookkeeping only. Native crew

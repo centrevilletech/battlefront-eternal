@@ -18,18 +18,18 @@ pub const LEAVING_TIME: f64 = 10.0;
 
 pub trait BattlefieldWorld {
     fn character_at(&mut self, s: &Store, index: usize) -> Option<Ref<Character>> { s.battle.characters.get(index).copied() }
-    fn body(&mut self, unit: Ref<Unit>) -> Body;
-    fn vehicle(&mut self, unit: Ref<Unit>) -> Option<Ref<Vehicle>>;
-    fn combat_dead(&mut self, unit: Ref<Unit>) -> bool;
+    fn body(&mut self, s: &Store, unit: Ref<Unit>) -> Body;
+    fn vehicle(&mut self, s: &Store, unit: Ref<Unit>) -> Option<Ref<Vehicle>>;
+    fn combat_dead(&mut self, s: &Store, unit: Ref<Unit>) -> bool;
     fn kill(&mut self, s: &mut Store, unit: Ref<Unit>);
     fn kill_droid(&mut self, s: &mut Store, unit: Ref<Unit>);
     fn wreck(&mut self, s: &mut Store, vehicle: Ref<Vehicle>);
 }
 
 impl<T: BattleWorld + ?Sized> BattlefieldWorld for T {
-    fn body(&mut self, unit: Ref<Unit>) -> Body { BattleWorld::body(self, unit) }
-    fn vehicle(&mut self, unit: Ref<Unit>) -> Option<Ref<Vehicle>> { BattleWorld::body(self, unit).vehicle }
-    fn combat_dead(&mut self, unit: Ref<Unit>) -> bool { BattleWorld::combat_dead(self, unit) }
+    fn body(&mut self, _s: &Store, unit: Ref<Unit>) -> Body { BattleWorld::body(self, unit) }
+    fn vehicle(&mut self, _s: &Store, unit: Ref<Unit>) -> Option<Ref<Vehicle>> { BattleWorld::body(self, unit).vehicle }
+    fn combat_dead(&mut self, _s: &Store, unit: Ref<Unit>) -> bool { BattleWorld::combat_dead(self, unit) }
     fn kill(&mut self, s: &mut Store, unit: Ref<Unit>) { BattleWorld::kill(self, s, unit); }
     fn kill_droid(&mut self, s: &mut Store, unit: Ref<Unit>) { BattleWorld::kill_droid(self, s, unit); }
     fn wreck(&mut self, s: &mut Store, vehicle: Ref<Vehicle>) { BattleWorld::wreck(self, s, vehicle); }
@@ -57,7 +57,7 @@ impl Battlefield {
         while let Some(r) = world.character_at(s, i) {
             i += 1;
             let Some(unit) = s.character.get(r).expect("a Character of the battle").unit else { continue };
-            let body: Body = world.body(unit);
+            let body: Body = world.body(s, unit);
             // Only while he has a body: the original lets go of it at his
             // death.
             if body.removed || !body.alive || body.combat_dead {
@@ -83,11 +83,11 @@ impl Battlefield {
             if !body_out {
                 continue;
             }
-            if let Some(vehicle) = world.vehicle(unit) {
+            if let Some(vehicle) = world.vehicle(s, unit) {
                 // The hull goes, and everyone aboard with it.
                 world.wreck(s, vehicle);
             }
-            if !world.combat_dead(unit) {
+            if !world.combat_dead(s, unit) {
                 world.kill(s, unit);
             }
         }

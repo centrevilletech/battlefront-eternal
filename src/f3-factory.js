@@ -23,7 +23,7 @@ export class F3Factory {
   reserve(limit) {
     const p = this.phase;
     if (p.active) throw Error('unit preparation inside the owned phase');
-    p.x.f3_factory_reserve(limit);
+    p.x.f3_factory_reserve(limit);this.limit=Math.max(this.limit??0,limit);
     p.readLayout();
     p.counters.wasmCalls++;p.counters.lifecycleCalls++;p.counters.inputFields++;
   }
@@ -157,7 +157,8 @@ export class F3Factory {
     const unit = binding.unit;
     unit.human = event.metadata.human;unit.networkHuman = event.metadata.networkHuman;
     unit.hero = event.metadata.hero;
-    const combat = unit.combat, draw = p.random.callback(event.combat);
+    const combat = unit.combat;combat.kept.player=event.metadata.human;
+    const draw = p.random.callback(event.combat);
     combat.kept.random = draw;binding.randomDraw = draw;
     const weapons = combat.arsenal.weapons, weaponDraw = p.random.callback(event.weapon);
     for (let i = 0; i < weapons.length; i++) {

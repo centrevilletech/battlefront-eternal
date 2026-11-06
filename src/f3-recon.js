@@ -117,6 +117,13 @@ export class F3Recon {
 
   // Recon attachment and rebind are explicit owner lifecycle commands.
   // They can allocate a new facade, but never import a soldier or droid body.
+  // Admission can name a connection before its first body exists. No RNG
+  // stream or native context is created until canonical realization.
+  admitKey(key) {
+    let value=this.keys.get(key);
+    if(value===undefined) {value=this.names.length;this.keys.set(key,value);this.names.push(key);}
+    return value;
+  }
   attach(key, owner) { return this.bind('attach',key,owner); }
   rebind(key, owner) { return this.bind('rebind',key,owner); }
   bind(action, key, owner) {

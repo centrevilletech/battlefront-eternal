@@ -479,7 +479,12 @@ impl UnitsWorld for ModuleWorld<'_> {
             // returning the body to its pool. This foreign pointer operation
             // cannot run movement, combat or factory adapters.
             if let Some(character) = unit.character {
-                import_f3_character_release(&F3CharacterRelease { unit:unit_ref(id), character });
+                if crate::battle::f4_core::owns_lifecycle(){
+                    let reference=unit_ref(id);
+                    if let Some(c)=sim().store.character.get_mut(character){
+                        if c.unit==Some(reference){c.unit=None;crate::battle::f4_core::mark_character(character);}
+                    }
+                }else{import_f3_character_release(&F3CharacterRelease { unit:unit_ref(id), character });}
             }
     }
 

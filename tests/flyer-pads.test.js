@@ -1,3 +1,4 @@
+import {unitCommands} from './fixtures/unit-command-port.js';
 // Flyers on their pads: an AI pilot tries a blocked takeoff again, a craft
 // whose takeoff keeps failing is left by its crew rather than destroyed, and
 // a takeoff lifts a hull out of a pad structure it already overlaps at rest.
@@ -120,7 +121,7 @@ test("a hull parked with a pad structure inside its box lifts out of it; a roof 
 
 function flyerPilot(units, grounded) {
   const position = v();
-  const unit = { team: 1, kind: 5, alive: true, dead: false, generation: 1, character: null, controller: null,
+  const unit = { team: 1, kind: 5, alive: true, dead: false, generation: 1, character: null, controller: null,...unitCommands,
     classDef: { MaxSpeed: 60 }, soldier: { maxSpeed: 60, aimYaw: 0, aimPitch: 0, posture: "stand" }, vehicle: { grounded },
     position, velocity: v(), sphere: { center: position, radius: 5 }, intent: { buttons: [0, 0] },
     forward: (out) => out.set(0, 0, 1), aimPoint: (out) => out.copy(position), origin: (out) => out.copy(position) };

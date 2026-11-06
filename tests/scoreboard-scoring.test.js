@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Battle, Character, shownStats, GAME_OVER_DELAY, END_SEQUENCE } from "../src/battle.js";
 
+import {ownBattle} from './fixtures/f4-owned-battle.js';
+
 // A battle with one post each, so it runs its rules.
 function battle({ units = 3 } = {}) {
   const posts = { posts: [{ name: "a", team: 1, desc: {} }, { name: "b", team: 2, desc: {} }], owned: (team) => (team === 1 || team === 2 ? [{ desc: {} }] : []) };
@@ -13,8 +15,9 @@ function battle({ units = 3 } = {}) {
   return b;
 }
 
-test("an enemy's death is a kill; a friend's is a kill and a team kill; a neutral's is nothing", () => {
+test("an enemy's death is a kill; a friend's is a kill and a team kill; a neutral's is nothing", async () => {
   const b = battle();
+  const owned = await ownBattle(b);
   const [me, friend] = b.team(1);
   const [enemy] = b.team(2);
   b.credit(enemy, me, -1);
@@ -28,22 +31,26 @@ test("an enemy's death is a kill; a friend's is a kill and a team kill; a neutra
   assert.equal(enemy.deaths, 2, "but the death counts");
 });
 
-test("a suicide is a team kill: a lone suicide shows -1", () => {
+test("a suicide is a team kill: a lone suicide shows -1", async () => {
   const b = battle();
+  const owned = await ownBattle(b);
   const me = b.human;
   b.credit(me, me, 1);
   assert.deepEqual(shownStats(me), { kills: -1, deaths: 1, points: 0 });
 });
 
-test("a death with no killer counts only the death", () => {
+test("a death with no killer counts only the death", async () => {
   const b = battle();
+  const owned = await ownBattle(b);
   const me = b.human;
   b.credit(me, null, 0);
   assert.deepEqual(shownStats(me), { kills: 0, deaths: 1, points: 0 });
 });
 
-test("command post points: a capture's occupants, and a destroyed post's last damager unless its owner's friend", () => {
+test("command post points: a capture's occupants, and a destroyed post's last damager unless its owner's friend", async () => {
   const b = battle();
+  b.team(2)[0].captures = 0xffff;
+  const owned = await ownBattle(b);
   const [me, friend] = b.team(1);
   const [enemy] = b.team(2);
   b.point(me);
@@ -53,32 +60,32 @@ test("command post points: a capture's occupants, and a destroyed post's last da
   b.postDestroyed(enemy, -1);
   b.postDestroyed(me, 0);
   b.postDestroyed(friend, 1);
-  assert.deepEqual([enemy.captures, me.captures, friend.captures], [1, 2, 1], "an enemy or a neutral scores; a friend doesn't");
-  enemy.captures = 0xffff;
+  assert.deepEqual([enemy.captures, me.captures, friend.captures], [0, 2, 1], "an enemy or a neutral scores; a friend doesn't");
   b.point(enemy);
-  assert.equal(enemy.captures, 0, "16 bits");
+  assert.equal(enemy.captures, 1, "16 bits wrap on native point credit");
 });
 
-test("the game over comes 2 s after a team's last reinforcement and freezes the scores; the end screens 7 s later", () => {
+test("the game over comes 2 s after a team's last reinforcement and freezes the scores; the end screens 7 s later", async () => {
   const b = battle();
+  b.reinforcements[2] = 0;
+  const owned = await ownBattle(b);
   const me = b.human;
   const [enemy] = b.team(2);
-  b.reinforcements[2] = 0;
-  b.update(1 / 60);
+  owned.step(1 / 60);
   assert.equal(b.over, true);
   assert.equal(b.loser, 2);
   assert.equal(b.gameOver, false);
   // Still counting until the game is over.
   b.credit(enemy, me, -1);
   assert.equal(me.kills, 1);
-  for (let t = 0; t < GAME_OVER_DELAY; t += 1 / 60) b.update(1 / 60);
+  for (let t = 0; t < GAME_OVER_DELAY; t += 1 / 60) owned.step(1 / 60);
   assert.equal(b.gameOver, true);
   b.credit(enemy, me, -1);
   b.point(me);
   b.credit(me, enemy, -1);
   assert.deepEqual([me.kills, me.captures, me.deaths, enemy.kills], [1, 0, 0, 0], "frozen");
   assert.equal(b.finished, false);
-  for (let t = 0; t < END_SEQUENCE + 0.05; t += 1 / 60) b.update(1 / 60);
+  for (let t = 0; t < END_SEQUENCE + 0.05; t += 1 / 60) owned.step(1 / 60);
   assert.equal(b.finished, true);
 });
 
