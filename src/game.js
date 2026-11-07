@@ -765,6 +765,16 @@ async function start() {
       return group;
     };
   };
+  // A model's size, as src/items.js radiusOf would measure it from a made one:
+  // the largest bounding sphere among its parts' geometry (those that have one).
+  const flyingSize = (name) => {
+    let best = null;
+    for (const part of weaponModels.get(name) || []) {
+      const sphere = part.geometry?.boundingSphere;
+      if (sphere && (!best || sphere.radius > best.radius)) best = sphere;
+    }
+    return best;
+  };
   // Everyone on the field (src/registry.js) and what happens to them
   // (src/sim-events.js), for ordnance, capture, and the bots.
   const units = new Units();
@@ -796,7 +806,7 @@ async function start() {
     lights,
     texture: anyTexture,
     model: flyingModel,
-
+    presentation: presentationLoaded,
   });
   // The render camera, for the Enhanced sniper look (sniper-trace.js) to tell
   // the shooter's own eye view from a shot it watches.
@@ -853,6 +863,7 @@ async function start() {
     effects,
     lights,
     model: flyingModel,
+    size: flyingSize,
     water,
     pools: world.mission?.pools,
     explode: (explosion, position, owner) => ordnance.explosion(explosion, position, owner),
@@ -2107,6 +2118,12 @@ async function start() {
   // Every page joins an authoritative server: a worker locally, WebRTC online.
   // Entity records feed presentation; only the owned actor is predicted.
   let client = null;
+  // What a page online adds to each frame's rounds (Ordnance.present): its
+  // replicated and predicted ones, then what their draws set off.
+  const replicatedRounds = {
+    draw() { client?.entity?.combat.present(client.clock); game.predictedShots?.draw(); },
+    settle() { client?.entity?.combat.settle(client.clock); },
+  };
   // Checks step the world worker in lockstep with this page's frames
   // (lockstepFrame, tests/battle-page.mjs) instead of its own clock, once
   // the worker is up (window.__bf is there before).
@@ -2710,7 +2727,7 @@ async function start() {
     audio.update(dt);
     runtimeProfile?.phase("world");
     if (!frozen) {
-      ordnance.present(presentAlpha, client ? client.clock : null, client?.entity ? () => { client.entity.combat.present(client.clock); game.predictedShots?.draw(); } : game.predictedShots ? () => game.predictedShots.draw() : null);
+      ordnance.present(presentAlpha, client ? client.clock : null, replicatedRounds);
       debris.update(dt);
       destruction?.update(dt, camera);
       bubble?.update(dt, soldier, { position: visual });
@@ -3103,6 +3120,8 @@ async function start() {
     debris,
     destruction,
     items,
+    // The presentation module the page's kernels run in (null when headless).
+    presentationLoaded,
     remotes,
     createNetworkRemotes(capacity) {
       if (!networkRemotes) {

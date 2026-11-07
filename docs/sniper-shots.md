@@ -10,7 +10,7 @@ a round goes, what it hits or when.
 
 ## Classic
 
-The 2004 streak (`Ordnance.drawBolt`): up to 20 m of core and 24 m of glow,
+The 2004 streak (the ordnance phase's `draw_bolt`): up to 20 m of core and 24 m of glow,
 held at the impact, fading and thinning to a tenth over the `FadeOutTime`, with
 its light lit until it is gone. Under BLASTER BOLTS Enhanced it is the lit
 plasma bolt instead, faded the same way.
@@ -18,7 +18,7 @@ plasma bolt instead, faded the same way.
 ## Enhanced
 
 `src/sniper-trace.js`, a batch of the ordnance's particle renderer. Each round
-`drawBolt` draws is handed over with the gun as drawn, the round's own origin
+`draw_bolt` draws is handed over with the gun as drawn, the round's own origin
 and line, and whether its flight has ended; the trace keeps its own record of
 the shot, so the smoke and sparks outlive the bolt. Each army keeps its round's
 `LaserGlowColor`, held at least 0.65 saturated: Republic blue, CIS red,

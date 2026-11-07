@@ -298,3 +298,156 @@ impl PageVehicles {
         self.inner.pose();
     }
 }
+
+/// Thin browser binding for the item phase: fixed blocks and four calls. The
+/// page answers the rounds' ray and water requests between `present_items`
+/// and `resume_items`, as many rounds as it allows a frame.
+#[wasm_bindgen]
+pub struct PageItems {
+    inner: crate::items::Items,
+}
+#[wasm_bindgen]
+impl PageItems {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> PageItems {
+        Self {
+            inner: crate::items::Items::new(),
+        }
+    }
+    pub fn frame_ptr(&self) -> *const f64 {
+        self.inner.frame.as_ptr()
+    }
+    pub fn frame_len(&self) -> usize {
+        self.inner.frame.len()
+    }
+    pub fn records_ptr(&self) -> *const f64 {
+        self.inner.records.as_ptr()
+    }
+    pub fn records_len(&self) -> usize {
+        self.inner.records.len()
+    }
+    pub fn definitions_ptr(&self) -> *const f64 {
+        self.inner.definitions.as_ptr()
+    }
+    pub fn definitions_len(&self) -> usize {
+        self.inner.definitions.len()
+    }
+    pub fn requests_ptr(&self) -> *const f64 {
+        self.inner.requests.as_ptr()
+    }
+    pub fn requests_len(&self) -> usize {
+        self.inner.requests.len()
+    }
+    pub fn answers_ptr(&self) -> *const f64 {
+        self.inner.answers.as_ptr()
+    }
+    pub fn answers_len(&self) -> usize {
+        self.inner.answers.len()
+    }
+    pub fn views_ptr(&self) -> *const f64 {
+        self.inner.views.as_ptr()
+    }
+    pub fn views_len(&self) -> usize {
+        self.inner.views.len()
+    }
+    pub fn releases_ptr(&self) -> *const f64 {
+        self.inner.releases.as_ptr()
+    }
+    pub fn releases_len(&self) -> usize {
+        self.inner.releases.len()
+    }
+    pub fn ripples_ptr(&self) -> *const f64 {
+        self.inner.ripples.as_ptr()
+    }
+    pub fn ripples_len(&self) -> usize {
+        self.inner.ripples.len()
+    }
+    pub fn header_ptr(&self) -> *const f64 {
+        self.inner.header.as_ptr()
+    }
+    pub fn header_len(&self) -> usize {
+        self.inner.header.len()
+    }
+    pub fn define_item(&mut self, index: usize) {
+        self.inner.define(index);
+    }
+    pub fn apply_item_records(&mut self, count: usize) {
+        self.inner.apply_records(count);
+    }
+    pub fn reset_items(&mut self, epoch: f64) {
+        self.inner.reset_epoch(epoch);
+    }
+    pub fn present_items(&mut self) {
+        self.inner.present();
+    }
+    pub fn resume_items(&mut self, abandon: bool) {
+        self.inner.resume(abandon);
+    }
+}
+
+/// Thin browser binding for the ordnance phase: fixed buffers the page
+/// fills and reads, one `present` per frame.
+#[wasm_bindgen]
+pub struct PageOrdnance {
+    inner: crate::ordnance::Ordnance,
+}
+#[wasm_bindgen]
+impl PageOrdnance {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> PageOrdnance {
+        Self {
+            inner: crate::ordnance::Ordnance::new(),
+        }
+    }
+    pub fn input_ptr(&self) -> *const f64 {
+        self.inner.input.as_ptr()
+    }
+    pub fn input_len(&self) -> usize {
+        self.inner.input.len()
+    }
+    pub fn net_ptr(&self) -> *const f64 {
+        self.inner.net_input.as_ptr()
+    }
+    pub fn net_len(&self) -> usize {
+        self.inner.net_input.len()
+    }
+    pub fn style_ptr(&self) -> *const f64 {
+        self.inner.style_input.as_ptr()
+    }
+    pub fn header_ptr(&self) -> *const f64 {
+        self.inner.header.as_ptr()
+    }
+    pub fn calls_ptr(&self) -> *const f64 {
+        self.inner.calls().as_ptr()
+    }
+    pub fn calls_len(&self) -> usize {
+        self.inner.calls().len()
+    }
+    pub fn counts_ptr(&self) -> *const u32 {
+        self.inner.counts().as_ptr()
+    }
+    /// The six particle attributes (position, colour, shape, axis, axis2,
+    /// frame) of batch handle regions, by attribute index.
+    pub fn quad_ptr(&self, attribute: usize) -> *const f32 {
+        self.inner.quad_arrays()[attribute.min(5)].as_ptr()
+    }
+    pub fn quad_len(&self, attribute: usize) -> usize {
+        self.inner.quad_arrays()[attribute.min(5)].len()
+    }
+    /// The four blaster attributes (head, tail, colour, size).
+    pub fn blaster_ptr(&self, attribute: usize) -> *const f32 {
+        self.inner.blaster_arrays()[attribute.min(3)].as_ptr()
+    }
+    pub fn blaster_len(&self, attribute: usize) -> usize {
+        self.inner.blaster_arrays()[attribute.min(3)].len()
+    }
+    pub fn set_style(&mut self, index: usize) {
+        self.inner.set_style(index);
+    }
+    pub fn flush_net(&mut self, count: usize) {
+        self.inner.net_flush(count);
+    }
+    pub fn present_ordnance(&mut self) {
+        self.inner.present();
+    }
+}

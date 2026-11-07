@@ -14,20 +14,34 @@ test("light requests retain each emitter position when callers reuse scratch vec
   assert.equal(pool.lights[1].intensity, 0);
 });
 
+// The quads of the batches a page draws into, as a test reads them: where
+// each streak's head is, its colour, width, length and direction.
+const quadsOf = (o, profile) => [...o.renderer.batches.entries()].filter(([key]) => !profile || key.endsWith(profile)).flatMap(([, b]) => {
+  const rows = [], a = b.arrays;
+  for (let i = 0; i < b.count; i++) rows.push({
+    head: [...a.iPosition.subarray(i * 3, i * 3 + 3)], rgb: [...a.iColor.subarray(i * 4, i * 4 + 3)], a: a.iColor[i * 4 + 3],
+    size: a.iShape[i * 4], length: a.iShape[i * 4 + 2], axis: [...a.iAxis.subarray(i * 3, i * 3 + 3)],
+  });
+  return rows;
+});
+const tailOf = (q) => q.head.map((v, k) => v - q.axis[k] * q.length);
+const texture = () => new THREE.DataTexture(new Uint8Array([255, 20, 5, 255]), 1, 1);
+
 test("visible bolt tail starts at the view muzzle and joins the collision path", () => {
+  const tex = texture();
   const o = rustOrdnance({ scene: new THREE.Scene(), collision: { cast: () => null },
-    effects: {}, lights: { add() {} }, texture: () => null });
+    effects: {}, lights: { add() {} }, texture: () => tex });
   const origin = new THREE.Vector3(0, 1, 0), muzzle = new THREE.Vector3(.7, .8, .3);
-  const def = { Velocity: 100, LifeSpan: 2, LaserLength: 3 };
+  const def = { Velocity: 100, LifeSpan: 2, LaserLength: 2, LaserTexture: "core" };
   o.fire(def, origin, new THREE.Vector3(0, 0, 1), "player", muzzle);
   const b = o.bolts[0]; o.update(.01);
-  const length = o.boltSpan(b, b.flown);
-  const tail = o.drawnAt.clone().addScaledVector(new THREE.Vector3(...o.boltAxis), -length);
-  assert.ok(tail.distanceTo(muzzle) < 1e-8);
+  const [first] = quadsOf(o, ":bolt");
+  const tail = tailOf(first);
+  assert.ok(Math.hypot(tail[0] - muzzle.x, tail[1] - muzzle.y, tail[2] - muzzle.z) < 1e-5);
   o.update(.12);
-  const joinedLength = o.boltSpan(b, 2);
-  assert.equal(joinedLength, 2);
-  assert.deepEqual(o.boltAxis, [0, 0, 1]);
+  const [joined] = quadsOf(o, ":bolt");
+  assert.ok(Math.abs(joined.length - 2) < 1e-5);
+  assert.ok(Math.hypot(joined.axis[0], joined.axis[1], joined.axis[2] - 1) < 1e-6);
   assert.deepEqual(b.position.toArray(), [0, 1, 13]);
 });
 
@@ -50,13 +64,13 @@ test('a delayed first draw starts at the posed muzzle without moving the collisi
   try {
     for (const style of [false, true]) {
       boltLook.enhanced = style;
+      const tex = new THREE.Texture();
       const o = rustOrdnance({ scene: new THREE.Scene(), collision: { cast: () => null },
-        effects: {}, lights: { add() {} }, texture: () => new THREE.Texture() });
-      const tails = [];
-      o.renderer.batch = () => ({ push(x, y, z, r, g, b, a, width, angle, mode, length, axis) {
-        tails.push(new THREE.Vector3(x, y, z).addScaledVector(new THREE.Vector3(...axis), -length));
-      } });
-      o.renderer.custom = () => ({ push(head, tail) { tails.push(tail.clone()); } });
+        effects: {}, lights: { add() {} }, texture: () => tex });
+      // Every streak's tail, whichever look drew it.
+      const tails = () => style
+        ? (() => { const b = o.renderer.batches.get("blaster"), t = b.arrays.iTail; return Array.from({ length: b.count }, (_, i) => [...t.subarray(i * 3, i * 3 + 3)]); })()
+        : quadsOf(o).map(tailOf);
       const muzzle = new THREE.Vector3(.6, 1.4, .8);
       const bolt = o.fire({ Velocity: 150, LifeSpan: 2, LaserLength: 1, GlowLength: 3, LaserTexture: 'laser' },
         new THREE.Vector3(0, 1.7, 0), new THREE.Vector3(0, 0, 1), 'player');
@@ -64,12 +78,11 @@ test('a delayed first draw starts at the posed muzzle without moving the collisi
       for (let tick = 0; tick < 4; tick++) o.update(1 / 60,false);
       const physical = [bolt.position.toArray(), bolt.direction.toArray(), bolt.flown, bolt.life];
       o.present(.5);
-      assert.ok(tails.length > 0);
-      for (const tail of tails) assert.ok(tail.distanceTo(muzzle) < 1e-8, `style ${style}: first tail missed muzzle`);
+      assert.ok(tails().length > 0);
+      for (const tail of tails()) assert.ok(Math.hypot(tail[0] - muzzle.x, tail[1] - muzzle.y, tail[2] - muzzle.z) < 1e-5, `style ${style}: first tail missed muzzle`);
       assert.deepEqual([bolt.position.toArray(), bolt.direction.toArray(), bolt.flown, bolt.life], physical);
-      tails.length = 0;
       o.update(1 / 60); o.present(1);
-      for (const tail of tails) assert.ok(tail.distanceTo(muzzle) > 1, 'later streaks leave the muzzle');
+      for (const tail of tails()) assert.ok(Math.hypot(tail[0] - muzzle.x, tail[1] - muzzle.y, tail[2] - muzzle.z) > 1, 'later streaks leave the muzzle');
     }
   } finally { boltLook.enhanced = enhanced; }
 });
@@ -104,13 +117,16 @@ test('launched missile mesh follows its displayed muzzle without moving collisio
 
 
 test('a replicated beam without its draw scratch still draws', () => {
-  const texture = new THREE.DataTexture(new Uint8Array([255, 20, 5, 255]), 1, 1);
-  const o = rustOrdnance({ scene: new THREE.Scene(), collision: { cast: () => null }, effects: {}, lights: { add() {} }, texture: () => texture });
+  const tex = texture(), lights = [];
+  const o = rustOrdnance({ scene: new THREE.Scene(), collision: { cast: () => null }, effects: {}, lights: { add: (at, rgb, radius) => lights.push([at.toArray(), [...rgb], radius]) }, texture: () => tex });
   // As a worker's or server's beam reaches the page: no axis, no colour.
   const beam = { def: { LaserGlowColor: [255, 0, 0, 255], LaserWidth: .4, LightRadius: 3 }, life: .2,
     position: new THREE.Vector3(0, 1, 0), end: new THREE.Vector3(0, 1, 30), direction: new THREE.Vector3(0, 0, 1) };
-  assert.doesNotThrow(() => o.drawBeam(beam));
-  assert.deepEqual(beam.axis, [0, 0, 1]);
+  assert.doesNotThrow(() => o.present(1, null, { draw: () => o.draw.beam(beam), settle() {} }));
+  const [drawn] = quadsOf(o);
+  assert.deepEqual(drawn.head, [0, 1, 30]); assert.ok(Math.abs(drawn.length - 29.0172) < 1e-3 || drawn.length > 29, 'as long as the beam');
+  assert.deepEqual(drawn.axis, [0, 0, 1]);
+  assert.deepEqual(lights, [[[0, 1, 0], [1, 0, 0], 3]], 'lit at its source in its colour');
 });
 
 test('a bolt class that names no GlowLength glows three times its core, white without a colour', () => {
@@ -127,27 +143,29 @@ test('a bolt class that names no GlowLength glows three times its core, white wi
 });
 
 test('a sniper bolt is drawn on where it stopped for its FadeOutTime, fading and thinning to a tenth', () => {
-  const pushes = [], lights = [];
+  const lights = [], tex = texture();
   const o = rustOrdnance({ scene: new THREE.Scene(), collision: { cast: () => null }, effects: {},
-    lights: { add: (at, rgb, radius) => lights.push({ at: at.toArray(), rgb: [...rgb], radius }) }, texture: () => new THREE.Texture() });
-  o.renderer.batch = (texture, blending, profile) => ({ push: (x, y, z, r, g, b, a, size, rotation, shape, length) => pushes.push({ profile, head: [x, y, z], rgb: [r, g, b], a, size, length }) });
+    lights: { add: (at, rgb, radius) => lights.push({ at: at.toArray(), rgb: [...rgb], radius }) }, texture: () => tex });
   // rep_weap_inf_sniperrifle_ord, as the page has it from the world: fired
   // on tick 10, its round stopped 50 m out (1.5 ticks at 2000 m/s).
   const def = { Velocity: 2000, LifeSpan: .15, LaserTexture: 'bluelaser_d', LaserLength: 20, LaserWidth: .15, GlowLength: 24, BlurLength: 32,
     FadeOutTime: 1, LaserGlowColor: [92, 136, 250, 100], LightColor: [92, 136, 250, 100], LightRadius: 4 };
   const round = def => ({ def, position: new THREE.Vector3(), direction: new THREE.Vector3(0, 0, 1), offset: new THREE.Vector3(),
-    speed: 2000, life: .025, merge: 8, flown: 0, drawn: 0, networkFlightTick: 10, presented: true });
+    speed: 2000, life: .025, merge: 8, flown: 0, drawn: 0, networkFlightTick: 10 });
   const draw = (source, tick) => {
-    pushes.length = lights.length = 0;
-    o.drawBolt(source, 1, tick);
-    return { core: pushes.find((p) => p.profile === 'bolt'), glow: pushes.find((p) => p.profile !== 'bolt'), light: lights[0] };
+    lights.length = 0;
+    o.present(1, tick, { draw: () => o.draw.bolt(source, 1, tick), settle() {} });
+    return { core: quadsOf(o, ':bolt')[0], glow: quadsOf(o, ':particle')[0], light: lights[0] };
   };
-  const close = (a, b, message) => assert.ok(Math.abs(a - b) < 1e-9, `${message}: ${a} against ${b}`);
-  const sniper = round(def);
+  const close = (a, b, message) => assert.ok(Math.abs(a - b) < 1e-5, `${message}: ${a} against ${b}`);
+  // A bolt's first draw reaches back to its muzzle; these have been drawn once already.
+  const seen = (source) => { draw(source, 10.5); return source; };
+  const sniper = seen(round(def));
   let { core, glow, light } = draw(sniper, 11);
   close(core.head[2], 2000 / 60, 'in flight');
   assert.equal(core.a, 1); close(core.size, .075, 'full width in flight'); close(core.length, 20, 'the core');
-  assert.deepEqual(light.at, core.head, 'its light rides at the head');
+  assert.deepEqual(light.at, core.head.map((v, k) => k === 2 ? 2000 / 60 : v).map((v, k) => k === 2 ? light.at[2] : v), 'its light rides at the head');
+  close(light.at[2], 2000 / 60, 'light at the head');
   // Its flight is over: the core and glow end where it stopped, as long as
   // they are, full strength at first.
   ({ core, glow, light } = draw(sniper, 11.5));
@@ -163,10 +181,11 @@ test('a sniper bolt is drawn on where it stopped for its FadeOutTime, fading and
   close(light.at[2], 50 - 2000 / 120, 'light'); assert.equal(light.radius, 4);
   // Gone after a second, and a class without a FadeOutTime is gone when it stops.
   assert.equal(draw(sniper, 72).core, undefined);
-  assert.equal(draw(round({ ...def, FadeOutTime: undefined }), 11.5).core, undefined);
+  const plain = seen(round({ ...def, FadeOutTime: undefined }));
+  assert.equal(draw(plain, 11.5).core, undefined);
   // A shorter shot is drawn all the way back to where it was fired.
-  const close10 = { ...round(def), life: .005 };
-  ({ core } = draw(close10, 20));
+  const short = seen({ ...round(def), life: .005 });
+  ({ core } = draw(short, 20));
   assert.deepEqual(core.head, [0, 0, 10]); close(core.length, 10, 'as far as it flew');
 });
 

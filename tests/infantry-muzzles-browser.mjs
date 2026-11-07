@@ -15,19 +15,31 @@ try {
     const result = await page.evaluate(async () => {
       const b = __bf, o = b.ordnance, T = b.THREE, sleep = ms => new Promise(r => setTimeout(r, ms));
       b.graphics.render = () => {}; b.controls.locked = true;
-      const seen = new WeakSet(), rows = [], draw = o.drawBolt, span = o.boltSpan;
-      let stage = null;
-      o.boltSpan = function (...args) { const length = span.apply(this, args); this.testSpan = length; return length; };
-      o.drawBolt = function (bolt, alpha) {
-        draw.call(this, bolt, alpha);
-        if (seen.has(bolt)) return;
+      const seen = new WeakSet(), rows = [], hand = o.draw.bolt.bind(o.draw), finish = o.draw.finish.bind(o.draw);
+      let stage = null, handed = [];
+      // The bolts a frame draws are handed to the ordnance phase and drawn by
+      // one call: when a frame draws a single bolt, new to the page, every
+      // streak of the frame is that bolt's, and its tail is read off the
+      // quads (or capsules) the batches received.
+      o.draw.bolt = function (bolt, ...rest) { handed.push(bolt); return hand(bolt, ...rest); };
+      const tails = () => [...o.renderer.batches.values()].flatMap((batch) => {
+        const a = batch.arrays, out = [];
+        for (let i = 0; i < batch.count; i++) out.push(a.iTail
+          ? new T.Vector3(a.iTail[i * 3], a.iTail[i * 3 + 1], a.iTail[i * 3 + 2])
+          : new T.Vector3(a.iPosition[i * 3], a.iPosition[i * 3 + 1], a.iPosition[i * 3 + 2]).addScaledVector(new T.Vector3(a.iAxis[i * 3], a.iAxis[i * 3 + 1], a.iAxis[i * 3 + 2]), -a.iShape[i * 4 + 2]));
+        return out;
+      });
+      o.draw.finish = function () {
+        finish();
+        const bolts = handed; handed = [];
+        if (bolts.length !== 1 || seen.has(bolts[0])) return;
+        const bolt = bolts[0];
         seen.add(bolt);
         const unit = bolt.owner, combat = unit?.combat;
         if (!combat || !bolt.weapon || stage === null || bolt.muzzleGeneration !== unit.generation) return;
         const at = combat.roundMuzzle(bolt);
         if (!at) return;
-        const tail = this.drawnAt.clone().addScaledVector(new T.Vector3(...this.boltAxis), -this.testSpan);
-        rows.push({ stage, human: unit.human, type: unit.className, error: tail.distanceTo(at) });
+        for (const tail of tails()) rows.push({ stage, human: unit.human, type: unit.className, error: tail.distanceTo(at) });
       };
       for (const first of [false, true]) {
         stage = null; b.controls.clear(); b.setPerspective(first);

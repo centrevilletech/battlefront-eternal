@@ -40,7 +40,7 @@ const { loadAnimKernel } = await import('../src/anim-kernel.js');
 setAnimKernel(await loadAnimKernel());
 const { buildActor } = await import('../src/actor.js');
 const { barrelTips, weaponMuzzle, vehicleMuzzleTips } = await import('../src/muzzles.js');
-const { Items } = await import('../src/items.js');
+const { radiusOf } = await import('../src/items.js');
 const { buildRegion } = await import('../src/regions.js');
 const { CollisionWorld } = await import('./collision-fixture.mjs');
 const { setting } = await import('../src/seats.js');
@@ -529,12 +529,12 @@ export function dumpBattle(b, c, full = false) {
     }
   }
 
-  // items.js itemState/radiusOf: radius and pickup centre of each item.
+  // items.js radiusOf: radius and pickup centre of each item.
   const itemLine = (key, def) => {
     const parts = def.GeometryName ? c.weaponModels.get(def.GeometryName) : null;
     const mesh = parts ? modelGroup(parts, () => null) : null;
-    const state = Items.prototype.itemState.call(null, def, mesh, new THREE.Vector3(), new THREE.Vector3(), 0);
-    d.line('item', key, enc([state.radius, mesh?.userData.center ? vec3(mesh.userData.center) : undefined]));
+    const radius = mesh ? radiusOf(mesh) : 0.3;
+    d.line('item', key, enc([radius, mesh?.userData.center ? vec3(mesh.userData.center) : undefined]));
   };
   for (const [sideName, s] of Object.entries(b.sides)) {
     for (const [name, def] of Object.entries(s.items)) itemLine(`${sideName}/${name}`, def);

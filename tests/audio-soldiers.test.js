@@ -30,7 +30,7 @@ test("online, another player's replicated health sounds his hurts, and his death
   const own = body(1);
   const remote = body(2);
   const map = new Map([[1, own], [2, remote]]);
-  const game = { playerTeam: 1, applyAuthoritativeHumanTeam() {}, ordnance: { clearProjectilePresentation() {} }, playerUnit: own, units: { byId: (id) => map.get(id), byIdMap: map }, vehicles: { vehicles: [] }, client: { seats: {} }, factory: { build() { throw Error("unexpected"); } } };
+  const game = { playerTeam: 1, applyAuthoritativeHumanTeam() {}, ordnance: { clearProjectilePresentation() {}, draw: { netHost: null } }, playerUnit: own, units: { byId: (id) => map.get(id), byIdMap: map }, vehicles: { vehicles: [] }, client: { seats: {} }, factory: { build() { throw Error("unexpected"); } } };
   const adapter = new EntityGameState(game, registry);
   const heard = [];
   const unlisten = listenSounds((type, combat, amount) => heard.push([type, combat === remote.combat, amount]));

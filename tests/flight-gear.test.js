@@ -187,7 +187,7 @@ test('over the entity protocol a craft is drawn landed, stowing and stowed as th
   const hull = server.v;
   const registry = { contentEpoch: 1, classes: new Map([[2, 'ship']]), weapons: new Map(), inputCodes: [], bindingProfiles: new Map([[0, {}]]) };
   const units = { byIdMap: new Map(), byId() { return null; }, all() { return []; } };
-  const game = { ordnance: { clearProjectilePresentation() {} }, playerUnit: { id: 1, generation: 1, seat: null }, playerTeam: 1, units, vehicles: client.system, turretSeats: { turrets: [] }, live: { buildings: [] },
+  const game = { ordnance: { clearProjectilePresentation() {}, draw: { netHost: null } }, playerUnit: { id: 1, generation: 1, seat: null }, playerTeam: 1, units, vehicles: client.system, turretSeats: { turrets: [] }, live: { buildings: [] },
     driver: null, gunner: null, factory: { build() { throw Error('unexpected body build'); } }, bodies: new Map(), adopt() {}, setHumanTeam() {} };
   game.client = { seats: new EntitySeats(game) };
   const adapter = new EntityGameState(game, registry); adapter.baseline();
@@ -325,7 +325,7 @@ test('the world and a page stand a craft on the same feet: the same foot from th
   prepareAuthorityFixture(server.system);
   const hull = server.v;
   const registry = { contentEpoch: 1, classes: new Map([[2, 'ship']]), weapons: new Map(), inputCodes: [], bindingProfiles: new Map([[0, {}]]) };
-  const game = { ordnance: { clearProjectilePresentation() {} }, playerUnit: { id: 1, generation: 1, seat: null }, playerTeam: 1, units: { byIdMap: new Map(), byId() { return null; }, all() { return []; } },
+  const game = { ordnance: { clearProjectilePresentation() {}, draw: { netHost: null } }, playerUnit: { id: 1, generation: 1, seat: null }, playerTeam: 1, units: { byIdMap: new Map(), byId() { return null; }, all() { return []; } },
     vehicles: client.system, turretSeats: { turrets: [] }, live: { buildings: [] }, driver: null, gunner: null, factory: { build() { throw Error('unexpected body build'); } }, bodies: new Map(), adopt() {}, setHumanTeam() {} };
   game.client = { seats: new EntitySeats(game) };
   const adapter = new EntityGameState(game, registry); adapter.baseline();
@@ -377,7 +377,7 @@ test('an X-wing\'s lasers leave the foil tips where its gear has the foils, in t
     // from its drawn tip, which is where the world's round leaves.
     page.position.copy(v.position); page.quaternion.copy(v.quaternion); page.gear = gear; page.flightState = 'Flying';
     page.resetPresentationHistory(); page.sleeping = false; page.present(1, 1 / 60);
-    const shots = new PredictedShots({ cast: () => null }, () => 0, {drawBolt(){}});
+    const shots = new PredictedShots({ cast: () => null }, () => 0, {draw:{bolt(){}}});
     const unit = { id: 8, generation: 2, alive: true, seat: { vehicle: page, index: 0 }, combat: { dead: false, origin: new THREE.Vector3(), firePoint: () => null, flash() {}, animator: { fire() {} }, firstPerson: false } };
     assert.equal(shots.fire({ id: 1, generation: 2, pressed: true, button: 0, aimYaw: 0, aimPitch: 0 }, unit), true);
     const shot = [...shots.shots.values()][0];

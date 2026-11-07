@@ -436,9 +436,9 @@ online"), still within the 48 ticks the history keeps.
 - Recon droids are drawn between the two records that bracket render time,
   extrapolating at their last velocity for at most 6 ticks, as above.
 - Items (mines and power-ups) are flown on the page instead
-  (`src/runtime/network-entity-items.js`). Their flight has no randomness,
+  (`rust/bfe-presentation/src/items.rs`). Their flight has no randomness,
   so the page seeds a copy from an item's first record and steps it with
-  the shared `Items.fly` (gravity, the ray against the page's collision,
+  the world's flight rules (gravity, the ray against the page's collision,
   bounce and settle) one tick at a time as render time crosses ticks,
   drawing it between its last two ticks at render time's fraction. Each
   record steers the copy when render time reaches it: a copy more than

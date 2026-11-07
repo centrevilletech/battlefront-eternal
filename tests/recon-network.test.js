@@ -103,20 +103,20 @@ test('a recon droid\'s orbital strike reaches a client on its own path, and each
   const { SnapshotClient } = await import('../src/runtime/snapshot-client.js');
   const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
   const { CombatPresentation } = await import('../src/runtime/network-entity-combat.js');
-  const { linearBoltFrame } = await import('../src/runtime/linear-bolt.js');
+  const { linearBoltFrame } = await import('./helpers/linear-bolt.js');
   const {CameraFrame} = await import('./helpers/cameras.js');
   const { game, host, player, step } = await reconBattle(t);
   // His page: what it draws of each bolt (the head, on the clock it draws
   // at, three ticks behind the newest packet) and the explosions it shows.
   const heads = new Map(), shown = [], cameraHost = new CameraFrame(), shake = cameraHost.owner.shake;
   const ordnance = { clearProjectilePresentation() {}, effects: { play: () => ({ stop() {}, move() {} }) }, projectileMesh: () => null, scene: { remove() {} },
-    presentExplosion() {}, lights: { flash() {}, add() {} }, drawBeam() {}, drawProjectileView() {},
-    drawBolt(source, alpha, tick) {
+    presentExplosion() {}, lights: { flash() {}, add() {} },
+    draw: { netHost: null, netAllocate: () => -1, presentNet() {}, bolt(source, alpha, tick) {
       const frame = linearBoltFrame(source, tick);
       if (!frame) return;
       const head = source.position.clone().addScaledVector(source.direction, frame.flown);
       heads.set(source, { cls: source.def.class, head });
-    } };
+    } } };
   const presentation = new CombatPresentation({ ordnance, definition: (id) => host.registry.combat.definitions.get(id), predictedShots: null,
     onExplosion: (def, position) => {
       // His view follows something 5 m above the blast: a full share.
@@ -134,6 +134,7 @@ test('a recon droid\'s orbital strike reaches a client on its own path, and each
     }
     if (receiver.snapshotAck?.tick) host.input('recon', encodeSnapshotAckKeepalive(receiver.snapshotAck));
     presentation.present(game.worldClock.tick - 3);
+    presentation.settle(game.worldClock.tick - 3);
     cameraHost.frame(1/60);cameraHost.finish();
   };
   for (let i = 0; i < 10; i++) page(step());

@@ -38,7 +38,7 @@ function client(classes = ['tank']) {
   const { system, v } = mountFixture({ classes });
   const own = body(1), remote = body(2), units = registryUnits(own, remote);
   const driver = { vehicle: null, lease: null, soldier: own.soldier, released: 0, synced: 0, release() { this.released++; this.vehicle = null; this.lease = null; }, syncReplica() { this.synced++; } };
-  const game = { ordnance: { clearProjectilePresentation() {} }, playerUnit: own, playerTeam: 1, units, vehicles: system, turretSeats: { turrets: [] }, live: { buildings: [] }, driver, gunner: null,
+  const game = { ordnance: { clearProjectilePresentation() {}, draw: { netHost: null } }, playerUnit: own, playerTeam: 1, units, vehicles: system, turretSeats: { turrets: [] }, live: { buildings: [] }, driver, gunner: null,
     factory: { build() { throw Error('unexpected body build'); } }, bodies: new Map(), adopt() {}, setHumanTeam() {} };
   game.client = { seats: new EntitySeats(game) };
   const adapter = new EntityGameState(game, registry); adapter.baseline();

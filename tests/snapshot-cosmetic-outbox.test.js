@@ -156,7 +156,7 @@ test('a battle\'s shots reach every client in range and are drawn, over loss and
   const { PlayoutClock } = await import('../src/runtime/playout.js');
   const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
   const { CombatCapture, CombatPresentation } = await import('../src/runtime/network-entity-combat.js');
-  const { linearBoltFrame } = await import('../src/runtime/linear-bolt.js');
+  const { linearBoltFrame } = await import('./helpers/linear-bolt.js');
   const launches = new Map(), emit = CombatCapture.prototype.emit;
   CombatCapture.prototype.emit = function (record) { emit.call(this, record); if (record.schema === 1 || record.schema === 2) { const view = decodeCombat(record), bolt = launches.get(record.id); if (record.schema === 1) launches.set(record.id, { view, flight: view.life * 60, near: new Set() }); else if (bolt && view.surface !== 5) bolt.flight = Math.min(bolt.flight, Math.hypot(...view.position.map((v, i) => v - bolt.view.position[i])) / bolt.view.speed * 60); } };
   try {
@@ -174,7 +174,7 @@ test('a battle\'s shots reach every client in range and are drawn, over loss and
       const c = { id, shooter: i < 4, receiver: new SnapshotClient(), playout: new PlayoutClock({ minDelay: 4, maxDelay: 10 }), down: [], up: [], drawn: new Set(), visible: new Map(), latest: 0, sequence: 0 };
       const effect = { stop() {}, move() {} };
       const ordnance = { clearProjectilePresentation() {}, effects: { play: () => effect }, projectileMesh: () => null, scene: { remove() {} }, presentExplosion() {}, lights: { flash() {}, add() {} },
-        drawBolt(source, alpha, tick) { if (linearBoltFrame(source, tick)) c.drawn.add(source); }, drawBeam() {}, drawProjectileView() {} };
+        draw: { netHost: null, netAllocate: () => -1, presentNet() {}, bolt(source, alpha, tick) { if (linearBoltFrame(source, tick)) c.drawn.add(source); } } };
       c.presentation = new CombatPresentation({ ordnance, definition: id => host.registry.combat.definitions.get(id), predictedShots: null });
       clients.push(c);
     }
@@ -188,7 +188,7 @@ test('a battle\'s shots reach every client in range and are drawn, over loss and
           if (packet.tick > c.latest) { c.latest = packet.tick; c.playout.arrive(packet.tick, tick / 60, packet.interval); }
         }
         while (c.up.length && c.up[0].at <= tick) host.input(c.id, c.up.shift().bytes);
-        c.drawn.clear(); c.presentation.present(c.playout.advance(1 / 60));
+        c.drawn.clear(); const shown = c.playout.advance(1 / 60); c.presentation.present(shown); c.presentation.settle(shown);
         for (const [id, state] of c.presentation.records) if (state.bolt && c.drawn.has(state.bolt)) c.visible.set(id, (c.visible.get(id) ?? 0) + 1);
       }
       if (tick > end) continue;

@@ -126,7 +126,7 @@ export class PredictedShots {
     // within a second).
     const life=Math.min(span,(contact?.distance??Infinity)/speed);
     const metadata={playerId:unit.id,generation:unit.generation,fireId:edge.held?0:edge.id,channel:edge.button};
-    // Ordnance.drawBolt draws a bolt where its `position` is now; update()
+    // The ordnance phase draws a bolt where its `position` is now; update()
     // moves it along the path as the real stepBolt would.
     // A drawn muzzle far from the gun (a body not yet posed) is ignored, as
     // Ordnance.present ignores one.
@@ -210,7 +210,7 @@ export class PredictedShots {
       if(now>=shot.until){this.remove(id,shot);continue;}
       const age=now-shot.born;
       // In flight, then, for a class with a FadeOutTime, fading where it
-      // stopped (Ordnance.drawBolt reads `ended` and `fade`).
+      // stopped (the ordnance phase reads `ended` and `fade`).
       const fade=shot.bolt?boltFade(shot.bolt.def,age-shot.life):0;
       shot.flying=fade>0;
       if(!shot.flying)continue;
@@ -233,7 +233,7 @@ export class PredictedShots {
   }
   // Inside Ordnance.present's batch: the flying cosmetics as real bolts.
   draw() {
-    for(const shot of this.shots.values())if(shot.flying)this.ordnance.drawBolt(shot.bolt,1,null);
+    for(const shot of this.shots.values())if(shot.flying)this.ordnance.draw.bolt(shot.bolt,1,null);
   }
   clear(){this.shots.clear();this.cooldowns=new WeakMap();this.claims.clear();this.life=null;this.ownerId=this.ownerGeneration=null;}
 }

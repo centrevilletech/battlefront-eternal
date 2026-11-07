@@ -1,10 +1,11 @@
 import { OrdnanceWorld } from "./ordnance-world.js";
-import { linearBoltFrame } from './runtime/linear-bolt.js';
 import { mountedMuzzle } from "./muzzles.js";
 import * as THREE from "three";
-import { ParticleRenderer, STREAK } from "./particles.js";
-import { BlasterBatch, boltLook, sheathColor, textureHue, vivid } from "./blaster-bolts.js";
+import { ParticleRenderer } from "./particles.js";
+import { BlasterBatch, boltLook } from "./blaster-bolts.js";
 import { SniperTrace, sniperLook } from "./sniper-trace.js";
+import { PageOrdnance } from "./presentation/ordnance.js";
+import { OrdnanceFlag as FL } from "./presentation/ordnance-layout.js";
 
 // The bolt look shared with graphics.js, for callers holding this module.
 export { boltLook, sniperLook };
@@ -52,23 +53,11 @@ import { emitSound } from "./audio/events.js";
 // damage.
 
 const UP = new THREE.Vector3(0, 1, 0);
-const MERGE = 8; // m over which a bolt drawn from the muzzle joins its path
-const CORE_TAPER = [0.5, 0, 0], GLOW_TAPER = [0.8, 0, 0];
 
 const color01 = (rgba = [255, 255, 255, 255]) => {
   const a = (rgba[3] ?? 255) / 255;
   return [(rgba[0] / 255) * a, (rgba[1] / 255) * a, (rgba[2] / 255) * a];
 };
-// A bolt's glow length as the class parser leaves it: reading LaserLength
-// sets GlowLength to three times it, and a GlowLength named after replaces
-// that (docs/formats.md, "Bolts"). So vehicle and turret guns, which name
-// none, still glow, white when they name no LaserGlowColor.
-const glowLength = (def) => def.GlowLength ?? (def.LaserLength ? def.LaserLength * 3 : 0);
-// A round's light colour: set when it was fired here, or, for a round a
-// worker's packet described (src/runtime/replica.js carries no arrays),
-// taken from its definition on first use.
-const lightOf = (round) => round.light || (round.light = color01(round.def?.LightColor));
-
 // Short-lived point lights (muzzle flashes, bolts, explosions) on a fixed set
 // of scene lights, so the shaders' light count never changes. Each frame the
 // brightest requests get the lights.
@@ -152,7 +141,7 @@ export class LightPool {
 
 export class Ordnance {
   // texture(name) gives a texture; model(name) a function making a mesh.
-  constructor({ scene, collision, effects, lights, texture, model, onExplode, onHit }) {
+  constructor({ scene, collision, effects, lights, texture, model, onExplode, onHit, presentation = null }) {
     this.scene = scene;
     this.collision = collision;
     this.effects = effects;
@@ -195,7 +184,6 @@ export class Ordnance {
     this.rounds = [];
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false };
     this.ray = new THREE.Vector3();
-    this.drawnAt = new THREE.Vector3();
     this.start = new THREE.Vector3();
     this.mid = new THREE.Vector3();
     this.basis = new THREE.Matrix4();
@@ -203,8 +191,14 @@ export class Ordnance {
     this.up = new THREE.Vector3();
     this.nose = new THREE.Quaternion();
     this.axis = new THREE.Vector3();
-    this.boltStyles = new WeakMap();
-    this.boltAxis = [0, 0, 1];
+    // The page's drawing of these rounds, in the presentation module
+    // (src/presentation/ordnance.js). A world that never draws has none.
+    this.draw = presentation && new PageOrdnance(presentation, {
+      renderer: this.renderer, lights, texture,
+      sniperTrace: () => this.sniperTrace(),
+      enhanced: () => boltLook.enhanced,
+      blaster: () => this.renderer.custom("blaster", () => new BlasterBatch()),
+    });
   }
 
   // Create the drawing resources a battle will need, so graphics.warmup()
@@ -238,31 +232,6 @@ export class Ordnance {
 
   // The fat ray's sweep over one step: every unit whose sphere comes
   // A beam persists for LifeSpan and follows its emitting vehicle. Damage
-  drawBeam(beam) {
-    beam.color ||= color01(beam.def.LaserGlowColor);
-    const length = beam.position.distanceTo(beam.end);
-    if (boltLook.enhanced) {
-      const look = this.blasterLook(beam.def);
-      const fade = Math.min(1, Math.max(0, beam.life) / .08);
-      this.renderer.custom("blaster", () => new BlasterBatch()).push(beam.end, beam.position, look.color, look.brightness * fade, look.core, look.glow, 0.37, 1);
-      this.lights.add(beam.position, look.light, look.lightRadius);
-      return;
-    }
-    let style = this.boltStyles.get(beam.def);
-    if (!style) {
-      const texture = this.texture(beam.def.LaserTexture || 'lightglow');
-      style = { beam: texture ? this.renderer.batch(texture, 'additive', 'bolt') : null };
-      this.boltStyles.set(beam.def, style);
-    }
-    // A beam a worker or server replicated arrives without the draw's
-    // scratch axis, as without its colour.
-    const p = beam.end, d = beam.direction, axis = beam.axis ||= [0, 0, 1];
-    axis[0] = d.x; axis[1] = d.y; axis[2] = d.z;
-    const fade = Math.min(1, Math.max(0, beam.life) / .08);
-    style.beam?.push(p.x, p.y, p.z, 1, 1, 1, fade, (beam.def.LaserWidth || .3) / 2, 0, STREAK, length, axis);
-    this.lights.add(beam.position, beam.color, beam.def.LightRadius || 3);
-  }
-
   // Nose (+z) along the flight, its x across the world's up.
   orient(round) {
     const forward = this.axis.copy(round.velocity).normalize();
@@ -295,123 +264,41 @@ export class Ordnance {
     return mesh;
   }
 
-  drawProjectileView(projectile, alpha = 1, light = false) {
-    this.drawnAt.lerpVectors(projectile.previous, projectile.position, alpha);
-    if (projectile.muzzleOffset) this.drawnAt.addScaledVector(projectile.muzzleOffset,
-      Math.max(0, 1 - projectile.position.distanceTo(projectile.launchPosition) / MERGE));
-    if (projectile.mesh) {
-      projectile.mesh.position.copy(this.drawnAt);
-      if (projectile.quaternion) projectile.mesh.quaternion.copy(projectile.quaternion);
-    }
-    projectile.trail?.move?.(this.drawnAt, projectile.quaternion, projectile.velocity);
-    if (light) this.lights.add(this.drawnAt, lightOf(projectile), projectile.def.LightRadius || 0);
-  }
-
-  present(alpha = 1, clockTick = null, additional = null) {
+  // Every round on screen, drawn by one call of the presentation module
+  // (src/presentation/ordnance.js, rust/bfe-presentation/src/ordnance.rs):
+  // beams, then bolts, then rockets, then grenades' meshes, then what `extra`
+  // draws (a page online's replicated rounds and the player's predicted
+  // ones, which add their own records), in that order. `extra.settle()` then
+  // runs what those draws set off: impacts and explosions.
+  present(alpha = 1, clockTick = null, extra = null) {
+    const draw = this.draw;
     this.renderer.begin();
-    for (const beam of this.beams) this.drawBeam(beam);
+    draw.begin(boltLook.enhanced, sniperLook.enhanced);
+    for (const beam of this.beams) draw.beam(beam);
     for (const bolt of this.bolts) {
       // Resolve a local cosmetic muzzle only after the rendered actor/camera
       // pose exists. The physical origin, direction and hit stay tick-owned.
+      let muzzle = null;
       if (bolt.visualMuzzle || (bolt.mount && !bolt.mountResolved)) {
-        const muzzle = bolt.visualMuzzle?.() || mountedMuzzle(bolt);
+        muzzle = bolt.visualMuzzle?.() || mountedMuzzle(bolt);
         bolt.mountResolved = true;
-        if (muzzle) {
-          const offset = (bolt.offset ||= new THREE.Vector3()).copy(muzzle).sub(bolt.position).addScaledVector(bolt.direction, bolt.flown);
-          // A respawn/teleport before the first draw must not pull a trail
-          // across the map. Render that old round on its physical path.
-          if (offset.lengthSq() > 400) offset.set(0, 0, 0);
-        }
         bolt.visualMuzzle = null;
       }
-      this.drawBolt(bolt, alpha, clockTick);
+      draw.bolt(bolt, alpha, clockTick, muzzle, FL.RESOLVE_BOLT);
     }
     for (const round of this.rounds) {
+      let muzzle = null;
       if (round.visualMuzzle || (round.mount && !round.mountResolved)) {
-        const muzzle = round.visualMuzzle?.() || mountedMuzzle(round);
-        if (muzzle && round.launchPosition) {
-          round.muzzleOffset = muzzle.clone().sub(round.launchPosition);
-          if (round.muzzleOffset.lengthSq() > 400) round.muzzleOffset.set(0, 0, 0);
-        }
+        muzzle = round.visualMuzzle?.() || mountedMuzzle(round);
         round.visualMuzzle = null; round.mountResolved = true;
       }
-      this.drawProjectileView(round, alpha);
+      draw.round(round, alpha, muzzle);
     }
-    for (const grenade of this.grenades) if (grenade.mesh) grenade.mesh.position.lerpVectors(grenade.previous, grenade.position, alpha);
-    additional?.();
+    for (const grenade of this.grenades) draw.grenade(grenade, alpha);
+    extra?.draw();
+    draw.finish();
+    extra?.settle();
     this.renderer.end();
-  }
-
-  // What hit: its impact effect where it hit, then ExplosionImpact just off
-  drawBolt(source, alpha = 1, clockTick = null) {
-    const bolt = this.visualBolt ||= {};
-    const linear=source.networkFlightTick!==undefined;
-    const frame=linear ? linearBoltFrame(source,clockTick ?? source.networkFlightTick,this.linearFrame ||= {}) : null;
-    if(linear && !frame)return;
-    const flown = frame ? frame.flown : (source.previousFlown ?? source.flown) + (source.flown - (source.previousFlown ?? source.flown)) * alpha;
-    const drawn = frame ? frame.drawn : (source.previousDrawn ?? source.drawn) + (source.drawn - (source.previousDrawn ?? source.drawn)) * alpha;
-    Object.assign(bolt, source); bolt.flown = flown; bolt.drawn = drawn;
-    // Past the end of its flight a class with a FadeOutTime is still drawn
-    // where it stopped (linearBoltFrame, PredictedShots): it fades, and its
-    // width falls to a tenth (0.9 x fade + 0.1).
-    const ended = frame ? frame.ended : Boolean(source.ended);
-    const fade = frame ? frame.fade : source.fade ?? 1;
-    const thin = 0.9 * fade + 0.1;
-    // A fast bolt can travel several metres before its first rendered
-    // frame. Show that first interval back to the muzzle, then use the
-    // normal streak length. This never changes collision or flight time.
-    bolt.firstDraw = !source.presented && !ended;
-    if (flown > 1e-8) source.presented = true;
-    const def = bolt.def;
-    const p = this.drawnAt.copy(bolt.position).addScaledVector(bolt.direction, flown - source.flown);
-    if (bolt.offset) p.addScaledVector(bolt.offset, Math.max(1 - bolt.flown / bolt.merge, 0));
-    // The light rides at the head; once the flight is over it stays lit at
-    // the middle of the last step until the bolt is gone.
-    const light = ended ? (this.fadeLight ||= new THREE.Vector3()).copy(p).addScaledVector(bolt.direction, -Math.min(flown, bolt.speed / 60) / 2) : p;
-    // Enhanced sniper shots (sniper-trace.js): a rail from the gun as drawn
-    // to where the round is, outliving it as vapour and sparks.
-    if (sniperLook.enhanced && def.FadeOutTime > 0) {
-      const origin = (this.sniperOrigin ||= new THREE.Vector3()).copy(bolt.position).addScaledVector(bolt.direction, -source.flown);
-      const start = (this.sniperStart ||= new THREE.Vector3()).copy(origin);
-      if (bolt.offset) start.add(bolt.offset);
-      // The head on the round's own line, without the drawn muzzle's offset.
-      const head = (this.sniperHead ||= new THREE.Vector3()).copy(origin).addScaledVector(bolt.direction, flown);
-      this.sniperTrace().touch(source, def, start, head, bolt.direction, ended, fade, origin);
-      return;
-    }
-    if (boltLook.enhanced) {
-      const look = this.blasterLook(def);
-      const length = this.boltSpan(bolt, Math.min(look.length, bolt.drawn));
-      const tail = (this.blasterTail ||= new THREE.Vector3()).set(...this.boltAxis).multiplyScalar(-length).add(p);
-      // Presentation only: a stable flicker phase for each bolt.
-      source.seed ??= this.boltSeed = ((this.boltSeed || 0) + 0.618034) % 1;
-      this.renderer.custom("blaster", () => new BlasterBatch()).push(p, tail, look.color, look.brightness * fade, look.core * thin, look.glow * thin, source.seed, 0.55);
-      this.lights.add(light, look.light, look.lightRadius);
-      return;
-    }
-    let style = this.boltStyles.get(def);
-    if (!style) {
-      const core = def.LaserTexture ? this.texture(def.LaserTexture) : null;
-      const glow = this.texture("lightglow");
-      style = { width: def.LaserWidth || 0.1, color: color01(def.LaserGlowColor),
-        core: core ? this.renderer.batch(core, "additive", "bolt") : null,
-        glow: glow ? this.renderer.batch(glow, "additive") : null };
-      this.boltStyles.set(def, style);
-    }
-    const width = style.width * thin;
-    // Fading, the core's alpha and every channel of the glow's colour are
-    // scaled by what is left of the bolt.
-    if (style.core) {
-      const length = this.boltSpan(bolt, Math.min(def.LaserLength || 1, bolt.drawn));
-      style.core.push(p.x, p.y, p.z, 1, 1, 1, fade, width / 2, 0, STREAK, length, this.boltAxis, CORE_TAPER);
-    }
-    if (style.glow && glowLength(def)) {
-      const length = this.boltSpan(bolt, Math.min(glowLength(def), bolt.drawn));
-      const [r, g, b] = style.color, bright = 1.35 * fade;
-      style.glow.push(p.x, p.y, p.z, r * bright, g * bright, b * bright, fade, width * 1.2, 0, STREAK, length, this.boltAxis, GLOW_TAPER);
-      style.glow.push(p.x, p.y, p.z, r * fade, g * fade, b * fade, 0.28 * fade, width * 3.2, 0, STREAK, length, this.boltAxis, GLOW_TAPER);
-    }
-    this.lights.add(light, lightOf(source), def.LightRadius || 0);
   }
 
   sniperTrace() {
@@ -428,59 +315,6 @@ export class Ordnance {
   // Enhanced look to play when its drawn bolt arrives; false to play it now.
   deferSniperImpact(def, point, play) {
     return Boolean(sniperLook.enhanced && def?.FadeOutTime > 0 && this.sniperTrace().defer(point, play));
-  }
-
-  // Enhanced bolts' proportions from the ordnance's own numbers: a core a
-  // quarter of LaserWidth across inside a glow as wide as it, at least
-  // LaserLength long (longer for rifles, whose glow ran past their core),
-  // and a light every bolt carries, heavy guns' included. Guns with no
-  // GlowLength are the vehicles' and turrets': the 2004 game drew only a thin
-  // core for them, so they get a heavier minimum here.
-  blasterLook(def) {
-    let look = this.blasterLooks?.get(def);
-    if (look && !look.pending) return look;
-    if (!look) {
-      const width = def.LaserWidth || 0.1;
-      const heavy = !def.GlowLength;
-      const glow = Math.max(width, heavy ? 0.26 : 0);
-      look = {
-        color: vivid(sheathColor(def.LaserGlowColor || def.LightColor)), light: [0, 0, 0], glow,
-        core: Math.min(Math.max(width * 0.24, heavy ? 0.05 : 0), 0.11),
-        length: Math.max(def.LaserLength || 1, (def.GlowLength || 0) * 0.6, width * 6, heavy ? 2.5 : 0),
-        brightness: width >= 0.3 ? 1.15 : 1,
-        lightRadius: Math.max(def.LightRadius || 0, 2.5 + glow * 5),
-        // A gun without a glow showed only its core texture: take its hue
-        // from that texture once the image has loaded.
-        pending: heavy && def.LaserTexture ? this.texture(def.LaserTexture) : null,
-      };
-      (this.blasterLooks ||= new WeakMap()).set(def, look);
-    }
-    if (look.pending) {
-      const hue = textureHue(look.pending);
-      if (hue !== undefined) {
-        if (hue) look.color = vivid(hue);
-        look.pending = null;
-      }
-    }
-    for (let i = 0; i < 3; i++) look.light[i] = look.color[i] * 0.75;
-    return look;
-  }
-
-  // The visible path converges from the displayed muzzle to the gameplay
-  // ray. Compute both ends on that path; merely offsetting the head leaves
-  // the first-person streak pointing beside the barrel it came from.
-  boltSpan(bolt, span) {
-    if (bolt.firstDraw) span = Math.max(span, bolt.flown);
-    const head = Math.max(1 - bolt.flown / bolt.merge, 0);
-    const tail = Math.max(1 - Math.max(0, bolt.flown - span) / bolt.merge, 0);
-    const offset = head - tail, dir = this.boltAxis;
-    dir[0] = bolt.direction.x * span + (bolt.offset?.x || 0) * offset;
-    dir[1] = bolt.direction.y * span + (bolt.offset?.y || 0) * offset;
-    dir[2] = bolt.direction.z * span + (bolt.offset?.z || 0) * offset;
-    const length = Math.hypot(...dir);
-    if (length > 1e-8) { dir[0] /= length; dir[1] /= length; dir[2] /= length; }
-    else { dir[0] = bolt.direction.x; dir[1] = bolt.direction.y; dir[2] = bolt.direction.z; }
-    return length;
   }
 
   // Sticky ordnance holds onto the kinds of thing its Stick* properties name.

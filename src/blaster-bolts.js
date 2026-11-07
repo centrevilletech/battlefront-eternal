@@ -97,6 +97,18 @@ export class BlasterBatch {
     iSize[i * 4] = core; iSize[i * 4 + 1] = glow; iSize[i * 4 + 2] = seed; iSize[i * 4 + 3] = taper;
   }
 
+  // `count` bolts the ordnance phase drew (head, tail, colour, size arrays),
+  // appended as push() would.
+  load(source, count) {
+    while (this.count + count > this.capacity) this.grow(this.capacity * 2);
+    const names = Object.keys(ATTRIBUTES);
+    for (let k = 0; k < names.length; k++) {
+      const size = ATTRIBUTES[names[k]];
+      this.arrays[names[k]].set(source[k].subarray(0, count * size), this.count * size);
+    }
+    this.count += count;
+  }
+
   end() {
     this.geometry.instanceCount = this.count;
     // Drawn by another renderer (external: src/rust-render/effects.js reads

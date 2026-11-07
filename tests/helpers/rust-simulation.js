@@ -5,6 +5,7 @@ import { KIND_ITEM, KIND_ITEMS } from '../../src/sim/gen/index.js';
 import { Items } from '../../src/items.js';
 import { attachOrdnanceSim, ordnanceTests } from '../../src/ordnance-sim.js';
 import { attachItemsSim } from '../../src/items-sim.js';
+import { presentationLoaded } from './presentation.js';
 
 const module = await simModule();
 function bridge() {
@@ -20,7 +21,7 @@ function bridge() {
 }
 
 export function rustOrdnance(options) {
-  const ordnance = new Ordnance(options);
+  const ordnance = new Ordnance({ presentation: presentationLoaded, ...options });
   attachOrdnanceSim(ordnance, bridge());
   ordnance.sim.nativeServices = {
     owner(){},ordnance(){},explosion(){},item(){},itemTargets(){},

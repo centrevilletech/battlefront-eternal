@@ -1092,3 +1092,8 @@ pub mod units;
 pub mod props;
 
 pub mod vehicles;
+
+pub mod items;
+pub mod items_layout;
+pub mod ordnance;
+pub mod ordnance_layout;

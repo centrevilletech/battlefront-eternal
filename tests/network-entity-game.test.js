@@ -27,7 +27,7 @@ function body(id) {
 }
 function fixture() {
   const own=body(1),remote=body(2),map=new Map([[1,own],[2,remote]]),applied=[],corrections=[];
-  const game={playerTeam:1,applyAuthoritativeHumanTeam(team){this.playerTeam=team;this.playerUnit.team=team;},ordnance:{cleared:0,clearProjectilePresentation(){this.cleared++;}},playerUnit:own,units:{byId:id=>map.get(id),byIdMap:map},vehicles:{vehicles:[]},client:{seats:{}},factory:{build(){throw Error('unexpected create');}}};
+  const game={playerTeam:1,applyAuthoritativeHumanTeam(team){this.playerTeam=team;this.playerUnit.team=team;},ordnance:{cleared:0,draw:{netHost:null},clearProjectilePresentation(){this.cleared++;}},playerUnit:own,units:{byId:id=>map.get(id),byIdMap:map},vehicles:{vehicles:[]},client:{seats:{}},factory:{build(){throw Error('unexpected create');}}};
   const adapter=new EntityGameState(game,registry,{onApplied:p=>applied.push(p.tick),onCorrection:c=>corrections.push(c)});
   const sender=createSnapshotSender(adapter);
   return {own,remote,game,adapter,applied,corrections,sender};
@@ -142,7 +142,7 @@ test('own class switches preserve ID classes, generations and a bounded detached
  const oldId=own.id, heavyId=heavy.id;
  let stopped=0;const character={unit:heavy};heavy.character=character;heavy.jetFlame={stop(){stopped++;}};
  const vehicle={seats:[{lease:{}}]};heavy.seat={vehicle,index:0};
- const game={playerUnit:own,units,factory,ordnance:{},bodies:new Map([['trooper',{}],['heavy',{}]]),
+ const game={playerUnit:own,units,factory,ordnance:{draw:{netHost:null}},bodies:new Map([['trooper',{}],['heavy',{}]]),
   adopt(value){own.className=value===this.bodies.get('heavy')?'heavy':'trooper';},
   client:{seats:{setLease(a,v,b,set){set(null);heavy.seat=null;released++;},setDriver(){}}}};
  const adapter=new EntityGameState(game,reg);

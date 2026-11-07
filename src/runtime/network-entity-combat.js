@@ -5,6 +5,7 @@ import { feedbackRecord, decodeFeedback } from './network-combat-feedback.js';
 import { explosionRecord, decodeExplosion } from './network-combat-explosion.js';
 import { emitSound } from '../audio/events.js';
 import { WireCombat } from './wire-combat.js';
+import { OrdnanceFlag as FL } from '../presentation/ordnance-layout.js';
 
 // Projectile identity is independent of trigger identity: pellets and automatic
 // rounds each have a lifetime. Terminal records retain the same identity.
@@ -143,7 +144,7 @@ export class CombatPresentation {
     const state={...event};this.records.set(record.id,state);
     const predicted=this.launchPresentation(event,def);
     // A class drawn on where it stops (the sniper rifles' FadeOutTime,
-    // Ordnance.drawBolt) keeps its streak: the terminal cuts its flight at
+    // the ordnance phase's draw_bolt) keeps its streak: the terminal cuts its flight at
     // the impact instead of ending it there and then.
     if(event.schema===2&&def.FadeOutTime>0){
       if(predicted)this.predictedShots.stop?.({playerId:event.ownerId,generation:event.ownerGeneration,fireId:event.fireId,channel:event.channel},{tick:event.executionTick,point:event.position});
@@ -195,10 +196,13 @@ export class CombatPresentation {
     if(tick-executionTick<=LAUNCH_PRESENTATION_TICKS&&!this.flashes.has(flashKey)){this.flashes.set(flashKey,executionTick+LAUNCH_PRESENTATION_TICKS);this.onLaunch(event,def,predicted);}
     return predicted;
   }
+  // The bolts to draw this frame (Ordnance.present collects them with the
+  // world's), after the things the clock has reached. The explosions and
+  // impacts they trigger run in settle(), once the frame's draws are done, so a
+  // sniper impact finds the trace record its bolt's first draw made.
   present(tick){this.tick=Math.max(this.tick??0,tick);this.presentedTick=Math.max(this.presentedTick??0,tick);this.prune(this.presentedTick);this.dynamic.present(tick);
     for(const state of this.records.values())if(state.pending)state.pending=this.onPresentation(state)===false;
     for(const state of this.records.values()){
-      if(state.explosion&&tick>=state.explosion.at){const at=new Vector3(...state.position);this.ordnance.presentExplosion(state.explosion.def,at,state.wet);this.onExplosion(state.explosion.def,at);state.explosion=null;}
       const bolt=state.bolt;
       if(bolt){
         if(!bolt.started){
@@ -210,14 +214,19 @@ export class CombatPresentation {
           bolt.started=true;
           if(tick>bolt.networkFlightTick)bolt.networkFlightTick=Math.min(tick,Math.max(bolt.networkFlightTick,bolt.executionTick??0)+LAUNCH_PRESENTATION_TICKS);
         }
-        if(bolt.visualMuzzle){
-          // Resolved at its first draw, against the shooter's body as drawn
-          // now; a muzzle far from the launch (a respawn, a seat) is ignored.
-          const muzzle=bolt.visualMuzzle();bolt.visualMuzzle=null;
-          if(muzzle){bolt.offset.copy(muzzle).sub(bolt.position);if(bolt.offset.lengthSq()>400)bolt.offset.set(0,0,0);}
-        }
-        this.ordnance.drawBolt(bolt,1,tick);
+        // Resolved at its first draw, against the shooter's body as drawn
+        // now; a muzzle far from the launch (a respawn, a seat) is ignored.
+        let muzzle=null;
+        if(bolt.visualMuzzle){muzzle=bolt.visualMuzzle();bolt.visualMuzzle=null;}
+        this.ordnance.draw.bolt(bolt,1,tick,muzzle,FL.RESOLVE_SHOWN);
       }
+    }}
+  // What the draws set off: an explosion or impact whose tick the clock has
+  // reached, in the order the records arrived.
+  settle(tick){
+    for(const state of this.records.values()){
+      if(state.explosion&&tick>=state.explosion.at){const at=new Vector3(...state.position);this.ordnance.presentExplosion(state.explosion.def,at,state.wet);this.onExplosion(state.explosion.def,at);state.explosion=null;}
+      const bolt=state.bolt;
       if(state.impact){
         const at=state.impact.at??(bolt?.started?bolt.networkFlightTick+bolt.life*60:null);
         if(at!==null&&tick>=at){if(tick-at<=18)this.impact(state,state.impact.def);state.impact=null;}

@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "records": {
+    "ItemFrame": {
+      "tick": 1,
+      "water": 1,
+      "roundX": 1,
+      "roundY": 1,
+      "roundZ": 1
+    },
+    "ItemRecord": {
+      "epoch": 1,
+      "id": 1,
+      "generation": 1,
+      "tick": 1,
+      "active": 1,
+      "definition": 1,
+      "position": 3,
+      "velocity": 3,
+      "yaw": 1,
+      "up": 3
+    },
+    "ItemDefinition": {
+      "gravity": 1,
+      "rebound": 1,
+      "friction": 1,
+      "mine": 1,
+      "radius": 1,
+      "lightRadius": 1,
+      "mesh": 1
+    },
+    "ItemRequest": {
+      "kind": 1,
+      "origin": 3,
+      "direction": 3,
+      "far": 1,
+      "from": 3,
+      "to": 3
+    },
+    "ItemAnswer": {
+      "hit": 1,
+      "point": 3,
+      "normal": 3,
+      "wet": 1,
+      "wetPoint": 3
+    },
+    "ItemView": {
+      "slot": 1,
+      "serial": 1,
+      "generation": 1,
+      "definition": 1,
+      "light": 1,
+      "position": 3,
+      "quaternion": 4
+    },
+    "ItemRelease": {
+      "slot": 1,
+      "serial": 1
+    },
+    "ItemRipple": {
+      "position": 3
+    },
+    "ItemHeader": {
+      "version": 1,
+      "requests": 1,
+      "views": 1,
+      "releases": 1,
+      "ripples": 1,
+      "refusedRecords": 1,
+      "abandonedFrames": 1
+    }
+  },
+  "enums": {
+    "ItemRequestKind": [
+      "none",
+      "water",
+      "cast",
+      "both"
+    ]
+  },
+  "limits": {
+    "ItemLimits": {
+      "slots": 256,
+      "lives": 4,
+      "records": 64,
+      "definitions": 64,
+      "batch": 256,
+      "rounds": 256
+    }
+  }
+}

@@ -102,6 +102,18 @@ class Batch {
     iFrame[i * 4 + 3] = frame ? frame[3] : 1;
   }
 
+  // `count` quads the ordnance phase drew, from one batch's region of its
+  // output (attribute arrays in ATTRIBUTES order), appended as push() would.
+  load(source, from, count) {
+    while (this.count + count > this.capacity) this.grow(this.capacity * 2);
+    const names = Object.keys(ATTRIBUTES);
+    for (let k = 0; k < names.length; k++) {
+      const size = ATTRIBUTES[names[k]];
+      this.arrays[names[k]].set(source[k].subarray(from * size, (from + count) * size), this.count * size);
+    }
+    this.count += count;
+  }
+
   end() {
     this.geometry.instanceCount = this.count;
     // A batch another renderer draws (external: src/rust-render/effects.js

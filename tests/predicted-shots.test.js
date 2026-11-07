@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { PredictedShots } from '../src/runtime/predicted-shots.js';
 import { Vehicle } from '../src/vehicles.js';
 
-function fixture(ordnance={drawBolt(){}}) {
+function fixture(ordnance={draw:{bolt(){}}}) {
   let now=0,flashes=0;
   const scene=new THREE.Scene(), weapon={def:{ordnance:{base:'bolt',Velocity:100,LifeSpan:.3},ShotDelay:.1},canShoot:true,wait:0,clip:1,levels:[{}]};
   const unit={id:8,generation:2,alive:true,combat:{dead:false,origin:new THREE.Vector3(),arsenal:{current:()=>weapon},firePoint:()=>null,flash:()=>flashes++,animator:{fire(){}},firstPerson:false}};
@@ -159,7 +159,7 @@ test('an automatic trigger resumes after a stall without replaying missed cosmet
 });
 
 test('with the ordnance, cosmetic rounds fly along their path through the real bolt renderer',()=>{
-  const drawn=[],f=fixture({drawBolt:bolt=>drawn.push([bolt.position.z,bolt.flown,bolt.drawn])});
+  const drawn=[],f=fixture({draw:{bolt:bolt=>drawn.push([bolt.position.z,bolt.flown,bolt.drawn])}});
   assert.equal(f.shots.fire(f.edge,f.unit),true);assert.equal(f.scene.children.length,0,'no stand-in line');
   f.setTime(.1);f.shots.update(0);f.shots.draw();
   assert.deepEqual(drawn.at(-1),[10,10,1],'drawn where the round is now, ten metres down range');
@@ -301,7 +301,7 @@ test('a droideka cosmetic uses the session barrel, converging on the reticle wit
 test('a predicted bolt stops at the first soldier it crosses as the page shows him', () => {
   // A soldier 10 m down the line of fire; castUnits is Ordnance's own test.
   const asked = [];
-  const ordnance = { drawBolt() {}, castUnits(origin, direction, far, owner) {
+  const ordnance = { draw: { bolt() {} }, castUnits(origin, direction, far, owner) {
     asked.push(owner);
     const t = 10 - origin.z;
     return t >= 0 && t <= far ? { distance: t } : null;
@@ -322,7 +322,7 @@ test('a predicted bolt stops at the first soldier it crosses as the page shows h
 });
 
 test('a cosmetic sniper round is drawn on where it stopped for its FadeOutTime, cut at the authority\'s impact',()=>{
-  const drawn=[],ordnance={drawBolt:bolt=>drawn.push({flown:bolt.flown,ended:bolt.ended,fade:bolt.fade})};
+  const drawn=[],ordnance={draw:{bolt:bolt=>drawn.push({flown:bolt.flown,ended:bolt.ended,fade:bolt.fade})}};
   const f=fixture(ordnance);
   f.weapon.def.ordnance={base:'bolt',Velocity:2000,LifeSpan:.15,LaserLength:20,GlowLength:24,BlurLength:32,FadeOutTime:1};
   assert.equal(f.shots.fire(f.edge,f.unit),true);

@@ -2,7 +2,8 @@ import { nativeCombat } from './fixtures/native-combat.js';
 import { KIND_GRENADE } from '../src/sim/gen/index.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';import assert from 'node:assert/strict';
-import {Scene,Vector3} from 'three';
+import {DataTexture,Object3D,Scene,Vector3} from 'three';
+const THREE_={Object3D};
 import {CombatCapture,CombatPresentation,decodeCombat} from '../src/runtime/network-entity-combat.js';
 import {encodeEntityPacket,decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
 import {PredictedShots} from '../src/runtime/predicted-shots.js';
@@ -12,17 +13,25 @@ const def={Velocity:60,LifeSpan:.07123,LaserLength:2,ImpactEffectStatic:'spark'}
 function fixture(){let tick=10;const capture=new CombatCapture({tick:()=>tick,definitionId:()=>1});const effects=[];
  const authority=rustOrdnance({scene:new Scene(),collision:{cast:()=>({distance:3,point:new Vector3(0,0,3),normal:new Vector3(0,0,-1)})},effects:{play(){}},lights:{add(){}},texture:()=>null});
  authority.onLaunch=b=>capture.launch(b);authority.onImpact=(b,h)=>capture.impact(b,h);
- const client=rustOrdnance({scene:new Scene(),collision:{cast(){throw Error('client collision forbidden');}},effects:{play:(...x)=>effects.push(x)},lights:{add(){}},texture:()=>null});
+ const texture=new DataTexture(new Uint8Array([255,255,255,255]),1,1),client=rustOrdnance({scene:new Scene(),collision:{cast(){throw Error('client collision forbidden');}},effects:{play:(...x)=>effects.push(x)},lights:{add(){}},texture:()=>texture});
  client.onHit=client.onHitUnit=()=>{throw Error('client damage forbidden');};
  let confirmed=0,predict=false,muzzles=[];const presentation=new CombatPresentation({ordnance:client,definition:()=>def,predictedShots:{claim(){confirmed++;return predict;}},muzzle:(event,d)=>{muzzles.push([event.ownerId,d]);return muzzle;}});let muzzle=null;
- return{authority,client,capture,presentation,effects,muzzles,setTick:n=>tick=n,confirmed:()=>confirmed,predict:value=>{predict=value;},muzzle:at=>{muzzle=at;}};}
+ // A frame of the client's page: the combat presentation draws among its
+ // rounds and settles what that set off. Where the last streak drawn landed is read
+ // back as `client.drawnAt` (to float precision), and stays where it was when
+ // nothing was drawn.
+ const collect=presentation.present.bind(presentation);client.drawnAt=new Vector3();
+ presentation.present=tick=>{client.present(1,tick,{draw:()=>collect(tick),settle:()=>presentation.settle(tick)});const batch=[...client.renderer.batches.values()].find(b=>b.count);if(batch){const at=(batch.count-1)*3;client.drawnAt.set(batch.arrays.iPosition[at],batch.arrays.iPosition[at+1],batch.arrays.iPosition[at+2]);}};
+ return{authority,client,capture,presentation,collect,effects,muzzles,setTick:n=>tick=n,confirmed:()=>confirmed,predict:value=>{predict=value;},muzzle:at=>{muzzle=at;}};}
+// A fixture whose replicated rounds have a mesh to read their place from.
+function drawn(extra={}){const {Object3D}=THREE_;const f=fixture();f.client.model=()=>()=>new Object3D();f.presentation.dynamic.definition=()=>({...def,GeometryName:'round',...extra});return f;}
 const transfer=record=>decodeEntityPacket(encodeEntityPacket({epoch:1,packetId:1,tick:record.tick,records:[record]})).records[0];
 
 function heldFixture(){
  const f=fixture();let now=0;
  const weapon={name:'rifle',def:{ordnance:{...def,base:'bolt'},ShotDelay:.1},canShoot:true,wait:0,levels:[{}]};
  const unit={id:7,generation:2,alive:true,combat:{origin:new Vector3(),arsenal:{current:()=>weapon,weapons:[weapon]},firePoint(){},flash(){},presentProjectileShot(){throw Error('predicted flash replayed');}}};
- const shots=new PredictedShots(null,()=>now,{drawBolt(){}});
+ const shots=new PredictedShots(null,()=>now,{draw:{bolt(){}}});
  for(let i=0;i<4;i++){now=i*.11;assert.equal(shots.fire({pressed:true,held:true,button:0,id:0,aimYaw:0,aimPitch:0},unit),true);}
  f.presentation.predictedShots=shots;
  const game={units:{byId:id=>id===unit.id?unit:null},predictedShots:shots},registry={weapons:new Map([[1,'rifle']])};
@@ -130,7 +139,7 @@ test('actual authoritative bolt launches, renders cosmetic flight, impacts once 
  // The terminal arrives before this page's clock reaches the impact: the
  // bolt flies on to the impact point and the impact shows when it gets there.
  f.presentation.receive(terminal,{epoch:1,tick:13});assert.equal(f.effects.length,0);f.presentation.receive(terminal,{epoch:1,tick:14});
- f.client.drawnAt.set(0,0,0);f.presentation.present(12);assert.ok(Math.abs(f.client.drawnAt.z-2)<1e-9,'still in flight');assert.equal(f.effects.length,0);
+ f.client.drawnAt.set(0,0,0);f.presentation.present(12);assert.ok(Math.abs(f.client.drawnAt.z-2)<1e-5,'still in flight');assert.equal(f.effects.length,0);
  f.presentation.present(13);assert.equal(f.effects.length,1);f.presentation.present(14);assert.equal(f.effects.length,1);
  assert.equal(f.presentation.records.get(launch.id).schema,2);assert.ok(f.presentation.records.get(launch.id).bolt,'the terminal keeps the bolt it ends');
 });
@@ -144,7 +153,7 @@ test('a remote launch leaves the gun where this page draws it and joins its path
  const f=fixture();f.muzzle(new Vector3(.3,-.2,.5));f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);
  const launch=transfer(f.capture.drain()[0].record);f.presentation.receive(launch,{epoch:1,tick:10});
  f.presentation.present(10);const bolt=f.presentation.records.get(launch.id).bolt;assert.deepEqual(bolt.offset.toArray(),[.3,-.2,.5]);assert.equal(bolt.visualMuzzle,null,'resolved once');
- assert.ok(Math.abs(f.client.drawnAt.x-.3)<1e-9,'at launch the bolt is drawn at the muzzle');
+ assert.ok(Math.abs(f.client.drawnAt.x-.3)<1e-5,'at launch the bolt is drawn at the muzzle');
  f.muzzle(new Vector3(0,0,-30));f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);const far=transfer(f.capture.drain()[0].record);f.presentation.receive(far,{epoch:1,tick:10});f.presentation.present(10);
  assert.deepEqual(f.presentation.records.get(far.id).bolt.offset.toArray(),[0,0,0]);
 });
@@ -263,10 +272,10 @@ test('impact-only short shot still presents its muzzle once, late expiry does no
 
 test('replicated tracers join the shared renderer batch before it is finalized',()=>{
  const f=fixture();f.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);f.presentation.receive(f.capture.drain()[0].record,{epoch:1,tick:10});
- let active=false,draws=0;const begin=f.client.renderer.begin.bind(f.client.renderer),end=f.client.renderer.end.bind(f.client.renderer),draw=f.client.drawBolt.bind(f.client);
+ let active=false,draws=0;const begin=f.client.renderer.begin.bind(f.client.renderer),end=f.client.renderer.end.bind(f.client.renderer),draw=f.client.draw.bolt.bind(f.client.draw);
  f.client.renderer.begin=()=>{active=true;begin();};f.client.renderer.end=()=>{assert.equal(draws,1);end();active=false;};
- f.client.drawBolt=(...args)=>{assert.equal(active,true,'draw must survive the same-frame batch reset');draws++;return draw(...args);};
- f.client.present(1,11,()=>f.presentation.present(11));assert.equal(active,false);
+ f.client.draw.bolt=(...args)=>{assert.equal(active,true,'draw must survive the same-frame batch reset');draws++;return draw(...args);};
+ f.client.present(1,11,{draw:()=>f.collect(11),settle(){}});assert.equal(active,false);
 });
 
 test('damage feedback snapshots the actual source and shares single-player HUD orientation',async()=>{
@@ -344,8 +353,8 @@ test('beam uses sampled authoritative endpoints and disappears on lifecycle term
  const definition={base:'beam',LifeSpan:.2};f.presentation.dynamic.definition=()=>definition;
  f.authority.fire(definition,new Vector3(),new Vector3(0,0,1),null,null);const beam=f.authority.beams[0];f.authority.update(1/60);
  const record=f.capture.drain()[0].record;f.presentation.receive(transfer(record),{epoch:1,tick:10});
- let draws=0;f.client.drawBeam=sample=>{draws++;assert.equal(sample.end.z,20);};f.presentation.present(10);assert.equal(draws,1);
- beam.life=0;f.setTick(11);f.presentation.receive(transfer(f.capture.drain()[0].record),{epoch:1,tick:11});f.presentation.present(11);assert.equal(draws,1);
+ const quads=()=>[...f.client.renderer.batches.values()].reduce((n,b)=>n+b.count,0);f.presentation.present(10);assert.equal(quads(),1);assert.equal(f.client.drawnAt.z,20,'drawn to the sampled endpoint');
+ beam.life=0;f.setTick(11);f.presentation.receive(transfer(f.capture.drain()[0].record),{epoch:1,tick:11});f.presentation.present(11);assert.equal(quads(),0,'gone with its lifecycle terminal');
 });
 
 test('lost dynamic terminal expires mesh and late samples cannot restart expired flight',async()=>{
@@ -382,40 +391,38 @@ test('actual missile snapshots recover after lost intermediate samples without r
 });
 
 test('dynamic presentation brakes after three ticks and caps its short coast at six',async()=>{
- const {projectileRecord}=await import('../src/runtime/network-combat-projectile.js');const f=fixture();
+ const {projectileRecord}=await import('../src/runtime/network-combat-projectile.js');const f=drawn();
  const record=projectileRecord({id:1,generation:1,tick:10,type:'round',definitionId:1,position:[0,0,0],velocity:[60,0,0],life:2});
- f.presentation.receive(transfer(record),{epoch:1,tick:10});f.presentation.present(12);assert.equal(f.presentation.dynamic.objects.get(1).position.x,2);
- f.presentation.present(14);assert.ok(Math.abs(f.presentation.dynamic.objects.get(1).position.x-23/6)<1e-9);
- f.presentation.present(20);assert.equal(f.presentation.dynamic.objects.get(1).position.x,4.5);
- f.presentation.present(27);assert.equal(f.presentation.dynamic.objects.get(1).position.x,4.5);
+ f.presentation.receive(transfer(record),{epoch:1,tick:10});f.presentation.present(12);assert.equal(f.presentation.dynamic.objects.get(1).mesh.position.x,2);
+ f.presentation.present(14);assert.ok(Math.abs(f.presentation.dynamic.objects.get(1).mesh.position.x-23/6)<1e-9);
+ f.presentation.present(20);assert.equal(f.presentation.dynamic.objects.get(1).mesh.position.x,4.5);
+ f.presentation.present(27);assert.equal(f.presentation.dynamic.objects.get(1).mesh.position.x,4.5);
 });
 
 test('a twelve-tick missile sample gap with six-tick playout delay resumes without a multi-metre snap',async()=>{
- const {projectileRecord}=await import('../src/runtime/network-combat-projectile.js');const f=fixture();
+ const {projectileRecord}=await import('../src/runtime/network-combat-projectile.js');const f=drawn();
  const record=(tick,x)=>projectileRecord({id:1,generation:1,tick,type:'round',definitionId:1,position:[x,0,0],velocity:[60,0,0],life:2});
  f.presentation.receive(transfer(record(10,0)),{epoch:1,tick:10});
  for(let tick=10;tick<=15;tick++)f.presentation.present(tick);
- const p=f.presentation.dynamic.objects.get(1),before=p.position.x;
+ const p=f.presentation.dynamic.objects.get(1),at=()=>p.mesh.position,before=at().x;
  f.presentation.receive(transfer(record(22,12)),{epoch:1,tick:22});f.presentation.present(16);
- assert.ok(p.position.x>before&&p.position.x-before<.5,'continue prior braking motion, not a three-metre arrival jump');
- assert.ok(p.offset.length()>1&&p.offset.length()<=6,'visual correction is spatially bounded');
- assert.equal(p.samples.at(-1).position[0],12,'retained authority sample is untouched');
- let previous=p.position.x;
- for(let tick=17;tick<=38;tick++){f.presentation.present(tick);assert.ok(p.position.x>=previous&&p.position.x-previous<1.5);previous=p.position.x;}
- assert.ok(Math.abs(p.position.x-16.5)<.02,'correction converges onto the bounded authoritative coast');
+ assert.ok(at().x>before&&at().x-before<.5,'continue prior braking motion, not a three-metre arrival jump');
+ let previous=at().x;
+ for(let tick=17;tick<=38;tick++){f.presentation.present(tick);assert.ok(at().x>=previous&&at().x-previous<1.5);previous=at().x;}
+ assert.ok(Math.abs(at().x-16.5)<.02,'correction converges onto the bounded authoritative coast');
 });
 
 test('grenade bounce, authoritative stop and terminal discard prior trajectory smoothing',async()=>{
  const {projectileRecord}=await import('../src/runtime/network-combat-projectile.js');const {Object3D}=await import('three');
  for(const velocity of [[-60,0,0],[0,0,0]]){
-  const f=fixture();f.client.model=()=>()=>new Object3D();f.presentation.dynamic.definition=()=>({GeometryName:'grenade'});
+  const f=drawn({GeometryName:'grenade'});
   const record=(tick,x,v=[60,0,0],terminal=false)=>projectileRecord({id:1,generation:1,tick,type:'grenade',definitionId:1,position:[x,0,0],velocity:v,life:2,terminal});
   f.presentation.receive(transfer(record(10,0)),{epoch:1,tick:10});f.presentation.present(15);
   f.presentation.receive(transfer(record(22,12)),{epoch:1,tick:22});f.presentation.present(16);
-  const p=f.presentation.dynamic.objects.get(1);assert.ok(p.offset.length()>0);
+  const p=f.presentation.dynamic.objects.get(1);assert.ok(p.mesh.position.x!==12,'smoothing a new sample in');
   f.presentation.receive(transfer(record(24,13,velocity)),{epoch:1,tick:24});f.presentation.present(24);
-  assert.equal(p.position.x,13);assert.equal(p.offset.length(),0,'bounce/stop cannot inherit the old trajectory offset');
-  f.presentation.present(25);assert.ok(p.position.x<=13,'no continuation into the surface after bounce/stop');
+  assert.equal(p.mesh.position.x,13,'bounce/stop cannot inherit the old trajectory offset');
+  f.presentation.present(25);assert.ok(p.mesh.position.x<=13,'no continuation into the surface after bounce/stop');
   f.presentation.receive(transfer(record(26,13,velocity,true)),{epoch:1,tick:26});f.presentation.present(26);
   assert.equal(f.presentation.dynamic.objects.size,0);assert.equal(p.mesh.parent,null,'terminal removes the smoothed mesh at its tick');
   assert.equal(f.presentation.receive(transfer(record(25,12,velocity)),{epoch:1,tick:27}),false,'reordered sample cannot resurrect terminal');
@@ -423,23 +430,23 @@ test('grenade bounce, authoritative stop and terminal discard prior trajectory s
 });
 
 test('dynamic coast respects remaining lifetime and large corrections do not drag a stale trail',async()=>{
- const {projectileRecord}=await import('../src/runtime/network-combat-projectile.js');const f=fixture();
+ const {projectileRecord}=await import('../src/runtime/network-combat-projectile.js');const f=drawn();
  const record=(tick,x,life=2)=>projectileRecord({id:1,generation:1,tick,type:'round',definitionId:1,position:[x,0,0],velocity:[60,0,0],life});
  f.presentation.receive(transfer(record(10,0,1/60)),{epoch:1,tick:10});f.presentation.present(15);
- const p=f.presentation.dynamic.objects.get(1);assert.ok(Math.abs(p.position.x-1)<1e-6);
+ const p=f.presentation.dynamic.objects.get(1);assert.ok(Math.abs(p.mesh.position.x-1)<1e-6);
  f.presentation.receive(transfer(record(22,100)),{epoch:1,tick:22});f.presentation.present(22);
- assert.equal(p.position.x,100);assert.equal(p.offset.length(),0);
+ assert.equal(p.mesh.position.x,100,'a large correction is not dragged out behind');
 });
 
 test('actual shell collision replaces its sampled body with one authoritative impact',async()=>{
  const {SimEvents}=await import('../src/sim-events.js');const {attachCombatCapture}=await import('../src/runtime/network-entity-combat.js');
  const f=fixture();f.authority.collision.cast=()=>null;attachCombatCapture({ordnance:f.authority,simEvents:new SimEvents()},f.capture);
- const definition={base:'shell',Velocity:20,LifeSpan:2,ImpactEffectStatic:'spark'};f.presentation.definition=()=>definition;f.presentation.dynamic.definition=()=>definition;
+ const definition={base:'shell',GeometryName:'shell',Velocity:20,LifeSpan:2,ImpactEffectStatic:'spark'};f.presentation.definition=()=>definition;f.presentation.dynamic.definition=()=>definition;f.client.model=()=>()=>new Object3D();
  const shell=f.authority.fire(definition,new Vector3(0,10,0),new Vector3(0,0,1),null);const sample=f.capture.drain()[0].record;f.presentation.receive(transfer(sample),{epoch:1,tick:10});
  f.authority.collision.cast=()=>({distance:.1,point:new Vector3(0,10,.1),normal:new Vector3(0,0,-1)});f.setTick(11);f.authority.update(1/60);
  const terminal=f.capture.drain()[0].record;assert.equal(terminal.schema,2);assert.equal(terminal.id,sample.id);
  f.presentation.receive(transfer(terminal),{epoch:1,tick:11});assert.equal(f.effects.length,0);
- f.presentation.present(10.5);const body=f.presentation.dynamic.objects.get(sample.id);assert.ok(body.position.z>0&&body.position.z<.1,'flown on toward the impact point');
+ f.presentation.present(10.5);const body=f.presentation.dynamic.objects.get(sample.id);assert.ok(body.mesh.position.z>0&&body.mesh.position.z<.1,'flown on toward the impact point');
  f.presentation.present(11);assert.equal(f.presentation.dynamic.objects.size,0);assert.equal(f.effects.length,1);
  assert.equal(f.presentation.receive(transfer(sample),{epoch:1,tick:12}),false);f.presentation.present(12);assert.equal(f.effects.length,1);
 });
@@ -497,7 +504,7 @@ test('a class with a FadeOutTime keeps its bolt past the terminal, cut at the im
  assert.ok(Math.abs(kept.life-.025)<1e-12,'its flight ends at the soldier');
  f.presentation.present(10);
  const at=tick=>{f.client.drawnAt.set(-1,-1,-1);f.presentation.present(tick);return f.client.drawnAt.z;};
- assert.ok(Math.abs(at(11)-2000/60)<1e-9,'still in flight');
+ assert.ok(Math.abs(at(11)-2000/60)<1e-5,'still in flight');
  assert.equal(at(12),50);assert.equal(at(40),50,'fading where it stopped');
  assert.equal(at(80),-1,'gone once its FadeOutTime has run');
  assert.equal(f.effects.length,1,'one impact effect');

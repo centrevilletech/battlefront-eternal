@@ -38,9 +38,6 @@ import { ItemsWorld } from "./ordnance-world.js";
 // and power-ups vanish at the end of their life where the original fades them
 // over a second.
 
-const GRAVITY = 9.8;
-const HARD = 1; // m/s into a surface that bounces rather than settles
-export const MINE_SINK = 0.2; // m/s
 const POOLS = { powerupitem: 25, mine: 50 };
 const AMOUNTS = {
   person: ["PersonHealth", "PersonAmmo"],
@@ -49,22 +46,18 @@ const AMOUNTS = {
   vehicle: ["VehicleHealth", "VehicleAmmo"],
   building: ["BuildingHealth", "BuildingAmmo"],
 };
-const UP = new THREE.Vector3(0, 1, 0);
-
-const color01 = (rgba = [0, 0, 0, 0]) => {
-  const a = (rgba[3] ?? 255) / 255;
-  return [(rgba[0] / 255) * a, (rgba[1] / 255) * a, (rgba[2] / 255) * a];
-};
 
 export class Items {
   // model(name) makes an item's model; explode(explosion, position, owner)
   // sets off an explosion; pools: the mission's pool sizes, by base.
-  constructor({ scene, collision, effects, lights, model, explode, water = null, pools = {} }) {
+  constructor({ scene, collision, effects, lights, model, size = () => null, explode, water = null, pools = {} }) {
     this.scene = scene;
     this.collision = collision;
     this.effects = effects;
     this.lights = lights;
     this.model = model;
+    // size(name): the bounding sphere of a model's largest part, which sizes it without making one.
+    this.size = size;
     this.explode = explode;
     this.water = water;
     this.pools = { ...POOLS, ...pools };
@@ -78,13 +71,10 @@ export class Items {
     // hands them over: update and the commands below run there and the
     // lists hold mirrors of what it holds.
     this.sim = null;
+    // The answers the world's casts and water crossings are written into
+    // (src/items-sim.js).
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
-    this.ray = new THREE.Vector3();
-    this.start = new THREE.Vector3();
     this.wet = new THREE.Vector3();
-    this.forward = new THREE.Vector3();
-    this.right = new THREE.Vector3();
-    this.basis = new THREE.Matrix4();
   }
 
   presentationMesh(def) {
@@ -96,14 +86,21 @@ export class Items {
 
   // An item's model, made to show it (its mesh, null without one), with
   // its size and middle: the largest of its parts' bounding spheres.
+  // What presentationModel measures, without making a mesh: whether the
+  // definition has a model, and its size. A page online asks this once for
+  // each kind, and makes each item's model when the item is first shown, as
+  // the original made it.
+  presentationSize(def) {
+    const make = def.GeometryName ? this.model(def.GeometryName) : null;
+    if (!make) return { model: false, radius: 0.3 };
+    const sphere = this.size(def.GeometryName);
+    return { model: true, radius: sphere ? sphere.radius : 0.3 };
+  }
+
   presentationModel(def) {
     const mesh = this.presentationMesh(def);
     const radius = mesh ? radiusOf(mesh) : 0.3;
     return { mesh, radius, center: mesh?.userData.center ?? null };
-  }
-
-  presentLight(item) {
-    if (item.def.LightRadius > 0) this.lights.add(item.position, item.light ||= color01(item.def.LightColor), item.def.LightRadius);
   }
 
   clearPresentation() {
@@ -111,30 +108,6 @@ export class Items {
     this.items.length = 0;
     this.views.clear();
     this.owned.clear();
-  }
-
-  // What fly() steps and place() draws: the world's items (spawn), and the
-  // copies a page online flies between their records
-  // (src/runtime/network-entity-items.js). The radius is the model's, so a
-  // copy sticks a mine where the world does; the model's middle, turned as
-  // the model is (`turn`, place()), is where a power-up is taken from.
-  itemState(def, mesh, position, velocity, yaw, radius = mesh ? radiusOf(mesh) : 0.3, center = mesh?.userData.center ?? null) {
-    return {
-      def,
-      mine: def.base === "mine",
-      mesh,
-      position: position.clone(),
-      previous: position.clone(),
-      velocity: velocity.clone(),
-      yaw,
-      up: UP.clone(),
-      landed: false,
-      sinking: false,
-      light: color01(def.LightColor),
-      radius,
-      center,
-      turn: mesh ? new THREE.Quaternion() : null,
-    };
   }
 
   // A new item, unless the world has no room for its kind. Returns it or null.
@@ -181,87 +154,12 @@ export class Items {
     return this.sim.update(dt, targets);
   }
 
-  fly(item, dt) {
-    const g = -GRAVITY * (item.def.Gravity ?? 1);
-    const v = item.velocity;
-    if (item.sinking) v.set(0, -MINE_SINK, 0);
-    else v.y += g * 0.5 * dt;
-    item.previous.copy(item.position);
-    item.position.addScaledVector(v, dt);
-    if (!item.sinking) v.y += g * 0.5 * dt;
-    if (item.mine && !item.sinking && this.world.waterCrossing(item.previous, item.position, this.wet)) {
-      item.sinking = true;
-      v.set(0, -MINE_SINK, 0);
-      this.water.ripple(this.wet, 1.5, 0.01);
-    }
-    this.contact(item);
-    this.place(item);
-  }
-
-  // What the item meets between where it was and where it is.
-  contact(item) {
-    const ray = this.ray.subVectors(item.position, item.previous);
-    const length = ray.length();
-    if (length < 1e-6) return;
-    ray.divideScalar(length);
-    this.start.copy(item.previous).addScaledVector(ray, -0.05);
-    const hit = this.world.cast(this.start, ray, length + 0.1, this.hit);
-    if (!hit) return;
-    const n = hit.normal;
-    const v = item.velocity;
-    const d = v.dot(n);
-    if (d >= 0) return;
-    if (item.mine) {
-      // Stuck, upright on the surface (resting on it, the port's choice).
-      item.position.copy(hit.point).addScaledVector(n, item.radius * 0.3);
-      this.settle(item, n);
-      return;
-    }
-    if (d > -HARD) {
-      item.position.copy(hit.point);
-      this.settle(item, n);
-      return;
-    }
-    item.position.copy(hit.point).addScaledVector(n, 0.02);
-    const rebound = item.def.Rebound ?? 0.3;
-    v.addScaledVector(n, -d);
-    const along = v.length();
-    if (along > 1e-6) v.multiplyScalar(1 - Math.min(((item.def.Friction ?? 0.5) * -d * (1 + rebound)) / along, 1));
-    v.addScaledVector(n, rebound * -d);
-  }
-
-  settle(item, normal) {
-    item.landed = true;
-    item.sinking = false;
-    item.velocity.set(0, 0, 0);
-    item.up.copy(normal);
-  }
-
-  // The model at the item, upright on its surface, facing its way (its
-  // turn), and drawn there.
-  place(item) {
-    if (!item.turn) return;
-    const up = item.up;
-    const forward = this.forward.set(Math.sin(item.yaw), 0, Math.cos(item.yaw));
-    forward.addScaledVector(up, -forward.dot(up));
-    if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1).addScaledVector(up, -up.z);
-    forward.normalize();
-    const right = this.right.crossVectors(up, forward).normalize();
-    item.turn.setFromRotationMatrix(this.basis.makeBasis(right, up, forward));
-    if (item.mesh) {
-      item.mesh.position.copy(item.position);
-      item.mesh.quaternion.copy(item.turn);
-    }
-  }
-
   // A power-up: taken by the first soldier touching it that gets something.
 
 }
 
-const ORIGIN = new THREE.Vector3();
-
 // A model's size: the largest of its parts' bounding spheres, centre kept.
-function radiusOf(mesh) {
+export function radiusOf(mesh) {
   let best = null;
   mesh.traverse((child) => {
     const sphere = child.geometry?.boundingSphere;

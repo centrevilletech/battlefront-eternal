@@ -1,3 +1,318 @@
+/**
+ * Thin browser binding for the item phase: fixed blocks and four calls. The
+ * page answers the rounds' ray and water requests between `present_items`
+ * and `resume_items`, as many rounds as it allows a frame.
+ */
+export class PageItems {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PageItemsFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pageitems_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    answers_len() {
+        const ret = wasm.pageitems_answers_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    answers_ptr() {
+        const ret = wasm.pageitems_answers_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    apply_item_records(count) {
+        wasm.pageitems_apply_item_records(this.__wbg_ptr, count);
+    }
+    /**
+     * @param {number} index
+     */
+    define_item(index) {
+        wasm.pageitems_define_item(this.__wbg_ptr, index);
+    }
+    /**
+     * @returns {number}
+     */
+    definitions_len() {
+        const ret = wasm.pageitems_definitions_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    definitions_ptr() {
+        const ret = wasm.pageitems_definitions_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_len() {
+        const ret = wasm.pageitems_frame_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    frame_ptr() {
+        const ret = wasm.pageitems_frame_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    header_len() {
+        const ret = wasm.pageitems_header_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    header_ptr() {
+        const ret = wasm.pageitems_header_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    constructor() {
+        const ret = wasm.pageitems_new();
+        this.__wbg_ptr = ret;
+        PageItemsFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    present_items() {
+        wasm.pageitems_present_items(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    records_len() {
+        const ret = wasm.pageitems_records_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    records_ptr() {
+        const ret = wasm.pageitems_records_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    releases_len() {
+        const ret = wasm.pageitems_releases_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    releases_ptr() {
+        const ret = wasm.pageitems_releases_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    requests_len() {
+        const ret = wasm.pageitems_requests_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    requests_ptr() {
+        const ret = wasm.pageitems_requests_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} epoch
+     */
+    reset_items(epoch) {
+        wasm.pageitems_reset_items(this.__wbg_ptr, epoch);
+    }
+    /**
+     * @param {boolean} abandon
+     */
+    resume_items(abandon) {
+        wasm.pageitems_resume_items(this.__wbg_ptr, abandon);
+    }
+    /**
+     * @returns {number}
+     */
+    ripples_len() {
+        const ret = wasm.pageitems_ripples_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    ripples_ptr() {
+        const ret = wasm.pageitems_ripples_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    views_len() {
+        const ret = wasm.pageitems_views_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    views_ptr() {
+        const ret = wasm.pageitems_views_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) PageItems.prototype[Symbol.dispose] = PageItems.prototype.free;
+
+/**
+ * Thin browser binding for the ordnance phase: fixed buffers the page
+ * fills and reads, one `present` per frame.
+ */
+export class PageOrdnance {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PageOrdnanceFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pageordnance_free(ptr, 0);
+    }
+    /**
+     * @param {number} attribute
+     * @returns {number}
+     */
+    blaster_len(attribute) {
+        const ret = wasm.pageordnance_blaster_len(this.__wbg_ptr, attribute);
+        return ret >>> 0;
+    }
+    /**
+     * The four blaster attributes (head, tail, colour, size).
+     * @param {number} attribute
+     * @returns {number}
+     */
+    blaster_ptr(attribute) {
+        const ret = wasm.pageordnance_blaster_ptr(this.__wbg_ptr, attribute);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    calls_len() {
+        const ret = wasm.pageordnance_calls_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    calls_ptr() {
+        const ret = wasm.pageordnance_calls_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    counts_ptr() {
+        const ret = wasm.pageordnance_counts_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} count
+     */
+    flush_net(count) {
+        wasm.pageordnance_flush_net(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    header_ptr() {
+        const ret = wasm.pageordnance_header_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_len() {
+        const ret = wasm.pageordnance_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_ptr() {
+        const ret = wasm.pageordnance_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    net_len() {
+        const ret = wasm.pageordnance_net_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    net_ptr() {
+        const ret = wasm.pageordnance_net_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    constructor() {
+        const ret = wasm.pageordnance_new();
+        this.__wbg_ptr = ret;
+        PageOrdnanceFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    present_ordnance() {
+        wasm.pageordnance_present_ordnance(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} attribute
+     * @returns {number}
+     */
+    quad_len(attribute) {
+        const ret = wasm.pageordnance_quad_len(this.__wbg_ptr, attribute);
+        return ret >>> 0;
+    }
+    /**
+     * The six particle attributes (position, colour, shape, axis, axis2,
+     * frame) of batch handle regions, by attribute index.
+     * @param {number} attribute
+     * @returns {number}
+     */
+    quad_ptr(attribute) {
+        const ret = wasm.pageordnance_quad_ptr(this.__wbg_ptr, attribute);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} index
+     */
+    set_style(index) {
+        wasm.pageordnance_set_style(this.__wbg_ptr, index);
+    }
+    /**
+     * @returns {number}
+     */
+    style_ptr() {
+        const ret = wasm.pageordnance_style_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) PageOrdnance.prototype[Symbol.dispose] = PageOrdnance.prototype.free;
+
 export class PagePresentation {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -699,6 +1014,12 @@ function __wbg_get_imports() {
     };
 }
 
+const PageItemsFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pageitems_free(ptr, 1));
+const PageOrdnanceFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pageordnance_free(ptr, 1));
 const PagePresentationFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pagepresentation_free(ptr, 1));

@@ -429,15 +429,15 @@ try {
     await page.waitForFunction(()=>__bf.playerUnit.alive&&!__bf.soldier.air&&__bf.soldier.lock<=0,null,{timeout:30000,polling:100});
     await stableInputFrames(page);
     if(process.env.BFE_TEST_COMBAT==='1')await Promise.all(pages.map(p=>p.evaluate(()=>{
-      const combat=__bf.client.entity.combat,receive=combat.receive.bind(combat),present=combat.present.bind(combat),draw=__bf.ordnance.drawBolt.bind(__bf.ordnance),effect=__bf.ordnance.effects.play.bind(__bf.ordnance.effects);
+      const combat=__bf.client.entity.combat,receive=combat.receive.bind(combat),present=combat.present.bind(combat),draw=__bf.ordnance.draw.bolt.bind(__bf.ordnance.draw),effect=__bf.ordnance.effects.play.bind(__bf.ordnance.effects);
       window.__combatProof={events:[],draws:0,unbatchedDraws:0,impacts:0,dynamicDraws:0,beamDraws:0};let receiving=false,drawing=false,batching=false;
       const renderer=__bf.ordnance.renderer,begin=renderer.begin.bind(renderer),end=renderer.end.bind(renderer);renderer.begin=()=>{batching=true;return begin();};renderer.end=()=>{const result=end();batching=false;return result;};
       combat.receive=(record,context)=>{receiving=true;try{const accepted=receive(record,context);if(accepted){const bytes=new DataView(record.payload.buffer,record.payload.byteOffset,record.payload.byteLength);window.__combatProof.events.push({id:record.id,schema:record.schema,tick:record.tick,owner:record.schema<=2?bytes.getUint32(8,true):record.schema===6?bytes.getUint32(9,true):0,fire:record.schema<=2?bytes.getUint32(16,true):record.schema===6?bytes.getUint32(17,true):0,type:record.schema===6?bytes.getUint8(8):null});if(window.__combatProof.events.length>512)window.__combatProof.events.shift();}return accepted;}finally{receiving=false;}};
       combat.present=tick=>{drawing=true;try{return present(tick);}finally{drawing=false;}};
-      __bf.ordnance.drawBolt=(...args)=>{if(drawing){window.__combatProof.draws++;if(!batching)window.__combatProof.unbatchedDraws++;}return draw(...args);};
-      const dynamic=__bf.ordnance.drawProjectileView.bind(__bf.ordnance),beam=__bf.ordnance.drawBeam.bind(__bf.ordnance);
-      __bf.ordnance.drawProjectileView=(...args)=>{if(drawing)window.__combatProof.dynamicDraws++;return dynamic(...args);};
-      __bf.ordnance.drawBeam=(...args)=>{if(drawing){window.__combatProof.beamDraws++;if(!batching)window.__combatProof.unbatchedDraws++;}return beam(...args);};
+      __bf.ordnance.draw.bolt=(...args)=>{if(drawing){window.__combatProof.draws++;if(!batching)window.__combatProof.unbatchedDraws++;}return draw(...args);};
+      // Replicated rounds and beams are drawn inside the phase, from the marker the combat presentation leaves among the draws.
+      const net=__bf.ordnance.draw.presentNet.bind(__bf.ordnance.draw);
+      __bf.ordnance.draw.presentNet=(...args)=>{if(drawing){window.__combatProof.dynamicDraws++;if(!batching)window.__combatProof.unbatchedDraws++;}return net(...args);};
       __bf.ordnance.effects.play=(...args)=>{if(receiving)window.__combatProof.impacts++;return effect(...args);};
     })));
     const clip=await page.evaluate(()=>{

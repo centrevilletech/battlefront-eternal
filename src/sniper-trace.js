@@ -9,7 +9,7 @@ import { sheathColor, vivid } from "./blaster-bolts.js";
 // sniper rifles' 2000 m/s rounds), flown and cut by ordnance.js, a worker's
 // or a server's records, or the page's predicted cosmetic. Where it goes,
 // what it hits and when it hits are untouched. Classic keeps the 2004 streak
-// (Ordnance.drawBolt).
+// (the ordnance phase's draw_bolt).
 //
 // A shot is drawn as a tracer, in the round's own LaserGlowColor (kept
 // saturated: the Rebels' pale yellow stays yellow):
@@ -156,7 +156,7 @@ export function saturated(rgb) {
 }
 
 // A ParticleRenderer batch of its own kind (ParticleRenderer.custom): begin()
-// and end() bracket each frame's bolts, and Ordnance.drawBolt hands it each
+// and end() bracket each frame's bolts, and the ordnance phase hands it each
 // sniper round it draws (touch). A shot outlives its bolt here: its vapour
 // and sparks run on after the world has let the round go.
 export class SniperTrace {
@@ -221,7 +221,7 @@ export class SniperTrace {
     for (const record of this.records) record.touched = false;
   }
 
-  // A sniper round as Ordnance.drawBolt draws it this frame: from `start`
+  // A sniper round as the ordnance phase's draw_bolt draws it this frame: from `start`
   // (the gun as drawn) to `head`, `ended` once its flight is over, `fade`
   // (1 to 0) what is left of it after.
   touch(source, def, start, head, direction, ended, fade, origin = start) {

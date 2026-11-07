@@ -28,8 +28,9 @@ try{
     await b.lockstep(1/60,shot===0);
     const bolt=b.ordnance.bolts.at(-1);if(!bolt)throw new Error('No live bolt');
     const visual=first?v.muzzlePoint(fired.selected,new T.Vector3()):d.visualGunAt(new T.Vector3(),fired.selected);
-    const length=b.ordnance.boltSpan(bolt,Math.min(bolt.drawn,bolt.flown));
-    const tail=bolt.position.clone().addScaledVector(bolt.offset || new T.Vector3(),Math.max(1-bolt.flown/bolt.merge,0)).addScaledVector(new T.Vector3(...b.ordnance.boltAxis),-length);
+    // The streak the ordnance phase drew for it (a lone bolt): its head less its length along its axis.
+    const batch=[...b.ordnance.renderer.batches.values()].find(x=>x.count&&x.arrays.iPosition),at=(batch.count-1);
+    const a=batch.arrays,tail=new T.Vector3(a.iPosition[at*3],a.iPosition[at*3+1],a.iPosition[at*3+2]).addScaledVector(new T.Vector3(a.iAxis[at*3],a.iAxis[at*3+1],a.iAxis[at*3+2]),-a.iShape[at*4+2]);
     const record={first,pitch,selected:fired.selected,bolt:{index:bolt.muzzleIndex,barrel:bolt.muzzleBarrel,flown:bolt.flown},tailError:tail.distanceTo(visual),physicalOriginError:bolt.position.clone().addScaledVector(bolt.direction,-bolt.flown).distanceTo(new T.Vector3(...fired.physical)),forward:bolt.direction.dot(c.aimDir),screen:visual.clone().project(b.camera).toArray()};
     if(shot===0)record.image=b.renderer.domElement.toDataURL('image/jpeg',.9);
     return record;

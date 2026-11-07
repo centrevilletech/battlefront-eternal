@@ -5,7 +5,7 @@ import {applyUnitState,UNIT_STATE_SCHEMA} from './entity-unit-state.js';
 import {applyWorldPresentation} from './entity-world-state.js';
 import {decodeMountedControl} from './network-mounted-control.js';
 import {EntityRemotePresentation} from './network-entity-remotes.js';
-import { EntityItemPresentation } from './network-entity-items.js';
+import { ItemPresentation } from '../presentation/items.js';
 import { CombatPresentation } from './network-entity-combat.js';
 import { createCombatRegistry } from './network-combat-registry.js';
 import { presentFeedback } from './network-combat-feedback.js';
@@ -77,7 +77,7 @@ export class EntityGameState {
     this.combat=new CombatPresentation({ordnance:game.ordnance,definition:id=>combatRegistry.definitions.get(id),predictedShots:game.predictedShots,onFeedback:event=>presentFeedback(game,event),
       muzzle:(event,def)=>{const unit=game.units.byId(event.ownerId);if(!unit||unit.generation!==event.ownerGeneration||unit.removed||unit.seat||!unit.combat?.arsenal)return null;const weapon=unit.combat.arsenal.weapons.find(weapon=>weapon.def?.ordnance===def);if(!weapon)return null;const held=unit.combat.firePoint(weapon)?.position?.clone()??null;if(held)return held;const out=new THREE.Vector3();return unit.soldier?.nextVisualGun?.(out)?out:null;},
       onPresentation:event=>presentEntityEvent(game,event,registry),onExplosion:(def,position)=>game.shakeExplosion?.(def,position)});
-    this.items = game.items ? new EntityItemPresentation(game.items,combatRegistry) : null;
+    this.items = game.items ? new ItemPresentation(game.items,combatRegistry,game.presentationLoaded) : null;
     this.remotes = game.remotes ? new EntityRemotePresentation(game.remotes,combatRegistry) : null;
     this.ready = false; this.previous = null; this.pendingCorrection = null; this.pendingEligibility = null;
     // Slots named by mount records, so a hull the client has never built can be

@@ -1,0 +1,176 @@
+{
+  "enums": {
+    "OrdnanceKind": [
+      "beam",
+      "bolt",
+      "round",
+      "grenade",
+      "net"
+    ],
+    "OrdnanceFlag": [
+      "hasPreviousFlown",
+      "hasPreviousDrawn",
+      "hasOffset",
+      "linear",
+      "hasClock",
+      "resolveBolt",
+      "resolveShown",
+      "resolveRound",
+      "hasQuaternion",
+      "hasVelocity",
+      "hasLaunch",
+      "hasMuzzleOffset",
+      "hasMesh",
+      "hasTrail"
+    ],
+    "CallKind": [
+      "light",
+      "touch",
+      "mesh",
+      "trail",
+      "offset",
+      "netMesh",
+      "netTrail",
+      "netRemove"
+    ],
+    "NetKind": [
+      "sample",
+      "end",
+      "remove",
+      "reset"
+    ],
+    "NetType": [
+      "grenade",
+      "round",
+      "beam"
+    ],
+    "NetFlag": [
+      "mesh",
+      "trail"
+    ],
+    "Flight": [
+      "none",
+      "straight",
+      "ballistic"
+    ],
+    "OrdnanceStatus": [
+      "ok",
+      "versionMismatch"
+    ]
+  },
+  "records": {
+    "OrdnanceFrame": {
+      "version": 1,
+      "frame": 1,
+      "enhancedBolts": 1,
+      "enhancedSniper": 1,
+      "records": 1,
+      "netCommands": 1
+    },
+    "OrdnanceRecord": {
+      "kind": 1,
+      "key": 1,
+      "style": 1,
+      "source": 1,
+      "flags": 1,
+      "alpha": 1,
+      "clockTick": 1,
+      "flown": 1,
+      "previousFlown": 1,
+      "drawn": 1,
+      "previousDrawn": 1,
+      "ended": 1,
+      "fade": 1,
+      "speed": 1,
+      "life": 1,
+      "merge": 1,
+      "flightTick": 1,
+      "position": 3,
+      "previous": 3,
+      "direction": 3,
+      "end": 3,
+      "velocity": 3,
+      "quaternion": 4,
+      "launch": 3,
+      "offset": 3,
+      "muzzle": 3
+    },
+    "OrdnanceStyle": {
+      "coreBatch": 1,
+      "glowBatch": 1,
+      "beamBatch": 1,
+      "laserWidth": 1,
+      "laserLength": 1,
+      "glowLength": 1,
+      "glowRaw": 1,
+      "blurLength": 1,
+      "fadeOutTime": 1,
+      "lightRadius": 1,
+      "lightColor": 3,
+      "glowColor": 3,
+      "lookColor": 3,
+      "lookGlow": 1,
+      "lookCore": 1,
+      "lookLength": 1,
+      "lookBrightness": 1,
+      "lookLightRadius": 1,
+      "flight": 1,
+      "gravity": 1
+    },
+    "NetCommand": {
+      "kind": 1,
+      "slot": 1,
+      "generation": 1,
+      "schema": 1,
+      "style": 1,
+      "type": 1,
+      "flags": 1,
+      "tick": 1,
+      "expiryTick": 1,
+      "life": 1,
+      "position": 3,
+      "velocity": 3,
+      "quaternion": 4,
+      "end": 3
+    },
+    "OrdnanceHeader": {
+      "version": 1,
+      "status": 1,
+      "calls": 1,
+      "blasters": 1,
+      "droppedQuads": 1,
+      "droppedBlasters": 1,
+      "droppedCalls": 1,
+      "views": 1,
+      "refusedViews": 1,
+      "netLive": 1,
+      "refusedNet": 1,
+      "skippedNet": 1
+    },
+    "OrdnanceCall": {
+      "kind": 1,
+      "source": 1,
+      "s0": 1,
+      "s1": 1,
+      "a": 3,
+      "b": 3,
+      "c": 3,
+      "d": 4,
+      "e": 3
+    }
+  },
+  "version": 1,
+  "limits": {
+    "OrdnanceLimits": {
+      "handles": 64,
+      "quadsPerHandle": 1024,
+      "blasters": 4096,
+      "calls": 8192,
+      "records": 4096,
+      "netCommands": 4096,
+      "views": 4096,
+      "netSlots": 4096,
+      "styles": 512
+    }
+  }
+}

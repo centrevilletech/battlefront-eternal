@@ -28,8 +28,8 @@ try {
       const hidden = !d.mesh.visible;
       b.setPerspective(false);
       b._reconEffects = {}; b._reconShots = new Set(); b._reconDown = true; b._reconImpacts = 0;
-      const draw = b.ordnance.drawBolt.bind(b.ordnance);
-      b.ordnance.drawBolt = (bolt, ...args) => { if (bolt.def.class.includes('orbital')) { b._reconShots.add(bolt); b._reconDown &&= bolt.direction.y < -.9; } return draw(bolt, ...args); };
+      const draw = b.ordnance.draw.bolt.bind(b.ordnance.draw);
+      b.ordnance.draw.bolt = (bolt, ...args) => { if (bolt.def.class.includes('orbital')) { b._reconShots.add(bolt); b._reconDown &&= bolt.direction.y < -.9; } return draw(bolt, ...args); };
       const play = b.effects.play.bind(b.effects);
       b.effects.play = (name, ...args) => { b._reconEffects[name] = (b._reconEffects[name] || 0) + 1; if (name === 'atat_explosion') b._reconImpacts++; return play(name, ...args); };
       b._reconBlasts = b.destruction.blasts;

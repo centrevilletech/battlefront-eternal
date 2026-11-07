@@ -22,9 +22,9 @@ epoch changes clear identity state. Capture and presentation have explicit
 capacity limits; the scheduler must separately bound bytes and retained IDs.
 
 A bolt class with a `FadeOutTime` (the sniper rifles) stays drawn where it
-stopped while that runs (`docs/formats.md`, "Bolts"; `Ordnance.drawBolt`). Its
+stopped while that runs (`docs/formats.md`, "Bolts"; the ordnance phase's `draw_bolt`). Its
 terminal does not end the page's bolt: the flight is cut at the terminal's point
-and `linearBoltFrame` then reports it ended and fading. When the terminal has
+and the phase's linear frame then reports it ended and fading. When the terminal has
 replaced its launch before the page saw it (a round that struck within the tick
 it was fired, or a lag-compensated shot that caught up to its target at once),
 the page draws it from the shooter's gun as drawn there to the terminal's point,
@@ -37,7 +37,7 @@ health. Actor dead state drives persistent corpse animation, independently of
 notification delivery. Generation checks prevent old damage/death notifications
 from affecting a respawned body.
 
-The client uses shared `Ordnance.drawBolt`, animator, weapon flash and sound APIs.
+The client uses the ordnance presentation phase (`rust/bfe-presentation/src/ordnance.rs`), animator, weapon flash and sound APIs.
 It never calls `stepBolt`, collision, or a damage hook for replicated projectiles.
 Matched local data defines the ordnance registry; the handshake compares sorted
 content paths before accepting numeric IDs.
@@ -57,8 +57,8 @@ use authoritative absolute position/velocity/orientation or beam endpoints; the
 client does not replay collision, homing or random bounces. Thrown items (mines
 and power-ups, which travel as item records, not combat schemas) are the one
 explicit exception: their flight is deterministic, so a page flies its copy
-with the shared `Items.fly` against its own collision and the server's item
-records steer it (`src/runtime/network-entity-items.js`,
+with the world's own flight rules against its own collision and the server's
+item records steer it (`rust/bfe-presentation/src/items.rs`,
 docs/snapshot-delta-design.md "Remote presentation"); the server alone decides
 where an item ends up and who takes it. Samples retain at most
 eight points, render three ticks behind, and extrapolate velocity by at most three

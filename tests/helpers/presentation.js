@@ -7,12 +7,12 @@ afterEach(() => {
   for (const owner of owners) if (owner.__wbg_ptr) owner.free();
   owners.clear();
 });
-import init, { PagePresentation, PageUnits } from "../../src/presentation-pkg/bfe_presentation.js";
+import init, { PageOrdnance, PagePresentation, PageUnits } from "../../src/presentation-pkg/bfe_presentation.js";
 import { PageEffects } from "../../src/presentation/effects.js";
 const wasm = await init({
   module_or_path: fs.readFileSync(new URL("../../src/presentation-pkg/bfe_presentation_bg.wasm", import.meta.url)),
 });
-export const presentationLoaded = { module: { PagePresentation, PageUnits }, memory: wasm.memory };
+export const presentationLoaded = { module: { PageOrdnance, PagePresentation, PageUnits }, memory: wasm.memory };
 export class Effects extends PageEffects {
   constructor(scene, library, options) {
     super(scene, library, options, presentationLoaded);

@@ -1,8 +1,9 @@
 # Presentation records
 
 `rust/bfe-presentation` owns effect particles, displayed unit, hull and prop
-poses, their clocks, world matrices, skin records and cameras. The kernels run without a browser or GL
-context. Browser bindings expose fixed buffers and resource registration. A
+poses, their clocks, world matrices, skin records, cameras, ordnance and items.
+The kernels run without a browser or GL context. Browser bindings expose fixed
+buffers and resource registration. A
 module that fails to load, or a page built against another layout, is an
 explicit error; these phases have no JS path. A full store never fails a frame.
 Dedicated servers do not construct a displayed presentation owner.
@@ -19,10 +20,37 @@ The own camera precedes body sampling so its motion cue reaches the arms that
 frame; death, recon and seat cameras consume the preceding body batch. Shared
 retained scene ownership is still needed to combine these memory owners.
 
+The ordnance phase draws the rounds a page shows: bolts, beams, rockets,
+shells, missiles and grenades. The page writes one record per round to draw,
+in draw order, and a marker where the replicated projectiles belong among
+them; one call returns the instanced quads for each particle batch, the
+blaster capsules, and an ordered list of what the host does with its own
+objects (light requests, sniper trace touches, mesh and trail moves, a
+round's stored muzzle offset). Replicated projectiles keep their samples,
+flight past the last one, and smoothing in the kernel, by slot; the page keeps
+only each one's mesh and trail. The kernel carries a bolt's first-draw and
+flicker state, keyed by the bolt's slot and generation (or a page key), and
+recycles it after 120 undrawn frames.
+
+Items a page online copies from the server's records have their own phase
+(`items.rs`). One call a frame flies and places every copy between its
+records (extrapolation, reconcile and adopt of `EntityItemPresentation`, the
+flight, contact and placement of the world's items). The kernel calls nothing,
+so each tick of flight asks the page for a ray against its collision and, for a
+mine, a water crossing: the phase returns request rows, the page answers them
+into a typed block and calls `resume`, and the rounds repeat until none are
+left, up to a round limit per frame. The limit and a clock that stalls or runs
+wild leave items where they are; a record whose id, definition or slot the
+store cannot take is refused and counted, never thrown. Models are the page's:
+it registers each definition's numbers once, makes and removes meshes from the
+view serials the kernel publishes, and copies the placed position and
+orientation onto them and the light request into the light pool.
+
 ## Layout and order
 
-`rust/sim/schema/presentation-layout.json` declares numeric records, command kinds
-and capacities. `node tools/presentation-schema.mjs` generates both languages;
+`rust/sim/schema/presentation-layout.json`, `ordnance-layout.json` and
+`items-layout.json` declare numeric records, command kinds and capacities.
+The ordnance and item phases have separate files. `node tools/presentation-schema.mjs` generates both languages;
 `--check` rejects stale output. Inputs and poses use f64, while final skin matrices
 retain the renderer's f32 rounding. Resource registration resolves names, clip
 aliases, bones and banks once. Unit display and simulation share `bfe-pose`'s
@@ -56,6 +84,15 @@ soldier on the first matrix update asked of it.
 Foreign scene/interface parent matrices are records too. A paused class preview
 uses a small instance of the same kernel, with its interface parent supplied
 after the UI places it.
+
+Ordnance stores reserve 4,096 records and network commands a frame, 8,192
+host calls, 64 batch regions of 1,024 quads, 4,096 blaster capsules, 4,096
+bolt views and 4,096 network projectile slots, above what a battle draws.
+Past a store the kernel drops what it cannot hold, counts it in the header,
+and the page reports the totals once; a full network command block is applied
+early rather than lost, a slot past the table is skipped, and no frame fails.
+`ordnance-replay` replays a capture (`beginCapture` on the page) and requires
+every output bit to match.
 
 ## Storage and replay
 

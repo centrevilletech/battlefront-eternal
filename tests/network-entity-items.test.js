@@ -2,8 +2,11 @@ import { KIND_ITEM } from '../src/sim/gen/index.js';
 import { rustItems } from './helpers/rust-simulation.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {Scene,Vector3,Object3D,Group,Mesh,BoxGeometry} from 'three';
-import {Items} from '../src/items.js';
-import {EntityItemCapture,EntityItemPresentation} from '../src/runtime/network-entity-items.js';
+import {Items,radiusOf} from '../src/items.js';
+import {EntityItemCapture} from '../src/runtime/network-entity-items.js';
+import {ItemPresentation} from '../src/presentation/items.js';
+import {loaded} from './helpers/item-kernel.js';
+import {ItemDefinition as D} from '../src/presentation/items-layout.js';
 import {encodeEntityRecord,encodeEntityPacket,decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
 import {EntityScheduler,EntityReceiver} from '../src/runtime/network-entity-stream.js';
 import {SnapshotClient} from '../src/runtime/snapshot-client.js';
@@ -15,10 +18,10 @@ const mine={base:'mine',GeometryName:'mine',TriggerRadius:2,SuppressRadius:1,Exp
 const health={base:'powerupitem',class:'com_item_powerup_dual',GeometryName:'dual',Gravity:1,Rebound:0,Friction:1,LifeSpan:30};
 // Flat ground at y = 0, or none.
 const flat={cast(start,dir,length,hit){if(dir.y>=0||start.y<0)return null;const t=start.y/-dir.y;if(t>length)return null;hit.distance=t;hit.point.copy(start).addScaledVector(dir,t);hit.normal.set(0,1,0);return hit;}},none={cast:()=>null};
-function fixture({ground=none,clientGround=ground,pools={mine:1,powerupitem:1},model=()=>()=>new Object3D()}={}){let explosions=0;const make=collision=>rustItems({scene:new Scene(),collision,effects:{},lights:{add(){}},model,explode(){explosions++;},pools}),authority=make(ground),client=make(clientGround);
+function fixture({ground=none,clientGround=ground,pools={mine:1,powerupitem:1},model=()=>()=>new Object3D()}={}){let explosions=0;const make=collision=>rustItems({scene:new Scene(),collision,effects:{},lights:{add(){}},model,size:name=>{const make=model(name);return make?{radius:radiusOf(make())}:null;},explode(){explosions++;},pools}),authority=make(ground),client=make(clientGround);
  const definitions=new Map([[1,mine],[2,pickup],[3,health]]),registry={definitions,definitionId:def=>def===mine?1:def===pickup?2:3};
  for(const name of ['update','watch','offer','expire','destroy','hurt'])client[name]=()=>{throw Error('client gameplay forbidden');};
- return{authority,client,capture:new EntityItemCapture(authority,registry),presentation:new EntityItemPresentation(client,registry),explosions:()=>explosions};}
+ return{authority,client,capture:new EntityItemCapture(authority,registry),presentation:new ItemPresentation(client,registry,loaded),explosions:()=>explosions};}
 function publish(items,item) {items.sim.bridge.writeSome(KIND_ITEM,[item],true);}
 function remove(items,item) {item.life=0;publish(items,item);items.update(0);}
 let serial=0;
@@ -44,7 +47,7 @@ test('actual mine is visible until shared authority triggers it; client never ch
  const dead=f.capture.capture(2)[0];assert.equal(dead.active,false);f.presentation.receive(transfer(dead),1);
  f.presentation.present(1.9);assert.ok(view.mesh.parent===f.client.scene,'drawn until the playout clock reaches its removal');
  f.presentation.present(2);assert.equal(view.mesh.parent,null);assert.equal(f.presentation.slots.get(live.id).view,null);
- assert.equal(f.presentation.receive(transfer(live),1),false);assert.equal(f.explosions(),1);
+ f.presentation.receive(transfer(live),1);f.presentation.present(2.5);assert.equal(f.presentation.slots.get(live.id).view,null,'a record of a finished life brings nothing back');assert.equal(f.explosions(),1);
 });
 
 test('actual pickup grants on authority once and disappears without any client grant',()=>{
@@ -56,9 +59,9 @@ test('actual pickup grants on authority once and disappears without any client g
 
 test('slot reuse increments generation and ignores old terminal, including same-tick retirement',()=>{
  const f=fixture(),first=spawn(f),one=f.capture.capture(1)[0];f.presentation.receive(transfer(one),1);
- remove(f.authority,first);const gone=f.capture.capture(1)[0];assert.equal(f.presentation.receive(transfer(gone),1),true);
+ remove(f.authority,first);const gone=f.capture.capture(1)[0];f.presentation.receive(transfer(gone),1);
  spawn(f,pickup);const two=f.capture.capture(2)[0];assert.equal(two.id,one.id);assert.equal(two.generation,one.generation+1);f.presentation.receive(transfer(two),1);
- assert.equal(f.presentation.receive(transfer(gone),1),false);f.presentation.present(2);assert.equal(f.presentation.slots.get(two.id).view.def,pickup);assert.equal(f.client.views.size,1);
+ f.presentation.receive(transfer(gone),1);f.presentation.present(2);assert.equal(f.presentation.slots.get(two.id).view.def,pickup);assert.equal(f.client.views.size,1);
 });
 
 test('resting item captures keep identity and ACKed state only sends bounded heartbeat',()=>{
@@ -90,7 +93,7 @@ test('world capture includes actual item pools and new epoch removes old visual 
  const {EntityWorldCapture}=await import('../src/runtime/network-entity-capture.js');const f=fixture();spawn(f);
  const registry={classes:new Map(),weapons:new Map(),combat:f.capture.registry};const capture=new EntityWorldCapture({items:f.authority,units:{all:()=>[]},vehicles:{vehicles:[]}},registry);
  const record=capture.capture(1)[0];assert.equal(record.kind,'item');assert.equal(encodeEntityPacket({epoch:1,packetId:1,tick:1,records:[record]}).length,74);
- f.presentation.receive(transfer(record),1);f.presentation.present(1);const mesh=f.presentation.slots.get(record.id).view.mesh;f.presentation.reset(2);assert.equal(mesh.parent,null);assert.equal(f.presentation.slots.size,0);assert.equal(f.presentation.receive(transfer(record),1),false);
+ f.presentation.receive(transfer(record),1);f.presentation.present(1);const mesh=f.presentation.slots.get(record.id).view.mesh;f.presentation.reset(2);assert.equal(mesh.parent,null);assert.equal(f.presentation.slots.size,0);f.presentation.receive(transfer(record),1);f.presentation.present(3);assert.equal(f.client.views.size,0,'a record of the old epoch is dropped');
 });
 
  test('ACK for live item cannot retire a same-tick removal',()=>{
@@ -158,7 +161,7 @@ test('a slot reused inside the playout delay swaps its items on the clock',()=>{
 test('a jump of the clock starts again from the newest record at or before it, without flying the gap',()=>{
  const f=fixture({ground:flat}),item=f.authority.spawn(health,new Vector3(0,20,0),new Vector3(2,8,1),0),path=[];
  for(let tick=1;tick<=60;tick++){f.authority.update(1/60,[]);path[tick]=item.position.clone();if(tick%2===0)f.presentation.receive(transfer(f.capture.capture(tick)[0]),1);}
- let flights=0;const fly=f.client.fly.bind(f.client);f.client.fly=(...args)=>{flights++;return fly(...args);};
+ let flights=0;const cast=f.client.collision.cast;f.client.collision={cast:(...args)=>{flights++;return cast(...args);}};
  f.presentation.present(10.5);const view=f.presentation.slots.get(0).view;assert.ok(view.position.distanceTo(along(path,10.5))<.01);
  flights=0;f.presentation.present(40.25);assert.ok(flights<=2,`flew ${flights} ticks for a 30-tick jump`);assert.ok(view.position.distanceTo(along(path,40.25))<.01);
  // A suspended page's clock starts again from 0: the item holds where it was drawn.
@@ -174,7 +177,7 @@ test('a placed power-up and a stuck mine rest where the world says, even with no
  assert.ok(placed.landed&&thrown.landed&&thrown.position.y>.05,'the world stuck the mine on the ground');
  const views=()=>[...f.presentation.slots.values()].map(entry=>entry.view);let low=Infinity;
  for(let tick=2;tick<=120;tick+=.75){f.presentation.present(tick);const [a,b]=views();assert.ok(a.position.distanceTo(placed.position)<.004,'the placed power-up never moves');low=Math.min(low,b.position.y);}
- const [, view]=views();assert.equal(view.radius,thrown.radius);assert.ok(view.position.distanceTo(thrown.position)<.004,'the mine lies where the world stuck it');
+ const [, view]=views();const mineRow=f.presentation.indices.get(1)*D.STRIDE;assert.equal(f.presentation.definitions[mineRow+D.RADIUS],thrown.radius);assert.ok(view.position.distanceTo(thrown.position)<.004,'the mine lies where the world stuck it');
  assert.ok(low>-.25,`dipped to ${low.toFixed(3)} at most before the world's rest pulled it up`);
 });
 

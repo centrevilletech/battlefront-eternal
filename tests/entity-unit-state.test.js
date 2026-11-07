@@ -90,7 +90,7 @@ test('an animation waits for its unit and is presented once despite retransmissi
     event: { kind: 'weaponAction', ownerId: 3, ownerGeneration: 2, action: 'reload', bank: 'rifle', posture: 'stand' } });
   let shown = null, played = 0;
   const game = { units: { byId: () => shown } };
-  const presentation = new CombatPresentation({ ordnance: { clearProjectilePresentation() {} },
+  const presentation = new CombatPresentation({ ordnance: { clearProjectilePresentation() {}, draw: { netHost: null, presentNet() {} } },
     definition: () => null, onPresentation: event => presentEntityEvent(game, event, registry) });
   presentation.receive(record, { epoch: 1, tick: 20 });
   presentation.receive(record, { epoch: 1, tick: 20 });
