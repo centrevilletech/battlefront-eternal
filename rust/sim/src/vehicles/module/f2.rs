@@ -31,6 +31,7 @@ pub(crate) struct Scheduler {
     acc: f64,
     time: f64,
     pending: bool,
+    publication_pending: bool,
     hull_rows: Vec<Option<HullRow>>,
 }
 impl Scheduler {
@@ -45,6 +46,7 @@ impl Scheduler {
             acc: 0.0,
             time: 0.0,
             pending: false,
+            publication_pending: false,
             hull_rows: Vec::new(),
         }
     }
@@ -157,6 +159,11 @@ pub fn recycle(hull: Hull) { scheduler().recycle(hull) }
 
 pub fn active() -> bool { unsafe { *addr_of_mut!(FLEET.scheduler.active) } }
 fn io() -> &'static mut Vec<f64> { unsafe { &mut *addr_of_mut!(FLEET.scheduler.io) } }
+/// WaterState.step precedes the native fleet span. The enclosing world sets
+/// this generated scalar after advancing water, before F3 calls F2's entry.
+pub(crate) fn world_level(level:f64) {
+    if active() {io()[F2Input::LEVEL]=level;}
+}
 fn publication() -> &'static mut crate::vehicles::f2_publication::Publication {
     unsafe { (*addr_of_mut!(FLEET.scheduler.publication)).get_or_insert_with(Default::default) }
 }
@@ -169,6 +176,7 @@ pub fn mark(r: Ref<Vehicle>) { scheduler().mark(unsafe { &mut *addr_of_mut!(FLEE
 /// that working row current; other spare rows reload only after a real write.
 pub fn stored(hull: &Hull) { scheduler().stored(unsafe { &mut *addr_of_mut!(FLEET.geometry) }, hull) }
 pub fn mark_changed(r: Ref<Vehicle>) { mark(r); }
+pub(crate) fn has_pending()->bool {active() && scheduler().pending}
 pub(crate) fn pending() { unsafe { *addr_of_mut!(FLEET.scheduler.pending) = true; } }
 // VehicleTarget queries reuse the same invalidation stamp as working hulls.
 // Physics stores and seat/damage commands already advance it before readers.
@@ -176,7 +184,8 @@ pub(crate) fn revision(r: Ref<Vehicle>) -> u64 { scheduler().revision(r) }
 // F3's Unit.onMoved barrier need not republish an untouched fleet. Damage or
 // seat work marks this bit; its next mirror barrier flushes those rows once.
 pub(crate) fn publish_pending() {
-    if active() && unsafe { *addr_of_mut!(FLEET.scheduler.pending) } { publish(); }
+    let deferred=crate::world::deferred();
+    if active() && (scheduler().pending || (!deferred && scheduler().publication_pending)) { publish(); }
 }
 
 /// Vehicle construction registers its row without rewriting other pads or hulls.
@@ -271,11 +280,21 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
 // can publish recursively, so every block represents this flush rather than
 // an append-only fleet snapshot that a later hook might read again.
 pub fn publish() {
+    if crate::world::deferred() {
+        live_seats::sample_changed();
+        // Pose readers observed this logical barrier. Only facade encoding
+        // stays pending; later empty native barriers must not resample rigs.
+        scheduler().pending=false;scheduler().publication_pending=true;return;
+    }
+
     // A Unit barrier can read this descriptor again without any fleet write.
     // Readers consume each publication once, retaining later foreign AI edits.
     desc()[F2Phase::VERSION] = (desc()[F2Phase::VERSION] as u32).wrapping_add(1) as f64;
     desc()[F2Phase::FIRING] = firing::phase_ptr() as usize as f64;
-    desc()[F2Phase::SEATS] = live_seats::publish() as usize as f64;
+    // The final world flush encodes the sample already observed by rounds.
+    // A new native write still requires its ordinary observation first.
+    let sampled=scheduler().publication_pending&&!scheduler().pending;
+    desc()[F2Phase::SEATS] = live_seats::publish_sampled(sampled) as usize as f64;
     let p = publication();
     p.flush(&mut sim().store);
     desc()[F2Phase::HULLS] = p.hulls.ptr() as usize as f64;
@@ -286,7 +305,7 @@ pub fn publish() {
     desc()[F2Phase::ACC] = unsafe { *addr_of_mut!(FLEET.scheduler.acc) };
     desc()[F2Phase::FLIGHT_ACC] = unsafe { *addr_of_mut!(FLEET.flight_acc) };
     desc()[F2Phase::TIME] = unsafe { *addr_of_mut!(FLEET.scheduler.time) };
-    unsafe { *addr_of_mut!(FLEET.scheduler.pending) = false; }
+    scheduler().pending=false;scheduler().publication_pending=false;
 }
 
 /// Fresh pose output exists only after spawn rendering or the complete phase.

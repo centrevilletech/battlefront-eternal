@@ -47,8 +47,15 @@ try {
   let w = null;
   for (const target of attached) {
     if (target.targetInfo.type !== 'worker') continue;
-    await send('Runtime.enable', {}, target.sessionId);
-    if (await evaluate(target.sessionId, 'Boolean(self.__server)')) { w = target.sessionId; break; }
+    // Loading workers can finish between auto-attachment and inspection.
+    // Only discovery may skip a detached target; losing the chosen world
+    // during the advance remains a failure.
+    try {
+      await send('Runtime.enable', {}, target.sessionId);
+      if (await evaluate(target.sessionId, 'Boolean(self.__server)')) { w = target.sessionId; break; }
+    } catch (error) {
+      if (!String(error.message).includes('Session with given id not found')) throw error;
+    }
   }
   if (!w) throw Error('A loaded world worker is required');
   const samples = [], started = performance.now();

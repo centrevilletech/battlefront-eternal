@@ -96,12 +96,13 @@ type HostMath = cameras::math::V8;
 // Invalid world ids are empty space, never an unchecked table access.
 // Cosmetic random is called only after live shake survives the native guards.
 // Authority cameras consume none of that stream during their own frames.
-struct World {
+struct World<M> {
+    math: std::marker::PhantomData<M>,
     world: usize,
     ignored: [i32; limit::IGNORED_BODIES],
     count: usize,
 }
-impl cameras::Cast for World {
+impl<M:Math> cameras::Cast for World<M> {
     fn cast(&mut self, p: Vector3, d: Vector3, far: f64, static_only: bool) -> Option<f64> {
         use crate::collision as c;
         let s = c::state();
@@ -135,7 +136,7 @@ impl cameras::Cast for World {
             self.world,
             &ray,
             far,
-            HostMath::hypot2(d.x, d.z),
+            M::hypot2(d.x, d.z),
             count,
         );
         (code != c::MISS).then_some(hit.distance)
@@ -223,12 +224,40 @@ pub extern "C" fn camera_frame(id: u32) {
     for i in 0..count {
         ignored[i] = a[f::IGNORED + i] as i32;
     }
-    let mut world = World {
-        world: a[f::WORLD] as usize,
-        ignored,
-        count,
-    };
-    phase.frame::<HostMath, World>(&mut world);
+    if a[f::AUTHORITY] != 0.0 {
+        let mut world=World::<cameras::math::V8> {
+            world:a[f::WORLD] as usize,ignored,count,math:std::marker::PhantomData,
+        };
+        phase.frame::<cameras::math::V8,_>(&mut world);
+    } else {
+        let mut world=World::<HostMath> {
+            world:a[f::WORLD] as usize,ignored,count,math:std::marker::PhantomData,
+        };
+        phase.frame::<HostMath,_>(&mut world);
+    }
+}
+
+/// The world coordinator runs the authority camera at its original slot.
+/// Its completed matrix feeds offline LOD directly, before any host mirror.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn world_frame(id:u32, offline:bool) {
+    use bfe_presentation::layout::camera_output as o;
+    camera_frame(id);
+    let Some(phase)=phase(id) else {return};
+    let output=&phase.output;
+    crate::units::f3::world_camera([output[o::POSITION],output[o::POSITION+1],output[o::POSITION+2]]);
+    if offline {
+        if let Some(battle)=crate::abi::sim().ai.battle_mut() {
+            if battle.exchange.camera_words.len()>=crate::gen::AiPhaseCamera::WORDS {
+                let camera=crate::gen::AiPhaseCamera {
+                    elements:output[o::MATRIX..o::MATRIX+16].try_into().unwrap(),
+                    fov:output[o::FOV],aspect:phase.input[f::CAMERA_ASPECT],
+                    near:output[o::NEAR],far:output[o::FAR],zoom:1.0,
+                };
+                camera.put(&mut battle.exchange.camera_words[..crate::gen::AiPhaseCamera::WORDS],&mut Vec::new());
+            }
+        }
+    }
 }
 
 // A cold fixture or preview may restart its camera without replacing the

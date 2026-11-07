@@ -43,6 +43,10 @@ class LeasePool extends MirrorPool {
   }
   retire(slot, generation) {
     const lease = super.retire(slot, generation);
+    // Boarding and death can both finish before the first outer publication.
+    // Such a terminal occupancy still needs its own complete encoded mirror.
+    lease.simSlot=slot;lease.simGen=generation;lease.f2Words??=deltaBuffer();
+    if(!this.owner.emitterIds.has(lease.emitter))this.owner.emitterIds.set(lease.emitter,{slot,generation:generation+this.owner.io.emitterMask});
     let lives = this.released.get(slot); if (!lives) this.released.set(slot, lives = new Map());
     lives.set(generation, lease); return lease;
   }

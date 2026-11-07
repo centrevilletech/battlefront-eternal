@@ -135,6 +135,8 @@ pub(crate) fn descriptor() -> *const f64 {
 /// Only actual foreign barriers and outer returns publish. Native setters mark
 /// their rows; an intermediate commit must not overwrite an unread delta.
 pub(crate) fn publish() {
+    if crate::world::deferred() {return;}
+
     if unsafe { (*addr_of_mut!(IO)).is_none() } { return; }
     let rows = f4::live().flush();
     let words = { let live = f4::live(); live.buildings.publication.words.len() + live.animated.publication.words.len() + live.traps.publication.words.len() };

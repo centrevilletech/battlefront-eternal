@@ -7,6 +7,10 @@ import { exportRepairTarget, putRepairTarget, sameRepairTarget, syncRepairTarget
 import { F4AIHookMirror, F4HandleMirror, F4HeroSetupMirror, F4PadSetupMirror, exportF4AIHook, exportF4Handle, exportF4HeroSetup, exportF4PadSetup, putF4AIHook, putF4Handle, putF4HeroSetup, putF4PadSetup, sameF4AIHook, sameF4Handle, sameF4HeroSetup, sameF4PadSetup, syncF4AIHook, syncF4Handle, syncF4HeroSetup, syncF4PadSetup } from "./f4.js";
 import { exportMember, putMember, sameMember, syncMember } from "./units.js";
 
+export const AiDangerResult_NAMES = ["inactive","published","unchanged"];
+export const AiDangerResult_INDEX = new Map(AiDangerResult_NAMES.map((name, i) => [name, i]));
+export const AiDangerResult_VALUE = Object.freeze({"inactive":0,"published":1,"unchanged":2});
+
 export const AiJournalKind_NAMES = ["shot","damage"];
 export const AiJournalKind_INDEX = new Map(AiJournalKind_NAMES.map((name, i) => [name, i]));
 export const AiJournalKind_VALUE = Object.freeze({"shot":0,"damage":1});

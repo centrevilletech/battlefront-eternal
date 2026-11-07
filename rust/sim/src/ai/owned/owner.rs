@@ -147,13 +147,13 @@ impl Battle {
             let core=&self.runtime.core.controllers[index];
             self.counters.targets+=u32::from(core.target.is_some());
             self.counters.fire_requests+=u32::from(core.fire_a||core.fire_b);
-            if let Some(row)=self.state.controllers.key(index).and_then(|key|self.state.controllers.read(&self.state.entities,key)) {
+            if let Some(row)=self.state.controllers.read_core(index) {
                 self.counters.combat_targets+=u32::from(row.target.is_some());
                 if let Some(perception)=&row.perception {
                     self.counters.candidates+=u32::from(perception.candidate.is_some());self.counters.scanned+=perception.last_scan_count;
                 }
             }
-            if let Some(agent)=self.state.agents.key(index).and_then(|key|self.state.agents.get(&self.state.entities,key)) {self.counters.trackers+=u32::from(agent.tracker().target.is_some());}
+            if let Some(agent)=self.state.agents.get_core(index) {self.counters.trackers+=u32::from(agent.tracker().target.is_some());}
         }
         self.counters.considered+=self.runtime.core.scheduler.stats.considered;
         self.counters.serviced+=self.runtime.core.scheduler.stats.serviced;
@@ -271,6 +271,10 @@ impl Battle {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             world.grenade_dangers(&mut self.runtime.core,||Some(crate::units::f3::viewpoint()));
         });
+        self.record_danger_phase();
+    }
+    pub fn record_danger_phase(&mut self) {
+        if !self.runtime.core.options.bind.combat {return;}
         self.counters.danger_phases=self.counters.danger_phases.wrapping_add(1);
         let draws=self.runtime.random.draw_counts();
         self.counters.draws_a=draws[0] as u32;self.counters.draws_b=draws[1] as u32;self.counters.draws_c=draws[2] as u32;

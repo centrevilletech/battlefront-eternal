@@ -1,8 +1,7 @@
 #![cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 use bfe_sim::abi::context::{Context, Error, ErrorKind, Failure, Record};
 use bfe_sim::gen::*;
-use std::cell::{Cell, RefCell};
-use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::cell::Cell;
 use std::rc::Rc;
 macro_rules! record {
     ($ty:ty, $value:expr) => {{
@@ -24,12 +23,6 @@ fn local_input() -> WorldLocalInput {
     WorldLocalInput {
         op: WorldLocalOperation::Tail,
         dt: 1.0 / 60.0,
-        ..Default::default()
-    }
-}
-fn step_input() -> WorldStepInput {
-    WorldStepInput {
-        tick: 4.0,
         ..Default::default()
     }
 }
@@ -336,140 +329,6 @@ fn native_event_reader_keeps_failed_delivery_cursor_and_nested_partial_state() {
 }
 
 #[test]
-fn native_world_callbacks_reenter_a_b_a_through_inputs_and_preserve_cleanup_errors() {
-    let a = Context::new();
-    let b = Context::new();
-    let original = Error::host("original host failure");
-    let error = original.clone();
-    let trace = Rc::new(RefCell::new(Vec::new()));
-    let failed = Rc::new(Cell::new(false));
-    let fail = failed.clone();
-    let seen = trace.clone();
-    a.register(IMPORT_WORLD_LOCAL, move |cx, record| {
-        seen.borrow_mut().push("local A");
-        assert_eq!(cx.dispose().unwrap_err().kind(), ErrorKind::Busy);
-        let mut args = record.read(WorldLocalArgs::take);
-        cx.input_axis(IkInput {
-            down: vec![5.0],
-            plus: vec![5.0],
-            minus: vec![],
-        })?;
-        cx.scratch(&vec![9; 500_000])?;
-        if !fail.replace(true) {
-            args.state.input.right = 0.625;
-            return Err(Failure {
-                error: error.clone(),
-                partial: Some(record!(
-                    WorldLocalReply,
-                    WorldLocalReply {
-                        state: args.state,
-                        value: true
-                    }
-                )),
-            });
-        }
-        Ok(record!(
-            WorldLocalReply,
-            WorldLocalReply {
-                state: args.state,
-                value: true
-            }
-        ))
-    })
-    .unwrap();
-    let inner = a.clone();
-    let seen = trace.clone();
-    b.register(IMPORT_WORLD_NETWORK, move |cx, record| {
-        let args = record.read(WorldNetworkArgs::take);
-        assert_eq!(cx.dispose().unwrap_err().kind(), ErrorKind::Busy);
-        seen.borrow_mut().push("network B");
-        if args.op == WorldNetworkCall::Capture {
-            if let Err(failure) = inner.world_local(local_input()) {
-                assert_eq!(failure.state.input.right, 0.625);
-                return Err(Failure {
-                    error: failure.error,
-                    partial: Some(record!(
-                        WorldNetworkReply,
-                        WorldNetworkReply {
-                            state: WorldNetworkState {
-                                last_input_at: 123.5,
-                                ..Default::default()
-                            },
-                            value: false
-                        }
-                    )),
-                });
-            }
-        }
-        Ok(record!(WorldNetworkReply, WorldNetworkReply::default()))
-    })
-    .unwrap();
-    let other = b.clone();
-    let seen = trace.clone();
-    a.register(IMPORT_WORLD_STEP, move |_, record| {
-        let args = record.read(WorldStepArgs::take);
-        seen.borrow_mut().push("step A");
-        if args.op == WorldStepCall::Start {
-            let result = other.world_network_with_cleanup(network_input(), |cx, state, error| {
-                seen.borrow_mut().push("cleanup B");
-                assert_eq!(cx.dispose().unwrap_err().kind(), ErrorKind::Busy);
-                assert_eq!(error.message(), "original host failure");
-                state.dead_time = 4.0;
-                cx.input_mailbox(ImInput {
-                    op: ImOperation::Clear,
-                    ..Default::default()
-                })
-                .unwrap();
-                Err(Error::host("cleanup B failed"))
-            });
-            if let Err(failure) = result {
-                assert_eq!(failure.state.last_input_at, 123.5);
-                assert_eq!(failure.state.dead_time, 4.0);
-                return Err(Failure {
-                    error: failure.error,
-                    partial: Some(record!(
-                        WorldStepReply,
-                        WorldStepReply {
-                            state: WorldStepState {
-                                aim_pitch: 0.25,
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        }
-                    )),
-                });
-            }
-        }
-        Ok(record!(WorldStepReply, WorldStepReply::default()))
-    })
-    .unwrap();
-    let seen = trace.clone();
-    let failure = a
-        .world_step_with_cleanup(step_input(), |cx, state, error| {
-            seen.borrow_mut().push("cleanup A");
-            assert!(error.same(&original));
-            assert_eq!(cx.dispose().unwrap_err().kind(), ErrorKind::Busy);
-            assert_eq!(cx.world_local(local_input()).unwrap().input.right, 0.0);
-            state.player_ticks = 11.0;
-            Err(Error::host("cleanup A failed"))
-        })
-        .unwrap_err();
-    assert!(failure.error.same(&original));
-    assert_eq!(failure.state.aim_pitch, 0.25);
-    assert_eq!(failure.state.player_ticks, 11.0);
-    assert_eq!(
-        &trace.borrow()[..5],
-        &["step A", "network B", "local A", "cleanup B", "cleanup A"]
-    );
-    assert_eq!(a.calls().unwrap().read(WorldStepState::take), failure.state);
-    let saved = a.calls().unwrap();
-    assert!(a.world_step(step_input()).is_ok());
-    assert_eq!(saved.read(WorldStepState::take).player_ticks, 11.0);
-    a.dispose().unwrap();
-    b.dispose().unwrap();
-}
-
-#[test]
 fn native_world_consumers_missing_handlers_and_unmatched_panics_release_guards() {
     let cx = Context::new();
     assert_eq!(
@@ -484,34 +343,9 @@ fn native_world_consumers_missing_handlers_and_unmatched_panics_release_guards()
         ErrorKind::MissingHandler
     );
     assert_eq!(
-        cx.world_step(step_input()).unwrap_err().error.kind(),
-        ErrorKind::MissingHandler
-    );
-    assert_eq!(
         cx.world_network(network_input()).unwrap_err().error.kind(),
         ErrorKind::MissingHandler
     );
-    cx.register(IMPORT_WORLD_STEP, |_, _| {
-        resume_unwind(Box::new("unmatched"))
-    })
-    .unwrap();
-    let called = Cell::new(false);
-    let panic = catch_unwind(AssertUnwindSafe(|| {
-        cx.world_step_with_cleanup(step_input(), |_, _, _| {
-            called.set(true);
-            Ok(())
-        })
-    }))
-    .unwrap_err();
-    assert_eq!(*panic.downcast::<&str>().unwrap(), "unmatched");
-    assert!(!called.get());
-    cx.register(IMPORT_WORLD_STEP, |_, _| {
-        Ok(record!(WorldStepReply, WorldStepReply::default()))
-    })
-    .unwrap();
-    assert!(cx
-        .world_step_with_cleanup(step_input(), |_, _, _| panic!("no cleanup on success"))
-        .is_ok());
     cx.dispose().unwrap();
     assert_eq!(
         cx.world_events(event_input(WorldEventOperation::Reset))

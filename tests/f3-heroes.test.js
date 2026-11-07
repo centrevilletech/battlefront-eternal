@@ -90,7 +90,7 @@ test('hero melee combines registry and extra buildings in reverse acquisition or
   assert.equal(a.health,0);assert.equal(b.health,0);
   assert.equal(world.phase.counters.phaseCalls,8);
   assert.equal(world.phase.counters.commandCalls,0);
-  assert.equal(world.phase.counters.importCalls,14,'eight aimers and three lifecycle leaves for each prop');
+  assert.equal(world.phase.counters.importCalls,8,'only the eight standalone aimers import; prop lifecycle uses output records');
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);
 });

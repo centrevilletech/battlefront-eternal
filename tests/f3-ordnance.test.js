@@ -229,7 +229,8 @@ test('native F1 water crossings share the phase surface and reject dry cells', a
     height:1,cell:10,offset:[0,0],grid:2,cells:[[0,0]],look:{OscillationEnable:[1]},
   });
   const world = await f3World({}, {water});
-  water.step(1/60);world.phase.phase(1/60);
+  // A completed world surface is an input to this standalone flight fixture.
+  water.physicsWave=0.0125;world.phase.phase(1/60);
   const def = {class:'water-shell',base:'shell',Velocity:10,LifeSpan:2,Gravity:1};
   world.ordnance.fire(def,new Vector3(1,water.level+0.001,1),new Vector3(0,-1,0),null);
   const dry = world.ordnance.fire(def,new Vector3(15,water.level+0.001,15),new Vector3(0,-1,0),null);

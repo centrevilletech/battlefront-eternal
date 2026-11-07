@@ -108,7 +108,7 @@ export async function createNativeAI(mode,world,options) {
       if(late.classes.length||late.items.length)owner.content(late);
       owner.activate();
     },
-    update(dt,tick,unitPhaseFollows=false){
+    prepare(dt,tick,unitPhaseFollows=false){
       facts.dt=dt;facts.tick=tick;facts.networkViews=Boolean(world.networkViews);facts.lodDisabled=Boolean(world.lodDisabled||world.network);
       const views=world.cameras??offline;const count=Math.min(views.length,cameraRows.length);cameras.length=count;
       for(let index=0;index<count;index++) {
@@ -117,7 +117,11 @@ export async function createNativeAI(mode,world,options) {
       }
       const reticle=facts.reticle,pilot=world.reticlePilot?.()??null,target=world.reticleTarget?.()??null;
       reticle.pilot=pilot;reticle.pilotLife=pilot?.aiTarget?.generation??0;reticle.target=target;reticle.targetLife=target?.generation??0;
-      owner.step(facts,cameras,world.events?journal.capture(world.events):journal,world.time??0,false,false,unitPhaseFollows);
+      owner.prepare(facts,cameras,world.events?journal.capture(world.events):journal,world.time??0,false,false,unitPhaseFollows);
+    },
+    update(dt,tick,unitPhaseFollows=false){
+      this.prepare(dt,tick,unitPhaseFollows);
+      if(owner.x.ai_world_phase())owner.complete();
     },
     dangers(){owner.dangers();},
     playerCommand(kind,character=world.battle.human){return owner.playerCommand(character,kind,world.time??0);},

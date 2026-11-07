@@ -42,11 +42,10 @@ impl Holder {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
-            Holder::Null => row[0] = 0.0,
-            Holder::Undefined => row[0] = 1.0,
-            Holder::Nobody => row[0] = 2.0,
+            Holder::Null => { row[0] = 0.0; row[1..3].fill(0.0);  },
+            Holder::Undefined => { row[0] = 1.0; row[1..3].fill(0.0);  },
+            Holder::Nobody => { row[0] = 2.0; row[1..3].fill(0.0);  },
             Holder::Person(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             Holder::Thing(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
         }
@@ -79,9 +78,8 @@ impl Half {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..4].fill(0.0);
         match self {
-            Half::F64(v) => { row[0] = 0.0; row[1] = (*v); }
+            Half::F64(v) => { row[0] = 0.0; row[2..4].fill(0.0); row[1] = (*v); }
             Half::Vec3(v) => { row[0] = 1.0; row[1..1 + 3].copy_from_slice(&(*v)); }
         }
     }
@@ -110,9 +108,8 @@ impl Body {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..5].fill(0.0);
         match self {
-            Body::Legs(v) => { row[0] = 0.0; v.put(&mut row[1..], heap); }
+            Body::Legs(v) => { row[0] = 0.0; row[4..5].fill(0.0); v.put(&mut row[1..], heap); }
             Body::Wheels(v) => { row[0] = 1.0; v.put(&mut row[1..], heap); }
         }
     }
@@ -141,7 +138,6 @@ impl Who {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
             Who::Person(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             Who::Thing(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }

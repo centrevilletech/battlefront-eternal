@@ -15,6 +15,22 @@ const RESERVED_UNITS: usize = 1024;
 const RANDOM_CAPACITY: usize = 128;
 const NO_STREAM:u32=NO_RANDOM_STREAM;
 const AIM_CAPACITY: usize = 1024;
+// The native held record and the foreign input scratch coexist here, rather
+// than replacing a Vec-bearing enum for every alternating player/bot row.
+// Only the selected generated variant is encoded into the publication.
+#[derive(Default)]
+struct PublicationSnapshot {value:F3Publication,held:Option<F3NativeIntent>}
+impl PublicationSnapshot {
+    fn put_controls(&self,row:&mut [f64],heap:&mut Vec<f64>) {
+        if let Some(held)=&self.held {
+            F3PublishedControls::F3NativeIntent(held.clone()).put(&mut row[F3Publication::CONTROLS..],heap);
+        }else{self.value.put_controls(row,heap);}
+    }
+    fn put(&self,row:&mut [f64],heap:&mut Vec<f64>) {
+        self.value.put_body(row,heap);self.value.put_arsenal(row,heap);
+        self.value.put_combat(row,heap);self.put_controls(row,heap);
+    }
+}
 struct State {
     // UnitFactory's order and pools are bookkeeping over generated rows.
     // No second copy of body/combat state lives in this sidecar.
@@ -44,7 +60,7 @@ struct State {
     edges: Vec<Edges>,
     // One reusable row stages each touched Unit. Shape sensor output has its
     // own block so AI can query during a publication without destroying it.
-    snapshot: F3Publication,
+    snapshot: PublicationSnapshot,
     publication: Vec<crate::vehicles::f2_delta::Cache>,
     // Ordinary completed ticks have no cross-unit weapon readers inside
     // aimers. Keep their references for one outer publication; explicit
@@ -54,9 +70,9 @@ struct State {
     // must not re-encode an unchanged body, arsenal or every weapon clock.
     intent_changed: Vec<Ref<Unit>>,
     intent_marked: Vec<Option<u32>>,
-    // AI tuning can clear and restore a value before the next unit phase.
-    // Retain its touch without encoding an otherwise unchanged full arsenal.
-    weapon_marked: Vec<Option<u32>>,
+    // Avoidance and weapon tuning join the promised following unit phase.
+    // Retain full-row touches without encoding a second body and arsenal.
+    ai_full_marked: Vec<Option<u32>>,
     // Foreign rows name only current qualified bodies. Prepared slot lookup
     // restores the canonical factory order without a per-body host record.
     phase_inputs: Vec<Option<usize>>,
@@ -152,7 +168,14 @@ impl External {
                     crate::recon::module::publish(authority);
                 }
             });
-            flush_completed();publish_changed_at(None,publish_intents);
+            // An event-free ordinary AI return has no foreign observer
+            // before the promised Unit.tick span. Keep owner publications
+            // together there; structural writes and notices stay immediate.
+            // Shared RNG seeds still reach the facade before F3 pushes them.
+            let deferred=!publish_intents && state().owner.changed().is_empty()
+                && state().completed.is_empty() && sim().events.is_empty()
+                && !crate::vehicles::module::f2::has_pending();
+            if deferred {descriptor();}else{flush_completed();publish_changed_at(None,publish_intents);}
             state().running=false;self.0=false;
         }
     }
@@ -203,6 +226,19 @@ pub(crate) fn items() -> &'static mut super::f3_items::Items { &mut state().item
 pub(crate) fn item_target_input(index: usize) -> F3ItemTarget {
     let at = index * F3ItemTarget::WORDS;
     F3ItemTarget::take(&state().input[at..], &[])
+}
+/// The authoritative camera finishes before the AI/unit interval. Replace
+/// only the separation position; global/network scope remains an input fact.
+pub(crate) fn world_camera(position: [f64;3]) {
+    let mut row = F3Separation::take(&state().separation, &[]);
+    row.camera = position;
+    row.put(&mut state().separation, &mut Vec::new());
+}
+/// The enclosing world chooses target membership after ordnance, using the
+/// same generated reservation as the standalone item entry.
+pub(crate) fn world_item_target(index: usize, row: &F3ItemTarget) {
+    let at = index * F3ItemTarget::WORDS;
+    row.put(&mut state().input[at..at + F3ItemTarget::WORDS], &mut Vec::new());
 }
 /// Game.onExplode and LiveObjects share their mutable query vectors through
 /// recursive damage. The outer entry takes both resources once; nested F1,
@@ -303,8 +339,10 @@ pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f6
     // PlayerCombat.update keeps notification latches and pending shots in
     // its canonical row. Foreign readers need only the weapon clocks here;
     // reserve that one variable list before the first publication.
-    let mut snapshot = F3Publication::default();
-    snapshot.combat.weapons.reserve(32);
+    let mut snapshot = PublicationSnapshot::default();
+    snapshot.value.combat.weapons.reserve(32);
+    let F3PublishedControls::F3ForeignControls(foreign)=&mut snapshot.value.controls else{unreachable!()};
+    foreign.values.resize_with(1,F3ControlView::default);
     let mut sensor_block = Block::default();
     sensor_block.words.reserve(16384);
     sensor_block.heap.reserve(16384);
@@ -391,7 +429,7 @@ pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f6
             completed: Vec::with_capacity(RESERVED_UNITS),
             intent_changed: Vec::with_capacity(RESERVED_UNITS),
             intent_marked: Vec::with_capacity(RESERVED_UNITS),
-            weapon_marked: Vec::with_capacity(RESERVED_UNITS),
+            ai_full_marked: Vec::with_capacity(RESERVED_UNITS),
             phase_inputs: Vec::new(),phase_input_slots: Vec::with_capacity(RESERVED_UNITS),
             publication_ready: Vec::with_capacity(RESERVED_UNITS),
             publication_marks: Vec::new(),
@@ -487,14 +525,14 @@ fn descriptor() -> *const f64 {
 fn encode_publication(reference:Ref<Unit>, body_only:bool) -> bool {
     let unit=sim().store.unit.get(reference).expect("owned publication row");
     let s=state();
-    if body_only {
-        stage_body(&mut s.snapshot,reference,unit);stage_controls(&mut s.snapshot,reference,unit);
+    if body_only && s.native_intents[reference.slot as usize]==Some(reference) {
+        stage_body(&mut s.snapshot.value,reference,unit);stage_controls(&mut s.snapshot,reference,unit);
         let base=crate::store::block::HEADER;
         if let Some(changed)=s.publication[reference.slot as usize].prepare_retained(
             reference.slot,reference.gen,F3Publication::WORDS,
             &[base+F3Publication::BODY..base+F3Publication::ARSENAL,
               base+F3Publication::CONTROLS..base+F3Publication::WORDS],
-            |row,heap|{s.snapshot.put_body(row,heap);s.snapshot.put_controls(row,heap);s.snapshot.put_native_controls(row,heap)}) {
+            |row,heap|{s.snapshot.value.put_body(row,heap);s.snapshot.put_controls(row,heap)}) {
             return changed;
         }
     }
@@ -525,10 +563,11 @@ fn queue_intent_publication(reference:Ref<Unit>)->bool {
     if state().publication_marks[reference.slot as usize]==Some(reference.gen) {return queue_publication(reference,false);}
     let unit=sim().store.unit.get(reference).expect("owned AI input row");
     let s=state();stage_controls(&mut s.snapshot,reference,unit);
+    if s.snapshot.held.is_none() {return queue_publication(reference,false);}
     let base=crate::store::block::HEADER;
     let changed=s.publication[reference.slot as usize].prepare_retained(reference.slot,reference.gen,F3Publication::WORDS,
         &[base+F3Publication::CONTROLS..base+F3Publication::WORDS],|row,heap|{
-            s.snapshot.put_controls(row,heap);s.snapshot.put_native_controls(row,heap);row[F3Publication::NATIVE_INTENT]=f64::from(s.snapshot.native_intent);
+            s.snapshot.put_controls(row,heap);
         });
     queue_encoded(reference,changed.unwrap_or_else(||encode_publication(reference,false)))
 }
@@ -544,6 +583,7 @@ fn queue_encoded(reference:Ref<Unit>,changed:bool)->bool {
     changed||pending
 }
 pub(crate) fn publish(reference: Ref<Unit>) {
+    if crate::world::deferred() {state().owner.mark(reference);return;}
     let _allocations=crate::allocations::at(F3AllocationStage::Publication);
     acknowledge_publication();
     let changed=queue_publication(reference,false);
@@ -571,6 +611,7 @@ fn completed_tick(reference: Ref<Unit>) {
     state().completed.push(reference);
 }
 fn publish_changed_at(body_only:Option<Ref<Unit>>,publish_intents:bool) {
+    if crate::world::deferred() {crate::vehicles::module::f2::publish_pending();crate::ai::owned::entry::publish_controls();return;}
     crate::battle::f4_core::publish();
     crate::battle::f4_live::publish();
     crate::vehicles::module::f2::publish_pending();
@@ -580,7 +621,7 @@ fn publish_changed_at(body_only:Option<Ref<Unit>>,publish_intents:bool) {
     let mut changed=false;
     for i in 0..state().owner.changed().len() {
         let reference=state().owner.changed()[i];
-        let weapon=state().weapon_marked[reference.slot as usize]==Some(reference.gen);
+        let weapon=state().ai_full_marked[reference.slot as usize]==Some(reference.gen);
         changed|=queue_publication(reference,body_only==Some(reference)&&!weapon);
     }
     let mut retained=0;
@@ -594,11 +635,11 @@ fn publish_changed_at(body_only:Option<Ref<Unit>>,publish_intents:bool) {
                 // following unit span. A full lifecycle row supersedes it.
                 state().intent_changed[retained]=reference;retained+=1;continue;
             }
-            changed|=if state().weapon_marked[reference.slot as usize]==Some(reference.gen) {
+            changed|=if state().ai_full_marked[reference.slot as usize]==Some(reference.gen) {
                 queue_publication(reference,false)
             }else{queue_intent_publication(reference)};
         }
-        let weapon=&mut state().weapon_marked[reference.slot as usize];
+        let weapon=&mut state().ai_full_marked[reference.slot as usize];
         if *weapon==Some(reference.gen) {*weapon=None;}
         let stamp=&mut state().intent_marked[reference.slot as usize];
         if *stamp==Some(reference.gen) {*stamp=None;}
@@ -673,7 +714,7 @@ pub extern "C" fn f3_adopt() -> u32 {
     { let s = state(); s.completed.reserve(capacity.saturating_sub(s.completed.len())); s.intent_changed.reserve(capacity.saturating_sub(s.intent_changed.len())); }
     let size = state().categories.len().max(capacity).max(slot as usize + 1);
     state().intent_marked.resize(size,None);
-    state().weapon_marked.resize(size,None);
+    state().ai_full_marked.resize(size,None);
     state().phase_inputs.resize(size,None);
     { let s=state();s.phase_input_slots.reserve(size.saturating_sub(s.phase_input_slots.len())); }
     state().categories.resize(size, 0);
@@ -708,8 +749,10 @@ pub extern "C" fn f3_adopt() -> u32 {
         state().publication.resize_with(slot as usize+1,||crate::vehicles::f2_delta::Cache::new(0));
     }
     state().publication_marks.resize(state().publication.len(),None);
+    // Both cache banks must fit a foreign control record from construction;
+    // a player/corpse publication cannot grow the second bank on its next tick.
     let words=crate::store::block::HEADER+F3Publication::WORDS+
-        weapons*F3WeaponView::WORDS;
+        weapons*F3WeaponView::WORDS+F3ControlView::WORDS;
     state().publication[slot as usize]=crate::vehicles::f2_delta::Cache::borrowed(words);
 
     let bindings = &mut state().random_bindings;
@@ -825,7 +868,10 @@ fn step(count: u32, dt: f64, level: f64, mut recon: Option<crate::units::f3::Wor
     for i in 0..count as usize {
         let at=i*F3PhaseInput::WORDS;
         let key=F3UnitKey::take(&state().input[at+F3PhaseInput::KEY..at+F3PhaseInput::KEY+F3UnitKey::WORDS],&[]);
-        if key.validate(&sim().store).is_err() {state().running=false;finish_allocations(allocations);return 0;}
+        if key.validate(&sim().store).is_err() {
+            if crate::world::deferred() {continue;}
+            state().running=false;finish_allocations(allocations);return 0;
+        }
         let slot=key.slot as usize;
         if state().phase_inputs.get(slot).is_none() || state().phase_inputs[slot].is_some() ||
             state().phase_input_slots.len()==state().phase_input_slots.capacity() {
@@ -841,6 +887,7 @@ fn step(count: u32, dt: f64, level: f64, mut recon: Option<crate::units::f3::Wor
         let (reference,mut input)=if i<count as usize {
             let at=i*F3PhaseInput::WORDS;
             let input=F3PhaseInput::take(&state().input[at..at+F3PhaseInput::WORDS],&[]);
+            if crate::world::deferred() && input.key.validate(&sim().store).is_err() {continue;}
             (input.key.reference(),Some(input))
         }else{
             let reference=state().owner.built()[i-count as usize];
@@ -850,7 +897,15 @@ fn step(count: u32, dt: f64, level: f64, mut recon: Option<crate::units::f3::Wor
             (reference,None)
         };
         let ai_owned=recon.as_ref().and_then(|services|services.ai.as_ref()).is_some_and(|ai|ai.owns_intent(&sim().store,reference));
-        if !ai_owned {
+        // The enclosing input was prepared before AI. Boarding can move
+        // this controller to a native SeatUnit in that interval, leaving no
+        // foreign foot-intent row. Its canonical seated body remains current.
+        let retained_body=crate::world::deferred() && sim().store.unit.get(reference).is_some_and(|unit| {
+            unit.combat.dead || unit.seat.is_some() && unit.character
+                .and_then(|character|sim().store.character.get(character))
+                .is_some_and(|character|character.unit==Some(reference)&&character.controller.is_some())
+        });
+        if !ai_owned && !retained_body {
             let Some(input)=input.as_mut() else {
                 if recon.as_ref().is_some_and(|services|services.ai.is_some()) {
                     state().running=false;finish_allocations(allocations);return 0;
@@ -1423,11 +1478,11 @@ pub(crate) fn wire_visible(reference: Ref<Unit>, unit: &Unit) -> bool {
 // correction fields remain here because network capture reads their timers.
 // Reuse the weapon capacity. Native notification latches and pending muzzle
 // shots have no foreign reader, so publication never stages those lists.
-fn stage(out: &mut F3Publication, reference: Ref<Unit>, unit: &Unit) {
-    out.arsenal = state().arsenals[reference.slot as usize];
-    stage_body(out,reference,unit);
+fn stage(out: &mut PublicationSnapshot, reference: Ref<Unit>, unit: &Unit) {
+    out.value.arsenal = state().arsenals[reference.slot as usize];
+    stage_body(&mut out.value,reference,unit);
     let c = &unit.combat;
-    let v = &mut out.combat;
+    let v = &mut out.value.combat;
     v.health = c.health;
     v.dead = c.dead;
     v.death_time = c.death_time;
@@ -1470,20 +1525,19 @@ fn stage_body(out:&mut F3Publication,reference:Ref<Unit>,unit:&Unit) {
     if let Some(visible) = crate::vehicles::module::f2::live_seats::visible(unit) { out.body.visible &= visible; }
     if unit.dead && state().hidden_crew[reference.slot as usize] == Some((reference,unit.generation)) { out.body.visible = false; }
 }
-fn stage_controls(out:&mut F3Publication,reference:Ref<Unit>,unit:&Unit) {
+fn stage_controls(out:&mut PublicationSnapshot,reference:Ref<Unit>,unit:&Unit) {
     // Native F3 consumes bot controls directly. Only the held fields that
     // JavaScript still reads leave this owner; input and latch rows remain
     // native. Foreign controls keep their complete restoration contract.
     let i=&unit.intent;
-    out.native_intent=state().native_intents[reference.slot as usize]==Some(reference);
-    if out.native_intent {
-        out.controls=None;
-        out.native_controls=Some(F3NativeIntent {forward:i.forward,right:i.right,turn:i.turn,pitch:i.pitch,
+    if state().native_intents[reference.slot as usize]==Some(reference) {
+        out.held=Some(F3NativeIntent {forward:i.forward,right:i.right,turn:i.turn,pitch:i.pitch,
             buttons:i.buttons,aim:i.aim});
         return;
     }
-    out.native_controls=None;
-    let controls=out.controls.get_or_insert_with(F3ControlView::default);
+    out.held=None;
+    let F3PublishedControls::F3ForeignControls(foreign)=&mut out.value.controls else{unreachable!()};
+    let controls=&mut foreign.values[0];
     controls.intent=i.clone();
     controls.was = unit.controls.was;
     controls.pressed0 = unit.controls.pressed.first().copied().unwrap_or(false);
@@ -2068,10 +2122,10 @@ pub(crate) fn intent_changed(reference:Ref<Unit>) {
     if *stamp==Some(reference.gen) {return;}
     *stamp=Some(reference.gen);s.intent_changed.push(reference);
 }
-// AI prepareSpread keeps its separate clear/restore writes. Only encoding
-// waits for the following unit phase; synchronous barriers still flush it.
-pub(crate) fn weapon_changed(reference:Ref<Unit>) {
-    state().weapon_marked[reference.slot as usize]=Some(reference.gen);
+// AI navigation avoidance and prepareSpread keep their source writes. Only
+// encoding waits for the following unit phase; synchronous barriers flush it.
+pub(crate) fn ai_changed(reference:Ref<Unit>) {
+    state().ai_full_marked[reference.slot as usize]=Some(reference.gen);
     intent_changed(reference);
 }
 pub(crate) fn changed(reference: Ref<Unit>) {
@@ -2102,11 +2156,13 @@ fn begin_events() {
         state().event_epoch=state().event_epoch.wrapping_add(1);
     }
     let s = state();
-    // The previous outer return consumed its publication. Start this epoch
-    // empty, but retain a source across empty barriers within the new span.
+    // A whole-world entry can cross several owner boundaries without a host
+    // read. Keep the unread block across empty phases until acknowledgement.
     s.layout.version = s.layout.version.wrapping_add(1);
-    s.layout.output_rows = 0;
-    s.layout.output_words = 0;
+    if s.publication_ready.is_empty() {
+        s.layout.output_rows = 0;
+        s.layout.output_words = 0;
+    }
 }
 
 /// F4 and F5 borrow the actual generated store and ownership bookkeeping.
@@ -2193,7 +2249,7 @@ pub(crate) fn reserve_native_slots(count:usize) {
     s.completed.reserve(count.saturating_sub(s.completed.len()));
     s.intent_changed.reserve(count.saturating_sub(s.intent_changed.len()));
     s.intent_marked.resize(count,None);
-    s.weapon_marked.resize(count,None);
+    s.ai_full_marked.resize(count,None);
     s.phase_inputs.resize(count,None);
     s.phase_input_slots.reserve(count.saturating_sub(s.phase_input_slots.len()));
     s.publication_ready.reserve(count.saturating_sub(s.publication_ready.len()));
@@ -2278,5 +2334,18 @@ pub(crate) fn native_intent(reference:Ref<Unit>,owned:bool) {
 }
 
 /// Encoded outer payload size, without another export or body traversal.
+// Empty native services may return without opening another event epoch only
+// after every changed body and notification has reached its foreign reader.
+pub(crate) fn settled()->bool {
+    let deferred=crate::world::deferred();
+    let s=state();
+    // Within the enclosing world tick these rows and notices are already
+    // canonical. Their deferred facade bytes require no new danger loan.
+    if deferred {return !s.running;}
+    !s.running && s.owner.changed().is_empty() && s.completed.is_empty() && s.intent_changed.is_empty()
+        && s.acknowledgement[F3Acknowledgement::VERSION] as u32==s.layout.version
+        && (sim().events.is_empty() || (s.acknowledgement[F3Acknowledgement::EVENT_EPOCH] as u32==s.event_epoch
+            && s.acknowledgement[F3Acknowledgement::EVENT_OFFSET] as usize==sim().events.len()))
+}
 pub(crate) fn output_words()->u32 {state().layout.output_words}
 pub(crate) fn publication_version()->u32 {state().layout.version}

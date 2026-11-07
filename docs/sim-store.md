@@ -71,6 +71,22 @@ nothing measurable (interleaved 40-second runs, three of each: page CPU
 it). A `.wasm` asset would save the decode and some of the compile; it is
 worth it when the module is several times larger, measured then.
 
+## The authoritative world tick
+
+`WorldTickInput` is a reserved generated command record. The host prepares
+external input facts in the owners' retained banks, enters `world_step_run`
+once, and reads `WorldTickOutput` after the native interval. Rust advances
+water, squad orders, the viewpoint clock and authority camera, then AI,
+units/fleet/recon/separation, live objects, ordnance, item targets/items,
+the battle tail and grenade dangers in that order. The phase entries share
+canonical stores and keep their synchronous shot, damage and death samples.
+
+Mirror banks commit at the completed tick boundary. Dirty rows, retired
+leases and ordered notices survive intervening phases, so their deltas are
+always relative to the host's consumed baseline. Camera and other retained
+presentation readers consume that completed output; no `worldStep` host
+import dispatches simulation phases.
+
 ## Memory
 
 A battle's instance starts with the module's statics and stack, and its

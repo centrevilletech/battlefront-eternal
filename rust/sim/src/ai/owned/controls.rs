@@ -306,6 +306,15 @@ impl HullControls {
         let point=|p:[f64;3]|crate::ai::nav::math::Vec3::new(p[0],p[1],p[2]);
         Some(crate::ai::control::world::UnitMotion {id:b.id,position:point(h.position),velocity:Some(point(h.velocity))})
     }
+    /// scan and leadPoint observe neither rider Character nor tow/class
+    /// snapshots. Keep combat_unit's qualified holder and prepared-class gates.
+    pub fn sensor(&self,store:&Store,control:Ref<SeatUnit>)->Option<crate::ai::combat::world::UnitSensor> {
+        let (binding,hull,lease)=self.live(store,control)?;self.classes.get(binding.policy?)?;
+        Some(crate::ai::combat::world::UnitSensor {generation:1.,kind:binding.kind,team:lease.team,human:false,
+            position:three::Vector3::new(hull.position[0],hull.position[1],hull.position[2]),
+            velocity:Some(three::Vector3::new(hull.velocity[0],hull.velocity[1],hull.velocity[2])),
+            controller:binding.controller,collision_category:None})
+    }
     pub fn combat_unit(
         &self,
         store: &Store,

@@ -21,7 +21,7 @@ notices return at the outer boundary.
 
 During `Game.step`, the native unit phase immediately follows AI and reads
 its canonical controls directly. Ordinary bot intent edits join that phase's
-completed body publication instead of crossing to the host twice. Foot weapon
+completed body publication instead of crossing to the host twice. Navigation avoidance, foot weapon
 tuning and selection share that boundary, including clear/restore writes whose
 final values equal the prior snapshot. A synchronous observer still flushes
 the complete touched arsenal before its callback. Damage,
@@ -79,14 +79,16 @@ edits dirty the active seat owner, preserving sparse publication across loans.
 Scheduler and combat queries borrow compact canonical motion and policy facts.
 Immutable class and weapon definitions are shared; reading a definition does
 not copy runtime ammunition, clocks or spread. Seat geometry reads retained
-native frames. Foot forward observations reuse exact angle bits until either
+native frames. Mounted sensor, controller, velocity and life observations keep
+the full reader's qualified holder gates without resolving an unrelated rider
+Character, tow state or class snapshot. Foot forward observations reuse exact angle bits until either
 angle, storage generation or gameplay life changes. Non-finite angles retain
 the original calculation, and capacity overflow computes without caching.
 Pure weapon/range queries and post-movement aim prepare only
 their observed fields; Character identity is retained for the controller's
 qualified storage life. Fire consumption prepares current targeting, difficulty
 and fire requests, then returns only the two requests; alert and helper state
-stays retained. Fire and spread flags are prepared as one byte, and idle foot
+stays retained. Fire and spread flags are prepared as one byte, and idle
 burst requests do not copy unused weapon clocks. Foot tuning writes touch only
 changed values, preserving the source's separate yaw clear and restore writes.
 Target scoring reads its canonical objective only
@@ -94,7 +96,11 @@ when the target is a post. A body's canonical controller reference resolves
 post-movement aim without a second controller map lookup. Tracker reads,
 candidate cleanup and the skip marker use their
 retained combat state without copying unrelated controller requests. Empty
-journal intake does no combat feed; deferred sight prepares only qualified
+journal intake does no combat feed. Targeted shot and damage intake coalesces
+only each notified controller's latest source and last known point, then applies
+the original notifyShot operation to Core. Other journal records still consume
+ring capacity and advance the reader. Unrelated alert queues and policy requests
+never make a control/combat round trip; deferred sight prepares only qualified
 queued clients. Queue order, life validation and budgets remain unchanged.
 Reused controller storage clears its sight-visit mark, including across counter
 wrap. The Classic LOD calculations and observation order stay intact.

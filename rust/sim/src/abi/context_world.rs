@@ -2,7 +2,7 @@
 //! they do not install any of the remaining subsystem singleton owners.
 use super::{Context, Error, Failure, Record};
 use crate::gen::*;
-use crate::world::{events, local, network, step};
+use crate::world::{events, local, network};
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 
 #[derive(Debug)]
@@ -120,36 +120,6 @@ impl Context {
         .map(|(state, ())| state)
     }
 
-    /// Returns and publishes the final host facts; the WASM step export is
-    /// void because its host already has these facts in its world objects.
-    pub fn world_step(
-        &self,
-        input: WorldStepInput,
-    ) -> Result<WorldStepState, WorldFailure<WorldStepState>> {
-        self.world_step_with_cleanup(input, |_, _, _| Ok(()))
-    }
-
-    /// The host owns grenade iterators and their body-entry flags. On an
-    /// explicit callback failure it can close a suspended iterator here,
-    /// before the original error/partial state is returned. The context is
-    /// still in flight, so reentry is allowed and disposal is rejected.
-    /// Cleanup may refresh state and return an Error, which is ignored in
-    /// favor of the original. Rust panics are not host errors and propagate.
-    pub fn world_step_with_cleanup(
-        &self,
-        input: WorldStepInput,
-        cleanup: impl FnOnce(&Context, &mut WorldStepState, &Error) -> Result<(), Error>,
-    ) -> Result<WorldStepState, WorldFailure<WorldStepState>> {
-        self.world_run(
-            input.state,
-            |state, host| step::step(state, input.tick, host),
-            WorldStepState::WORDS,
-            WorldStepState::put,
-            cleanup,
-        )
-        .map(|(state, ())| state)
-    }
-
     pub fn world_network(
         &self,
         input: WorldNetworkInput,
@@ -211,18 +181,6 @@ impl local::Host for Host<'_> {
         );
         self.accept(reply, state, WorldLocalReply::take, |r| r.state.clone())
             .value
-    }
-}
-impl step::Host for Host<'_> {
-    fn call(
-        &mut self,
-        state: &mut WorldStepState,
-        op: WorldStepCall,
-        value: f64,
-        flag: bool,
-    ) -> WorldStepReply {
-        let reply = import_world_step_in(self.context, &WorldStepArgs { op, value, flag });
-        self.accept(reply, state, WorldStepReply::take, |r| r.state.clone())
     }
 }
 impl network::Host for Host<'_> {

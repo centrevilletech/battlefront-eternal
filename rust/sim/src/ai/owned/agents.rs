@@ -93,6 +93,7 @@ impl Agents {
     pub fn get_mut(&mut self, entities: &Entities, key: Obj) -> Option<&mut Agent> {
         self.rows.get_mut(Self::reference(entities, key)?)
     }
+    pub fn get_core(&self,core:usize)->Option<&Agent> {self.rows.get(self.by_core.get(core)?)}
     pub fn key(&self, core: usize) -> Option<Obj> {
         Some(self.rows.get(self.by_core.get(core)?)?.obj)
     }

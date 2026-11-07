@@ -24,5 +24,5 @@ test('native water grid is positive Z and independent of the negative-Z foliage 
   assert.equal(w.crossing(new THREE.Vector3(40,-72,17),new THREE.Vector3(40,-73,17),hit),hit);
   assert.equal(hit.y,-72.5);
   assert.equal(w.crossing(new THREE.Vector3(40,-73,17),new THREE.Vector3(40,-72,17),hit),null);
-  w.step(1);assert.equal(w.level,-72.5);
+  assert.equal(w.level,-72.5);
 });

@@ -12,7 +12,8 @@ test('held input follows its qualified publication and preserves foreign command
   const reader=observeNativeIntent(binding,phase,intent);
   intent.forward=.625;intent.right=-.375;intent.buttons[0]=3;
   assert.equal(intent.forward,.625);
-  const row=()=>binding.wordsAt+BlockHeaderLayout.words+P.nativeControls+1;
+  const row=()=>binding.wordsAt+BlockHeaderLayout.words+P.controls+1;
+  phase.bridge.f[row()-1]=1;
   const foreign=intent;binding.nativeIntent=true;intent=reader.intent;
   assert.equal(intent.forward,0,'ownership restores equal zero words without a decode');
   phase.bridge.f[row()+I.forward]=-.75;
@@ -28,6 +29,7 @@ test('held input follows its qualified publication and preserves foreign command
   // Publication banks and memory views can move between observations.
   binding.wordsAt=1024;
   phase.bridge.f=new Float64Array(4096);
+  phase.bridge.f[row()-1]=1;
   phase.bridge.f[row()+I.forward]=.25;
   phase.bridge.f[row()+I.aim]=1;
   assert.equal(intent.forward,.25);

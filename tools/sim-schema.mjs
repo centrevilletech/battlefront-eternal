@@ -652,11 +652,16 @@ function rustUnion(model, u) {
   const first = u.variants[0];
   lines.push('}', '', `impl Default for ${u.name} {`, `    fn default() -> Self { ${u.name}::${first.rust}${first.tag === 'ref' ? '(Ref::new(0, 0))' : first.tag === 'value' ? '(Default::default())' : ''} }`, '}', '', `impl ${u.name} {`);
   lines.push(`    pub const WORDS: usize = ${unionWords(model, u)};`, '');
-  lines.push('    /// Its row words: the variant, then its value (a reference\'s slot and generation).', '    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {', `        row[1..${unionWords(model, u)}].fill(0.0);`, '        match self {');
+  lines.push('    /// Its row words: the variant, then its value (a reference\'s slot and generation).', '    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {', '        match self {');
+  // Each generated payload writer fills its entire fixed span, including
+  // nested optional padding. Clear only the unused suffix of this variant;
+  // clearing the payload first would write every body and control row twice.
   u.variants.forEach((v, i) => {
-    if (v.tag === 'ref') lines.push(`            ${u.name}::${v.rust}(r) => { row[0] = ${i}.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }`);
-    else if (v.tag === 'value') lines.push(`            ${u.name}::${v.rust}(v) => { row[0] = ${i}.0; ${rustPut(model, v.type, deref(v.type), 1)} }`);
-    else lines.push(`            ${u.name}::${v.rust} => row[0] = ${i}.0,`);
+    const end = 1 + (v.tag === 'ref' ? 2 : v.tag === 'value' ? words(model, v.type) : 0);
+    const padding = end < unionWords(model, u) ? `row[${end}..${unionWords(model, u)}].fill(0.0); ` : '';
+    if (v.tag === 'ref') lines.push(`            ${u.name}::${v.rust}(r) => { row[0] = ${i}.0; ${padding}row[1] = r.slot as f64; row[2] = r.gen as f64; }`);
+    else if (v.tag === 'value') lines.push(`            ${u.name}::${v.rust}(v) => { row[0] = ${i}.0; ${padding}${rustPut(model, v.type, deref(v.type), 1)} }`);
+    else lines.push(`            ${u.name}::${v.rust} => { row[0] = ${i}.0; ${padding} },`);
   });
   lines.push('        }', '    }', '', '    pub fn take(row: &[f64], heap: &[f64]) -> Self {', '        match word_u32(row[0]) {');
   u.variants.forEach((v, i) => {

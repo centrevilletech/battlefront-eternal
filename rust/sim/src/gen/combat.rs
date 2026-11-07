@@ -263,11 +263,10 @@ impl Attacker {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
-            Attacker::Undefined => row[0] = 0.0,
-            Attacker::Null => row[0] = 1.0,
-            Attacker::Player => row[0] = 2.0,
+            Attacker::Undefined => { row[0] = 0.0; row[1..3].fill(0.0);  },
+            Attacker::Null => { row[0] = 1.0; row[1..3].fill(0.0);  },
+            Attacker::Player => { row[0] = 2.0; row[1..3].fill(0.0);  },
             Attacker::Unit(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             Attacker::Vehicle(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             Attacker::OwnerSnapshot(r) => { row[0] = 5.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
@@ -305,7 +304,6 @@ impl RepairTarget {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
             RepairTarget::Turret(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             RepairTarget::Building(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }

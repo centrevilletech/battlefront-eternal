@@ -252,8 +252,8 @@ pub(crate) fn changed(frame: F3BuildingState) {
     let body = entry.frame();
     commit(frame.index as usize, &body);
 }
-// The synchronous foreign leaf receives only this touched row. Ordinary prop
-// readers keep their existing object, body and model identities throughout it.
+// The ordered notification retains this touched row at its source point.
+// Facade readers keep their existing object, body and model identities.
 fn snapshot(index: usize) -> F3BuildingState {
     let entry = &f3::props().entries[index];
     F3BuildingState {
@@ -309,10 +309,10 @@ struct BuildingWorld<'a> {
 impl BuildingWorld<'_> {
     fn leaf(&mut self, frame: &props::Building, kind: F3PropEffectKind) {
         commit(self.index, frame);
-        // Publish native victims and structural owner births before the prop
-        // callback can read them. This leaf cannot enter a simulation adapter.
-        f3::foreign_barrier();
-        import_f3_prop_effect(&F3PropEffect { kind, state: snapshot(self.index) });
+        // Building.show/onDestroyed observe this source-point state. Record
+        // it beside recursive deaths and shots; facade delivery cannot lend
+        // the authoritative world back to JavaScript mid-tick.
+        F3PropEffect {kind,state:snapshot(self.index)}.emit(&mut sim().events);
     }
     // Building.destroyed resumes after any immediate nested explosion. Reload
     // the live row, rather than overwriting what recursive damage left there.
@@ -333,7 +333,7 @@ impl props::World for BuildingWorld<'_> {
     }
     fn destroyed(&mut self, frame: &mut props::Building) {
         // Building.onDestroyed follows crew death and precedes changing looks.
-        // Headless worlds use this declared F4 leaf for foreign bookkeeping.
+        // The ordered facade notice carries the already completed native death.
         self.leaf(frame, F3PropEffectKind::Destroyed);
         self.reload(frame);
     }

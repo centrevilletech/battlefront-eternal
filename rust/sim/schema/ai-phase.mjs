@@ -5,7 +5,7 @@ export default {
     AiClassScalar: ['undefined', 'null', 'bool', 'f64', 'str'],
     AiActor: ['ref:unit', 'ref:seatUnit'],
   },
-  enums: { AiJournalKind: ['shot', 'damage'] },
+  enums: { AiDangerResult: ['inactive', 'published', 'unchanged'], AiJournalKind: ['shot', 'damage'] },
   records: {
     // Cold service presence is distinct from an empty native table. The
     // live host loads this once; no per-controller options cross a phase.

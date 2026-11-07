@@ -8,12 +8,7 @@
 const enter = (name) => `globalThis.__bfePhase?.enter(${JSON.stringify(name)});`;
 const exit = (name) => `globalThis.__bfePhase?.exit(${JSON.stringify(name)});`;
 // A statement (or a run of them) wrapped in a phase.
-const around = (name, anchor) => {
-  const label = anchor.match(/^(\s*case '[^']+': )/);
-  if (!label) return { anchor, text: `${enter(name)}${anchor}${exit(name)}` };
-  const body = anchor.slice(label[0].length).replace(/ break;$/, '');
-  return { anchor, text: `${label[0]}${enter(name)}${body}${exit(name)}break;` };
-};
+const around = (name, anchor) => ({anchor,text:`${enter(name)}${anchor}${exit(name)}`});
 // Markers before two anchors: the phase is what runs between them.
 const span = (name, from, to) => [{ anchor: from, text: `${enter(name)}${from}` }, { anchor: to, text: `${exit(name)}${to}` }];
 
@@ -23,21 +18,13 @@ export const EDITS = {
       text: 'const sampled = riderPoints(animator, sample, heldScratch.points); globalThis.__bfePropsRider?.(unit, grab.clip, sample.time, Boolean(sampled), heldScratch.points.root, heldScratch.points.rootTurn); if (!sampled) return null;' },
   ],
   '/src/game.js': [
-    { anchor: "        case 'start': {", text: `        case 'start': {${enter('begin')}` },
-    { anchor: "        case 'cameraMatrix': break;", text: `        case 'cameraMatrix': ${exit('begin')}break;` },
-    around('ai', '          ai.update(dt,tick,true);'),
-    // The unit owner includes fleet, seats, recon and separation. Their
-    // old individual markers remain only in historical capture metadata.
-    around('unitTick', '          unitsSim.phase(dt, tick);'),
-    around('live', "        case 'live': game.liveOwner.step(dt, tick); break;"),
-    around('ordnance', "        case 'ordnance': ordnance.update(dt, false); break;"),
-    around('items', "        case 'items': items.update(dt, mineTargets); break;"),
-    around('battlefield', "        case 'battlefield': game.tailOwner.step(dt,tick,Boolean(game.serverWorld),tickHuman); tickHuman=null; break;"),
-    around('battle', "        case 'battle': presentBattle(dt); break;"),
-    around('targetHud', "        case 'target': updateTargetHud(dt); ai?.dangers?.(); break;"),
-    { anchor: "        case 'grenades': context.grenades = ordnance.grenades; context.grenadeIndex = 0; break;", text: `        case 'grenades': ${enter('aiGrenades')}context.grenades = ordnance.grenades; context.grenadeIndex = 0; break;` },
-    { anchor: '          if (context.grenadeIndex >= context.grenades.length) { context.grenades = null; return false; }', text: `          if (context.grenadeIndex >= context.grenades.length) { ${exit('aiGrenades')}context.grenades = null; return false; }` },
-    around('spawnFlush', "        case 'spawnFlush': humanSpawn.flush(); if (vehicles?.f2?.debug) vehicles.f2.check(); break;"),
+    {anchor:'  function step(dt,tick,recordedCommand=null) {',text:`  function step(dt,tick,recordedCommand=null) {${enter('begin')}`},
+    {anchor:'    worldTick.run(dt,tick,Boolean(game.serverWorld),command.human,Boolean(ai),Boolean(live),',
+      text:`${exit('begin')}${enter('worldTick')}    worldTick.run(dt,tick,Boolean(game.serverWorld),command.human,Boolean(ai),Boolean(live),`},
+    {anchor:'    worldTick.finish();',text:`    worldTick.finish();${exit('worldTick')}`},
+    around('battle','    presentBattle(dt);'),
+    around('targetHud','    updateTargetHud(dt);'),
+    around('spawnFlush','    humanSpawn.flush();'),
   ],
   '/src/runtime/multiplayer-world.js': [
     around('hitHistory', '      hitHistory.capture(game.worldClock.tick);\n'),

@@ -38,6 +38,53 @@ export const ShapePart_NAMES = ["body","head"];
 export const ShapePart_INDEX = new Map(ShapePart_NAMES.map((name, i) => [name, i]));
 export const ShapePart_VALUE = Object.freeze({"body":0,"head":1});
 
+export function variantOfF3PublishedControls(b, x) {
+  if (b?.recordTests?.F3ForeignControls?.(x)) return 0;
+  if (b?.recordTests?.F3NativeIntent?.(x)) return 1;
+  return -1;
+}
+
+// Which of F3PublishedControls's variants a value is.
+export function whichF3PublishedControls(b, x) {
+  const i = variantOfF3PublishedControls(b, x);
+  if (i < 0) throw Error(`F3PublishedControls: ${x?.constructor?.name ?? x} is none of its variants`);
+  return i;
+}
+
+// An export row's union (from `at`) as a value: a vector or record the field held, if it is of the variant, read into in place.
+export function syncF3PublishedControls(b, f, at, h, current) {
+  switch (f[at]) {
+    case 0: { let v = variantOfF3PublishedControls(b, current) === 0 ? current : undefined; v = syncF3ForeignControls(b, f, at + 1, h, v ?? new F3ForeignControlsMirror()); return v; }
+    case 1: { let v = variantOfF3PublishedControls(b, current) === 1 ? current : undefined; v = syncF3NativeIntent(b, f, at + 1, h, v ?? new F3NativeIntentMirror()); return v; }
+    default: throw Error('F3PublishedControls: no such variant');
+  }
+}
+
+export function putF3PublishedControls(b, x, f, at, heap) {
+  const i = whichF3PublishedControls(b, x);
+  f.fill(0, at + 1, at + 11);
+  f[at] = i;
+  switch (i) {
+    case 0: { putF3ForeignControls(b, x, f, at + 1, heap); break; }
+    case 1: { putF3NativeIntent(b, x, f, at + 1, heap); break; }
+  }
+}
+
+export function sameF3PublishedControls(x, y) {
+  if (Object.is(x, y)) return true;
+  if (x === null || y === null || x === undefined || y === undefined) return false;
+  if (typeof x === "object" && typeof y === "object" && sameF3ForeignControls(x, y) === null) return true;
+  if (typeof x === "object" && typeof y === "object" && sameF3NativeIntent(x, y) === null) return true;
+  return false;
+}
+
+export function exportF3PublishedControls(x, cx) {
+  switch (whichF3PublishedControls(cx, x)) {
+    case 0: return Object.assign({ $record: "F3ForeignControls" }, exportF3ForeignControls(x, cx));
+    case 1: return Object.assign({ $record: "F3NativeIntent" }, exportF3NativeIntent(x, cx));
+  }
+}
+
 export function variantOfMember(b, x) {
   if (b?.refs[KIND_VEHICLE_TARGET].is(x)) return 1;
   if (b?.refs[KIND_TURRET_TARGET].is(x)) return 2;
@@ -450,7 +497,40 @@ export function exportF3ControlView(o, cx) {
   return v;
 }
 
-export const F3PublicationLayout = Object.freeze({ words: 207, body: 0, arsenal: 103, combat: 104, controls: 148, nativeIntent: 195, nativeControls: 196, bodyWords: 103, controlsWords: 47, nativeControlsWords: 11 });
+export const F3ForeignControlsLayout = Object.freeze({ words: 2, values: 0, valuesLength: 1 });
+export const F3_FOREIGN_CONTROLS_WORDS = F3ForeignControlsLayout.words;
+export const F3_FOREIGN_CONTROLS_OFFSETS = F3ForeignControlsLayout;
+
+export class F3ForeignControlsMirror {
+  constructor() {
+    this.values = [];
+  }
+}
+
+export function syncF3ForeignControls(b, f, at, h, m) {
+  { const items = (m.values ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 46; v = syncF3ControlView(b, f, at + 0, h, v ?? new F3ControlViewMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putF3ForeignControls(b, o, f, at, heap) {
+  heap.items(o.values, f, at + 0, 46, (f, at, v) => { putF3ControlView(b, v, f, at + 0, heap); });
+}
+
+export function sameF3ForeignControls(a, b) {
+  if (!sameEach(a.values, b.values, (x, y) => sameF3ControlView(x, y) === null)) return ".values";
+  return null;
+}
+
+export function exportF3ForeignControls(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.values = o.values.map((x) => exportF3ControlView(x, cx));
+  return v;
+}
+
+export const F3PublicationLayout = Object.freeze({ words: 159, body: 0, arsenal: 103, combat: 104, controls: 148, bodyWords: 103, arsenalWords: 1, combatWords: 44, controlsWords: 11 });
 export const F3_PUBLICATION_WORDS = F3PublicationLayout.words;
 export const F3_PUBLICATION_OFFSETS = F3PublicationLayout;
 
@@ -460,8 +540,6 @@ export class F3PublicationMirror {
     this.arsenal = 0;
     this.combat = new F3CombatViewMirror();
     this.controls = null;
-    this.nativeIntent = false;
-    this.nativeControls = null;
   }
 }
 
@@ -469,9 +547,7 @@ export function syncF3Publication(b, f, at, h, m) {
   m.body = syncF3UnitMirror(b, f, at + 0, h, m.body ?? new F3UnitMirrorMirror());
   m.arsenal = f[at + 103] >>> 0;
   m.combat = syncF3CombatView(b, f, at + 104, h, m.combat ?? new F3CombatViewMirror());
-  { const tag = f[at + 148]; if (tag === 0) { m.controls = syncF3ControlView(b, f, at + 149, h, m.controls ?? new F3ControlViewMirror()); } else m.controls = tag === 1 ? null : undefined; }
-  m.nativeIntent = f[at + 195] !== 0;
-  { const tag = f[at + 196]; if (tag === 0) { m.nativeControls = syncF3NativeIntent(b, f, at + 197, h, m.nativeControls ?? new F3NativeIntentMirror()); } else m.nativeControls = tag === 1 ? null : undefined; }
+  m.controls = syncF3PublishedControls(b, f, at + 148, h, m.controls);
   return m;
 }
 
@@ -480,9 +556,7 @@ export function syncF3PublicationDelta(b, f, at, h, m, d, force = false, base = 
   if ((force || (deltaChanged(d, at + 0, 103, base)))) { m.body = syncF3UnitMirrorDelta(b, f, at + 0, h, m.body, d, force, base); }
   m.arsenal = f[at + 103] >>> 0;
   if ((force || (deltaChanged(d, at + 104, 44, base) || deltaChanged(d, h + f[at + 146], f[at + 147] * 42, base)))) { m.combat = syncF3CombatViewDelta(b, f, at + 104, h, m.combat, d, force, base); }
-  { const tag = f[at + 148]; if (tag === 0) { const fresh = !m.controls || deltaChanged(d, at + 148, 1, base); m.controls = syncF3ControlViewDelta(b, f, at + 149, h, m.controls ?? new F3ControlViewMirror(), d, force || fresh, base); } else m.controls = tag === 1 ? null : undefined; }
-  m.nativeIntent = f[at + 195] !== 0;
-  { const tag = f[at + 196]; if (tag === 0) { const fresh = !m.nativeControls || deltaChanged(d, at + 196, 1, base); m.nativeControls = syncF3NativeIntentDelta(b, f, at + 197, h, m.nativeControls ?? new F3NativeIntentMirror(), d, force || fresh, base); } else m.nativeControls = tag === 1 ? null : undefined; }
+  m.controls = syncF3PublishedControls(b, f, at + 148, h, m.controls);
   return m;
 }
 
@@ -490,30 +564,30 @@ export function putF3Publication(b, o, f, at, heap) {
   putF3UnitMirror(b, o.body, f, at + 0, heap);
   f[at + 103] = o.arsenal;
   putF3CombatView(b, o.combat, f, at + 104, heap);
-  { const $x = o.controls; if ($x === null || $x === undefined) { f[at + 148] = $x === null ? 1 : 2; f.fill(0, at + 149, at + 195); } else { f[at + 148] = 0; putF3ControlView(b, $x, f, at + 149, heap); } }
-  f[at + 195] = o.nativeIntent ? 1 : 0;
-  { const $x = o.nativeControls; if ($x === null || $x === undefined) { f[at + 196] = $x === null ? 1 : 2; f.fill(0, at + 197, at + 207); } else { f[at + 196] = 0; putF3NativeIntent(b, $x, f, at + 197, heap); } }
+  putF3PublishedControls(b, o.controls, f, at + 148, heap);
 }
 
 export function putF3Publication_body(b, o, f, at, heap) {
   putF3UnitMirror(b, o.body, f, at + 0, heap);
 }
 
-export function putF3Publication_controls(b, o, f, at, heap) {
-  { const $x = o.controls; if ($x === null || $x === undefined) { f[at + 148] = $x === null ? 1 : 2; f.fill(0, at + 149, at + 195); } else { f[at + 148] = 0; putF3ControlView(b, $x, f, at + 149, heap); } }
+export function putF3Publication_arsenal(b, o, f, at, heap) {
+  f[at + 103] = o.arsenal;
 }
 
-export function putF3Publication_nativeControls(b, o, f, at, heap) {
-  { const $x = o.nativeControls; if ($x === null || $x === undefined) { f[at + 196] = $x === null ? 1 : 2; f.fill(0, at + 197, at + 207); } else { f[at + 196] = 0; putF3NativeIntent(b, $x, f, at + 197, heap); } }
+export function putF3Publication_combat(b, o, f, at, heap) {
+  putF3CombatView(b, o.combat, f, at + 104, heap);
+}
+
+export function putF3Publication_controls(b, o, f, at, heap) {
+  putF3PublishedControls(b, o.controls, f, at + 148, heap);
 }
 
 export function sameF3Publication(a, b) {
   { const d = sameF3UnitMirror(a.body, b.body); if (d) return ".body" + d; }
   if (!Object.is(a.arsenal, b.arsenal)) return ".arsenal";
   { const d = sameF3CombatView(a.combat, b.combat); if (d) return ".combat" + d; }
-  { const p = a.controls, q = b.controls; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".controls"; } else { { const d = sameF3ControlView(p, q); if (d) return ".controls" + d; } } }
-  if (!Object.is(a.nativeIntent, b.nativeIntent)) return ".nativeIntent";
-  { const p = a.nativeControls, q = b.nativeControls; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".nativeControls"; } else { { const d = sameF3NativeIntent(p, q); if (d) return ".nativeControls" + d; } } }
+  if (!sameF3PublishedControls(a.controls, b.controls)) return ".controls";
   return null;
 }
 
@@ -525,9 +599,7 @@ export function exportF3Publication(o, cx) {
   v.body = exportF3UnitMirror(o.body, cx);
   v.arsenal = o.arsenal;
   v.combat = exportF3CombatView(o.combat, cx);
-  v.controls = ((x) => (x === null || x === undefined ? x : exportF3ControlView(x, cx)))(o.controls);
-  v.nativeIntent = o.nativeIntent;
-  v.nativeControls = ((x) => (x === null || x === undefined ? x : exportF3NativeIntent(x, cx)))(o.nativeControls);
+  v.controls = exportF3PublishedControls(o.controls, cx);
   return v;
 }
 

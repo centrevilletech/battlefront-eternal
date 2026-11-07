@@ -115,3 +115,21 @@ fn retained_intents_restore_unread_and_acknowledged_heap_changes() {
         assert_eq!(cache.last.words.iter().map(|v|v.to_bits()).collect::<Vec<_>>(),expected.iter().map(|v|v.to_bits()).collect::<Vec<_>>());
     }
 }
+
+// Switching to a shorter generated union variant must erase only padding,
+// while the complete payload retains signed zero and a NaN's original bits.
+#[test]
+fn generated_union_writers_clear_retired_payload_padding() {
+    use bfe_sim::gen::{Half,F3PublishedControls,F3ForeignControls,F3NativeIntent};
+    let mut scalar=[9.0;Half::WORDS];let mut heap=Vec::new();
+    Half::Vec3([1.0,2.0,3.0]).put(&mut scalar,&mut heap);
+    Half::F64(-0.0).put(&mut scalar,&mut heap);
+    assert_eq!(scalar[1].to_bits(),(-0.0f64).to_bits());assert_eq!(&scalar[2..],&[0.0,0.0]);
+    let mut row=vec![9.0;F3PublishedControls::WORDS];
+    let nan=f64::from_bits(0x7ff8000000000001);
+    F3PublishedControls::F3NativeIntent(F3NativeIntent {forward:-0.0,right:nan,..Default::default()}).put(&mut row,&mut heap);
+    assert_eq!(row[1+F3NativeIntent::FORWARD].to_bits(),(-0.0f64).to_bits());
+    assert_eq!(row[1+F3NativeIntent::RIGHT].to_bits(),nan.to_bits());
+    F3PublishedControls::F3ForeignControls(F3ForeignControls::default()).put(&mut row,&mut heap);
+    assert!(row[1+F3ForeignControls::WORDS..].iter().all(|x|x.to_bits()==0));
+}

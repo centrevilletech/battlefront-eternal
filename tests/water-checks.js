@@ -69,7 +69,7 @@ export async function checkWaterRendering() {
   assert('Reflection restores main-scene resources',g.background.material.uniforms.map.value===originalFar&&water.group.visible);
   assert('High reflection adapts to drawing-buffer resolution',water.target.width===Math.round(innerWidth*.5));
   assert('Enhanced water resolves opaque color and depth at scene resolution',water.surfaceBuffer.width===g.sceneTarget.width&&water.surfaceBuffer.height===g.sceneTarget.height);
-  water.step(1);water.update(1,g.camera);water.reflect(g.camera);const movingWater=capture();
+  water.update(1,g.camera);water.reflect(g.camera);const movingWater=capture();
   assert('Enhanced water normals move even without flipbook assets',difference(highWater,movingWater).changed>30,difference(highWater,movingWater));
   settings.set("softParticles",true);particle(BILLBOARD);
   settings.set('antialiasing','off');

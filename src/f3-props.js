@@ -15,7 +15,11 @@ export class F3Props {
     this.bodies = [];
     this.objectives = [];
     this.members = [];
-    this.traps = [];
+    this.traps = [];this.shown=[];
+    this.effectEpoch=-1;this.effectOffset=0;this.effectCount=0;
+    this.effectMarked=new Uint8Array(this.buildings.length);
+    this.effectTouched=new Uint32Array(this.buildings.length);
+    this.effectHandlers={f3PropEffect:event=>this.effect(event)};
     this.row = new F3BuildingStateMirror();
     this.damageInfo = {direction:null, amount:0, typed:1, generic:1};
     this.setup = new F3BuildingSetupMirror();
@@ -27,7 +31,6 @@ export class F3Props {
     // The three static model looks use their existing boxes and spheres.
     // Rust applies the matrix; no per-tick JS bound or rig sampling occurs here.
     for (let i = 0; i < this.buildings.length; i++) this.prepare(i);
-    phase.bridge.register({ f3PropEffect: effect=>this.effect(effect) });
   }
 
   // LiveObjects.buildings defines both damage visitation and the l-index used
@@ -63,6 +66,7 @@ export class F3Props {
         low:model.box ? {x:model.box[0][0],y:model.box[0][1],z:model.box[0][2]} : null,
         high:model.box ? {x:model.box[1][0],y:model.box[1][1],z:model.box[1][2]} : null} : null);
     }
+    this.shown[index]=building.state;
     this.fill(index, row.state);
     // Construction seeds the shared F4 row once, including station clocks and
     // the trap's prepared settings. Combat retains no second health frame.
@@ -153,7 +157,7 @@ export class F3Props {
   show(index, shown, old = this.buildings[index].state) {
     const b = this.buildings[index];
     const looks = this.looks[index], bodies = this.bodies[index];
-    b.state = shown;
+    b.state = shown;this.shown[index]=shown;
     for (let k = 0; k < LOOKS.length; k++) {
       const on = LOOKS[k] === shown;
       if (looks[k]) looks[k].root.visible = on;
@@ -177,11 +181,11 @@ export class F3Props {
   }
 
   effect(effect) {
-    const p = this.phase, row = effect.state, index = row.index;
-    // The owner birth pass runs before import decoding. Mirror synchronization
-    // here also exposes Unit victims killed by an earlier recursive prop blast.
-    const old = this.buildings[index].state;
-    p.sync();
+    const row = effect.state, index = row.index;
+    // Structural births and completed victims already precede notification
+    // delivery. Intermediate show states still follow their recorded order.
+    const old = this.shown[index];
+    if(!this.effectMarked[index]){this.effectMarked[index]=1;this.effectTouched[this.effectCount++]=index;}
     const b = this.buildings[index];
     b.health = row.health; b.addHealth = row.addHealth;
     if (row.attacker !== undefined || Object.hasOwn(b,'lastAttacker')) b.lastAttacker = row.attacker;
@@ -199,6 +203,23 @@ export class F3Props {
     // Game's headless callback changes foreign bookkeeping only. Native crew
     // death and explosions already occurred before this callback is reached.
     if (effect.kind === 'destroyed') b.onDestroyed(b);
+  }
+
+  // Building.show/onDestroyed completed before the queued combat observers
+  // in the original owning call. Deliver those source-point records first,
+  // then restore completed F4 clocks that an intermediate show could mask.
+  drainEffects(){
+    const p=this.phase,b=p.bridge;
+    if(this.effectEpoch!==p.layout.eventEpoch){this.effectEpoch=p.layout.eventEpoch;this.effectOffset=0;}
+    const end=b.f[p.layout.events/8];
+    if(this.effectOffset>=end)return;
+    this.effectOffset=b.drainFrom(p.layout.events,this.effectOffset,p.eventMirrors,this.effectHandlers,true);
+    const live=p.liveOwner;
+    for(let i=0;i<this.effectCount;i++){
+      const index=this.effectTouched[i];this.effectMarked[index]=0;
+      if(live){live.publishBuilding(live.buildings[index]);this.fill(index,this.row);this.remember(index,this.row);}
+    }
+    this.effectCount=0;
   }
 
   // Turret.onDamaged is pure journal delivery after the outer native return.

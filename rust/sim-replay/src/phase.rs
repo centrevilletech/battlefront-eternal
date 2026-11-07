@@ -16,6 +16,8 @@ pub enum Phase {
     Views,
     /// The game step's start: the command, the dormant local player, water, the time, the view camera.
     Begin,
+    /// The native world tick and its completed publication.
+    WorldTick,
     /// Hulls back to their tick poses (vehicles.restoreTickPose).
     RestorePose,
     /// The AI (ai.update).
@@ -55,12 +57,13 @@ pub enum Phase {
 }
 
 /// Every phase with its JavaScript name, in tick order.
-pub const PHASES: [(Phase, &str); 23] = [
+pub const PHASES: [(Phase, &str); 24] = [
     (Phase::Edges, "edges"),
     (Phase::HitHistory, "hitHistory"),
     (Phase::Players, "players"),
     (Phase::Views, "views"),
     (Phase::Begin, "begin"),
+    (Phase::WorldTick, "worldTick"),
     (Phase::RestorePose, "restorePose"),
     (Phase::Ai, "ai"),
     (Phase::UnitTick, "unitTick"),

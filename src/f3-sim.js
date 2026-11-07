@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { bridgeFor } from './sim/runtime.js';
 import { KIND_UNIT, KIND_BOLT, KIND_BEAM, KIND_GRENADE, KIND_ROUND, F3BoundaryMirror, F3ChangeMirror, F3AdoptionMirror,
   F3AcknowledgementMirror, F3AcknowledgementLayout, putF3Acknowledgement, F3PhaseInputMirror, IntentLayout, syncIntent, F3PhaseNetworkMirror, F3PublicationLayout, F3UnitKeyMirror, F3MetadataMirror,
-  F3SoldierMotionLayout, F3DroidekaMotionLayout, syncF3Boundary, syncF3UnitMirrorDelta, syncF3CombatView, syncF3CombatViewDelta, syncF3WeaponView, F3CombatViewLayout, F3WeaponViewLayout, syncF3ControlViewDelta, F3ControlViewLayout, syncF3UnitKey, F3UnitMirrorLayout, putF3Change, putF3Adoption, putF3PhaseInput, putF3PhaseNetwork, putF3WeaponService,
+  F3SoldierMotionLayout, F3DroidekaMotionLayout, syncF3Boundary, syncF3UnitMirrorDelta, syncF3CombatView, syncF3CombatViewDelta, syncF3WeaponView, F3CombatViewLayout, F3WeaponViewLayout, syncF3ControlViewDelta, F3ControlViewLayout, F3ForeignControlsLayout, syncF3UnitKey, F3UnitMirrorLayout, putF3Change, putF3Adoption, putF3PhaseInput, putF3PhaseNetwork, putF3WeaponService,
   F3DamageInfoMirror, F3HitPolicyMirror, putF3HitPolicy, F3BlastBindingMirror, putF3BlastBinding, F3ImpactRulesMirror, putF3ImpactRules,
   F3AimHeaderMirror, F3AimChangeMirror, putF3AimHeader, putF3AimChange,
   F3MissileClassMirror, putF3MissileClass,
@@ -182,16 +182,12 @@ class F3 {
     this.registry.prepareOwned();
     this.history = new F3History(this);
     this.construction = new F3Factory(this);
-    // A launch snapshot may appear first in a synchronous prop effect. Bind
-    // structural owner births before generated import arguments resolve refs.
-    const propEffect = IMPORT_TABLE.find(row=>row?.name === 'f3PropEffect').code;
     const seatAction = IMPORT_TABLE.find(row=>row?.name === 'f2SeatAction').code;
     bridge.beforeImport = code => {
       if (!this.active) return;
-      if (code === propEffect) { this.readLayout(); this.bindBirths(); }
       // A new AI seat control names its lease in the import arguments.
       // Bind that touched publication before the generated decoder sees it.
-      else if (code === seatAction) this.sync();
+      if (code === seatAction) this.sync();
     };
     // The factory calls adoption only after constructing the complete body.
     // Content setup has its own cold facade; module exports stay unchanged.
@@ -852,7 +848,7 @@ class F3 {
       }
       // Unit.tick's optional jet direction reuses cold storage when present.
       // A null interval must not cause the next jump to allocate a vector.
-      const nativeIntent = words[rowAt + F3PublicationLayout.nativeIntent] !== 0;
+      const nativeIntent = words[rowAt + F3PublicationLayout.controls] === 1;
       const ownershipChanged = binding.nativeIntent !== nativeIntent;
       binding.nativeIntent = nativeIntent;
       // Foreign input remains a plain writable object. Only native ownership
@@ -884,7 +880,8 @@ class F3 {
         // Native input is never written by the page. An unchanged control
         // group can retain its facade, including null aim/vector intervals.
         // Human input still needs the full one-shot restoration each tick.
-        const intentAt = controlsAt + 1 + F3ControlViewLayout.intent;
+        const controlRow=heapAt+words[controlsAt+1+F3ForeignControlsLayout.values];
+        const intentAt = controlRow + F3ControlViewLayout.intent;
         const restoreIntent = !binding.nativeIntent || resetArsenal || lifeChanged;
         if (restoreIntent || deltaChanged(binding.dirty,intentAt + IntentLayout.aim,
             IntentLayout.jetDirection - IntentLayout.aim,source)) binding.unit.intent.aim = binding.intentAim;
@@ -896,11 +893,11 @@ class F3 {
         if (!binding.nativeIntent || lifeChanged) syncIntent(b,words,intentAt,heapAt,binding.unit.intent);
         // One-shot intent buttons are consumed every tick, including equal
         // native bits. Held input and latch state only need changed stores.
-        const inputAt = controlsAt + 1 + F3ControlViewLayout.input;
+        const inputAt = controlRow + F3ControlViewLayout.input;
         if (resetArsenal || deltaChanged(binding.dirty,inputAt,F3ControlViewLayout.words - F3ControlViewLayout.input,source)) {
           binding.unit.input.jetDirection = binding.inputJetDirection;
         }
-        syncF3ControlViewDelta(b,words,controlsAt + 1,heapAt,binding.unit,binding.dirty,resetArsenal || ownershipChanged,source);
+        syncF3ControlViewDelta(b,words,controlRow,heapAt,binding.unit,binding.dirty,resetArsenal || ownershipChanged,source);
       }
       // A weapon clock does not require reassigning every Unit flag and
       // actor visibility. Debug stamps still consume the changed combat row.
@@ -1106,6 +1103,7 @@ class F3 {
         }
         const b=this.bridge,base=this.layout.events/8;
         b.views();
+        this.props.drainEffects();
         if (this.eventOffset>=b.f[base]) break;
         const before=this.eventOffset;
         const next=b.drainFrom(this.layout.events,before,this.eventMirrors,this.eventHandlers,false,this);
@@ -1145,7 +1143,7 @@ class F3 {
   // Keep the first edge for each button. An empty networkShots array is
   // still present and suppresses networkShot, matching networkShotFor.
   // The native loop keeps construction order, including pooled corpses.
-  phase(dt, tick = this.tick) {
+  preparePhase(dt, tick = this.tick) {
     // Instrumentation resets cannot rewind a recon owner's once-per-tick
     // clock. Production supplies the world tick; standalone battles keep it.
     this.tick = tick + 1;
@@ -1209,10 +1207,20 @@ class F3 {
     this.counters.wasmCalls++;
     this.counters.inputFields += count * this.layout.inputStride - nativeIntents * IntentLayout.words + networks * this.layout.networkWords + this.layout.separationWords + 4;
     if (this.fleet) this.counters.inputFields += this.fleet.preparedWords;
+    return count;
+  }
+
+  // The world entry owns the whole interval; standalone fixtures use this
+  // same input writer and publication reader around the native unit entry.
+  phase(dt, tick = this.tick) {
+    const count = this.preparePhase(dt,tick), b = this.bridge;
     this.active = true;
     const previous = b.phaseCounters; b.phaseCounters = this.counters;
     try { if (!this.x.f3_step(count, dt, this.water ? this.water.level : NaN, tick)) throw Error('native unit phase rejected invalid state or input'); }
     finally { this.active = false; b.phaseCounters = previous; }
+    this.finishPhase();
+  }
+  finishPhase() {
     if (this.fleet) this.fleet.commitForeign();
     this.random.pull();
     this.sync();

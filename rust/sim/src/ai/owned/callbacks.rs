@@ -84,14 +84,17 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
     }
     fn controller_state(&self,store:&Store,unit:Option<Ref<Unit>>)->Option<f64> {
         let reference=store.unit.get(unit?)?.controller?;
-        let object=self.state.entities.find(super::entities::Entity::Controller(reference))?;
-        let index=self.state.controllers.core(&self.state.entities,object)?;
+        let index=self.state.controllers.core_reference(reference)?;
         Some(self.core.controllers.get(index)?.fsm.state)
     }
     fn owns_intent(&self,store:&Store,unit:crate::store::Ref<Unit>)->bool {
         let Some(body)=store.unit.get(unit) else{return false};
-        let Some(object)=self.state.entities.find(super::entities::Entity::Unit(unit)) else{return false};
-        self.core.controller_of_unit(object).is_some_and(|controller|self.core.controllers[controller].generation==body.generation)
+        // The unit's qualified binding reaches the native row directly. The
+        // Core's bound object and gameplay life still grant ownership; a
+        // foreign or recycled controller cannot acquire a missing input row.
+        let Some(controller)=body.controller.and_then(|r|self.state.controllers.core_reference(r)) else{return false};
+        self.core.controllers.get(controller).is_some_and(|controller|controller.generation==body.generation&&
+            controller.unit.and_then(|object|self.state.entities.get(object))==Some(super::entities::Entity::Unit(unit)))
     }
     fn weapon_hint(&self,store:&Store,unit:crate::store::Ref<Unit>,control:Option<crate::store::Ref<SeatUnit>>)->crate::gen::F2TurretHint {
         self.state.weapon_hint(store,unit,control,|member|crate::units::f3::target(crate::units::registry::target_id(member)).map(|target|target.life))

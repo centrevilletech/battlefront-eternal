@@ -13,6 +13,8 @@ pub(crate) fn publication_ptr() -> u32 {
     if !active() { return 0; } state().core.publication.block.ptr() as u32
 }
 pub(crate) fn publish() {
+    if crate::world::deferred() {return;}
+
     if active() {
         let rows = state().core.flush(&sim().store);
         let words = state().core.publication.block.words.len() - HEADER + state().core.publication.borrowed_words();

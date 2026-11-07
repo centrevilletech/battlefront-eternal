@@ -42,8 +42,8 @@ class HeldInput {
     const key=row+F3PublicationLayout.body+F3UnitMirrorLayout.key;
     if (f[key+F3UnitKeyLayout.slot]!==b.view.key.slot ||
         f[key+F3UnitKeyLayout.generation]!==b.view.key.generation) return 0;
-    const at=row+F3PublicationLayout.nativeControls;
-    return f[at]===0 ? at+1 : 0;
+    const at=row+F3PublicationLayout.controls;
+    return f[at]===1 ? at+1 : 0;
   }
   scalar(name,offset) {
     const at=this.at();

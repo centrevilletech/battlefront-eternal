@@ -317,6 +317,12 @@ impl Seats {
     // Retire released lease rows only after their final state can be read.
     // Their generation-qualified emitters remain valid historical identities.
     pub fn published(&mut self, st: &mut Store) {
+        self.retire_released(st);
+        self.changed.clear();
+    }
+    /// Reclaim gameplay leases at their original source point even when the
+    /// enclosing world has not committed its mirror publication yet.
+    pub fn retire_released(&mut self, st: &mut Store) {
         self.retired.clear();
         for &r in &st.seats.leases {
             if st.seat_lease.get(r).is_some_and(|l| l.released) { self.retired.push(r); }
@@ -329,7 +335,6 @@ impl Seats {
             st.seat_lease.retire(r);
         }
         st.seats.leases.retain(|r| st.seat_lease.contains(*r));
-        self.changed.clear();
     }
 
     /// leaveKilled chooses the lease's owner; neither branch searches by slot.

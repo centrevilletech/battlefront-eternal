@@ -8,6 +8,7 @@ pub trait Changes {
     /// Tuning and selection join the next native unit span when promised.
     /// Other owners retain their ordinary immediate dirty-row contract.
     fn weapon(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {self.mark(unit);}
+    fn body(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {self.mark(unit);}
     fn intent(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {self.mark(unit);}
     /// Native ownership also controls whether a command publication may copy
     /// held intents. Synthetic owners already observe their canonical rows.
@@ -22,7 +23,8 @@ pub struct F3;
 impl Changes for F3 {
     fn mark(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::changed(unit);}
     fn intent(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::intent_changed(unit);}
-    fn weapon(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::weapon_changed(unit);}
+    fn weapon(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed(unit);}
+    fn body(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed(unit);}
     fn native_intent(&mut self,unit:crate::store::Ref<crate::gen::Unit>,owned:bool) {crate::units::f3::native_intent(unit,owned);}
 }
 

@@ -5,6 +5,27 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
+pub enum AiDangerResult {
+    #[default] Inactive = 0,
+    Published = 1,
+    Unchanged = 2,
+}
+
+impl AiDangerResult {
+    pub const NAMES: [&'static str; 3] = ["inactive", "published", "unchanged"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(AiDangerResult::Inactive),
+            1 => Some(AiDangerResult::Published),
+            2 => Some(AiDangerResult::Unchanged),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum AiJournalKind {
     #[default] Shot = 0,
     Damage = 1,
@@ -40,10 +61,9 @@ impl AiClassScalar {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..2].fill(0.0);
         match self {
-            AiClassScalar::Undefined => row[0] = 0.0,
-            AiClassScalar::Null => row[0] = 1.0,
+            AiClassScalar::Undefined => { row[0] = 0.0; row[1..2].fill(0.0);  },
+            AiClassScalar::Null => { row[0] = 1.0; row[1..2].fill(0.0);  },
             AiClassScalar::Bool(v) => { row[0] = 2.0; row[1] = if (*v) { 1.0 } else { 0.0 }; }
             AiClassScalar::F64(v) => { row[0] = 3.0; row[1] = (*v); }
             AiClassScalar::Str(v) => { row[0] = 4.0; row[1] = (*v).0 as f64; }
@@ -77,7 +97,6 @@ impl AiActor {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
             AiActor::Unit(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             AiActor::SeatUnit(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }

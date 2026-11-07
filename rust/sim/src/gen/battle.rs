@@ -468,10 +468,9 @@ impl PostRef {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
-            PostRef::Null => row[0] = 0.0,
-            PostRef::Undefined => row[0] = 1.0,
+            PostRef::Null => { row[0] = 0.0; row[1..3].fill(0.0);  },
+            PostRef::Undefined => { row[0] = 1.0; row[1..3].fill(0.0);  },
             PostRef::Post(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             PostRef::MobilePost(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
         }
@@ -503,7 +502,6 @@ impl SpawnPost {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
             SpawnPost::Post(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             SpawnPost::MobilePost(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
@@ -546,9 +544,8 @@ impl PlayerId {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..2].fill(0.0);
         match self {
-            PlayerId::Undefined => row[0] = 0.0,
+            PlayerId::Undefined => { row[0] = 0.0; row[1..2].fill(0.0);  },
             PlayerId::F64(v) => { row[0] = 1.0; row[1] = (*v); }
             PlayerId::Str(v) => { row[0] = 2.0; row[1] = (*v).0 as f64; }
         }

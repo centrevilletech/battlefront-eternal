@@ -124,6 +124,5 @@ export default {
     PcActionResult: { state: 'rec:PcState|null', lease: 'ref:seatLease|null', control: 'ref:seatUnit|null', hit: 'rec:SeatHit|null',
       flag: 'bool', value: 'f64|undefined', point: 'vec3', shots: 'list:rec:PcShot' },
   },
-  events: { f3PropDamage:'F3PropDamage' },
-  imports: { f3PropEffect: { args:'F3PropEffect' } },
+  events: { f3PropDamage:'F3PropDamage', f3PropEffect:'F3PropEffect' },
 };

@@ -52,6 +52,7 @@ test('an instant native body hit uses the hull health scale without the JS hit a
   const world = await f3World({soldier:{...soldier,weapons:[gun]}},{prepareFleet:fleetFixture({positions:[0]})});
   const unit = world.spawn('soldier',0,-4,true);
   world.ordnance.onHit = ()=>{throw Error('legacy hull hit callback reached');};
+  world.phase.bridge.handlers.riderMount=()=>{throw Error('native rider lookup returned to the host');};
   for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
   unit.networkShot = {button:0,id:7,viewTick:8,late:0,aimYaw:0,aimPitch:0};
   unit.networkViewTick = 8; unit.intent.buttons[0] = 1;

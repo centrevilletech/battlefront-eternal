@@ -313,9 +313,14 @@ impl State {
             let birth=self.births.read(control)?;let lease=store.seat_lease.get(birth.lease)?;
             if lease.released||lease.unit!=Some(unit)||lease.controllable!=Some(control)||lease.generation!=body.generation {return None;}
             self.controls.controller_key(control).or_else(||self.turrets.controller_key(control))
-        }).or_else(||body.controller.and_then(|controller|self.entities.find(Entity::Controller(controller))));
-        let target=controller.and_then(|controller|self.controllers.read(&self.entities,controller))
-            .and_then(|controller|controller.perception.as_ref()).and_then(|perception|perception.fire.weapon_target);
+        });
+        // Bodies already retain the controller slab's qualified reference.
+        // A seat supplies its separate captured controller identity instead.
+        let controller=match controller {
+            Some(controller)=>self.controllers.read(&self.entities,controller),
+            None=>body.controller.and_then(|reference|self.controllers.read_reference(reference)),
+        };
+        let target=controller.and_then(|controller|controller.perception.as_ref()).and_then(|perception|perception.fire.weapon_target);
         let mut hint=crate::gen::F2TurretHint {bot:true,..Default::default()};
         if let Some(target)=target {
             if let Some(member)=self.queries.member(&self.entities,target.obj) {

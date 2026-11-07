@@ -34,6 +34,7 @@
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
 import * as THREE from 'three';
+import { worldState } from '../../src/runtime/world-state.js';
 import { seats, hullExport, seatState, crewState } from './seats.mjs';
 import { f2Spec } from './f2.mjs';
 import { battle, battlePhase } from './battle.mjs';
@@ -293,6 +294,9 @@ const vehicles = {
 // Nothing but the tick records (every phase's draws and the fingerprints):
 // the cheapest capture, for the draw order of every phase.
 const ticks = { frames: [] };
+// Owner entries inside the native coordinator have no JavaScript method
+// frames. Capture their enclosing invocation and completed mirrors instead.
+const world = {frames:[{phase:'worldTick',state:game=>worldState(game),boundaries:()=>[]}]};
 
 // The flight package (flip F2 with the hulls): a craft's tick and its pose
 // at the tick, with what its targeting reads of the registry
@@ -305,4 +309,4 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 // battlefield and the spawn manager, and (battlePhase) the battle phase
 // whole (tools/sim-capture/battle.mjs).
 const f2 = f2Spec({ hullExport, seatState, crewState, poseState, tetherState, boundaries: spawnBoundaries });
-export const SPECS = { f2, ordnance, items, vehicles, ticks, flight, flightMissiles, seats, battle, battlePhase, humanSpawn, traps, props, animated, liveObjects, turrets, debris, weapons };
+export const SPECS = { f2, world, ordnance, items, vehicles, ticks, flight, flightMissiles, seats, battle, battlePhase, humanSpawn, traps, props, animated, liveObjects, turrets, debris, weapons };

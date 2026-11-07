@@ -169,7 +169,7 @@ fn rebuild_publication() { state().rebuild_publication() }
 // Only submitted changed facts replace the retained foreign input. Reapply
 // AI modifiers before latch so a later seatWeaponPolicy call can override them
 // at its original slot. Triggers always come from the canonical lease later.
-pub fn inputs(data: &[f64]) -> usize { state().inputs(data) }
+pub fn inputs(data: &[f64]) -> usize { state().inputs(data, crate::world::deferred()) }
 
 /// Bind a bot seat to the same native generator its controller consumes.
 /// Retain that handle in each fire invocation so recursive retirement cannot
@@ -180,6 +180,7 @@ pub fn bind_ai_stream(hull:crate::vehicles::f2_seats::HullLife,seat:usize,stream
 /// AI owns the same fire controls; freeze their scalar registry indices here
 /// rather than observing a controller replaced by a later shot or death.
 pub fn freeze_ai_targets(ai:&dyn crate::ai::owned::callbacks::Callbacks) { state().freeze_ai_targets(&sim().store, ai) }
+
 
 /// Native AI reads the mounted owner's current weapon without a mirror.
 /// A detached fire update cannot expose its temporary empty weapon state.
@@ -825,7 +826,7 @@ impl State {
         st.cable_output.words.reserve(8192); st.cable_output.heap.reserve(1024);
         st.output.words.reserve(32768); st.output.heap.reserve(32768);
     }
-    fn inputs(&mut self, data: &[f64]) -> usize {
+    fn inputs(&mut self, data: &[f64], whole_tick:bool) -> usize {
         let mut o = 0;
         let st = self;
         for c in st.crafts.iter_mut().flatten() {
@@ -837,6 +838,9 @@ impl State {
             let c = st.crafts[a.hull.slot as usize].as_ref().unwrap();
             if c.id != a.hull || c.life != a.life { continue; }
             let wr = c.seats[a.seat as usize][a.weapon as usize];
+            // A newly boarded native bot supersedes the earlier unoccupied
+            // seat input. Its target hint was frozen after AI at the source slot.
+            if whole_tick && st.weapons.get(wr).unwrap().input.target != -2 {continue;}
             st.weapons.get_mut(wr).unwrap().input = a.input;
         }
         for c in st.crafts.iter().flatten() { for seat in &c.seats { for &wr in seat {
@@ -902,7 +906,16 @@ impl State {
                     .and_then(|lease|(*store).seat_lease.get(lease)).and_then(|lease|lease.unit.map(|unit|(unit,lease.controllable)))
                     .map(|(unit,control)|ai.weapon_hint(&(*store),unit,control));
                 let target=match hint {
-                    Some(hint) if hint.bot=>hint.target.and_then(|target|(*store).units.list.iter().position(|member|*member==target)).map_or(-1,|index|index as i32),
+                    Some(hint) if hint.bot=>hint.target.and_then(|target| {
+                        // The qualified slot shortcut preserves the registry's
+                        // ordered search when bodies were inserted sparsely.
+
+                        let list=&store.units.list;
+                        if let crate::gen::Member::Unit(unit)=target {
+                            let slot=unit.slot as usize;if list.get(slot)==Some(&target) {return Some(slot);}
+                        }
+                        list.iter().position(|member|*member==target)
+                    }).map_or(-1,|index|index as i32),
                     _=>-2,
                 };
                 let count=self.crafts[hull.slot as usize].as_ref().unwrap().seats[seat].len();

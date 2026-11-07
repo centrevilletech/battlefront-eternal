@@ -475,8 +475,22 @@ fn edges(i: &Intent) -> F2SeatEdges { F2SeatEdges { reload: i.reload, r#use: i.r
     next_primary: i.next_primary, previous_primary: i.previous_primary, next_secondary: i.next_secondary, zoom: i.zoom } }
 
 /// Lease and body publication contains only rows touched since the last hook.
-pub fn publish() -> *const f64 {
+// Publication observes lazy rider geometry before later rounds and AI.
+// Deferring facade bytes must retain that gameplay observation point.
+pub(crate) fn sample_changed() {
     for i in 0..state().owner.changed.hulls.len() { super::riders::hull(state().owner.changed.hulls[i], false); }
+    for at in 0..state().owner.changed.turrets.len() {
+        let r=state().owner.changed.turrets[at];
+        if let Some(index)=state().owner.crews.turrets.iter().position(|t|t.turret==r) {sample_turret_rider(state(),index);}
+    }
+}
+pub fn publish() -> *const f64 {publish_sampled(false)}
+pub(super) fn publish_sampled(sampled:bool) -> *const f64 {
+    if crate::world::deferred() {sample_changed();return state().io.as_ptr();}
+
+    if !sampled {
+        for i in 0..state().owner.changed.hulls.len() { super::riders::hull(state().owner.changed.hulls[i], false); }
+    }
     let state = state();
     state.ordnance_output.begin(if state.ordnance_dirty { 1 } else { 0 }, Ordnance::EXPORT_STRIDE);
     if state.ordnance_dirty {
@@ -548,7 +562,7 @@ pub fn publish() -> *const f64 {
     state.effects.begin(state.body_effects.len(), F2SeatEffect::WORDS);
     for (i, e) in state.body_effects.iter().enumerate() { let (row, heap) = state.effects.row(i); e.put(row, heap); }
     state.effects.finish(); state.body_effects.clear();
-    publish_turrets(state);
+    publish_turrets(state,!sampled);
     state.owner.changed.clear();
     F2SeatIo { emitter_mask: EMITTER_MASK, ordnance: state.ordnance_output.ptr() as usize as u32, descriptor_words: F2SeatIo::WORDS as u32, input: state.input.as_mut_ptr() as usize as u32, capacity: INPUT_CAPACITY as u32,
         header_words: F2SeatHeader::WORDS as u32, unit_words: F2SeatUnitIn::WORDS as u32, control_words: SeatAiControl::WORDS as u32,
@@ -893,7 +907,7 @@ fn run(a: F2SeatCommand, services: Option<crate::units::f3::WorldServices<'_>>) 
     super::publish(); state().depth -= 1;
     // TurretSeats.update keeps its starting lease list across nested deaths.
     // Retire only when no solver can still hold one of those references.
-    if state().depth == 0 { state().owner.published(&mut sim().store); }
+    if state().depth == 0 { finish(); }
     result
 }
 // Vehicles.board, exit, move, displace and network commands share one
@@ -1171,7 +1185,10 @@ pub fn retire(r: Ref<Vehicle>) {
 // Vehicles.syncCrews ends the last outer seat read of this phase. Only
 // now may released slab rows be reclaimed; readers from earlier hooks
 // continue to carry the old generation and cannot target a replacement.
-pub fn finish() { state().owner.published(&mut sim().store); }
+pub fn finish() {
+    if crate::world::deferred() {state().owner.retire_released(&mut sim().store);}
+    else {state().owner.published(&mut sim().store);}
+}
 
 // TurretSeats.drive changes its turret and current lease together.
 // Track the touched turret once, including lifecycle commands between
@@ -1272,7 +1289,7 @@ fn sample_turret_rider(s:&mut State,index:usize) {
 // TurretSeats.pose publishes compact frames and samples for existing
 // readers. The retained rig itself stays native; no JavaScript world
 // reader rebuilds the gun, seat, eye or muzzle from scene nodes.
-fn publish_turrets(s: &mut State) {
+fn publish_turrets(s: &mut State,sample:bool) {
     s.turret_output.begin(s.owner.changed.turrets.len(), F2TurretOut::WORDS);
     for at in 0..s.owner.changed.turrets.len() {
         let r=s.owner.changed.turrets[at];
@@ -1297,7 +1314,7 @@ fn publish_turrets(s: &mut State) {
             out.weapon.as_mut().unwrap().clone_from(&w.state); out.random_binding = w.random_binding;
         }
         let (row, heap) = s.turret_output.row(at); out.put(row, heap);
-        sample_turret_rider(s,i);
+        if sample {sample_turret_rider(s,i);}
     }
     s.turret_output.finish();
     s.event_output.begin(s.event_rows.len(), F2TurretEvent::WORDS);

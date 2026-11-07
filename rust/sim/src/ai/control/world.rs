@@ -533,6 +533,11 @@ impl<'a> CombatInput<'a> {
     }
 }
 
+/// Targeted shots only change the latest source and last known point. A
+/// native intake coalesces those writes without copying other alert queues.
+#[derive(Clone,Copy,Debug)]
+pub struct ShotAlert {pub controller:usize,pub source:AlertSource,pub point:Option<Vec3>}
+
 /// One controller's alert state after combat's ingest.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AlertState {
@@ -806,6 +811,9 @@ pub trait AiWorld: Characters {
     /// Captured services preserve their full write-back contract. The native
     /// aim-point query is pure and can leave unrelated Core fields untouched.
     fn combat_prepare_aim_query(&mut self,core:&super::Core,controller:usize)->bool {core.feed_combat(self,controller);true}
+    /// Canonical intake returns only actual shot alerts. Captured service
+    /// worlds keep their existing complete preparation and reply sequence.
+    fn combat_ingest_shots(&mut self,_core:&super::Core)->Option<List<ShotAlert>> {None}
     fn combat_prepare_ingest(&mut self,core:&super::Core)->bool {core.feed_all_combat(self);true}
     fn combat_prepare_sensors(&mut self, core: &super::Core) { core.feed_all_combat(self); }
     /// Replay worlds keep the complete captured feed sequence. Canonical LOS

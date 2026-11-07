@@ -208,10 +208,14 @@ export class F4Live {
     this.lastVersion = this.layout.version;
     this.mirrors.apply(b.f,this.layout.buildings / 8); this.mirrors.apply(b.f,this.layout.animated / 8); this.mirrors.apply(b.f,this.layout.traps / 8);
   }
-  step(dt, tick) {
+  prepareStep(dt,tick) {
     this.check();
-    const b = this.bridge; b.views(); this.input.dt = dt; this.input.tick = tick;
-    F.putF4LiveInput(b,this.input,b.f,this.layout.liveInput / 8,b.heap);
+    const b=this.bridge;b.views();this.input.dt=dt;this.input.tick=tick;
+    F.putF4LiveInput(b,this.input,b.f,this.layout.liveInput/8,b.heap);
+  }
+  step(dt, tick) {
+    this.prepareStep(dt,tick);
+    const b=this.bridge;
     const p = this.phase, counters = this.counters, previous = b.phaseCounters, active = p.active;
     const randomWords = p.random.entries.length * p.layout.randomWords, output = p.counters.outputFields, mirrorWords = this.mirrors.words;
     p.random.push(); p.active = true; b.phaseCounters = counters;

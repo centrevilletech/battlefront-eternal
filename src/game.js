@@ -67,7 +67,7 @@ import { makeHit } from "./collision.js";
 import { Battlefield, LeavingWarning, loadBoundary } from "./battlefield.js";
 import { Units } from "./registry.js";
 import { SimEvents } from "./sim-events.js";
-import { stepWorld } from './f4-world-step.js';
+import { WorldTick } from './runtime/world-tick.js';
 import { Unit, UnitFactory } from "./units.js";
 import { goneUp } from "./droideka.js";
 import { ClassicRandom, RandomStreams } from "./ai/random.js";
@@ -199,8 +199,6 @@ const UNIT_SCALE = BATTLE_SIZES[settings.get("battleSize")]?.scale ?? 1;
 const KILL_Y = -110;
 // The soldier's bounding sphere: drops leave from its centre, and mines feel
 // its size.
-const BODY_MIDDLE = 1.048; // m above the feet
-const BODY_RADIUS = 1.278; // m
 
 async function start() {
   // In the live display loop, catch-up after a hitch is bounded by measured
@@ -1246,12 +1244,6 @@ async function start() {
           return out;
         },
         bodies: () => units.all(),
-        // Whoever destroyed it is credited, as for a bot at a turret (the
-        // original kills the occupant with the turret's own damage record).
-        // Killed at the gun, he falls from it (src/boarding.js leaveKilled).
-        onDestroyed: (building) => {
-          if (gunner?.active && gunner.turret === building) combat.damage(Infinity, Infinity, null, building.lastAttacker ?? null);
-        },
       })
     : null;
   // The page draws the animated props and traps natively, from the feet
@@ -1679,25 +1671,7 @@ async function start() {
     deathView.blame(deathKiller, battle.characters, vehicles?.vehicles);
   }
 
-  // The player, to the items: power-ups he can take (and, for mines, what
-  // side he's on), in whichever body he has.
-  const bodyMiddle = new THREE.Vector3();
-  const itemTargets = [
-    {
-      get position() {
-        return soldier.position;
-      },
-      center: bodyMiddle,
-      radius: BODY_RADIUS,
-      get velocity() {
-        return soldier.velocity;
-      },
-      relation: (team) => units.relation(playerTeam, team),
-    },
-  ];
-
   remotes.aimCamera = simulationCamera;
-  if (headless) unitsSim.items.bindTarget(itemTargets[0],playerUnit);
   for (const system of [ordnance, items, remotes]) system.random = gameplayRandom;
   // A thrown grenade's tumble (its orientation travels in projectile records).
   ordnance.spinRandom = streams.draw("grenade-spin");
@@ -1829,121 +1803,56 @@ async function start() {
     return [...posts.all().filter((post) => post.active !== false), ...transportPosts(vehicles)];
   }
 
-  const input = { forward: 0, right: 0, turn: 0, jump: false, crouch: false, prone: false };
-  // The keys while flying a droid.
-  const droidInput = { forward: 0, right: 0, turn: 0 };
-  const mineTargets = [];
-  // This tick's spawn screen choices, consumed by the native battle tail.
-  let tickHuman = null;
-  // How far this tick's mouse look turned him (a page showing a worker's
-  // battle keeps it out of the body's interpolation, as previousYaw does).
+  // Input transport and retained presentation surround one native world
+  // entry. No host callback chooses or advances a simulation phase.
   let tickLookYaw = 0;
-  // The outer coordinator retains presentation order around the native
-  // phase owners. Its cold ports read current facades without tick tables.
-  const stepSquads = [["squadMoveOut", 0, "moveout"], ["squadHold", 2, "hold"], ["squadFollow", 3, "follow"], ["squadAtEase", 1, "atease"]];
+  const worldTick = headless ? new WorldTick(unitsSim,worldClock) : null;
+  const stepSquads = ["squadMoveOut","squadHold","squadFollow","squadAtEase"];
+  const squadNotices = ["moveout","hold","follow","atease"];
+  const worldFireEdges = [], emptyFlightSettings = {};
+  function step(dt,tick,recordedCommand=null) {
+    runtimeProfile?.step(dt);
+    const command = recordedCommand || controls.command(tick, commandHistory.epoch, playerUnit.generation);
+    activeCommand = command;
+    worldFireEdges.length=0;
+    if(command.fire)for(let index=0;index<command.fire.length;index++)if(command.fire[index].pressed)worldFireEdges.push(command.fire[index]);
+    playerUnit.networkShots=worldFireEdges;playerUnit.networkShot=null;
+    if (typeof command.firstPerson === 'boolean' && command.firstPerson !== firstPerson) setPerspective(command.firstPerson);
+    if (Number.isFinite(command.aspect) && command.aspect > 0 && simulationCamera.aspect !== command.aspect) {
+      simulationCamera.aspect = command.aspect; simulationView.applyFov(command.aspect);
+    }
+    commandHistory.put(command);
+    if (!worldControls.accept(command)) throw new Error('stale world command');
+    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles.f2.retune(name, key, value); }
+    const fs = command.flightSettings || emptyFlightSettings;
+    if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
+    const yawBeforeLook = soldier.aimYaw;
+    for(let index=0;index<command.look.length;index++)applyLook(command.look[index][0],command.look[index][1]);
+    tickLookYaw = soldier.aimYaw - yawBeforeLook;
+    presentation.previousYaw += soldier.aimYaw - yawBeforeLook; previewYaw = previewPitch = 0;
 
-  const worldStepHost = {
-    get water() { return Boolean(water); },
-    get dead() { return Boolean(combat.dead); },
-    get playerCommand() { return Boolean(ai?.playerCommand); },
-    get eyeView() { return Boolean(combat.usesEyeView); },
-    get deathCamera() { return Boolean(deathView.active); },
-    get remote() { return Boolean(remotes.active); },
-    get driver() { return Boolean(driver?.active); },
-    get gunner() { return Boolean(gunner.active); },
-    get server() { return Boolean(game.serverWorld); },
-    get removed() { return Boolean(playerUnit.removed); },
-    get ai() { return Boolean(ai); },
-    get live() { return Boolean(live); },
-    get grenadeUpdate() { return Boolean(ai?.grenadeUpdate); },
-    call(op, context, value, flag) {
-      const { dt, tick } = context, command = context.command, tickControls = worldControls;
-      switch (op) {
-        case 'start': {
-          runtimeProfile?.step(dt);
-          const command = context.recordedCommand || controls.command(tick, commandHistory.epoch, playerUnit.generation);
-          context.command = command;
-          activeCommand = command; tickHuman = command.human || null;
-          playerUnit.networkShots = command.fire?.filter(edge => edge.pressed) ?? []; playerUnit.networkShot = null;
-          if (typeof command.firstPerson === 'boolean' && command.firstPerson !== firstPerson) setPerspective(command.firstPerson);
-          if (Number.isFinite(command.aspect) && command.aspect > 0 && simulationCamera.aspect !== command.aspect) {
-            simulationCamera.aspect = command.aspect; simulationView.applyFov(command.aspect);
-          }
-          commandHistory.put(command);
-          if (!worldControls.accept(command)) throw new Error('stale world command');
-          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles.f2.retune(name, key, value); }
-          const fs = command.flightSettings || {};
-          if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
-          const yawBeforeLook = soldier.aimYaw;
-          for (const [dx, dy] of command.look) applyLook(dx, dy);
-          tickLookYaw = soldier.aimYaw - yawBeforeLook;
-          presentation.previousYaw += soldier.aimYaw - yawBeforeLook; previewYaw = previewPitch = 0;
-          break;
-        }
-        case 'water': water.step(dt); break;
-        case 'clockAxes':
-          simTime = value; simEvents.time = simTime;
-          input.forward = tickControls.axis('forward'); input.right = tickControls.axis('right'); input.turn = tickControls.axis('turn');
-          droidInput.forward = input.forward; droidInput.right = input.right; droidInput.turn = input.turn; break;
-        case 'takeSquad': return tickControls.take(stepSquads[value][0]);
-        case 'squad': ai.playerCommand(stepSquads[value][1]); hud.squadCommand(stepSquads[value][2]); break;
-        case 'playerCount':
-          unitsSim.x.f4_viewpoint_clock();
-          unitsSim.sync();
-          break;
-        case 'eye': simulationZoom = 1; break;
-        case 'deathCamera':
-        case 'remoteCamera':
-        case 'driverCamera':
-        case 'gunnerCamera':
-        case 'camera':
-          aimCameras.hasFeet = !playerUnit.removed;
-          aimCameras.killerEyes = deathView.active ? killerEyes() : null;
-          aimCameras.frame(dt, false, soldier.position, soldier, soldier, combat,
-            combat.usesEyeView && !deathView.active && !remotes.active && !driver?.active && !gunner.active,
-            firstPerson, null, deathView, null, remotes, driver, gunner, null, "classic", null);
-          aimCameras.finish(); break;
-        case 'zoom': simulationZoom = combat.zoom; break;
-        case 'cameraMatrix': break;
-        case 'ai':
-          // The following native unit span consumes canonical bot intent;
-          // its completed body publication carries those controls once.
-          ai.update(dt,tick,true); break;
-        case 'nativeUnits':
-          // One owner advances bodies, combat, fleet and recon before
-          // separation. The dormant viewpoint only supplies its scope.
-          unitsSim.phase(dt, tick);
-          break;
-        case 'live': game.liveOwner.step(dt, tick); break;
-        case 'ordnance': ordnance.update(dt, false); break;
-        case 'mineTargets':
-          bodyMiddle.set(soldier.position.x, soldier.position.y + BODY_MIDDLE, soldier.position.z);
-          mineTargets.length = 0;
-          if (!combat.dead && !gunner.active && !driver?.active) mineTargets.push(...itemTargets);
-          for (const unit of factory?.built || []) if (unit.alive && !unit.seat && !unit.held) mineTargets.push(unit.itemTarget);
-          if (vehicles) for (const v of vehicles.vehicles) if (v.alive) mineTargets.push(v.itemTarget);
-          break;
-        case 'items': items.update(dt, mineTargets); break;
-        case 'battlefield': game.tailOwner.step(dt,tick,Boolean(game.serverWorld),tickHuman); tickHuman=null; break;
-        case 'battle': presentBattle(dt); break;
-        case 'target': updateTargetHud(dt); ai?.dangers?.(); break;
-        case 'grenades': context.grenades = ordnance.grenades; context.grenadeIndex = 0; break;
-        case 'nextGrenade': {
-          // Retain the selected array as a for-of loop does. Its live length
-          // observes appended grenades without allocating an iterator result.
-          if (context.grenadeIndex >= context.grenades.length) { context.grenades = null; return false; }
-          context.grenade = context.grenades[context.grenadeIndex++];return true;
-        }
-        case 'grenade': { const g = context.grenade;if(!g.gone) ai.grenadeUpdate(g,g.owner==='player'?playerUnit:g.owner);break; }
-        case 'spawnFlush': humanSpawn.flush(); if (vehicles?.f2?.debug) vehicles.f2.check(); break;
-      }
-    },
-  };
-  const stepContext = {dt:0,tick:0,recordedCommand:null,command:null,grenades:null,grenade:null,grenadeIndex:0};
-  function stepCall(op,value=0,flag=false) { return worldStepHost.call(op,stepContext,value,flag); }
-  function step(dt, tick, recordedCommand = null) {
-    stepContext.dt=dt;stepContext.tick=tick;stepContext.recordedCommand=recordedCommand;
-    stepWorld(worldStepHost,stepCall,tick);
+    simTime=tick/60;simEvents.time=simTime;
+    let squads=0;
+    for(let index=0;index<4;index++)if(worldControls.take(stepSquads[index]))squads|=1<<index;
+    simulationZoom=1;
+    if(!deathView.active&&!remotes.active&&!driver?.active&&!gunner.active)simulationZoom=combat.zoom;
+    if(deathView.active||remotes.active||driver?.active||gunner.active||!(game.serverWorld&&playerUnit.removed)){
+      aimCameras.hasFeet=!playerUnit.removed;aimCameras.killerEyes=deathView.active?killerEyes():null;
+      aimCameras.prepareFrame(dt,false,soldier.position,soldier,soldier,combat,
+        combat.usesEyeView&&!deathView.active&&!remotes.active&&!driver?.active&&!gunner.active,
+        firstPerson,null,deathView,null,remotes,driver,gunner,null,"classic",null);
+    }
+    if(ai)ai.prepare(dt,tick,true);
+    worldTick.run(dt,tick,Boolean(game.serverWorld),command.human,Boolean(ai),Boolean(live),
+      deathView.active||remotes.active||driver?.active||gunner.active||!(game.serverWorld&&playerUnit.removed)?aimCameras.handle:0,
+      !ai?.worldData.cameras,squads);
+    for(let index=0;index<4;index++)if(worldTick.output.squads&(1<<index))hud.squadCommand(squadNotices[index]);
+    if(worldTick.input.camera){aimCameras.publishFrame(firstPerson,deathView,null,remotes,driver,gunner);aimCameras.finish();}
+    worldTick.finish();
+    presentBattle(dt);
+    updateTargetHud(dt);
+    humanSpawn.flush();
+    if(vehicles?.f2?.debug)vehicles.f2.check();
   }
 
   function announcePost(event) {
@@ -2583,13 +2492,6 @@ async function start() {
       if (lockstep.on) presentAlpha = client.playerAlpha = lockstep.clock.alpha;
       else if (client) clientFrame(wallDt);
       else presentAlpha = 1;
-    } else if (!frozen && !held) {
-      worldClock.advance(wallDt, (h, tick) => {
-        presentation.beforeStep();
-        step(h, tick);
-        presentation.afterStep();
-      }, liveLoop);
-      presentAlpha = worldClock.alpha;
     }
     if (headless || !present) { runtimeProfile?.end(false); return; }
     runtimeProfile?.phase("presentation");
@@ -3134,9 +3036,8 @@ async function start() {
     step(command) {
       if (!headless) throw new Error("the page runs no battle: step the world worker (game.lockstep)");
       if (command.tick !== worldClock.tick + 1) throw new Error("nonconsecutive world command");
-      worldClock.advance(1 / 60, (h, tick) => {
-        presentation.beforeStep(); step(h, tick, command); presentation.afterStep();
-      }, false);
+      presentation.beforeStep();step(worldClock.dt,command.tick,command);presentation.afterStep();
+      worldTick.complete();
     },
     units,
     simEvents,

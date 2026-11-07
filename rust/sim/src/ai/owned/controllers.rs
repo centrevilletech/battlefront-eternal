@@ -31,6 +31,9 @@ pub struct Controllers {
     spare: Vec<Row>,
     alerts: Pool<AlertState>,
     los_epoch:Cell<u32>,
+    shots:Pool<crate::ai::control::world::ShotAlert>,
+    intake:Option<List<crate::ai::control::world::ShotAlert>>,
+    shot_marks:Vec<Option<(u32,usize)>>,
 }
 impl Controllers {
     pub fn new(capacity: usize, depth: usize) -> Self {
@@ -55,6 +58,7 @@ impl Controllers {
             by_core: super::index::Index::new(capacity),
             spare,
             alerts: Pool::new(depth, capacity),los_epoch:Cell::new(0),
+            shots:Pool::new(depth,capacity),intake:None,shot_marks:vec![None;capacity],
         }
     }
     pub fn adopt(&mut self, core: usize, entities: &mut Entities) -> Obj {
@@ -88,6 +92,14 @@ impl Controllers {
     pub fn write(&mut self, entities: &Entities, key: Obj) -> Option<&mut Ctl> {
         Some(&mut self.rows.get_mut(Self::reference(entities, key)?)?.value)
     }
+    /// Core callers already have the prepared index. Its stored slab
+    /// reference still validates generation, without another entity lookup.
+    pub fn read_core(&self,core:usize)->Option<&Ctl> {
+        Some(&self.rows.get(self.by_core.get(core)?)?.value)
+    }
+    pub fn write_core(&mut self,core:usize)->Option<&mut Ctl> {
+        Some(&mut self.rows.get_mut(self.by_core.get(core)?)?.value)
+    }
     pub fn key(&self, core: usize) -> Option<Obj> {
         Some(self.rows.get(self.by_core.get(core)?)?.value.obj)
     }
@@ -95,6 +107,9 @@ impl Controllers {
     /// Post-movement aim can resolve that slab directly without an entity map.
     pub fn core_reference(&self,reference:Ref<crate::gen::Controller>)->Option<usize> {
         Some(self.rows.get(Ref::new(reference.slot,reference.gen))?.core)
+    }
+    pub fn read_reference(&self,reference:Ref<crate::gen::Controller>)->Option<&Ctl> {
+        Some(&self.rows.get(Ref::new(reference.slot,reference.gen))?.value)
     }
     pub fn core(&self,entities:&Entities,key:Obj)->Option<usize> {Some(self.rows.get(Self::reference(entities,key)?)?.core)}
     pub fn helper_created(&mut self,core:usize,helper:crate::ai::control::agents::Helper) {
@@ -115,6 +130,14 @@ impl Controllers {
         let Some(row) = Self::reference(entities, key).and_then(|r| self.rows.get_mut(r)) else {
             return false;
         };
+        Self::feed_row(row,input,objects)
+    }
+    pub fn feed_core(&mut self,core:usize,input:&CombatInput<'_>,objects:&impl Objects)->bool {
+        let Some(reference)=self.by_core.get(core) else{return false};
+        let Some(row)=self.rows.get_mut(reference) else{return false};
+        Self::feed_row(row,input,objects)
+    }
+    fn feed_row(row:&mut Row,input:&CombatInput<'_>,objects:&impl Objects)->bool {
         row.helper_kind=input.helper_kind;row.helper_has_path=input.helper_has_path;
         row.policy = input.policy;
         if row.character_index!=Some(input.source.character) {
@@ -191,6 +214,34 @@ impl Controllers {
         p.renew();
         Some(p)
     }
+    /// Core numbers can outlive many joins. Refresh only retained native
+    /// bindings, so a long session never scans every retired controller.
+    pub fn shot_targets(&mut self,core:&crate::ai::control::Core) {
+        for reference in self.by_core.values() {
+            let row=self.rows.get_mut(reference).expect("retained controller binding");
+            if let Some(source)=core.controllers.get(row.core) {
+                row.value.target=source.target.map(|r|crate::ai::combat::world::Ref {obj:r.unit,generation:r.generation});
+            }
+        }
+    }
+    pub fn begin_shots(&mut self) {self.shot_marks.fill(None);self.intake=Some(self.shots.take());}
+    pub fn finish_shots(&mut self)->List<crate::ai::control::world::ShotAlert> {self.intake.take().expect("active shot intake")}
+    pub fn capturing_shots(&self)->bool {self.intake.is_some()}
+    /// notifyShot always replaces source, while only a known point replaces
+    /// the old known point. One slot per live controller bounds even a paused
+    /// journal burst; ingestion creates no controllers or recursive callbacks.
+    pub fn shot(&mut self,entities:&Entities,key:Obj,source:crate::ai::control::world::AlertSource,known:bool,point:Option<three::Vector3>) {
+        let reference=Self::reference(entities,key).expect("current alerted controller");
+        let core=self.rows.get(reference).expect("current alerted controller").core;
+        let notes=self.intake.as_mut().expect("active shot intake");
+        let mark=&mut self.shot_marks[reference.slot as usize];
+        let point=if known {point.map(|p|crate::ai::nav::math::Vec3::new(p.x,p.y,p.z))}else{None};
+        if let Some((generation,index))=*mark {if generation==reference.gen {
+            notes[index].source=source;if point.is_some() {notes[index].point=point;}return;
+        }}
+        *mark=Some((reference.gen,notes.len()));
+        notes.push_reserved(crate::ai::control::world::ShotAlert {controller:core,source,point});
+    }
     pub fn ingest(&self, objects: &impl Objects) -> List<AlertState> {
         let mut out = self.alerts.take();
         for r in self.by_core.values() {
@@ -250,6 +301,35 @@ pub fn link_character(store:&mut crate::gen::Store,owner:&mut dyn super::roster:
 mod los_epochs {
     use super::*;
     #[test]
+    fn shot_bursts_coalesce_without_losing_the_last_known_point_or_source() {
+        use crate::ai::control::{controller::Controller,world::AlertSource};
+        use crate::ai::nav::math::Vec3;
+        let mut entities=Entities::new(2);let mut rows=Controllers::new(2,1);
+        let first=rows.adopt(7,&mut entities);let second=rows.adopt(99,&mut entities);
+        let mut expected=[Controller::new(0),Controller::new(1)];
+        rows.begin_shots();
+        for index in 0..4096 {
+            let at=index%2;let source=AlertSource::Unit(index as u64);
+            let known=index%3==0;let point=(index%5!=0).then_some(Vec3::new(index as f64,-0.,4.));
+            expected[at].notify_shot(Some(source),known,point);
+            rows.shot(&entities,if at==0 {first}else{second},source,known,point.map(|p|three::Vector3::new(p.x,p.y,p.z)));
+        }
+        let notes=rows.finish_shots();assert_eq!(notes.len(),2);
+        for note in &notes {
+            let at=if note.controller==7 {0}else{1};let mut actual=Controller::new(at);
+            actual.notify_shot(Some(note.source),note.point.is_some(),note.point);
+            assert_eq!(actual.shot_pending,expected[at].shot_pending);
+            assert_eq!(actual.shot_known,expected[at].shot_known);
+            assert_eq!(actual.shot_point,expected[at].shot_point);
+            assert_eq!(actual.shot_source,expected[at].shot_source);
+        }
+        drop(notes);assert!(rows.retire(&mut entities,first));
+        let replacement=rows.adopt(1000,&mut entities);assert_ne!(replacement,first);
+        rows.begin_shots();rows.shot(&entities,replacement,AlertSource::Character(1),false,None);
+        let notes=rows.finish_shots();assert_eq!(notes.len(),1);assert_eq!(notes[0].controller,1000);
+        assert_eq!(notes[0].source,AlertSource::Character(1));assert!(notes[0].point.is_none());
+    }
+    #[test]
     fn character_bindings_resolve_once_and_reset_on_storage_reuse() {
         struct Ids(Cell<usize>);
         impl Objects for Ids {
@@ -266,8 +346,12 @@ mod los_epochs {
         assert_eq!(rows.core_reference(reference),Some(7));
         assert!(rows.feed(&entities,old,&input,&ids));assert!(rows.feed(&entities,old,&input,&ids));
         assert_eq!(ids.0.get(),1);assert_eq!(rows.read(&entities,old).unwrap().character,Some(102));
+        rows.write_core(7).unwrap().fire_a=true;
+        assert!(rows.read_core(7).unwrap().fire_a);
         assert!(rows.retire(&mut entities,old));assert_eq!(rows.core_reference(reference),None);
+        assert!(rows.read_core(7).is_none());assert!(rows.write_core(7).is_none());
         let new=rows.adopt(7,&mut entities);
+        assert_eq!(rows.read_core(7).unwrap().obj,new);assert!(!rows.read_core(7).unwrap().fire_a);
         assert_ne!(new,old);assert!(rows.feed(&entities,new,&input,&ids));assert_eq!(ids.0.get(),2);
     }
     #[test]

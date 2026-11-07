@@ -724,6 +724,9 @@ pub trait World: Draws {
     fn fresh_perception(&mut self,c:Obj)->super::perception::Perception;
     fn ctl(&self, c: Obj) -> &Ctl;
     fn ctl_mut(&mut self, c: Obj) -> &mut Ctl;
+    /// notifyShot can target the shared control owner directly. Other
+    /// service worlds retain the controller view's original write operation.
+    fn notify_shot(&mut self,c:Obj,source:Option<Obj>,known:bool,point:Option<Vector3>) {self.ctl_mut(c).notify_shot(source,known,point);}
     /// Native controls receive the aliased navigation write immediately.
     fn set_stance(&mut self,c:Obj,stance:f64) {self.ctl_mut(c).set_stance(stance);}
     /// An agent's controller.

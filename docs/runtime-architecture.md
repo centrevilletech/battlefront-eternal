@@ -23,10 +23,11 @@ a remote one.
   run. A headless host builds no WebGL, DOM, texture loaders or audio device and
   skips drawing, but the shared core still uses Three.js math, skeletons and
   scene objects for kinematic transforms; it is not a minimal pure-data world.
-  The tick's phases (`src/f4-world-step.js`) call into the Rust simulation
-  module (`rust/sim`, [sim-store.md](sim-store.md)), one instance a battle,
-  which owns collision, movement, the AI, hulls, flight, combat and the
-  battle's rules; the JavaScript builds the world and hosts the module.
+  The host prepares one tick input and calls the Rust coordinator
+  (`rust/sim/src/world/step.rs`, [sim-store.md](sim-store.md)). One simulation
+  instance per battle owns the ordered AI, unit, fleet, combat, ordnance,
+  item and battle phases and returns their completed publication. JavaScript
+  builds the world, carries external input and consumes presentation notices.
 - **One clock.** `FixedClock` owns integer 60 Hz gameplay ticks (movement,
   weapons, projectiles, contacts, services, capture, spawning), with 120 Hz
   vehicle substeps. Render refresh, graphics presets and frame caps do not

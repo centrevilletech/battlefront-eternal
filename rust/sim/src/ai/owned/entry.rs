@@ -189,6 +189,18 @@ fn finish_boundary(before:crate::allocations::Counts,version:u32,control_version
 #[no_mangle]
 pub extern "C" fn ai_world_dangers()->u32 {
     if !sim().ai.battle().is_some_and(|battle|battle.ready()) {return 0;}
+    // Game.step has already drained battle and ordnance. With no live
+    // grenade there are no warnings or RNG draws, and no owner needs a loan.
+    // Unread structural work still takes the ordinary publication boundary.
+    if crate::units::f3::settled() && !crate::vehicles::module::f2::has_pending()
+        && !sim().store.ordnance.grenades.iter().any(|r|sim().store.grenade.get(*r).is_some_and(|g|g.gone!=Some(true))) {
+        let before=crate::allocations::snapshot();let version=crate::units::f3::publication_version();
+        let control_version=sim().ai.battle().unwrap().state.control_views.version();
+        let count=sim().events.count();let words=sim().events.len();
+        sim().ai.battle_mut().unwrap().record_danger_phase();
+        finish_boundary(before,version,control_version,count,words,true);
+        return crate::gen::AiDangerResult::Unchanged as u32;
+    }
     let before=crate::allocations::snapshot();let outer=crate::units::f3::external();
     let event_count=sim().events.count();let event_words=sim().events.len();let version=crate::units::f3::publication_version();
     let control_version=sim().ai.battle().unwrap().state.control_views.version();
@@ -230,11 +242,12 @@ pub extern "C" fn ai_world_command()->u32 {
 /// F3 calls this after its unit, seat and lifecycle loans have ended. The
 /// sidecar never reads a JS mirror and never acquires another Core scope.
 pub fn publish_controls() {
+    let deferred=crate::world::deferred();
     if !sim().ai.battle().is_some_and(|battle|battle.ready()) {return;}
     let mut owner=std::mem::take(&mut sim().ai);let battle=owner.battle_mut().unwrap();
     let previous=battle.exchange.control_output;
     let mut output=std::mem::take(&mut battle.state.control_views);
-    let descriptor=crate::vehicles::module::f2::live_seats::with_owned_seats(|seats|output.publish(&mut battle.state,&sim().store,seats,&crate::battle::f4::live().buildings));
+    let descriptor=crate::vehicles::module::f2::live_seats::with_owned_seats(|seats|output.publish_at(&mut battle.state,&sim().store,seats,&crate::battle::f4::live().buildings,deferred));
     battle.state.control_views=output;battle.exchange.control_output=[descriptor[0],descriptor[1],descriptor[2],previous[3]];
     sim().ai=owner;
     // An unchanged control prefix leaves its descriptor and counters valid.

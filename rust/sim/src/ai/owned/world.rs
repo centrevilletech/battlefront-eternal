@@ -113,7 +113,7 @@ pub trait Services<C:Changes+?Sized,M:Mounted>:super::vehicle_frame::Hooks<C,M>+
         let controller=rows.state.controllers.key(controller).unwrap();
         let unit=rows.state.controllers.read(&rows.state.entities,controller).unwrap().unit.unwrap();
         if changed {if let Some(super::entities::Entity::Unit(reference))=rows.state.entities.get(unit) {
-            if rows.state.navigation.input_body_changed() {rows.changes.mark(reference);}else{rows.changes.intent(reference);}
+            if rows.state.navigation.input_body_changed() {rows.changes.body(reference);}else{rows.changes.intent(reference);}
         }}
         (rows.state.navigation.helper_observation(rows.store,actor),Vec::new())
     }
@@ -308,14 +308,24 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
     // Hearing notifies the control owner at each append. Its private combat
     // list is refreshed by the next ingest/response feed before it is read;
     // source-order caps and duplicates still belong to the canonical owner.
-    fn combat_prepare_ingest(&mut self,core:&crate::ai::control::Core)->bool {
-        if self.rows.state.reader.cursor>=self.rows.state.journal.sequence() {return false;}
-        for index in 0..core.controllers.len() {core.feed_combat(self,index);}true
+    fn combat_ingest_shots(&mut self,core:&ctl::Core)->Option<List<ctl::world::ShotAlert>> {
+        self.rows.state.controllers.begin_shots();
+        let journal=self.rows.state.journal.clone();
+        let mut reader=std::mem::take(&mut self.rows.state.reader);
+        if reader.has_combat(&journal) {
+            // ingest only reads the shooter's fallback target. Canonical
+            // bodies supply recipients; unrelated policy, fire and alert
+            // queues never need a complete control-to-combat round trip.
+            self.rows.state.controllers.shot_targets(core);
+            self.combat(|frame,combat|reader.ingest(&journal,combat,frame));
+        }else{reader.read(&journal,|_|{});}
+        self.rows.state.reader=reader;
+        Some(self.rows.state.controllers.finish_shots())
     }
     fn combat_prepare_retained(&mut self,_core:&crate::ai::control::Core,_controller:usize) {}
     fn combat_prepare_fire(&mut self,core:&ctl::Core,controller:usize)->bool {self.rows.combat_fire_feed(controller,&core.controllers[controller]);false}
     fn combat_fire_requests(&mut self,controller:usize)->(bool,bool) {
-        let row=self.rows.state.controllers.read(&self.rows.state.entities,self.controller(controller)).expect("current native fire controller");
+        let row=self.rows.state.controllers.read_core(controller).expect("current native fire controller");
         (row.fire_a,row.fire_b)
     }
     fn combat_prepare_query(&mut self,core:&ctl::Core,controller:usize) {self.rows.combat_query_feed(controller,&core.controllers[controller],false);}
@@ -326,7 +336,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
         // client numbers so no heap reference survives a controller feed.
         let mut clients=[0usize;crate::ai::combat::perception::GLOBAL_CAPACITY];
         let count=self.rows.state.controllers.los_clients(&self.rows.state.entities,&self.combat.los,&mut clients);
-        for &index in &clients[..count] {if index<core.controllers.len() {core.feed_combat(self,index);}}
+        for &index in &clients[..count] {if index<core.controllers.len() {self.rows.combat_los_feed(index,&core.controllers[index]);}}
     }
     fn combat_objective(&self,_character:usize)->Option<usize> {None}
     fn combat_feed(&mut self, _controller: usize, _input: &CombatInput) { self.rows.combat_feed(_controller,_input); }
@@ -356,8 +366,8 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
     fn combat_has_weapon(&mut self, controller: usize) -> bool { let key=self.controller(controller);self.combat(|f,c|c.has_weapon(f,key)) }
     fn combat_sensor_range(&mut self, controller: usize, target: UKey) -> f64 { let key=self.controller(controller);self.combat(|f,c|c.sensor_range(f,key,target)) }
     fn combat_acoustic_range(&mut self, controller: usize) -> f64 { let key=self.controller(controller);self.combat(|f,c|c.acoustic_range(f,key)) }
-    fn combat_consume_fire(&mut self, controller: usize, step: f64) { let key=self.controller(controller);let unit=self.rows.state.controllers.read(&self.rows.state.entities,key).unwrap().unit.expect("controlled native unit");self.combat(|f,c|c.consume_fire(f,key,unit,step,true)); }
-    fn combat_aim_point(&mut self, controller: usize, dt: f64) -> Option<Vec3> { let key=self.controller(controller);let unit=self.rows.state.controllers.read(&self.rows.state.entities,key).unwrap().unit.expect("controlled native unit");self.combat(|f,c|c.aim_point(f,key,unit,dt)).map(point) }
+    fn combat_consume_fire(&mut self, controller: usize, step: f64) { let row=self.rows.state.controllers.read_core(controller).unwrap();let key=row.obj;let unit=row.unit.expect("controlled native unit");self.combat(|f,c|c.consume_fire(f,key,unit,step,true)); }
+    fn combat_aim_point(&mut self, controller: usize, dt: f64) -> Option<Vec3> { let row=self.rows.state.controllers.read_core(controller).unwrap();let key=row.obj;let unit=row.unit.expect("controlled native unit");self.combat(|f,c|c.aim_point(f,key,unit,dt)).map(point) }
     fn combat_lead_point(&mut self, controller: usize, target: UKey, dt: f64) -> Option<Vec3> { let key=self.controller(controller);self.combat(|f,c|c.lead_point(f,key,target,dt)).map(point) }
     fn combat_mark_skip(&mut self, controller: usize, skipped: bool) { let _=(controller,skipped);self.combat.mark_skip(); }
     fn combat_broadcast_acoustic(&mut self,unit:UKey)->List<(usize,EntRef)> {
@@ -591,7 +601,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
     fn nav_hint_available(&mut self, hint: usize) -> bool { self.rows.state.navigation.nav.hint_available(hint,self.facts.time) }
     fn nav_mark_hint(&mut self, hint: usize, unit: Option<UKey>, prefer_world: bool) { let _=prefer_world;self.rows.state.navigation.nav.mark_hint(hint,unit,self.facts.time); }
     fn nav_hint_set_reserved(&mut self, hint: usize, at: f64) { self.rows.state.navigation.nav.hints.list[hint].reserved_at=at; }
-    fn perception_flags(&mut self, controller: usize) -> (bool, bool) { let c=self.rows.state.controllers.read(&self.rows.state.entities,self.controller(controller)).unwrap();(c.perception.is_some(),c.perception.is_some()) }
+    fn perception_flags(&mut self, controller: usize) -> (bool, bool) { let c=self.rows.state.controllers.read_core(controller).unwrap();(c.perception.is_some(),c.perception.is_some()) }
     fn combat_writes(&mut self, controller: usize) -> CombatWrites { self.rows.combat_writes(controller).expect("current native combat writes") }
     fn network_secondary_active(&self) -> bool { self.facts.network_secondary }
     fn nav_navigation_input(&mut self, core:&mut ctl::Core, controller: usize, step: f64, aim: Option<Vec3>,facing:bool) -> (Option<HelperObs>, Vec<CoreEffect>) {

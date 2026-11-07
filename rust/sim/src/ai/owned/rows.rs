@@ -48,7 +48,10 @@ impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
     }
     pub fn unit_sensor(&self,obj:Obj)->crate::ai::combat::world::UnitSensor {
         if let Some(Entity::Unit(r))=self.state.entities.get(obj) {self.state.combat_units.sensor(self.store,&self.state.entities,r).unwrap_or_default()}
-        else {crate::ai::combat::world::UnitSensor::of(&self.unit(obj))}
+        else if let Some(Entity::Control(reference))=self.state.entities.get(obj) {
+            self.state.controls.sensor(self.store,reference)
+                .or_else(||self.state.turrets.sensor(self.store,self.seats,self.buildings.rows(),reference)).unwrap_or_default()
+        }else {crate::ai::combat::world::UnitSensor::of(&self.unit(obj))}
     }
     pub fn unit_weapon_motion(&self,obj:Obj)->(f64,f64) {
         if let Some(Entity::Unit(r))=self.state.entities.get(obj) {self.state.combat_units.weapon_motion(self.store,r).unwrap_or_default()}
@@ -73,6 +76,7 @@ impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
     /// lease frame. Keep the full reader's absent-class and weak-token rules.
     pub fn unit_life(&self,obj:Obj)->(bool,f64) {
         if let Some(Entity::Unit(r))=self.state.entities.get(obj) {self.state.combat_units.life(self.store,r).unwrap_or_default()}
+        else if matches!(self.state.entities.get(obj),Some(Entity::Control(_))) {let u=self.combat_scalars(obj);(u.alive,u.generation)}
         else {let u=self.unit(obj);(u.alive,u.generation)}
     }
     pub fn unit_priority(&self,obj:Obj)->crate::ai::combat::world::PriorityView {
@@ -85,26 +89,30 @@ impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
     }
     pub fn unit_has_origin(&self,obj:Obj)->bool {
         if let Some(Entity::Unit(r))=self.state.entities.get(obj) {self.state.combat_units.observed_body(self.store,r).is_some()}
+        else if matches!(self.state.entities.get(obj),Some(Entity::Control(_))) {self.combat_scalars(obj).intent}
         else {self.unit(obj).has_origin}
     }
     /// Native bodies always own the button pair; absent class rows retain
     /// the full observation's empty-unit behavior (consumeFire).
     pub fn unit_has_buttons(&self,obj:Obj)->bool {
         if let Some(Entity::Unit(r))=self.state.entities.get(obj) {self.state.combat_units.observed_body(self.store,r).is_some()}
+        else if matches!(self.state.entities.get(obj),Some(Entity::Control(_))) {let u=self.combat_scalars(obj);u.intent&&u.intent_buttons}
         else {let u=self.unit(obj);u.intent&&u.intent_buttons}
     }
     pub fn unit_velocity(&self,obj:Obj)->Option<Vector3> {
         if let Some(Entity::Unit(r))=self.state.entities.get(obj) {
             let u=self.store.unit.get(r)?;
             self.state.combat_units.class_prepared(u.class_def).then(||u.velocity())
-        }else{self.unit(obj).velocity}
+        }else if matches!(self.state.entities.get(obj),Some(Entity::Control(_))) {self.unit_sensor(obj).velocity}
+        else{self.unit(obj).velocity}
     }
     pub fn unit_controller(&self,obj:Obj)->Option<Obj> {
         if let Some(Entity::Unit(r))=self.state.entities.get(obj) {
             let u=self.store.unit.get(r)?;
             if !self.state.combat_units.class_prepared(u.class_def) {return None;}
             u.controller.map(|r|self.state.entities.find(Entity::Controller(r)).expect("prepared AI controller"))
-        }else{self.unit(obj).controller}
+        }else if matches!(self.state.entities.get(obj),Some(Entity::Control(_))) {self.unit_sensor(obj).controller}
+        else{self.unit(obj).controller}
     }
     pub fn motion(&self,obj:Obj)->crate::ai::control::world::UnitMotion {
         if let Some(Entity::Unit(r))=self.state.entities.get(obj) {super::units::motion(self.store,r).unwrap_or_default()}else{self.scene().motion(obj)}
@@ -295,37 +303,40 @@ impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
 
 impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
     pub fn combat_feed(&mut self,core:usize,input:&crate::ai::control::world::CombatInput<'_>)->bool {
-        let Some(key)=self.state.controllers.key(core) else {return false};
         let objects=super::objects::Objects {store:self.store,commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
-        self.state.controllers.feed(&self.state.entities,key,input,&objects)
+        self.state.controllers.feed_core(core,input,&objects)
     }
     pub fn combat_query_feed(&mut self,core:usize,source:&crate::ai::control::controller::Controller,aim:bool)->bool {
-        let Some(key)=self.state.controllers.key(core) else{return false};
-        let Some(row)=self.state.controllers.write(&self.state.entities,key) else{return false};
+        let Some(row)=self.state.controllers.write_core(core) else{return false};
         let objects=super::objects::Objects {store:self.store,commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
         if aim {row.feed_aim_query(source,&objects);}else{row.feed_query(source,&objects);}true
     }
+    /// Deferred sight validates the bound owner and life, then changes only
+    /// its retained candidate. Fire, navigation and alert requests are not
+    /// inputs to that service and must not be recopied for each queued client.
+    pub fn combat_los_feed(&mut self,core:usize,source:&crate::ai::control::controller::Controller)->bool {
+        let Some(row)=self.state.controllers.write_core(core) else{return false};
+        row.unit=source.unit;row.generation=source.generation;true
+    }
     pub fn combat_aimer_feed(&mut self,core:usize,source:&crate::ai::control::controller::Controller)->bool {
-        let Some(key)=self.state.controllers.key(core) else{return false};
-        let Some(row)=self.state.controllers.write(&self.state.entities,key) else{return false};
+        let Some(row)=self.state.controllers.write_core(core) else{return false};
         let objects=super::objects::Objects {store:self.store,commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
         row.feed_aimer(source,&objects);true
     }
     pub fn combat_fire_feed(&mut self,core:usize,source:&crate::ai::control::controller::Controller)->bool {
-        let Some(key)=self.state.controllers.key(core) else{return false};
-        let Some(row)=self.state.controllers.write(&self.state.entities,key) else{return false};
+        let Some(row)=self.state.controllers.write_core(core) else{return false};
         let objects=super::objects::Objects {store:self.store,commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
         row.feed_fire(source,&objects);true
     }
     /// CombatAgent.face writes aimTarget separately from the fire target.
     /// Return that shared field before a nested Core call feeds combat again.
     pub fn combat_aim_target(&self,core:usize)->Option<crate::ai::control::world::EntRef> {
-        let ctl=self.state.controllers.read(&self.state.entities,self.state.controllers.key(core)?)?;
+        let ctl=self.state.controllers.read_core(core)?;
         ctl.aim_target.map(|r|crate::ai::control::world::EntRef {unit:r.obj,generation:r.generation})
     }
     pub fn combat_writes(&self,core:usize)->Option<crate::ai::control::world::CombatWrites> {
         let objects=super::objects::Objects {store:self.store,commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};
-        self.state.controllers.writes(&self.state.entities,self.state.controllers.key(core)?,&objects)
+        Some(self.state.controllers.read_core(core)?.control_writes(&objects))
     }
     pub fn combat_alerts(&self)->super::scratch::List<crate::ai::control::world::AlertState> {
         let objects=super::objects::Objects {store:self.store,commands:self.characters,entities:&self.state.entities,roster:&self.state.roster,population:&self.state.population};

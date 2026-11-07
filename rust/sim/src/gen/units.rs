@@ -231,6 +231,36 @@ impl ShapePart {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum F3PublishedControls {
+    F3ForeignControls(F3ForeignControls),
+    F3NativeIntent(F3NativeIntent),
+}
+
+impl Default for F3PublishedControls {
+    fn default() -> Self { F3PublishedControls::F3ForeignControls(Default::default()) }
+}
+
+impl F3PublishedControls {
+    pub const WORDS: usize = 11;
+
+    /// Its row words: the variant, then its value (a reference's slot and generation).
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        match self {
+            F3PublishedControls::F3ForeignControls(v) => { row[0] = 0.0; row[3..11].fill(0.0); v.put(&mut row[1..], heap); }
+            F3PublishedControls::F3NativeIntent(v) => { row[0] = 1.0; v.put(&mut row[1..], heap); }
+        }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        match word_u32(row[0]) {
+            0 => F3PublishedControls::F3ForeignControls(F3ForeignControls::take(&row[1..], heap)),
+            1 => F3PublishedControls::F3NativeIntent(F3NativeIntent::take(&row[1..], heap)),
+            _ => F3PublishedControls::default(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Member {
     Unit(Ref<Unit>),
@@ -248,7 +278,6 @@ impl Member {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
             Member::Unit(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             Member::VehicleTarget(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
@@ -283,9 +312,8 @@ impl Half {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..4].fill(0.0);
         match self {
-            Half::F64(v) => { row[0] = 0.0; row[1] = (*v); }
+            Half::F64(v) => { row[0] = 0.0; row[2..4].fill(0.0); row[1] = (*v); }
             Half::Vec3(v) => { row[0] = 1.0; row[1..1 + 3].copy_from_slice(&(*v)); }
         }
     }
@@ -314,9 +342,8 @@ impl UnitBody {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..78].fill(0.0);
         match self {
-            UnitBody::Soldier(v) => { row[0] = 0.0; v.put(&mut row[1..], heap); }
+            UnitBody::Soldier(v) => { row[0] = 0.0; row[65..78].fill(0.0); v.put(&mut row[1..], heap); }
             UnitBody::Droideka(v) => { row[0] = 1.0; v.put(&mut row[1..], heap); }
         }
     }
@@ -488,23 +515,43 @@ impl F3ControlView {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct F3ForeignControls {
+    pub values: Vec<F3ControlView>,
+}
+
+impl F3ForeignControls {
+    pub const WORDS: usize = 2;
+    pub const VALUES: usize = 0;
+    pub fn values_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[0] as usize; let length = row[1] as usize; heap[start..start + length * 46].chunks_exact(46) }
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.values.len() as f64; heap.resize(at + self.values.len() * 46, 0.0); for (i, e) in self.values.iter().enumerate() { let mut item = [0.0f64; 46]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 46..at + (i + 1) * 46].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            values: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 46..at + (i + 1) * 46]; out.push(F3ControlView::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct F3Publication {
     pub body: F3UnitMirror,
     pub arsenal: u32,
     pub combat: F3CombatView,
-    pub controls: Option<F3ControlView>,
-    pub native_intent: bool,
-    pub native_controls: Option<F3NativeIntent>,
+    pub controls: F3PublishedControls,
 }
 
 impl F3Publication {
-    pub const WORDS: usize = 207;
+    pub const WORDS: usize = 159;
     pub const BODY: usize = 0;
     pub const ARSENAL: usize = 103;
     pub const COMBAT: usize = 104;
     pub const CONTROLS: usize = 148;
-    pub const NATIVE_INTENT: usize = 195;
-    pub const NATIVE_CONTROLS: usize = 196;
 
     /// Update one fixed field in a retained encoding; other words stay consumed.
     pub fn put_body(&self, row: &mut [f64], heap: &mut Vec<f64>) {
@@ -512,34 +559,35 @@ impl F3Publication {
     }
 
     /// Update one fixed field in a retained encoding; other words stay consumed.
-    pub fn put_controls(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        match &self.controls { Some(v) => { row[148] = 0.0; v.put(&mut row[148 + 1..], heap); } None => { row[148] = 1.0; row[148 + 1..148 + 47].fill(0.0); } }
+    pub fn put_arsenal(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[103] = self.arsenal as f64;
     }
 
     /// Update one fixed field in a retained encoding; other words stay consumed.
-    pub fn put_native_controls(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        match &self.native_controls { Some(v) => { row[196] = 0.0; v.put(&mut row[196 + 1..], heap); } None => { row[196] = 1.0; row[196 + 1..196 + 11].fill(0.0); } }
+    pub fn put_combat(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        self.combat.put(&mut row[104..], heap);
+    }
+
+    /// Update one fixed field in a retained encoding; other words stay consumed.
+    pub fn put_controls(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        self.controls.put(&mut row[148..148 + 11], heap);
     }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 207] = (&mut row[..207]).try_into().unwrap();
+        let row: &mut [f64; 159] = (&mut row[..159]).try_into().unwrap();
         self.body.put(&mut row[0..], heap);
         row[103] = self.arsenal as f64;
         self.combat.put(&mut row[104..], heap);
-        match &self.controls { Some(v) => { row[148] = 0.0; v.put(&mut row[148 + 1..], heap); } None => { row[148] = 1.0; row[148 + 1..148 + 47].fill(0.0); } }
-        row[195] = if self.native_intent { 1.0 } else { 0.0 };
-        match &self.native_controls { Some(v) => { row[196] = 0.0; v.put(&mut row[196 + 1..], heap); } None => { row[196] = 1.0; row[196 + 1..196 + 11].fill(0.0); } }
+        self.controls.put(&mut row[148..148 + 11], heap);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 207] = (&row[..207]).try_into().unwrap();
+        let row: &[f64; 159] = (&row[..159]).try_into().unwrap();
         Self {
             body: F3UnitMirror::take(&row[0..], heap),
             arsenal: word_u32(row[103]),
             combat: F3CombatView::take(&row[104..], heap),
-            controls: if row[148] == 0.0 { Some(F3ControlView::take(&row[148 + 1..], heap)) } else { None },
-            native_intent: row[195] != 0.0,
-            native_controls: if row[196] == 0.0 { Some(F3NativeIntent::take(&row[196 + 1..], heap)) } else { None },
+            controls: F3PublishedControls::take(&row[148..148 + 11], heap),
         }
     }
 

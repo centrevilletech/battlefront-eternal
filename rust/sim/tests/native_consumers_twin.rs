@@ -50,7 +50,6 @@ impl Lane {
         for code in [
             IMPORT_WORLD_EVENTS,
             IMPORT_WORLD_LOCAL,
-            IMPORT_WORLD_STEP,
             IMPORT_WORLD_NETWORK,
         ] {
             let calls = calls.clone();
@@ -120,12 +119,6 @@ fn native_world_consumers_match_existing_port_fixtures() {
             "world_local_run" => {
                 context
                     .world_local(input.read(WorldLocalInput::take))
-                    .unwrap();
-                None
-            }
-            "world_step_run" => {
-                context
-                    .world_step(input.read(WorldStepInput::take))
                     .unwrap();
                 None
             }

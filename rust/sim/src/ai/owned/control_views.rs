@@ -17,7 +17,7 @@ pub struct Publication {
     dirty:Vec<bool>,
     links:Vec<Option<Links>>,
     words:Vec<f64>,
-    version:u32,ack:[f64;1],count:u32,
+    version:u32,ack:[f64;1],count:u32,pending:bool,
 }
 impl Publication {
     pub fn new(capacity:usize)->Self {
@@ -32,6 +32,11 @@ impl Publication {
     /// controls whose controller has unbound can leave the native pool; weak targets resolve
     /// dead rather than accidentally following the next storage generation.
     pub fn publish(&mut self,state:&mut State,store:&crate::gen::Store,seats:&mut Seats,buildings:&crate::battle::ownership::Rows<crate::battle::live_phase::Building>)->[u32;4] {
+        self.publish_at(state,store,seats,buildings,false)
+    }
+    // Core unbind must retire weak control identities at the original owner
+    // barrier. Only the encoded facade prefix waits for the enclosing tick.
+    pub fn publish_at(&mut self,state:&mut State,store:&crate::gen::Store,seats:&mut Seats,buildings:&crate::battle::ownership::Rows<crate::battle::live_phase::Building>,deferred:bool)->[u32;4] {
         if self.count!=0&&self.ack[0]==self.version as f64 {self.dirty.fill(false);self.words.clear();self.count=0;}
         let mut changed=false;
         for slot in 0..state.births.slots().min(self.last.len() as u32) {
@@ -73,10 +78,12 @@ impl Publication {
                 }
             }
         }
+        self.pending|=changed;
+        if deferred {return [self.words.as_ptr() as usize as u32,self.count,self.version,0];}
         // Rebuild the changed prefix only when a new value arrives. Repeated
         // mirror barriers keep the same pointer, version and unread prefix.
-        if changed {
-            self.words.clear();self.count=0;
+        if self.pending {
+            self.pending=false;self.words.clear();self.count=0;
             for slot in 0..self.last.len() {if self.dirty[slot] {self.words.extend_from_slice(&self.last[slot]);self.count+=1;}}
             self.version=self.version.wrapping_add(1);
         }

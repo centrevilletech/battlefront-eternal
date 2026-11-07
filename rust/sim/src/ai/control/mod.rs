@@ -4045,18 +4045,22 @@ impl Core {
     }
 
     pub fn decide<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, dt: f64) {
-        if self.options.bind.combat&&w.combat_prepare_ingest(self) {
-            for state in w.combat_ingest() {
-                let c = &mut self.controllers[state.controller];
-                c.shot_pending = state.shot_pending;
-                c.shot_known = state.shot_known;
-                c.shot_point = state.shot_point;
-                c.shot_source = state.shot_source;
-                c.danger_pending = state.danger_pending;
-                c.danger_point = state.danger_point;
-                c.acoustic.clear();c.acoustic.extend_from_slice(&state.acoustic);
-                c.dodge = state.dodge;
-                c.alert_anim = state.alert_anim;
+        if self.options.bind.combat {
+            if let Some(shots)=w.combat_ingest_shots(self) {
+                for shot in shots {self.controllers[shot.controller].notify_shot(Some(shot.source),shot.point.is_some(),shot.point);}
+            }else if w.combat_prepare_ingest(self) {
+                for state in w.combat_ingest() {
+                    let c = &mut self.controllers[state.controller];
+                    c.shot_pending = state.shot_pending;
+                    c.shot_known = state.shot_known;
+                    c.shot_point = state.shot_point;
+                    c.shot_source = state.shot_source;
+                    c.danger_pending = state.danger_pending;
+                    c.danger_point = state.danger_point;
+                    c.acoustic.clear();c.acoustic.extend_from_slice(&state.acoustic);
+                    c.dodge = state.dodge;
+                    c.alert_anim = state.alert_anim;
+                }
             }
         }
         self.sync(w, d);

@@ -26,6 +26,7 @@ export default {
     // The registry's members (registry.js `list`): the units, and the
     // targets hulls, turrets and buildings add (src/seats.js VehicleTarget,
     // TurretTarget; src/objectives.js ObjectiveTarget).
+    F3PublishedControls: ['rec:F3ForeignControls', 'rec:F3NativeIntent'],
     Member: ['ref:unit', 'ref:vehicleTarget', 'ref:turretTarget', 'ref:objectiveTarget'],
     // A hit shape's `half`: a cylinder's half height (0 on a sphere), or a
     // box's or capsule's half size, the shape's own `halfSize`.
@@ -41,16 +42,17 @@ export default {
     // Foreign controls retain the complete input and latch pair. Native bots
     // publish only held intent read by diagnostics and the external aimer;
     // their consumed movement and fire edges have no JavaScript consumer.
-    F3NativeIntent: { $layout:true, $delta:['forward','right','turn','pitch','buttons','aim'],
+    F3NativeIntent: { $class:'F3NativeIntent', $layout:true, $delta:['forward','right','turn','pitch','buttons','aim'],
       forward:'f64', right:'f64', turn:'f64', pitch:'f64', buttons:'f64x2', aim:'vec3|null',
     },
-    F3ControlView: { $layout:true, $delta:['intent','was','pressed0','pressed1','input'],
+    F3ControlView: { $class:'F3ControlView', $layout:true, $delta:['intent','was','pressed0','pressed1','input'],
       intent: 'rec:Intent',
       was: {type: 'f64x2', js: 'controls.was', mirror: false},
       pressed0: {type: 'bool', js: 'controls.pressed.0', mirror: false}, pressed1: {type: 'bool', js: 'controls.pressed.1', mirror: false},
       input: 'rec:MoveInput',
     },
-    F3Publication: { $layout:true, $delta:['body','combat'], $parts:['body','controls','nativeControls'], body: 'rec:F3UnitMirror', arsenal: 'u32', combat: 'rec:F3CombatView', controls: 'rec:F3ControlView|null', nativeIntent:'bool', nativeControls:'rec:F3NativeIntent|null' },
+    F3ForeignControls: { $class:'F3ForeignControls', $layout:true, values:'list:rec:F3ControlView' },
+    F3Publication: { $layout:true, $delta:['body','combat'], $parts:['body','arsenal','combat','controls'], body: 'rec:F3UnitMirror', arsenal: 'u32', combat: 'rec:F3CombatView', controls: 'union:F3PublishedControls' },
     F3Acknowledgement: { $layout:true, version:'u32', eventEpoch:'u32', eventOffset:'u32' },
     F3Boundary: { $layout:true,
       $refresh: ['version', 'controlsConsumed', 'output', 'outputRows', 'outputHeap', 'outputWords',

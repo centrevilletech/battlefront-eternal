@@ -13,6 +13,7 @@ export const PHASES = [
   ['players', 'Players', 'each player\'s commands merged from his mailbox: spawns, team, intents, look, boarding'],
   ['views', 'Views', 'the players\' views the AI\'s level of detail reads (updateViews)'],
   ['begin', 'Begin', 'the game step\'s start: the command, the dormant local player, water, the time, the view camera'],
+  ['worldTick', 'WorldTick', 'the native world tick and its completed publication'],
   ['restorePose', 'RestorePose', 'hulls back to their tick poses (vehicles.restoreTickPose)'],
   ['ai', 'Ai', 'the AI (ai.update)'],
   ['unitTick', 'UnitTick', 'every unit\'s tick in factory order, with its water and the death regions'],
@@ -37,5 +38,5 @@ export const PHASE_NAMES = PHASES.map((p) => p.name);
 
 // A combined native owner replaces these former JavaScript phase boundaries.
 // Keep their names above so historical capture files still decode unchanged.
-const nativeMembers = new Set(['restorePose','vehicles','turretSeats','gunner','remotes','separate']);
+const nativeMembers = new Set(['restorePose','ai','unitTick','vehicles','turretSeats','gunner','remotes','separate','live','ordnance','items','battlefield','aiGrenades']);
 export const LIVE_PHASES = PHASES.filter(phase => !nativeMembers.has(phase.name));

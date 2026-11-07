@@ -1,6 +1,4 @@
 import * as THREE from "three";
-const BOB = 0.06; // m
-const BOB_RATE = 0.3; // Hz
 const WAKE_LIFE = 2;
 const WAKE_RADIUS = 0.25;
 const SPLASH_SPEED = 5; // m/s down
@@ -15,7 +13,6 @@ export class WaterState {
     this.bobbing = (data.look.OscillationEnable?.[0] ?? 1) > 0;
     this.simulationTime = 0; this.physicsWave = 0; this.at = new THREE.Vector3();
   }
-  step(dt) { this.simulationTime += dt; this.physicsWave = this.bobbing ? BOB * Math.sin(2 * Math.PI * BOB_RATE * this.simulationTime) : 0; }
   ripple() {}
   // The surface's height now, bob included.
   get level() {

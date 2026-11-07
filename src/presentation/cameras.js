@@ -134,7 +134,7 @@ export class PageCameras {
   // The authority clock uses the same kernel with a separate retained owner.
   // It never advances the display's motion, shake or death-shot followers.
   // A network correction can replay that clock without moving the shown view.
-  frame(dt, frozen, feet, state, soldier, combat, ownEyes, firstPerson, eye, deathView, deathShot, remotes, driver, gunner, ribcage, style, shot) {
+  prepareFrame(dt, frozen, feet, state, soldier, combat, ownEyes, firstPerson, eye, deathView, deathShot, remotes, driver, gunner, ribcage, style, shot) {
     // Rebind after cold registrations, which may have grown the module.
     if (remotes.piloted !== this.remote) {
       this.remote = remotes.piloted;
@@ -205,7 +205,14 @@ export class PageCameras {
     if (shot?.director) {a[F.DIRECTOR_AGE]=shot.age;a[F.DIRECTOR_REVISION]=shot.revision;}
     else if (shot) { vector(a, F.SHOT_POSITION, shot.position); quaternion(a, F.SHOT_QUATERNION, shot.quaternion); }
     a[F.COMMANDS] = this.commandCount; this.commandCount = 0;
-    this.x.camera_frame(this.handle); this.refresh();
+  }
+  frame(dt, frozen, feet, state, soldier, combat, ownEyes, firstPerson, eye, deathView, deathShot, remotes, driver, gunner, ribcage, style, shot) {
+    this.prepareFrame(dt,frozen,feet,state,soldier,combat,ownEyes,firstPerson,eye,deathView,deathShot,remotes,driver,gunner,ribcage,style,shot);
+    this.x.camera_frame(this.handle);
+    return this.publishFrame(firstPerson,deathView,deathShot,remotes,driver,gunner,this.camera);
+  }
+  publishFrame(firstPerson,deathView,deathShot,remotes,driver,gunner,camera=this.camera) {
+    this.refresh();
     const o = this.output;
     if (o[O.STATUS]) throw Error("camera presentation layout mismatch");
     // Publish the pre-shake view before arms, charge and the death trace.

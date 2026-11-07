@@ -341,6 +341,14 @@ impl Turrets {
     pub fn lease_reference(&self,store:&Store,seats:&Seats,buildings:&Rows<Building>,reference:Ref<crate::gen::SeatUnit>)->Option<Ref<crate::gen::SeatLease>> {
         Some(self.live_control(store,seats,buildings,reference)?.0.lease)
     }
+    /// The sensor keeps combat_control's life and lease validation without
+    /// resolving the gunner's Character or cloning a stationary class view.
+    pub fn sensor(&self,store:&Store,seats:&Seats,buildings:&Rows<Building>,reference:Ref<crate::gen::SeatUnit>)->Option<crate::ai::combat::world::UnitSensor> {
+        let (control,_,_,_,lease)=self.live_control(store,seats,buildings,reference)?;
+        Some(crate::ai::combat::world::UnitSensor {generation:1.,kind:7.,team:lease.team,human:false,
+            position:self.position(seats,buildings,control.turret)?,velocity:Some(Vector3::default()),
+            controller:control.controller,collision_category:None})
+    }
     pub fn combat_control(
         &self,
         store: &Store,

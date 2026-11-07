@@ -1,87 +1,82 @@
-//! The world's phase order. Host ports supply the remaining object and
-//! presentation boundaries; each reply refreshes facts that a callback may
-//! have changed before the next phase or guard is chosen.
-use crate::gen::{WorldStepCall as Call, WorldStepReply, WorldStepState};
+//! Game.step's authoritative interval. The host prepares one input boundary
+//! and consumes publication only after every native phase has returned.
+//! Each phase retains its original service loans and recursive death/shot
+//! journal points; the coordinator never holds a store borrow across an entry.
+use crate::{abi::sim, gen::{WorldTickInput, WorldTickOutput, WorldTickSetup}};
 
-pub trait Host {
-    fn call(&mut self, state: &mut WorldStepState, op: Call, value: f64, flag: bool) -> WorldStepReply;
+/// Cold binding reserves the generated input and adopts the water clock.
+/// Ordinary ticks never enter a host scratch allocator or reimport this clock.
+#[no_mangle]
+pub extern "C" fn world_step_init() -> *mut f64 {
+    let setup={let(row,heap)=sim().calls.args();WorldTickSetup::take(row,heap)};
+    sim().world.water=setup.water.then_some(super::Water {
+        time:setup.water_time,height:setup.water_height,bobbing:setup.water_bob,wave:0.0,
+    });
+    sim().world.input.as_mut_ptr()
 }
 
-pub fn step(state: &mut WorldStepState, tick: f64, host: &mut impl Host) {
-    host.call(state, Call::Start, 0.0, false);
-    if state.water { host.call(state, Call::Water, 0.0, false); }
-    host.call(state, Call::ClockAxes, tick / 60.0, false);
-    for index in 0..4 {
-        let taken = host.call(state, Call::TakeSquad, f64::from(index), false).flag;
-        if taken && !state.dead && state.player_command { host.call(state, Call::Squad, f64::from(index), false); }
-    }
-    let count = state.player_ticks + 1.0;
-    host.call(state, Call::PlayerCount, count, false);
-    host.call(state, Call::Eye, 0.0, false);
-    let eyes = state.eye_view && !state.dead;
-    if state.death_camera { host.call(state, Call::DeathCamera, 0.0, false); }
-    else if state.remote { host.call(state, Call::RemoteCamera, 0.0, false); }
-    else if state.driver { host.call(state, Call::DriverCamera, 0.0, false); }
-    else if state.gunner { host.call(state, Call::GunnerCamera, 0.0, false); }
-    else {
-        host.call(state, Call::Zoom, 0.0, false);
-        if !(state.server && state.removed) { host.call(state, Call::Camera, 0.0, eyes); }
-    }
-    host.call(state, Call::CameraMatrix, 0.0, false);
-    if state.ai { host.call(state, Call::Ai, 0.0, false); }
-    // Unit.tick, fleet/seat updates, recon finish and separation form one
-    // ownership interval. No JavaScript body or combat callback follows it.
-    host.call(state, Call::NativeUnits, 0.0, false);
-    if state.live { host.call(state, Call::Live, 0.0, false); }
-    host.call(state, Call::Ordnance, 0.0, false);
-    host.call(state, Call::MineTargets, 0.0, false);
-    host.call(state, Call::Items, 0.0, false);
-    host.call(state, Call::Battlefield, 0.0, false);
-    host.call(state, Call::Battle, 0.0, false);
-    // This computes an authoritative vehicle target even in headless worlds.
-    host.call(state, Call::Target, 0.0, false);
-    if state.grenade_update {
-        host.call(state, Call::Grenades, 0.0, false);
-        loop {
-            let next = host.call(state, Call::NextGrenade, 0.0, false);
-            if !next.flag { break; }
-            if next.value == 0.0 { host.call(state, Call::Grenade, 0.0, false); }
+/// The input is copied before any phase can reuse the shared command block.
+/// Calling existing owner entries preserves their independent event epochs,
+/// numeric substeps and publication banks without a host phase dispatcher.
+#[no_mangle]
+pub extern "C" fn world_step_run() -> *const f64 {
+    let input = WorldTickInput::take(&sim().world.input,&[]);
+    let mut output = WorldTickOutput {clock:input.clock.clone(),..Default::default()};
+    let before=crate::allocations::snapshot();
+    if input.dt.is_finite() && input.dt >= 0.0 && input.tick.is_finite() && !sim().world.running
+        && input.tick==input.clock.tick+1.0
+        && super::clock::advance(&mut output.clock,input.dt,false,&mut CompletedClock)==Ok(1.0) {
+        sim().world.running=true;
+        let water=sim().world.water.as_mut();
+        let level=if let Some(water)=water {
+            let level=water.step(input.dt);output.water_time=water.time;output.wave=water.wave;level
+        }else{f64::NAN};
+        output.level=level;
+        crate::ordnance::module::ord_water(0,u32::from(level.is_finite()));
+        crate::ordnance::module::ord_water(1,u32::from(level.is_finite()));
+        if input.ai {
+            for (index, kind) in [0.0,2.0,3.0,1.0].into_iter().enumerate() {
+                if input.squads & (1<<index)==0 {continue;}
+                let local=crate::units::f3::viewpoint();
+                let unit=sim().store.unit.get(local).unwrap();
+                if unit.combat.dead {continue;}
+                let Some(character)=unit.character.and_then(crate::battle::f4_core::character_handle) else {continue};
+                let command=crate::gen::AiPlayerCommand {character,kind,time:input.tick/60.0};
+                sim().calls.result(crate::gen::AiPlayerCommand::WORDS,|row,heap|command.put(row,heap));
+                if crate::ai::owned::entry::ai_world_command()!=0 {output.squads|=1<<index;}
+            }
         }
+        crate::vehicles::module::f2::world_level(if level.is_finite() {level}else{0.0});
+        crate::battle::f4_live::f4_viewpoint_clock();
+        if input.camera!=0 {crate::cameras::world_frame(input.camera,input.offline_camera);}
+        let ai = !input.ai || crate::ai::owned::entry::ai_world_phase() != 0;
+        if ai && crate::units::f3::f3_step(input.units, input.dt, level, input.tick) != 0 {
+            if input.live { crate::battle::f4_live::f4_live(); }
+            output.ordnance = crate::ordnance::module::ord_update(input.dt);
+            let targets = crate::units::f3_items::world_targets();
+            output.items = crate::items::module::items_update(input.dt, targets);
+            crate::battle::f4_tail::f4_tail();
+            if input.ai { crate::ai::owned::entry::ai_world_dangers(); }
+            output.accepted = true;
+        }
+        sim().world.running=false;
+        // Each producer kept dirty rows and retired leases until this point.
+        // Commit their encoded baselines once, against what the host consumed.
+        crate::units::f3::publish_changed();
     }
-    host.call(state, Call::SpawnFlush, 0.0, false);
+    let used=crate::allocations::snapshot().since(before);
+    output.allocations=used.calls as u32;output.reallocations=used.reallocs as u32;output.allocation_bytes=used.bytes as u32;
+    let result=&mut sim().world.output;
+    result.begin(1,WorldTickOutput::WORDS);
+    let (row,heap)=result.row(0);output.put(row,heap);result.finish();
+    result.ptr()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[derive(Default)]
-    struct PhaseLog { calls: Vec<(Call, f64)> }
-    impl Host for PhaseLog {
-        fn call(&mut self, state: &mut WorldStepState, op: Call, value: f64, _: bool) -> WorldStepReply {
-            self.calls.push((op, value));
-            if op == Call::PlayerCount { state.player_ticks = value; }
-            let (value, other) = (0.0, 0.0);
-            WorldStepReply { state: state.clone(), value, other, flag: false }
-        }
-    }
-    #[test]
-    fn server_steps_keep_the_dormant_player_out_of_body_combat_and_chase_camera() {
-        let mut state = WorldStepState { server: true, removed: true, grenade_update: true, ..Default::default() };
-        let mut host = PhaseLog::default(); step(&mut state, 60.0, &mut host);
-        assert!(![Call::Camera].iter().any(|op| host.calls.iter().any(|(seen, _)| seen == op)));
-        let at = |op| host.calls.iter().position(|(seen, _)| *seen == op).unwrap();
-        assert!(at(Call::Battle) < at(Call::Target)); assert!(at(Call::Target) < at(Call::Grenades));
-        assert!(at(Call::NextGrenade) < at(Call::SpawnFlush));
-        assert!(host.calls.contains(&(Call::ClockAxes, 1.0))); assert_eq!(state.player_ticks, 1.0);
-    }
-    #[test]
-    fn one_native_phase_precedes_items_and_battle() {
-        let mut state = WorldStepState::default();
-        let mut host = PhaseLog::default();
-        step(&mut state, 1.0, &mut host);
-        let at = |op| host.calls.iter().position(|(seen, _)| *seen == op).unwrap();
-        assert_eq!(host.calls.iter().filter(|(op, _)| *op == Call::NativeUnits).count(), 1);
-        assert!(at(Call::NativeUnits) < at(Call::Items));
-        assert!(at(Call::Items) < at(Call::Battle));
-    }
+// Game.step consumes one already-stamped command, so pacing and host now()
+// are outside this interval. Reuse FixedClock's compensated arithmetic and
+// publish its completion after the tick's ordered notices have been delivered.
+struct CompletedClock;
+impl super::clock::Host for CompletedClock {
+    fn now(&mut self,_:&mut crate::gen::WorldClockState)->f64 {0.0}
+    fn step(&mut self,_:&mut crate::gen::WorldClockState,_:f64,_:f64) {}
 }

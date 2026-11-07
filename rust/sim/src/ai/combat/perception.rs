@@ -1046,7 +1046,7 @@ pub fn notify_targeted_shot<W: World + ?Sized>(w: &mut W, shooter: Obj, target: 
     }
     let mut notified = false;
     for c in alert_controllers(w, target) {
-        w.ctl_mut(c).notify_shot(Some(source), true, Some(*shooter_position));
+        w.notify_shot(c,Some(source),true,Some(*shooter_position));
         notified = true;
     }
     notified
@@ -1092,7 +1092,7 @@ pub fn notify_damage<W: World + ?Sized>(w: &mut W, victim: Obj, attacker: Attack
     }
     let mut notified = false;
     for c in alert_controllers(w, victim) {
-        w.ctl_mut(c).notify_shot(Some(source), known, point);
+        w.notify_shot(c,Some(source),known,point);
         notified = true;
     }
     notified

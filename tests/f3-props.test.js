@@ -33,7 +33,7 @@ test('owned repair selection keeps ordered ties and imports only the touched pro
   assert.equal(a.health,1991); assert.equal(b.health,1990);
   assert.equal(world.phase.counters.wasmCalls,1);
   assert.equal(world.phase.counters.commandCalls,0);
-  assert.equal(world.phase.counters.importCalls,2,'one aimer and one touched health publication');
+  assert.equal(world.phase.counters.importCalls,1,'only the standalone aimer imports; health is an output record');
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);
   // The current target wins an exact tie even if another one was constructed

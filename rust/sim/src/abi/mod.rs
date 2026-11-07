@@ -24,6 +24,7 @@ pub const ABI: u32 = 1;
 
 pub struct Sim {
     pub store: Store,
+    pub world: crate::world::Tick,
     /// One native AI owner shares this instance's canonical entity rows.
     pub ai: crate::ai::owned::owner::Owner,
     pub strings: Strings,
@@ -40,6 +41,7 @@ impl Sim {
     pub fn new() -> Self {
         Sim {
             store: Store::default(),
+            world: Default::default(),
             ai: Default::default(),
             strings: Strings::default(),
             blocks: (0..=KINDS).map(|_| Block::default()).collect(),

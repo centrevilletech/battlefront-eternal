@@ -166,6 +166,16 @@ pub(crate) fn body_index(body: Ref<Body>) -> Option<usize> {
     sim().store.vehicles.vehicles.iter().position(|&v| v == r)
 }
 
+/// OrdnanceWorld.riderMount resolves the collision owner without a facade.
+/// Only an occupied animal exposes riders through its hull's collision shape.
+pub(crate) fn rider_mount(body: Ref<Body>) -> Option<crate::ordnance::world::RiderMount> {
+    let r=hulls().bodies.get(body.slot as usize).copied().flatten()?;
+    let hull=sim().store.vehicle.get(r)?;
+    if hull.body!=body || !f2::live_seats::animal(r) ||
+        !hull.seats.iter().any(|seat|seat.lease.is_some()) {return None;}
+    Some(crate::ordnance::world::RiderMount {vehicle:r,bound_radius:hull.bound_radius,body:crate::store::Nullable::Value(body)})
+}
+
 /// Vehicle.damage/setHealth can be entered by hits, repair and native physics.
 /// A working row comes from F2's retained pool rather than cloning its class.
 pub(crate) fn mutate(r: Ref<Vehicle>, value: f64, attacker: Option<OrdnanceOwner>, services: WorldServices<'_>) {

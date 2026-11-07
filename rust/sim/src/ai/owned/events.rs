@@ -44,6 +44,13 @@ impl Journal {
     pub fn reset(&self) {let mut s=self.0.borrow_mut();s.ring.fill(None);s.seq=0;}
 }
 impl Reader {
+    /// Other records still spend ring capacity and advance the reader, but
+    /// cannot alert anyone. Inspect exactly the retained unread interval.
+    pub fn has_combat(&self,journal:&Journal)->bool {
+        let state=journal.0.borrow();let capacity=state.ring.len() as u64;
+        (self.cursor.max(state.seq.saturating_sub(capacity))..state.seq)
+            .any(|sequence|matches!(state.ring[(sequence%capacity) as usize],Some(Record::Combat(_))))
+    }
     pub fn read(&mut self,journal:&Journal,mut visit:impl FnMut(Record)) {
         {
             let s=journal.0.borrow();let capacity=s.ring.len() as u64;
@@ -75,6 +82,17 @@ mod tests {
     use super::*;
     use crate::ai::combat::binding::EventRef;
     fn shot(id:u64)->Record {Record::Combat(Event::Shot {source:EventRef::Unit(id),target:EventRef::None})}
+    #[test]
+    fn shot_presence_uses_only_the_retained_unread_window() {
+        let journal=Journal::new(3);let mut reader=journal.reader();
+        journal.emit(shot(1));assert!(reader.has_combat(&journal));
+        for _ in 0..3 {journal.emit(Record::Other);}
+        assert!(!reader.has_combat(&journal));reader.read(&journal,|_|{});
+        assert_eq!(reader.dropped,1);assert_eq!(reader.cursor,4);
+        journal.emit(shot(2));assert!(reader.has_combat(&journal));
+        reader.read(&journal,|_|{});assert!(!reader.has_combat(&journal));
+        journal.reset();journal.emit(shot(3));assert!(!reader.has_combat(&journal));
+    }
     #[test]
     fn unrelated_events_consume_capacity_and_readers_keep_independent_cursors() {
         let j=Journal::new(3);let mut a=j.reader();j.emit(shot(1));let mut b=j.reader();

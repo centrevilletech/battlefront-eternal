@@ -8,8 +8,8 @@ import { bridgeFor, Heap } from '../src/sim/runtime.js';
 import { IMPORT_TABLE } from '../src/sim/gen/index.js';
 import * as worldRecords from '../src/sim/gen/world.js';
 
-const names = new Set(['world_events_run', 'world_local_run', 'world_step_run']);
-const stateRecords = { world_step_run: ['WorldStepState', worldRecords.WorldStepStateLayout.words], world_network_run: ['WorldNetworkState', worldRecords.WorldNetworkStateLayout.words] };
+const names = new Set(['world_events_run', 'world_local_run']);
+const stateRecords = { world_network_run: ['WorldNetworkState', worldRecords.WorldNetworkStateLayout.words] };
 const counts = Object.fromEntries([...names].map(n => [n, 0]));
 const bridges = new WeakMap(); let next = 0, failures = 0, tests = 0;
 const hex = values => { const bytes = Buffer.alloc(values.length * 8); values.forEach((v, i) => bytes.writeDoubleLE(v, i * 8)); return bytes.toString('hex'); };
@@ -83,7 +83,7 @@ function instrument(instance) {
 // their fixture definitions with only the factories instrumented; no core or
 // runtime module is rewritten and no test bodies are duplicated here.
 for (const file of ['world-events-sim.test.js',
-  'world-local-sim.test.js', 'world-step-sim.test.js']) {
+  'world-local-sim.test.js']) {
   const url = new URL(`../tests/${file}`, import.meta.url), tasks = [], env = {};
   let source = readFileSync(url, 'utf8');
   const imports = [...source.matchAll(/^import (.+?) from ['"](.+?)['"];$/gm)];
@@ -105,9 +105,9 @@ for (const file of ['world-events-sim.test.js',
   for (const [name, run] of tasks) { await run(); tests++; }
 }
 assert.ok(Object.values(counts).every(n => n > 0));
-// Six journal fixtures and the two remaining context-driver fixtures.
+// Six journal fixtures and the remaining local context-driver fixture.
 // The retired input/roster adapters no longer contribute tests here.
-assert.equal(tests, 8);
+assert.equal(tests, 7);
 assert.ok(next > 2 && failures > 0);
 const summary = { summary: true, contexts: next, tests, callbackFailuresCheckedByJs: failures, counts };
 emit(summary); console.error(JSON.stringify(summary));

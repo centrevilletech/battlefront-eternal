@@ -335,6 +335,38 @@ pub(crate) fn targets(count: u32) {
     }
 }
 
+/// Game.step's mineTargets selection runs after all projectile hits. Keep
+/// local, factory and fleet order, including the local body if also built.
+/// Capacity bounds exceed authored battle populations; excess membership
+/// drops at the end without reallocating the retained target bank.
+pub(crate) fn world_targets() -> u32 {
+    let capacity = super::f3::items().targets.capacity();
+    let mut count = 0;
+    let local = super::f3::viewpoint();
+    let unit = sim().store.unit.get(local).unwrap();
+    if !unit.combat.dead && unit.seat.is_none() {
+        let row = F3ItemTarget {unit:Some(local),hull:None,life:unit.generation};
+        super::f3::world_item_target(count,&row);count += 1;
+    }
+    for index in 0..super::f3::built().len() {
+        let reference = super::f3::built()[index];
+        let Some(unit) = sim().store.unit.get(reference) else {continue};
+        if !unit.alive || unit.seat.is_some() || matches!(unit.held,crate::store::Nullable::Value(_)) {continue;}
+        if count == capacity {break;}
+        let row = F3ItemTarget {unit:Some(reference),hull:None,life:unit.generation};
+        super::f3::world_item_target(count,&row);count += 1;
+    }
+    for index in 0..sim().store.vehicles.vehicles.len() {
+        let reference = sim().store.vehicles.vehicles[index];
+        let Some(hull) = sim().store.vehicle.get(reference) else {continue};
+        if !hull.alive {continue;}
+        if count == capacity {break;}
+        let row = F3ItemTarget {unit:None,hull:Some(reference),life:hull.target_generation};
+        super::f3::world_item_target(count,&row);count += 1;
+    }
+    count as u32
+}
+
 // UnitFactory.itemTarget and Vehicle.itemTarget read current coordinates,
 // including movement caused by an earlier mine in this same ordered list.
 pub(crate) fn standing(index: usize) -> [f64;3] {

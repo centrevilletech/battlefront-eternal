@@ -904,27 +904,28 @@ pub const EVENT_F3_PICKUP: u32 = 23;
 pub const EVENT_F3_POWERUP_EFFECT: u32 = 24;
 pub const EVENT_F3_PRESENTATION: u32 = 25;
 pub const EVENT_F3_PROP_DAMAGE: u32 = 26;
-pub const EVENT_F3_RECON_CONTEXT: u32 = 27;
-pub const EVENT_F3_RECON_CONTEXT_CREATED: u32 = 28;
-pub const EVENT_F3_RECON_DROID: u32 = 29;
-pub const EVENT_F3_RECON_DROID_CREATED: u32 = 30;
-pub const EVENT_F3_RECON_RETIRED: u32 = 31;
-pub const EVENT_F3_RECON_SHOT: u32 = 32;
-pub const EVENT_F3_REMOVED: u32 = 33;
-pub const EVENT_F3_SEAT: u32 = 34;
-pub const EVENT_F3_SHIELD: u32 = 35;
-pub const EVENT_F3_SHOT: u32 = 36;
-pub const EVENT_F3_SPLASH: u32 = 37;
-pub const EVENT_F3_TURRET: u32 = 38;
-pub const EVENT_F3_UNIT_BIRTH: u32 = 39;
-pub const EVENT_F4_CHARACTER_BIRTH: u32 = 40;
-pub const EVENT_F4_EFFECT: u32 = 41;
-pub const EVENT_F4_HELD: u32 = 42;
-pub const EVENT_F4_HUMAN: u32 = 43;
-pub const EVENT_F4_SERVE: u32 = 44;
-pub const EVENT_F4_SOUND: u32 = 45;
-pub const EVENT_F4_SPAWN: u32 = 46;
-pub const EVENT_NAMES: [&str; 47] = ["", "aiControlBirth", "aiControllerBirth", "aiItemOwner", "aiNotice", "aiVoice", "echoed", "f2Shot", "f2Tow", "f3Blast", "f3Body", "f3Damage", "f3Death", "f3Dispenser", "f3Effect", "f3Held", "f3Hull", "f3HullBirth", "f3Item", "f3ItemRetired", "f3LifeStreams", "f3Ordnance", "f3OwnerCreated", "f3Pickup", "f3PowerupEffect", "f3Presentation", "f3PropDamage", "f3ReconContext", "f3ReconContextCreated", "f3ReconDroid", "f3ReconDroidCreated", "f3ReconRetired", "f3ReconShot", "f3Removed", "f3Seat", "f3Shield", "f3Shot", "f3Splash", "f3Turret", "f3UnitBirth", "f4CharacterBirth", "f4Effect", "f4Held", "f4Human", "f4Serve", "f4Sound", "f4Spawn"];
+pub const EVENT_F3_PROP_EFFECT: u32 = 27;
+pub const EVENT_F3_RECON_CONTEXT: u32 = 28;
+pub const EVENT_F3_RECON_CONTEXT_CREATED: u32 = 29;
+pub const EVENT_F3_RECON_DROID: u32 = 30;
+pub const EVENT_F3_RECON_DROID_CREATED: u32 = 31;
+pub const EVENT_F3_RECON_RETIRED: u32 = 32;
+pub const EVENT_F3_RECON_SHOT: u32 = 33;
+pub const EVENT_F3_REMOVED: u32 = 34;
+pub const EVENT_F3_SEAT: u32 = 35;
+pub const EVENT_F3_SHIELD: u32 = 36;
+pub const EVENT_F3_SHOT: u32 = 37;
+pub const EVENT_F3_SPLASH: u32 = 38;
+pub const EVENT_F3_TURRET: u32 = 39;
+pub const EVENT_F3_UNIT_BIRTH: u32 = 40;
+pub const EVENT_F4_CHARACTER_BIRTH: u32 = 41;
+pub const EVENT_F4_EFFECT: u32 = 42;
+pub const EVENT_F4_HELD: u32 = 43;
+pub const EVENT_F4_HUMAN: u32 = 44;
+pub const EVENT_F4_SERVE: u32 = 45;
+pub const EVENT_F4_SOUND: u32 = 46;
+pub const EVENT_F4_SPAWN: u32 = 47;
+pub const EVENT_NAMES: [&str; 48] = ["", "aiControlBirth", "aiControllerBirth", "aiItemOwner", "aiNotice", "aiVoice", "echoed", "f2Shot", "f2Tow", "f3Blast", "f3Body", "f3Damage", "f3Death", "f3Dispenser", "f3Effect", "f3Held", "f3Hull", "f3HullBirth", "f3Item", "f3ItemRetired", "f3LifeStreams", "f3Ordnance", "f3OwnerCreated", "f3Pickup", "f3PowerupEffect", "f3Presentation", "f3PropDamage", "f3PropEffect", "f3ReconContext", "f3ReconContextCreated", "f3ReconDroid", "f3ReconDroidCreated", "f3ReconRetired", "f3ReconShot", "f3Removed", "f3Seat", "f3Shield", "f3Shot", "f3Splash", "f3Turret", "f3UnitBirth", "f4CharacterBirth", "f4Effect", "f4Held", "f4Human", "f4Serve", "f4Sound", "f4Spawn"];
 
 pub const IMPORT_ASK: u32 = 1;
 pub const IMPORT_BEAM_LOCAL_ORIGIN: u32 = 2;
@@ -951,58 +952,56 @@ pub const IMPORT_F3_CHARACTER_RELEASE: u32 = 22;
 pub const IMPORT_F3_DEATH_CREDIT: u32 = 23;
 pub const IMPORT_F3_HEAD_CREDIT: u32 = 24;
 pub const IMPORT_F3_HULL_CREDIT: u32 = 25;
-pub const IMPORT_F3_PROP_EFFECT: u32 = 26;
-pub const IMPORT_F4_AIHOOK: u32 = 27;
-pub const IMPORT_FAT_QUERY: u32 = 28;
-pub const IMPORT_GIVE: u32 = 29;
-pub const IMPORT_GONE: u32 = 30;
-pub const IMPORT_GRENADE_CONTACT: u32 = 31;
-pub const IMPORT_HISTORY_TICK: u32 = 32;
-pub const IMPORT_HIT: u32 = 33;
-pub const IMPORT_HIT_UNIT: u32 = 34;
-pub const IMPORT_IMPACT: u32 = 35;
-pub const IMPORT_IS_DROID: u32 = 36;
-pub const IMPORT_ITEM_CAST: u32 = 37;
-pub const IMPORT_ITEM_MODEL: u32 = 38;
-pub const IMPORT_ITEM_RELATIONS: u32 = 39;
-pub const IMPORT_ITEM_TARGETS: u32 = 40;
-pub const IMPORT_ITEM_WATER_CROSSING: u32 = 41;
-pub const IMPORT_LAUNCH: u32 = 42;
-pub const IMPORT_MISSILE_TARGET: u32 = 43;
-pub const IMPORT_NAVIGATE_MISSILE: u32 = 44;
-pub const IMPORT_NETWORK_LIFECYCLE: u32 = 45;
-pub const IMPORT_NETWORK_SEATS_WORLD: u32 = 46;
-pub const IMPORT_OWNER_KEY: u32 = 47;
-pub const IMPORT_PICKUP: u32 = 48;
-pub const IMPORT_PROJECTILE: u32 = 49;
-pub const IMPORT_RAYCAST_UNITS: u32 = 50;
-pub const IMPORT_RIDER_MOUNT: u32 = 51;
-pub const IMPORT_SEAT_CAST: u32 = 52;
-pub const IMPORT_SEAT_CONTROLLABLE: u32 = 53;
-pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 54;
-pub const IMPORT_SEAT_OVERLAPS: u32 = 55;
-pub const IMPORT_SEAT_POLICY: u32 = 56;
-pub const IMPORT_SHOOTER: u32 = 57;
-pub const IMPORT_SHOT_TICK: u32 = 58;
-pub const IMPORT_SPIN: u32 = 59;
-pub const IMPORT_UNIT_AIM: u32 = 60;
-pub const IMPORT_UNIT_SPHERE: u32 = 61;
-pub const IMPORT_VEH_AIM_POINT: u32 = 62;
-pub const IMPORT_VEH_AIM_POINTS: u32 = 63;
-pub const IMPORT_VEH_DAMAGED: u32 = 64;
-pub const IMPORT_VEH_DESTROYED: u32 = 65;
-pub const IMPORT_VEH_EFFECT: u32 = 66;
-pub const IMPORT_VEH_EXPLOSION: u32 = 67;
-pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 68;
-pub const IMPORT_WATER_CROSSING: u32 = 69;
-pub const IMPORT_WAVER: u32 = 70;
-pub const IMPORT_WORLD_CLOCK: u32 = 71;
-pub const IMPORT_WORLD_CONTROLS: u32 = 72;
-pub const IMPORT_WORLD_EVENTS: u32 = 73;
-pub const IMPORT_WORLD_LOCAL: u32 = 74;
-pub const IMPORT_WORLD_NETWORK: u32 = 75;
-pub const IMPORT_WORLD_STEP: u32 = 76;
-pub const IMPORT_NAMES: [&str; 77] = ["", "ask", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "dropRoll", "explode", "explosion", "f2Fired", "f2Foreign", "f2Life", "f2Posed", "f2SeatAction", "f2TargetFacts", "f2TurretDraw", "f2TurretHint", "f2TurretTarget", "f2Variant", "f2WeaponDraw", "f3CharacterRelease", "f3DeathCredit", "f3HeadCredit", "f3HullCredit", "f3PropEffect", "f4AIHook", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkLifecycle", "networkSeatsWorld", "ownerKey", "pickup", "projectile", "raycastUnits", "riderMount", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spin", "unitAim", "unitSphere", "vehAimPoint", "vehAimPoints", "vehDamaged", "vehDestroyed", "vehEffect", "vehExplosion", "vehRaycastUnits", "waterCrossing", "waver", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
+pub const IMPORT_F4_AIHOOK: u32 = 26;
+pub const IMPORT_FAT_QUERY: u32 = 27;
+pub const IMPORT_GIVE: u32 = 28;
+pub const IMPORT_GONE: u32 = 29;
+pub const IMPORT_GRENADE_CONTACT: u32 = 30;
+pub const IMPORT_HISTORY_TICK: u32 = 31;
+pub const IMPORT_HIT: u32 = 32;
+pub const IMPORT_HIT_UNIT: u32 = 33;
+pub const IMPORT_IMPACT: u32 = 34;
+pub const IMPORT_IS_DROID: u32 = 35;
+pub const IMPORT_ITEM_CAST: u32 = 36;
+pub const IMPORT_ITEM_MODEL: u32 = 37;
+pub const IMPORT_ITEM_RELATIONS: u32 = 38;
+pub const IMPORT_ITEM_TARGETS: u32 = 39;
+pub const IMPORT_ITEM_WATER_CROSSING: u32 = 40;
+pub const IMPORT_LAUNCH: u32 = 41;
+pub const IMPORT_MISSILE_TARGET: u32 = 42;
+pub const IMPORT_NAVIGATE_MISSILE: u32 = 43;
+pub const IMPORT_NETWORK_LIFECYCLE: u32 = 44;
+pub const IMPORT_NETWORK_SEATS_WORLD: u32 = 45;
+pub const IMPORT_OWNER_KEY: u32 = 46;
+pub const IMPORT_PICKUP: u32 = 47;
+pub const IMPORT_PROJECTILE: u32 = 48;
+pub const IMPORT_RAYCAST_UNITS: u32 = 49;
+pub const IMPORT_RIDER_MOUNT: u32 = 50;
+pub const IMPORT_SEAT_CAST: u32 = 51;
+pub const IMPORT_SEAT_CONTROLLABLE: u32 = 52;
+pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 53;
+pub const IMPORT_SEAT_OVERLAPS: u32 = 54;
+pub const IMPORT_SEAT_POLICY: u32 = 55;
+pub const IMPORT_SHOOTER: u32 = 56;
+pub const IMPORT_SHOT_TICK: u32 = 57;
+pub const IMPORT_SPIN: u32 = 58;
+pub const IMPORT_UNIT_AIM: u32 = 59;
+pub const IMPORT_UNIT_SPHERE: u32 = 60;
+pub const IMPORT_VEH_AIM_POINT: u32 = 61;
+pub const IMPORT_VEH_AIM_POINTS: u32 = 62;
+pub const IMPORT_VEH_DAMAGED: u32 = 63;
+pub const IMPORT_VEH_DESTROYED: u32 = 64;
+pub const IMPORT_VEH_EFFECT: u32 = 65;
+pub const IMPORT_VEH_EXPLOSION: u32 = 66;
+pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 67;
+pub const IMPORT_WATER_CROSSING: u32 = 68;
+pub const IMPORT_WAVER: u32 = 69;
+pub const IMPORT_WORLD_CLOCK: u32 = 70;
+pub const IMPORT_WORLD_CONTROLS: u32 = 71;
+pub const IMPORT_WORLD_EVENTS: u32 = 72;
+pub const IMPORT_WORLD_LOCAL: u32 = 73;
+pub const IMPORT_WORLD_NETWORK: u32 = 74;
+pub const IMPORT_NAMES: [&str; 75] = ["", "ask", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "dropRoll", "explode", "explosion", "f2Fired", "f2Foreign", "f2Life", "f2Posed", "f2SeatAction", "f2TargetFacts", "f2TurretDraw", "f2TurretHint", "f2TurretTarget", "f2Variant", "f2WeaponDraw", "f3CharacterRelease", "f3DeathCredit", "f3HeadCredit", "f3HullCredit", "f4AIHook", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkLifecycle", "networkSeatsWorld", "ownerKey", "pickup", "projectile", "raycastUnits", "riderMount", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spin", "unitAim", "unitSphere", "vehAimPoint", "vehAimPoints", "vehDamaged", "vehDestroyed", "vehEffect", "vehExplosion", "vehRaycastUnits", "waterCrossing", "waver", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1264,6 +1263,13 @@ impl F3PropDamage {
     }
 }
 
+impl F3PropEffect {
+    /// Emits it as the event f3PropEffect (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_F3_PROP_EFFECT, F3PropEffect::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
 impl F3ReconContextState {
     /// Emits it as the event f3ReconContext (drained in order at the end of the phase).
     pub fn emit(&self, events: &mut crate::store::calls::Events) {
@@ -1432,7 +1438,6 @@ extern "C" {
     fn bfe_import_f3_death_credit();
     fn bfe_import_f3_head_credit();
     fn bfe_import_f3_hull_credit();
-    fn bfe_import_f3_prop_effect();
     fn bfe_import_f4_aihook();
     fn bfe_import_fat_query();
     fn bfe_import_give();
@@ -1482,7 +1487,6 @@ extern "C" {
     fn bfe_import_world_events();
     fn bfe_import_world_local();
     fn bfe_import_world_network();
-    fn bfe_import_world_step();
 }
 
 /// Asks JavaScript (the import ask): its arguments go out in the import block,
@@ -1921,23 +1925,6 @@ pub fn import_f3_hull_credit(args: &F3HullCredit) -> () {
 pub fn import_f3_hull_credit_in(context: &crate::abi::context::Context, args: &F3HullCredit) -> Result<(), crate::abi::context::Failure> {
     let args = crate::abi::context::Record::new(F3HullCredit::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_F3_HULL_CREDIT, args)?;
-    Ok(())
-}
-
-/// Asks JavaScript (the import f3PropEffect): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_f3_prop_effect(args: &F3PropEffect) -> () {
-    crate::store::calls::import_out(F3PropEffect::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_f3_prop_effect() };
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_f3_prop_effect_in(context: &crate::abi::context::Context, args: &F3PropEffect) -> Result<(), crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(F3PropEffect::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_F3_PROP_EFFECT, args)?;
     Ok(())
 }
 
@@ -2816,23 +2803,5 @@ pub fn import_world_network_in(context: &crate::abi::context::Context, args: &Wo
     let args = crate::abi::context::Record::new(WorldNetworkArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WORLD_NETWORK, args)?;
     Ok(reply.read(WorldNetworkReply::take))
-}
-
-/// Asks JavaScript (the import worldStep): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_world_step(args: &WorldStepArgs) -> WorldStepReply {
-    crate::store::calls::import_out(WorldStepArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_world_step() };
-    crate::store::calls::import_in(|row, heap| WorldStepReply::take(row, heap))
-}
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_world_step_in(context: &crate::abi::context::Context, args: &WorldStepArgs) -> Result<WorldStepReply, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(WorldStepArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_WORLD_STEP, args)?;
-    Ok(reply.read(WorldStepReply::take))
 }
 

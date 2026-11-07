@@ -79,11 +79,10 @@ impl WireRecordState {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..2].fill(0.0);
         match self {
             WireRecordState::F64(v) => { row[0] = 0.0; row[1] = (*v); }
             WireRecordState::Str(v) => { row[0] = 1.0; row[1] = (*v).0 as f64; }
-            WireRecordState::Undefined => row[0] = 2.0,
+            WireRecordState::Undefined => { row[0] = 2.0; row[1..2].fill(0.0);  },
         }
     }
 

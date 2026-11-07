@@ -8,13 +8,27 @@ import { MirrorPool } from './sim/runtime.js';
 import { KIND_CONTROLLER, KIND_SEAT_UNIT, KIND_CHARACTER, KIND_BATTLE, KIND_SPAWNING, KIND_POST, KIND_MOBILE_POST } from './sim/gen/index.js';
 import { F4HandleMirror,syncF4Handle } from './sim/gen/f4.js';
 import { AiWorldSetupLayout, putAiWorldSetup, AiWorldContentLayout, putAiWorldContent,
-  AiPhaseBoundaryMirror, syncAiPhaseBoundary, AiPhaseHeaderMirror, putAiPhaseHeader,
-  AiPhaseCameraLayout, putAiPhaseCamera, AiJournalEventLayout, putAiJournalEvent,
-  AiCharacterBirthMirror, syncAiCharacterBirth, AiRosterSetupLayout, putAiRosterSetup, AiPlayerCommandMirror, AiPlayerCommandLayout, putAiPlayerCommand, AiPhaseCountersMirror, syncAiPhaseCounters } from './sim/gen/ai-phase.js';
+  AiPhaseBoundaryLayout, AiPhaseBoundaryMirror, syncAiPhaseBoundary, AiPhaseHeaderMirror, putAiPhaseHeader,
+  AiDangerResult_VALUE, AiPhaseCameraLayout, putAiPhaseCamera, AiJournalEventLayout, putAiJournalEvent,
+  AiCharacterBirthMirror, syncAiCharacterBirth, AiRosterSetupLayout, putAiRosterSetup, AiPlayerCommandMirror, AiPlayerCommandLayout, putAiPlayerCommand, AiPhaseCountersLayout } from './sim/gen/ai-phase.js';
 const ROSTER = {words:AiRosterSetupLayout.words,put:putAiRosterSetup};
 const SETUP = {words:AiWorldSetupLayout.words,put:putAiWorldSetup};
 const COMMAND = {words:AiPlayerCommandLayout.words,put:putAiPlayerCommand};
 const CONTENT = {words:AiWorldContentLayout.words,put:putAiWorldContent};
+
+// Diagnostic observers borrow the retained numeric block only when read.
+// A held reference stays current without decoding every field every tick.
+function observeCounters(owner) {
+  const counters={};
+  for(const name of Object.keys(AiPhaseCountersLayout)) {
+    if(name==='words')continue;
+    const offset=AiPhaseCountersLayout[name];
+    Object.defineProperty(counters,name,{enumerable:true,get() {
+      const b=owner.bridge;b.views();return b.f[owner.layout.counters/8+offset];
+    }});
+  }
+  return counters;
+}
 
 // Controller storage generations are independent of the monotonically
 // assigned Core index. Old facade references keep their captured generation
@@ -49,7 +63,7 @@ export class AiWorld {
     this.phase = phase; this.bridge = phase.bridge; this.x = phase.x;
     this.notices = new AiNotices(events,phase.factory.context.items);
     this.layout = new AiPhaseBoundaryMirror(); this.header = new AiPhaseHeaderMirror();
-    this.counters = new AiPhaseCountersMirror();this.order=new AiPlayerCommandMirror();
+    this.counters = observeCounters(this);this.order=new AiPlayerCommandMirror();
     // Initial attach creates one planning identity per nonhuman Character.
     // Facades are prepared before the native owner can publish those refs.
     const capacity = setup.settings.capacity.characters;
@@ -106,22 +120,25 @@ export class AiWorld {
   // One post-battle boundary replaces the world's per-grenade host calls.
   // Flight/contact facts and each grenade's warning memory already live native.
   dangers() {
-    if(!this.x.ai_world_dangers())return false;
-    this.phase.random.pull();this.phase.sync();
-    const b=this.bridge;b.views();syncAiPhaseCounters(b,b.f,this.layout.counters/8,0,this.counters);
+    const result=this.x.ai_world_dangers();if(!result)return false;
+    if(result!==AiDangerResult_VALUE.unchanged) {this.phase.random.pull();this.phase.sync();}
   }
   readLayout() {
     this.bridge.views();
     syncAiPhaseBoundary(this.bridge,this.bridge.f,this.descriptor,0,this.layout);
   }
   controlBorn(event) {this.controlRefs.born(event);}
-  syncControls() {this.readLayout();this.controlRefs.sync(this.bridge,this.layout);}
+  syncControls() {
+    const b=this.bridge;b.views();
+    if(this.controlRefs.version===b.f[this.descriptor+AiPhaseBoundaryLayout.controlVersion])return;
+    this.readLayout();this.controlRefs.sync(b,this.layout);
+  }
   controllerBorn(event) {
     this.controllerRefs.born(event);
   }
   // Cameras and journal records are preallocated writer scratch owned by the
   // world input boundary. Encoding goes straight into native retained memory.
-  step(facts, cameras, journal, time, paused = false, networkSecondary = false, unitPhaseFollows = false) {
+  prepare(facts, cameras, journal, time, paused = false, networkSecondary = false, unitPhaseFollows = false) {
     const b = this.bridge, layout = this.layout;
     const eventCount=Math.max(0,Math.min(journal.count??journal.records.length,journal.records.length));
     const eventStart=Math.max(0,eventCount-layout.journalCapacity),admitted=eventCount-eventStart;
@@ -134,8 +151,13 @@ export class AiWorld {
     for (let i = 0; i < cameraCount; i++, at += AiPhaseCameraLayout.words) putAiPhaseCamera(b,cameras[i],b.f,at,b.heap);
     at = layout.journal / 8;
     for (let i = eventStart; i < eventCount; i++, at += AiJournalEventLayout.words) putAiJournalEvent(b,journal.records[i],b.f,at,b.heap);
+  }
+  step(facts, cameras, journal, time, paused = false, networkSecondary = false, unitPhaseFollows = false) {
+    this.prepare(facts,cameras,journal,time,paused,networkSecondary,unitPhaseFollows);
     if (!this.x.ai_world_phase())return false;
+    this.complete();
+  }
+  complete() {
     this.phase.random.pull();this.phase.sync();
-    b.views(); syncAiPhaseCounters(b,b.f,layout.counters / 8,0,this.counters);
   }
 }

@@ -111,10 +111,9 @@ impl OrdnanceOwner {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
-            OrdnanceOwner::Null => row[0] = 0.0,
-            OrdnanceOwner::Player => row[0] = 1.0,
+            OrdnanceOwner::Null => { row[0] = 0.0; row[1..3].fill(0.0);  },
+            OrdnanceOwner::Player => { row[0] = 1.0; row[1..3].fill(0.0);  },
             OrdnanceOwner::Unit(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             OrdnanceOwner::Vehicle(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             OrdnanceOwner::OwnerSnapshot(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
@@ -152,10 +151,9 @@ impl BeamSource {
 
     /// Its row words: the variant, then its value (a reference's slot and generation).
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        row[1..3].fill(0.0);
         match self {
-            BeamSource::Null => row[0] = 0.0,
-            BeamSource::Player => row[0] = 1.0,
+            BeamSource::Null => { row[0] = 0.0; row[1..3].fill(0.0);  },
+            BeamSource::Player => { row[0] = 1.0; row[1..3].fill(0.0);  },
             BeamSource::Emitter(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             BeamSource::Unit(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             BeamSource::Vehicle(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }

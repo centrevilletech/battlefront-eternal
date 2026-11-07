@@ -1,16 +1,18 @@
+import { FixedClock } from '../src/runtime/fixed-clock.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Bone, Matrix4, Vector3 } from 'three';
+import { Bone, BoxGeometry, Matrix4, Vector3 } from 'three';
 import { Battle, Character } from '../src/battle.js';
 import { CommandPosts } from '../src/commandposts.js';
 import { ClassicRandom, uniformRandom } from '../src/ai/random.js';
 import { F4Live } from '../src/f4-live.js';
+import { WorldTick } from '../src/runtime/world-tick.js';
 import { F4Tail } from '../src/f4-tail.js';
 import { hullFacts,propFacts } from '../src/ai-world-content.js';
 import { ControlFacades } from '../src/ai-world-controls.js';
 import { AiWorld, ControllerFacades } from '../src/ai-world.js';
 import { AiWorldSetupMirror, AiWorldContentMirror, AiUnitClassMirror, AiPostDefinitionMirror, AiPhaseFactsMirror } from '../src/sim/gen/ai-phase.js';
-import { HumanSpawnMirror, SpawningMirror, SpawnTeamMirror, SpawnClassMirror, SpawnMirror, F3PhaseInputLayout, F3UnitKeyLayout, F3PublicationLayout, F3NativeIntentLayout, BlockHeaderLayout } from '../src/sim/gen/index.js';
+import { HumanSpawnMirror, SpawningMirror, SpawnTeamMirror, SpawnClassMirror, SpawnMirror, F3PhaseInputLayout, F3BoundaryLayout, F3UnitKeyLayout, F3PublicationLayout, F3NativeIntentLayout, BlockHeaderLayout } from '../src/sim/gen/index.js';
 import { f3World } from './fixtures/f3-world.js';
 import { fleetFixture } from './fixtures/f3-fleet.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
@@ -42,7 +44,7 @@ function prepareRider(unit) {
 
 // Exercise the actual native host, including the F3/F4 owner loans. The
 // fixture has no JS controller, navigation, population or geometry services.
-for (const joined of [false,true]) for (const enhanced of [false,true]) for (const lane of ['navigation','combat','vehicle','boarding','flight','mounted-combat','turret-combat',...(enhanced?[]:['mounted-sniper','mounted-secondary']),'repair','trap-repair']) test(`one native ${enhanced?'Enhanced':'Classic'} ${lane} ${joined?'joined':'standalone'} phase and immediate death`,async()=>{
+for (const joined of [false,true,'world']) for (const enhanced of [false,true]) for (const lane of ['navigation','combat','vehicle','boarding','flight','mounted-combat','turret-combat',...(enhanced?[]:['mounted-sniper','mounted-secondary']),'repair','trap-repair']) test(`one native ${enhanced?'Enhanced':'Classic'} ${lane} ${joined==='world'?'world tick':joined?'joined':'standalone'} phase and immediate death`,async()=>{
   const turretLane=lane==='turret-combat',sniper=lane==='mounted-sniper',secondary=lane==='mounted-secondary',armed=lane==='mounted-combat'||sniper||secondary||turretLane,combat=lane==='combat'||armed,mounted=lane==='vehicle'||lane==='boarding'||lane==='flight'||armed,repair=lane==='repair'||lane==='trap-repair';
   const posts=new CommandPosts(null,{commandPosts:[1,2].map((team,index)=>({name:`post${index}`,team,
     matrix:new Matrix4().makeTranslation(index*20,0,0).toArray(),hologram:[0,0,0]}))},{headless:true,playerTeam:1});
@@ -60,7 +62,13 @@ for (const joined of [false,true]) for (const enhanced of [false,true]) for (con
   const wreck=repair?(lane==='trap-repair'?trap('unbuilt-trap',0,30):building('wreck',0,30)):null;
   const emplacement=turretLane?turretAt({settings:{Pilot9Pose:'fixture_9pose'}}):null;let crews;
   const targetClass={class:'target',base:'soldier',MaxHealth:100,weapons:[]};
-  const world=await f3World({soldier,target:targetClass},{debug:false,prepareFleet:mounted?fleetFixture({positions:turretLane?[]:[[3,0]],base:lane==='flight'?'flyer':'hover',weapon:secondary?[gun,lateGun]:armed?gun:null,exposed:true}):null,prepareLive:(collision,units,context)=>{
+  const world=await f3World({soldier,target:targetClass},{debug:false,
+    // Avoidance is the movement solver's wall-contact normal. A real wall
+    // exercises its native publication; nearby bodies use separation instead.
+    prepareCollision:lane==='navigation'?collision=>{
+      const box=new BoxGeometry(1,6,200).translate(4,3,0);
+      const body=collision.addBody(box.attributes.position.array,box.index.array,new Uint32Array(box.index.count/3));body.enabled=true;
+    }:null,prepareFleet:mounted?fleetFixture({positions:turretLane?[]:[[3,0]],base:lane==='flight'?'flyer':'hover',weapon:secondary?[gun,lateGun]:armed?gun:null,exposed:true}):null,prepareLive:(collision,units,context)=>{
     const live={buildings:emplacement?[emplacement]:wreck?[wreck]:[],turrets:emplacement?[emplacement]:[],animated:[],traps:lane==='trap-repair'?[wreck]:[]};
     if(emplacement){crews=new TurretSeats({live,collision,units,ordnance:context.ordnance});context.vehicles.f2.seats.attachTurrets(crews);}
     return live;
@@ -136,14 +144,20 @@ for (const joined of [false,true]) for (const enhanced of [false,true]) for (con
     assert.equal(turretLane?crews.man(unit,emplacement):world.factory.context.vehicles.board(unit,hull),true);
     assert.equal(unit.seat.controllable.native,true);
   }
+  const whole=joined==='world';
+  if(whole)world.phase.registerViewpoint(unit);
+  const coordinator=whole?new WorldTick(world.phase,new FixedClock()):null;
   const facts=new AiPhaseFactsMirror();facts.dt=1/60;facts.lodDisabled=true;
   const cameras=[],journal={sequence:0,records:[]};
-  let allocations,reallocations,sawIntent=false,sawMountedControl=false,sawScan=false,checkedRider=false,sawSniperSpread=false,sawDeferredIntent=false;
-  const initialRandom=random.state;
+  let allocations,reallocations,sawContact=false,sawIntent=false,sawMountedControl=false,sawScan=false,checkedRider=false,sawSniperSpread=false,sawDeferredIntent=false;
+  const initialRandom=random.state,heldCounters=owner.counters;
   for(let tick=1;tick<=360;tick++) {
     const beforeRows=world.phase.counters.unitRows,forward=unit.intent.forward,right=unit.intent.right;
-    facts.tick=tick;owner.step(facts,cameras,journal,tick/60,false,false,joined);
+    facts.tick=tick;
+    if(whole)owner.prepare(facts,cameras,journal,tick/60,false,false,true);
+    else owner.step(facts,cameras,journal,tick/60,false,false,joined);
     const aiRows=world.phase.counters.unitRows-beforeRows;
+    if(joined&&!mounted&&!repair)assert.equal(aiRows,0,'ordinary bot controls, avoidance and tuning join the unit phase');
     if(owner.counters.scanned>0)sawScan=true;
     if(!joined && combat && !mounted && tick===1)assert.ok(unit.intent.aim,'the first scheduler input samples aim before any body moves');
     if(unit.intent.forward!==0 || unit.intent.right!==0)sawIntent=true;
@@ -163,13 +177,25 @@ for (const joined of [false,true]) for (const enhanced of [false,true]) for (con
       if(target)assert.ok(foreign>0,'unbound target still carries explicit foreign input');
       return writeFacts.call(world.phase.registry,count,networks);
     };
-    world.phase.phase(1/60,tick);world.phase.registry.foreign=writeFacts;owner.dangers();
+    if(whole){coordinator.run(1/60,tick,true,null,true,true,0,false,0);coordinator.finish();coordinator.complete();}
+    else {
+      world.phase.phase(1/60,tick);world.phase.registry.foreign=writeFacts;
+      const publication=world.phase.layout.version,dangers=owner.counters.dangerPhases;
+      owner.dangers();
+      if(joined&&(lane==='navigation'||lane==='combat')&&tick===1) {
+        assert.equal(owner.counters.dangerPhases,dangers+Number(combat),'empty danger phases preserve combat capability counting');
+        assert.equal(world.phase.bridge.f[world.phase.descriptor+F3BoundaryLayout.version],publication,
+          'empty danger phases preserve the settled publication and event epoch');
+      }
+    }
+    world.phase.registry.foreign=writeFacts;
+    if(lane==='navigation'&&unit.soldier.avoidance.lengthSq()>0)sawContact=true;
     if(tick===1&&!mounted) {
       const binding=world.phase.bindings[unit.id],words=binding.words;
       const row=binding.wordsAt+BlockHeaderLayout.words;
       assert.equal(words[row+F3PublicationLayout.controls],1,'native latch and movement input remain in Rust');
-      const held=row+F3PublicationLayout.nativeControls;
-      assert.equal(words[held],0,'held intent remains observable after the phase');
+      const held=row+F3PublicationLayout.controls;
+      assert.equal(words[held],1,'held intent remains observable after the phase');
       assert.equal(words[held+1+F3NativeIntentLayout.forward],unit.intent.forward);
       if(target) {
         const other=world.phase.bindings[target.id],at=other.wordsAt+BlockHeaderLayout.words;
@@ -195,7 +221,7 @@ for (const joined of [false,true]) for (const enhanced of [false,true]) for (con
   }
   if(sniper)assert.ok(sawSniperSpread,'native sniper yaw spread survives mounted input before firing');
   if(secondary)assert.ok(secondaryLaunches>0,'native secondary shots retain their seat channel without mirrored input');
-  assert.equal(owner.counters.phases,360);assert.ok(owner.counters.drawsA>0);
+  assert.equal(owner.counters.phases,360);assert.equal(heldCounters.phases,360,'retained diagnostic views stay current');assert.ok(owner.counters.drawsA>0);
   assert.equal(owner.counters.stepDt,1/60);assert.equal(owner.counters.liveControllers,1);assert.ok(Number.isFinite(owner.counters.schedulerTicks));assert.equal(owner.counters.time,6);
   assert.ok(owner.counters.serviced>0,JSON.stringify(owner.counters));
   assert.equal(owner.counters.allocations,allocations);assert.equal(owner.counters.reallocations,reallocations);
@@ -225,6 +251,7 @@ for (const joined of [false,true]) for (const enhanced of [false,true]) for (con
     assert.ok(checkedRider,'native boarding activates the prepared rider sampler');
   }else {
     assert.ok(sawIntent,'native held intent reaches the unit owner');
+    assert.ok(sawContact,'native movement supplies actual wall contact');
     if(joined)assert.ok(sawDeferredIntent,'the following unit phase consumes changed intent without an intermediate body publication');
     assert.ok(unit.soldier.position.lengthSq()>0,'native intent survives the foreign input boundary and moves the body');
     assert.equal(owner.playerCommand(character,2,6),true);

@@ -51,6 +51,9 @@ try {
   const command=hullInput(tick,true),current=flight.step(command);
   if(tick===90){
    b=new HullReplay(a);const saved=u.seat.vehicle;u.seat.vehicle=current;target.seat={vehicle:b.source,index:0};
+   // The independent replay session may grow the shared WASM memory. Its
+   // admission ends before the authority's retained facade views are read.
+   game.unitsSim.bridge.views();
    const r=captureOwnPlayer({unit:u,vehicle:current,vehicleId:a.aiTarget.id,vehicleGeneration:a.aiTarget.generation,tick:tick+180,epoch:1,registry,classId:1,held:command.down,view});u.seat.vehicle=saved;
    const p=encodeEntityPacket({epoch:1,packetId:2,tick:tick+180,records:[r]});flightBytes=p.length;
    const context=applyOwnPlayer({unit:target,vehicle:b.source,vehicleId:a.aiTarget.id,vehicleGeneration:a.aiTarget.generation,epoch:1,registry,record:decodeEntityPacket(p).records[0]});

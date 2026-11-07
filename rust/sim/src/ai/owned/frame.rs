@@ -98,7 +98,7 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
     fn current_weapon(&self,u:Obj,channel:f64)->Option<usize> { self.rows.current_weapon(u,channel) }
     fn weapon(&self,u:Obj,index:usize)->Option<WeaponView> { self.rows.weapon(u,index) }
     fn weapon_for_burst(&self,u:Obj,index:usize,active:bool)->Option<WeaponView> {
-        if !active&&matches!(self.rows.state.entities.get(u),Some(super::entities::Entity::Unit(_))) {None}
+        if !active {None}
         else {Some(self.rows.weapon(u,index).expect("arsenal member"))}
     }
     fn weapon_chargeable(&self,u:Obj,index:usize)->bool {self.rows.weapon_chargeable(u,index)}
@@ -138,6 +138,15 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
     }
     fn ctl(&self, c: Obj)-> &Ctl { self.rows.state.controllers.read(&self.rows.state.entities,c).expect("current native controller") }
     fn ctl_mut(&mut self, c: Obj)-> &mut Ctl { self.rows.state.controllers.write(&self.rows.state.entities,c).expect("current native controller") }
+    fn notify_shot(&mut self,c:Obj,source:Option<Obj>,known:bool,point:Option<Vector3>) {
+        if self.rows.state.controllers.capturing_shots() {
+            let Some(source)=source else{return};
+            use crate::ai::combat::control::Objects as _;
+            let objects=super::objects::Objects {store:self.rows.store,commands:self.rows.characters,entities:&self.rows.state.entities,roster:&self.rows.state.roster,population:&self.rows.state.population};
+            let source=objects.alert_source(source);
+            self.rows.state.controllers.shot(&self.rows.state.entities,c,source,known,point);
+        }else{self.ctl_mut(c).notify_shot(source,known,point);}
+    }
     fn set_stance(&mut self,c:Obj,stance:f64) { self.hooks.set_stance(self.rows,self.random,c,stance) }
     fn agent_controller(&self, agent: Obj)-> Obj { self.rows.state.agents.get(&self.rows.state.entities,agent).expect("current native agent").controller }
     fn tracker(&mut self, agent: Obj)-> Option<&mut crate::ai::combat::perception::TargetTracker> { Some(self.rows.state.agents.get_mut(&self.rows.state.entities,agent)?.tracker_mut()) }

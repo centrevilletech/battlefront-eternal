@@ -28,7 +28,7 @@ test('sparse unit publications preserve the complete native body and combat row'
     syncF3Publication(world.phase.bridge, words, binding.wordsAt + B.words, binding.wordsAt + words[binding.wordsAt + B.heap], reference);
     assert.equal(unit.soldier.previous,previous);assert.equal(unit.soldier.settled,settled);assert.equal(unit.soldier.avoidance,avoidance);
     assert.equal(sameF3UnitMirror(binding.view, reference.body), null);
-    assert.equal(sameMoveInput(unit.input, reference.controls.input), null);
+    assert.equal(sameMoveInput(unit.input, reference.controls.values[0].input), null);
     // A diagnostic observes every camera vector as well as every weapon.
     void unit.combat.origin; void unit.combat.target; void unit.combat.aimDir;
     void unit.combat.shotDir; void unit.combat.left; void unit.combat.up; void unit.combat.pivot;

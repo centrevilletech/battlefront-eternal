@@ -26,10 +26,6 @@ export const WorldLocalCall_NAMES = ["battle","ready","spawn","clearHuman","remo
 export const WorldLocalCall_INDEX = new Map(WorldLocalCall_NAMES.map((name, i) => [name, i]));
 export const WorldLocalCall_VALUE = Object.freeze({"battle":0,"ready":1,"spawn":2,"clearHuman":3,"remove":4,"present":5});
 
-export const WorldStepCall_NAMES = ["start","water","clockAxes","takeSquad","squad","playerCount","eye","deathCamera","remoteCamera","driverCamera","gunnerCamera","zoom","camera","cameraMatrix","ai","nativeUnits","live","ordnance","mineTargets","items","battlefield","battle","target","grenades","nextGrenade","grenade","spawnFlush"];
-export const WorldStepCall_INDEX = new Map(WorldStepCall_NAMES.map((name, i) => [name, i]));
-export const WorldStepCall_VALUE = Object.freeze({"start":0,"water":1,"clockAxes":2,"takeSquad":3,"squad":4,"playerCount":5,"eye":6,"deathCamera":7,"remoteCamera":8,"driverCamera":9,"gunnerCamera":10,"zoom":11,"camera":12,"cameraMatrix":13,"ai":14,"nativeUnits":15,"live":16,"ordnance":17,"mineTargets":18,"items":19,"battlefield":20,"battle":21,"target":22,"grenades":23,"nextGrenade":24,"grenade":25,"spawnFlush":26});
-
 export const WorldNetworkChoice_NAMES = ["other","suicide","team","spawn"];
 export const WorldNetworkChoice_INDEX = new Map(WorldNetworkChoice_NAMES.map((name, i) => [name, i]));
 export const WorldNetworkChoice_VALUE = Object.freeze({"other":0,"suicide":1,"team":2,"spawn":3});
@@ -713,263 +709,207 @@ export function exportWorldLocalReply(o, cx) {
   return v;
 }
 
-export const WorldStepStateLayout = Object.freeze({ words: 23, water: 0, remote: 1, walker: 2, dead: 3, server: 4, deathCamera: 5, driver: 6, gunner: 7, vehicles: 8, ai: 9, units: 10, turretSeats: 11, networkRemotes: 12, removed: 13, grenadeUpdate: 14, playerCommand: 15, eyeView: 16, live: 17, playerWalker: 18, playerTicks: 19, forward: 20, right: 21, aimPitch: 22 });
-export const WORLD_STEP_STATE_WORDS = WorldStepStateLayout.words;
-export const WORLD_STEP_STATE_OFFSETS = WorldStepStateLayout;
+export const WorldTickSetupLayout = Object.freeze({ words: 4, water: 0, waterTime: 1, waterHeight: 2, waterBob: 3 });
+export const WORLD_TICK_SETUP_WORDS = WorldTickSetupLayout.words;
+export const WORLD_TICK_SETUP_OFFSETS = WorldTickSetupLayout;
 
-export class WorldStepStateMirror {
+export class WorldTickSetupMirror {
   constructor() {
     this.water = false;
-    this.remote = false;
-    this.walker = false;
-    this.dead = false;
-    this.server = false;
-    this.deathCamera = false;
-    this.driver = false;
-    this.gunner = false;
-    this.vehicles = false;
-    this.ai = false;
-    this.units = false;
-    this.turretSeats = false;
-    this.networkRemotes = false;
-    this.removed = false;
-    this.grenadeUpdate = false;
-    this.playerCommand = false;
-    this.eyeView = false;
-    this.live = false;
-    this.playerWalker = false;
-    this.playerTicks = NaN;
-    this.forward = NaN;
-    this.right = NaN;
-    this.aimPitch = NaN;
+    this.waterTime = NaN;
+    this.waterHeight = NaN;
+    this.waterBob = false;
   }
 }
 
-export function syncWorldStepState(b, f, at, h, m) {
+export function syncWorldTickSetup(b, f, at, h, m) {
   m.water = f[at + 0] !== 0;
-  m.remote = f[at + 1] !== 0;
-  m.walker = f[at + 2] !== 0;
-  m.dead = f[at + 3] !== 0;
-  m.server = f[at + 4] !== 0;
-  m.deathCamera = f[at + 5] !== 0;
-  m.driver = f[at + 6] !== 0;
-  m.gunner = f[at + 7] !== 0;
-  m.vehicles = f[at + 8] !== 0;
-  m.ai = f[at + 9] !== 0;
-  m.units = f[at + 10] !== 0;
-  m.turretSeats = f[at + 11] !== 0;
-  m.networkRemotes = f[at + 12] !== 0;
-  m.removed = f[at + 13] !== 0;
-  m.grenadeUpdate = f[at + 14] !== 0;
-  m.playerCommand = f[at + 15] !== 0;
-  m.eyeView = f[at + 16] !== 0;
-  m.live = f[at + 17] !== 0;
-  m.playerWalker = f[at + 18] !== 0;
-  m.playerTicks = f[at + 19];
-  m.forward = f[at + 20];
-  m.right = f[at + 21];
-  m.aimPitch = f[at + 22];
+  m.waterTime = f[at + 1];
+  m.waterHeight = f[at + 2];
+  m.waterBob = f[at + 3] !== 0;
   return m;
 }
 
-export function putWorldStepState(b, o, f, at, heap) {
+export function putWorldTickSetup(b, o, f, at, heap) {
   f[at + 0] = o.water ? 1 : 0;
-  f[at + 1] = o.remote ? 1 : 0;
-  f[at + 2] = o.walker ? 1 : 0;
-  f[at + 3] = o.dead ? 1 : 0;
-  f[at + 4] = o.server ? 1 : 0;
-  f[at + 5] = o.deathCamera ? 1 : 0;
-  f[at + 6] = o.driver ? 1 : 0;
-  f[at + 7] = o.gunner ? 1 : 0;
-  f[at + 8] = o.vehicles ? 1 : 0;
-  f[at + 9] = o.ai ? 1 : 0;
-  f[at + 10] = o.units ? 1 : 0;
-  f[at + 11] = o.turretSeats ? 1 : 0;
-  f[at + 12] = o.networkRemotes ? 1 : 0;
-  f[at + 13] = o.removed ? 1 : 0;
-  f[at + 14] = o.grenadeUpdate ? 1 : 0;
-  f[at + 15] = o.playerCommand ? 1 : 0;
-  f[at + 16] = o.eyeView ? 1 : 0;
-  f[at + 17] = o.live ? 1 : 0;
-  f[at + 18] = o.playerWalker ? 1 : 0;
-  f[at + 19] = o.playerTicks;
-  f[at + 20] = o.forward;
-  f[at + 21] = o.right;
-  f[at + 22] = o.aimPitch;
+  f[at + 1] = o.waterTime;
+  f[at + 2] = o.waterHeight;
+  f[at + 3] = o.waterBob ? 1 : 0;
 }
 
-export function sameWorldStepState(a, b) {
+export function sameWorldTickSetup(a, b) {
   if (!Object.is(a.water, b.water)) return ".water";
-  if (!Object.is(a.remote, b.remote)) return ".remote";
-  if (!Object.is(a.walker, b.walker)) return ".walker";
-  if (!Object.is(a.dead, b.dead)) return ".dead";
-  if (!Object.is(a.server, b.server)) return ".server";
-  if (!Object.is(a.deathCamera, b.deathCamera)) return ".deathCamera";
-  if (!Object.is(a.driver, b.driver)) return ".driver";
-  if (!Object.is(a.gunner, b.gunner)) return ".gunner";
-  if (!Object.is(a.vehicles, b.vehicles)) return ".vehicles";
-  if (!Object.is(a.ai, b.ai)) return ".ai";
-  if (!Object.is(a.units, b.units)) return ".units";
-  if (!Object.is(a.turretSeats, b.turretSeats)) return ".turretSeats";
-  if (!Object.is(a.networkRemotes, b.networkRemotes)) return ".networkRemotes";
-  if (!Object.is(a.removed, b.removed)) return ".removed";
-  if (!Object.is(a.grenadeUpdate, b.grenadeUpdate)) return ".grenadeUpdate";
-  if (!Object.is(a.playerCommand, b.playerCommand)) return ".playerCommand";
-  if (!Object.is(a.eyeView, b.eyeView)) return ".eyeView";
-  if (!Object.is(a.live, b.live)) return ".live";
-  if (!Object.is(a.playerWalker, b.playerWalker)) return ".playerWalker";
-  if (!Object.is(a.playerTicks, b.playerTicks)) return ".playerTicks";
-  if (!Object.is(a.forward, b.forward)) return ".forward";
-  if (!Object.is(a.right, b.right)) return ".right";
-  if (!Object.is(a.aimPitch, b.aimPitch)) return ".aimPitch";
+  if (!Object.is(a.waterTime, b.waterTime)) return ".waterTime";
+  if (!Object.is(a.waterHeight, b.waterHeight)) return ".waterHeight";
+  if (!Object.is(a.waterBob, b.waterBob)) return ".waterBob";
   return null;
 }
 
-export function exportWorldStepState(o, cx) {
+export function exportWorldTickSetup(o, cx) {
   let v = cx.seen.get(o);
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
   v.water = o.water;
-  v.remote = o.remote;
-  v.walker = o.walker;
-  v.dead = o.dead;
-  v.server = o.server;
-  v.deathCamera = o.deathCamera;
-  v.driver = o.driver;
-  v.gunner = o.gunner;
-  v.vehicles = o.vehicles;
-  v.ai = o.ai;
-  v.units = o.units;
-  v.turretSeats = o.turretSeats;
-  v.networkRemotes = o.networkRemotes;
-  v.removed = o.removed;
-  v.grenadeUpdate = o.grenadeUpdate;
-  v.playerCommand = o.playerCommand;
-  v.eyeView = o.eyeView;
-  v.live = o.live;
-  v.playerWalker = o.playerWalker;
-  v.playerTicks = o.playerTicks;
-  v.forward = o.forward;
-  v.right = o.right;
-  v.aimPitch = o.aimPitch;
+  v.waterTime = o.waterTime;
+  v.waterHeight = o.waterHeight;
+  v.waterBob = o.waterBob;
   return v;
 }
 
-export class WorldStepInputMirror {
+export const WorldTickInputLayout = Object.freeze({ words: 21, dt: 0, tick: 1, clock: 2, units: 15, ai: 16, live: 17, camera: 18, offlineCamera: 19, squads: 20 });
+export const WORLD_TICK_INPUT_WORDS = WorldTickInputLayout.words;
+export const WORLD_TICK_INPUT_OFFSETS = WorldTickInputLayout;
+
+export class WorldTickInputMirror {
   constructor() {
-    this.state = new WorldStepStateMirror();
+    this.dt = NaN;
     this.tick = NaN;
+    this.clock = new WorldClockStateMirror();
+    this.units = 0;
+    this.ai = false;
+    this.live = false;
+    this.camera = 0;
+    this.offlineCamera = false;
+    this.squads = 0;
   }
 }
 
-export function syncWorldStepInput(b, f, at, h, m) {
-  m.state = syncWorldStepState(b, f, at + 0, h, m.state ?? new WorldStepStateMirror());
-  m.tick = f[at + 23];
+export function syncWorldTickInput(b, f, at, h, m) {
+  m.dt = f[at + 0];
+  m.tick = f[at + 1];
+  m.clock = syncWorldClockState(b, f, at + 2, h, m.clock ?? new WorldClockStateMirror());
+  m.units = f[at + 15] >>> 0;
+  m.ai = f[at + 16] !== 0;
+  m.live = f[at + 17] !== 0;
+  m.camera = f[at + 18] >>> 0;
+  m.offlineCamera = f[at + 19] !== 0;
+  m.squads = f[at + 20] >>> 0;
   return m;
 }
 
-export function putWorldStepInput(b, o, f, at, heap) {
-  putWorldStepState(b, o.state, f, at + 0, heap);
-  f[at + 23] = o.tick;
+export function putWorldTickInput(b, o, f, at, heap) {
+  f[at + 0] = o.dt;
+  f[at + 1] = o.tick;
+  putWorldClockState(b, o.clock, f, at + 2, heap);
+  f[at + 15] = o.units;
+  f[at + 16] = o.ai ? 1 : 0;
+  f[at + 17] = o.live ? 1 : 0;
+  f[at + 18] = o.camera;
+  f[at + 19] = o.offlineCamera ? 1 : 0;
+  f[at + 20] = o.squads;
 }
 
-export function sameWorldStepInput(a, b) {
-  { const d = sameWorldStepState(a.state, b.state); if (d) return ".state" + d; }
+export function sameWorldTickInput(a, b) {
+  if (!Object.is(a.dt, b.dt)) return ".dt";
   if (!Object.is(a.tick, b.tick)) return ".tick";
+  { const d = sameWorldClockState(a.clock, b.clock); if (d) return ".clock" + d; }
+  if (!Object.is(a.units, b.units)) return ".units";
+  if (!Object.is(a.ai, b.ai)) return ".ai";
+  if (!Object.is(a.live, b.live)) return ".live";
+  if (!Object.is(a.camera, b.camera)) return ".camera";
+  if (!Object.is(a.offlineCamera, b.offlineCamera)) return ".offlineCamera";
+  if (!Object.is(a.squads, b.squads)) return ".squads";
   return null;
 }
 
-export function exportWorldStepInput(o, cx) {
+export function exportWorldTickInput(o, cx) {
   let v = cx.seen.get(o);
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.state = exportWorldStepState(o.state, cx);
+  v.dt = o.dt;
   v.tick = o.tick;
+  v.clock = exportWorldClockState(o.clock, cx);
+  v.units = o.units;
+  v.ai = o.ai;
+  v.live = o.live;
+  v.camera = o.camera;
+  v.offlineCamera = o.offlineCamera;
+  v.squads = o.squads;
   return v;
 }
 
-export class WorldStepArgsMirror {
+export const WorldTickOutputLayout = Object.freeze({ words: 23, accepted: 0, clock: 1, ordnance: 14, items: 15, waterTime: 16, wave: 17, level: 18, squads: 19, allocations: 20, reallocations: 21, allocationBytes: 22 });
+export const WORLD_TICK_OUTPUT_WORDS = WorldTickOutputLayout.words;
+export const WORLD_TICK_OUTPUT_OFFSETS = WorldTickOutputLayout;
+
+export class WorldTickOutputMirror {
   constructor() {
-    this.op = "start";
-    this.value = NaN;
-    this.flag = false;
+    this.accepted = false;
+    this.clock = new WorldClockStateMirror();
+    this.ordnance = 0;
+    this.items = 0;
+    this.waterTime = NaN;
+    this.wave = NaN;
+    this.level = NaN;
+    this.squads = 0;
+    this.allocations = 0;
+    this.reallocations = 0;
+    this.allocationBytes = 0;
   }
 }
 
-export function syncWorldStepArgs(b, f, at, h, m) {
-  m.op = WorldStepCall_NAMES[f[at + 0]];
-  m.value = f[at + 1];
-  m.flag = f[at + 2] !== 0;
+export function syncWorldTickOutput(b, f, at, h, m) {
+  m.accepted = f[at + 0] !== 0;
+  m.clock = syncWorldClockState(b, f, at + 1, h, m.clock ?? new WorldClockStateMirror());
+  m.ordnance = f[at + 14] >>> 0;
+  m.items = f[at + 15] >>> 0;
+  m.waterTime = f[at + 16];
+  m.wave = f[at + 17];
+  m.level = f[at + 18];
+  m.squads = f[at + 19] >>> 0;
+  m.allocations = f[at + 20] >>> 0;
+  m.reallocations = f[at + 21] >>> 0;
+  m.allocationBytes = f[at + 22] >>> 0;
   return m;
 }
 
-export function putWorldStepArgs(b, o, f, at, heap) {
-  f[at + 0] = WorldStepCall_INDEX.get(o.op);
-  f[at + 1] = o.value;
-  f[at + 2] = o.flag ? 1 : 0;
+export function putWorldTickOutput(b, o, f, at, heap) {
+  f[at + 0] = o.accepted ? 1 : 0;
+  putWorldClockState(b, o.clock, f, at + 1, heap);
+  f[at + 14] = o.ordnance;
+  f[at + 15] = o.items;
+  f[at + 16] = o.waterTime;
+  f[at + 17] = o.wave;
+  f[at + 18] = o.level;
+  f[at + 19] = o.squads;
+  f[at + 20] = o.allocations;
+  f[at + 21] = o.reallocations;
+  f[at + 22] = o.allocationBytes;
 }
 
-export function sameWorldStepArgs(a, b) {
-  if (!Object.is(a.op, b.op)) return ".op";
-  if (!Object.is(a.value, b.value)) return ".value";
-  if (!Object.is(a.flag, b.flag)) return ".flag";
+export function sameWorldTickOutput(a, b) {
+  if (!Object.is(a.accepted, b.accepted)) return ".accepted";
+  { const d = sameWorldClockState(a.clock, b.clock); if (d) return ".clock" + d; }
+  if (!Object.is(a.ordnance, b.ordnance)) return ".ordnance";
+  if (!Object.is(a.items, b.items)) return ".items";
+  if (!Object.is(a.waterTime, b.waterTime)) return ".waterTime";
+  if (!Object.is(a.wave, b.wave)) return ".wave";
+  if (!Object.is(a.level, b.level)) return ".level";
+  if (!Object.is(a.squads, b.squads)) return ".squads";
+  if (!Object.is(a.allocations, b.allocations)) return ".allocations";
+  if (!Object.is(a.reallocations, b.reallocations)) return ".reallocations";
+  if (!Object.is(a.allocationBytes, b.allocationBytes)) return ".allocationBytes";
   return null;
 }
 
-export function exportWorldStepArgs(o, cx) {
+export function exportWorldTickOutput(o, cx) {
   let v = cx.seen.get(o);
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.op = o.op;
-  v.value = o.value;
-  v.flag = o.flag;
-  return v;
-}
-
-export class WorldStepReplyMirror {
-  constructor() {
-    this.state = new WorldStepStateMirror();
-    this.value = NaN;
-    this.other = NaN;
-    this.flag = false;
-  }
-}
-
-export function syncWorldStepReply(b, f, at, h, m) {
-  m.state = syncWorldStepState(b, f, at + 0, h, m.state ?? new WorldStepStateMirror());
-  m.value = f[at + 23];
-  m.other = f[at + 24];
-  m.flag = f[at + 25] !== 0;
-  return m;
-}
-
-export function putWorldStepReply(b, o, f, at, heap) {
-  putWorldStepState(b, o.state, f, at + 0, heap);
-  f[at + 23] = o.value;
-  f[at + 24] = o.other;
-  f[at + 25] = o.flag ? 1 : 0;
-}
-
-export function sameWorldStepReply(a, b) {
-  { const d = sameWorldStepState(a.state, b.state); if (d) return ".state" + d; }
-  if (!Object.is(a.value, b.value)) return ".value";
-  if (!Object.is(a.other, b.other)) return ".other";
-  if (!Object.is(a.flag, b.flag)) return ".flag";
-  return null;
-}
-
-export function exportWorldStepReply(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.state = exportWorldStepState(o.state, cx);
-  v.value = o.value;
-  v.other = o.other;
-  v.flag = o.flag;
+  v.accepted = o.accepted;
+  v.clock = exportWorldClockState(o.clock, cx);
+  v.ordnance = o.ordnance;
+  v.items = o.items;
+  v.waterTime = o.waterTime;
+  v.wave = o.wave;
+  v.level = o.level;
+  v.squads = o.squads;
+  v.allocations = o.allocations;
+  v.reallocations = o.reallocations;
+  v.allocationBytes = o.allocationBytes;
   return v;
 }
 

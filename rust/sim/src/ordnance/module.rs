@@ -480,6 +480,10 @@ impl World for JsWorld<'_> {
         if !matches!(body, Nullable::Value(_)) {
             return None;
         }
+        if crate::units::f3::active() {
+            let Nullable::Value(body)=body else {return None};
+            return crate::units::f3_hulls::rider_mount(body);
+        }
         let a = import_rider_mount(&BodyArgs { body });
         if !a.found {
             return None;

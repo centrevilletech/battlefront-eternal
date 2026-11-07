@@ -133,9 +133,9 @@ export class F4Tail extends F4Battle {
       case 'rejected':this.rejected?.(args.className,args.number);break;
     }
   }
-  step(dt,tick,server,commands=EMPTY_COMMANDS){
+  prepareStep(dt,tick,server,commands=EMPTY_COMMANDS){
     if(this.debug)this.mirrors.check();
-    const p=this.phase,b=this.bridge,live=p.liveOwner,counters=this.counters,previous=b.phaseCounters,active=p.active;
+    const p=this.phase,b=this.bridge,live=p.liveOwner;
     // A paused input source can deliver a burst. Keep the admitted prefix in
     // order; excess commands cannot overwrite the next shared input record.
     const count=Math.min(commands?.length??0,this.commandCapacity);
@@ -146,6 +146,11 @@ export class F4Tail extends F4Battle {
     }
     const input=this.input;input.dt=dt;input.tick=tick;input.server=server;input.humanCommands=this.commandInput*8;input.humanCount=count;
     F.putF4TailInput(b,input,b.f,live.layout.tailInput/8,b.heap);
+    return count;
+  }
+  step(dt,tick,server,commands=EMPTY_COMMANDS){
+    const count=this.prepareStep(dt,tick,server,commands);
+    const p=this.phase,b=this.bridge,live=p.liveOwner,counters=this.counters,previous=b.phaseCounters,active=p.active;
     const output=this.mirrors.words,unitWords=p.counters.outputFields,randomWords=p.random.entries.length*p.layout.randomWords;
     p.random.push();p.active=true;b.phaseCounters=counters;
     counters.ticks++;counters.wasmCalls++;counters.phaseCalls++;counters.inputFields+=F.F4TailInputLayout.words+count*S.HsCommandLayout.words+randomWords;

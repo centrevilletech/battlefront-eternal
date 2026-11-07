@@ -135,75 +135,6 @@ impl WorldLocalCall {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
-pub enum WorldStepCall {
-    #[default] Start = 0,
-    Water = 1,
-    ClockAxes = 2,
-    TakeSquad = 3,
-    Squad = 4,
-    PlayerCount = 5,
-    Eye = 6,
-    DeathCamera = 7,
-    RemoteCamera = 8,
-    DriverCamera = 9,
-    GunnerCamera = 10,
-    Zoom = 11,
-    Camera = 12,
-    CameraMatrix = 13,
-    Ai = 14,
-    NativeUnits = 15,
-    Live = 16,
-    Ordnance = 17,
-    MineTargets = 18,
-    Items = 19,
-    Battlefield = 20,
-    Battle = 21,
-    Target = 22,
-    Grenades = 23,
-    NextGrenade = 24,
-    Grenade = 25,
-    SpawnFlush = 26,
-}
-
-impl WorldStepCall {
-    pub const NAMES: [&'static str; 27] = ["start", "water", "clockAxes", "takeSquad", "squad", "playerCount", "eye", "deathCamera", "remoteCamera", "driverCamera", "gunnerCamera", "zoom", "camera", "cameraMatrix", "ai", "nativeUnits", "live", "ordnance", "mineTargets", "items", "battlefield", "battle", "target", "grenades", "nextGrenade", "grenade", "spawnFlush"];
-
-    pub fn from_u8(v: u8) -> Option<Self> {
-        match v {
-            0 => Some(WorldStepCall::Start),
-            1 => Some(WorldStepCall::Water),
-            2 => Some(WorldStepCall::ClockAxes),
-            3 => Some(WorldStepCall::TakeSquad),
-            4 => Some(WorldStepCall::Squad),
-            5 => Some(WorldStepCall::PlayerCount),
-            6 => Some(WorldStepCall::Eye),
-            7 => Some(WorldStepCall::DeathCamera),
-            8 => Some(WorldStepCall::RemoteCamera),
-            9 => Some(WorldStepCall::DriverCamera),
-            10 => Some(WorldStepCall::GunnerCamera),
-            11 => Some(WorldStepCall::Zoom),
-            12 => Some(WorldStepCall::Camera),
-            13 => Some(WorldStepCall::CameraMatrix),
-            14 => Some(WorldStepCall::Ai),
-            15 => Some(WorldStepCall::NativeUnits),
-            16 => Some(WorldStepCall::Live),
-            17 => Some(WorldStepCall::Ordnance),
-            18 => Some(WorldStepCall::MineTargets),
-            19 => Some(WorldStepCall::Items),
-            20 => Some(WorldStepCall::Battlefield),
-            21 => Some(WorldStepCall::Battle),
-            22 => Some(WorldStepCall::Target),
-            23 => Some(WorldStepCall::Grenades),
-            24 => Some(WorldStepCall::NextGrenade),
-            25 => Some(WorldStepCall::Grenade),
-            26 => Some(WorldStepCall::SpawnFlush),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u8)]
 pub enum WorldNetworkChoice {
     #[default] Other = 0,
     Suicide = 1,
@@ -903,195 +834,153 @@ impl WorldLocalReply {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldStepState {
+pub struct WorldTickSetup {
     pub water: bool,
-    pub remote: bool,
-    pub walker: bool,
-    pub dead: bool,
-    pub server: bool,
-    pub death_camera: bool,
-    pub driver: bool,
-    pub gunner: bool,
-    pub vehicles: bool,
-    pub ai: bool,
-    pub units: bool,
-    pub turret_seats: bool,
-    pub network_remotes: bool,
-    pub removed: bool,
-    pub grenade_update: bool,
-    pub player_command: bool,
-    pub eye_view: bool,
-    pub live: bool,
-    pub player_walker: bool,
-    pub player_ticks: f64,
-    pub forward: f64,
-    pub right: f64,
-    pub aim_pitch: f64,
+    pub water_time: f64,
+    pub water_height: f64,
+    pub water_bob: bool,
 }
 
-impl WorldStepState {
-    pub const WORDS: usize = 23;
+impl WorldTickSetup {
+    pub const WORDS: usize = 4;
     pub const WATER: usize = 0;
-    pub const REMOTE: usize = 1;
-    pub const WALKER: usize = 2;
-    pub const DEAD: usize = 3;
-    pub const SERVER: usize = 4;
-    pub const DEATH_CAMERA: usize = 5;
-    pub const DRIVER: usize = 6;
-    pub const GUNNER: usize = 7;
-    pub const VEHICLES: usize = 8;
-    pub const AI: usize = 9;
-    pub const UNITS: usize = 10;
-    pub const TURRET_SEATS: usize = 11;
-    pub const NETWORK_REMOTES: usize = 12;
-    pub const REMOVED: usize = 13;
-    pub const GRENADE_UPDATE: usize = 14;
-    pub const PLAYER_COMMAND: usize = 15;
-    pub const EYE_VIEW: usize = 16;
+    pub const WATER_TIME: usize = 1;
+    pub const WATER_HEIGHT: usize = 2;
+    pub const WATER_BOB: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = if self.water { 1.0 } else { 0.0 };
+        row[1] = self.water_time;
+        row[2] = self.water_height;
+        row[3] = if self.water_bob { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            water: row[0] != 0.0,
+            water_time: row[1],
+            water_height: row[2],
+            water_bob: row[3] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldTickInput {
+    pub dt: f64,
+    pub tick: f64,
+    pub clock: WorldClockState,
+    pub units: u32,
+    pub ai: bool,
+    pub live: bool,
+    pub camera: u32,
+    pub offline_camera: bool,
+    pub squads: u32,
+}
+
+impl WorldTickInput {
+    pub const WORDS: usize = 21;
+    pub const DT: usize = 0;
+    pub const TICK: usize = 1;
+    pub const CLOCK: usize = 2;
+    pub const UNITS: usize = 15;
+    pub const AI: usize = 16;
     pub const LIVE: usize = 17;
-    pub const PLAYER_WALKER: usize = 18;
-    pub const PLAYER_TICKS: usize = 19;
-    pub const FORWARD: usize = 20;
-    pub const RIGHT: usize = 21;
-    pub const AIM_PITCH: usize = 22;
+    pub const CAMERA: usize = 18;
+    pub const OFFLINE_CAMERA: usize = 19;
+    pub const SQUADS: usize = 20;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 21] = (&mut row[..21]).try_into().unwrap();
+        row[0] = self.dt;
+        row[1] = self.tick;
+        self.clock.put(&mut row[2..], heap);
+        row[15] = self.units as f64;
+        row[16] = if self.ai { 1.0 } else { 0.0 };
+        row[17] = if self.live { 1.0 } else { 0.0 };
+        row[18] = self.camera as f64;
+        row[19] = if self.offline_camera { 1.0 } else { 0.0 };
+        row[20] = self.squads as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 21] = (&row[..21]).try_into().unwrap();
+        Self {
+            dt: row[0],
+            tick: row[1],
+            clock: WorldClockState::take(&row[2..], heap),
+            units: word_u32(row[15]),
+            ai: row[16] != 0.0,
+            live: row[17] != 0.0,
+            camera: word_u32(row[18]),
+            offline_camera: row[19] != 0.0,
+            squads: word_u32(row[20]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldTickOutput {
+    pub accepted: bool,
+    pub clock: WorldClockState,
+    pub ordnance: u32,
+    pub items: u32,
+    pub water_time: f64,
+    pub wave: f64,
+    pub level: f64,
+    pub squads: u32,
+    pub allocations: u32,
+    pub reallocations: u32,
+    pub allocation_bytes: u32,
+}
+
+impl WorldTickOutput {
+    pub const WORDS: usize = 23;
+    pub const ACCEPTED: usize = 0;
+    pub const CLOCK: usize = 1;
+    pub const ORDNANCE: usize = 14;
+    pub const ITEMS: usize = 15;
+    pub const WATER_TIME: usize = 16;
+    pub const WAVE: usize = 17;
+    pub const LEVEL: usize = 18;
+    pub const SQUADS: usize = 19;
+    pub const ALLOCATIONS: usize = 20;
+    pub const REALLOCATIONS: usize = 21;
+    pub const ALLOCATION_BYTES: usize = 22;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
-        row[0] = if self.water { 1.0 } else { 0.0 };
-        row[1] = if self.remote { 1.0 } else { 0.0 };
-        row[2] = if self.walker { 1.0 } else { 0.0 };
-        row[3] = if self.dead { 1.0 } else { 0.0 };
-        row[4] = if self.server { 1.0 } else { 0.0 };
-        row[5] = if self.death_camera { 1.0 } else { 0.0 };
-        row[6] = if self.driver { 1.0 } else { 0.0 };
-        row[7] = if self.gunner { 1.0 } else { 0.0 };
-        row[8] = if self.vehicles { 1.0 } else { 0.0 };
-        row[9] = if self.ai { 1.0 } else { 0.0 };
-        row[10] = if self.units { 1.0 } else { 0.0 };
-        row[11] = if self.turret_seats { 1.0 } else { 0.0 };
-        row[12] = if self.network_remotes { 1.0 } else { 0.0 };
-        row[13] = if self.removed { 1.0 } else { 0.0 };
-        row[14] = if self.grenade_update { 1.0 } else { 0.0 };
-        row[15] = if self.player_command { 1.0 } else { 0.0 };
-        row[16] = if self.eye_view { 1.0 } else { 0.0 };
-        row[17] = if self.live { 1.0 } else { 0.0 };
-        row[18] = if self.player_walker { 1.0 } else { 0.0 };
-        row[19] = self.player_ticks;
-        row[20] = self.forward;
-        row[21] = self.right;
-        row[22] = self.aim_pitch;
+        row[0] = if self.accepted { 1.0 } else { 0.0 };
+        self.clock.put(&mut row[1..], heap);
+        row[14] = self.ordnance as f64;
+        row[15] = self.items as f64;
+        row[16] = self.water_time;
+        row[17] = self.wave;
+        row[18] = self.level;
+        row[19] = self.squads as f64;
+        row[20] = self.allocations as f64;
+        row[21] = self.reallocations as f64;
+        row[22] = self.allocation_bytes as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
         let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
         Self {
-            water: row[0] != 0.0,
-            remote: row[1] != 0.0,
-            walker: row[2] != 0.0,
-            dead: row[3] != 0.0,
-            server: row[4] != 0.0,
-            death_camera: row[5] != 0.0,
-            driver: row[6] != 0.0,
-            gunner: row[7] != 0.0,
-            vehicles: row[8] != 0.0,
-            ai: row[9] != 0.0,
-            units: row[10] != 0.0,
-            turret_seats: row[11] != 0.0,
-            network_remotes: row[12] != 0.0,
-            removed: row[13] != 0.0,
-            grenade_update: row[14] != 0.0,
-            player_command: row[15] != 0.0,
-            eye_view: row[16] != 0.0,
-            live: row[17] != 0.0,
-            player_walker: row[18] != 0.0,
-            player_ticks: row[19],
-            forward: row[20],
-            right: row[21],
-            aim_pitch: row[22],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldStepInput {
-    pub state: WorldStepState,
-    pub tick: f64,
-}
-
-impl WorldStepInput {
-    pub const WORDS: usize = 24;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 24] = (&mut row[..24]).try_into().unwrap();
-        self.state.put(&mut row[0..], heap);
-        row[23] = self.tick;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 24] = (&row[..24]).try_into().unwrap();
-        Self {
-            state: WorldStepState::take(&row[0..], heap),
-            tick: row[23],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldStepArgs {
-    pub op: WorldStepCall,
-    pub value: f64,
-    pub flag: bool,
-}
-
-impl WorldStepArgs {
-    pub const WORDS: usize = 3;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
-        row[0] = self.op as u8 as f64;
-        row[1] = self.value;
-        row[2] = if self.flag { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
-        Self {
-            op: WorldStepCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
-            value: row[1],
-            flag: row[2] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldStepReply {
-    pub state: WorldStepState,
-    pub value: f64,
-    pub other: f64,
-    pub flag: bool,
-}
-
-impl WorldStepReply {
-    pub const WORDS: usize = 26;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 26] = (&mut row[..26]).try_into().unwrap();
-        self.state.put(&mut row[0..], heap);
-        row[23] = self.value;
-        row[24] = self.other;
-        row[25] = if self.flag { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 26] = (&row[..26]).try_into().unwrap();
-        Self {
-            state: WorldStepState::take(&row[0..], heap),
-            value: row[23],
-            other: row[24],
-            flag: row[25] != 0.0,
+            accepted: row[0] != 0.0,
+            clock: WorldClockState::take(&row[1..], heap),
+            ordnance: word_u32(row[14]),
+            items: word_u32(row[15]),
+            water_time: row[16],
+            wave: row[17],
+            level: row[18],
+            squads: word_u32(row[19]),
+            allocations: word_u32(row[20]),
+            reallocations: word_u32(row[21]),
+            allocation_bytes: word_u32(row[22]),
         }
     }
 
