@@ -15,7 +15,7 @@ use bfe_content::collision::MapCollision;
 use bfe_content::install::{install, read_trees};
 use bfe_content::js::js_hypot;
 use bfe_sim::collision::install::Kernel;
-use bfe_sim::collision::{state, world_cast_ray, Ray, MISS, TERRAIN};
+use bfe_sim::collision::{state, world_cast_ray_in, Ray, MISS, TERRAIN};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -111,7 +111,8 @@ fn installed_world_casts_as_the_javascript() {
                 dz: cast.direction[2],
             };
             let hypot = js_hypot(&[cast.direction[0], cast.direction[2]]);
-            let (code, hit) = world_cast_ray(state(), ids.world as usize, &ray, cast.far, hypot, 0);
+            // No dynamic candidates: the oracle compares static world and terrain hits.
+            let (code, hit) = world_cast_ray_in(state(), ids.world as usize, &ray, cast.far, hypot, &[], &[]);
             let got = [hit.distance, hit.px, hit.py, hit.pz, hit.nx, hit.ny, hit.nz];
             let same = code == cast.code
                 && (code == MISS
