@@ -2,8 +2,7 @@
 //! Store and F2 seats are borrowed once. F4's readers acquire only the row
 //! needed by an observation, so no F4 table borrow crosses recursive damage.
 use super::{arsenals,rows::{Rows,BuildingOwner},roster::CharacterOwner,state::State,weapons};
-use crate::{battle::{f4,f4_core,live_phase::Building,ownership},gen::{Character,F4Handle,Store},store::Ref,
-    vehicles::module::f2::live_seats};
+use crate::{battle::{f4,f4_core,live_phase::Building,ownership},gen::{Character,F4Handle,Store},store::Ref};
 struct Buildings;
 impl BuildingOwner for Buildings {
     fn rows(&self)->&ownership::Rows<Building> {&f4::live().buildings}
@@ -17,15 +16,23 @@ impl CharacterOwner for Characters {
     fn resolve(&self,store:&Store,handle:&F4Handle)->Option<Ref<Character>> {f4_core::resolve_character(store,handle)}
     fn changed(&mut self,reference:Ref<Character>) {f4_core::mark_character(reference);}
 }
-pub fn with_rows<R>(state:&mut State,store:&mut Store,run:impl FnOnce(&mut Rows<'_,weapons::F3,arsenals::Live>)->R)->R {
-    let definitions=crate::combat::module::defs();
-    live_seats::with_owned_seats(|seats| {
-        let buildings=Buildings;let mut characters=Characters;
-        let mut changes=weapons::F3;let mut mounted=arsenals::Live;
-        let mut rows=Rows {store,seats,buildings:&buildings,characters:&mut characters,state,
-            changes:&mut changes,mounted:&mut mounted,definitions:&definitions.weapons};
-        run(&mut rows)
-    })
+pub fn with_rows<R>(w:&mut crate::world::owner::World,state:&mut State,store:&mut Store,
+    run:impl FnOnce(&mut Rows<'_,weapons::F3,arsenals::Live>)->R)->R {
+    with_rows_parts(&mut w.fleet,&mut w.combat,state,store,run)
+}
+/// Cold loaders borrow strings beside the owner parts. Hot physical callbacks
+/// retain no string-table loan while they lend Store and seats onward.
+pub(crate) fn with_rows_parts<R>(fleet:&mut crate::vehicles::module::Fleet,combat:&mut crate::combat::module::CombatOwner,
+    state:&mut State,store:&mut Store,run:impl FnOnce(&mut Rows<'_,weapons::F3,arsenals::Live>)->R)->R {
+    let definitions=crate::combat::module::defs_in(combat);
+    let mut seats=std::mem::take(fleet.seats_owner());
+    let buildings=Buildings;let mut characters=Characters;
+    let mut changes=weapons::F3;let mut mounted=arsenals::Live;
+    let mut rows=Rows {store,seats:&mut seats,buildings:&buildings,characters:&mut characters,state,
+        changes:&mut changes,mounted:&mut mounted,definitions:&definitions.weapons};
+    let result=run(&mut rows);
+    *fleet.seats_owner()=seats;
+    result
 }
 /// Navigation asks for these observations inside its existing owner scope.
 pub fn clear_above(store:&mut Store,seats:&mut crate::vehicles::f2_seats::Seats,from:crate::ai::nav::math::Vec3,unit:&crate::gen::AiLifeHandle)->bool {

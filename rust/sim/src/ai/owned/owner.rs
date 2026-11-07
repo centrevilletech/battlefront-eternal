@@ -87,6 +87,12 @@ impl Owner {
         }));
         self.battle.as_mut().unwrap()
     }
+    /// Only the battle scope leaves its owner during recursive physical work.
+    /// Process caches stay in place for the next battle's cold admission.
+    #[cfg(target_arch="wasm32")]
+    pub(crate) fn take_battle(&mut self)->Option<Box<Battle>> {self.battle.take()}
+    #[cfg(target_arch="wasm32")]
+    pub(crate) fn return_battle(&mut self,battle:Box<Battle>) {self.battle=Some(battle);}
     pub fn battle(&self)->Option<&Battle> {self.battle.as_deref()}
     pub fn battle_mut(&mut self)->Option<&mut Battle> {self.battle.as_deref_mut()}
     /// Call only after the last active frame has returned. Dropping local
@@ -214,30 +220,32 @@ impl Battle {
 impl Battle {
     /// One native scope spans the enclosing unit, seat or battle operation.
     /// Every recursive callback receives this same Core, memory and generators.
-    pub fn with_native_callbacks<R>(&mut self,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,
-        run:impl FnOnce(crate::units::f3::WorldServices<'_>)->R)->R {
+    pub fn with_native_callbacks<R>(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,
+        run:impl FnOnce(&mut crate::world::owner::World,crate::units::f3::WorldServices<'_>)->R)->R {
         assert!(self.ready,"prepare native AI before its lifecycle callbacks");
         let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
             stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
         let mut scope=super::callbacks::Scope {core:&mut self.runtime.core,state:&mut self.state,
             random:&mut self.runtime.random,combat:&mut self.combat,settings:&self.settings,facts:&self.facts,factory:&context};
-        run(crate::units::f3::WorldServices {ai:Some(&mut scope),recon,queries})
+        run(w,crate::units::f3::WorldServices {ai:Some(&mut scope),recon,queries})
     }
     /// createAI attaches the completed initial roster in insertion order,
     /// after spawning.begin and service binding. Early spawn hooks must not
     /// consume those draws while the initial roster is still being built.
-    pub fn attach_initial(&mut self,store:&mut crate::gen::Store,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries) {
+    pub fn attach_initial(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries) {
         assert!(self.ready,"activate native AI before attaching its roster");
         use super::callbacks::Factory;
         let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
             stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
-        super::live::with_rows(&mut self.state,store,|rows| {
+        let mut store=std::mem::take(&mut w.sim.store);
+        super::live::with_rows(w,&mut self.state,&mut store,|rows| {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             for index in 0..self.runtime.core.character_count {self.runtime.attach(&mut world,index);}
         });
+        w.sim.store=store;
     }
-    pub fn native_phase(&mut self,store:&mut crate::gen::Store,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,
+    pub fn native_phase(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,
         facts:&super::world::Facts,input:&crate::gen::AiPhaseFacts,cameras:&[crate::gen::AiPhaseCamera],journal:&crate::gen::AiJournalInput)->Result<(),super::events::Invalid> {
         assert!(self.ready,"prepare native AI before its phase");
         self.state.import_journal(journal)?;self.state.phase_facts(input,cameras);
@@ -246,10 +254,12 @@ impl Battle {
         let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
             stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
-        super::live::with_rows(&mut self.state,store,|rows| {
+        let mut store=std::mem::take(&mut w.sim.store);
+        super::live::with_rows(w,&mut self.state,&mut store,|rows| {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             self.runtime.phase(&mut world,input.dt);
         });
+        w.sim.store=store;
         self.phase_counters(input.dt);
         self.counters.input_words=self.counters.input_words.wrapping_add((crate::gen::AiPhaseHeader::WORDS+cameras.len()*crate::gen::AiPhaseCamera::WORDS
             +journal.records.len()*crate::gen::AiJournalEvent::WORDS) as u32);
@@ -263,16 +273,18 @@ impl Battle {
 impl Battle {
     /// Danger warnings stay after battle and targeting, rather than joining
     /// the earlier decide/execute boundary or the projectile flight callback.
-    pub fn native_dangers(&mut self,store:&mut crate::gen::Store,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries) {
+    pub fn native_dangers(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries) {
         if !self.runtime.core.options.bind.combat {return;}
         use super::callbacks::Factory;
         let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
             stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
-        super::live::with_rows(&mut self.state,store,|rows| {
+        let mut store=std::mem::take(&mut w.sim.store);
+        super::live::with_rows(w,&mut self.state,&mut store,|rows| {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             world.grenade_dangers(&mut self.runtime.core,||Some(crate::units::f3::viewpoint()));
         });
+        w.sim.store=store;
         self.record_danger_phase();
     }
     pub fn record_danger_phase(&mut self) {
@@ -288,18 +300,20 @@ impl Battle {
 impl Battle {
     /// playerCommand observes the current Character and sends one ordered
     /// command through the same squad, voice and shared-generator services.
-    pub fn native_command(&mut self,store:&mut crate::gen::Store,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,input:&crate::gen::AiPlayerCommand)->bool {
+    pub fn native_command(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,input:&crate::gen::AiPlayerCommand)->bool {
         use super::callbacks::Factory;
-        if crate::battle::f4_core::resolve_character(store,&input.character).is_none() {return false;}
+        if crate::battle::f4_core::resolve_character_in(&mut w.battle,&w.sim.store,&input.character).is_none() {return false;}
         self.facts.time=input.time;
         let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
             stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
-        super::live::with_rows(&mut self.state,store,|rows| {
+        let mut store=std::mem::take(&mut w.sim.store);
+        let result=super::live::with_rows(w,&mut self.state,&mut store,|rows| {
             let Some(reference)=rows.characters.resolve(rows.store,&input.character) else{return false};
             let Some(character)=rows.state.roster.index(rows.store,rows.characters,reference) else{return false};
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             self.runtime.core.player_command(&mut world,character,input.kind);true
-        })
+        });
+        w.sim.store=store;result
     }
 }
