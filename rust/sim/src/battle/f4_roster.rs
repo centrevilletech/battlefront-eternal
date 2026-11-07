@@ -15,7 +15,7 @@ use crate::{
     units::f3::{self, WorldServices},
 };
 use std::ptr::addr_of_mut;
-struct State {
+pub(super) struct State {
     classic: bool,
     players: Players,
     names: Vec<BotNames>,
@@ -23,17 +23,16 @@ struct State {
     result: F4RosterResult,
     output: Block,
 }
-static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
     unsafe {
-        (*addr_of_mut!(STATE))
+        (*addr_of_mut!(super::owner::BATTLE.roster))
             .as_mut()
             .expect("native roster initialized")
     }
 }
 pub(crate) fn reset() {
     unsafe {
-        *addr_of_mut!(STATE) = None;
+        *addr_of_mut!(super::owner::BATTLE.roster) = None;
     }
 }
 struct Text;
@@ -244,7 +243,7 @@ pub extern "C" fn f4_roster_init() {
         owner.shell = Some(shell);
     });
     unsafe {
-        *addr_of_mut!(STATE) = Some(owner);
+        *addr_of_mut!(super::owner::BATTLE.roster) = Some(owner);
     }
     drop(outer);
 }
@@ -254,7 +253,7 @@ pub extern "C" fn f4_roster_command() -> *const f64 {
     let input = F4RosterCommand::take(row, heap);
     super::f4_live::count_external(F4RosterCommand::WORDS);
     let mut owner = unsafe {
-        (*addr_of_mut!(STATE))
+        (*addr_of_mut!(super::owner::BATTLE.roster))
             .take()
             .expect("roster command cannot reenter")
     };
@@ -361,7 +360,7 @@ pub extern "C" fn f4_roster_command() -> *const f64 {
         owner.shell = Some(shell);
     });
     unsafe {
-        *addr_of_mut!(STATE) = Some(owner);
+        *addr_of_mut!(super::owner::BATTLE.roster) = Some(owner);
     }
     drop(outer);
     let owner = state();

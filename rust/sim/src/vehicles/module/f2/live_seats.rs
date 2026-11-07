@@ -1204,7 +1204,7 @@ fn touch_turret(r: Ref<Turret>) {
 // and tuning. Resolve both generations before exposing a scalar observation.
 fn weapon_index(r:Ref<Turret>,life:f64)->Option<usize> { state().weapon_index(r, life) }
 pub fn weapon_count(r:Ref<Turret>,life:f64)->Option<usize> { state().weapon_count(r, life) }
-pub fn with_weapon<R>(r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> { state().with_weapon(r, life, index, read) }
+pub fn with_weapon<R>(r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> { if index != 0 { return None; } state().with_weapon(r, life, index, read) }
 pub fn edit_weapon<R>(r:Ref<Turret>,life:f64,index:usize,
     edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> {
     if index!=0 {return None;}

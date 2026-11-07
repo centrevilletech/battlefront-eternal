@@ -3,12 +3,11 @@
 use super::{core::Core, commands::Result};
 use crate::{abi::sim, gen::*, store::{Ref, block::HEADER}};
 use std::ptr::addr_of_mut;
-struct State {core:Core,handle:Vec<f64>,capacity:usize,battle_capacity:usize,
+pub(super) struct State {core:Core,handle:Vec<f64>,capacity:usize,battle_capacity:usize,
     tail:Vec<(F4Handle,usize)>,hero_names:Vec<(crate::store::StrId,Option<crate::store::StrId>)>,classic:Option<bool>,local:Option<Ref<Unit>>}
-static mut STATE: Option<State> = None;
-fn state() -> &'static mut State { unsafe { (*addr_of_mut!(STATE)).as_mut().expect("battle owner initialized") } }
-pub(crate) fn reset() { unsafe { *addr_of_mut!(STATE) = None; } }
-pub(crate) fn active() -> bool { unsafe { (*addr_of_mut!(STATE)).is_some() } }
+fn state() -> &'static mut State { unsafe { (*addr_of_mut!(super::owner::BATTLE.core)).as_mut().expect("battle owner initialized") } }
+pub(crate) fn reset() { unsafe { *addr_of_mut!(super::owner::BATTLE.core) = None; } }
+pub(crate) fn active() -> bool { unsafe { (*addr_of_mut!(super::owner::BATTLE.core)).is_some() } }
 pub(crate) fn publication_ptr() -> u32 {
     if !active() { return 0; } state().core.publication.block.ptr() as u32
 }
@@ -30,7 +29,7 @@ pub extern "C" fn f4_battle_init() {
     for (index,r) in characters.into_iter().enumerate() { sim().store.character.get_mut(r).unwrap().roster_slot=Some(index as f64);core.adopt(&mut sim().store, r); }
     let mut row = vec![0.0; Battle::EXPORT_STRIDE]; let mut heap = Vec::new();
     sim().store.battle.put_export(&mut row, &mut heap);
-    unsafe { *addr_of_mut!(STATE) = Some(State { core, handle: vec![0.0; F4Handle::WORDS], capacity,
+    unsafe { *addr_of_mut!(super::owner::BATTLE.core) = Some(State { core, handle: vec![0.0; F4Handle::WORDS], capacity,
         battle_capacity: HEADER + Battle::EXPORT_STRIDE + heap.len() + capacity * 2 + sim().store.battle.team_ids.len()*4,tail:Vec::new(),hero_names:Vec::new(),classic:None,local:None }); }
 }
 #[no_mangle]
@@ -75,11 +74,7 @@ pub(crate) fn point(s: &mut Store, r: Option<Ref<Character>>) {
 
 pub(crate) fn changed_battle() { state().core.mark_battle(); }
 
-pub(crate) fn resolve_character(store:&Store,handle:&F4Handle)->Option<Ref<Character>> {
-    if handle.kind!=F4ObjectKind::Character {return None;}
-    let reference=Ref::new(handle.slot,handle.generation);
-    (store.character.contains(reference)&&state().core.character(reference)==Some(handle)).then_some(reference)
-}
+pub(crate) fn resolve_character(store:&Store,handle:&F4Handle)->Option<Ref<Character>> { state().resolve_character(store, handle) }
 pub(crate) fn mark_character(r:Ref<Character>){state().core.mark(r);}
 pub(crate) fn credit(victim:Option<Ref<Character>>,killer:Option<Ref<Character>>,relation:f64){state().core.credit(&mut sim().store,victim,killer,relation);}
 pub(crate) fn configure_tail(classic:bool,local:Option<Ref<Unit>>){state().classic=Some(classic);state().local=local;}
@@ -88,19 +83,9 @@ pub(crate) fn died(unit:Ref<Unit>,killer:Option<Ref<Character>>,relation:f64,ser
     let classic=state().classic.expect("prepared battle lifecycle");let local=state().local;
     super::native_lifecycle::died(unit,killer,relation,classic,local,services)
 }
-pub(crate) fn mark_mobile(){
-    if !active(){return;}
-    let state=state();
-    for (h,_) in &state.tail{if h.kind==F4ObjectKind::MobilePost{state.core.publication.mark(h);}}
-}
-pub(crate) fn mark_tail(s:&Store){
-    let state=state();state.core.mark_battle();
-    for &r in &s.battle.characters{state.core.mark(r);}
-    for (h,_) in &state.tail{state.core.publication.mark(h);}
-}
-fn register_tail(source:super::publication::Source,words:usize,heap:usize){
-    let h=state().core.publication.register(source,1.0,heap);state().tail.push((h,HEADER+words+heap));
-}
+pub(crate) fn mark_mobile(){ if active() { state().mark_mobile(); } }
+pub(crate) fn mark_tail(s:&Store){ state().mark_tail(s) }
+fn register_tail(source:super::publication::Source,words:usize,heap:usize){ state().register_tail(source, words, heap) }
 pub(crate) fn prepare_tail_publications(){
     use super::publication::Source;
     assert!(state().tail.is_empty(),"prepare battle publications once");
@@ -199,4 +184,24 @@ pub extern "C" fn f4_human_ready() -> u32 {
 struct ReadyText;
 impl super::stats::Text for ReadyText {
     fn nonempty(&self,id:crate::store::StrId)->bool {!sim().strings.units(id).is_empty()}
+}
+
+impl State {
+    fn mark_mobile(&mut self) {
+        let state=self;
+        for (h,_) in &state.tail{if h.kind==F4ObjectKind::MobilePost{state.core.publication.mark(h);}}
+    }
+    fn mark_tail(&mut self, s: &Store) {
+        let state=self;state.core.mark_battle();
+        for &r in &s.battle.characters{state.core.mark(r);}
+        for (h,_) in &state.tail{state.core.publication.mark(h);}
+    }
+    fn resolve_character(&self, store: &Store, handle: &F4Handle) -> Option<Ref<Character>> {
+        if handle.kind!=F4ObjectKind::Character {return None;}
+        let reference=Ref::new(handle.slot,handle.generation);
+        (store.character.contains(reference)&&self.core.character(reference)==Some(handle)).then_some(reference)
+    }
+    fn register_tail(&mut self, source: super::publication::Source, words: usize, heap: usize) {
+        let h=self.core.publication.register(source,1.0,heap);self.tail.push((h,HEADER+words+heap));
+    }
 }

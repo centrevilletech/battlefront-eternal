@@ -14,7 +14,7 @@ use three::{Matrix4, Vector3};
 // Vehicle construction binds both the collision owner and its mixed-registry
 // member. Lookups use those numeric slots; no class names enter a hit loop.
 #[derive(Default)]
-struct Hulls {
+pub(super) struct Hulls {
     rows: Vec<Option<F3HullSetup>>,
     members: Vec<Option<Ref<Vehicle>>>,
     bodies: Vec<Option<Ref<Vehicle>>>,
@@ -22,12 +22,11 @@ struct Hulls {
     keys: Vec<StrId>,
     fact_versions: Vec<Option<u64>>,
 }
-static mut HULLS: Option<Hulls> = None;
 fn hulls() -> &'static mut Hulls {
-    unsafe { (*addr_of_mut!(HULLS)).get_or_insert_with(Hulls::default) }
+    unsafe { (*addr_of_mut!(super::owner::UNITS.hulls)).get_or_insert_with(Hulls::default) }
 }
-fn binding(r: Ref<Vehicle>) -> &'static F3HullSetup {
-    hulls().rows[r.slot as usize].as_ref().filter(|row| row.hull == r).expect("prepared hull combat")
+fn binding(hulls: &Hulls, r: Ref<Vehicle>) -> &F3HullSetup {
+    hulls.rows[r.slot as usize].as_ref().filter(|row| row.hull == r).expect("prepared hull combat")
 }
 // Vehicles.variant supplies this row only after the ordinary fleet adopted
 // the object. Its member is already in Units' shared insertion sequence.
@@ -115,7 +114,7 @@ pub(crate) fn refresh(id: u32) {
     let revision = f2::revision(r);
     if hulls().fact_versions[r.slot as usize] == Some(revision) { return; }
     let Some(v) = sim().store.vehicle.get(r) else { return };
-    let row = binding(r);
+    let row = binding(hulls(), r);
     let mut matrix = Matrix4::default();
     matrix.elements = v.matrix;
     let mut center = vec(v.center);
@@ -138,7 +137,7 @@ pub(crate) fn matches_binding(reference:Ref<Vehicle>,member:Option<Member>)->boo
     hulls().rows.get(reference.slot as usize).and_then(Option::as_ref)
         .is_some_and(|row|row.hull==reference&&row.member==member&&sim().store.vehicle.contains(reference))
 }
-pub(crate) fn member(r: Ref<Vehicle>) -> Member { binding(r).member.expect("active hull member") }
+pub(crate) fn member(r: Ref<Vehicle>) -> Member { binding(hulls(), r).member.expect("active hull member") }
 pub(crate) fn for_member(member: Member) -> Option<Ref<Vehicle>> {
     let r = hulls().members.get(super::registry::target_id(member) as usize).copied().flatten()?;
     let row = hulls().rows.get(r.slot as usize)?.as_ref().filter(|row|row.hull==r)?;
@@ -155,11 +154,11 @@ pub(crate) fn battle_member(s: &Store, key: Member) -> Option<crate::battle::wor
 
 }
 // repairLockKey is an object's construction index, independent of its life.
-pub(crate) fn lock_key(r: Ref<Vehicle>) -> StrId { binding(r).key }
+pub(crate) fn lock_key(r: Ref<Vehicle>) -> StrId { binding(hulls(), r).key }
 pub(crate) fn count() -> usize { sim().store.vehicles.vehicles.len() }
 pub(crate) fn reference(index: usize) -> Ref<Vehicle> { sim().store.vehicles.vehicles[index] }
-pub(crate) fn repairable(r: Ref<Vehicle>) -> bool { binding(r).health == 3 }
-pub(crate) fn health_scale(r: Ref<Vehicle>) -> u32 { binding(r).health }
+pub(crate) fn repairable(r: Ref<Vehicle>) -> bool { binding(hulls(), r).health == 3 }
+pub(crate) fn health_scale(r: Ref<Vehicle>) -> u32 { binding(hulls(), r).health }
 pub(crate) fn body_index(body: Ref<Body>) -> Option<usize> {
     let r = hulls().bodies.get(body.slot as usize).copied().flatten()?;
     if !sim().store.vehicle.get(r).is_some_and(|v| v.body == body) { return None; }
@@ -199,7 +198,7 @@ pub(crate) fn struck(body: Ref<Body>, packet: HitPacket, owner: OrdnanceOwner, s
     let Some(v) = sim().store.vehicle.get(r).filter(|v| v.body == body) else { return };
     // Vehicles.struck multiplies the authored health scale before friendly
     // fire. Keep that order even when either factor happens to be zero.
-    let typed = packet.scales[binding(r).health as usize];
+    let typed = packet.scales[binding(hulls(), r).health as usize];
     let (team, human, _) = crate::combat::live::owner_facts(owner);
     let scale = crate::combat::impacts::team_damage(team, human, v.team.unwrap_or(0.0), false, f3::friendly_fire());
     mutate(r, packet.damage * typed * scale, Some(owner), services);
@@ -208,7 +207,7 @@ pub(crate) fn struck(body: Ref<Body>, packet: HitPacket, owner: OrdnanceOwner, s
 /// Its center follows the current matrix, including a destroyed walker's lean.
 pub(crate) fn sphere(r: Ref<Vehicle>, blast: bool) -> (Vector3, f64) {
     let v = sim().store.vehicle.get(r).expect("fleet sphere");
-    let row = binding(r);
+    let row = binding(hulls(), r);
     let mut matrix = Matrix4::default();
     matrix.elements = v.matrix;
     let mut center = vec(if blast { row.blast_center } else { v.center });
@@ -228,7 +227,7 @@ pub(crate) fn blast(packet: BlastPacket, at: Vector3, owner: OrdnanceOwner, mut 
         // blastDistance deliberately subtracts half the radius, without a
         // clamp at zero. A source inside the hull keeps that negative value.
         let distance = crate::ordnance::blast_distance(array(at), array(center), radius);
-        let typed = packet.hit.scales[binding(r).health as usize];
+        let typed = packet.hit.scales[binding(hulls(), r).health as usize];
         let damage = packet.hit.damage * crate::ordnance::defs::falloff(distance, packet.inner, packet.outer) * typed;
         if !(damage > 0.0) { continue; }
         let mut sight = center;
@@ -295,7 +294,7 @@ impl HullDamageWorld for DamageWorld<'_> {
     fn release_hull_crew(&mut self, index: usize) { f2::live_seats::release_with(index, Some(self.services.reborrow())); }
     fn explode_hull(&mut self, index: usize, final_explosion: bool, at: &Vector3) {
         let r = reference(index);
-        let row = binding(r);
+        let row = binding(hulls(), r);
         let definition = if final_explosion { row.final_explosion } else { row.explosion };
         if let Some(definition) = definition {
             // Wreck blasts credit the hull object, independently of the

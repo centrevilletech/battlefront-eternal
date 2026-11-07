@@ -176,7 +176,7 @@ pub fn mark(r: Ref<Vehicle>) { scheduler().mark(unsafe { &mut *addr_of_mut!(FLEE
 /// that working row current; other spare rows reload only after a real write.
 pub fn stored(hull: &Hull) { scheduler().stored(unsafe { &mut *addr_of_mut!(FLEET.geometry) }, hull) }
 pub fn mark_changed(r: Ref<Vehicle>) { mark(r); }
-pub(crate) fn has_pending()->bool {active() && scheduler().pending}
+pub(crate) fn has_pending()->bool { unsafe { (&*addr_of_mut!(FLEET.scheduler)).has_pending() } }
 pub(crate) fn pending() { unsafe { *addr_of_mut!(FLEET.scheduler.pending) = true; } }
 // VehicleTarget queries reuse the same invalidation stamp as working hulls.
 // Physics stores and seat/damage commands already advance it before readers.
@@ -617,6 +617,7 @@ fn target_identity(index: usize) -> (f64, f64) {
 }
 
 impl Scheduler {
+    fn has_pending(&self) -> bool { self.active && self.pending }
     fn flight_keys_for(&self, r: Ref<Vehicle>) -> (Config, Option<GearClip>) {
         let row = self.hull_rows[r.slot as usize].as_ref().unwrap(); (row.config, row.gear.clone())
     }

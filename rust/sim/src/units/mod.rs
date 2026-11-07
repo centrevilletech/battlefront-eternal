@@ -69,3 +69,6 @@ pub mod soldier;
 pub mod unit;
 pub mod water;
 pub mod world;
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod owner;

@@ -67,3 +67,6 @@ pub mod tail;
 pub mod traps;
 pub mod turrets;
 pub mod world;
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod owner;

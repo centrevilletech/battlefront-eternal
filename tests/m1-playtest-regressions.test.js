@@ -67,4 +67,3 @@ test("a first-life start-built turret (Bespin AAA) satisfies the mounted lease",
   assert.ok(turret.aiTarget.generation >= 1, "first-life turret generation starts usable, like a vehicle spawn");
   assert.doesNotThrow(() => captureMountedControl({ seat: { turret } }), "seating at a start-built turret must not fail the world worker");
 });
-

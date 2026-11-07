@@ -24,13 +24,19 @@ struct Content {
     explosion_packets: Vec<super::impacts::BlastPacket>,
 }
 
-static mut CONTENT: Option<Content> = None;
+/// Combat definitions and the lent-body marker have one lifetime. The marker
+/// is a disjoint scalar loan: holding an Rc definition never borrows it.
+pub(crate) struct CombatOwner { content: Option<Content>, taken: Option<u32> }
+impl CombatOwner {
+    pub(crate) const fn new() -> Self { Self { content: None, taken: None } }
+}
+static mut COMBAT: CombatOwner = CombatOwner::new();
 
 fn content() -> &'static mut Content {
     // SAFETY: one thread; nothing holds a reference to it across a call
     // out of the module (commands clone the Rc they read).
     unsafe {
-        (*addr_of_mut!(CONTENT)).get_or_insert_with(|| Content {
+        (*addr_of_mut!(COMBAT.content)).get_or_insert_with(|| Content {
             defs: Rc::new(CombatDefs::default()),
             explosion_packets: Vec::new(),
         })
@@ -39,25 +45,15 @@ fn content() -> &'static mut Content {
 
 /// The combat classes and weapons the battle has given the module (a
 /// command's or the units' phase's own handle on them).
-pub(crate) fn defs() -> Rc<CombatDefs> {
-    content().defs.clone()
-}
+pub(crate) fn defs() -> Rc<CombatDefs> { content().definitions() }
 
 // PlayerCombat.zoom is a native seat read with no foreign callback. Borrow
 // prepared definitions directly; each rider needs no new Rc owner or array.
-pub(crate) fn zoom(c: &mut Combat) -> f64 {
-    super::combat::zoom_factor(c, &content().defs)
-}
+pub(crate) fn zoom(c: &mut Combat) -> f64 { content().zoom(c) }
 
 /// Numeric blast fields are cached with the same construction id as the
 /// legacy definition. Victim traversal copies this small value, not a table.
-pub(crate) fn blast_packet(id: u32) -> super::impacts::BlastPacket {
-    content()
-        .explosion_packets
-        .get(id as usize)
-        .copied()
-        .unwrap_or_else(|| super::impacts::BlastPacket::read(&Js::Undefined))
-}
+pub(crate) fn blast_packet(id: u32) -> super::impacts::BlastPacket { content().blast_packet(id) }
 
 fn unit_ref(id: u32) -> Ref<Unit> {
     sim().store.unit.reference(id).unwrap_or(Ref::new(id, 0))
@@ -136,30 +132,16 @@ fn obj_of(v: Js) -> Rc<JsObj> {
 /// Weapon class `id` (the battle's weapon table), its definition in the
 /// call block.
 #[no_mangle]
-pub extern "C" fn cmb_weapon(id: u32) {
-    let class = WeaponClass::new(obj_of(call_value()));
-    Rc::make_mut(&mut content().defs).weapons.set(DefId(id), class);
-}
+pub extern "C" fn cmb_weapon(id: u32) { let value = call_value(); content().weapon(id, value); }
 
 /// Unit class `id` (the battle's unitClass table): what combat reads of it
 /// (AddHealth, base, its loadout), in the call block.
 #[no_mangle]
-pub extern "C" fn cmb_class(id: u32) {
-    let class = obj_of(call_value());
-    Rc::make_mut(&mut content().defs).set_class(DefId(id), class);
-}
+pub extern "C" fn cmb_class(id: u32) { let value = call_value(); content().class(id, value); }
 
 /// Explosion `id` (src/f3-combat.js's table), in the call block.
 #[no_mangle]
-pub extern "C" fn cmb_explosion(id: u32) {
-    let v = call_value();
-    let packet = super::impacts::BlastPacket::read(&v);
-    let packets = &mut content().explosion_packets;
-    if packets.len() <= id as usize {
-        packets.resize_with(id as usize + 1, || super::impacts::BlastPacket::read(&Js::Undefined));
-    }
-    packets[id as usize] = packet;
-}
+pub extern "C" fn cmb_explosion(id: u32) { let value = call_value(); content().explosion(id, value); }
 
 /// A command's answer in the call block: what it wrote into the unit, then
 /// the combat's record. `flag`: a command's own answer (a weapon chosen).
@@ -173,30 +155,19 @@ fn answer(r: Ref<Unit>) -> *const f64 {
 /// The unit a command or the units' phase has out of the store, if any
 /// (its slot holds an empty unit until it goes back): what JavaScript must
 /// not write into meanwhile, and what the phase's syncs leave out.
-static mut TAKEN: Option<u32> = None;
 
 /// The slot of the unit out of the store now.
 pub(crate) fn taken() -> Option<u32> {
     // SAFETY: one thread, a copy out.
-    unsafe { *addr_of_mut!(TAKEN) }
+    unsafe { *addr_of_mut!(COMBAT.taken) }
 }
 
-fn mark_taken(slot: Option<u32>) {
-    // SAFETY: one thread, no reference kept.
-    unsafe { *addr_of_mut!(TAKEN) = slot }
-}
+
 
 // Unit.tick and Unit.onMoved own the complete body. Lend its combat in place
 // too; splitting it just to reunite it would construct another empty Combat.
-pub(crate) fn take_body(r: Ref<Unit>) -> Unit {
-    let unit = sim().store.unit.lend(r).expect("a unit the store holds");
-    mark_taken(Some(r.slot));
-    unit
-}
-pub(crate) fn put_body(r: Ref<Unit>, unit: Unit) {
-    sim().store.unit.restore(r,unit).unwrap_or_else(|_| panic!("return the same owned unit"));
-    mark_taken(None);
-}
+pub(crate) fn take_body(r: Ref<Unit>) -> Unit { CombatOwner::lend_body(&mut sim().store, unsafe { &mut *addr_of_mut!(COMBAT.taken) }, r) }
+pub(crate) fn put_body(r: Ref<Unit>, unit: Unit) { CombatOwner::restore_body(&mut sim().store, unsafe { &mut *addr_of_mut!(COMBAT.taken) }, r, unit) }
 
 // PlayerCombat methods borrow body and combat separately. Only that call
 // frame needs an empty Combat field; movement and aim handoffs do not.
@@ -967,5 +938,53 @@ pub(crate) fn edge(e: &CbEdge) -> Edge {
         late: e.late,
         aim_yaw: e.aim_yaw,
         aim_pitch: e.aim_pitch,
+    }
+}
+
+impl CombatOwner {
+    fn lend_body(store: &mut Store, taken: &mut Option<u32>, r: Ref<Unit>) -> Unit {
+        let unit = store.unit.lend(r).expect("a unit the store holds");
+        *taken = Some(r.slot);
+        unit
+    }
+}
+
+impl CombatOwner {
+    fn restore_body(store: &mut Store, taken: &mut Option<u32>, r: Ref<Unit>, unit: Unit) {
+        store.unit.restore(r,unit).unwrap_or_else(|_| panic!("return the same owned unit"));
+        *taken = None;
+    }
+}
+
+impl Content {
+    fn definitions(&self) -> Rc<CombatDefs> {
+        self.defs.clone()
+    }
+    fn zoom(&self, c: &mut Combat) -> f64 {
+        super::combat::zoom_factor(c, &self.defs)
+    }
+    fn blast_packet(&self, id: u32) -> super::impacts::BlastPacket {
+        self
+            .explosion_packets
+            .get(id as usize)
+            .copied()
+            .unwrap_or_else(|| super::impacts::BlastPacket::read(&Js::Undefined))
+    }
+    fn weapon(&mut self, id: u32, value: Js) {
+        let class = WeaponClass::new(obj_of(value));
+        Rc::make_mut(&mut self.defs).weapons.set(DefId(id), class);
+    }
+    fn class(&mut self, id: u32, value: Js) {
+        let class = obj_of(value);
+        Rc::make_mut(&mut self.defs).set_class(DefId(id), class);
+    }
+    fn explosion(&mut self, id: u32, value: Js) {
+        let v = value;
+        let packet = super::impacts::BlastPacket::read(&v);
+        let packets = &mut self.explosion_packets;
+        if packets.len() <= id as usize {
+            packets.resize_with(id as usize + 1, || super::impacts::BlastPacket::read(&Js::Undefined));
+        }
+        packets[id as usize] = packet;
     }
 }

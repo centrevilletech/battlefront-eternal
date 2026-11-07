@@ -31,7 +31,7 @@ impl PublicationSnapshot {
         self.value.put_combat(row,heap);self.put_controls(row,heap);
     }
 }
-struct State {
+pub(super) struct State {
     // UnitFactory's order and pools are bookkeeping over generated rows.
     // No second copy of body/combat state lives in this sidecar.
     owner: Ownership,
@@ -130,16 +130,15 @@ struct State {
     ordnance_queries: Vec<Vec<Ref<Unit>>>,
     ordnance_depth: usize,
 }
-static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
     // One module thread. No state borrow is retained across a foreign import.
-    unsafe { (&mut *addr_of_mut!(STATE)).as_mut().expect("F3 initialized") }
+    unsafe { (&mut *addr_of_mut!(super::owner::UNITS.state)).as_mut().expect("F3 initialized") }
 }
 // A battle owns one instance. This identifies ownership, not whether a tick
 // is currently on the stack: supply and damage commands between ticks still
 // use canonical state and the same native collision/ordnance services.
 pub(crate) fn active() -> bool {
-    unsafe { (&*addr_of_mut!(STATE)).is_some() }
+    unsafe { (&*addr_of_mut!(super::owner::UNITS.state)).is_some() }
 }
 
 /// F1 continues stepping ordnance after the unit span. Its native hits use the
@@ -276,20 +275,9 @@ pub(crate) fn with_services<T>(run: impl FnOnce(Option<WorldServices<'_>>) -> T)
 /// first installing another callback scope over that enclosing AI instance.
 pub(crate) fn with_bare_services<T>(run:impl FnOnce(Option<WorldServices<'_>>)->T)->T {
     if !active() { return run(None); }
-    // A foreign callback cannot acquire the phase's services again. Report
-    // the rejected boundary without trapping the entire battle instance.
-    if state().recon_borrowed { fail(); return run(None); }
-    let Some(mut authority) = state().recon.take() else { fail(); return run(None); };
-    state().recon_borrowed = true;
-    let mut queries = std::mem::take(&mut state().prop_queries);
-    let result = run(Some(WorldServices {
-        ai:None,
-        recon: &mut authority,
-        queries: &mut queries,
-    }));
-    state().recon = Some(authority);
-    state().prop_queries = queries;
-    state().recon_borrowed = false;
+    let Some(mut loan) = state().lend_services() else { return run(None); };
+    let result = run(Some(WorldServices { ai: None, recon: &mut loan.recon, queries: &mut loan.queries }));
+    state().return_services(loan);
     result
 }
 // CombatWorld.fireRound/dispense resolve definitions once at construction.
@@ -401,7 +389,7 @@ pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f6
         ..Default::default()
     };
     unsafe {
-        *addr_of_mut!(STATE) = Some(State {
+        *addr_of_mut!(super::owner::UNITS.state) = Some(State {
             owner: Ownership::default(),
             viewpoint: None,
             separation: [0.0; F3Separation::WORDS],
@@ -749,8 +737,9 @@ pub extern "C" fn f3_adopt() -> u32 {
         state().publication.resize_with(slot as usize+1,||crate::vehicles::f2_delta::Cache::new(0));
     }
     state().publication_marks.resize(state().publication.len(),None);
-    // Both cache banks must fit a foreign control record from construction;
-    // a player/corpse publication cannot grow the second bank on its next tick.
+    // Foreign controls occupy one heap row even for an empty arsenal. A body
+    // may change controller ownership, so reserve both publication shapes at
+    // adoption rather than growing its first movement or corpse publication.
     let words=crate::store::block::HEADER+F3Publication::WORDS+
         weapons*F3WeaponView::WORDS+F3ControlView::WORDS;
     state().publication[slot as usize]=crate::vehicles::f2_delta::Cache::borrowed(words);
@@ -1337,78 +1326,28 @@ pub fn use_ai_stream(key:&F3UnitKey,id:u32) {
 
 /// ClassicRandom.uniform (ai/random.js). The numeric binding keeps the shared
 /// AI stream's draw order without an import for every spread or chunks draw.
-pub(crate) fn random_draw(unit: Ref<Unit>, weapon: Option<u32>) -> f64 {
-    let index = weapon.map_or(0, |i| i as usize + 1);
-    let stream = state().random_bindings[unit.slot as usize][index];
-    draw_stream(stream)
-}
+pub(crate) fn random_draw(unit: Ref<Unit>, weapon: Option<u32>) -> f64 { state().random_draw(unit, weapon) }
 pub(crate) fn empty_text() -> crate::store::StrId { state().empty_text }
-pub(crate) fn take_melee(_unit: Ref<Unit>) -> crate::combat::targeting::MeleeScratch<super::f3_sensors::MeleeKey> {
-    std::mem::take(&mut state().melee)
-}
-pub(crate) fn put_melee(_unit: Ref<Unit>, scratch: crate::combat::targeting::MeleeScratch<super::f3_sensors::MeleeKey>) {
-    state().melee = scratch;
-}
-pub(crate) fn take_arc(_unit: Ref<Unit>) -> Vec<crate::combat::live::ArcVictim> {
-    std::mem::take(&mut state().arc)
-}
-pub(crate) fn put_arc(_unit: Ref<Unit>, targets: Vec<crate::combat::live::ArcVictim>) {
-    state().arc = targets;
-}
-pub(crate) fn take_ordnance_query() -> (usize, Vec<Ref<Unit>>) {
-    let depth = state().ordnance_depth;
-    state().ordnance_depth += 1;
-    (depth, std::mem::take(&mut state().ordnance_queries[depth]))
-}
-pub(crate) fn put_ordnance_query(depth: usize, mut query: Vec<Ref<Unit>>) {
-    assert_eq!(state().ordnance_depth,depth + 1);
-    query.clear();
-    state().ordnance_depth = depth;
-    state().ordnance_queries[depth] = query;
-}
-pub(crate) fn random_gameplay() -> f64 {
-    let globals = F3RandomGlobals::take(&state().random_globals, &[]);
-    draw_stream(globals.gameplay)
-}
-pub(crate) fn random_spin() -> f64 {
-    let globals = F3RandomGlobals::take(&state().random_globals, &[]);
-    draw_stream(globals.spin)
-}
-pub(crate) fn random_drop() -> f64 {
-    let globals = F3RandomGlobals::take(&state().random_globals, &[]);
-    draw_stream(globals.drop)
-}
+pub(crate) fn take_melee(_unit: Ref<Unit>) -> crate::combat::targeting::MeleeScratch<super::f3_sensors::MeleeKey> { state().take_melee(_unit) }
+pub(crate) fn put_melee(_unit: Ref<Unit>, scratch: crate::combat::targeting::MeleeScratch<super::f3_sensors::MeleeKey>) { state().put_melee(_unit, scratch) }
+pub(crate) fn take_arc(_unit: Ref<Unit>) -> Vec<crate::combat::live::ArcVictim> { state().take_arc(_unit) }
+pub(crate) fn put_arc(_unit: Ref<Unit>, targets: Vec<crate::combat::live::ArcVictim>) { state().put_arc(_unit, targets) }
+pub(crate) fn take_ordnance_query() -> (usize, Vec<Ref<Unit>>) { state().take_ordnance_query() }
+pub(crate) fn put_ordnance_query(depth: usize, query: Vec<Ref<Unit>>) { state().put_ordnance_query(depth, query) }
+pub(crate) fn random_gameplay() -> f64 { state().random_gameplay() }
+pub(crate) fn random_spin() -> f64 { state().random_spin() }
+pub(crate) fn random_drop() -> f64 { state().random_drop() }
 // Vehicle.fireSeat and TurretSeats.drive share the seat-weapons channel.
 // Its first draw keeps the same lazy insertion slot as the JS named stream.
-pub(crate) fn seat_binding() -> u32 {
-    F3RandomGlobals::take(&state().random_globals, &[]).seat
-}
+pub(crate) fn seat_binding() -> u32 { state().seat_binding() }
 // Mounted weapons can replace their default channel with the Classic AI's
 // shared generator. The retained numeric id follows that specific weapon.
-pub(crate) fn random_binding(binding: u32) -> f64 { draw_stream(binding) }
-fn draw_stream(stream: u32) -> f64 { (random_next(stream) >> 9) as f64 / 8388608.0 }
+pub(crate) fn random_binding(binding: u32) -> f64 { state().random_binding(binding) }
 /// Classic spawning uses raw modulo draws from the same generator as AI.
 /// Preserve the lazy channel stamp before advancing either representation.
 pub(crate) fn random_next(stream: u32) -> u32 {
-    if stream>=RANDOM_CAPACITY as u32 {fail();return 0;}
-    // The epoch covers both fractional weapon draws and raw spawn draws.
-    let epoch=&mut state().random_epoch[F3RandomEpoch::REVISION];
-    *epoch=(*epoch as u32).wrapping_add(1) as f64;
-    let at = stream as usize * F3RandomState::WORDS;
-    let mut row = F3RandomState::take(&state().random_states[at..], &[]);
-    if !row.present {
-        row.present = true;
-        state().random_sequence += 1;
-        row.sequence = state().random_sequence;
-    }
-    let value=if let Some(mut shared)=state().shared_random[stream as usize].clone() {
-        let value=crate::ai::random::Random::next(&mut shared);row.state=shared.seed();value
-    }else{
-        let mut generator=jsrt::rng::ClassicRandom::from_state(row.state);
-        let value=generator.next_u32();row.state=generator.state;value
-    };
-    row.put(&mut state().random_states[at..], &mut state().block.heap);
-    value
+    if stream >= RANDOM_CAPACITY as u32 { fail(); return 0; }
+    state().random_next(stream)
 }
 
 // Arsenal and recon publish the same dynamic clocks. Definitions and other
@@ -1855,40 +1794,11 @@ fn building_rows(offset: usize, count: u32) {
         super::f3_props::changed(frame);
     }
 }
-pub(crate) fn prepare_prop_target(fact: F3PropFact) {
-    let id = fact.id as usize;
-    state().foreign.resize_with(state().foreign.len().max(id + 1), F3PropFact::default);
-    state().foreign[id] = fact;
-}
+pub(crate) fn prepare_prop_target(fact: F3PropFact) { state().prepare_prop_target(fact) }
 // A native prop mutation updates the existing registry fact without going back
 // through JS geometry. Other targets keep their cached facts and insertion order.
-pub(crate) fn prop_target(member: Member, alive: bool, health: f64, center: [f64; 3], radius: f64, generation: Option<f64>, team: f64) {
-    let id = super::registry::target_id(member) as usize;
-    if let Some(row) = state().foreign.get_mut(id).filter(|row| row.id as usize == id) {
-        row.alive = alive;
-        row.dead = !alive;
-        row.health = health;
-        row.team = team;
-        row.bounds.center = center;
-        row.bounds.radius = radius;
-        row.aim = center;
-        if let Some(generation) = generation { row.life = generation; }
-    }
-}
-fn foreign_rows(offset: usize, count: u32) {
-    let s = state();
-    for i in 0..count as usize {
-        let at = offset + i * F3PropFact::WORDS;
-        // Changed rows are indexed by registry id. A short update is not
-        // a shorter registry snapshot and must not discard untouched facts.
-        let fact = F3PropFact::take(&s.input[at..], &[]);
-        let id = fact.id as usize;
-        if s.foreign.len() <= id {
-            s.foreign.resize_with(id + 1, F3PropFact::default);
-        }
-        s.foreign[id] = fact;
-    }
-}
+pub(crate) fn prop_target(member: Member, alive: bool, health: f64, center: [f64; 3], radius: f64, generation: Option<f64>, team: f64) { state().prop_target(member, alive, health, center, radius, generation, team) }
+fn foreign_rows(offset: usize, count: u32) { state().foreign_rows(offset, count) }
 // Registry ids are shared by all member kinds. Indexing the prepared facts
 // keeps a mixed query from looking up names or allocating per candidate.
 pub(crate) fn target(id: u32) -> Option<&'static F3PropFact> {
@@ -2115,19 +2025,11 @@ pub(crate) fn friendly_fire() -> bool {
 // AI commands mutate only Intent; they do not invalidate lazy geometry.
 // Keep a separate touched list so a concurrent lifecycle/weapon/body write
 // wins the full publication without being mislabeled as an input-only edit.
-pub(crate) fn intent_changed(reference:Ref<Unit>) {
-    // Keep first-touch order while rejecting duplicates in constant time.
-    // A retired storage generation cannot suppress its replacement's touch.
-    let s=state();let stamp=&mut s.intent_marked[reference.slot as usize];
-    if *stamp==Some(reference.gen) {return;}
-    *stamp=Some(reference.gen);s.intent_changed.push(reference);
-}
+pub(crate) fn intent_changed(reference:Ref<Unit>) { state().intent_changed(reference) }
 // AI navigation avoidance and prepareSpread keep their source writes. Only
 // encoding waits for the following unit phase; synchronous barriers flush it.
-pub(crate) fn ai_changed(reference:Ref<Unit>) {
-    state().ai_full_marked[reference.slot as usize]=Some(reference.gen);
-    intent_changed(reference);
-}
+pub(crate) fn ai_changed(reference:Ref<Unit>) { state().ai_changed(reference) }
+
 pub(crate) fn changed(reference: Ref<Unit>) {
     // Seat placement can advance tickCount outside Unit.tick. Its qualified
     // touch must retire an earlier shared bounds sample before JS observes it.
@@ -2226,19 +2128,8 @@ fn prepare_bounds(count:usize) {
     s.layout.bounds_capacity=(s.bounds_cache.len()/F3BoundsView::WORDS) as u32;
     descriptor();
 }
-pub(crate) fn invalidate_bounds(slot:u32) {
-    if let Some(tick)=state().bounds_cache.get_mut(slot as usize*F3BoundsView::WORDS+F3BoundsView::TICK) {
-        *tick=f64::NAN;
-    }
-}
-pub(crate) fn cache_bounds(reference:Ref<Unit>,unit:&Unit) {
-    let start=reference.slot as usize*F3BoundsView::WORDS;
-    let Some(row)=state().bounds_cache.get_mut(start..start+F3BoundsView::WORDS) else {return;};
-    let view=F3BoundsView {key:F3UnitKey::of(reference,unit),tick:unit.spheres_tick,
-        bounds:Bounds {center:unit.bounds.center,radius:unit.bounds.radius}};
-    // This fixed record has no heap payload, so the empty heap never allocates.
-    view.put(row,&mut Vec::new());
-}
+pub(crate) fn invalidate_bounds(slot:u32) { state().invalidate_bounds(slot) }
+pub(crate) fn cache_bounds(reference:Ref<Unit>,unit:&Unit) { state().cache_bounds(reference, unit) }
 
 /// Cold storage reserves empty sidecar slots; each prepared body carries its
 /// own allocated query/rig buffers into the destination at activation.
@@ -2265,9 +2156,7 @@ pub(crate) fn reserve_native_slots(count:usize) {
     crate::vehicles::module::f2::reserve_registry(count);
     prepare_bounds(count);
 }
-pub(crate) fn take_bindings(slot:u32)->Vec<u32> {
-    std::mem::take(&mut state().random_bindings[slot as usize])
-}
+pub(crate) fn take_bindings(slot:u32)->Vec<u32> { state().take_bindings(slot) }
 pub(crate) fn install_native_slot(reference:Ref<Unit>, category:u32,
     health:crate::combat::impacts::HealthScale,bindings:Vec<u32>,
     water:Option<DroidekaWater>,mut publication:crate::vehicles::f2_delta::Cache) {
@@ -2320,10 +2209,7 @@ pub(crate) fn advance_removed_clock(reference:Ref<Unit>,dt:f64) {
 
 /// Inactive class storage retains its publication buffers as well as its rig.
 /// Activation moves these buffers into a reserved slot without allocating.
-pub(crate) fn take_publication(reference:Ref<Unit>) -> crate::vehicles::f2_delta::Cache {
-    std::mem::replace(&mut state().publication[reference.slot as usize],
-        crate::vehicles::f2_delta::Cache::new(0))
-}
+pub(crate) fn take_publication(reference:Ref<Unit>) -> crate::vehicles::f2_delta::Cache { state().take_publication(reference) }
 
 /// UnitController.bind/unbind owns the right to publish held intent fields.
 /// External human commands keep their pending JS input until Unit.tick takes
@@ -2333,19 +2219,173 @@ pub(crate) fn native_intent(reference:Ref<Unit>,owned:bool) {
     changed(reference);
 }
 
-/// Encoded outer payload size, without another export or body traversal.
 // Empty native services may return without opening another event epoch only
 // after every changed body and notification has reached its foreign reader.
 pub(crate) fn settled()->bool {
     let deferred=crate::world::deferred();
-    let s=state();
-    // Within the enclosing world tick these rows and notices are already
-    // canonical. Their deferred facade bytes require no new danger loan.
-    if deferred {return !s.running;}
-    !s.running && s.owner.changed().is_empty() && s.completed.is_empty() && s.intent_changed.is_empty()
-        && s.acknowledgement[F3Acknowledgement::VERSION] as u32==s.layout.version
-        && (sim().events.is_empty() || (s.acknowledgement[F3Acknowledgement::EVENT_EPOCH] as u32==s.event_epoch
-            && s.acknowledgement[F3Acknowledgement::EVENT_OFFSET] as usize==sim().events.len()))
+    state().settled(deferred,&sim().events)
 }
+/// Encoded outer payload size, without another export or body traversal.
 pub(crate) fn output_words()->u32 {state().layout.output_words}
 pub(crate) fn publication_version()->u32 {state().layout.version}
+
+// Game.onExplode and recon share these detached, retained query resources.
+// A service callback receives the loan, never a mutable enclosing Units owner.
+struct ServiceLoan { recon: crate::recon::Authority, queries: crate::battle::live::Queries }
+impl State {
+    fn settled(&self, deferred: bool, events: &crate::store::calls::Events) -> bool {
+        // The enclosing world owns canonical rows and defers facade bytes;
+        // no extra danger loan is needed after the active service returns.
+        if deferred { return !self.running; }
+        !self.running && self.owner.changed().is_empty() && self.completed.is_empty() && self.intent_changed.is_empty()
+            && self.acknowledgement[F3Acknowledgement::VERSION] as u32==self.layout.version
+            && (events.is_empty() || (self.acknowledgement[F3Acknowledgement::EVENT_EPOCH] as u32==self.event_epoch
+                && self.acknowledgement[F3Acknowledgement::EVENT_OFFSET] as usize==events.len()))
+    }
+    fn lend_services(&mut self) -> Option<ServiceLoan> {
+        // Reject the same nested acquisition as the original with_services;
+        // changing this to a whole-phase RefCell borrow would trap callbacks.
+        if self.recon_borrowed { self.failed = true; self.layout.accepted = false; return None; }
+        let Some(recon) = self.recon.take() else {
+            self.failed = true; self.layout.accepted = false; return None;
+        };
+        self.recon_borrowed = true;
+        Some(ServiceLoan { recon, queries: std::mem::take(&mut self.prop_queries) })
+    }
+    fn return_services(&mut self, loan: ServiceLoan) {
+        self.recon = Some(loan.recon); self.prop_queries = loan.queries;
+        self.recon_borrowed = false;
+    }
+}
+
+impl State {
+    fn take_melee(&mut self, _unit: Ref<Unit>) -> crate::combat::targeting::MeleeScratch<super::f3_sensors::MeleeKey> {
+        std::mem::take(&mut self.melee)
+    }
+    fn put_melee(&mut self, _unit: Ref<Unit>, scratch: crate::combat::targeting::MeleeScratch<super::f3_sensors::MeleeKey>) {
+        self.melee = scratch;
+    }
+    fn take_arc(&mut self, _unit: Ref<Unit>) -> Vec<crate::combat::live::ArcVictim> {
+        std::mem::take(&mut self.arc)
+    }
+    fn put_arc(&mut self, _unit: Ref<Unit>, targets: Vec<crate::combat::live::ArcVictim>) {
+        self.arc = targets;
+    }
+    fn take_ordnance_query(&mut self) -> (usize, Vec<Ref<Unit>>) {
+        let depth = self.ordnance_depth;
+        self.ordnance_depth += 1;
+        (depth, std::mem::take(&mut self.ordnance_queries[depth]))
+    }
+    fn put_ordnance_query(&mut self, depth: usize, mut query: Vec<Ref<Unit>>) {
+        assert_eq!(self.ordnance_depth,depth + 1);
+        query.clear();
+        self.ordnance_depth = depth;
+        self.ordnance_queries[depth] = query;
+    }
+    fn random_gameplay(&mut self) -> f64 {
+        let globals = F3RandomGlobals::take(&self.random_globals, &[]);
+        self.draw_stream(globals.gameplay)
+    }
+    fn random_spin(&mut self) -> f64 {
+        let globals = F3RandomGlobals::take(&self.random_globals, &[]);
+        self.draw_stream(globals.spin)
+    }
+    fn random_drop(&mut self) -> f64 {
+        let globals = F3RandomGlobals::take(&self.random_globals, &[]);
+        self.draw_stream(globals.drop)
+    }
+    fn seat_binding(&mut self) -> u32 {
+        F3RandomGlobals::take(&self.random_globals, &[]).seat
+    }
+    fn random_binding(&mut self, binding: u32) -> f64 { self.draw_stream(binding) }
+    fn draw_stream(&mut self, stream: u32) -> f64 { (self.random_next(stream) >> 9) as f64 / 8388608.0 }
+    fn random_next(&mut self, stream: u32) -> u32 {
+        if stream>=RANDOM_CAPACITY as u32 {self.failed=true;self.layout.accepted=false;return 0;}
+        // The epoch covers both fractional weapon draws and raw spawn draws.
+        let epoch=&mut self.random_epoch[F3RandomEpoch::REVISION];
+        *epoch=(*epoch as u32).wrapping_add(1) as f64;
+        let at = stream as usize * F3RandomState::WORDS;
+        let mut row = F3RandomState::take(&self.random_states[at..], &[]);
+        if !row.present {
+            row.present = true;
+            self.random_sequence += 1;
+            row.sequence = self.random_sequence;
+        }
+        let value=if let Some(mut shared)=self.shared_random[stream as usize].clone() {
+            let value=crate::ai::random::Random::next(&mut shared);row.state=shared.seed();value
+        }else{
+            let mut generator=jsrt::rng::ClassicRandom::from_state(row.state);
+            let value=generator.next_u32();row.state=generator.state;value
+        };
+        row.put(&mut self.random_states[at..], &mut self.block.heap);
+        value
+    }
+    fn random_draw(&mut self, unit: Ref<Unit>, weapon: Option<u32>) -> f64 {
+        let index = weapon.map_or(0, |i| i as usize + 1);
+        let stream = self.random_bindings[unit.slot as usize][index];
+        self.draw_stream(stream)
+    }
+    fn take_bindings(&mut self, slot:u32)->Vec<u32> {
+        std::mem::take(&mut self.random_bindings[slot as usize])
+    }
+    fn take_publication(&mut self, reference:Ref<Unit>) -> crate::vehicles::f2_delta::Cache {
+        std::mem::replace(&mut self.publication[reference.slot as usize],
+            crate::vehicles::f2_delta::Cache::new(0))
+    }
+    fn prepare_prop_target(&mut self, fact: F3PropFact) {
+        let id = fact.id as usize;
+        self.foreign.resize_with(self.foreign.len().max(id + 1), F3PropFact::default);
+        self.foreign[id] = fact;
+    }
+    fn prop_target(&mut self, member: Member, alive: bool, health: f64, center: [f64; 3], radius: f64, generation: Option<f64>, team: f64) {
+        let id = super::registry::target_id(member) as usize;
+        if let Some(row) = self.foreign.get_mut(id).filter(|row| row.id as usize == id) {
+            row.alive = alive;
+            row.dead = !alive;
+            row.health = health;
+            row.team = team;
+            row.bounds.center = center;
+            row.bounds.radius = radius;
+            row.aim = center;
+            if let Some(generation) = generation { row.life = generation; }
+        }
+    }
+    fn foreign_rows(&mut self, offset: usize, count: u32) {
+        let s = self;
+        for i in 0..count as usize {
+            let at = offset + i * F3PropFact::WORDS;
+            // Changed rows are indexed by registry id. A short update is not
+            // a shorter registry snapshot and must not discard untouched facts.
+            let fact = F3PropFact::take(&s.input[at..], &[]);
+            let id = fact.id as usize;
+            if s.foreign.len() <= id {
+                s.foreign.resize_with(id + 1, F3PropFact::default);
+            }
+            s.foreign[id] = fact;
+        }
+    }
+    fn intent_changed(&mut self, reference:Ref<Unit>) {
+        // Keep first-touch order while rejecting duplicates in constant time.
+        // A retired storage generation cannot suppress its replacement's touch.
+        let s=self;let stamp=&mut s.intent_marked[reference.slot as usize];
+        if *stamp==Some(reference.gen) {return;}
+        *stamp=Some(reference.gen);s.intent_changed.push(reference);
+    }
+    fn ai_changed(&mut self, reference:Ref<Unit>) {
+        self.ai_full_marked[reference.slot as usize]=Some(reference.gen);
+        self.intent_changed(reference);
+    }
+    fn invalidate_bounds(&mut self, slot:u32) {
+        if let Some(tick)=self.bounds_cache.get_mut(slot as usize*F3BoundsView::WORDS+F3BoundsView::TICK) {
+            *tick=f64::NAN;
+        }
+    }
+    fn cache_bounds(&mut self, reference:Ref<Unit>,unit:&Unit) {
+        let start=reference.slot as usize*F3BoundsView::WORDS;
+        let Some(row)=self.bounds_cache.get_mut(start..start+F3BoundsView::WORDS) else {return;};
+        let view=F3BoundsView {key:F3UnitKey::of(reference,unit),tick:unit.spheres_tick,
+            bounds:Bounds {center:unit.bounds.center,radius:unit.bounds.radius}};
+        // This fixed record has no heap payload, so the empty heap never allocates.
+        view.put(row,&mut Vec::new());
+    }
+}

@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{abi::sim, gen::*, store::StrId, units::f3};
 use std::ptr::addr_of_mut;
-struct State {
+pub(super) struct State {
     owner: Owner,
     human: super::native_human::Driver,
     shell: Option<Store>,
@@ -16,17 +16,16 @@ struct State {
     gameplay: u32,
     effects: [StrId; 3],
 }
-static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
     unsafe {
-        (*addr_of_mut!(STATE))
+        (*addr_of_mut!(super::owner::BATTLE.tail))
             .as_mut()
             .expect("native battle tail initialized")
     }
 }
 pub(crate) fn reset() {
     unsafe {
-        *addr_of_mut!(STATE) = None;
+        *addr_of_mut!(super::owner::BATTLE.tail) = None;
     }
 }
 /// captureWorldSummaries reads the same prepared human roster without
@@ -37,7 +36,7 @@ pub(crate) fn wire_roster(team: usize) -> &'static [StrId] {
 // The pre-AI boundary also replaces CommandPosts.all's former JS refresh.
 // State is lent out inside a tail; its World refreshes before its own hooks.
 pub(crate) fn refresh_mobile_views(){
-    let Some(state)=(unsafe{(*addr_of_mut!(STATE)).as_mut()}) else{return};
+    let Some(state)=(unsafe{(*addr_of_mut!(super::owner::BATTLE.tail)).as_mut()}) else{return};
     super::fleet_posts::refresh_posts(&mut sim().store,&mut state.owner.prepared.pads);
     super::f4_core::mark_mobile();
 }
@@ -106,7 +105,7 @@ pub extern "C" fn f4_tail_init() -> *const f64 {
     ];
     super::f4_core::configure_tail(cfg.classic, cfg.local);
     unsafe {
-        *addr_of_mut!(STATE) = Some(State {
+        *addr_of_mut!(super::owner::BATTLE.tail) = Some(State {
             owner,
             human: super::native_human::Driver {
                 human,
@@ -221,28 +220,11 @@ pub extern "C" fn f4_tail() {
     let input = super::f4_live::tail_input();
     let before = crate::allocations::snapshot();
     let mut state = unsafe {
-        (*addr_of_mut!(STATE))
+        (*addr_of_mut!(super::owner::BATTLE.tail))
             .take()
             .expect("battle tail cannot reenter")
     };
-    // Clamp at the owner as well as the JS writer. A stale or oversized
-    // count must never index the adjacent phase input or grow the command list.
-    let count = (input.human_count as usize).min(state.commands.capacity()).min(state.input.len() / HsCommand::WORDS);
-    state.commands.clear();
-    for i in 0..count {
-        let c = HsCommand::take(&state.input[i * HsCommand::WORDS..], &[]);
-        let command = match c.kind {
-            HsCommandKind::Team => Command::team(c.team),
-            HsCommandKind::Spawn => c
-                .class_name
-                .and_then(|class| Command::spawn(class, c.post, &sim().strings)),
-            HsCommandKind::Suicide => Some(Command::Suicide),
-            HsCommandKind::Cancel => Some(Command::Cancel),
-        };
-        if let Some(command) = command {
-            state.commands.push(command);
-        }
-    }
+    state.decode_commands(&input, &sim().strings);
     let outer = f3::external();
     f3::with_services(|services| {
         let mut services = services.expect("native battle body services");
@@ -276,7 +258,7 @@ pub extern "C" fn f4_tail() {
         state.shell = Some(shell);
     });
     unsafe {
-        *addr_of_mut!(STATE) = Some(state);
+        *addr_of_mut!(super::owner::BATTLE.tail) = Some(state);
     }
     drop(outer);
     super::f4_live::count_tail(input.human_count as usize, before);
@@ -379,4 +361,27 @@ pub extern "C" fn f4_unit_spawn()->i32 {
     let unit=f3::with_services(|services|lifecycle.spawn(character,Some(input.class_name),post,input.position,Some(input.yaw),services.expect("native spawn body services")));
     super::f4_core::mark_tail(&sim().store);drop(outer);
     unit.map_or(-1,|r|r.slot as i32)
+}
+
+impl State {
+    fn decode_commands(&mut self, input: &F4TailInput, strings: &crate::store::Strings) {
+        // Clamp at the owner as well as the JS writer. A stale or oversized
+        // count must never index the adjacent phase input or grow the command list.
+        let count = (input.human_count as usize).min(self.commands.capacity()).min(self.input.len() / HsCommand::WORDS);
+        self.commands.clear();
+        for i in 0..count {
+            let c = HsCommand::take(&self.input[i * HsCommand::WORDS..], &[]);
+            let command = match c.kind {
+                HsCommandKind::Team => Command::team(c.team),
+                HsCommandKind::Spawn => c
+                    .class_name
+                    .and_then(|class| Command::spawn(class, c.post, strings)),
+                HsCommandKind::Suicide => Some(Command::Suicide),
+                HsCommandKind::Cancel => Some(Command::Cancel),
+            };
+            if let Some(command) = command {
+                self.commands.push(command);
+            }
+        }
+    }
 }

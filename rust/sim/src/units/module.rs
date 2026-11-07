@@ -21,20 +21,19 @@ use std::ptr::addr_of_mut;
 use three::Vector3;
 
 /// What the phase knows between its calls.
-struct Phase {
+pub(super) struct Phase {
     world: usize,
     scratch: cb::Scratch,
     droideka_classes: Vec<DroidekaClass>,
     droidekas: Vec<Option<DroidekaBody>>,
 }
 
-static mut PHASE: Option<Phase> = None;
 
 fn phase() -> &'static mut Phase {
     // SAFETY: one thread; each caller holds it only for a call of its own
     // and never across an import.
     unsafe {
-        (*addr_of_mut!(PHASE)).get_or_insert_with(|| Phase {
+        (*addr_of_mut!(super::owner::UNITS.phase)).get_or_insert_with(|| Phase {
             world: 0,
             scratch: cb::Scratch::default(),
             droideka_classes: Vec::new(),
@@ -523,20 +522,32 @@ pub(crate) struct PreparedBody {
 }
 pub(crate) fn take_body(slot: u32) -> PreparedBody {
     PreparedBody {
-        droideka: phase().droidekas.get_mut(slot as usize).and_then(Option::take),
+        droideka: phase().take_droideka(slot),
         muzzle: muzzles::take(slot),
         pose: super::live_pose::take(slot),
     }
 }
 pub(crate) fn install_body(reference: Ref<Unit>, body: PreparedBody) {
     let p = phase();
-    p.droidekas[reference.slot as usize] = body.droideka;
+    p.install_droideka(reference.slot, body.droideka);
     muzzles::install(reference.slot, body.muzzle);
     super::live_pose::install(reference, body.pose);
 }
 pub(crate) fn reserve_bodies(count: usize) {
     let p = phase();
-    p.droidekas.resize_with(count.max(p.droidekas.len()), || None);
+    p.reserve_bodies(count);
     muzzles::reserve(count);
     super::live_pose::reserve(count);
+}
+
+impl Phase {
+    fn take_droideka(&mut self, slot: u32) -> Option<DroidekaBody> {
+        self.droidekas.get_mut(slot as usize).and_then(Option::take)
+    }
+    fn install_droideka(&mut self, slot: u32, body: Option<DroidekaBody>) {
+        self.droidekas[slot as usize] = body;
+    }
+    fn reserve_bodies(&mut self, count: usize) {
+        self.droidekas.resize_with(count.max(self.droidekas.len()), || None);
+    }
 }

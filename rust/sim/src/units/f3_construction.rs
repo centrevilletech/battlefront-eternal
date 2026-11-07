@@ -15,20 +15,19 @@ struct Resources {
 }
 struct Resident {cookie:u32, adoption:F3Adoption}
 #[derive(Default)]
-struct Factory {
+pub(super) struct Factory {
     construction: Construction,
     resources: Vec<Option<Resources>>,
     players: Vec<F3PlayerBinding>,
     residents: Vec<Option<Resident>>,
     limit: usize,
 }
-static mut FACTORY: Option<Factory> = None;
 fn factory() -> &'static mut Factory {
     // One battle thread. No table borrow crosses a native lifecycle service.
-    unsafe { (*addr_of_mut!(FACTORY)).as_mut().expect("prepared unit factory") }
+    unsafe { (*addr_of_mut!(super::owner::UNITS.factory)).as_mut().expect("prepared unit factory") }
 }
 pub(crate) fn reset() {
-    unsafe { *addr_of_mut!(FACTORY) = Some(Factory::default()); }
+    unsafe { *addr_of_mut!(super::owner::UNITS.factory) = Some(Factory::default()); }
 }
 
 /// Each construction cookie admits at most one body. Resident cookies can
@@ -108,7 +107,7 @@ fn activate(result: Realized, retired_cookie:Option<u32>) -> Ref<Unit> {
 /// Native UnitFactory.acquire. A missing prepared class is a construction
 /// error, never permission to reenter a JavaScript factory from the phase.
 pub(crate) fn cold(class: StrId) -> Option<Ref<Unit>> {
-    let result=f3::with_rows(|store,owner| factory().construction.acquire(store,owner,class));
+    let result=f3::with_rows(|store,owner| factory().acquire(store,owner,class));
     result.ok().map(|result|activate(result,None))
 }
 
@@ -116,8 +115,7 @@ pub(crate) fn cold(class: StrId) -> Option<Ref<Unit>> {
 /// canonical class pool. The caller performs removal before changing classes,
 /// then resets/spawns this result at the original lifecycle observation point.
 pub(crate) fn realize(request: &F3PlayerRealization, mut services: f3::WorldServices<'_>) -> Option<Ref<Unit>> {
-    let result=f3::with_rows(|store,owner| factory().construction.realize(store,owner,
-        request.class_name,request.previous.clone(),request.local)).ok()?;
+    let result=f3::with_rows(|store,owner| factory().realize(store,owner,request)).ok()?;
     let retired_cookie=if result.replacement {
         let reference=result.key.reference();
         let old=factory().residents[reference.slot as usize].take().expect("resident viewpoint class");
@@ -151,13 +149,7 @@ pub extern "C" fn f3_factory_player_bind() {
     let (row,heap)=sim().calls.args();
     let input=F3PlayerBinding::take(row,heap);
     assert!(sim().store.character.get(input.character).is_some(),"admitted Character");
-    let rows=&mut factory().players;
-    if let Some(row)=rows.iter_mut().find(|row|row.character==input.character) {
-        *row=input;
-    } else {
-        assert!(rows.len()<rows.capacity(),"reserved player admissions");
-        rows.push(input);
-    }
+    factory().bind_player(&sim().store,input);
 }
 
 /// spawnUnit's human branch and NetworkWorld.spawn both return a spawned
@@ -255,4 +247,29 @@ pub extern "C" fn f3_factory_resident() {
     f3::with_rows(|_,owner|owner.reserve_class(class,f.limit));
     f.residents[slot]=Some(Resident {cookie:input.cookie,adoption:input.adoption});
     f3::reserve_history();
+}
+
+impl Factory {
+    // UnitFactory.acquire/PlayerBodies.adopt return a realization before any
+    // rig installation, lifecycle hook or journal notice. Construction and
+    // Ownership are borrowed together only while assigning the canonical id.
+    fn acquire(&mut self, store: &mut Store, owner: &mut super::ownership::Ownership, class: StrId)
+        -> Result<Realized, super::construction::Error> {
+        self.construction.acquire(store, owner, class)
+    }
+    fn realize(&mut self, store: &mut Store, owner: &mut super::ownership::Ownership, request: &F3PlayerRealization)
+        -> Result<Realized, super::construction::Error> {
+        self.construction.realize(store, owner, request.class_name, request.previous.clone(), request.local)
+    }
+    fn bind_player(&mut self, store: &Store, input: F3PlayerBinding) {
+
+        assert!(store.character.get(input.character).is_some(),"admitted Character");
+        let rows=&mut self.players;
+        if let Some(row)=rows.iter_mut().find(|row|row.character==input.character) {
+            *row=input;
+        } else {
+            assert!(rows.len()<rows.capacity(),"reserved player admissions");
+            rows.push(input);
+        }
+    }
 }

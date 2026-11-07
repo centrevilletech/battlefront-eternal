@@ -28,22 +28,28 @@ use crate::gen::*;
 use crate::store::calls::{import_out, Calls};
 use crate::store::{same_f64, word_u32, DefId, KindCode, Nullable, Ref, RefSet, StrId, Strings, Vec3};
 
-static mut DEFS: Option<Defs> = None;
+/// Ordnance and Items retain independent water bits beside their definition
+/// bank. A Cx borrows definitions only for its invocation; no sibling field
+/// address becomes an identity or a retained link between owners.
+pub(crate) struct OrdnanceOwnerState { defs: Option<Defs>, water: [bool; 2] }
+impl OrdnanceOwnerState {
+    pub(crate) const fn new() -> Self { Self { defs: None, water: [false; 2] } }
+}
+static mut ORDNANCE: OrdnanceOwnerState = OrdnanceOwnerState::new();
 
 /// Whether the rounds' and the items' battle has water (ordnance.water,
 /// items.water): without, a water crossing is null and nobody is asked.
-static mut WATER: [bool; 2] = [false, false];
 
 fn water(which: usize) -> bool {
     // SAFETY: one thread.
-    unsafe { (*addr_of_mut!(WATER))[which] }
+    unsafe { (*addr_of_mut!(ORDNANCE.water))[which] }
 }
 
 /// The rounds' (0) or the items' (1) water, present or not.
 #[no_mangle]
 pub extern "C" fn ord_water(which: u32, present: u32) {
     // SAFETY: one thread.
-    unsafe { (*addr_of_mut!(WATER))[(which & 1) as usize] = present != 0 };
+    unsafe { (*addr_of_mut!(ORDNANCE.water))[(which & 1) as usize] = present != 0 };
 }
 
 /// The battle's definitions as JavaScript registered them (`ord_def`,
@@ -51,7 +57,7 @@ pub extern "C" fn ord_water(which: u32, present: u32) {
 pub(crate) fn defs() -> *mut Defs {
     // SAFETY: one thread; nothing holds a reference to the definitions
     // across a call out of the module (Cx reads them through this pointer).
-    unsafe { (*addr_of_mut!(DEFS)).get_or_insert_with(Defs::default) as *mut Defs }
+    unsafe { (*addr_of_mut!(ORDNANCE.defs)).get_or_insert_with(Defs::default) as *mut Defs }
 }
 
 /// The store and the strings, as pointers (the module's note).
@@ -114,13 +120,7 @@ pub extern "C" fn ord_def(id: u32) {
     let s = sim();
     let fields: [Field; 16] = call_fields(&s.calls, &s.strings);
     let def = OrdnanceDef::read(|name| fields[OrdnanceDef::FIELDS.iter().position(|f| *f == name).expect("an ordnance field")].clone());
-    // SAFETY: defs()'s note.
-    let d = unsafe { &mut *defs() };
-    let i = id as usize;
-    if d.ordnance.len() <= i {
-        d.ordnance.resize(i + 1, def.clone());
-    }
-    d.ordnance[i] = def;
+    OrdnanceOwnerState::install_ordnance(unsafe { &mut *defs() }, id, def);
 }
 
 /// Registers explosion `id`: Damage, DamageRadiusInner, DamageRadiusOuter,
@@ -139,13 +139,7 @@ pub extern "C" fn ord_explosion(id: u32) {
         "DamageRadiusOuter" => fields[2].clone(),
         _ => fields[3 + SCALE_FIELDS.iter().position(|f| *f == name).expect("an explosion field")].clone(),
     });
-    // SAFETY: defs()'s note.
-    let d = unsafe { &mut *defs() };
-    let i = id as usize;
-    if d.explosion.len() <= i {
-        d.explosion.resize(i + 1, def.clone());
-    }
-    d.explosion[i] = def;
+    OrdnanceOwnerState::install_explosion(unsafe { &mut *defs() }, id, def);
 }
 
 /// The words of a command's record in the call block: 0 FireArgs, 1
@@ -290,16 +284,16 @@ extern "C" {
 
 /// The battle as the module's imports give it.
 pub struct JsWorld<'a> {
-    store: *mut Store,
-    strings: *mut Strings,
-    /// The items' targets as last read (None: read them again before the
-    /// next use), and their sides toward each team asked about.
-    targets: Option<Vec<TargetState>>,
-    relations: Vec<(f64, Vec<f64>)>,
-    near: Vec<Ref<Unit>>,
-    near_frame: Option<usize>,
-    recon: Option<crate::units::f3::WorldServices<'a>>,
-}
+        store: *mut Store,
+        strings: *mut Strings,
+        /// The items' targets as last read (None: read them again before the
+        /// next use), and their sides toward each team asked about.
+        targets: Option<Vec<TargetState>>,
+        relations: Vec<(f64, Vec<f64>)>,
+        near: Vec<Ref<Unit>>,
+        near_frame: Option<usize>,
+        recon: Option<crate::units::f3::WorldServices<'a>>,
+    }
 
 impl<'a> JsWorld<'a> {
     /// The world over the store and strings `parts()` gives.
@@ -882,5 +876,23 @@ impl World for JsWorld<'_> {
     fn pickup(&mut self, def: DefId, position: Vec3) {
         if crate::units::f3::active() { PickupArgs {def,position}.emit(&mut sim().events); return; }
         import_pickup(&PickupArgs { def, position });
+    }
+}
+
+impl OrdnanceOwnerState {
+    fn install_ordnance(d: &mut Defs, id: u32, def: OrdnanceDef) {        let i = id as usize;
+        if d.ordnance.len() <= i {
+            d.ordnance.resize(i + 1, def.clone());
+        }
+        d.ordnance[i] = def;
+    }
+}
+
+impl OrdnanceOwnerState {
+    fn install_explosion(d: &mut Defs, id: u32, def: ExplosionDef) {        let i = id as usize;
+        if d.explosion.len() <= i {
+            d.explosion.resize(i + 1, def.clone());
+        }
+        d.explosion[i] = def;
     }
 }

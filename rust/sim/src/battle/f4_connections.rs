@@ -4,7 +4,7 @@
 use crate::{abi::sim,gen::*,store::{block::Block,Ref},units::f3};
 use std::ptr::addr_of_mut;
 struct Entry {handle:F4Handle,ordinal:f64,view:F4ConnectionView}
-struct State {rows:Vec<Option<Entry>>,output:Block,result:F4ConnectionView}
+pub(super) struct State {rows:Vec<Option<Entry>>,output:Block,result:F4ConnectionView}
 impl State {
     fn publish(&mut self)->*const f64 {
         self.output.begin(1,F4ConnectionView::WORDS);
@@ -12,16 +12,15 @@ impl State {
         self.output.finish();self.output.ptr()
     }
 }
-static mut STATE:Option<State>=None;
-pub(crate) fn reset(){unsafe{*addr_of_mut!(STATE)=None;}}
-fn state()->&'static mut State {unsafe{(*addr_of_mut!(STATE)).as_mut().expect("connection owner prepared")}}
+pub(crate) fn reset(){unsafe{*addr_of_mut!(super::owner::BATTLE.connections)=None;}}
+fn state()->&'static mut State {unsafe{(*addr_of_mut!(super::owner::BATTLE.connections)).as_mut().expect("connection owner prepared")}}
 #[no_mangle]
 pub extern "C" fn f4_connections_init(capacity:u32) {
     let outer=f3::external();
     let human=&mut sim().store.human_spawn;human.auto=None;human.pending=None;human.spawned_once=true;
     super::f4_core::mark_tail(&sim().store);
     let mut output=Block::default();output.words.reserve(crate::store::block::HEADER+F4ConnectionView::WORDS);
-    unsafe{*addr_of_mut!(STATE)=Some(State{rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
+    unsafe{*addr_of_mut!(super::owner::BATTLE.connections)=Some(State{rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
     drop(outer);
 }
 /// attachedPlayers qualifies the connection, not merely a recycled roster
@@ -36,7 +35,7 @@ pub(crate) fn wire_character(store: &Store, handle: &F4Handle) -> Option<crate::
 /// A Character's current bot body is not a substitute after disconnection.
 pub(crate) fn wire_view(store: &Store, handle: &F4Handle) -> Option<&'static F4ConnectionView> {
     let reference = wire_character(store, handle)?;
-    Some(&state().rows.get(reference.slot as usize)?.as_ref()?.view)
+    state().view(reference)
 }
 
 fn spawn(entry:&mut Entry,character:Ref<Character>,class:Option<crate::store::StrId>,post:Option<crate::store::StrId>,services:f3::WorldServices<'_>)->bool {
@@ -101,4 +100,10 @@ pub extern "C" fn f4_connection_command()->*const f64 {
     });
     drop(outer);
     owner.result=entry.view.clone();owner.publish()
+}
+
+impl State {
+    fn view(&self, reference: Ref<Character>) -> Option<&F4ConnectionView> {
+        Some(&self.rows.get(reference.slot as usize)?.as_ref()?.view)
+    }
 }

@@ -174,12 +174,20 @@ pub fn inputs(data: &[f64]) -> usize { state().inputs(data, crate::world::deferr
 /// Bind a bot seat to the same native generator its controller consumes.
 /// Retain that handle in each fire invocation so recursive retirement cannot
 /// redirect an outer weapon's remaining draws to a replacement mount.
-pub fn bind_ai_stream(hull:crate::vehicles::f2_seats::HullLife,seat:usize,stream:crate::ai::random::SharedRandom)->bool { state().bind_ai_stream(&sim().store, hull, seat, stream) }
+pub fn bind_ai_stream(hull:crate::vehicles::f2_seats::HullLife,seat:usize,stream:crate::ai::random::SharedRandom)->bool {
+    // A rejected life must not initialize the mounted bank or intern its IDs.
+    if !sim().store.vehicle.get(hull.vehicle).is_some_and(|h| h.target_generation == hull.life) { return false; }
+    state().bind_ai_stream(&sim().store, hull, seat, stream)
+}
 
 /// F3.phase prepares mounted lock hints before the first Unit.tick. Native
 /// AI owns the same fire controls; freeze their scalar registry indices here
 /// rather than observing a controller replaced by a later shot or death.
-pub fn freeze_ai_targets(ai:&dyn crate::ai::owned::callbacks::Callbacks) { state().freeze_ai_targets(&sim().store, ai) }
+pub fn freeze_ai_targets(ai:&dyn crate::ai::owned::callbacks::Callbacks) {
+    if sim().store.vehicles.vehicles.is_empty() { return; }
+    state().freeze_ai_targets(&sim().store, ai)
+
+}
 
 
 /// Native AI reads the mounted owner's current weapon without a mirror.
@@ -188,14 +196,20 @@ pub fn weapon_count(hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option
     weapon_count_owned(&sim().store,hull,seat)
 }
 /// The whole native AI phase supplies its loaned canonical Store here.
-pub fn weapon_count_owned(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> { state().weapon_count_owned(store, hull, seat) }
+pub fn weapon_count_owned(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> {
+    if store.vehicle.get(hull.vehicle)?.target_generation != hull.life { return None; }
+    state().weapon_count_owned(store, hull, seat)
+}
 pub fn with_weapon<R>(hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
     read:impl FnOnce(&Weapon)->R)->Option<R> {
     with_weapon_owned(&sim().store,hull,seat,index,read)
 }
 /// The whole native AI phase supplies its loaned canonical Store here.
 pub fn with_weapon_owned<R>(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    read:impl FnOnce(&Weapon)->R)->Option<R> { state().with_weapon_owned(store, hull, seat, index, read) }
+    read:impl FnOnce(&Weapon)->R)->Option<R> {
+    if store.vehicle.get(hull.vehicle)?.target_generation != hull.life { return None; }
+    state().with_weapon_owned(store, hull, seat, index, read)
+}
 /// AI tuning shares the exact edit operation with ordinary F3 weapons. These
 /// callbacks must only edit the supplied scalar settings, without world calls.
 pub fn edit_weapon<R>(hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
@@ -204,7 +218,10 @@ pub fn edit_weapon<R>(hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:
 }
 /// The whole native AI phase supplies its loaned canonical Store here.
 pub fn edit_weapon_owned<R>(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> { state().edit_weapon_owned(store, hull, seat, index, edit) }
+    edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> {
+    if store.vehicle.get(hull.vehicle)?.target_generation != hull.life { return None; }
+    state().edit_weapon_owned(store, hull, seat, index, edit)
+}
 
 // Vehicle.setSeatPolicy can run during promotion or boarding after input was
 // imported. Apply the native reset immediately, rather than waiting for a JS
@@ -907,9 +924,9 @@ impl State {
                     .map(|(unit,control)|ai.weapon_hint(&(*store),unit,control));
                 let target=match hint {
                     Some(hint) if hint.bot=>hint.target.and_then(|target| {
-                        // The qualified slot shortcut preserves the registry's
-                        // ordered search when bodies were inserted sparsely.
-
+                        // Ordinary factory order matches native slots. Check the
+                        // complete qualified reference before using that index;
+                        // sparse or reordered registries retain source lookup.
                         let list=&store.units.list;
                         if let crate::gen::Member::Unit(unit)=target {
                             let slot=unit.slot as usize;if list.get(slot)==Some(&target) {return Some(slot);}
