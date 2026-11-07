@@ -149,6 +149,234 @@ export class BfeRenderer {
         const ret = wasm.bferenderer_bones_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
+    camera_cascades_frame() {
+        wasm.bferenderer_camera_cascades_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} from
+     * @param {number} to
+     */
+    camera_copy_frame(from, to) {
+        wasm.bferenderer_camera_copy_frame(this.__wbg_ptr, from, to);
+    }
+    /**
+     * @param {number} role
+     */
+    camera_derived_frame(role) {
+        wasm.bferenderer_camera_derived_frame(this.__wbg_ptr, role);
+    }
+    camera_global_shader_frame() {
+        wasm.bferenderer_camera_global_shader_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_input_len() {
+        const ret = wasm.bferenderer_camera_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_input_ptr() {
+        const ret = wasm.bferenderer_camera_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} index
+     */
+    camera_invalidate_frame(index) {
+        wasm.bferenderer_camera_invalidate_frame(this.__wbg_ptr, index);
+    }
+    /**
+     * @param {number} command
+     */
+    camera_light_command_frame(command) {
+        wasm.bferenderer_camera_light_command_frame(this.__wbg_ptr, command);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_light_input_len() {
+        const ret = wasm.bferenderer_camera_light_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_light_input_ptr() {
+        const ret = wasm.bferenderer_camera_light_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_light_output_len() {
+        const ret = wasm.bferenderer_camera_light_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_light_output_ptr() {
+        const ret = wasm.bferenderer_camera_light_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} pack
+     */
+    camera_lights_frame(pack) {
+        wasm.bferenderer_camera_lights_frame(this.__wbg_ptr, pack);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_lights_len() {
+        const ret = wasm.bferenderer_camera_lights_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_lights_ptr() {
+        const ret = wasm.bferenderer_camera_lights_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    camera_main_frame() {
+        const ret = wasm.bferenderer_camera_main_frame(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_mirror_len() {
+        const ret = wasm.bferenderer_camera_mirror_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_mirror_ptr() {
+        const ret = wasm.bferenderer_camera_mirror_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_output_len() {
+        const ret = wasm.bferenderer_camera_output_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_output_ptr() {
+        const ret = wasm.bferenderer_camera_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} pack
+     */
+    camera_pack_shader_frame(pack) {
+        wasm.bferenderer_camera_pack_shader_frame(this.__wbg_ptr, pack);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_packs_len() {
+        const ret = wasm.bferenderer_camera_packs_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_packs_ptr() {
+        const ret = wasm.bferenderer_camera_packs_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} slot
+     */
+    camera_probe_frame(slot) {
+        wasm.bferenderer_camera_probe_frame(this.__wbg_ptr, slot);
+    }
+    camera_project_frame() {
+        wasm.bferenderer_camera_project_frame(this.__wbg_ptr);
+    }
+    camera_reflect_frame() {
+        wasm.bferenderer_camera_reflect_frame(this.__wbg_ptr);
+    }
+    camera_restore_frame() {
+        wasm.bferenderer_camera_restore_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} role
+     */
+    camera_shader_frame(role) {
+        wasm.bferenderer_camera_shader_frame(this.__wbg_ptr, role);
+    }
+    camera_shadow_configure_frame() {
+        wasm.bferenderer_camera_shadow_configure_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} index
+     */
+    camera_shadow_frame(index) {
+        wasm.bferenderer_camera_shadow_frame(this.__wbg_ptr, index);
+    }
+    camera_shadow_shader_frame() {
+        wasm.bferenderer_camera_shadow_shader_frame(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} role
+     */
+    camera_shift_frame(role) {
+        wasm.bferenderer_camera_shift_frame(this.__wbg_ptr, role);
+    }
+    /**
+     * @param {number} role
+     * @param {boolean} follow
+     */
+    camera_sky_frame(role, follow) {
+        wasm.bferenderer_camera_sky_frame(this.__wbg_ptr, role, follow);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_sky_len() {
+        const ret = wasm.bferenderer_camera_sky_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_sky_ptr() {
+        const ret = wasm.bferenderer_camera_sky_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} index
+     */
+    camera_static_shadow_frame(index) {
+        wasm.bferenderer_camera_static_shadow_frame(this.__wbg_ptr, index);
+    }
+    /**
+     * @returns {number}
+     */
+    camera_windows_len() {
+        const ret = wasm.bferenderer_camera_windows_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    camera_windows_ptr() {
+        const ret = wasm.bferenderer_camera_windows_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
     /**
      * @returns {number}
      */

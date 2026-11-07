@@ -409,6 +409,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
         // its own commit marker so a partial command stream cannot flip banks.
         let success=result.is_ok() && !self.core.multi.context_lost() && !self.frames.clipped && self.frames.plan.state[S::CLIPPED]==0.;
         self.frames.plan.complete(success);
+        if result.is_ok() && !self.core.multi.context_lost() && self.frames.plan.facts[crate::frame_plan::layout::facts::MAIN]!=0. {self.cameras.cascades.finish(&self.frames.plan.state[S::SHADOW_STATIC..S::SHADOW_STATIC+4]);}
         if !success {self.post_chain.invalidate();}
         result
     }

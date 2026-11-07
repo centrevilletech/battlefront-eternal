@@ -18,6 +18,45 @@ static_sources: Vec<static_world::StaticSource>, static_worlds: Vec<static_world
 }
 impl Bridge {
 pub fn new(gl: glow::Context, multi: Ranges) -> Self { Self { r: Renderer::new(gl,multi), hud_model: bfe_render::hud_model::HudModel::new(), static_sources:vec![],static_worlds:vec![],static_recipes:vec![] } }
+pub fn camera_shader_frame(&mut self, role: u32)  { use bfe_render::cameras::layout::{camera as C,role as R,shader_frame as F};
+        let role=role as usize;if role>=R::COUNT{return;}
+        let row=&self.r.cameras.output[role*C::LEN..(role+1)*C::LEN];
+        self.r.core.input[F::PROJECTION..F::PROJECTION+16].copy_from_slice(&row[C::PROJECTION..C::PROJECTION+16]);
+        self.r.core.input[F::VIEW..F::VIEW+16].copy_from_slice(&row[C::INVERSE..C::INVERSE+16]);
+        self.r.core.input[F::EYE..F::EYE+3].copy_from_slice(&row[C::WORLD+12..C::WORLD+15]); }
+pub fn camera_pack_shader_frame(&mut self, pack: u32)  { use bfe_render::cameras::layout::{pack as K,limit as L};
+        let pack=pack as usize;if pack>=L::PACKS{self.r.core.input[bfe_render::shader::FRAME_LIGHT_COUNT]=0.;return;}
+        let row=&self.r.cameras.packs[pack*K::LEN..(pack+1)*K::LEN];let count=(row[K::COUNT] as usize).min(16);
+        self.r.core.input[bfe_render::shader::FRAME_LIGHT_COUNT]=count as f64;self.r.core.input[bfe_render::shader::FRAME_LIGHTS..bfe_render::shader::FRAME_LIGHTS+count*8].copy_from_slice(&row[K::VALUES..K::VALUES+count*8]); }
+pub fn camera_shadow_shader_frame(&mut self)  { use bfe_render::cameras::layout::input as I;
+        self.r.cameras.cascades.write_shadow(&mut self.r.core.shadow_input,&self.r.cameras.input[I::SHADOW_METADATA..I::SHADOW_METADATA+24]); }
+pub fn camera_static_shadow_frame(&mut self, index: u32)  { use bfe_render::cameras::layout::{camera as C,role as R,limit as L};
+        use bfe_render::static_layout as S;
+        let index=index as usize;if index>=L::CASCADES{return;}
+        let row=&self.r.cameras.output[(R::SHADOW0+index)*C::LEN..(R::SHADOW0+index+1)*C::LEN];
+        self.r.shadow.static_view[S::SHADOW_PROJECTION..S::SHADOW_PROJECTION+16].copy_from_slice(&row[C::PROJECTION..C::PROJECTION+16]);
+        self.r.shadow.static_view[S::SHADOW_VIEW..S::SHADOW_VIEW+16].copy_from_slice(&row[C::INVERSE..C::INVERSE+16]); }
+pub fn camera_project_frame(&mut self)  { self.r.cameras.project_main(); }
+pub fn camera_light_command_frame(&mut self, command: u32)  { self.r.cameras.settings.command(command as usize); }
+pub fn camera_global_shader_frame(&mut self)  { use bfe_render::cameras::layout::{light_output as O,shader_frame as F};
+        let a=&self.r.cameras.settings.output;let out=&mut self.r.core.input;
+        out[F::SUN_DIRECTION..F::SUN_DIRECTION+3].copy_from_slice(&a[O::DIRECTION..O::DIRECTION+3]);out[F::SHADOW_STRENGTH]=a[O::STRENGTH];
+        for(i,at)in [F::SUN_COLOR,F::AMBIENT,F::AMBIENT_TOP,F::AMBIENT_BOTTOM,F::CHARACTER_AMBIENT,F::FOG_COLOR].into_iter().enumerate(){out[at..at+3].copy_from_slice(&a[O::COLORS+i*3..O::COLORS+i*3+3]);}
+        out[F::CASCADE_NEAR]=self.r.cameras.cascades.range[0];out[F::CASCADE_FAR]=self.r.cameras.cascades.range[1];
+        out[F::FOG_RANGE..F::FOG_RANGE+2].copy_from_slice(&a[O::RANGE..O::RANGE+2]); }
+pub fn camera_main_frame(&mut self) -> bool { self.r.cameras.main() }
+pub fn camera_derived_frame(&mut self, role: u32)  { self.r.cameras.derived(role as usize); }
+pub fn camera_copy_frame(&mut self, from: u32, to: u32)  { self.r.cameras.copy(from as usize,to as usize); }
+pub fn camera_shift_frame(&mut self, role: u32)  { self.r.cameras.shift(role as usize); }
+pub fn camera_restore_frame(&mut self)  { self.r.cameras.restore(); }
+pub fn camera_reflect_frame(&mut self)  { self.r.cameras.reflect(); }
+pub fn camera_probe_frame(&mut self, slot: u32)  { self.r.cameras.probe(slot as usize); }
+pub fn camera_sky_frame(&mut self, role: u32, follow: bool)  { self.r.cameras.sky(role as usize,follow); }
+pub fn camera_lights_frame(&mut self, pack: u32)  { self.r.cameras.lights(pack as usize); }
+pub fn camera_shadow_configure_frame(&mut self)  { self.r.cameras.cascades.configure(&self.r.cameras.input); }
+pub fn camera_cascades_frame(&mut self)  { self.r.cameras.cascades(); }
+pub fn camera_shadow_frame(&mut self, index: u32)  { self.r.cameras.cascades.publish(index as usize); }
+pub fn camera_invalidate_frame(&mut self, index: u32)  { self.r.cameras.cascades.invalidate_window(index as usize); }
 pub fn canopies_mesh(&mut self, max: u32) -> Result<(), String> { if max as usize > bfe_render::static_layout::CANOPIES_MAX_GROUPS * bfe_render::static_layout::CANOPIES_LEAVES { return Err(String::from("invalid canopy capacity or program")); }
         // The two settings variants share locations and geometry. Compile them
         // cold so switching shadows needs no frame allocation or host program.
@@ -224,6 +263,15 @@ pub fn world_shown(&mut self, w: u32, shown: bool)  { self.r.world.world_shown(w
 pub fn world_lamps(&mut self, w: u32, values: &[f32])  { self.r.world.world_lamps(&self.r.core, w, values) }
 pub fn bank(&mut self, name: &str) -> Result<&mut [u8], String> {
 match name {
+"camera_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.input)),
+"camera_output" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.output)),
+"camera_windows" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.cascades.output)),
+"camera_sky" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.sky)),
+"camera_lights" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.light_input)),
+"camera_packs" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.packs)),
+"camera_mirror" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.mirror)),
+"camera_light_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.settings.input)),
+"camera_light_output" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.cameras.settings.output)),
 "canopies_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.canopies.input)),
 "canopies_leaves" => Ok(crate::session::bytes_mut::<f32>(&mut self.r.canopies.leaves)),
 "fx_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.effects.input)),
@@ -267,6 +315,26 @@ _ => { if let Some(index)=name.strip_prefix("interface_stream_").and_then(|s|s.p
 }
 }
 pub enum Command {
+camera_shader_frame(u32),
+camera_pack_shader_frame(u32),
+camera_shadow_shader_frame,
+camera_static_shadow_frame(u32),
+camera_project_frame,
+camera_light_command_frame(u32),
+camera_global_shader_frame,
+camera_main_frame,
+camera_derived_frame(u32),
+camera_copy_frame(u32,u32),
+camera_shift_frame(u32),
+camera_restore_frame,
+camera_reflect_frame,
+camera_probe_frame(u32),
+camera_sky_frame(u32,bool),
+camera_lights_frame(u32),
+camera_shadow_configure_frame,
+camera_cascades_frame,
+camera_shadow_frame(u32),
+camera_invalidate_frame(u32),
 canopies_mesh(u32),
 fx_reserve(u32),
 fx_add_owner(u32,f32),
@@ -391,6 +459,26 @@ impl Command {
 pub fn decode(name: &str, args: &[serde_json::Value], blobs: &BlobStore) -> Result<Self,String> {
 let a=Arguments::new(args,blobs);
 Ok(match name {
+"camera_shader_frame" => Self::camera_shader_frame(a.u32(0)?),
+"camera_pack_shader_frame" => Self::camera_pack_shader_frame(a.u32(0)?),
+"camera_shadow_shader_frame" => Self::camera_shadow_shader_frame,
+"camera_static_shadow_frame" => Self::camera_static_shadow_frame(a.u32(0)?),
+"camera_project_frame" => Self::camera_project_frame,
+"camera_light_command_frame" => Self::camera_light_command_frame(a.u32(0)?),
+"camera_global_shader_frame" => Self::camera_global_shader_frame,
+"camera_main_frame" => Self::camera_main_frame,
+"camera_derived_frame" => Self::camera_derived_frame(a.u32(0)?),
+"camera_copy_frame" => Self::camera_copy_frame(a.u32(0)?,a.u32(1)?),
+"camera_shift_frame" => Self::camera_shift_frame(a.u32(0)?),
+"camera_restore_frame" => Self::camera_restore_frame,
+"camera_reflect_frame" => Self::camera_reflect_frame,
+"camera_probe_frame" => Self::camera_probe_frame(a.u32(0)?),
+"camera_sky_frame" => Self::camera_sky_frame(a.u32(0)?,a.bool(1)?),
+"camera_lights_frame" => Self::camera_lights_frame(a.u32(0)?),
+"camera_shadow_configure_frame" => Self::camera_shadow_configure_frame,
+"camera_cascades_frame" => Self::camera_cascades_frame,
+"camera_shadow_frame" => Self::camera_shadow_frame(a.u32(0)?),
+"camera_invalidate_frame" => Self::camera_invalidate_frame(a.u32(0)?),
 "canopies_mesh" => Self::canopies_mesh(a.u32(0)?),
 "fx_reserve" => Self::fx_reserve(a.u32(0)?),
 "fx_add_owner" => Self::fx_add_owner(a.u32(0)?,a.f32(1)?),
@@ -515,6 +603,26 @@ _ => return Err(format!("unknown renderer command {name}")),
 }
 pub fn execute(&mut self, host: &mut Bridge, resource_bank: &[Resources]) -> Result<Option<bfe_render::core::Stats>,String> {
 match self {
+Self::camera_shader_frame(role) => { let _=host.camera_shader_frame(*role); },
+Self::camera_pack_shader_frame(pack) => { let _=host.camera_pack_shader_frame(*pack); },
+Self::camera_shadow_shader_frame => { let _=host.camera_shadow_shader_frame(); },
+Self::camera_static_shadow_frame(index) => { let _=host.camera_static_shadow_frame(*index); },
+Self::camera_project_frame => { let _=host.camera_project_frame(); },
+Self::camera_light_command_frame(command) => { let _=host.camera_light_command_frame(*command); },
+Self::camera_global_shader_frame => { let _=host.camera_global_shader_frame(); },
+Self::camera_main_frame => { let _=host.camera_main_frame(); },
+Self::camera_derived_frame(role) => { let _=host.camera_derived_frame(*role); },
+Self::camera_copy_frame(from,to) => { let _=host.camera_copy_frame(*from,*to); },
+Self::camera_shift_frame(role) => { let _=host.camera_shift_frame(*role); },
+Self::camera_restore_frame => { let _=host.camera_restore_frame(); },
+Self::camera_reflect_frame => { let _=host.camera_reflect_frame(); },
+Self::camera_probe_frame(slot) => { let _=host.camera_probe_frame(*slot); },
+Self::camera_sky_frame(role,follow) => { let _=host.camera_sky_frame(*role,*follow); },
+Self::camera_lights_frame(pack) => { let _=host.camera_lights_frame(*pack); },
+Self::camera_shadow_configure_frame => { let _=host.camera_shadow_configure_frame(); },
+Self::camera_cascades_frame => { let _=host.camera_cascades_frame(); },
+Self::camera_shadow_frame(index) => { let _=host.camera_shadow_frame(*index); },
+Self::camera_invalidate_frame(index) => { let _=host.camera_invalidate_frame(*index); },
 Self::canopies_mesh(max) => { let _=host.canopies_mesh(*max)?; },
 Self::fx_reserve(floats) => { let _=host.fx_reserve(*floats); },
 Self::fx_add_owner(tracks,track_rows) => { let _=host.fx_add_owner(*tracks,*track_rows); },

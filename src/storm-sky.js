@@ -1,6 +1,5 @@
 import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
-import { lighting } from './materials.js';
 import { ownedFullScreenPass } from './render-passes.js';
 import { SKY_ORDER } from './world.js';
 import { SurfaceResult as RESULT } from './environment/layout.js';
@@ -26,8 +25,7 @@ export class StormSky {
  constructor({graphics,uniforms,surfaceHost}) {
    this.graphics=graphics;this.uniforms=uniforms;this.enabled=false;this.cloudGeneration=(this.cloudGeneration||0)+1;
    this.strikes=0;
-   this.lightKeys=['ambient','ambientTop','ambientBottom','characterAmbient'];
-   this.lightBase=this.lightKeys.map(key=>lighting[key].value.clone());this.previousFlash=0;
+   this.previousFlash=0;
    let randomState=8217;
    const random=()=>((randomState=(Math.imul(randomState,1664525)+1013904223)>>>0)/4294967296);
    const bytes=new Uint8Array(64**3);
@@ -86,7 +84,7 @@ export class StormSky {
  }
  restoreLight(){
    if(!this.previousFlash)return;
-   for(let i=0;i<this.lightKeys.length;i++)lighting[this.lightKeys[i]].value.copy(this.lightBase[i]);
+   this.graphics.rust.cameras.restoreLight();
    this.previousFlash=0;
  }
  // StormSky.strike and pulse animation are native surface records. The
@@ -104,10 +102,7 @@ export class StormSky {
    const flash=result[RESULT.STORM_FLASH];
    this.uniforms.lightningFlash.value=flash;this.bolt.visible=flash>.005;
    if(flash>0){
-     for(let i=0;i<this.lightKeys.length;i++){
-       const value=lighting[this.lightKeys[i]].value;this.lightBase[i].copy(value);
-       value.x+=flash*.10;value.y+=flash*.13;value.z+=flash*.18;
-     }
+     this.graphics.rust.cameras.flash(flash);
      this.previousFlash=flash;
    }
    this.uniforms.eyePosition.value.copy(camera.position);

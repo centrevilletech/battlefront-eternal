@@ -89,6 +89,9 @@ try {
     }
     return {buffer:[gl.drawingBufferWidth,gl.drawingBufferHeight],target:[g.sceneTarget.width,g.sceneTarget.height],samples:g.sceneTarget.samples,supportedSamples:g.supportedSamples,upscaling:g.upscaling};
   })()`);
+  result.setup.settings=await c.ev(`Object.fromEntries(${JSON.stringify(Object.keys(testCase.settings))}.map(key=>[key,__bf.graphics.settings.get(key)]))`);
+  const wrongSettings=Object.keys(testCase.settings).filter(key=>JSON.stringify(result.setup.settings[key])!==JSON.stringify(testCase.settings[key]));
+  if(wrongSettings.length)throw Error('Fixture settings changed: '+wrongSettings.join(', '));
   if(drawReplay)await c.ev(`(${installReplay.toString()})(${replayBlobStore.toString()})`);
   await c.ev(`(${installPostPolicy.toString()})(${JSON.stringify(postLayout)},${JSON.stringify(testCase.post) || "null"})`);
   if(drawReplay)await c.ev(`(${installGLReplay.toString()})()`);

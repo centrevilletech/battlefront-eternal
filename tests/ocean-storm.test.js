@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { stormGeometry } from '../src/ocean-storm.js';
 import { OceanSurface, storms } from '../src/ocean-surface.js';
 import { PROBE_LAYER } from '../src/sky-probe.js';
+import { CAMERA as CAMERA_ROW } from "../src/rust-render/camera-layout.js";
+import { CameraOwner, CAMERA_ROLE as CR } from '../src/rust-render/cameras.js';
 import { BattleFrame } from '../src/rust-render/frame.js';
 import { FACTS as F, STATE as S, ROLE as R } from '../src/rust-render/frame-layout.js';
 import { lighting } from '../src/materials.js';
@@ -17,7 +19,7 @@ const RAIN={precipitation:{Type:['Streaks']}};
 // Surface fixtures exercise native weather, not a GPU. The required frame
 // publisher receives their sky inputs; scheduling is tested in frame_plan.rs.
 function frameHost(graphics){
- graphics.rust={frame:{cloud(){},probe(){}}};
+ graphics.rust={frame:{cloud(){},probe(){}},cameras:{flashValue:0,flash(value){this.flashValue=value;},restoreLight(){this.flashValue=0;}}};
 }
 
 function fixture(){
@@ -53,7 +55,7 @@ test('enhanced ocean switches without reallocating resources and restores origin
  ocean.update(6.06,camera); // First flash begins when the scheduled strike starts.
  ocean.update(.06,camera);
  assert.ok(sky.uniforms.lightningFlash.value>.9);assert.ok(sky.bolt.visible);
- assert.ok(lighting.ambient.value.x>ambient.x);assert.equal(graphics.sky.visible,false);
+ assert.ok(graphics.rust.cameras.flashValue>.9);assert.equal(graphics.sky.visible,false);
  assert.ok(sky.boltGeometry.drawRange.count>300&&sky.boltGeometry.drawRange.count<=1536);
  assert.ok(sky.positions.slice(0,sky.boltGeometry.drawRange.count*3).every(Number.isFinite));
  assert.equal(waves.spray.geometry.instanceCount,384);assert.ok('STORM' in waves.material.defines);
@@ -215,7 +217,8 @@ test('native capture decisions publish six sky-only probe views with the authore
  graphics.renderer=renderer;
  let selected=true;
  const core={graphics,renderer,frameFacts:new Float64Array(F.LEN),frameState:new Float64Array(S.LEN),views(){},
-   rust:{frame_select_frame(){core.frameState[S.PROBE_CAPTURE]=+selected;}},
+   rust:{frame_select_frame(){core.frameState[S.PROBE_CAPTURE]=+selected;},camera_probe_frame(slot){assert.equal(slot,0);}},
+   cameras:{main(camera){this.eye=camera.position;},sky(layers,role){assert.equal(role,CR.MAIN);for(const {mesh} of layers)mesh.position.set(2,3,5);},bind(){},read(camera,role){if(role===CR.PROBE_PARENT0)camera.position.copy(this.eye);}},
    cover(name,owner,scene,camera){
      assert.equal(name,'probe');assert.equal(owner,renderer);assert.equal(scene,graphics.farScene);
      const seen=[];scene.traverse(o=>{if(o.isMesh&&o.visible&&o.layers.test(camera.layers))seen.push(o.name);});
@@ -238,7 +241,7 @@ test('native capture decisions publish six sky-only probe views with the authore
  assert.deepEqual([...core.frameFacts.subarray(F.PROBE_EYE,F.PROBE_EYE+3)],[167,-22,147]);
  assert.equal(renderer.autoClear,false);assert.equal(renderer.shadowMap.autoUpdate,true);
  assert.deepEqual(probe.camera.position.toArray(),[167,-22,147]);
- assert.ok(Math.abs(graphics.skyLayers[1].mesh.position.y-(.995*-22+.005*-40))<1e-9);
+ assert.deepEqual(graphics.skyLayers[1].mesh.position.toArray(),[2,3,5],'native sky publication is copied unchanged');
  selected=false;ocean.update(.5,camera);
  assert.equal(probe.captures,1);assert.equal(drawn.length,6,'held native answer prepares no faces');
  assert.equal(core.frameFacts[F.PROBE_TIME],.5,'held views still publish current facts');
@@ -246,4 +249,19 @@ test('native capture decisions publish six sky-only probe views with the authore
  assert.equal(probe.captures,2);assert.deepEqual(probe.camera.position.toArray(),[167,-17,147]);
  setMode('classic');ocean.update(5,camera);assert.equal(probe.captures,2,'Classic has no enhanced probe request');
  ocean.dispose();
+});
+
+// The cube parent is a pose shell rather than a PerspectiveCamera. Reading
+// native parent matrices must not assume child-only inverse/lens fields.
+test('native cube parent readback publishes pose without camera-only fields',()=>{
+ const cube=new THREE.CubeCamera(.05,50,new THREE.WebGLCubeRenderTarget(8));
+ const output=new Float64Array(CR.COUNT*CAMERA_ROW.LEN),at=CR.PROBE_PARENT0*CAMERA_ROW.LEN;
+ output[at+CAMERA_ROW.QUATERNION+3]=1;output[at+CAMERA_ROW.UP+1]=1;
+ new THREE.Matrix4().makeTranslation(3,5,7).toArray(output,at+CAMERA_ROW.WORLD);output.set([3,5,7],at+CAMERA_ROW.POSITION);
+ const owner={core:{views(){},cameraOutput:output},roles:new WeakMap(),bindings:new WeakMap(),shells:[]};
+ CameraOwner.prototype.bind.call(owner,cube,CR.PROBE_PARENT0);
+ assert.doesNotThrow(()=>CameraOwner.prototype.read.call(owner,cube,CR.PROBE_PARENT0));
+ assert.deepEqual(cube.position.toArray(),[3,5,7]);assert.deepEqual(cube.matrixWorld.elements,new THREE.Matrix4().makeTranslation(3,5,7).elements);
+ assert.equal(cube.projectionMatrix,undefined);cube.updateMatrixWorld();assert.equal(cube.matrixWorld.elements[13],5);
+ cube.renderTarget.dispose();
 });

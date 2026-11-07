@@ -2,6 +2,8 @@
 // and CPU descriptors. Rust owns texture storage and targets. This core
 // registers those resources, publishes frame
 // inputs, and treats incomplete coverage or a failed program as a fatal error.
+import { INPUT as CAMERA_INPUT } from "./camera-layout.js";
+import { CameraOwner } from "./cameras.js";
 import { BattleFrame } from "./frame.js";
 import { actorFailure, isActorMaterial } from "./actors.js";
 import { rendererFailure } from "./failure.js";
@@ -45,6 +47,7 @@ const FRAME = [
   ["ambientBottom", 52, 3], ["farAaSamples", 55, 1], ["characterAmbient", 56, 3], ["cascadeNear", 59, 1],
   ["fogColor", 60, 3], ["cascadeFar", 63, 1], ["fade", 64, 2], ["resolution", 66, 2], ["fogRange", 68, 2],
 ];
+const NATIVE_LIGHT_FIELDS=new Set(["cascadeNear","cascadeFar","sunDirection","sunColor","ambient","ambientTop","ambientBottom","characterAmbient","fogColor","fogRange","shadowStrength"]);
 const FRAME_NAMES = new Set(FRAME.map(([name]) => name));
 // A material's uniform that is one of the frame's values under another name
 // (the same object: fabric.js's fabricTime is lighting.time) reads the frame
@@ -61,8 +64,8 @@ const LAMP_UNIFORMS = new Set(["localLightPositions", "localLightColors", "local
 // The shadow block's float layout (shader.rs SHADOW_*): per cascade its
 // shadow values (8: intensity, bias, normal bias, radius, map size, pad),
 // matrix (16), plane matrix (12: three columns of four) and slice (4).
-const SHADOW = { VALUES: 0, MATRICES: 32, PLANES: 96, SLICES: 144, FLOATS: 160, CASCADES: 4 };
-const LIGHT_COUNT = 70, LIGHTS = 72, MAX_LIGHTS = 16;
+const SHADOW = { CASCADES: 4 };
+const LIGHT_COUNT = 70;
 
 // Scene inputs still have JS producers. They publish named views; execution
 // and dependency order live exclusively in frame_plan.rs.
@@ -194,6 +197,7 @@ export class RustRender {
     for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass, linesPass]) this.addPass(make(this));
     this.interface = new InterfacePass(this);
     bindInterfaceRenderer(this.renderer, this.interface);
+    this.cameras = new CameraOwner(this);
     this.frame = new BattleFrame(this);
   }
 
@@ -451,23 +455,23 @@ export class RustRender {
     if (!far) this.writeLamps();
     this.views();
     const input = this.input;
-    input.set(camera.projectionMatrix.elements, 0);
-    input.set(camera.matrixWorldInverse.elements, 16);
-    const m = camera.matrixWorld.elements;
-    input[32] = m[12]; input[33] = m[13]; input[34] = m[14];
+    const nativeRole=this.cameras.roles.get(camera);
+    if(nativeRole!==undefined)this.rust.camera_shader_frame(nativeRole);
+    else {
+      input.set(camera.projectionMatrix.elements,0);input.set(camera.matrixWorldInverse.elements,16);
+      const m=camera.matrixWorld.elements;input[32]=m[12];input[33]=m[13];input[34]=m[14];
+    }
     for (const [name, at, size] of FRAME) {
-      if (at < 35) continue;
+      if (at < 35 || NATIVE_LIGHT_FIELDS.has(name)) continue;
       const v = lighting[name].value;
       if (size === 1) input[at] = v;
       else { input[at] = v.x; input[at + 1] = v.y; if (size === 3) input[at + 2] = v.z; }
     }
+    this.rust.camera_global_shader_frame();
     const pack = packed(scene, camera);
-    const count = Math.min(pack.count, MAX_LIGHTS);
-    input[LIGHT_COUNT] = count;
-    for (let i = 0; i < 2 * count; i++) {
-      const v = pack.lights[i], o = LIGHTS + 4 * i;
-      input[o] = v.x; input[o + 1] = v.y; input[o + 2] = v.z; input[o + 3] = v.w;
-    }
+    if(pack.native!==undefined)this.rust.camera_pack_shader_frame(pack.native);
+    else input[LIGHT_COUNT]=0;
+
   }
 
   // The shadow receivers' block (shader.rs BfeShadow) as three uploads its
@@ -487,17 +491,13 @@ export class RustRender {
     if (!on) return;
     if (!this.shadowView) { this.addView("shadowInput", Float64Array, () => this.rust.shadow_input_ptr(), () => this.rust.shadow_input_len()); this.shadowView = true; }
     this.views();
-    const out = this.shadowInput, lights = this.graphics.csm.lights, planes = lighting.cascadePlanes.value, slices = lighting.cascades.value;
-    out.fill(0);
-    for (let i = 0; i < Math.min(lights.length, SHADOW.CASCADES); i++) {
-      const shadow = lights[i].shadow, v = SHADOW.VALUES + 8 * i;
-      out[v] = shadow.intensity ?? 1; out[v + 1] = shadow.bias; out[v + 2] = shadow.normalBias; out[v + 3] = shadow.radius;
-      out[v + 4] = shadow.mapSize.x; out[v + 5] = shadow.mapSize.y;
-      out.set(shadow.matrix.elements, SHADOW.MATRICES + 16 * i);
-      const e = planes[i]?.elements;
-      if (e) for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) out[SHADOW.PLANES + 12 * i + 4 * c + r] = e[3 * c + r];
+    const lights=this.graphics.csm.lights,out=this.cameraInput;
+    for(let i=0;i<Math.min(lights.length,SHADOW.CASCADES);i++){
+      const shadow=lights[i].shadow,at=CAMERA_INPUT.SHADOW_METADATA+i*6;
+      out[at]=shadow.intensity??1;out[at+1]=shadow.bias;out[at+2]=shadow.normalBias;out[at+3]=shadow.radius;out[at+4]=shadow.mapSize.x;out[at+5]=shadow.mapSize.y;
     }
-    for (let i = 0; i < Math.min(slices.length, SHADOW.CASCADES); i++) { out[SHADOW.SLICES + 4 * i] = slices[i].x; out[SHADOW.SLICES + 4 * i + 1] = slices[i].y; }
+    this.rust.camera_shadow_shader_frame();
+
   }
 
   // The lamp table (shader.rs LAMP_*): every lamp source of the map (two

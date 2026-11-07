@@ -2,7 +2,7 @@ import { contentURL } from './helpers/content.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { NO_FOG, fogs, lighting, setFog } from '../src/materials.js';
+import { NO_FOG, fogs } from '../src/materials.js';
 
 // The far scene's fog as the original game applies it (docs/formats.md,
 // "Fog"): Direct3D's fog goes on only when 0 <= FogNear < FogFar.
@@ -27,24 +27,6 @@ test('the inverted range fogged everything nearer than its end; no fog fogs noth
   // whole far scene, 300 to 1500 m.
   for (const depth of [300, 800, 1500]) assert.equal(fogAt(depth, [9000, 8000]), 1);
   for (const depth of [0, 300, 1500, 1e5]) assert.equal(fogAt(depth, NO_FOG), 0);
-});
-
-test("setFog takes the sky's fog, or none", () => {
-  setFog({ distance: { lowRes: { fog: [45, 45, 60], fogRange: [80, 972.5] } } });
-  assert.deepEqual(lighting.fogRange.value.toArray(), [80, 972.5]);
-  assert.deepEqual(lighting.fogColor.value.toArray().map((v) => Math.round(v * 255)), [45, 45, 60]);
-  // Kashyyyk: Islands: off, the colour kept as the original game keeps it.
-  setFog({ distance: { lowRes: { fog: [0, 0, 0], fogRange: [9000, 8000] } } });
-  assert.deepEqual(lighting.fogRange.value.toArray(), [...NO_FOG]);
-  assert.deepEqual(lighting.fogColor.value.toArray(), [0, 0, 0]);
-  setFog({ distance: { lowRes: { fog: [142, 82, 38], fogRange: [300, 1096.875] } } });
-  assert.deepEqual(lighting.fogRange.value.toArray(), [300, 1096.875]);
-  // No LowResTerrain (both Rhen Vars), or no distances at all.
-  setFog({ distance: { lowRes: null } });
-  assert.deepEqual(lighting.fogRange.value.toArray(), [...NO_FOG]);
-  setFog({ distance: { lowRes: { fog: [142, 82, 38], fogRange: [300, 1096.875] } } });
-  setFog({});
-  assert.deepEqual(lighting.fogRange.value.toArray(), [...NO_FOG]);
 });
 
 // Every stock map as prepared (public/ holds the extractor's output, when

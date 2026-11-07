@@ -2,6 +2,7 @@
 // retained scene/input facts and publish the native result; no view decides
 // policy or advances a clock in JavaScript.
 import * as THREE from "three";
+import { SOURCE as NativeView } from "../rust-render/camera-layout.js";
 import {ShotDirector} from "../spawn-screen/page/director.js";
 import { drawnKiller } from "./camera-facts.js";
 import { VERSION, CameraFrame as F, CameraCommand as C, CameraCommandKind as K, CameraOutput as O, CameraLimits as L, CameraMode as Mode, CameraEye as Eye, CameraMotion as Motion } from "./layout.js";
@@ -16,6 +17,13 @@ function quaternion(a, at, q) { a[at] = q.x; a[at + 1] = q.y; a[at + 2] = q.z; a
 // A retained Camera is a matrix consumer. Three's unconditional camera
 // update hooks must not rebuild a view that the native phase just published.
 function publishedMatrix() {}
+// Retain the native publication independently of scratch reused by commands.
+// Rendering imports these f64 records without reading matrices back from Three.
+function nativeView(camera,o,world,inverse,lens=true){
+  let a=camera.userData.nativeView;if(!a)camera.userData.nativeView=a=new Float64Array(NativeView.LEN);
+  for(let i=0;i<16;i++){a[NativeView.WORLD+i]=o[world+i];a[NativeView.INVERSE+i]=o[inverse+i];if(lens){a[NativeView.PROJECTION+i]=o[O.PROJECTION+i];a[NativeView.PROJECTION_INVERSE+i]=o[O.PROJECTION_INVERSE+i];}}
+}
+
 // Native Euler mirrors keep Three readers consistent without invoking its
 // quaternion callbacks, which would otherwise redo matrix/trigonometric work.
 function publishTurn(camera, output, at, euler) {
@@ -83,8 +91,8 @@ export class PageCameras {
     this.from = new THREE.Vector3(); this.to = new THREE.Vector3(); this.warned = false;
   }
   // graphics, foliage and effects call these Camera hooks unconditionally.
-  // This camera is already published; derived mirror/probe cameras retain
-  // their ordinary Three methods and can still construct their own views.
+  // This camera is already published. The renderer owns derived views and
+  // imports this publication without asking Three to recompute a matrix.
   bindCamera(camera) {
     camera.updateMatrixWorld=publishedMatrix;camera.updateWorldMatrix=publishedMatrix;
   }
@@ -225,6 +233,7 @@ export class PageCameras {
     camera.fov = o[O.FOV]; camera.near = o[O.NEAR]; camera.far = o[O.FAR];
     camera.matrix.fromArray(o, O.PRE_MATRIX); camera.matrixWorld.fromArray(o, O.PRE_MATRIX); camera.matrixWorldInverse.fromArray(o, O.PRE_INVERSE);
     camera.projectionMatrix.fromArray(o, O.PROJECTION); camera.projectionMatrixInverse.fromArray(o, O.PROJECTION_INVERSE);
+    nativeView(camera,o,O.PRE_MATRIX,O.PRE_INVERSE);
     this.view.fov = o[O.SOLDIER_FOV]; this.view.reach = o[O.SOLDIER_REACH]; this.view.fresh = !!o[O.SOLDIER_FRESH];
     if (this.authority && deathView.active) {
       deathView.time = o[O.WORLD_DEATH_TIME]; deathView.position.fromArray(o, O.WORLD_DEATH_POSITION); deathView.quaternion.fromArray(o, O.WORLD_DEATH_QUATERNION);
@@ -269,6 +278,7 @@ export class PageCameras {
     const o = this.output, c = this.camera;
     c.position.fromArray(o, O.POSITION); publishTurn(c,o,O.QUATERNION,O.EULER);
     c.matrix.fromArray(o, O.MATRIX); c.matrixWorld.fromArray(o, O.MATRIX); c.matrixWorldInverse.fromArray(o, O.INVERSE);
+    nativeView(c,o,O.MATRIX,O.INVERSE,false);
   }
   // Remote definitions are registered by immutable content identity.
   // New droid lives reuse the same entry rather than consuming another slot.

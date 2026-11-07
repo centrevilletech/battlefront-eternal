@@ -4,6 +4,7 @@
 // of their own here, a `#[wasm_bindgen] impl BfeRenderer` block each.
 mod recovery;
 mod canopies;
+mod cameras;
 mod effects;
 mod far;
 mod foliage;

@@ -703,25 +703,3 @@ test('a reflection registers a newly added transparent object before the main ca
  scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
  assert.equal(compiled.length,count,'the main view reuses resources discovered by the reflection');
 });
-
-// The battle has near/far/view cameras. An extra caller must not turn a
-// bounded camera shell store into a frame exception or corrupt restoration.
-test("published camera adjustments are bounded and restore every admitted shell", () => {
-  const u=new Upscaler({extensions:{has:()=>true}}),state=new Float64Array(STATE.LEN);
-  u.core={postState:state};state[STATE.SHIFT]=.002;state[STATE.SHIFT+1]=-.003;
-  const cameras=Array.from({length:5},()=>new THREE.PerspectiveCamera(71,1.7,.3,900));
-  const originals=cameras.map(c=>c.projectionMatrix.elements.slice());
-  const slots=u.shiftedCameras,offsets=u.shiftedOffsets;
-  for(const camera of cameras)assert.doesNotThrow(()=>u.shift(camera));
-  assert.equal(u.shiftedCount,3);
-  for(let i=0;i<cameras.length;i++){
-    const e=cameras[i].projectionMatrix.elements;
-    assert.equal(e[8],originals[i][8]-(i<3?state[STATE.SHIFT]:0));
-    assert.equal(e[9],originals[i][9]-(i<3?state[STATE.SHIFT+1]:0));
-  }
-  u.restore();u.restore();
-  for(let i=0;i<cameras.length;i++)assert.deepEqual(cameras[i].projectionMatrix.elements,originals[i]);
-  u.shift(cameras[0]);u.restore();
-  assert.equal(u.shiftedCameras,slots);assert.equal(u.shiftedOffsets,offsets);assert.equal(u.shiftedCount,0);
-  assert.ok(slots.every(camera=>camera===null));u.dispose();
-});

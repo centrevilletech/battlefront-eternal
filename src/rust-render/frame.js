@@ -2,6 +2,8 @@
 // scene transition. This host seals named packets; Rust alone orders passes.
 import * as THREE from "three";
 import { FACTS as F, STATE as S, BINDING as B, META as M, KIND as K, ROLE as R, LIMIT as L, STATS as T, UI, UI_CAPACITY } from "./frame-layout.js";
+import { CAMERA_ROLE as CR } from "./cameras.js";
+import { CAMERA as CA, MIRROR as MI, INPUT as CI } from "./camera-layout.js";
 import { lighting } from "../materials.js";
 import { particleDepth } from "../particle-depth.js";
 import { motionVectors } from "../motion-vectors.js";
@@ -206,10 +208,14 @@ export class BattleFrame {
     if(slot>=L.PROBES || !this.active)return;
     core.views();const f=core.frameFacts;f[F.PROBE_ENABLED+slot]=+(probe.enabled&&probe.layers.length>0);f[F.PROBE_TIME+slot]=time;f[F.PROBE_GENERATION+slot]=probe.generation;camera.position.toArray(f,F.PROBE_EYE+slot*3);
     core.rust.frame_select_frame();core.views();if(!core.frameState[S.PROBE_CAPTURE+slot])return;
-    for(const {mesh,follow} of probe.layers){mesh.position.copy(camera.position);if(follow)mesh.position.y=follow[0]*camera.position.y+(1-follow[0])*follow[1];}
-    const cube=probe.camera;cube.position.copy(camera.position);cube.updateMatrixWorld();
-    if(cube.coordinateSystem!==core.renderer.coordinateSystem){cube.coordinateSystem=core.renderer.coordinateSystem;cube.updateCoordinateSystem();}
-    for(let i=0;i<6;i++){this.role=R.PROBE0+slot*6+i;this.target(probe.target,i,cube.activeMipmapLevel);core.cover("probe",core.renderer,g.farScene,cube.children[i]);}
+    core.cameras.main(camera);core.cameras.sky(probe.layers,CR.MAIN);
+    core.rust.camera_probe_frame(slot);
+    const cube=probe.camera;core.cameras.bind(cube,CR.PROBE_PARENT0+slot);core.cameras.read(cube,CR.PROBE_PARENT0+slot);
+    for(let i=0;i<6;i++){
+      const child=cube.children[i],role=CR.PROBE0+slot*6+i;
+      core.cameras.bind(child,role);core.cameras.read(child,role);
+      this.role=R.PROBE0+slot*6+i;this.target(probe.target,i,cube.activeMipmapLevel);core.cover("probe",core.renderer,g.farScene,child);
+    }
     this.target(null);probe.captures++;probe.texture.needsPMREMUpdate=true;
   }
   cloud(storm,time,camera) {
@@ -227,12 +233,12 @@ export class BattleFrame {
     const core=this.core,g=core.graphics,r=core.renderer,w=water;
     w.farGroup.visible=false;
     if(w.ocean){w.group.visible=false;w.underwaterFog.visible=false;return;}
-    camera.updateMatrixWorld();w.matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);w.frustum.setFromProjectionMatrix(w.matrix);
+    core.cameras.main(camera);w.matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);w.frustum.setFromProjectionMatrix(w.matrix);
     let visible=false;if(w.frustum.intersectsBox(w.bounds))for(const box of w.cellBounds)if(w.frustum.intersectsBox(box)){visible=true;break;}
     const below=camera.position.y<w.level,farVisible=!below&&w.farInView(camera);
     w.group.visible=visible;w.farGroup.visible=farVisible;w.mirrorPass.visible=w.farMirror.visible=false;
     w.tintPass.material.uniforms.cameraRange.value.set(camera.near,camera.far);w.tintPass.material.uniforms.underwater.value=+below;
-    w.resizeReflection();camera.getWorldDirection(w.forward);
+    w.resizeReflection();w.forward.fromArray(core.cameraOutput,CR.MAIN*CA.LEN+CA.DIRECTION);
     core.views();const f=core.frameFacts;
     f[F.MIRROR_ENABLED]=1;f[F.MIRROR_VISIBLE]=+visible;f[F.MIRROR_FAR_VISIBLE]=+farVisible;f[F.MIRROR_LOW]=+!!w.lowPass?.visible;
     f[F.MIRROR_NEAR]=+(w.reflectionFar&&w.quality.planarNear);f[F.MIRROR_LEVEL]=w.level;f[F.MIRROR_SIZE]=w.target.width;f[F.MIRROR_SIZE+1]=w.target.height;
@@ -241,18 +247,13 @@ export class BattleFrame {
     w.underwaterFog.visible=!!core.frameState[S.FOG];
     if(!core.frameState[S.MIRROR_ELIGIBLE])return;
     if(core.frameState[S.MIRROR_HELD]){w.mirrorPass.visible=w.farMirror.visible=true;return;}
-    const mirror=w.mirror,far=g.farCamera;
-    mirror.fov=camera.fov;mirror.aspect=camera.aspect;mirror.near=w.reflectionFar?camera.near:far.near||2;mirror.far=far.far||camera.far;mirror.updateProjectionMatrix();
-    mirror.position.copy(camera.position);mirror.position.y=2*w.level-camera.position.y;
-    camera.getWorldDirection(w.forward);w.forward.y=-w.forward.y;
-    w.up.set(0,1,0).applyQuaternion(camera.quaternion);w.up.y=-w.up.y;mirror.up.copy(w.up);mirror.lookAt(w.at.copy(mirror.position).add(w.forward));mirror.updateMatrixWorld();
-    w.plainProjection.copy(mirror.projectionMatrix);w.plane.set(this.normal,-w.level).applyMatrix4(mirror.matrixWorldInverse);
-    w.clip.set(w.plane.normal.x,w.plane.normal.y,w.plane.normal.z,w.plane.constant);
-    const e=mirror.projectionMatrix.elements;
-    w.q.set((Math.sign(w.clip.x)+e[8])/e[0],(Math.sign(w.clip.y)+e[9])/e[5],-1,(1+e[10])/e[14]);
-    const denominator=w.clip.dot(w.q);if(Math.abs(denominator)<1e-6||!Number.isFinite(denominator))return;
-    w.clip.multiplyScalar(2/denominator);e[2]=w.clip.x;e[6]=w.clip.y;e[10]=w.clip.z+1;e[14]=w.clip.w;
-    w.reflectionMatrix.set(.5,0,0,.5,0,.5,0,.5,0,0,.5,.5,0,0,0,1).multiply(mirror.projectionMatrix).multiply(mirror.matrixWorldInverse);
+    const mirror=w.mirror;
+    core.views();core.cameraInput[CI.WATER_LEVEL]=w.level;core.cameraInput[CI.NEAR_REFLECTION]=+!!w.reflectionFar;
+    core.rust.camera_reflect_frame();core.views();
+    core.cameras.bind(mirror,CR.MIRROR);core.cameras.read(mirror,CR.MIRROR);
+    w.plainProjection.fromArray(core.cameraOutput,CR.MIRROR_PLAIN*CA.LEN+CA.PROJECTION);
+    if(!core.cameraMirror[MI.VALID])return;
+    w.reflectionMatrix.fromArray(core.cameraMirror,MI.REFLECTION);
     core.views();core.frameFacts[F.MIRROR_CLIP_VALID]=1;
     const layers=g.skyLayers,n=Math.min(layers.length,256),sky=g.sky;
     const sx=sky?.position.x,sy=sky?.position.y,sz=sky?.position.z;
@@ -268,11 +269,11 @@ export class BattleFrame {
     let skyCount=0;for(let i=0;i<n;i++)if(this.skyVisible[i])skyCount++;
     try {
       if(skyCount){
-        mirror.projectionMatrix.copy(w.plainProjection);mirror.layers.set(5);
+        core.cameras.read(mirror,CR.MIRROR_PLAIN);core.cameras.roles.set(mirror,CR.MIRROR_PLAIN);mirror.layers.set(5);
         for(let i=0;i<n;i++)if(this.skyVisible[i])layers[i].mesh.layers.enable(5);
         this.role=R.MIRROR0_SKY;core.cover("farMirror",r,g.farScene,mirror);
         for(let i=0;i<n;i++)if(this.skyVisible[i])layers[i].mesh.visible=false;
-        mirror.layers.set(0);mirror.projectionMatrix.copy(w.obliqueProjection);
+        mirror.layers.set(0);core.cameras.read(mirror,CR.MIRROR);core.cameras.roles.set(mirror,CR.MIRROR);
       }
       core.views();core.frameFacts[F.MIRROR_SKY]=+(skyCount>0);
       this.role=R.MIRROR0_FAR;core.cover("farMirror",r,g.farScene,mirror);
@@ -287,7 +288,7 @@ export class BattleFrame {
       lighting.farMap.value=farMap;lighting.resolution.value.copy(this.resolution);particleDepth.enabled.value=soft;g.background.material.uniforms.map.value=bg;
       this.target(null);
       for(let i=0;i<n;i++){const mesh=layers[i].mesh;mesh.position.fromArray(this.skyPositions,i*3);mesh.layers.mask=this.skyMasks[i];mesh.visible=!!this.skyVisible[i];}
-      if(sky)sky.position.set(sx,sy,sz);mirror.layers.set(0);mirror.projectionMatrix.copy(w.obliqueProjection);
+      if(sky)sky.position.set(sx,sy,sz);mirror.layers.set(0);core.cameras.read(mirror,CR.MIRROR);core.cameras.roles.set(mirror,CR.MIRROR);
     }
   }
   // Surface containment is still a camera/math fact. Rust selects the low
@@ -327,9 +328,6 @@ export class BattleFrame {
     // A clipped frame retains its native completion stamp. Graphics.updateScene
     // must still revisit changed transforms on the next displayed callback.
     if(core.frameState[S.CLIPPED])g.sceneFrame=-1;
-    for(let i=0;i<(core.frameFacts[F.MAIN]?(g.cascadeWindows?.length||0):0);i++){
-      const window=g.cascadeWindows[i];if(core.frameState[S.SHADOW_STATIC+i])window.dirty=false;window.moved=false;
-    }
     return true;
   }
 }

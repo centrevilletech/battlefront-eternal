@@ -168,7 +168,7 @@ class ShadowPass {
     if (!req) return;
     const core = this.core, { renderer, light, scene, camera, from } = req, shadow = light.shadow;
     // As three's pass does for the light: its camera placed, its frustum.
-    shadow.updateMatrices(light);
+    core.cameras.shadow(light);
     const shadowCamera = shadow.camera, frustum = shadow.getFrustum();
     this.draws.length = 0;
     this.why = null;
@@ -215,8 +215,7 @@ class ShadowPass {
     }
     input.set(this.commandViews[n]);
     if (this.nativeInput) {
-      core.staticShadowInput.set(shadowCamera.projectionMatrix.elements, STATIC.SHADOW.PROJECTION);
-      core.staticShadowInput.set(shadowCamera.matrixWorldInverse.elements, STATIC.SHADOW.VIEW);
+      core.rust.camera_static_shadow_frame(light.userData.nativeCascade);
       core.staticShadowInput[STATIC.SHADOW.TIME] = lighting.time.value;
     }
     this.done = true;

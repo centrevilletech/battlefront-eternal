@@ -300,6 +300,8 @@ for owner,names in fields.items():
     out.append(f'        // Preserve {owner} input storage; replay must not reset the live frame values.')
     for name in names: out.append(f'        self.r.{owner}.{name} = std::mem::take(&mut old.{owner}.{name});')
 out += ['        // Temporal CPU ownership survives reconstruction, but old history cannot.',
+        '        self.r.cameras = std::mem::take(&mut old.cameras);',
+        '        self.r.cameras.invalidate();',
         '        self.r.post_chain = std::mem::take(&mut old.post_chain);',
         '        self.r.post_chain.invalidate();',
         '        self.r.frames = std::mem::take(&mut old.frames);',

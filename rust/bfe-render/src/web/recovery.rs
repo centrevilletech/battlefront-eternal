@@ -1453,6 +1453,8 @@ impl BfeRenderer {
         self.r.transparent.keys = std::mem::take(&mut old.transparent.keys);
         self.r.transparent.objects = std::mem::take(&mut old.transparent.objects);
         // Temporal CPU ownership survives reconstruction, but old history cannot.
+        self.r.cameras = std::mem::take(&mut old.cameras);
+        self.r.cameras.invalidate();
         self.r.post_chain = std::mem::take(&mut old.post_chain);
         self.r.post_chain.invalidate();
         self.r.frames = std::mem::take(&mut old.frames);

@@ -9,7 +9,7 @@ import { ownedFullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
 import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
 import { FACTS as F, STATE as S, ROLE as R } from "./rust-render/frame-layout.js";
-import { CascadeWindow } from "./shadow-cascades.js";
+import { CAMERA_ROLE, shadowShells } from "./rust-render/cameras.js";
 import { RenderProfiler } from "./render-profiler.js";
 import { LocalLights } from "./local-lights.js";
 import { installPointLights } from "./point-lights.js";
@@ -17,8 +17,7 @@ import { boltLook } from "./blaster-bolts.js";
 import { sniperLook } from "./sniper-trace.js";
 import { UPSCALERS, Upscaler } from "./upscaler.js";
 import { pageGpu, rendererName } from "./gpu-info.js";
-import { CSM } from "three/addons/csm/CSM.js";
-import { NO_FOG, fogs, lighting, setFog, setLighting } from "./materials.js";
+import { lighting, setFog, setLighting } from "./materials.js";
 import { ANTIALIASING, RENDER_SCALE_MIN, SHADOW_PRESETS, VIEW_DISTANCES } from "./settings.js";
 
 // scene.updateMatrixWorld(), but hidden subtrees (pooled soldiers, unheld
@@ -74,7 +73,7 @@ function updateVisible(object, force) {
 //
 // Shadows are this port's own: cascaded shadow maps of the sun, where the
 // original had stencil shadow volumes. Each cascade is a hardware depth map
-// (shadow-cascades.js): the map's static casters are cached per cascade
+// (cascades.rs): the map's static casters are cached per cascade
 // window, and only the moving casters are drawn each frame.
 THREE.ColorManagement.enabled = false;
 // Each scene packs the point lights its materials read as it draws.
@@ -84,7 +83,6 @@ installPointLights();
 // the alpha test, and nothing else. Three's own writes a packed depth colour
 // and samples every caster's texture; the hardware depth attachment is all
 // the receivers read.
-const lightUp = new THREE.Vector3(0, 1, 0);
 
 export class Graphics {
   constructor(container, settings) {
@@ -149,11 +147,6 @@ export class Graphics {
     this.shadowCaches = [];
     this.shadowMaps = [];
     this.shadowPasses = { static: 0, dynamic: 0 };
-    this.lightOrientation = new THREE.Matrix4();
-    this.lightOrientationInverse = new THREE.Matrix4();
-    this.cameraToLight = new THREE.Matrix4();
-    this.lightCorner = new THREE.Vector3();
-    this.lightBounds = new THREE.Box3();
     this.maxAnisotropy = Math.max(1, this.renderer.capabilities.getMaxAnisotropy());
     // MAX_SAMPLES alone can advertise counts unavailable to a target format.
     const gl = this.renderer.getContext();
@@ -182,7 +175,6 @@ export class Graphics {
     this.farReach = [1500, 3000];
     this.sunDirection = new THREE.Vector3(0, -1, 0);
     this.csm = null;
-    this.projection = "";
 
     // Render targets: the far scene's image, the near scene drawn over it,
     // and the quarter-size copy for the blur.
@@ -273,22 +265,11 @@ export class Graphics {
   // Inputs use the map format: RGB 0..255, a world-space ray direction, and
   // fog distances in world units. Unspecified fields retain their values.
   // This deliberately does not rebuild the CSM or change material programs.
-  setEnvironment({ sunDirection, sunColor, ambient, top, bottom, character, fogColor, fogRange, shadowStrength } = {}) {
-    if (sunDirection) {
-      const direction = new THREE.Vector3().fromArray(sunDirection);
-      if (direction.lengthSq() > 0) {
-        this.sunDirection.copy(direction).normalize();
-        lighting.sunDirection.value.copy(this.sunDirection);
-        this.csm?.lightDirection.copy(this.sunDirection);
-      }
-    }
-    if (sunDirection) for (const window of this.cascadeWindows) window.invalidate();
-    for (const [key, rgb] of Object.entries({ sunColor, ambient, ambientTop: top, ambientBottom: bottom, characterAmbient: character, fogColor })) {
-      if (rgb) lighting[key].value.fromArray(rgb).multiplyScalar(1 / 255);
-    }
-    // A range that fogs nothing (start past end) is no fog, as in setFog.
-    if (fogRange) lighting.fogRange.value.fromArray(fogs(fogRange) ? fogRange : NO_FOG);
-    if (shadowStrength !== undefined) lighting.shadowStrength.value = THREE.MathUtils.clamp(shadowStrength, 0, 1);
+  setEnvironment(facts={}) {
+    // Cold authored commands can precede module admission. Keep the newest
+    // value per field until the native owner is available.
+    Object.assign(this.environmentFacts||(this.environmentFacts={}),facts);
+    if(this.rust)this.rust.cameras.environment(facts);
   }
 
   // A texture that follows the filtering setting.
@@ -586,8 +567,6 @@ export class Graphics {
     this.camera.updateProjectionMatrix();
     this.farCamera.near = 2;
     this.farCamera.far = this.farReach[1] * scale;
-    this.farProjectionDirty = true;
-    this.projection = "";
   }
 
   // Cascaded shadow maps from the sun, or none.
@@ -608,31 +587,7 @@ export class Graphics {
     const preset = SHADOW_PRESETS[this.settings.get("shadows")];
     this.renderer.shadowMap.enabled = Boolean(preset);
     if (preset) {
-      this.csm = new CSM({
-        camera: this.cascadeCamera,
-        parent: this.scene,
-        cascades: preset.cascades,
-        maxFar: preset.far,
-        mode: "custom",
-        // Prioritize the nearby animated character: the old 50/50 split
-        // spent most first-cascade texels on distant ground.
-        customSplitsCallback: (count, near, far, breaks) => {
-          for (let i = 1; i < count; i++) {
-            const log = near * (far / near) ** (i / count);
-            const uniform = near + (far - near) * i / count;
-            breaks.push((0.85 * log + 0.15 * uniform) / far);
-          }
-          breaks.push(1);
-        },
-        shadowMapSize: preset.size,
-        // Normalized depth bias: the old -0.0004 over 2999 m erased 1.2 m
-        // of contact shadow. Use a 1.5 cm offset along the light instead.
-        shadowBias: -0.015 / 2999,
-        lightDirection: this.sunDirection.clone(),
-        lightNear: 1,
-        lightFar: 3000,
-        lightMargin: 400,
-      });
+      this.csm = shadowShells(this,preset);
       for (const light of this.csm.lights) {
         // Receiver-plane filtering handles slopes without moving vertices
         // along interpolated character normals (which caused moving smears).
@@ -642,12 +597,11 @@ export class Graphics {
         light.shadow.map.texture.name = `${light.name}.shadowMap`;
         this.shadowMaps.push(light.shadow.map);
         this.shadowCaches.push(this.shadowTarget(preset.size));
-        this.cascadeWindows.push(new CascadeWindow());
       }
       lighting.cascadeMaps.value = this.shadowMaps.map((target) => target.depthTexture);
       lighting.cascadePlanes.value = this.shadowMaps.map(() => new THREE.Matrix3());
-      this.projection = "";
     }
+    this.rust?.cameras.configureShadows();
     for (const object of this.casters) object.castShadow = Boolean(preset);
     // Materials recompile for the new shadow setup on their next draw.
     this.scene.traverse((object) => {
@@ -700,26 +654,6 @@ export class Graphics {
   // where it was while it still covers the cascade's slice of the view, else
   // landed on the slice as three's CSM would. The light is only moved when a
   // window lands, so a held cascade keeps its matrices and its maps.
-  updateCascadeWindows() {
-    const csm = this.csm;
-    this.lightOrientation.lookAt(this.casterAt.set(0, 0, 0), csm.lightDirection, lightUp);
-    this.lightOrientationInverse.copy(this.lightOrientation).invert();
-    this.cameraToLight.multiplyMatrices(this.lightOrientationInverse, this.cascadeCamera.matrixWorld);
-    for (let i = 0; i < csm.frustums.length; i++) {
-      const light = csm.lights[i], shadowCamera = light.shadow.camera, window = this.cascadeWindows[i];
-      const texel = (shadowCamera.right - shadowCamera.left) / csm.shadowMapSize;
-      const bounds = this.lightBounds.makeEmpty(), corner = this.lightCorner, vertices = csm.frustums[i].vertices;
-      for (let j = 0; j < 4; j++) {
-        bounds.expandByPoint(corner.copy(vertices.near[j]).applyMatrix4(this.cameraToLight));
-        bounds.expandByPoint(corner.copy(vertices.far[j]).applyMatrix4(this.cameraToLight));
-      }
-      if (!window.fit(bounds, shadowCamera.right, texel, csm.lightMargin)) continue;
-      this.casterAt.copy(window.center).applyMatrix4(this.lightOrientation);
-      light.position.copy(this.casterAt);
-      light.target.position.copy(this.casterAt).add(csm.lightDirection);
-    }
-  }
-
   // The shadow pass: the static casters into a cascade's cache the frame its
   // window lands; every frame the cache's depth copied into the live map and
   // the moving casters drawn over it. Three's pass clears the map before it
@@ -731,9 +665,9 @@ export class Graphics {
     for(let i=0;i<csm.lights.length;i++){core.frameFacts[F.SHADOW_DIRTY+i]=+this.cascadeWindows[i].dirty;core.frameFacts[F.SHADOW_MOVED+i]=+this.cascadeWindows[i].moved;}
     core.rust.frame_select_frame();core.views();
     const dynamicCamera = this.shadowCamera, staticCamera = this.staticShadowCamera;
-    dynamicCamera.copy(camera);
+    core.cameras.copy(dynamicCamera,CAMERA_ROLE.MAIN,CAMERA_ROLE.SHADOW_DYNAMIC);
     dynamicCamera.layers.enable(this.hiddenLayer);
-    staticCamera.copy(camera);
+    core.cameras.copy(staticCamera,CAMERA_ROLE.MAIN,CAMERA_ROLE.SHADOW_STATIC);
     staticCamera.layers.set(this.staticLayer);
     for (let i = 0; i < csm.lights.length; i++) {
       const light = csm.lights[i], window = this.cascadeWindows[i], live = this.shadowMaps[i], cache = this.shadowCaches[i];
@@ -753,60 +687,18 @@ export class Graphics {
       }
 
       // How this cascade's matrix (refreshed by the pass) moves plane normals.
-      lighting.cascadePlanes.value[i].setFromMatrix4(light.shadow.matrix).invert().transpose();
+
     }
   }
 
-  // The shadow cascades, for the materials that pick one per pixel.
-  updateCascades() {
-    const csm = this.csm;
-    const cascades = lighting.cascades.value;
-    for (let i = 0; i < cascades.length; i++) {
-      cascades[i].set(csm.breaks[i - 1] ?? 0, csm.breaks[i] ?? 1);
-    }
-    lighting.cascadeNear.value = this.camera.near;
-    lighting.cascadeFar.value = Math.min(this.camera.far, csm.maxFar);
-  }
-
-  fitCascades() {
-    const csm = this.csm;
-    csm.updateFrustums();
-    // Give the next cascade the final 10% of its predecessor as well. The
-    // material blends there instead of popping between two texel grids.
-    for (let i = 1; i < csm.frustums.length; i++) {
-      const end = csm.breaks[i - 1];
-      const start = csm.breaks[i - 2] ?? 0;
-      const overlap = end - (end - start) * 0.1;
-      for (let j = 0; j < 4; j++) {
-        csm.frustums[i].vertices.near[j].lerpVectors(csm.mainFrustum.vertices.near[j], csm.mainFrustum.vertices.far[j], overlap);
-      }
-    }
-    csm.updateShadowBounds();
-  }
-
+  // Root light identities are graph facts; native packing replaces the old
+  // cloned first-person lights and their per-frame transformed proxies.
   syncViewLights() {
-    // The view weapon is rendered in a separate scene; without proxies it
-    // silently loses all command-post, muzzle-flash and explosion lights.
-    const sources = this.viewLightSources;
-    sources.length = 0;
-    for (const child of this.scene.children) if (child.isPointLight) sources.push(child);
-    if (!this.viewLights || sources.length !== this.viewLights.length || sources.some((source, i) => source !== this.viewLights[i].source)) {
-      for (const pair of this.viewLights || []) this.viewScene.remove(pair.view);
-      this.viewLights = [];
-      for (const source of sources) {
-        const view = source.clone(false);
-        view.castShadow = false;
-        this.viewScene.add(view);
-        this.viewLights.push({ source, view });
-      }
-    }
-    for (const { source, view } of this.viewLights) {
-      view.position.setFromMatrixPosition(source.matrixWorld);
-      view.color.copy(source.color);
-      view.intensity = source.visible ? source.intensity : 0;
-      view.distance = source.distance;
-      view.decay = source.decay;
-    }
+    const sources=this.viewLightSources;let count=0,changed=false;
+    for(const child of this.scene.children)if(child.isPointLight){if(sources[count]!==child)changed=true;sources[count++]=child;}
+    if(sources.length!==count)changed=true;sources.length=count;
+    if(changed){this.viewLights=sources.map(source=>({source,shown:source.visible,layers:source.layers.mask}));}
+    this.viewScene.userData.nativeViewLights=this.viewLights;
   }
 
   // fn run by one of three's own renders that must see everything the Rust
@@ -845,53 +737,16 @@ export class Graphics {
     boltLook.enhanced = this.settings.get("boltEffects") !== "classic";
     sniperLook.enhanced = this.settings.get("sniperEffects") !== "classic";
     lighting.terrainShade.value = this.settings.get("terrainDetail") === "original" ? 0 : 1;
-    camera.updateMatrixWorld();
+    this.rust.cameras.main(camera);
     this.rust.byName.post.begin(camera);
     if (this.csm) {
-      // Keep a stable, conservative FOV for shadows. Breathing, zoom and
-      // chase-camera FOV easing must not continually resize the texel grid.
-      const shadowView = this.cascadeCamera;
-      shadowView.position.copy(camera.position);
-      shadowView.quaternion.copy(camera.quaternion);
-      shadowView.fov = Math.ceil(Math.max(75, camera.fov) / 5) * 5;
-      shadowView.aspect = camera.aspect;
-      shadowView.near = camera.near;
-      shadowView.far = camera.far;
-      shadowView.updateMatrixWorld();
-      const key = `${shadowView.fov}:${camera.aspect}:${camera.near}:${camera.far}`;
-      if (key !== this.projection) {
-        shadowView.updateProjectionMatrix();
-        this.fitCascades();
-        this.projection = key;
-      }
-      this.updateScene();
-      this.limitShadows();
-      this.updateCascadeWindows();
-      // A landed window moved its light; three would have refreshed these
-      // matrices in render() with automatic updates on.
-      for (const light of this.csm.lights) { light.updateMatrixWorld(); light.target.updateMatrixWorld(); }
-      this.updateCascades();
+      this.updateScene();this.limitShadows();this.rust.cameras.cascades();
     }
-
-    // 1. The far scene, from the same eye.
-    const far = this.farCamera;
-    far.position.copy(camera.position);
-    far.quaternion.copy(camera.quaternion);
-    if (far.fov !== camera.fov || far.aspect !== camera.aspect || this.farProjectionDirty) {
-      far.fov = camera.fov;
-      far.aspect = camera.aspect;
-      far.updateProjectionMatrix();
-      this.farProjectionDirty = false;
-    }
-    far.updateMatrixWorld();
+    const far=this.farCamera;
+    this.rust.cameras.derived(far,CAMERA_ROLE.FAR);
     if (temporal) this.upscaler.shift(far);
-    // The sky's models stand around the eye; one with a MovementScale s and
-    // an Offset stands at height s * eye + (1 - s) * offset.
-    for (const { mesh, follow } of this.skyLayers) {
-      mesh.position.copy(camera.position);
-      if (follow) mesh.position.y = follow[0] * camera.position.y + (1 - follow[0]) * follow[1];
-    }
-    if (this.sky && !this.skyLayers.length) this.sky.position.copy(camera.position);
+    this.rust.cameras.sky(this.skyLayers,CAMERA_ROLE.MAIN);
+    if(this.sky&&!this.skyLayers.length)this.sky.position.copy(camera.position);
     this.rust.frame.target(this.farTarget);
     this.rust.cover("far", renderer, this.farScene, far);
 
@@ -917,14 +772,7 @@ export class Graphics {
     if (viewShown) {
       this.syncViewLights();
       const view = this.viewCamera;
-      view.position.copy(camera.position);
-      view.quaternion.copy(camera.quaternion);
-      if (view.fov !== camera.fov || view.aspect !== camera.aspect) {
-        view.fov = camera.fov;
-        view.aspect = camera.aspect;
-        view.updateProjectionMatrix();
-      }
-      view.updateMatrixWorld();
+      this.rust.cameras.derived(view,CAMERA_ROLE.VIEW);
       if (temporal) this.upscaler.shift(view);
       this.rust.cover("view", renderer, this.viewScene, view);
     }

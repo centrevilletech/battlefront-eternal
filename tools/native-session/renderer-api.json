@@ -2,6 +2,174 @@
   "class": "bferenderer",
   "methods": [
     {
+      "name": "camera_shader_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_pack_shader_frame",
+      "args": [
+        [
+          "pack",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_shadow_shader_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_static_shadow_frame",
+      "args": [
+        [
+          "index",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_project_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_light_command_frame",
+      "args": [
+        [
+          "command",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_global_shader_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_main_frame",
+      "args": [],
+      "result": "bool"
+    },
+    {
+      "name": "camera_derived_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_copy_frame",
+      "args": [
+        [
+          "from",
+          "u32"
+        ],
+        [
+          "to",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_shift_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_restore_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_reflect_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_probe_frame",
+      "args": [
+        [
+          "slot",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_sky_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ],
+        [
+          "follow",
+          "bool"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_lights_frame",
+      "args": [
+        [
+          "pack",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_shadow_configure_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_cascades_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "camera_shadow_frame",
+      "args": [
+        [
+          "index",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "camera_invalidate_frame",
+      "args": [
+        [
+          "index",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
       "name": "canopies_mesh",
       "args": [
         [
@@ -1974,6 +2142,60 @@
     }
   ],
   "banks": [
+    {
+      "name": "camera_input",
+      "type": "f64",
+      "pointer": "camera_input_ptr",
+      "length": "camera_input_len"
+    },
+    {
+      "name": "camera_output",
+      "type": "f64",
+      "pointer": "camera_output_ptr",
+      "length": "camera_output_len"
+    },
+    {
+      "name": "camera_windows",
+      "type": "f64",
+      "pointer": "camera_windows_ptr",
+      "length": "camera_windows_len"
+    },
+    {
+      "name": "camera_sky",
+      "type": "f64",
+      "pointer": "camera_sky_ptr",
+      "length": "camera_sky_len"
+    },
+    {
+      "name": "camera_lights",
+      "type": "f64",
+      "pointer": "camera_lights_ptr",
+      "length": "camera_lights_len"
+    },
+    {
+      "name": "camera_packs",
+      "type": "f64",
+      "pointer": "camera_packs_ptr",
+      "length": "camera_packs_len"
+    },
+    {
+      "name": "camera_mirror",
+      "type": "f64",
+      "pointer": "camera_mirror_ptr",
+      "length": "camera_mirror_len"
+    },
+    {
+      "name": "camera_light_input",
+      "type": "f64",
+      "pointer": "camera_light_input_ptr",
+      "length": "camera_light_input_len"
+    },
+    {
+      "name": "camera_light_output",
+      "type": "f64",
+      "pointer": "camera_light_output_ptr",
+      "length": "camera_light_output_len"
+    },
     {
       "name": "canopies_input",
       "type": "f64",

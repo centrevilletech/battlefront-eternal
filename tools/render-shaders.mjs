@@ -6,12 +6,14 @@ import { generate as staticLayout } from './render-static-layout.mjs';
 import { generate as interfaceLayout } from './render-interface-layout.mjs';
 import { generate as postLayout } from './render-post-layout.mjs';
 import { generate as frameLayout } from './render-frame-layout.mjs';
+import { generate as cameraLayout } from './render-camera-layout.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 export function generate(check = false) {
   interfaceLayout(check);
   staticLayout(check);
   postLayout(check);
   frameLayout(check);
+  cameraLayout(check);
   const base = root + 'rust/bfe-render/shaders/';
   const sources = {}, rows = [], twins = [];
   for (const family of readdirSync(base).sort()) {

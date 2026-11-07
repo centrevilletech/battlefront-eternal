@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { INPUT as I, LIGHT as P, PACK as K, LIMIT as L } from "./rust-render/camera-layout.js";
 
 // The point lights the map's materials (materials.js) add, packed for the
 // scene being drawn: only the lights that are on and can reach what the
@@ -39,7 +40,7 @@ function packOf(scene, camera) {
   let cameras = packs.get(scene);
   if (!cameras) packs.set(scene, (cameras = new WeakMap()));
   let pack = cameras.get(camera);
-  if (!pack) cameras.set(camera, (pack = { lights: Array.from({ length: ZERO_LIGHTS * 2 }, () => new THREE.Vector4()), count: 0 }));
+  if (!pack) cameras.set(camera, (pack = { lights: Array.from({ length: ZERO_LIGHTS * 2 }, () => new THREE.Vector4()), count: 0, native: -1, owner: null }));
   return pack;
 }
 
@@ -74,30 +75,31 @@ function shown(object, scene) {
   return true;
 }
 
-const at = new THREE.Vector3();
-const eye = new THREE.Vector3();
+function copyLight(rows,count,light,proxy,scene){
+    if(count===L.RAW_LIGHTS)return count;
+    const at=count++*P.LEN,e=light.matrixWorld.elements;
+    rows[at+P.POSITION]=e[12];rows[at+P.POSITION+1]=e[13];rows[at+P.POSITION+2]=e[14];
+    rows[at+P.COLOR]=light.color.r;rows[at+P.COLOR+1]=light.color.g;rows[at+P.COLOR+2]=light.color.b;
+    rows[at+P.INTENSITY]=light.intensity;rows[at+P.RANGE]=light.distance;rows[at+P.LAYERS]=light.layers.mask;
+    rows[at+P.SHOWN]=+(proxy?light.visible:shown(light,scene));rows[at+P.PROXY]=+!!proxy;
+    rows[at+P.INITIAL_SHOWN]=+!!proxy?.shown;rows[at+P.INITIAL_LAYERS]=proxy?.layers??0;
+  return count;
+}
 
-// The scene's lights that are on and can reach what the camera draws.
-export function packPointLights(scene, camera) {
-  const pack = packOf(scene, camera), slots = pack.lights;
-  let count = 0;
-  const lights = lightsOf(scene);
-  if (lights.length) eye.setFromMatrixPosition(camera.matrixWorld);
-  for (let i = 0; i < lights.length && count < ZERO_LIGHTS; i++) {
-    const light = lights[i];
-    if (!shown(light, scene) || !light.layers.test(camera.layers)) continue;
-    const intensity = light.intensity, color = light.color;
-    const r = color.r * intensity, g = color.g * intensity, b = color.b * intensity;
-    if (!(r > 0 || g > 0 || b > 0)) continue;
-    at.setFromMatrixPosition(light.matrixWorld);
-    const range = light.distance;
-    // Nothing drawn lies past the far plane, so nothing there is in range.
-    if (range > 0 && at.distanceTo(eye) > camera.far + range) continue;
-    slots[2 * count].set(at.x, at.y, at.z, range);
-    slots[2 * count + 1].set(r, g, b, 0);
-    count++;
-  }
-  pack.count = count;
+
+// Discovery and parent visibility remain graph facts. Native packing owns
+// colour/intensity, range rejection and transformed first-person proxies.
+export function packPointLights(scene, camera, owner=scene.userData.nativeCameraOwner) {
+  const pack=packOf(scene,camera);
+  if(pack.owner!==owner){pack.owner=owner;pack.native=owner.nextPack++;}
+  const core=owner.core;if(pack.native>=L.PACKS){pack.count=0;core.rust.camera_lights_frame(pack.native);return pack;}core.views();const a=core.cameraInput,rows=core.cameraLights;
+  const lights=lightsOf(scene),proxies=scene.userData.nativeViewLights||EMPTY.lights;let count=0;
+  for(let i=0;i<lights.length;i++)count=copyLight(rows,count,lights[i],null,scene);
+  for(let i=0;i<proxies.length;i++)count=copyLight(rows,count,proxies[i].source,proxies[i],scene);
+  a[I.LIGHT_COUNT]=count;const eye=camera.matrixWorld.elements;
+  a[I.LIGHT_EYE]=eye[12];a[I.LIGHT_EYE+1]=eye[13];a[I.LIGHT_EYE+2]=eye[14];a[I.LIGHT_FAR]=camera.far;a[I.LIGHT_LAYERS]=camera.layers.mask;a.set(scene.matrixWorld.elements,I.VIEW_WORLD);
+  core.rust.camera_lights_frame(pack.native);const out=core.cameraPacks,base=pack.native*K.LEN;pack.count=out[base+K.COUNT];
+  for(let i=0;i<pack.count*2;i++)pack.lights[i].fromArray(out,base+K.VALUES+i*4);
   return pack;
 }
 
@@ -163,6 +165,7 @@ export function installPointLights() {
   const previous = THREE.Scene.prototype.onBeforeRender;
   THREE.Scene.prototype.onBeforeRender = function (renderer, scene, camera, target) {
     previous.call(this, renderer, scene, camera, target);
+    this.userData.nativeCameraOwner=renderer.nativeCameraOwner;
     packPointLights(this, camera);
   };
 }

@@ -41,7 +41,7 @@ The battle post chain publishes generated facts to `post_chain.rs`: settings,
 render/output dimensions, vehicle blur and resource IDs. Rust chooses the
 ordered programs, targets and uniform values, owns camera-cut/jitter/history
 state, and commits history only after the complete draw succeeds. The browser
-retains target and camera shells; it applies the published camera adjustment.
+retains target and camera readback shells; the native camera owner applies the published adjustment.
 There are no post-step material shells or browser post-step arrays. Paced
 loading registers all eleven post variants before battle drawing. The boundary
 comes from `post-chain-layout.json` and `tools/render-post-layout.mjs`.
@@ -53,7 +53,17 @@ holds, cascade refreshes and the complete target/clear/copy/resolve schedule.
 schedule without browser scene or drawing callbacks. Mirror packets retain the
 previous shadow inputs; the main shadow refresh follows their execution.
 
-Scene preparation still reads three cameras, scene transforms and descriptors.
+The native camera owner imports the gameplay camera's f64 publication and owns
+far/first-person views, CSM splits and held windows, shadow cameras, oblique
+water clipping, cube probe views and sky following. The light owner computes
+map/environment colours, point-light packs and storm flashes. Matrix and light
+shader blocks read their native publications directly. Mirrors retain the
+preceding shadow matrices until a selected shadow pass publishes its update.
+Camera shells expose readbacks to audio, controls and existing scene consumers;
+scene discovery, visibility, model-view matrices and render hooks still depend
+on those graph consumers. Derived shells never recompute camera matrices.
+
+Scene preparation still reads scene transforms and descriptors.
 The host snapshots only live record/bone/FX prefixes into retained native view
 storage before another camera overwrites the working inputs. Dynamic interface
 uploads belong to their UI packet. Lines join the existing native transparent

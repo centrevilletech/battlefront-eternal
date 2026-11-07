@@ -65,7 +65,7 @@ export class Upscaler {
     this.current = new THREE.Matrix4(); this.previous = new THREE.Matrix4();
     this.jitter = new THREE.Vector2(); this.sharpness = .4;
     this.resetSerial = 0; this.resetFrame = -1; this.resetRead = -1;
-    this.shiftedCameras = new Array(3); this.shiftedOffsets = new Float64Array(6); this.shiftedCount = 0;
+    this.shiftOffset=STATE.SHIFT;
     this.depth = null;
     this.motionInput={target:this.velocity,root:null,camera:null,viewScene:null,view:null,depth:null,current:this.current,previous:this.previous};
   }
@@ -87,24 +87,9 @@ export class Upscaler {
   get frame() { return this.core.postState[STATE.FRAME]; }
   get valid() { return this.core.postState[STATE.VALID] !== 0; }
 
-  // Apply only the native pixel adjustment. Camera inverse publication stays
-  // with the scene host until that owner consumes native camera records.
-  shift(camera) {
-    if (this.shiftedCount === this.shiftedCameras.length) return;
-    const k = this.shiftedCount++, e = camera.projectionMatrix.elements;
-    this.shiftedCameras[k] = camera; this.shiftedOffsets[k*2] = e[8]; this.shiftedOffsets[k*2+1] = e[9];
-    e[8] -= this.core.postState[STATE.SHIFT]; e[9] -= this.core.postState[STATE.SHIFT+1];
-    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-  }
-  restore() {
-    for (let i = 0; i < this.shiftedCount; i++) {
-      const camera = this.shiftedCameras[i];
-      camera.projectionMatrix.elements[8] = this.shiftedOffsets[i*2]; camera.projectionMatrix.elements[9] = this.shiftedOffsets[i*2+1];
-      camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-      this.shiftedCameras[i] = null;
-    }
-    this.shiftedCount = 0;
-  }
+  // Camera arithmetic and saved projections belong to the retained owner.
+  shift(camera) { this.core.cameras.shift(camera); }
+  restore() { this.core.cameras.restore(); }
 
   // Motion geometry still belongs to its existing phase. It consumes native
   // current/previous matrices; no history clock or post commit lives here.

@@ -22,11 +22,14 @@
 //   own (an object, or a function of { calls, region } making one); a test
 //   can also set one on the instance later.
 import { FACTS as F, STATE as S, BINDING as B, META as M, ROLE as R, LINE as V, LIMIT as L, STATS as T } from "../../src/rust-render/frame-layout.js";
+import { INPUT as CI, CAMERA as CC, CASCADE as CW, LIGHT as CL, PACK as CP, MIRROR as CM, ROLE as CR, LIMIT as CX, LIGHT_INPUT as CLI, LIGHT_OUTPUT as CLO } from "../../src/rust-render/camera-layout.js";
 import * as THREE from "three";
 
 export const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export const LENGTHS = {
+  camera_light_input:CLI.LEN,camera_light_output:CLO.LEN,
+  camera_input:CI.LEN,camera_output:CR.COUNT*CC.LEN,camera_windows:CX.CASCADES*CW.LEN,camera_lights:CX.RAW_LIGHTS*CL.LEN,camera_packs:CX.PACKS*CP.LEN,camera_mirror:CM.LEN,camera_sky:CX.SKY*3,
   frame_facts:F.LEN,frame_state:S.LEN,frame_bindings:R.COUNT*B.LEN,frame_meta:R.COUNT*M.LEN,frame_stats:R.COUNT*T.LEN,frame_lines:3*L.LINES*V.LEN,
   input: 200 + 100 * 8, bones: 64,
   far_input: 1024,
@@ -40,7 +43,7 @@ export const LENGTHS = {
 };
 export const LAYOUT = { records_at: 200, record_stride: 100, transparent_object_stride: 40 };
 
-export const QUIET = ["transparent_bucket_shown", "foliage_on"];
+export const QUIET = ["camera_global_shader_frame","camera_shader_frame","camera_pack_shader_frame","transparent_bucket_shown", "foliage_on"];
 
 export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet = QUIET, stats = STATS, memoryBytes = 1 << 23 } = {}) {
   const calls = [];
@@ -69,6 +72,9 @@ export function standinModule({ lengths = {}, layout = {}, methods = {}, quiet =
   const row=name=>new Float64Array(memory.buffer,region(name),length(name));
   const nativeView = role => role===R.FAR?'far_frame':role===R.NEAR?'frame':role===R.VIEW?'view_frame':role===R.MOTION?'motion_frame':role===R.MIRROR0_NEAR?'mirror_frame':role===R.TRANSPARENT?'transparent_frame':role===R.MIRROR0_TRANSPARENT?'mirror_transparent_frame':(role>=R.HUD0&&role<=R.HUD7||role>=R.HUD8&&role<=R.HUD15)?'hud_frame':role>=R.SHADOW_STATIC0&&role<=R.SHADOW_DYNAMIC3?'shadow_frame':'screen_frame';
   const frameMethods={
+    camera_pack_shader_frame(pack){const out=row('input'),input=row('camera_packs'),at=pack*CP.LEN;out[70]=input[at+CP.COUNT];for(let i=0;i<out[70]*8;i++)out[72+i]=input[at+CP.VALUES+i];},
+    camera_shader_frame(role){const out=row('input'),input=row('camera_output'),at=role*CC.LEN;for(let i=0;i<16;i++){out[i]=input[at+CC.PROJECTION+i];out[16+i]=input[at+CC.INVERSE+i];}for(let i=0;i<3;i++)out[32+i]=input[at+CC.WORLD+12+i];},
+
     frame_publish_frame(role){calls.push(['frame_publish_frame',role]);return true;},
     frame_aux_frame(owner,role){
       const meta=row('frame_meta'),at=role*M.LEN;let name=nativeView(role),args=[];
@@ -176,7 +182,7 @@ export function standinThree(calls, { graphics: extra = {}, context = standinCon
   };
   standinResources(renderer,calls);
   const graphics = {
-    renderer, scene, camera, farScene: new THREE.Scene(), farCamera: camera, viewScene: new THREE.Scene(), sceneTarget, farTarget,
+    renderer, scene, camera, farScene: new THREE.Scene(), farCamera:new THREE.PerspectiveCamera(),viewCamera:new THREE.PerspectiveCamera(),cascadeCamera:new THREE.PerspectiveCamera(),shadowCamera:new THREE.PerspectiveCamera(),staticShadowCamera:new THREE.PerspectiveCamera(), viewScene: new THREE.Scene(), sceneTarget, farTarget,
     background: new THREE.Object3D(), settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null, ...extra,
   };
   return { renderer, graphics, scene, camera, list, properties: renderer.properties, setTarget: (t) => { target = t; } };

@@ -118,6 +118,10 @@ export const LOCKSTEP_START_SRC = `async b => {
 }`;
 
 export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2', warm = Number(process.env.WARM || 12), extraSrc = '', query } = {}) {
+  // Retire the startup page before its asynchronous settings migration can
+  // overwrite the frozen fixture. The battle starts in a fresh document.
+  await c.psend('Page.navigate', {url:'about:blank'});
+  await sleep(100);
   writeSettings(settings);
   await fitWindow(c);
   await sleep(1500);
@@ -154,6 +158,9 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
     catch (e) { console.log('metrics override failed', e.message); }
   }
   const t0 = Date.now();
+  // Shell startup may persist imported defaults after the first write. Seal
+  // the complete fixture at navigation, after that shell has initialized.
+  writeSettings(settings);
   await c.psend('Page.navigate', { url: `${process.env.BFE_APP_URL || "app://bfe/"}?${q}` });
   let failed = null;
   for (let i = 0; i < 600; i++) {

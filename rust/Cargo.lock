@@ -227,6 +227,7 @@ dependencies = [
  "glow",
  "image-webp",
  "js-sys",
+ "jsrt",
  "png",
  "serde",
  "serde_json",

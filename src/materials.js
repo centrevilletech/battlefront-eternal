@@ -66,21 +66,11 @@ export const lighting = {
   zeroLightCount: pointLighting.drawLightCount,
 };
 
-// Engine defaults when a map's sky leaves a light out.
-export function setLighting(map) {
-  lighting.shadowStrength.value = 1;
-  const l = map.lighting || {};
-  const set = (uniform, rgb, fallback) => {
-    const c = rgb || fallback;
-    uniform.value.set(c[0] / 255, c[1] / 255, c[2] / 255);
-  };
-  set(lighting.ambient, l.ambient, [128, 128, 128]);
-  set(lighting.characterAmbient, l.character || l.ambient, [128, 128, 128]);
-  set(lighting.ambientTop, l.top, [128, 128, 128]);
-  set(lighting.ambientBottom, l.bottom, [128, 128, 128]);
-  set(lighting.sunColor, l.sunColor, [128, 128, 128]);
-  lighting.sunDirection.value.fromArray(l.sunDirection || [0, -1, 0]).normalize();
-}
+// Map admission may finish before the renderer module. Keep authored facts
+// until its light owner arrives; no browser arithmetic prepares uniforms.
+let lightOwner=null,lightMap=null,fogMap=null;
+export function bindLighting(owner){lightOwner=owner;if(lightMap)owner.mapLighting(lightMap);if(fogMap)owner.mapFog(fogMap);}
+export function setLighting(map){lightMap=map;if(lightOwner)lightOwner.mapLighting(map);}
 
 // The fog range that fogs nothing: it starts past any far scene.
 export const NO_FOG = Object.freeze([1e9, 2e9]);
@@ -98,11 +88,8 @@ export function fogs(range) {
 // colour), FogFar already stretched by 255 / alpha at import. None without a
 // LowResTerrain, or when its range fogs nothing. The colour is kept either
 // way, as the original game keeps its render state.
-export function setFog(map) {
-  const low = map.distance?.lowRes;
-  if (low?.fog) lighting.fogColor.value.set(low.fog[0] / 255, low.fog[1] / 255, low.fog[2] / 255);
-  lighting.fogRange.value.fromArray(low?.fog && fogs(low.fogRange) ? low.fogRange : NO_FOG);
-}
+export function setFog(map){fogMap=map;if(lightOwner)lightOwner.mapFog(map);}
+
 
 // The sky material for a "sky" record (describe(): kind "sky"): the sky dome
 // and the models over it, drawn by the effects family's owned program.

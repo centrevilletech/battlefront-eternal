@@ -1,4 +1,5 @@
 import { ROLE as R } from "../src/rust-render/frame-layout.js";
+import { INPUT as CAMERA_INPUT } from "../src/rust-render/camera-layout.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -23,7 +24,7 @@ const LAMPS = [["localLightPositions[0]", GL.FLOAT_VEC4], ["localLightColors[0]"
 function bridge({ shadows = false, lamps = false } = {}) {
   const { BfeRenderer, memory, calls, region } = standinModule();
   const settings = new Map([["lampLighting", lamps]]);
-  const csm = shadows ? { lights: [0, 1].map((i) => ({ shadow: {
+  const csm = shadows ? {lightDirection:new THREE.Vector3(0,-1,0),shadowMapSize:1024,maxFar:500,lightNear:1,lightFar:3000,lightMargin:400, lights: [0, 1].map((i) => ({ shadow: {
     intensity: 1, bias: -0.015 / 2999, normalBias: 0, radius: 1, mapSize: new THREE.Vector2(1024, 1024),
     matrix: new THREE.Matrix4().makeTranslation(i + 1, 2, 3) } })) } : null;
   const three = standinThree(calls, { graphics: { csm, settings: { get: (k) => settings.get(k) ?? false } } });
@@ -104,19 +105,16 @@ test("native static anchors never expose material descriptors during shadow trav
   core.reveal(() => world.draw());
 });
 
-test("the shadow block: each cascade's values, matrix, plane matrix and slice in BfeShadow's layout, and its maps", () => withCascades(() => {
+test("shadow resources and scalar metadata reach the native shadow publisher", () => withCascades(() => {
   const { core, calls, region, memory } = bridge({ shadows: true });
   core.writeShadow();
   const maps = calls.filter((c) => c[0] === "set_shadow_maps");
   assert.equal(maps.length, 1);
   assert.deepEqual([...maps[0][1]], [0, 1], "the cascades' depth maps, registered, in cascade order");
-  const out = new Float64Array(memory.buffer, region("shadow_input"), 160);
-  assert.deepEqual([...out.subarray(0, 8)], [1, -0.015 / 2999, 0, 1, 1024, 1024, 0, 0], "cascade 0's DirectionalLightShadow (std140: map size at float 4)");
-  assert.deepEqual([...out.subarray(32 + 12, 32 + 15)], [1, 2, 3], "cascade 0's matrix, column-major (its translation)");
-  assert.deepEqual([...out.subarray(48 + 12, 48 + 15)], [2, 2, 3], "cascade 1's");
-  assert.deepEqual([...out.subarray(96, 108)], [1, 4, 7, 0, 2, 5, 8, 0, 3, 6, 9, 0], "plane matrix: three columns of four");
-  assert.deepEqual([...out.subarray(144, 152)], [0, 0.25, 0, 0, 0.25, 1, 0, 0], "slices, a vec4 each");
-  assert.deepEqual([...out.subarray(64, 96)], new Array(32).fill(0), "no third and fourth cascade");
+  assert.ok(calls.some(c=>c[0]==="camera_shadow_shader_frame"));
+  const out=core.cameraInput,at=CAMERA_INPUT.SHADOW_METADATA;
+  assert.deepEqual([...out.subarray(at,at+6)],[1,-.015/2999,0,1,1024,1024]);
+  assert.deepEqual([...out.subarray(at+6,at+12)],[1,-.015/2999,0,1,1024,1024]);
   core.writeShadow();
   assert.equal(calls.filter((c) => c[0] === "set_shadow_maps").length, 1, "the maps given again only when they change");
 }));
@@ -181,6 +179,7 @@ test("the frame block survives the renderer's memory growing while the Enhanced 
   light.position.set(4, 5, 6);
   scene.add(light);
   scene.updateMatrixWorld(true);
+  core.rust.camera_lights_frame=()=>core.cameraPacks.set([1,4,5,6,10,1,1,1,0]);
   scene.onBeforeRender(renderer, scene, camera);
   // Sending the lamp table grows the memory: every view of the old one detaches.
   let grown = 0;
@@ -197,6 +196,8 @@ test("the frame block survives the renderer's memory growing while the Enhanced 
 // matrices and map (a depth texture), updateMatrices as three's.
 function cascade(size = 1024) {
   const light = new THREE.DirectionalLight();
+  light.userData.nativeCascade=0;
+  lighting.cascadePlanes.value[0]??=new THREE.Matrix3();
   light.position.set(0, 10, 0);
   light.target.position.set(0, 0, 0);
   light.updateMatrixWorld(true);
