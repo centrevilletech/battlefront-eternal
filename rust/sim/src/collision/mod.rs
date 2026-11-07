@@ -790,7 +790,9 @@ pub extern "C" fn grid_ray(id: u32) -> u32 { owner().grid_ray(id) }
 pub extern "C" fn tree_ray(id: u32) -> u32 { owner().tree_ray(id) }
 
 /// Nothing: what a call into the module costs by itself.
-#[no_mangle]
+// The raw WASM host names this stub; native audio and simulation link
+// together and must retain their distinct Rust symbol identities.
+#[cfg_attr(target_arch = "wasm32", no_mangle)]
 pub extern "C" fn nothing() -> u32 { 0 }
 
 #[cfg(test)]

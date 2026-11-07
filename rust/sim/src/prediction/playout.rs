@@ -210,10 +210,20 @@ pub fn measure_gap(samples: &[f64]) -> Result<f64> {
         return Ok(0.0);
     }
     let mut sorted = samples.to_vec();
-    jsrt::sort::typed_sort_f64(&mut sorted);
-    let count = sorted.len() as f64;
-    let at = js_min(count - 1.0, (count * 0.95).floor()) as usize;
-    Ok(sorted[at])
+    measure_gap_in_place(&mut sorted)
+
+}
+
+/// Native hosts lend retained scratch instead of allocating a sorted copy.
+/// Finite numeric order, including signed zero, matches TypedArray.sort;
+/// equal finite values have identical bits, so unstable tie order is inert.
+pub fn measure_gap_in_place(samples:&mut[f64])->Result<f64>{
+    for &sample in samples.iter(){finite(sample)?;}
+    if samples.is_empty(){return Ok(0.0);}
+    samples.sort_unstable_by(f64::total_cmp);
+    let count=samples.len() as f64;
+    let at=js_min(count-1.0,(count*0.95).floor())as usize;
+    Ok(samples[at])
 }
 
 /// Capture these values after the host's original custom sort and percentile

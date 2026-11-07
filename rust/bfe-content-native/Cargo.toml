@@ -18,6 +18,7 @@ glow = "0.18"
 sha2 = "0.10"
 
 three = { path = "../three" }
+jsrt = { path = "../jsrt" }
 
 [dev-dependencies]
 png = "0.18"

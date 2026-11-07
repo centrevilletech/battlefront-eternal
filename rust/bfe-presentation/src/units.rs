@@ -201,6 +201,10 @@ impl Units {
         });
         id
     }
+    /// Native resource pools can lend a skeleton to another identity whose
+    /// generation happens to equal the previous body's. Force the ordinary
+    /// life-boundary path without constructing another rig or animator.
+    pub fn reset_binding(&mut self,id:usize){if let Some(actor)=self.actors.get_mut(id){actor.generation=-1.0;}}
     /// Held sampling snapshots the native local pose at first seizure.
     /// Immutable bind lengths remain the class's; unkeyed joints keep the
     /// current pose, as riderPoints read them without another JS bone copy.

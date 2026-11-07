@@ -38,3 +38,5 @@ toolchain/
 
 .host-runtime-stage-*/
 .host-runtime-previous/
+
+.transport-addon/

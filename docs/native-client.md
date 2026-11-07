@@ -14,6 +14,23 @@ device and prints a framebuffer comparison before its last swap. Battle output
 lives in a fixed RGBA8 canvas target, then blits to the window. An overlapping
 window cannot discard replay fragments through X11 pixel ownership.
 
+`bfe-client --join HOST:PORT CONTENT_DIR` reads the server's public battle
+information, loads that mission, and authenticates BFE-UDP/1 with a persistent
+Ed25519 identity. `--identity KEY_FILE` selects a separate profile and `--name
+NAME` supplies its roster name. The default key belongs to the user's application
+data directory. An invalid key is reported, never silently replaced. Close and
+join again with the same profile to reconnect under the server's grace policy.
+
+Online sessions receive snapshots directly into the Rust network owner and
+sample its retained timeline from the presentation phases. They create no local
+authoritative world. The server-selected class spawns automatically; Space asks
+to spawn again after death. WASD moves, mouse motion aims, mouse buttons fire,
+and the existing generated desktop controls provide posture, jump and reload.
+Map resources and remote body rigs are admitted before packet delivery; live
+frames retain bounded input, transport, snapshot, skeleton and renderer storage.
+The server remains responsible for admission, teams, spawning and service policy.
+`--no-audio` permits a diagnostic run without an audio device.
+
 `bfe-content-native::Loader` reads the prepared maps, sides and common files.
 It uses the shared native definition, clip, model, collision and BVH loaders,
 then constructs visible geometry, material descriptors, texture resources and
@@ -63,7 +80,8 @@ The headless `bfe-native` regression tool retains its near-only capture format.
 The client uses one window host and requires a version-2 `session.json`;
 a failed full session never switches to the near renderer. Replay currently
 carries the recorded camera and pass schedule. It does not construct an
-interactive authoritative native battle or a menu/transport service.
+interactive authoritative native battle or a menu service. Direct online joins
+use the snapshot host described above.
 
 `bfe-client --map MAP CONTENT_DIR --seconds 20` admits an inspection scene from
 prepared files. The free camera uses the generated input records. Admission

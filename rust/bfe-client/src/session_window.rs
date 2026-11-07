@@ -30,6 +30,9 @@ use winit::{
 struct Options {
     dir: PathBuf,
     map: Option<String>,
+    join: Option<String>,
+    identity: PathBuf,
+    name: String,
     seconds: Option<Duration>,
     root: PathBuf,
     audio: bool,
@@ -42,29 +45,34 @@ impl Options {
         let mut args = std::env::args().skip(1);
         let first = args
             .next()
-            .ok_or("usage: bfe-client SESSION_DIR [CONTENT_DIR] or --map MAP [CONTENT_DIR]")?;
+            .ok_or("usage: bfe-client --join HOST:PORT [CONTENT_DIR] or --map MAP [CONTENT_DIR] or SESSION_DIR [CONTENT_DIR]")?;
+        let join=if first=="--join"{Some(args.next().ok_or("missing server address")?)}else{None};
         let map = if first == "--map" {
             Some(args.next().ok_or("missing map id")?)
         } else {
             None
         };
-        let dir = if map.is_some() {
+        let dir = if map.is_some() || join.is_some() {
             PathBuf::new()
         } else {
             PathBuf::from(first)
         };
         // Select inputs before creating the event loop. calls.json belongs to
         // the separate headless replay tool, never to a second window host.
-        if map.is_none() && !dir.join("session.json").is_file() {
+        if map.is_none() && join.is_none() && !dir.join("session.json").is_file() {
             return Err("expected a version-2 session.json archive or --map; near captures use bfe-native".into());
         }
+        let mut identity=None;let mut name=String::from("Player");let mut audio=audio;
         let mut seconds = None;
         let mut desktop_gl = false;
         let mut root = std::env::var_os("BFE_CONTENT_DIR").map(PathBuf::from);
         let mut pcm = Vec::new();
         let mut sound = None;
         while let Some(arg) = args.next() {
-            if arg == "--seconds" {
+            if arg=="--identity"{identity=Some(PathBuf::from(args.next().ok_or("missing identity path")?));}
+            else if arg=="--name"{name=args.next().ok_or("missing player name")?;}
+            else if arg=="--no-audio"{audio=false;}
+            else if arg == "--seconds" {
                 let value: f64 = args
                     .next()
                     .ok_or("missing duration")?
@@ -97,6 +105,9 @@ impl Options {
         Ok(Self {
             dir,
             map,
+            join,
+            identity:match identity{Some(p)=>p,None=>crate::online::info::default_identity()?},
+            name,
             seconds,
             root: root.ok_or("content directory required")?,
             audio,
@@ -114,6 +125,11 @@ enum SceneDriver {
         host: Host<RecordedWorld>,
         frame: usize,
     },
+    Online {
+        scene:crate::scene::Scene,
+        host:Host<crate::online::client::Client>,
+        last:Instant,start:Option<Instant>,seconds:Option<Duration>,initial:Option<String>,
+    },
     Native {
         scene: crate::scene::Scene,
         host: Host<crate::scene::MapCamera>,
@@ -130,6 +146,7 @@ impl SceneDriver {
         match self {
             Self::Recorded { host, .. } => &mut host.input,
             Self::Native { host, .. } => &mut host.input,
+            Self::Online { host, .. } => &mut host.input,
         }
     }
     fn pause(&mut self) {
@@ -139,6 +156,7 @@ impl SceneDriver {
                 host.pause();
                 *last = Instant::now();
             }
+            Self::Online{host,last,..}=>{host.pause();*last=Instant::now();}
         }
     }
     fn redraw(&mut self) -> Result<bool, String> {
@@ -156,6 +174,20 @@ impl SceneDriver {
                     println!("{}", session.compare()?);
                 }
                 Ok(done)
+            }
+            Self::Online{scene,host,last,start,seconds,initial}=>{
+                let now=Instant::now();let elapsed=now.duration_since(*last).as_secs_f64();*last=now;
+                host.world.receive(elapsed)?;
+                // Copy only the fixed frame bank. Replica phases borrow the
+                // receiver beside it, without borrowing a World or JS facade.
+                let view=crate::scene::View{values:host.frame(elapsed)?.values};
+                host.world.send()?;
+                if let Some(resources)=&mut scene.online{resources.frame(&host.world.receiver,host.world.receiver.clock.shown,elapsed.min(8./60.),host.world.camera.position);}
+                scene.draw(&view)?;
+                if start.is_none(){*start=Some(now);if seconds.is_some(){*initial=Some(scene.hash()?);}eprintln!("native online scene ready");}
+                if seconds.is_some_and(|duration|now.duration_since(start.unwrap_or(now))>=duration){
+                    let mut summary=host.world.summary();summary["draws"]=scene.draws.into();summary["initial"]=initial.clone().into();summary["final"]=scene.hash()?.into();summary["visible"]=scene.online.as_ref().map_or(0,|r|r.visible).into();println!("{summary}");return Ok(true);
+                }Ok(false)
             }
             Self::Native {
                 scene,
@@ -198,6 +230,7 @@ impl SceneDriver {
         match self {
             Self::Recorded { session, .. } => session.canvas.show(),
             Self::Native { scene, .. } => scene.canvas.show(),
+            Self::Online { scene, .. } => scene.canvas.show(),
         }
     }
 }
@@ -217,7 +250,7 @@ struct Running {
 }
 impl Running {
     fn new(el: &ActiveEventLoop, options: &mut Options) -> Result<Self, String> {
-        let meta: serde_json::Value = if options.map.is_some() {
+        let meta: serde_json::Value = if options.map.is_some() || options.join.is_some() {
             serde_json::json!({"size":[1280,720]})
         } else {
             serde_json::from_slice(
@@ -282,7 +315,13 @@ impl Running {
                 display.get_proc_address(name) as *const _
             })
         };
-        let scene = if let Some(map) = &options.map {
+        let scene = if let Some(address)=&options.join{
+            let server=crate::online::info::Server::read(address)?;
+            let (scene,camera)=crate::scene::Scene::load_online(&options.root,&server.query,[size(0)?as i32,size(1)?as i32],load)?;
+            let resources=scene.online.as_ref().ok_or("missing online resources")?;
+            let client=crate::online::client::Client::connect(address,&server,&options.root,&options.identity,&options.name,resources,camera)?;
+            SceneDriver::Online{scene,host:Host::new(client),last:Instant::now(),start:None,seconds:options.seconds,initial:None}
+        }else if let Some(map) = &options.map {
             let (scene, camera) = crate::scene::Scene::load(
                 &options.root,
                 map,

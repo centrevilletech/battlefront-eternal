@@ -1,0 +1,30 @@
+[package]
+name = "bfe-transport"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "BFE-UDP/1 client transport and shared wire layouts"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+node = ["dep:napi", "dep:napi-derive", "dep:bfe-presentation", "dep:bfe-pose"]
+
+[dependencies]
+aes-gcm = "0.10"
+ed25519-dalek = "2"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+hkdf = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.2"
+serde_json = "1"
+napi = { version = "=2.16.17", default-features = false, features = ["napi8"], optional = true }
+napi-derive = { version = "=2.16.13", optional = true }
+bfe-presentation = { path = "../bfe-presentation", default-features = false, optional = true }
+bfe-pose = { path = "../bfe-pose", optional = true }
+
+[build-dependencies]
+napi-build = "=2.3.1"

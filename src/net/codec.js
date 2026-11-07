@@ -4,24 +4,14 @@
 //
 // First-byte ranges stay clear of STUN (0x00-0x03) and TURN ChannelData
 // (0x40-0x4f), so game, STUN and relayed packets share one socket (RFC 7983).
-export const TRANSPORT_VERSION = 1;
-export const PACKET = Object.freeze({
-  INITIATION: 0xb1, RESPONSE: 0xb2, RETRY: 0xb3, DATA: 0xb4, DATA_PHASE: 0xb5,
-  VERSION: 0xb6, CONFIRM: 0xb7, PUNCH: 0xb8,
-});
-export const FRAME = Object.freeze({
-  PADDING: 0x00, PING: 0x01, ACK: 0x02, DATAGRAM: 0x03, FRAGMENT: 0x04, STREAM: 0x05,
-  CLOSE: 0x06, HANDSHAKE_DONE: 0x07, PATH_CHALLENGE: 0x08, PATH_RESPONSE: 0x09,
-});
-// Every datagram stays under the 1280-byte IPv6 minimum MTU, with room for
-// a TURN ChannelData header, so nothing depends on IP fragmentation.
-export const MAX_DATAGRAM = 1200;
-export const DATA_HEADER = 9, TAG = 16;
-export const MAX_PLAINTEXT = MAX_DATAGRAM - DATA_HEADER - TAG;
-// Streams carry ordered reliable messages; the state lane is unreliable.
-export const STREAMS = Object.freeze({ events: 1, bulk: 2 });
-export const LANES = Object.freeze(['state', 'events', 'bulk']);
-export const MAX_MESSAGE = 1 << 20;
+import {PACKET, FRAME, STREAM, LIMITS, DATA, TRANSPORT_VERSION} from './layout.js';
+export {PACKET, FRAME, TRANSPORT_VERSION};
+export const MAX_DATAGRAM=LIMITS.MAX_DATAGRAM;
+export const DATA_HEADER=DATA.BYTES,TAG=LIMITS.TAG;
+export const MAX_PLAINTEXT=MAX_DATAGRAM-DATA_HEADER-TAG;
+export const STREAMS=Object.freeze({events:STREAM.EVENTS,bulk:STREAM.BULK});
+export const LANES=Object.freeze(['state','events','bulk']);
+export const MAX_MESSAGE=LIMITS.MAX_MESSAGE;
 
 // QUIC variable-length integers (RFC 9000 section 16): 1, 2, 4 or 8 bytes.
 export function varintSize(value) {

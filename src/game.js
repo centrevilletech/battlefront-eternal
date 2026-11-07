@@ -1770,7 +1770,6 @@ async function start() {
     if (driver) Object.assign(driver, { soldier, combat, actor, animator, clips, presentation });
     gunner.combat = combat;
     gunner.animator = animator;
-    for (const key of Object.keys(waterContact)) delete waterContact[key];
     wireBody();
     setPerspective(firstPerson);
     audio.retarget({ soldier, combat, actor, unit: next.className, def: soldierDef });

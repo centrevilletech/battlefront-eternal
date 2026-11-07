@@ -13,16 +13,17 @@
 // padding: a RESPONSE stays verifiable whichever initiation it answers, so a
 // stray or spoofed RETRY cannot stall a join.
 import { randomBytes } from 'node:crypto';
+import {COMMON as H,INITIATION as I,RESPONSE as R,CONFIRM as C,RETRY as T,PROOF as P,LIMITS as L} from './layout.js';
 import { PACKET, TRANSPORT_VERSION, MAX_DATAGRAM } from './codec.js';
 import {
   Aead, ephemeralKeyPair, expandLabel, hkdfExtract, publicIdentity, sha256, signTranscript, verifyTranscript, x25519,
 } from './crypto.js';
 
 export const INITIATION_BYTES = MAX_DATAGRAM;
-const RESPONSE_HEADER = 60, CONFIRM_HEADER = 8, MAX_TOKEN = 64, INITIATION_FIELDS = 54;
+const RESPONSE_HEADER=R.BYTES,CONFIRM_HEADER=C.BYTES,MAX_TOKEN=L.MAX_TOKEN,INITIATION_FIELDS=L.INITIATION_FIELDS;
 // A RESPONSE (186 bytes of framing plus the hello) must fit one datagram.
-export const MAX_HELLO = MAX_DATAGRAM - RESPONSE_HEADER - 110 - 16;
-export const CONFIRM_MIN = CONFIRM_HEADER + 110 + 16;
+export const MAX_HELLO = L.MAX_HELLO;
+export const CONFIRM_MIN = CONFIRM_HEADER + P.BYTES + L.TAG;
 const LABEL = Object.freeze({ initiation: 'BFE-UDP/1 initiation', server: 'BFE-UDP/1 server', client: 'BFE-UDP/1 client' });
 
 const initiationTranscript = packet => sha256(Buffer.from(LABEL.initiation), packet.subarray(0, INITIATION_FIELDS));
@@ -41,15 +42,15 @@ function decodeHello(bytes) {
 }
 // identity || signature || u16 length || hello
 function proofPlaintext(identity, signature, hello) {
-  const out = Buffer.alloc(44 + 64 + 2 + hello.length);
-  identity.copy(out, 0); signature.copy(out, 44); out.writeUInt16LE(hello.length, 108); hello.copy(out, 110);
+  const out = Buffer.alloc(P.BYTES + hello.length);
+  identity.copy(out,P.IDENTITY);signature.copy(out,P.SIGNATURE);out.writeUInt16LE(hello.length,P.HELLO_LENGTH);hello.copy(out,P.BYTES);
   return out;
 }
 function readProof(plaintext) {
-  if (plaintext.length < 110) throw Error('truncated proof');
-  const helloLength = plaintext.readUInt16LE(108);
-  if (helloLength > MAX_HELLO || 110 + helloLength !== plaintext.length) throw Error('invalid proof');
-  return { identity: plaintext.subarray(0, 44), signature: plaintext.subarray(44, 108), helloBytes: plaintext.subarray(110) };
+  if (plaintext.length < P.BYTES) throw Error('truncated proof');
+  const helloLength = plaintext.readUInt16LE(P.HELLO_LENGTH);
+  if (helloLength > MAX_HELLO || P.BYTES + helloLength !== plaintext.length) throw Error('invalid proof');
+  return { identity: plaintext.subarray(P.IDENTITY,P.SIGNATURE), signature: plaintext.subarray(P.SIGNATURE,P.HELLO_LENGTH), helloBytes: plaintext.subarray(P.BYTES) };
 }
 function trafficKeys(transcript, handshakeSecret) {
   const master = hkdfExtract(transcript, handshakeSecret);
@@ -57,10 +58,10 @@ function trafficKeys(transcript, handshakeSecret) {
 }
 
 export function readInitiation(packet) {
-  if (packet.length < INITIATION_BYTES || packet.length > 1500 || packet[0] !== PACKET.INITIATION) return null;
-  const tokenLength = packet.readUInt16LE(54);
+  if (packet.length < INITIATION_BYTES || packet.length > 1500 || packet[I.TYPE] !== PACKET.INITIATION) return null;
+  const tokenLength = packet.readUInt16LE(I.TOKEN_LENGTH);
   if (tokenLength > MAX_TOKEN) return null;
-  return { version: packet[1], clientSession: packet.readUInt32LE(2), ephemeral: packet.subarray(6, 38), random: packet.subarray(38, 54), token: packet.subarray(56, 56 + tokenLength) };
+  return { version: packet[I.VERSION], clientSession: packet.readUInt32LE(I.SESSION), ephemeral: packet.subarray(I.EPHEMERAL,I.RANDOM), random: packet.subarray(I.RANDOM,I.TOKEN_LENGTH), token: packet.subarray(I.BYTES,I.BYTES+tokenLength) };
 }
 
 export class ClientHandshake {
@@ -79,33 +80,33 @@ export class ClientHandshake {
   // server saw, so the endpoint keeps one for each candidate path.
   initiation(token = Buffer.alloc(0)) {
     const packet = Buffer.alloc(INITIATION_BYTES);
-    packet[0] = PACKET.INITIATION; packet[1] = TRANSPORT_VERSION;
-    packet.writeUInt32LE(this.clientSession, 2);
-    this.ephemeral.publicKey.copy(packet, 6); this.random.copy(packet, 38);
-    packet.writeUInt16LE(token.length, 54); token.copy(packet, 56);
+    packet[I.TYPE] = PACKET.INITIATION; packet[I.VERSION] = TRANSPORT_VERSION;
+    packet.writeUInt32LE(this.clientSession,I.SESSION);
+    this.ephemeral.publicKey.copy(packet,I.EPHEMERAL); this.random.copy(packet,I.RANDOM);
+    packet.writeUInt16LE(token.length,I.TOKEN_LENGTH); token.copy(packet,I.BYTES);
     return packet;
   }
   // A server reply: {retry, token}, {version}, {error} (another server's
   // identity), or the established session with the CONFIRM to send.
   // Anything malformed or unauthentic returns null.
   receive(packet) {
-    if (packet.length < 6 || packet.readUInt32LE(2) !== this.clientSession) return null;
-    if (packet[0] === PACKET.RETRY) {
-      if (this.result || packet.length < 8) return null;
-      const length = packet.readUInt16LE(6);
-      if (!length || length > MAX_TOKEN || packet.length !== 8 + length) return null;
-      return { type: 'retry', token: Buffer.from(packet.subarray(8)) };
+    if (packet.length < H.BYTES || packet.readUInt32LE(H.SESSION) !== this.clientSession) return null;
+    if (packet[H.TYPE] === PACKET.RETRY) {
+      if (this.result || packet.length < T.BYTES) return null;
+      const length = packet.readUInt16LE(T.TOKEN_LENGTH);
+      if (!length || length > MAX_TOKEN || packet.length !== T.BYTES+length) return null;
+      return { type: 'retry', token: Buffer.from(packet.subarray(T.BYTES)) };
     }
     // A VERSION naming our own version is not a version problem.
-    if (packet[0] === PACKET.VERSION) return this.result || packet.length !== 6 || packet[1] === TRANSPORT_VERSION ? null : { type: 'version', version: packet[1] };
-    if (packet[0] !== PACKET.RESPONSE || packet.length < RESPONSE_HEADER + 110 + 16 || packet[1] !== TRANSPORT_VERSION) return null;
+    if (packet[H.TYPE] === PACKET.VERSION) return this.result || packet.length !== H.BYTES || packet[H.VERSION] === TRANSPORT_VERSION ? null : { type: 'version', version: packet[H.VERSION] };
+    if (packet[H.TYPE] !== PACKET.RESPONSE || packet.length < RESPONSE_HEADER+P.BYTES+L.TAG || packet[H.VERSION] !== TRANSPORT_VERSION) return null;
     // A duplicate RESPONSE (our CONFIRM was lost): send the same CONFIRM again.
     if (this.result) return this.response?.equals(packet) ? { type: 'duplicate', confirm: this.result.confirm } : null;
-    const length = packet.readUInt16LE(58);
+    const length = packet.readUInt16LE(R.SEALED_LENGTH);
     if (RESPONSE_HEADER + length !== packet.length) return null;
     try {
-      const transcript2 = sha256(this.transcript1, packet.subarray(0, 58));
-      const handshakeSecret = hkdfExtract(transcript2, x25519(this.ephemeral.privateKey, Buffer.from(packet.subarray(10, 42))));
+      const transcript2 = sha256(this.transcript1, packet.subarray(0,R.SEALED_LENGTH));
+      const handshakeSecret = hkdfExtract(transcript2, x25519(this.ephemeral.privateKey, Buffer.from(packet.subarray(R.EPHEMERAL,R.RANDOM))));
       const serverAead = new Aead(expandLabel(handshakeSecret, 's hs')), clientAead = new Aead(expandLabel(handshakeSecret, 'c hs'));
       const plaintext = serverAead.open(packet, RESPONSE_HEADER, 0);
       if (!plaintext) return null;
@@ -113,14 +114,14 @@ export class ClientHandshake {
       if (server.id !== this.expectedServerId) throw Error('Server identity does not match the directory');
       if (!verifyTranscript(server.key, LABEL.server, sha256(transcript2, proof.identity, proof.helloBytes), proof.signature)) return null;
       const serverHello = decodeHello(proof.helloBytes);
-      const transcript3 = sha256(transcript2, packet.subarray(58));
+      const transcript3 = sha256(transcript2, packet.subarray(R.SEALED_LENGTH));
       const signature = signTranscript(this.identity.privateKey, LABEL.client, sha256(transcript3, this.identity.publicDer, this.hello));
       const sealedHeader = Buffer.alloc(CONFIRM_HEADER);
-      sealedHeader[0] = PACKET.CONFIRM; sealedHeader[1] = TRANSPORT_VERSION;
-      const serverSession = packet.readUInt32LE(6);
-      sealedHeader.writeUInt32LE(serverSession, 2);
+      sealedHeader[C.TYPE] = PACKET.CONFIRM; sealedHeader[C.VERSION] = TRANSPORT_VERSION;
+      const serverSession = packet.readUInt32LE(R.SERVER_SESSION);
+      sealedHeader.writeUInt32LE(serverSession,C.SESSION);
       const proofBytes = proofPlaintext(this.identity.publicDer, signature, this.hello);
-      sealedHeader.writeUInt16LE(proofBytes.length + 16, 6);
+      sealedHeader.writeUInt16LE(proofBytes.length+L.TAG,C.SEALED_LENGTH);
       const confirm = clientAead.seal(sealedHeader, 0, proofBytes);
       const keys = trafficKeys(sha256(transcript3, confirm), handshakeSecret);
       this.response = Buffer.from(packet);
@@ -166,7 +167,7 @@ export class ServerHandshakes {
     const init = readInitiation(packet);
     if (!init || !init.clientSession) return null;
     if (init.version !== TRANSPORT_VERSION) {
-      const reply = Buffer.alloc(6); reply[0] = PACKET.VERSION; reply[1] = TRANSPORT_VERSION; reply.writeUInt32LE(init.clientSession, 2);
+      const reply = Buffer.alloc(H.BYTES); reply[H.TYPE] = PACKET.VERSION; reply[H.VERSION] = TRANSPORT_VERSION; reply.writeUInt32LE(init.clientSession,H.SESSION);
       return reply;
     }
     this.expire();
@@ -176,8 +177,8 @@ export class ServerHandshakes {
     if (requireRetry || this.pending.size >= this.retryAbove) {
       if (!this.retry.check(Buffer.from(init.token), source, init.clientSession, init.ephemeral, this.now())) {
         const token = this.retry.mint(source, init.clientSession, init.ephemeral, this.now());
-        const reply = Buffer.alloc(8 + token.length);
-        reply[0] = PACKET.RETRY; reply[1] = TRANSPORT_VERSION; reply.writeUInt32LE(init.clientSession, 2); reply.writeUInt16LE(token.length, 6); token.copy(reply, 8);
+        const reply = Buffer.alloc(T.BYTES+token.length);
+        reply[H.TYPE] = PACKET.RETRY; reply[H.VERSION] = TRANSPORT_VERSION; reply.writeUInt32LE(init.clientSession,H.SESSION); reply.writeUInt16LE(token.length,T.TOKEN_LENGTH); token.copy(reply,T.BYTES);
         return reply;
       }
     }
@@ -190,17 +191,17 @@ export class ServerHandshakes {
     try { handshakeSecret = x25519(ephemeral.privateKey, Buffer.from(init.ephemeral)); } catch { return null; }
     const helloBytes = encodeHello(this.hello());
     const header = Buffer.alloc(RESPONSE_HEADER);
-    header[0] = PACKET.RESPONSE; header[1] = TRANSPORT_VERSION;
-    header.writeUInt32LE(init.clientSession, 2); header.writeUInt32LE(serverSession, 6);
-    ephemeral.publicKey.copy(header, 10); random.copy(header, 42);
-    const transcript2 = sha256(initiationTranscript(packet), header.subarray(0, 58));
+    header[R.TYPE] = PACKET.RESPONSE; header[R.VERSION] = TRANSPORT_VERSION;
+    header.writeUInt32LE(init.clientSession,H.SESSION); header.writeUInt32LE(serverSession,R.SERVER_SESSION);
+    ephemeral.publicKey.copy(header,R.EPHEMERAL); random.copy(header,R.RANDOM);
+    const transcript2 = sha256(initiationTranscript(packet), header.subarray(0,R.SEALED_LENGTH));
     const secret = hkdfExtract(transcript2, handshakeSecret);
     const serverAead = new Aead(expandLabel(secret, 's hs')), clientAead = new Aead(expandLabel(secret, 'c hs'));
     const signature = signTranscript(this.identity.privateKey, LABEL.server, sha256(transcript2, this.identity.publicDer, helloBytes));
     const plaintext = proofPlaintext(this.identity.publicDer, signature, helloBytes);
-    header.writeUInt16LE(plaintext.length + 16, 58);
+    header.writeUInt16LE(plaintext.length+L.TAG,R.SEALED_LENGTH);
     const response = serverAead.seal(header, 0, plaintext);
-    const transcript3 = sha256(transcript2, response.subarray(58));
+    const transcript3 = sha256(transcript2, response.subarray(R.SEALED_LENGTH));
     this.pending.set(serverSession, { key, source, prefix, created: this.now(), clientSession: init.clientSession, secret, clientAead, transcript3, response, sentAt: this.now() });
     this.byInitiation.set(key, serverSession);
     this.prefixes.set(prefix, (this.prefixes.get(prefix) ?? 0) + 1);
@@ -211,9 +212,9 @@ export class ServerHandshakes {
   // from there proves that address received the RESPONSE. From anywhere
   // else, a client could open its session on a victim's address.
   confirm(packet, source) {
-    if (packet.length < CONFIRM_MIN || packet[0] !== PACKET.CONFIRM || packet[1] !== TRANSPORT_VERSION) return null;
-    const serverSession = packet.readUInt32LE(2), state = this.pending.get(serverSession);
-    if (!state || state.source !== source || CONFIRM_HEADER + packet.readUInt16LE(6) !== packet.length) return null;
+    if (packet.length < CONFIRM_MIN || packet[C.TYPE] !== PACKET.CONFIRM || packet[C.VERSION] !== TRANSPORT_VERSION) return null;
+    const serverSession = packet.readUInt32LE(C.SESSION), state = this.pending.get(serverSession);
+    if (!state || state.source !== source || CONFIRM_HEADER + packet.readUInt16LE(C.SEALED_LENGTH) !== packet.length) return null;
     const plaintext = state.clientAead.open(packet, CONFIRM_HEADER, 0);
     if (!plaintext) return null;
     let proof, client;

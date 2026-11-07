@@ -1,12 +1,12 @@
 import { wireInputFor } from './wire-input.js';
 import {NetProtocol} from './network-layout.js';
 // Fixed registries are part of entity-state-v1, not separately negotiated features.
-export const INPUT_CODES=Object.freeze([...Array.from({length:26},(_,i)=>`Key${String.fromCharCode(65+i)}`),...Array.from({length:10},(_,i)=>`Digit${i}`),...Array.from({length:12},(_,i)=>`F${i+1}`),...Array.from({length:10},(_,i)=>`Numpad${i}`),'Space','Enter','Escape','Tab','Backquote','CapsLock','ShiftLeft','ShiftRight','ControlLeft','ControlRight','AltLeft','AltRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Backspace','Delete','Insert','Home','End','PageUp','PageDown','Minus','Equal','BracketLeft','BracketRight','Backslash','Semicolon','Quote','Comma','Period','Slash','NumpadEnter','NumpadAdd','NumpadSubtract','NumpadMultiply','NumpadDivide','NumpadDecimal','Mouse0','Mouse1','Mouse2','Mouse3','Mouse4','WheelUp','WheelDown']);
+import {INPUT_CODES,INPUT_ACTIONS} from '../net/layout.js';
+export {INPUT_CODES,INPUT_ACTIONS};
 export const DEFAULT_BINDING_PROFILES=new Map([[0,Object.freeze({})]]);
 // An action travels as its index here. nextSpawn keeps its place for that:
 // no key sends it any more and the world ignores it (the 2004 game has no
 // key to move between command posts; the spawn screen picks the post).
-export const INPUT_ACTIONS=Object.freeze(['jump','crouch','prone','reload','use','nextPrimary','previousPrimary','nextSecondary','zoom','perspective','map','nextSpawn','stats','squadMoveOut','squadHold','squadFollow','squadAtEase','takeoff','trick','immelmann','targetLock']);
 const MAGIC=NetProtocol.INPUT_MAGIC,LIMIT=1100;
 class Fields{
  constructor(bytes){this.bytes=bytes;this.view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);this.at=0;}

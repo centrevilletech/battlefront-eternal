@@ -97,7 +97,7 @@ fn geometry(positions: &[f32], normals: &[f32], uv: &[f32], index: &[u32]) -> Ge
         groups: vec![],
     }
 }
-fn actor_key(material: &bfe_content_native::loader::Material) -> Result<String, String> {
+pub(crate) fn actor_key(material: &bfe_content_native::loader::Material) -> Result<String, String> {
     // actorProgram's closed identity comes from the same source manifest.
     // Native inspection fixes shadows and lamp mode off explicitly.
     let mut defines = vec![
@@ -644,9 +644,12 @@ impl Admission {
     // The browser InstancePass culls before filling its bounded command bank.
     // Retain every cold prop; a camera moving elsewhere must not discover that
     // admission permanently discarded the last objects after a capacity limit.
-    pub fn select(&mut self, bridge: &mut Bridge) -> usize {
+    // Online actors share the same near bank. Reserving their prefix budget
+    // keeps a prop-dense map from starving every remote body of a draw record.
+    pub fn select_limit(&mut self,bridge:&mut Bridge,maximum:usize)->usize{
         let camera = bridge.r.core.camera();
         select_rows(&self.records, &camera.frustum, &mut self.next);
+        self.next.truncate(maximum.min(I::MAX_RECORDS));
         // Bind-pose rows never change. Repack only when view selection changes;
         // drawing reads the retained bank on all other frames without copies.
         if self.next != self.selected {

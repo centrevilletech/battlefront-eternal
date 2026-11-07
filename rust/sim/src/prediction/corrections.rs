@@ -976,16 +976,31 @@ impl OwnPlayerState {
     }
 }
 
-/// Decode the own-player envelope after a plain record's kind/schema check.
-/// Body, arsenal and recon bytes remain opaque. Only mounted structure is
-/// validated here, at its original position before trailing and view checks.
-/// The writer's allocation size does not limit accepted envelope lengths.
-pub fn decode_own_player(bytes: Option<&[u8]>, supported_record: bool) -> Result<OwnPlayerState> {
-    if !supported_record {
-        return Err("unsupported own-player correction");
-    }
-    let bytes = bytes.ok_or("unsupported own-player correction")?;
-    let mut r = OwnReader { bytes, at: 0 };
+/// Borrowed correction prefix used by native display and input admission.
+/// The complete decoder below uses this same reader, so native clients never
+/// maintain a second grammar or allocate an arsenal just to locate the body.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnPlayerHeader {
+    pub epoch: u32,
+    pub content_epoch: u32,
+    pub class_id: u16,
+    pub team: u8,
+    pub body_schema: u8,
+    pub vehicle_id: u32,
+    pub vehicle_generation: u32,
+    pub body: PayloadRange,
+    pub health: f64,
+    pub dead: u8,
+    pub death_time: f64,
+    pub unit_dead_time: f64,
+    pub removed: u8,
+    pub kick: [f64;3],
+    pub zoom_step: u8,
+    pub zoom: f64,
+    pub first: u8,
+    pub selected: [u8;2],
+}
+fn own_header(r: &mut OwnReader) -> Result<OwnPlayerHeader> {
     let epoch = r.u32()?;
     let content_epoch = r.u32()?;
     let class_id = r.u16()?;
@@ -1013,6 +1028,25 @@ pub fn decode_own_player(bytes: Option<&[u8]>, supported_record: bool) -> Result
         return Err("invalid weapon view flags");
     }
     let selected = [r.byte()?, r.byte()?];
+    Ok(OwnPlayerHeader { epoch, content_epoch, class_id, team, body_schema, vehicle_id, vehicle_generation, body, health, dead, death_time, unit_dead_time, removed, kick, zoom_step, zoom, first, selected })
+}
+/// Only the prefix is consumed; callers must not interpret trailing arsenal
+/// bytes through this API. Every returned span is checked against its source.
+pub fn decode_own_player_header(bytes: &[u8]) -> Result<OwnPlayerHeader> {
+    own_header(&mut OwnReader { bytes, at: 0 })
+}
+
+/// Decode the own-player envelope after a plain record's kind/schema check.
+/// Body, arsenal and recon bytes remain opaque. Only mounted structure is
+/// validated here, at its original position before trailing and view checks.
+/// The writer's allocation size does not limit accepted envelope lengths.
+pub fn decode_own_player(bytes: Option<&[u8]>, supported_record: bool) -> Result<OwnPlayerState> {
+    if !supported_record {
+        return Err("unsupported own-player correction");
+    }
+    let bytes = bytes.ok_or("unsupported own-player correction")?;
+    let mut r = OwnReader { bytes, at: 0 };
+    let OwnPlayerHeader { epoch, content_epoch, class_id, team, body_schema, vehicle_id, vehicle_generation, body, health, dead, death_time, unit_dead_time, removed, kick, zoom_step, zoom, first, selected } = own_header(&mut r)?;
     let count = r.byte()?;
     let mut weapons = Vec::with_capacity(count as usize);
     for _ in 0..count {

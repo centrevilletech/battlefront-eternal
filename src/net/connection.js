@@ -12,16 +12,18 @@
 // - Messages queued in one task are coalesced into as few packets as fit:
 //   a snapshot's entity parts and its own datagram usually share one packet.
 import { randomBytes } from 'node:crypto';
+import {DATA as D,LIMITS as L,CLOSE_CODE} from './layout.js';
 import { DATA_HEADER, FRAME, MAX_MESSAGE, MAX_PLAINTEXT, PACKET, RangeSet, STREAMS, readVarint, varintSize, writeVarint } from './codec.js';
 
-export const CLOSE_CODE = Object.freeze({ NORMAL: 0, IDLE: 1, PROTOCOL: 2, VERSION: 3, REJECTED: 4, KICKED: 5, SHUTDOWN: 6, APPLICATION: 7 });
+export {CLOSE_CODE};
 const STREAM_LANES = new Map(Object.entries(STREAMS).map(([lane, id]) => [id, lane]));
 const PACKET_THRESHOLD = 3, TIME_THRESHOLD = 9 / 8, GRANULARITY = 1;
-const MAX_ACK_RANGES = 24, MAX_DECODED_ACK_RANGES = 64, REPLAY_WINDOW = 4096, MAX_RECEIVED_RANGES = 256, MAX_REORDER_THRESHOLD = 16;
+const {MAX_ACK_RANGES,MAX_DECODED_ACK_RANGES,REPLAY_WINDOW,MAX_RECEIVED_RANGES}=L;
+const MAX_REORDER_THRESHOLD=16;
 // Reliable bytes a stream holds at either end: out-of-order bytes ahead of
 // the delivery cursor, or written bytes the peer has not acknowledged. The
 // segment and part limits bound the work a scattered sender can cause.
-const MAX_STREAM_BUFFER = 4 << 20, MAX_STREAM_SEGMENTS = 1024, MAX_STREAM_PARTS = 4096, MAX_CONTROL_FRAMES = 16;
+const {MAX_STREAM_BUFFER,MAX_STREAM_SEGMENTS,MAX_STREAM_PARTS,MAX_CONTROL_FRAMES}=L;
 // A new peer address is challenged at most this often (and once per probe
 // timeout while it keeps sending), so spoofed packets earn a victim no more
 // than one small challenge each.
@@ -32,9 +34,9 @@ const PROBE_BURST = 64, PROBE_RATE = 128, MAX_PROBES = 96, PROBE_LIFETIME = 2000
 // A path's far end: a client that moves to another local port reaches the
 // same remote, which is not roaming.
 const remoteOf = path => path?.remote ?? path?.key;
-const MAX_FRAGMENTS = 32, MAX_PENDING_FRAGMENTS = 16, FRAGMENT_LIFETIME = 1000;
-const FRAGMENT_BYTES = MAX_PLAINTEXT - 64, MAX_SENT_PACKETS = 4096, MAX_QUEUED_DATAGRAMS = 512;
-const MAX_PACKET_NUMBER = 0xffffffff, MIN_WINDOW = 8 * 1200, MAX_WINDOW = 4 << 20;
+const {MAX_FRAGMENTS,MAX_PENDING_FRAGMENTS,FRAGMENT_LIFETIME}=L;
+const {FRAGMENT_BYTES,MAX_SENT_PACKETS,MAX_QUEUED_DATAGRAMS}=L;
+const MAX_PACKET_NUMBER=L.MAX_PACKET_NUMBER,MIN_WINDOW=8*L.MAX_DATAGRAM,MAX_WINDOW=L.MAX_STREAM_BUFFER;
 const textEncoder = new TextEncoder();
 // Every packet's plaintext is assembled here just before sealing (sealing
 // copies it out, so one buffer serves every connection).
@@ -376,7 +378,7 @@ export class Connection {
       return false;
     }
     if (packet.length < DATA_HEADER + 17) return false;
-    const phase = packet[0] === PACKET.DATA_PHASE ? 1 : 0, number = packet.readUInt32LE(5);
+    const phase = packet[0] === PACKET.DATA_PHASE ? 1 : 0, number = packet.readUInt32LE(D.NUMBER);
     if (this.replay.seen(number)) { this.counters.duplicates++; return false; }
     let plaintext = null, rotated = false;
     if (phase === this.receivePhase) plaintext = this.receiveAead.open(packet, DATA_HEADER, number);
@@ -796,8 +798,8 @@ export class Connection {
     const number = this.nextNumber++, now = this.now();
     const header = this.header ??= Buffer.allocUnsafe(DATA_HEADER);
     header[0] = this.sendPhase ? PACKET.DATA_PHASE : PACKET.DATA;
-    header.writeUInt32LE(this.remoteSession, 1);
-    header.writeUInt32LE(number, 5);
+    header.writeUInt32LE(this.remoteSession,D.RECEIVER);
+    header.writeUInt32LE(number,D.NUMBER);
     // Frames (headers and uncopied payload pieces) are gathered once into
     // the shared scratch, which the seal copies out of before returning.
     let length = 0;

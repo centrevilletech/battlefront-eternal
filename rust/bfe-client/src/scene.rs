@@ -94,6 +94,10 @@ impl MapCamera {
             slots,
         })
     }
+    pub fn follow(&mut self,position:[f64;3],yaw:f64,pitch:f64,dt:f64){
+        self.position=position;self.yaw=yaw+std::f64::consts::PI;self.pitch=pitch;self.time+=dt;
+    }
+
 }
 impl World for MapCamera {
     type Frame = View;
@@ -173,6 +177,7 @@ pub struct Scene {
     far_projection: [f64; 16],
     far_world_slots: Vec<usize>,
     near_world_ids: Vec<u32>,
+    pub online: Option<crate::online::replicas::Replicas>,
 }
 impl Scene {
     pub fn load(
@@ -190,7 +195,7 @@ impl Scene {
         map: &str,
         size: [i32; 2],
         random_values: Option<&[f64]>,
-        mut load: impl FnMut() -> glow::Context,
+        load: impl FnMut() -> glow::Context,
     ) -> Result<(Self, MapCamera), String> {
         if random_values.is_some_and(|v| {
             v.len() > 4_194_304 || v.iter().any(|x| !x.is_finite() || !(0.0..1.0).contains(x))
@@ -199,7 +204,19 @@ impl Scene {
         }
         let mut loader = Loader::new(root);
         loader.compressed = false;
-        let mut content = loader.load(map, &format!("map={map}&seed=1"))?;
+        let content = loader.load(map, &format!("map={map}&seed=1"))?;
+        Self::admit(content,map,size,random_values,false,load)
+    }
+    /// Online joins admit the advertised mission from local files. The server
+    /// cannot supply asset paths or executable class definitions at runtime.
+    pub fn load_online(root:&Path,query:&str,size:[i32;2],load:impl FnMut()->glow::Context)->Result<(Self,MapCamera),String>{
+        let selection=bfe_content::mission::Query::parse(query);
+        let map=if selection.get("map").is_empty(){"nab2"}else{selection.get("map")};
+        let mut loader=Loader::new(root);loader.compressed=false;
+        let content=loader.load(map,query)?;
+        Self::admit(content,map,size,None,true,load)
+    }
+    fn admit(mut content:bfe_content_native::BattleContent,map:&str,size:[i32;2],random_values:Option<&[f64]>,live:bool,mut load:impl FnMut()->glow::Context)->Result<(Self,MapCamera),String>{
         // Resolve terrain sampler identities through the authored map table,
         // before GPU admission freezes the texture bank and frame storage.
         let mut layers = std::collections::BTreeMap::new();
@@ -358,6 +375,7 @@ impl Scene {
                 used[id] = true;
             }
         }
+        if live{for actor in &content.actors{for &texture in &actor.textures{if let Some(id)=texture{used[id]=true;}}}}
         let canvas = Canvas::new(load(), size)?;
         let mut resources = Resources::new(load());
         resources.canvas = Some(canvas.framebuffer);
@@ -617,8 +635,10 @@ impl Scene {
             usize::from(static_content.water.is_some()),
             static_content.skies.len()
         );
+        let online=if live{Some(crate::online::replicas::Replicas::new(&mut content,&mut bridge,&textures)?)}else{None};
         Ok((
             Self {
+                online,
                 bridge,
                 resources,
                 far_target,
@@ -692,8 +712,9 @@ impl Scene {
         self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
         self.publish(r::FAR, k::FAR, 0, 0, 0);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
-        let records = if matches!(component, Component::All | Component::Props) {
-            self.static_content.select(&mut self.bridge)
+        let mut records = if matches!(component, Component::All | Component::Props) {
+            let room=if component==Component::All{self.online.as_ref().map_or(0,|r|r.visible.min(128))}else{0};
+            self.static_content.select_limit(&mut self.bridge,bfe_render::instances::MAX_RECORDS-room)
         } else {
             0
         };
@@ -706,7 +727,7 @@ impl Scene {
         if !matches!(component, Component::All | Component::Water) {
             self.bridge.r.water.input[bfe_render::water::S_SHOWN] = 0.;
         }
-        let bones = self.bridge.r.core.input[bfe_render::instances::IN_RECORDS..]
+        let mut bones = self.bridge.r.core.input[bfe_render::instances::IN_RECORDS..]
             .chunks_exact(bfe_render::instances::REC_STRIDE)
             .take(records)
             .map(|row| {
@@ -715,6 +736,7 @@ impl Scene {
             })
             .max()
             .unwrap_or(0);
+        if component==Component::All{if let Some(online)=&self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
         self.publish(r::NEAR, k::SCENE, records, bones, 0);
         self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);
         self.bridge.r.post.states[..bfe_render::post::STATE].copy_from_slice(&self.image_state);

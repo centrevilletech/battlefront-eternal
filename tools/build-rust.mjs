@@ -25,6 +25,7 @@
 // Cargo's home folder as /cargo in the file names panic messages carry.
 // What it builds is staged in rust/target/generated/ (laid out as src/).
 // CARGO_JOBS=n limits cargo's jobs.
+import './transport-schema.mjs';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';

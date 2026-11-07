@@ -1,3 +1,4 @@
+import {LIMITS as L} from './layout.js';
 // Cryptography for BFE-UDP/1. Only primitives Node and Electron's BoringSSL
 // both provide: X25519, Ed25519, HKDF-SHA256 and AES-256-GCM (Electron's
 // Node has no ChaCha20-Poly1305). The construction is SIGMA-I with
@@ -10,7 +11,7 @@ import {
 
 const X25519_SPKI = Buffer.from('302a300506032b656e032100', 'hex');
 const ED25519_SPKI = Buffer.from('302a300506032b6570032100', 'hex');
-export const KEY_BYTES = 32, IV_BYTES = 12, TAG_BYTES = 16;
+export const KEY_BYTES=L.KEY_BYTES,IV_BYTES=L.IV_BYTES,TAG_BYTES=L.TAG;
 const empty = Buffer.alloc(0);
 
 export function hkdfExtract(salt, ikm) { return createHmac('sha256', salt.length ? salt : Buffer.alloc(32)).update(ikm).digest(); }
