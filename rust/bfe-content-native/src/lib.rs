@@ -15,3 +15,5 @@ pub mod water;
 mod pad;
 
 pub mod fingerprint;
+
+pub mod setup;

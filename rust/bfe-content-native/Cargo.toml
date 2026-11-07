@@ -19,6 +19,9 @@ sha2 = "0.10"
 
 three = { path = "../three" }
 jsrt = { path = "../jsrt" }
+# The world's generated setup and tick rows and its clock arithmetic, for
+# the cold setup a native host stamps (src/setup).
+sim = { path = "../sim" }
 
 [dev-dependencies]
 png = "0.18"
