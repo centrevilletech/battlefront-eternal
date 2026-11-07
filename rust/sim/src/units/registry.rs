@@ -261,6 +261,26 @@ impl Units {
         riders: bool,
         world: &mut dyn UnitsWorld,
     ) -> Option<UnitHit> {
+        self.raycast_with(units, origin, direction, far, exclude, &mut |member, _, _| {
+            filter.as_deref_mut().map_or(true, |filter| filter(member))
+        }, riders, world, |world| world)
+    }
+
+    /// The predicate borrows the same services as shape sampling. Its row
+    /// arrives explicitly, so a detached slab needs no canonical-row alias.
+    #[allow(clippy::too_many_arguments)]
+    pub fn raycast_with<W: ?Sized>(
+        &self,
+        units: &mut Slab<Unit>,
+        origin: &Vector3,
+        direction: &Vector3,
+        far: f64,
+        exclude: Exclude,
+        filter: &mut dyn FnMut(Member, &Unit, &mut W) -> bool,
+        riders: bool,
+        world: &mut W,
+        services: fn(&mut W) -> &mut dyn UnitsWorld,
+    ) -> Option<UnitHit> {
         let mut best = far;
         let mut found = None;
         for &m in &self.list {
@@ -277,24 +297,20 @@ impl Units {
             if !(u.alive || (u.dead && !u.removed)) {
                 continue;
             }
-            if u.seat.is_some() && !(riders && world.seat_exposed(r.slot, u)) {
+            if u.seat.is_some() && !(riders && services(world).seat_exposed(r.slot, u)) {
                 continue;
             }
             if exclude.has(m) {
                 continue;
             }
-            if let Some(f) = filter.as_deref_mut() {
-                if !f(m) {
-                    continue;
-                }
-            }
+            if !filter(m, u, world) { continue; }
             // Broadphase first: the unit's whole sphere.
             let u = units.get_mut(r).unwrap();
-            let s: Bounds = u.sphere(r.slot, world);
+            let s: Bounds = u.sphere(r.slot, services(world));
             if segment_sphere(origin, direction, best, &v3(s.center), s.radius).is_none() {
                 continue;
             }
-            let shapes = u.hit_shapes(r.slot, world);
+            let shapes = u.hit_shapes(r.slot, services(world));
             for (i, candidate) in shapes.iter().enumerate() {
                 if let Some(t) = segment_shape(origin, direction, best, candidate) {
                     if t < best {

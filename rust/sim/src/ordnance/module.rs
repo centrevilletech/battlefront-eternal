@@ -46,14 +46,6 @@ pub(crate) fn ord_water_in(w: &mut crate::world::owner::World, which: u32, prese
     w.ordnance.water[(which & 1) as usize] = present != 0;
 }
 
-/// The battle's definitions as JavaScript registered them (`ord_def`,
-/// `ord_explosion`).
-pub(crate) fn defs() -> *mut Defs {
-    // Cold registration retains its pointer-shaped projection. Physical
-    // adapters borrow the bank through World::definitions instead.
-    defs_in(&mut crate::abi::cold().ordnance) as *mut Defs
-}
-
 pub(crate) fn defs_in(owner: &mut OrdnanceOwnerState) -> &mut Defs {
     owner.defs.get_or_insert_with(Defs::default)
 }
@@ -155,18 +147,22 @@ pub extern "C" fn ord_args_words(which: u32) -> u32 {
 pub extern "C" fn ord_update(dt: f64) -> u32 { ord_update_in(crate::abi::world(), dt) }
 
 pub(crate) fn ord_update_in(w: &mut crate::world::owner::World, dt: f64) -> u32 {
-    let _owned_boundary = crate::units::f3::external();
-    crate::units::f3::with_services(|recon| {
+    let boundary = crate::units::f3::external_in(w);
+    let result = crate::units::f3::with_services_in(w, |w,recon| {
         let mut world = JsWorld::with_services(w, recon);
         let mut cx = Cx::new(&mut world);
         cx.update(dt);
         let s = cx.s();
         let o = &s.ordnance;
-        u32::from(!o.beams.is_empty() || !s.beam.retired.is_empty())
+        let result = u32::from(!o.beams.is_empty() || !s.beam.retired.is_empty())
             | u32::from(!o.bolts.is_empty() || !s.bolt.retired.is_empty()) << 1
             | u32::from(!o.grenades.is_empty() || !s.grenade.retired.is_empty()) << 2
-            | u32::from(!o.rounds.is_empty() || !s.round.retired.is_empty()) << 3
-    })
+            | u32::from(!o.rounds.is_empty() || !s.round.retired.is_empty()) << 3;
+        world.finish();
+        result
+    });
+    boundary.finish(w,true);
+    result
 }
 
 /// ordnance.js fireRound, its arguments (FireArgs) in the call block. The
@@ -180,17 +176,21 @@ pub(crate) fn ord_update_in(w: &mut crate::world::owner::World, dt: f64) -> u32 
 pub extern "C" fn ord_fire() -> *const f64 { ord_fire_in(crate::abi::world()) }
 
 pub(crate) fn ord_fire_in(w: &mut crate::world::owner::World) -> *const f64 {
-    let _owned_boundary = crate::units::f3::external();
+    let boundary = crate::units::f3::external_in(w);
     let a = {
         let (row, heap) = w.sim.calls.args();
         FireArgs::take(row, heap)
     };
-    let shot = crate::units::f3::with_services(|recon| {
+    let shot = crate::units::f3::with_services_in(w, |w,recon| {
         let mut world = JsWorld::with_services(w, recon);
         let mut cx = Cx::new(&mut world);
-        cx.fire_round(a.def, a.origin, a.direction, a.owner, a.visual, a.ignore_body, a.emitter, a.channel, a.target_id, a.target_generation)
+        let shot = cx.fire_round(a.def, a.origin, a.direction, a.owner, a.visual, a.ignore_body, a.emitter, a.channel, a.target_id, a.target_generation);
+        world.finish();
+        shot
     });
-    answer(&mut w.sim, shot)
+    let result = answer(&mut w.sim,shot);
+    boundary.finish(w,true);
+    result
 }
 
 /// ordnance.js flightMissile, its arguments (FlightMissileArgs) in the call
@@ -203,13 +203,17 @@ pub(crate) fn ord_flight_missile_in(w: &mut crate::world::owner::World) -> *cons
         let (row, heap) = w.sim.calls.args();
         FlightMissileArgs::take(row, heap)
     };
-    let _owned_boundary = crate::units::f3::external();
-    let flying = crate::units::f3::with_services(|recon| {
+    let boundary = crate::units::f3::external_in(w);
+    let flying = crate::units::f3::with_services_in(w, |w,recon| {
         let mut world = JsWorld::with_services(w, recon);
         let mut cx = Cx::new(&mut world);
-        cx.flight_missile(a.round, a.flight_class, a.life, a.speed)
+        let flying = cx.flight_missile(a.round, a.flight_class, a.life, a.speed);
+        world.finish();
+        flying
     });
-    answer(&mut w.sim, if flying { Some(Shot::Round(a.round)) } else { None })
+    let result = answer(&mut w.sim, if flying { Some(Shot::Round(a.round)) } else { None });
+    boundary.finish(w,true);
+    result
 }
 
 /// A command's answer: the round's kind and row, into the call block.
@@ -340,10 +344,10 @@ impl<'w, 'a> JsWorld<'w, 'a> {
         // Bolts carry their captured fire metadata on the row. Other kinds'
         // launch observers read the owner's edge at this exact call point.
         if !matches!(shot,Shot::Bolt(_)) {
-            let shooter = crate::units::f3_sensors::shooter(notice.owner,notice.channel);
+            let shooter = crate::units::f3_sensors::shooter_in(self.w, notice.owner,notice.channel);
             notice.owner_id = shooter.unit; notice.owner_generation = shooter.generation; notice.fire_id = shooter.fire_id;
         }
-        notice.team = crate::combat::live::owner_facts(notice.owner).0;
+        notice.team = crate::combat::live::owner_facts_in(&self.w.sim, &mut self.w.units, notice.owner).0;
         notice.has_source = matches!(notice.owner,OrdnanceOwner::Unit(_) | OrdnanceOwner::OwnerSnapshot(_));
         notice.source = F3LifeRef { id:notice.owner_id, generation:notice.owner_generation };
         notice
@@ -407,10 +411,10 @@ impl<'w, 'a> JsWorld<'w, 'a> {
     }
 }
 
-impl Drop for JsWorld<'_, '_> {
-    fn drop(&mut self) {
-        if let Some(frame) = self.near_frame {
-            crate::units::f3::put_ordnance_query(frame,std::mem::take(&mut self.near));
+impl JsWorld<'_, '_> {
+    pub(crate) fn finish(mut self) {
+        if let Some(frame) = self.near_frame.take() {
+            crate::units::f3::put_ordnance_query_in(&mut self.w.units,frame,std::mem::take(&mut self.near));
         }
     }
 }
@@ -430,17 +434,17 @@ impl World for JsWorld<'_, '_> {
     fn definitions(&self) -> &Defs { self.w.ordnance.defs.as_ref().expect("prepared ordnance definitions") }
 
     fn cast(&mut self, origin: Vec3, direction: Vec3, far: f64, out: Out, ignore_body: Nullable<Ref<Body>>, static_only: Option<bool>) -> Option<Hit> {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             let ignore = match ignore_body { Nullable::Value(r) => Some(r), _ => None };
-            return crate::units::native::ordnance_cast(crate::units::f3::collision_world(), origin, direction, far, ignore, static_only.unwrap_or(false), false);
+            return crate::units::native::ordnance_cast_in(self.w, crate::units::f3::collision_world_in(&self.w.units), origin, direction, far, ignore, static_only.unwrap_or(false), false);
         }
         hit_of(import_cast(&CastArgs { origin, direction, far, behind: out == Out::Behind, ignore_body, static_only }))
     }
 
     fn cast_moving(&mut self, origin: Vec3, direction: Vec3, far: f64, out: Out, ignore_body: Nullable<Ref<Body>>) -> Option<Hit> {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             let ignore = match ignore_body { Nullable::Value(r) => Some(r), _ => None };
-            return crate::units::native::ordnance_cast(crate::units::f3::collision_world(), origin, direction, far, ignore, false, true);
+            return crate::units::native::ordnance_cast_in(self.w, crate::units::f3::collision_world_in(&self.w.units), origin, direction, far, ignore, false, true);
         }
         hit_of(import_cast_moving(&CastArgs { origin, direction, far, behind: out == Out::Behind, ignore_body, static_only: None }))
     }
@@ -450,8 +454,8 @@ impl World for JsWorld<'_, '_> {
     // Exposed riders are admitted only for projectile queries that request them.
     // Strict equal-distance ties retain the mixed registry's first member.
     fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>) -> Option<UnitHit> {
-        if crate::units::f3::active() {
-            return crate::units::f3_sensors::ordnance_raycast(origin,direction,far,owner,history_tick,ignore_body,mount);
+        if crate::units::f3::active_in(&self.w.units) {
+            return crate::units::f3_sensors::ordnance_raycast_in(self.w, origin,direction,far,owner,history_tick,ignore_body,mount);
         }
         let a = import_raycast_units(&UnitCastArgs { origin, direction, far, owner, history_tick, ignore_body, mount });
         if !a.found {
@@ -465,9 +469,9 @@ impl World for JsWorld<'_, '_> {
         if !matches!(body, Nullable::Value(_)) {
             return None;
         }
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             let Nullable::Value(body)=body else {return None};
-            return crate::units::f3_hulls::rider_mount(body);
+            return crate::units::f3_hulls::rider_mount_in(self.w, body);
         }
         let a = import_rider_mount(&BodyArgs { body });
         if !a.found {
@@ -481,15 +485,15 @@ impl World for JsWorld<'_, '_> {
     // The result buffer is returned through recycle_fat_query after consumption.
     // No per-projectile temporary vector is allocated in the owning unit world.
     fn fat_query(&mut self, center: Vec3, radius: f64, owner: OrdnanceOwner, struck: &RefSet<Unit>, ignore_body: Option<Ref<Body>>) -> Option<Vec<Ref<Unit>>> {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             // A pure explosion needs no query frame. Borrow a buffer only
             // when a fat ray actually starts a sweep, and retain it thereafter.
             if self.near_frame.is_none() {
-                let (frame,buffer) = crate::units::f3::take_ordnance_query();
+                let (frame,buffer) = crate::units::f3::take_ordnance_query_in(&mut self.w.units);
                 self.near_frame = Some(frame); self.near = buffer;
             }
             let mut near = std::mem::take(&mut self.near);
-            crate::units::f3_sensors::fat_query(center,radius,owner,struck,ignore_body,&mut near);
+            crate::units::f3_sensors::fat_query_in(self.w, center,radius,owner,struck,ignore_body,&mut near);
             return Some(near);
         }
         let a = import_fat_query(&NearArgs { center, radius, owner, struck: struck.clone(), ignore_body });
@@ -501,14 +505,14 @@ impl World for JsWorld<'_, '_> {
     }
 
     fn unit_sphere(&mut self, unit: Ref<Unit>) -> Option<(Vec3, f64)> {
-        if crate::units::f3::active() { return Some(crate::units::f3_sensors::unit_sphere(unit)); }
+        if crate::units::f3::active_in(&self.w.units) { return Some(crate::units::f3_sensors::unit_sphere_in(self.w, unit)); }
         let a = import_unit_sphere(&UnitArgs { unit });
         a.found.then_some((a.center, a.radius))
     }
 
     fn is_droid(&mut self, unit: Ref<Unit>) -> bool {
-        if crate::units::f3::active() {
-            return crate::units::f3::health_scale(unit.slot) == crate::combat::impacts::HealthScale::Droid;
+        if crate::units::f3::active_in(&self.w.units) {
+            return crate::units::f3::health_scale_in(&mut self.w.units, unit.slot) == crate::combat::impacts::HealthScale::Droid;
         }
         import_is_droid(&UnitArgs { unit }).value
     }
@@ -520,7 +524,7 @@ impl World for JsWorld<'_, '_> {
         if matches!(x, BeamSource::Null | BeamSource::Player) {
             return false;
         }
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             return match x {
                 BeamSource::Unit(r) => self.store().unit.get(r).is_none_or(|unit| !unit.alive),
                 BeamSource::Vehicle(r) => self.store().vehicle.get(r).is_none_or(|hull| !hull.alive),
@@ -539,7 +543,7 @@ impl World for JsWorld<'_, '_> {
     fn beam_local_origin(&mut self, source: BeamSource, origin: Vec3) -> Option<Vec3> {
         if let Some(local) = crate::vehicles::module::f2::firing::emitter_local(source, origin) { return Some(local); }
         if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(source) { return crate::vehicles::module::f2::live_seats::beam_local(r, origin); }
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             // Ordinary Unit and captured-life owners expose no matrix. Beams
             // keep their supplied start, just as beamLocalOrigin returns null.
             let matrix = match source {
@@ -561,7 +565,7 @@ impl World for JsWorld<'_, '_> {
     fn beam_pose(&mut self, source: BeamSource, local_origin: Vec3, position: &mut Vec3, direction: &mut Vec3) {
         if crate::vehicles::module::f2::firing::emitter_pose(source, local_origin, position, direction) { return; }
         if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(source) { crate::vehicles::module::f2::live_seats::beam_pose(r, local_origin, position, direction); return; }
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             let BeamSource::Vehicle(r) = source else { panic!("native mounted beam pose required") };
             let hull = self.store().vehicle.get(r).expect("beam hull");
             let mut matrix = three::Matrix4::default(); matrix.elements = hull.matrix;
@@ -581,29 +585,29 @@ impl World for JsWorld<'_, '_> {
     // The current world tick bounds future requests independently of ring capacity.
     // A missing eligible press keeps an ordinary live-world shot.
     fn shot_tick(&mut self, owner: OrdnanceOwner, channel: f64) -> Nullable<f64> {
-        if crate::units::f3::active() { return crate::units::f3_sensors::shot_tick(owner,channel); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3_sensors::shot_tick_in(self.w, owner,channel); }
         import_shot_tick(&ShotArgs { owner, channel }).value
     }
 
     fn history_tick(&mut self) -> f64 {
-        if crate::units::f3::active() { return unsafe { (*crate::units::f3::history()).tick }; }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3::history_in(&mut self.w.units).tick; }
         import_history_tick(&NoArgs {}).value
     }
 
     fn shooter(&mut self, owner: OrdnanceOwner, channel: f64) -> Shooter {
-        if crate::units::f3::active() { return crate::units::f3_sensors::shooter(owner,channel); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3_sensors::shooter_in(self.w, owner,channel); }
         let a = import_shooter(&ShotArgs { owner, channel });
         Shooter { fire_id: a.fire_id, unit: a.unit, generation: a.generation }
     }
 
     fn missile_target(&mut self, target_id: f64, target_generation: f64) -> Option<Vec3> {
-        if crate::units::f3::active() { return crate::units::f3_sensors::missile_target(target_id,target_generation); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3_sensors::missile_target_in(self.w, target_id,target_generation); }
         point_of(import_missile_target(&TargetArgs { target_id, target_generation }))
     }
 
     fn navigate_missile(&mut self, position: Vec3, velocity: &mut Vec3, flight_class: Option<StrId>, target_id: f64, target_generation: f64, dt: f64) -> f64 {
-        if crate::units::f3::active() {
-            return crate::units::f3_sensors::navigate_missile(position,velocity,flight_class,target_id,target_generation,dt);
+        if crate::units::f3::active_in(&self.w.units) {
+            return crate::units::f3_sensors::navigate_missile_in(self.w, position,velocity,flight_class,target_id,target_generation,dt);
         }
         let a = import_navigate_missile(&SeekArgs { position, velocity: *velocity, flight_class, target_id, target_generation, dt });
         *velocity = a.velocity;
@@ -614,17 +618,17 @@ impl World for JsWorld<'_, '_> {
         if !water(&self.w.ordnance, 0) {
             return None;
         }
-        if crate::units::f3::active() { return crate::units::f3_sensors::water_crossing(from,to); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3_sensors::water_crossing_in(self.w, from,to); }
         point_of(import_water_crossing(&SegmentArgs { from, to }))
     }
 
     fn waver(&mut self) -> f64 {
-        if crate::units::f3::active() { return crate::units::f3::random_gameplay(); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3::random_gameplay_in(&mut self.w.units); }
         import_waver(&NoArgs {}).value
     }
 
     fn spin(&mut self) -> f64 {
-        if crate::units::f3::active() { return crate::units::f3::random_spin(); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3::random_spin_in(&mut self.w.units); }
         import_spin(&NoArgs {}).value
     }
 
@@ -633,9 +637,9 @@ impl World for JsWorld<'_, '_> {
     // The generated explosion notice follows units and precedes the other owners.
     // No callback enters a JavaScript damage phase from this native span.
     fn explosion(&mut self, def: &Field, position: Vec3, owner: OrdnanceOwner) {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             let Field::Explosion(def) = def else { panic!("prepared native explosion") };
-            crate::combat::live::blast(*def,position,owner,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+            crate::combat::live::blast_in(self.w, *def,position,owner,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
             return;
         }
         // SAFETY: the module's note.
@@ -644,9 +648,9 @@ impl World for JsWorld<'_, '_> {
     }
 
     fn hit(&mut self, body: Ref<Body>, def: DefArg, owner: OrdnanceOwner, direction: Vec3) {
-        if crate::units::f3::active() {
-            let packet = crate::units::f3_props::hit_policy(def);
-            crate::combat::live::hit_body_packet(body, packet, owner,
+        if crate::units::f3::active_in(&self.w.units) {
+            let packet = crate::units::f3_props::hit_policy_in(self.w, def);
+            crate::combat::live::hit_body_packet_in(self.w, body, packet, owner,
                 Some(three::Vector3::new(direction[0], direction[1], direction[2])),
                 self.recon.as_mut().expect("native world services").reborrow());
             return;
@@ -660,8 +664,8 @@ impl World for JsWorld<'_, '_> {
     // Head effects precede friendly-fire rejection, retaining the original ordering.
     // Death and any resulting explosion finish before this projectile resumes.
     fn hit_unit(&mut self, unit: Ref<Unit>, def: DefArg, point: Point, owner: OrdnanceOwner, part: Nullable<HitPart>, direction: Vec3) {
-        if crate::units::f3::active() {
-            crate::combat::live::hit_unit(unit,def,point.value(),owner,part,direction,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+        if crate::units::f3::active_in(&self.w.units) {
+            crate::combat::live::hit_unit_in(self.w, unit,def,point.value(),owner,part,direction,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
             return;
         }
         let beam_def = matches!(def, DefArg::Beam(_));
@@ -679,7 +683,7 @@ impl World for JsWorld<'_, '_> {
     }
 
     fn projectile(&mut self, shot: Shot, kind: ShotKind) {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             self.notice(F3OrdnanceEvent::Projectile,shot).emit(&mut self.w.sim.events);
             return;
         }
@@ -689,7 +693,7 @@ impl World for JsWorld<'_, '_> {
     }
 
     fn launch(&mut self, bolt: Ref<Bolt>, tick: Nullable<f64>) {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             let mut notice = self.notice(F3OrdnanceEvent::Launch,Shot::Bolt(bolt));
             notice.tick = tick; notice.emit(&mut self.w.sim.events);
             return;
@@ -703,7 +707,7 @@ impl World for JsWorld<'_, '_> {
     // A later mirror refresh must not substitute a new slot occupant's state.
     // Pure impact effects drain after the owning native entry has completed.
     fn impact(&mut self, shot: Shot, info: &ImpactInfo) {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             let mut notice = self.notice(F3OrdnanceEvent::Impact,shot);
             match info {
                 ImpactInfo::Plain { point, normal, surface } => {
@@ -733,7 +737,7 @@ impl World for JsWorld<'_, '_> {
     fn grenade_contact(&mut self, grenade: Ref<Grenade>) {
         let current=self.store().grenade.contains(grenade);
         if current {if let Some(ai)=self.recon.as_mut().and_then(|services|services.ai.as_mut()) {ai.grenade_contact(grenade);}}
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             self.notice(F3OrdnanceEvent::GrenadeContact,Shot::Grenade(grenade)).emit(&mut self.w.sim.events);
             return;
         }
@@ -742,7 +746,7 @@ impl World for JsWorld<'_, '_> {
     }
 
     fn bounce(&mut self, def: DefId, position: Vec3, speed: f64) {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             F3OrdnanceNotice { event:F3OrdnanceEvent::Bounce, def, position, speed, ..Default::default() }.emit(&mut self.w.sim.events);
             return;
         }
@@ -752,20 +756,20 @@ impl World for JsWorld<'_, '_> {
     // The things lying about (ItemsWorld).
 
     fn item_cast(&mut self, origin: Vec3, direction: Vec3, far: f64) -> Option<Hit> {
-        if crate::units::f3::active() {
-            return crate::units::native::ordnance_cast(crate::units::f3::collision_world(),origin,direction,far,None,false,false);
+        if crate::units::f3::active_in(&self.w.units) {
+            return crate::units::native::ordnance_cast_in(self.w, crate::units::f3::collision_world_in(&self.w.units),origin,direction,far,None,false,false);
         }
         hit_of(import_item_cast(&ItemCastArgs { origin, direction, far }))
     }
 
     fn blocked(&mut self, position: Vec3, target: Vec3) -> bool {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             // ItemsWorld.blocked uses blastBlocked: moving hulls do not
             // shield a mine, and the final five centimetres are tolerated.
             let mut direction = three::Vector3::new(target[0]-position[0],target[1]-position[1],target[2]-position[2]);
             let span = direction.length();if span < 1e-3 { return false; }
             direction.divide_scalar(span);
-            return crate::units::native::ordnance_cast(crate::units::f3::collision_world(),position,
+            return crate::units::native::ordnance_cast_in(self.w, crate::units::f3::collision_world_in(&self.w.units),position,
                 [direction.x,direction.y,direction.z],span,None,true,false).is_some_and(|hit| hit.distance < span-0.05);
         }
         import_blocked(&BlockedArgs { position, target }).value
@@ -775,12 +779,12 @@ impl World for JsWorld<'_, '_> {
         if !water(&self.w.ordnance, 1) {
             return None;
         }
-        if crate::units::f3::active() { return crate::units::f3_sensors::water_crossing(from,to); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3_sensors::water_crossing_in(self.w, from,to); }
         point_of(import_item_water_crossing(&SegmentArgs { from, to }))
     }
 
     fn item_model(&mut self, def: DefId) -> ItemModel {
-        if crate::units::f3::active() { return crate::units::f3::items().class(def).model; }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3::items_in(&mut self.w.units).class(def).model; }
         let a = import_item_model(&ItemDefArgs { def });
         ItemModel { mesh: a.mesh, radius: a.radius, center: a.center }
     }
@@ -789,29 +793,29 @@ impl World for JsWorld<'_, '_> {
     // A missing visual mesh keeps the class's original physical fallback.
     // Ordinary item ticks never load or measure presentation geometry.
     fn prepared_item(&mut self, def: DefId) -> Option<PreparedItem> {
-        crate::units::f3::active().then(|| crate::units::f3::items().class(def))
+        crate::units::f3::active_in(&self.w.units).then(|| crate::units::f3::items_in(&mut self.w.units).class(def))
     }
     fn item_blast_damage(&mut self, explosion: DefId, item: DefId, distance: f64) -> Option<f64> {
-        if !crate::units::f3::active() { return None; }
-        let packet = crate::units::f3::blast_packet(explosion);
-        let scale = crate::units::f3::items().class(item).scale;
+        if !crate::units::f3::active_in(&self.w.units) { return None; }
+        let packet = crate::units::f3::blast_packet_in(self.w, explosion);
+        let scale = crate::units::f3::items_in(&mut self.w.units).class(item).scale;
         Some(packet.hit.damage * crate::ordnance::defs::falloff(distance,packet.inner,packet.outer) * packet.hit.scales[scale])
     }
-    fn owned_item_frames(&self) -> bool { crate::units::f3::active() }
+    fn owned_item_frames(&self) -> bool { crate::units::f3::active_in(&self.w.units) }
     // ItemsWorld publishes mutation samples beside stable item handles.
     // A newly created item's identity is bound before later notices name it.
     // Pickup and retirement can both occur before the outer phase returns.
     // Their saved observations must not be reconstructed from final live state.
     fn item_changed(&mut self, item: Ref<Item>, made: bool) {
-        if crate::units::f3::active() { crate::units::f3_items::changed(item,made); }
+        if crate::units::f3::active_in(&self.w.units) { crate::units::f3_items::changed_in(&mut self.w.sim, item,made); }
     }
     fn item_retired(&mut self, item: Ref<Item>) {
-        crate::units::f3_items::retired(item);
+        crate::units::f3_items::retired_in(&mut self.w.sim, item);
     }
-    fn dispenser_active(&self, key: StrId) -> bool { crate::units::f3::items().active(key) }
-    fn retain_empty_dispenser(&self, key: StrId) -> bool { crate::units::f3::items().current(key) }
+    fn dispenser_active(&self, key: StrId) -> bool { crate::units::f3::items_read(&self.w.units).active(key) }
+    fn retain_empty_dispenser(&self, key: StrId) -> bool { crate::units::f3::items_read(&self.w.units).current(key) }
     fn dispenser_changed(&mut self, key: StrId, removed: bool) {
-        if crate::units::f3::active() { crate::units::f3::items().changed(key,removed); }
+        if crate::units::f3::active_in(&self.w.units) { crate::units::f3::items_in(&mut self.w.units).changed(key,removed); }
     }
 
     fn owner_key(&mut self, owner: ItemOwner) -> String {
@@ -820,12 +824,12 @@ impl World for JsWorld<'_, '_> {
     }
 
     fn drop_roll(&mut self) -> f64 {
-        if crate::units::f3::active() { return crate::units::f3::random_drop(); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3::random_drop_in(&mut self.w.units); }
         import_drop_roll(&NoArgs {}).value
     }
 
     fn explode(&mut self, def: &Field, position: Vec3, owner: ItemOwner) {
-        if crate::units::f3::active() {
+        if crate::units::f3::active_in(&self.w.units) {
             let owner = match owner {
                 ItemOwner::Null => OrdnanceOwner::Null,
                 ItemOwner::Unit(r) => OrdnanceOwner::Unit(r),
@@ -842,20 +846,20 @@ impl World for JsWorld<'_, '_> {
     }
 
     fn watch(&mut self, index: usize, team: f64) -> Watched {
-        if crate::units::f3::active() { return crate::units::f3_items::watch(index,team); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3_items::watch_in(self.w, index,team); }
         let relation = self.relation(index, team);
         let t = self.target(index);
         Watched { relation, center: t.center, radius: t.radius, velocity: t.velocity }
     }
 
     fn standing(&mut self, index: usize) -> Vec3 {
-        if crate::units::f3::active() { return crate::units::f3_items::standing(index); }
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3_items::standing_in(self.w, index); }
         self.target(index).position
     }
 
     fn give(&mut self, index: usize, def: DefId) -> bool {
-        if crate::units::f3::active() {
-            return crate::units::f3_items::give(index,def,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+        if crate::units::f3::active_in(&self.w.units) {
+            return crate::units::f3_items::give_in(self.w, index,def,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
         }
         import_give(&GiveArgs { index: index as u32, def }).value
     }
@@ -865,7 +869,7 @@ impl World for JsWorld<'_, '_> {
     // Supply observers follow the health/ammunition mutation in source order.
     // A later unit publication cannot restore the target's earlier resources.
     fn pickup(&mut self, def: DefId, position: Vec3) {
-        if crate::units::f3::active() { PickupArgs {def,position}.emit(&mut self.w.sim.events); return; }
+        if crate::units::f3::active_in(&self.w.units) { PickupArgs {def,position}.emit(&mut self.w.sim.events); return; }
         import_pickup(&PickupArgs { def, position });
     }
 }

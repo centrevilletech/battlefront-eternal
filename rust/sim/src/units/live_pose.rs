@@ -1,10 +1,8 @@
 //! Retained rider and held-body samples used by Unit.updateSpheres.
 use super::poses::BodyPose;
-use crate::abi::sim;
 use crate::gen::{F3BodySkeleton, F3PoseCommand, HitShape, Unit};
 use crate::rig::{rider::RiderSample, skeleton::Skeleton};
 use crate::store::Ref;
-use std::ptr::addr_of_mut;
 use three::{Matrix4, Quaternion, Vector3};
 
 pub(crate) struct Body {
@@ -16,61 +14,60 @@ pub(super) struct BodyPoses { rows: Vec<Option<Body>> }
 impl BodyPoses {
     pub(super) const fn new() -> Self { Self { rows: Vec::new() } }
 }
-fn body_poses() -> &'static mut BodyPoses { unsafe { &mut *addr_of_mut!(crate::abi::cold().units.body_poses) } }
+fn body_poses_in(units: &mut super::owner::Units) -> &mut BodyPoses { &mut units.body_poses }
 
 /// UnitFactory.build's already decomposed bind transforms, loaded once.
-#[no_mangle]
-pub extern "C" fn f3_body_skeleton() -> u32 {
-    let (row, heap) = sim().calls.args();
+pub fn f3_body_skeleton_in(world_ctx: &mut crate::world::owner::World) -> u32 {
+    let (row, heap) = world_ctx.sim.calls.args();
     let input = F3BodySkeleton::take(row, heap);
-    let s = sim();
-    body_poses().skeleton(&s.store, &s.strings, input)
+    let s = &world_ctx.sim;
+    body_poses_in(&mut world_ctx.units).skeleton(&s.store, &s.strings, input)
 }
 
 /// Vehicles sample the unit's retained immutable source directly. The copy
 /// contains only fixed joint values, never a skeleton or an allocated pose.
-pub(crate) fn rider_points(reference: Ref<Unit>, sample: &RiderSample, out: &mut crate::rig::rider::RiderPoints) -> bool {
-    let Some(body)=body_poses().rows.get_mut(reference.slot as usize).and_then(Option::as_mut) else {return false};
+pub(crate) fn rider_points_in(units: &mut super::owner::Units, reference: Ref<Unit>, sample: &RiderSample, out: &mut crate::rig::rider::RiderPoints) -> bool {
+    let Some(body)=body_poses_in(units).rows.get_mut(reference.slot as usize).and_then(Option::as_mut) else {return false};
     if body.reference!=reference {return false;}
     let Some(points)=body.sampler.points(sample,false) else {return false};
     *out=*points;true
 }
 
-pub fn set(input:F3PoseCommand) -> bool { body_poses().set(input) }
-pub fn clear(reference: Ref<Unit>) { body_poses().clear(reference) }
+pub fn set_in(units: &mut super::owner::Units, input:F3PoseCommand) -> bool { body_poses_in(units).set(input) }
+pub fn clear_in(units: &mut super::owner::Units, reference: Ref<Unit>) { body_poses_in(units).clear(reference) }
 /// AnimatedProp.carry places the soldier's root on the foreign grab node.
 /// Keep the retained sampler so carrying and later lazy limb queries share
 /// the same bind transforms without touching a drawn skeleton.
-pub fn held_frame(input: &F3PoseCommand, out: &mut Matrix4) -> bool {
+pub fn held_frame_in(world_ctx: &mut crate::world::owner::World, input: &F3PoseCommand, out: &mut Matrix4) -> bool {
     let Some(clip) = input.clip else { return false };
-    let Some(body)=(&mut body_poses().rows).get_mut(input.key.slot as usize).and_then(Option::as_mut) else {super::f3::fail();return false;};
-    if body.reference!=input.key.reference() {super::f3::fail();return false;}
-    let Some(clip)=crate::pose::state().clips.get(clip as usize) else {super::f3::fail();return false;};
+    let Some(body)=(&mut body_poses_in(&mut world_ctx.units).rows).get_mut(input.key.slot as usize).and_then(Option::as_mut) else {super::f3::fail_in(&mut world_ctx.units);return false;};
+    if body.reference!=input.key.reference() {super::f3::fail_in(&mut world_ctx.units);return false;}
+    let Some(clip)=world_ctx.pose.clips.get(clip as usize) else {super::f3::fail_in(&mut world_ctx.units);return false;};
     let mut node = Matrix4::default(); node.from_array(&input.frame, 0);
     body.sampler.held_frame(clip,input.time,&node,out)
 }
-pub fn exposed(_id: u32, unit: &Unit) -> bool {
-    if let Some(lease) = unit.seat.and_then(|r| sim().store.seat_lease.get(r)) {
+pub fn exposed_in(store: &crate::gen::Store, _id: u32, unit: &Unit) -> bool {
+    if let Some(lease) = unit.seat.and_then(|r| store.seat_lease.get(r)) {
         return crate::vehicles::module::f2::live_seats::exposed(lease);
     }
     false
 }
 // Game.onExplode admits exposed stationary gunners only. Hull riders are
 // skipped even when a round can meet their shown rider shapes.
-pub(crate) fn blastable(id: u32) -> bool {
-    let reference = super::f3::unit_reference(id);
-    let unit = sim().store.unit.get(reference).expect("blast seat unit");
-    unit.seat.and_then(|r| sim().store.seat_lease.get(r))
+pub(crate) fn blastable_in(world_ctx: &crate::world::owner::World, id: u32) -> bool {
+    let reference = super::f3::unit_reference_in(&world_ctx.units, id);
+    let unit = world_ctx.sim.store.unit.get(reference).expect("blast seat unit");
+    unit.seat.and_then(|r| world_ctx.sim.store.seat_lease.get(r))
         .is_some_and(|l| l.turret.is_some() && crate::vehicles::module::f2::live_seats::exposed(l))
 }
 
 /// SeatLease.riderShapes and AnimatedProp.heldShapes read their own sample,
 /// while Unit owns when it invalidates and observes the resulting shapes.
-pub fn sample(id: u32, unit: &Unit, out: &mut [HitShape]) -> usize {
-    if unit.seat.and_then(|r| sim().store.seat_lease.get(r)).is_some() {
-        return crate::vehicles::module::f2::riders::shapes(super::f3::unit_reference(id), unit.generation, out);
+pub fn sample_in(world_ctx: &mut crate::world::owner::World, id: u32, unit: &Unit, out: &mut [HitShape]) -> usize {
+    if unit.seat.and_then(|r| world_ctx.sim.store.seat_lease.get(r)).is_some() {
+        return crate::vehicles::module::f2::riders::shapes(super::f3::unit_reference_in(&world_ctx.units, id), unit.generation, out);
     }
-    let Some(body) = (&mut body_poses().rows).get_mut(id as usize).and_then(Option::as_mut) else { return 0 };
+    let Some(body) = (&mut body_poses_in(&mut world_ctx.units).rows).get_mut(id as usize).and_then(Option::as_mut) else { return 0 };
     let (clip,time,elements)=if let crate::store::Nullable::Value(held)=&unit.held {
         if crate::battle::f4_live::owns_held(held.prop) {
             let Some(clip)=crate::battle::f4_live::held_clip(body.reference,unit) else {return 0};
@@ -86,7 +83,7 @@ pub fn sample(id: u32, unit: &Unit, out: &mut [HitShape]) -> usize {
         let Some(clip)=pose.clip else {return 0};
         (clip,Some(pose.time),pose.frame)
     };
-    let clips=crate::pose::state();
+    let clips=&world_ctx.pose;
     let sample=RiderSample {clip:&clips.clips[clip as usize],pitch:0.,turn:0.,time};
     let mut frame=Matrix4::default();frame.from_array(&elements,0);
     body.sampler.hit_shapes(&sample, &frame, unit.root_scale, out)
@@ -95,27 +92,30 @@ pub fn sample(id: u32, unit: &Unit, out: &mut [HitShape]) -> usize {
 
 // OrdnanceWorld.mayStrike needs the lease's mount identity, independently of
 // whether that lease exposes a sampled rider pose. No host lookup is needed.
-pub(crate) fn mount(id: u32) -> Option<(Option<crate::store::Ref<crate::gen::Body>>, Option<crate::store::Ref<crate::gen::Vehicle>>)> {
-    if let Some(unit) = sim().store.unit.get(super::f3::unit_reference(id)) {
-        if let Some(lease) = unit.seat.and_then(|r| sim().store.seat_lease.get(r)) {
-            if let Some(vehicle) = lease.vehicle {
-                return Some((sim().store.vehicle.get(vehicle).map(|v| v.body), Some(vehicle)));
-            }
-            return Some((lease.turret.and_then(crate::vehicles::module::f2::live_seats::turret_body), None));
+pub(crate) fn mount_in(world_ctx: &crate::world::owner::World, id: u32) -> Option<(Option<Ref<crate::gen::Body>>, Option<Ref<crate::gen::Vehicle>>)> {
+    world_ctx.sim.store.unit.get(super::f3::unit_reference_in(&world_ctx.units,id)).and_then(|unit| mount_row(&world_ctx.sim.store,unit))
+}
+// Current-ray predicates already hold the exact registry row. Passing it
+// avoids looking for a borrowed body in the temporarily detached slab.
+pub(super) fn mount_row(store: &crate::gen::Store, unit: &Unit) -> Option<(Option<Ref<crate::gen::Body>>, Option<Ref<crate::gen::Vehicle>>)> {
+    if let Some(lease) = unit.seat.and_then(|r| store.seat_lease.get(r)) {
+        if let Some(vehicle) = lease.vehicle {
+            return Some((store.vehicle.get(vehicle).map(|v| v.body),Some(vehicle)));
         }
+        return Some((lease.turret.and_then(crate::vehicles::module::f2::live_seats::turret_body),None));
     }
     None
 }
 
 /// AnimatedProp.heldFrame samples the prepared body's root before composing
 /// the prop's grab node. Both outputs are fixed values before any service runs.
-pub(crate) fn held_root(reference: Ref<Unit>, clip: u32, time: f64) -> Option<(Vector3, Quaternion)> { body_poses().held_root(&crate::pose::state().clips, reference, clip, time) }
+pub(crate) fn held_root_in(world_ctx: &mut crate::world::owner::World, reference: Ref<Unit>, clip: u32, time: f64) -> Option<(Vector3, Quaternion)> { body_poses_in(&mut world_ctx.units).held_root(&world_ctx.pose.clips, reference, clip, time) }
 
 // PlayerBodies.adopt and UnitFactory.build transfer a prepared sampler. Its
 // bind lengths survive class activation without another JS rig import.
-pub(crate) fn take(slot: u32) -> Option<Body> { body_poses().take(slot) }
-pub(crate) fn install(reference: Ref<Unit>, body: Option<Body>) { body_poses().install(reference, body) }
-pub(crate) fn reserve(count: usize) { body_poses().reserve(count) }
+pub(crate) fn take_in(units: &mut super::owner::Units, slot: u32) -> Option<Body> { body_poses_in(units).take(slot) }
+pub(crate) fn install_in(units: &mut super::owner::Units, reference: Ref<Unit>, body: Option<Body>) { body_poses_in(units).install(reference, body) }
+pub(crate) fn reserve_in(units: &mut super::owner::Units, count: usize) { body_poses_in(units).reserve(count) }
 
 impl BodyPoses {
     fn set(&mut self, input: F3PoseCommand) -> bool {
@@ -173,3 +173,12 @@ impl BodyPoses {
         1
     }
 }
+
+// facade shims: retained for unconverted callers.
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_body_skeleton() -> u32{ f3_body_skeleton_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn rider_points(reference: Ref<Unit>, sample: &RiderSample, out: &mut crate::rig::rider::RiderPoints) -> bool{ rider_points_in(&mut crate::abi::world().units, reference, sample, out) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn held_root(reference: Ref<Unit>, clip: u32, time: f64) -> Option<(Vector3, Quaternion)>{ held_root_in(crate::abi::world(), reference, clip, time) }

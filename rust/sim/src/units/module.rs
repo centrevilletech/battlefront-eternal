@@ -6,18 +6,16 @@
 use super::droideka;
 use super::muzzles;
 use super::native::{self, DroidekaBody, DroidekaClass};
-use super::soldier::tick_soldier;
+use super::soldier::tick_soldier_in;
 use super::shapes::{Bounds, HitShape};
 use super::water::{soldier_step_at, WaterEffects};
 use super::world::{CastHit, UnitsWorld};
-use crate::abi::sim;
 use crate::combat::combat::{self as cb, Edges};
 use crate::combat::module::{self as cm, JsWorld};
 use crate::combat::world::DamageInfo;
 use crate::gen::*;
 use crate::store::{word_u32, Nullable, Ref};
 use crate::vehicles::module as vm;
-use std::ptr::addr_of_mut;
 use three::Vector3;
 
 /// What the phase knows between its calls.
@@ -29,25 +27,16 @@ pub(super) struct Phase {
 }
 
 
-fn phase() -> &'static mut Phase {
-    // SAFETY: one thread; each caller holds it only for a call of its own
-    // and never across an import.
-    unsafe {
-        (*addr_of_mut!(crate::abi::cold().units.phase)).get_or_insert_with(|| Phase {
-            world: 0,
-            scratch: cb::Scratch::default(),
-            droideka_classes: Vec::new(),
-            droidekas: Vec::new(),
-        })
-    }
+fn phase_in(units: &mut super::owner::Units) -> &mut Phase {
+units.phase.get_or_insert_with(|| Phase { world: 0, scratch: cb::Scratch::default(), droideka_classes: Vec::new(), droidekas: Vec::new() })
 }
 
 // Unit's public id is also its canonical slab slot in the owning battle.
 // Look up the current slot generation rather than trusting a JS body mirror.
 // Commands validate gameplay life separately before reaching this helper.
 // A missing row carries an invalid generation and cannot alias a replacement.
-fn unit_ref(id: u32) -> Ref<Unit> {
-    sim().store.unit.reference(id).unwrap_or(Ref::new(id, 0))
+fn unit_ref_in(store: &crate::gen::Store, id: u32) -> Ref<Unit> {
+store.unit.reference(id).unwrap_or(Ref::new(id, 0))
 }
 
 /// Unit `id` and his combat back in the store for an import (the store
@@ -57,49 +46,48 @@ fn unit_ref(id: u32) -> Ref<Unit> {
 // Temporarily restore the row and combat before entering that observation.
 // A nested query then sees the canonical state, not an empty taken-out frame.
 // Recover the same row afterward so the resumed tick sees accepted commands.
-fn out_and_back(id: u32, unit: &mut Unit, changed: bool, call: impl FnOnce()) {
-    let r = unit_ref(id);
-    cm::put_body(r, std::mem::take(unit));
-    if changed { super::f3::changed(r); }
-    call();
-    *unit = cm::take_body(r);
+fn out_and_back_in(world_ctx: &mut crate::world::owner::World, id: u32, unit: &mut Unit, changed: bool, call: impl FnOnce(&mut crate::world::owner::World)) {
+    let r = unit_ref_in(&world_ctx.sim.store, id);
+    cm::put_body_in(world_ctx, r, std::mem::take(unit));
+    if changed { super::f3::changed_in(world_ctx, r); }
+    call(world_ctx);
+    *unit = cm::take_body_in(world_ctx, r);
 }
 
 // Unit.tick advances one combat at a time. Damage can nest while that
 // combat owns its shot buffers, but cannot start another combat update.
 // Lifecycle operations use empty scratch and never borrow these buffers.
-fn take_scratch() -> cb::Scratch { std::mem::take(&mut phase().scratch) }
+fn take_scratch_in(units: &mut super::owner::Units) -> cb::Scratch { std::mem::take(&mut phase_in(units).scratch) }
 // UnitFactory construction reserves the shared combat work bound.
 // The largest ordinary salvo uses this retained shot and muzzle capacity.
 // Adding another body does not allocate another copy of the arc buffers.
 // Only one combat update borrows this scratch at a time.
-pub(crate) fn reserve_unit(_id:u32) { phase().scratch.reserve(64); }
+pub(crate) fn reserve_unit_in(units: &mut super::owner::Units, _id:u32) { phase_in(units).scratch.reserve(64); }
 
 /// Bind the prepared collision world before any body is adopted.
-pub(crate) fn setup(world: u32) {
-    phase().world = world as usize;
+pub(crate) fn setup_in(units: &mut super::owner::Units, world: u32) {
+    phase_in(units).world = world as usize;
 }
 
 /// A droideka class's movement numbers and clip ids, written once in the
 /// call block (native.rs). Returns its number for units_droideka_attach.
-#[no_mangle]
-pub extern "C" fn units_droideka_class() -> u32 {
-    let (row, _) = sim().calls.args();
-    let class = DroidekaClass::read(row);
-    let classes = &mut phase().droideka_classes;
+pub fn units_droideka_class_in(world_ctx: &mut crate::world::owner::World) -> u32 {
+    let (row, _) = world_ctx.sim.calls.args();
+    let class = DroidekaClass::read(&world_ctx.pose, row);
+    let classes = &mut phase_in(&mut world_ctx.units).droideka_classes;
     classes.push(class);
     (classes.len() - 1) as u32
 }
 
 /// The class and persistent collision caches for one pooled body.
-#[no_mangle]
+
 // Droideka construction binds its immutable clip and movement class.
 // The body sidecar owns reusable collision gathers and hidden gun state.
 // It follows the pooled body across lives rather than being rebuilt on spawn.
 // Class replacement moves this resource with its resident construction cookie.
-pub extern "C" fn units_droideka_attach(unit: u32, class: u32) {
-    let p = phase();
-    let body = DroidekaBody::new(&p.droideka_classes[class as usize], p.world);
+pub fn units_droideka_attach_in(world_ctx: &mut crate::world::owner::World, unit: u32, class: u32) {
+    let p = phase_in(&mut world_ctx.units);
+    let body = DroidekaBody::new(&world_ctx.collision.state, &p.droideka_classes[class as usize], p.world);
     if p.droidekas.len() <= unit as usize {
         p.droidekas.resize_with(unit as usize + 1, || None);
     }
@@ -107,39 +95,33 @@ pub extern "C" fn units_droideka_attach(unit: u32, class: u32) {
 }
 
 /// A prepared hidden gun hierarchy, before native posing takes ownership.
-#[no_mangle]
+
 // Droideka.arm has prepared a hidden muzzle hierarchy before this call.
 // The hierarchy is independent of the page's interpolated drawn bones.
 // Gameplay later samples this native rig after movement and before flush.
 // No per-barrel JavaScript query runs inside the combat update.
-pub extern "C" fn units_muzzle_attach(unit: u32, class: u32) {
-    let parts = phase().droideka_classes[class as usize].parts();
-    let (row, _) = sim().calls.args();
-    muzzles::attach(unit, parts, row);
+pub fn units_muzzle_attach_in(world_ctx: &mut crate::world::owner::World, unit: u32, class: u32) {
+    let parts = phase_in(&mut world_ctx.units).droideka_classes[class as usize].parts();
+    let (row, _) = world_ctx.sim.calls.args();
+    muzzles::attach_in(&mut world_ctx.units, unit, parts, row);
 }
 
 /// Unit.tick and the world's immediately following water/death-region tests.
 /// The owned phase supplies retained trigger edges instead of parsing a list.
-pub(crate) fn tick_owned(info: &UnitsPhaseUnit, level: f64, dt: f64, edges: Edges, recon: Option<crate::units::f3::WorldServices<'_>>) {
-    let id = word_u32(info.unit);
-    let world = phase().world;
-    // A completed body's JS tick stamp can lag until the outer publication.
-    // Invalidate its bounds mirror before any native movement or aimer runs.
-    super::f3::invalidate_bounds(id);
-    let mut unit = cm::take_body(unit_ref(id));
-    let droideka = phase().droidekas.get_mut(id as usize).and_then(Option::take);
-    let mut w = ModuleWorld {
-        world,
-        edges,
-        droideka,
-        scratch: take_scratch(),
-        recon,
-    };
+pub(crate) fn tick_owned_in(world_ctx: &mut crate::world::owner::World, info: &UnitsPhaseUnit, level: f64, dt: f64, edges: Edges, recon: Option<crate::units::f3::WorldServices<'_>>) {
+let id = word_u32(info.unit);
+    let reference = unit_ref_in(&world_ctx.sim.store,id);
+    let world = phase_in(&mut world_ctx.units).world;
+    super::f3::invalidate_bounds_in(&mut world_ctx.units,id);
+    let mut unit = cm::take_body_in(world_ctx,reference);
+    let droideka = phase_in(&mut world_ctx.units).droidekas.get_mut(id as usize).and_then(Option::take);
+    let scratch = take_scratch_in(&mut world_ctx.units);
+    let mut w = ModuleWorld { w:world_ctx, world, edges, droideka, scratch, recon };
     unit.tick(id, dt, &mut w, None);
     after_tick(id, &mut unit, info, level, dt, &mut w);
-    if let Some(body) = w.droideka.take() { phase().droidekas[id as usize] = Some(body); }
-    phase().scratch = std::mem::take(&mut w.scratch);
-    cm::put_body(unit_ref(id), unit);
+    if let Some(body) = w.droideka.take() { phase_in(&mut w.w.units).droidekas[id as usize] = Some(body); }
+    phase_in(&mut w.w.units).scratch = std::mem::take(&mut w.scratch);
+    cm::put_body_in(w.w,reference,unit);
 }
 
 /// Unit.spawn and remove over the same body services as Unit.tick.
@@ -147,23 +129,18 @@ pub(crate) fn tick_owned(info: &UnitsPhaseUnit, level: f64, dt: f64, edges: Edge
 // They cannot borrow the active combat scratch during a nested death.
 // Reset and removal need no shot buffers, so use an empty scratch frame.
 // The native body sidecar is restored before returning to the owning boundary.
-pub(crate) fn lifecycle_owned(id: u32, spawn: Option<([f64; 3], f64)>, recon: Option<crate::units::f3::WorldServices<'_>>) {
-    super::f3::invalidate_bounds(id);
-    let p = phase();
+pub(crate) fn lifecycle_owned_in(world_ctx: &mut crate::world::owner::World, id: u32, spawn: Option<([f64; 3], f64)>, recon: Option<crate::units::f3::WorldServices<'_>>) {
+super::f3::invalidate_bounds_in(&mut world_ctx.units,id);
+    let reference = unit_ref_in(&world_ctx.sim.store,id);
+    let p = phase_in(&mut world_ctx.units);
     let world = p.world;
     let droideka = p.droidekas.get_mut(id as usize).and_then(Option::take);
-    let mut unit = cm::take_body(unit_ref(id));
-    let mut w = ModuleWorld {
-        world,
-        edges: Edges::default(),
-        droideka,
-        scratch: cb::Scratch::default(),
-        recon,
-    };
-    if let Some(([x, y, z], yaw)) = spawn { unit.spawn(id, x, y, z, yaw, &mut w); }
-    else { unit.remove(id, &mut w); }
-    if let Some(body) = w.droideka.take() { phase().droidekas[id as usize] = Some(body); }
-    cm::put_body(unit_ref(id), unit);
+    let mut unit = cm::take_body_in(world_ctx,reference);
+    let mut w = ModuleWorld { w:world_ctx, world, edges:Edges::default(), droideka, scratch:cb::Scratch::default(), recon };
+    if let Some(([x,y,z],yaw)) = spawn { unit.spawn(id,x,y,z,yaw,&mut w); }
+    else { unit.remove(id,&mut w); }
+    if let Some(body) = w.droideka.take() { phase_in(&mut w.w.units).droidekas[id as usize] = Some(body); }
+    cm::put_body_in(w.w,reference,unit);
 }
 
 fn held(u: &Unit) -> bool {
@@ -199,7 +176,7 @@ fn after_tick(id: u32, unit: &mut Unit, info: &UnitsPhaseUnit, level: f64, dt: f
             let splash = UnitSplash { at: [at.x, at.y, at.z] };
             // Game.presentEffect cannot affect water damage. Drain this
             // notice after the ownership interval, alongside other effects.
-            splash.emit(&mut sim().events);
+            splash.emit(&mut w.w.sim.events);
         }
         if hurt != 0.0 && !hurt.is_nan() {
             w.damage(id, unit, hurt);
@@ -252,7 +229,8 @@ impl WaterEffects for Splash {
 }
 
 /// The battle as the phase meets it for one unit.
-pub(crate) struct ModuleWorld<'a> {
+pub(crate) struct ModuleWorld<'w, 'a> {
+    pub(crate) w: &'w mut crate::world::owner::World,
     world: usize,
     /// His trigger edges (a network player's).
     edges: Edges,
@@ -261,9 +239,10 @@ pub(crate) struct ModuleWorld<'a> {
     recon: Option<crate::units::f3::WorldServices<'a>>,
 }
 
-impl<'a> ModuleWorld<'a> {
-    pub(crate) fn sensor(world: usize) -> Self {
+impl<'w, 'a> ModuleWorld<'w, 'a> {
+    pub(crate) fn sensor_in(w: &'w mut crate::world::owner::World, world: usize) -> Self {
         Self {
+            w,
             world,
             edges: Edges::default(),
             droideka: None,
@@ -283,7 +262,7 @@ impl<'a> ModuleWorld<'a> {
                     Some(body) => vm::collision_world().and_then(|c| c.kernel_slot(body.slot)).map_or(-1, |k| k as i64),
                     None => -1,
                 };
-                tick_soldier(s, input, h, self.world, pass_through);
+                tick_soldier_in(&mut self.w.movement, &mut self.w.collision.state, s, input, h, self.world, pass_through);
             }
             UnitBody::Droideka(_) => {
                 let mut parts = self.droideka.as_ref().expect("the droideka's class and clips").parts();
@@ -301,10 +280,11 @@ impl<'a> ModuleWorld<'a> {
         let _allocations = crate::allocations::at(F3AllocationStage::Combat);
         // Damage can precede Unit.onMoved after an impact. Its barrier must
         // publish combat too rather than reusing the last consumed clocks.
-        super::f3::changed(unit_ref(id));
-        let defs = cm::defs();
+        let reference = unit_ref_in(&self.w.sim.store,id);
+        super::f3::changed_in(self.w,reference);
+        let defs = cm::defs_in(&mut self.w.combat);
         let mut c = std::mem::take(&mut unit.combat);
-        let mut w = JsWorld::with_services(unit_ref(id), unit, &c,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+        let mut w = JsWorld::with_services_in(self.w, reference, unit, &c,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
         f(&mut c, unit, &defs, &self.edges, &mut w);
         w.finish();
         unit.combat = c;
@@ -312,35 +292,35 @@ impl<'a> ModuleWorld<'a> {
 
 }
 
-impl UnitsWorld for ModuleWorld<'_> {
+impl UnitsWorld for ModuleWorld<'_, '_> {
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit> {
-        native::cast(self.world, origin, direction, far)
+        native::cast_in(self.w, self.world, origin, direction, far)
     }
 
     fn visit_gathered(&mut self, _id: u32, center: &Vector3, radius: f64, cache: usize,
         visit: &mut dyn FnMut(bool, &[Vector3; 3])) {
         self.droideka.as_mut().expect("the droideka's collision caches")
-            .visit_gathered(self.world, center, radius, cache, visit);
+            .visit_gathered(&self.w.collision.state, self.w.movement.flags_mut(), self.world, center, radius, cache, visit);
     }
 
     fn seat_exposed(&mut self, id: u32, _unit: &Unit) -> bool {
-        super::live_pose::exposed(id, _unit)
+        super::live_pose::exposed_in(&self.w.sim.store, id, _unit)
     }
 
     fn rider_shapes(&mut self, id: u32, unit: &Unit, shapes: &mut [HitShape]) -> usize {
-        super::live_pose::sample(id, unit, shapes)
+        super::live_pose::sample_in(self.w, id, unit, shapes)
     }
 
     fn held_shapes(&mut self, id: u32, unit: &Unit, shapes: &mut [HitShape]) -> usize {
-        super::live_pose::sample(id, unit, shapes)
+        super::live_pose::sample_in(self.w, id, unit, shapes)
     }
 
-    fn target_alive(&mut self, id: u32) -> bool { super::f3::target(id).is_some_and(|f| f.alive) }
+    fn target_alive(&mut self, id: u32) -> bool { super::f3::target_in(self.w, id).is_some_and(|f| f.alive) }
 
-    fn target_dead(&mut self, id: u32) -> bool { super::f3::target(id).is_some_and(|f| f.dead) }
+    fn target_dead(&mut self, id: u32) -> bool { super::f3::target_in(self.w, id).is_some_and(|f| f.dead) }
 
     fn target_sphere(&mut self, id: u32) -> Bounds {
-        super::f3::target(id).map_or_else(Bounds::default, |f| Bounds { center: f.bounds.center, radius: f.bounds.radius })
+        super::f3::target_in(self.w, id).map_or_else(Bounds::default, |f| Bounds { center: f.bounds.center, radius: f.bounds.radius })
     }
 
     fn move_soldier(&mut self, id: u32, unit: &mut Unit, h: f64) {
@@ -373,10 +353,10 @@ impl UnitsWorld for ModuleWorld<'_> {
             // The current row must be available to native aim observations.
             // Intent and weapon edits mark their own changes; this read does
             // not need to turn every moved bot into a full body publication.
-            out_and_back(id,unit,false,|| {
-                let reference=unit_ref(id);
-                let key=F3UnitKey::of(reference,sim().store.unit.get(reference).unwrap());
-                assert!(services.aim(&key,h),"active native AI aimer loan");
+            out_and_back_in(self.w, id,unit,false,|world_ctx| {
+                let reference=unit_ref_in(&world_ctx.sim.store, id);
+                let key=F3UnitKey::of(reference,world_ctx.sim.store.unit.get(reference).unwrap());
+                assert!(services.aim_in(world_ctx,&key,h),"active native AI aimer loan");
             });
             return;
         }
@@ -394,11 +374,11 @@ impl UnitsWorld for ModuleWorld<'_> {
         };
 
         let mut answer = None;
-        out_and_back(id, unit, false, || {
-            super::f3::before_hook();
-            super::f3::begin_aimer();
+        out_and_back_in(self.w, id, unit, false, |world_ctx| {
+            super::f3::before_hook_in(world_ctx);
+            super::f3::begin_aimer_in(&mut world_ctx.units);
             answer = Some(import_unit_aim(&args));
-            super::f3::finish_aimer();
+            super::f3::finish_aimer_in(world_ctx);
         });
         if let Some(a) = answer {
             unit.intent.aim = a.aim;
@@ -406,7 +386,7 @@ impl UnitsWorld for ModuleWorld<'_> {
     }
 
     fn has_remote_step(&mut self, id: u32, unit: &Unit) -> bool {
-        crate::recon::module::context_for(unit_ref(id),unit.generation).is_some()
+        {let reference = unit_ref_in(&self.w.sim.store,id); crate::recon::module::context_for_in(self.w,reference,unit.generation)}.is_some()
     }
 
     fn remote_step(&mut self, id: u32, unit: &mut Unit, h: f64, active: bool) {
@@ -414,30 +394,30 @@ impl UnitsWorld for ModuleWorld<'_> {
             // NetworkRemoteWorld.step follows the aimer and control latch.
             // Commit the owner before recon can fire back through an instant
             // shot, consume controls or kill it with a recursive death blast.
-            let context = crate::recon::module::context_for(unit_ref(id),unit.generation).unwrap();
-            let key = sim().store.recon_context.get(context).unwrap().key;
+            let context = {let reference = unit_ref_in(&self.w.sim.store,id); crate::recon::module::context_for_in(self.w,reference,unit.generation)}.unwrap();
+            let key = self.w.sim.store.recon_context.get(context).unwrap().key;
             let input = crate::recon::Input {
                 forward: if active { unit.intent.forward } else { 0.0 },
                 right: if active { unit.intent.right } else { 0.0 },
                 turn: if active { unit.intent.turn } else { 0.0 },
                 ..Default::default()
             };
-            let services = crate::units::f3::required_services!(self.recon.as_mut(),());
+            let services = crate::units::f3::required_services!(&mut self.w.units; self.recon.as_mut(),());
             let authority = &mut *services.recon;
-            out_and_back(id, unit, true, || {
-                authority.step(&mut sim().store, &mut crate::recon::module::NativeWorld::controlled(unit_ref(id), services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),
-
-                    key, super::f3::tick(), h,input).unwrap_or_else(|_|{crate::units::f3::fail();false});
-                crate::recon::module::publish_active(authority);
+            let tick = super::f3::tick_in(&self.w.units);
+            out_and_back_in(self.w, id, unit, true, |world_ctx| {
+                let reference = unit_ref_in(&world_ctx.sim.store,id);
+                crate::recon::module::with_native(world_ctx, Some(reference), authority, services.queries, services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks), |authority, store, world| authority.step(store, world, key, tick, h, input)).unwrap_or_else(|_|{crate::units::f3::fail_in(&mut world_ctx.units);false});
+                crate::recon::module::publish_active_in(world_ctx, authority);
             });
     }
 
     fn combat_reset(&mut self, id: u32, unit: &mut Unit) {
-        let defs = cm::defs();
+        let defs = cm::defs_in(&mut self.w.combat);
         let mut combat = std::mem::take(&mut unit.combat);
         cb::reset(&mut combat, unit, &defs);
         unit.combat = combat;
-        super::f3::arsenal_reset(id);
+        super::f3::arsenal_reset_in(&mut self.w.units, id);
     }
 
     // Unit.tick enters the real buffered PlayerCombat.update solver here.
@@ -474,13 +454,13 @@ impl UnitsWorld for ModuleWorld<'_> {
 
     fn death_blast(&mut self, id: u32, unit: &mut Unit) {
 
-            F3BodyNotice {key:F3UnitKey::of(unit_ref(id),unit),event:F3BodyEvent::DeathBlast,health:0.0}.emit(&mut sim().events);
+            F3BodyNotice {key:F3UnitKey::of(unit_ref_in(&self.w.sim.store, id),unit),event:F3BodyEvent::DeathBlast,health:0.0}.emit(&mut self.w.sim.events);
     }
 
     fn blow_apart(&mut self, id: u32, unit: &mut Unit, _health: f64) {
 
             let recon = self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow);
-            out_and_back(id,unit,true,|| crate::combat::live::blow_apart(unit_ref(id),0.0,recon));
+            out_and_back_in(self.w,id,unit,true,|world_ctx| {let reference = unit_ref_in(&world_ctx.sim.store,id); crate::combat::live::blow_apart_in(world_ctx,reference,0.0,recon)});
     }
 
     // Unit.remove detaches its Character synchronously before pool return.
@@ -494,11 +474,11 @@ impl UnitsWorld for ModuleWorld<'_> {
             // cannot run movement, combat or factory adapters.
             if let Some(character) = unit.character {
                 if crate::battle::f4_core::owns_lifecycle(){
-                    let reference=unit_ref(id);
-                    if let Some(c)=sim().store.character.get_mut(character){
+                    let reference=unit_ref_in(&self.w.sim.store, id);
+                    if let Some(c)=self.w.sim.store.character.get_mut(character){
                         if c.unit==Some(reference){c.unit=None;crate::battle::f4_core::mark_character(character);}
                     }
-                }else{import_f3_character_release(&F3CharacterRelease { unit:unit_ref(id), character });}
+                }else{import_f3_character_release(&F3CharacterRelease { unit:unit_ref_in(&self.w.sim.store, id), character });}
             }
     }
 
@@ -506,11 +486,11 @@ impl UnitsWorld for ModuleWorld<'_> {
 
             // UnitFactory's pool is canonical already. The remaining undraw
             // notification can wait for the outer return without an import.
-            F3RemovedNotice { key:F3UnitKey::of(unit_ref(id),unit) }.emit(&mut sim().events);
+            F3RemovedNotice { key:F3UnitKey::of(unit_ref_in(&self.w.sim.store, id),unit) }.emit(&mut self.w.sim.events);
     }
 
     fn sample_muzzles(&mut self, id: u32, unit: &mut Unit, h: f64) {
-        if unit.walker { assert!(muzzles::sample(id, unit, h), "prepared droideka rig"); }
+        if unit.walker { assert!(muzzles::sample_in(&mut self.w.units,id, unit, h), "prepared droideka rig"); }
     }
 }
 
@@ -521,24 +501,24 @@ pub(crate) struct PreparedBody {
     muzzle: Option<muzzles::Muzzles>,
     pose: Option<super::live_pose::Body>,
 }
-pub(crate) fn take_body(slot: u32) -> PreparedBody {
+pub(crate) fn take_body_in(units: &mut super::owner::Units, slot: u32) -> PreparedBody {
     PreparedBody {
-        droideka: phase().take_droideka(slot),
-        muzzle: muzzles::take(slot),
-        pose: super::live_pose::take(slot),
+        droideka: phase_in(units).take_droideka(slot),
+        muzzle: muzzles::take_in(units, slot),
+        pose: super::live_pose::take_in(units, slot),
     }
 }
-pub(crate) fn install_body(reference: Ref<Unit>, body: PreparedBody) {
-    let p = phase();
+pub(crate) fn install_body_in(units: &mut super::owner::Units, reference: Ref<Unit>, body: PreparedBody) {
+    let p = phase_in(units);
     p.install_droideka(reference.slot, body.droideka);
-    muzzles::install(reference.slot, body.muzzle);
-    super::live_pose::install(reference, body.pose);
+    muzzles::install_in(units, reference.slot, body.muzzle);
+    super::live_pose::install_in(units, reference, body.pose);
 }
-pub(crate) fn reserve_bodies(count: usize) {
-    let p = phase();
+pub(crate) fn reserve_bodies_in(units: &mut super::owner::Units, count: usize) {
+    let p = phase_in(units);
     p.reserve_bodies(count);
-    muzzles::reserve(count);
-    super::live_pose::reserve(count);
+    muzzles::reserve_in(units, count);
+    super::live_pose::reserve_in(units, count);
 }
 
 impl Phase {
@@ -551,4 +531,46 @@ impl Phase {
     fn reserve_bodies(&mut self, count: usize) {
         self.droidekas.resize_with(count.max(self.droidekas.len()), || None);
     }
+}
+
+// Unit.sphere and hitShapes may sample a rider or held pose. Lend only the
+// queried row so those services receive the same root without aliasing it.
+// Geometry cannot initiate gameplay callbacks or retire this identity.
+pub(super) fn with_unit_in<T>(w: &mut crate::world::owner::World, reference: Ref<Unit>, run: impl FnOnce(&mut ModuleWorld<'_, '_>, &mut Unit) -> T) -> Option<T> {
+    let mut unit = w.sim.store.unit.lend(reference)?;
+    let world = super::f3::collision_world_in(&w.units);
+    let mut services = ModuleWorld::sensor_in(w,world);
+    let result = run(&mut services,&mut unit);
+    assert!(services.w.sim.store.unit.restore(reference,unit).is_ok(),"queried unit identity retained");
+    Some(result)
+}
+
+// Units.raycast and query retain registry order and the original shape
+// observation points. Their slab and list are owned locals during sampling;
+// the world keeps every other store field available to rider services.
+pub(super) fn with_registry_in<T>(w: &mut crate::world::owner::World, run: impl FnOnce(&mut ModuleWorld<'_, '_>, &crate::gen::Units, &mut crate::store::Slab<Unit>) -> T) -> T {
+    let mut slab = std::mem::take(&mut w.sim.store.unit);
+    let registry = std::mem::take(&mut w.sim.store.units);
+    let world = super::f3::collision_world_in(&w.units);
+    let mut services = ModuleWorld::sensor_in(w,world);
+    let result = run(&mut services,&registry,&mut slab);
+    services.w.sim.store.unit = slab;
+    services.w.sim.store.units = registry;
+    result
+}
+
+// facade shims: retained for unconverted callers.
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn units_droideka_class() -> u32{ units_droideka_class_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn units_droideka_attach(unit: u32, class: u32){ units_droideka_attach_in(crate::abi::world(), unit, class) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn units_muzzle_attach(unit: u32, class: u32){ units_muzzle_attach_in(crate::abi::world(), unit, class) }
+
+#[cfg(target_arch = "wasm32")]
+impl ModuleWorld<'static, 'static> {
+    pub(crate) fn sensor(world: usize) -> Self { Self::sensor_in(crate::abi::world(),world) }
 }

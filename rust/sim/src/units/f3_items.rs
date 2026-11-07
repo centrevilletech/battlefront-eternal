@@ -4,7 +4,6 @@
 //! Construction never inserts a gameplay ownership entry. Mine policy can
 //! number an owner before its first throw, so those numbers belong to JS.
 //! Native keys instead retain the pooled slot and the exact throwing life.
-use crate::abi::sim;
 use crate::gen::*;
 use crate::ordnance::world::{ItemModel, PreparedItem};
 use crate::store::{DefId, Ref, StrId};
@@ -39,7 +38,7 @@ pub(crate) struct Items {
     // Items.update keeps its caller's target order through recursive mine
     // blasts. Only identities cross; geometry and supplies stay canonical.
     targets: Vec<F3ItemTarget>,
-    drops: Vec<Vec<crate::items::Drop>>,
+    drops: Vec<std::rc::Rc<Vec<crate::items::Drop>>>,
     explosions: Vec<Option<crate::store::DefId>>,
     bindings: Vec<Vec<Binding>>,
     // Logical Map presence differs from retained buffer storage. A failed
@@ -78,35 +77,35 @@ impl Items {
     }
     /// Items.dropFor resolves side-local class names once. Missing classes
     /// stay in the roll: choosing one ends it with no item, not another draw.
-    pub fn unit_items(&mut self, row: F3UnitItems) {
+    pub fn unit_items(&mut self, strings: &crate::store::Strings, row: F3UnitItems) {
         let at = row.class.0 as usize;
         if self.drops.len() <= at {
-            self.drops.resize_with(at + 1, Vec::new);
+            self.drops.resize_with(at + 1, || std::rc::Rc::new(Vec::new()));
             self.explosions.resize(at + 1, None);
             self.supplies.resize(at + 1, Supply::default());
         }
         self.supplies[at] = Supply {add_health:row.add_health,health_effect:row.health_effect,ammo_effect:row.ammo_effect};
         self.explosions[at] = row.explosion.map(DefId);
-        let drops = &mut self.drops[at];
-        drops.clear();
+        let mut drops = Vec::with_capacity(row.drops.len());
         for entry in row.drops {
             drops.push(crate::items::Drop {
                 def: entry.def,
                 probability: crate::ordnance::module::field(
                     entry.probability_tag as f64,
                     entry.probability,
-                    &sim().strings,
+                    strings,
                 ),
             });
         }
+        self.drops[at] = std::rc::Rc::new(drops);
     }
-    pub fn drops(&self, class: DefId) -> &[crate::items::Drop] {
-        &self.drops[class.0 as usize]
+    pub fn drops(&self, class: DefId) -> std::rc::Rc<Vec<crate::items::Drop>> {
+        std::rc::Rc::clone(&self.drops[class.0 as usize])
     }
     pub fn explosion(&self, class: DefId) -> Option<DefId> {
         self.explosions[class.0 as usize]
     }
-    pub fn prepare(&mut self, row: F3ItemClass) {
+    pub fn prepare(&mut self, definitions: &crate::ordnance::defs::Defs, row: F3ItemClass) {
         let at = row.def.0 as usize;
         if self.classes.len() <= at {
             self.classes.resize(at + 1, None);
@@ -117,7 +116,7 @@ impl Items {
         // once here, rather than allocate a String for every mine in a blast.
         // No hook runs during preparation; this immutable definition borrow
         // ends before construction can register another class.
-        let definition = unsafe { &*crate::ordnance::module::defs() }.item(row.def);
+        let definition = definitions.item(row.def);
         let health = match &definition.health_type {
             crate::ordnance::defs::Field::Str(name) => name.to_lowercase(),
             _ => String::new(),
@@ -142,7 +141,7 @@ impl Items {
     }
     /// A new arsenal life prepares its names and two buffers outside ticking.
     /// Inserting an empty gameplay key here would change Map insertion order.
-    pub fn bind(&mut self, row: F3DispenserBinding) {
+    pub fn bind(&mut self, sim: &mut crate::abi::Sim, row: F3DispenserBinding) {
         // Class and level identify the native service; name retains the
         // external Items.dispense command's original weapon-class key.
         let list = &mut self.bindings[row.key.slot as usize];
@@ -169,7 +168,7 @@ impl Items {
             // Only an already drained tombstone can disappear at rebind.
             self.current_keys[binding.key.0 as usize] = false;
             if !self.live_keys[binding.key.0 as usize] {
-                sim().store.items.owned.remove(binding.key);
+                sim.store.items.owned.remove(binding.key);
             }
         }
         binding.life = row.key.life;
@@ -238,7 +237,7 @@ impl Items {
     pub fn current(&self, key: StrId) -> bool {
         self.current_keys[key.0 as usize]
     }
-    pub fn changed(&mut self, key: StrId, removed: bool) {
+    pub fn changed_in(&mut self, sim: &mut crate::abi::Sim, key: StrId, removed: bool) {
         // Repeated empty updates must not repeatedly delete the JS key.
         // A real reactivation publishes an insertion even when it is empty.
         let active = &mut self.live_keys[key.0 as usize];
@@ -249,42 +248,42 @@ impl Items {
         self.notice.key = key;
         self.notice.removed = removed;
         self.notice.items.clear();
-        if let Some(list) = sim().store.items.owned.get(key) {
+        if let Some(list) = sim.store.items.owned.get(key) {
             self.notice.items.extend_from_slice(list);
         }
-        self.notice.emit(&mut sim().events);
+        self.notice.emit(&mut sim.events);
     }
 }
 
-#[no_mangle]
-pub extern "C" fn f3_item_class() {
+
+pub fn f3_item_class_in(world_ctx: &mut crate::world::owner::World) {
     // ItemsSim.defId publishes one immutable class with its measured model.
-    let (row, heap) = sim().calls.args();
-    super::f3::items().prepare(F3ItemClass::take(row, heap));
+    let (row, heap) = world_ctx.sim.calls.args();
+    super::f3::items_in(&mut world_ctx.units).prepare(crate::ordnance::module::defs_in(&mut world_ctx.ordnance), F3ItemClass::take(row, heap));
 }
-#[no_mangle]
-pub extern "C" fn f3_unit_items() {
+
+pub fn f3_unit_items_in(world_ctx: &mut crate::world::owner::World) {
     // Game.onDeath's side-local drop names are resolved at construction.
-    let (row, heap) = sim().calls.args();
-    super::f3::items().unit_items(F3UnitItems::take(row, heap));
+    let (row, heap) = world_ctx.sim.calls.args();
+    super::f3::items_in(&mut world_ctx.units).unit_items(&world_ctx.sim.strings, F3UnitItems::take(row, heap));
 }
-#[no_mangle]
-pub extern "C" fn f3_dispenser_binding() -> u32 {
+
+pub fn f3_dispenser_binding_in(world_ctx: &mut crate::world::owner::World) -> u32 {
     // Reset replaces arsenal identity. Refuse a binding for a previous life
     // before it could change the current life's buffers or private key.
-    let (row, heap) = sim().calls.args();
+    let (row, heap) = world_ctx.sim.calls.args();
     let input = F3DispenserBinding::take(row, heap);
-    if input.key.validate(&sim().store).is_err() {
+    if input.key.validate(&world_ctx.sim.store).is_err() {
         return 0;
     }
-    super::f3::items().bind(input);
+    super::f3::items_in(&mut world_ctx.units).bind(&mut world_ctx.sim, input);
     1
 }
 
 /// Item snapshots carry values from this mutation, not views into a row that
 /// may have moved, expired or reused its slot before the event is delivered.
-pub(crate) fn changed(item: Ref<Item>, made: bool) {
-    let row = sim().store.item.get(item).expect("changed item");
+pub(crate) fn changed_in(sim: &mut crate::abi::Sim, item: Ref<Item>, made: bool) {
+    let row = sim.store.item.get(item).expect("changed item");
     let state = F3ItemState {
         def: row.def,
         mine: row.mine,
@@ -305,33 +304,32 @@ pub(crate) fn changed(item: Ref<Item>, made: bool) {
         health: row.health,
         gone: row.gone,
     };
-    F3ItemNotice { item, state, made }.emit(&mut sim().events);
+    F3ItemNotice { item, state, made }.emit(&mut sim.events);
 }
-pub(crate) fn retired(item: Ref<Item>) {
+pub(crate) fn retired_in(sim: &mut crate::abi::Sim, item: Ref<Item>) {
     // A raw qualified key does not ask JS to construct a second terminal
     // mirror. The last snapshot was emitted before this slot was removed.
     F3ItemRetired {
         slot: item.slot,
         generation: item.gen,
     }
-    .emit(&mut sim().events);
+    .emit(&mut sim.events);
 }
 
 // ItemsWorld.targets are stable objects selected at the original mineTargets
 // slot. Snapshot identities before a mine can reuse the foreign input buffer;
 // positions and supplies remain reads of the current canonical rows.
-pub(crate) fn targets(count: u32) {
-    let list = &mut super::f3::items().targets;
-    list.clear();
+pub(crate) fn targets_in(world_ctx: &mut crate::world::owner::World, count: u32) {
+    super::f3::items_in(&mut world_ctx.units).targets.clear();
     for index in 0..count as usize {
-        let row = super::f3::item_target_input(index);
+        let row = super::f3::item_target_input_in(&world_ctx.units, index);
         if let Some(r) = row.unit {
-            assert_eq!(sim().store.unit.get(r).expect("current pickup body").generation,row.life);
+            assert_eq!(world_ctx.sim.store.unit.get(r).expect("current pickup body").generation,row.life);
         } else {
             let r = row.hull.expect("pickup hull or unit");
-            assert_eq!(sim().store.vehicle.get(r).expect("current pickup hull").target_generation,row.life);
+            assert_eq!(world_ctx.sim.store.vehicle.get(r).expect("current pickup hull").target_generation,row.life);
         }
-        list.push(row);
+        super::f3::items_in(&mut world_ctx.units).targets.push(row);
     }
 }
 
@@ -339,53 +337,53 @@ pub(crate) fn targets(count: u32) {
 /// local, factory and fleet order, including the local body if also built.
 /// Capacity bounds exceed authored battle populations; excess membership
 /// drops at the end without reallocating the retained target bank.
-pub(crate) fn world_targets() -> Option<u32> {
-    let capacity = super::f3::items().targets.capacity();
+pub(crate) fn world_targets_in(world_ctx: &mut crate::world::owner::World) -> Option<u32> {
+    let capacity = super::f3::items_in(&mut world_ctx.units).targets.capacity();
     let mut count = 0;
-    let local = super::f3::registered_viewpoint()?;
-    let unit = sim().store.unit.get(local)?;
+    let local = super::f3::registered_viewpoint_in(&world_ctx.units)?;
+    let unit = world_ctx.sim.store.unit.get(local)?;
     if !unit.combat.dead && unit.seat.is_none() {
         let row = F3ItemTarget {unit:Some(local),hull:None,life:unit.generation};
-        super::f3::world_item_target(count,&row);count += 1;
+        super::f3::world_item_target_in(&mut world_ctx.units, count,&row);count += 1;
     }
-    for index in 0..super::f3::built().len() {
-        let reference = super::f3::built()[index];
-        let Some(unit) = sim().store.unit.get(reference) else {continue};
+    for index in 0..super::f3::built_in(&world_ctx.units).len() {
+        let reference = super::f3::built_in(&world_ctx.units)[index];
+        let Some(unit) = world_ctx.sim.store.unit.get(reference) else {continue};
         if !unit.alive || unit.seat.is_some() || matches!(unit.held,crate::store::Nullable::Value(_)) {continue;}
         if count == capacity {break;}
         let row = F3ItemTarget {unit:Some(reference),hull:None,life:unit.generation};
-        super::f3::world_item_target(count,&row);count += 1;
+        super::f3::world_item_target_in(&mut world_ctx.units, count,&row);count += 1;
     }
-    for index in 0..sim().store.vehicles.vehicles.len() {
-        let reference = sim().store.vehicles.vehicles[index];
-        let Some(hull) = sim().store.vehicle.get(reference) else {continue};
+    for index in 0..world_ctx.sim.store.vehicles.vehicles.len() {
+        let reference = world_ctx.sim.store.vehicles.vehicles[index];
+        let Some(hull) = world_ctx.sim.store.vehicle.get(reference) else {continue};
         if !hull.alive {continue;}
         if count == capacity {break;}
         let row = F3ItemTarget {unit:None,hull:Some(reference),life:hull.target_generation};
-        super::f3::world_item_target(count,&row);count += 1;
+        super::f3::world_item_target_in(&mut world_ctx.units, count,&row);count += 1;
     }
     Some(count as u32)
 }
 
 // UnitFactory.itemTarget and Vehicle.itemTarget read current coordinates,
 // including movement caused by an earlier mine in this same ordered list.
-pub(crate) fn standing(index: usize) -> [f64;3] {
-    let row = &super::f3::items().targets[index];
+pub(crate) fn standing_in(world_ctx: &mut crate::world::owner::World, index: usize) -> [f64;3] {
+    let row = &super::f3::items_in(&mut world_ctx.units).targets[index];
     if let Some(r) = row.unit {
-        let p = sim().store.unit.get(r).unwrap().position();
+        let p = world_ctx.sim.store.unit.get(r).unwrap().position();
         [p.x,p.y,p.z]
-    } else { sim().store.vehicle.get(row.hull.unwrap()).unwrap().position }
+    } else { world_ctx.sim.store.vehicle.get(row.hull.unwrap()).unwrap().position }
 }
-pub(crate) fn watch(index: usize, team: f64) -> crate::ordnance::world::Watched {
-    let row = &super::f3::items().targets[index];
+pub(crate) fn watch_in(world_ctx: &mut crate::world::owner::World, index: usize, team: f64) -> crate::ordnance::world::Watched {
+    let row = &super::f3::items_in(&mut world_ctx.units).targets[index];
     if let Some(r) = row.unit {
-        let unit = sim().store.unit.get(r).unwrap();
+        let unit = world_ctx.sim.store.unit.get(r).unwrap();
         let p = unit.position(); let v = unit.velocity();
-        crate::ordnance::world::Watched {relation:super::f3::relation(unit.team,team),
+        crate::ordnance::world::Watched {relation:super::f3::relation_in(&world_ctx.units, unit.team,team),
             center:[p.x,p.y+1.048,p.z],radius:1.278,velocity:[v.x,v.y,v.z]}
     } else {
-        let v = sim().store.vehicle.get(row.hull.unwrap()).unwrap();
-        crate::ordnance::world::Watched {relation:super::f3::relation(v.team.unwrap_or(0.0),team),
+        let v = world_ctx.sim.store.vehicle.get(row.hull.unwrap()).unwrap();
+        crate::ordnance::world::Watched {relation:super::f3::relation_in(&world_ctx.units, v.team.unwrap_or(0.0),team),
             center:v.item_center,radius:v8math::max(v.size[0],v.size[2])*0.5,velocity:v.velocity}
     }
 }
@@ -393,39 +391,39 @@ pub(crate) fn watch(index: usize, team: f64) -> crate::ordnance::world::Watched 
 // givePowerup (items.js) writes health and reserve ammunition without JS
 // setters. Hull health borrows the existing native death services, preserving
 // the original kill path even for a negative authored health amount.
-pub(crate) fn give(index: usize, definition: DefId, services: Option<super::f3::WorldServices<'_>>) -> bool {
-    let row = &super::f3::items().targets[index];
+pub(crate) fn give_in(world_ctx: &mut crate::world::owner::World, index: usize, definition: DefId, services: Option<super::f3::WorldServices<'_>>) -> bool {
+    let row = &super::f3::items_in(&mut world_ctx.units).targets[index];
     let unit = row.unit; let hull = row.hull;
-    let amounts = super::f3::items().powerups[definition.0 as usize];
+    let amounts = super::f3::items_in(&mut world_ctx.units).powerups[definition.0 as usize];
     if let Some(r) = unit {
-        let scale = super::f3::health_scale(r.slot) as usize;
-        let unit = sim().store.unit.get_mut(r).unwrap();
-        let profile = super::f3::items().supplies[unit.class_def.0 as usize];
+        let scale = super::f3::health_scale_in(&world_ctx.units, r.slot) as usize;
+        let unit = world_ctx.sim.store.unit.get_mut(r).unwrap();
+        let profile = super::f3::items_in(&mut world_ctx.units).supplies[unit.class_def.0 as usize];
         let amount = amounts.health[scale];
         let health = amount != 0.0 && !amount.is_nan() && unit.combat.health < unit.combat.max_health && !(profile.add_health < 0.0);
         if health { unit.combat.health = v8math::min(unit.combat.health + amount,unit.combat.max_health); }
         let mut ammo = false;
         let amount = amounts.ammo[scale];
         if amount != 0.0 && !amount.is_nan() {
-            let defs = crate::combat::module::defs();
+            let defs = crate::combat::module::defs_in(&mut world_ctx.combat);
             for weapon in &mut unit.combat.weapons {
                 let level = weapon.level(defs.weapons.class(weapon.def));
                 ammo |= crate::combat::weapons::supply(weapon,level,amount,true);
             }
         }
         let p = unit.position(); let position = [p.x,p.y,p.z];
-        if health { F3PowerupEffect {name:profile.health_effect,position}.emit(&mut sim().events); }
-        if ammo { F3PowerupEffect {name:profile.ammo_effect,position}.emit(&mut sim().events); }
-        if health || ammo { super::f3::changed(r); }
+        if health { F3PowerupEffect {name:profile.health_effect,position}.emit(&mut world_ctx.sim.events); }
+        if ammo { F3PowerupEffect {name:profile.ammo_effect,position}.emit(&mut world_ctx.sim.events); }
+        if health || ammo { super::f3::changed_in(world_ctx, r); }
         health || ammo
     } else {
         let r = hull.unwrap();
-        let scale = super::f3_hulls::health_scale(r) as usize;
-        let v = sim().store.vehicle.get(r).unwrap();
+        let scale = super::f3_hulls::health_scale_in(&world_ctx.units, r) as usize;
+        let v = world_ctx.sim.store.vehicle.get(r).unwrap();
         let amount = amounts.health[scale];
         let health = amount != 0.0 && !amount.is_nan() && v.health < v.max_health;
         let next = v8math::min(v.health + amount,v.max_health);
-        if health { super::f3_hulls::mutate(r,next,None,services.expect("pickup hull world services")); }
+        if health { super::f3_hulls::mutate_in(world_ctx, r,next,None,services.expect("pickup hull world services")); }
         let amount = amounts.ammo[scale];
         let ammo = amount != 0.0 && !amount.is_nan() && crate::vehicles::module::f2::firing::supply(r,amount,true);
         // givePowerup can change only ammunition on an undamaged hull.
@@ -434,3 +432,21 @@ pub(crate) fn give(index: usize, definition: DefId, services: Option<super::f3::
         health || ammo
     }
 }
+
+// facade shims: retained for unconverted callers.
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_item_class(){ f3_item_class_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_unit_items(){ f3_unit_items_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_dispenser_binding() -> u32{ f3_dispenser_binding_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn targets(count: u32){ targets_in(crate::abi::world(), count) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn world_targets() -> Option<u32>{ world_targets_in(crate::abi::world()) }
+
+#[cfg(target_arch = "wasm32")]
+impl Items { pub fn changed(&mut self, key: StrId, removed: bool) { self.changed_in(&mut crate::abi::world().sim, key, removed); } }

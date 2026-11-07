@@ -505,6 +505,6 @@ impl World for Environment<'_> {
         Ref::default()
     }
     fn fire(&mut self, _: &mut Authority, _: &mut Store, _: u32, _: Vector3, _: Vector3, _: Ref<OwnerSnapshot>) {}
-    fn fired(&mut self, _: Ref<ReconDroid>, _: Shot, _: Vector3) {}
+    fn fired(&mut self, _: &Store, _: Ref<ReconDroid>, _: Shot, _: Vector3) {}
     fn explode(&mut self, _: &mut Authority, _: &mut Store, _: u32, _: Vector3, _: Ref<OwnerSnapshot>) {}
 }

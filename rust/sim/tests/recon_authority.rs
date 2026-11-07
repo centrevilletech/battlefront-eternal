@@ -113,6 +113,7 @@ impl World for WorldFixture {
     }
     fn fired(
         &mut self,
+        _store: &Store,
         droid: Ref<bfe_sim::gen::ReconDroid>,
         shot: bfe_sim::combat::weapons::Shot,
         at: Vector3,

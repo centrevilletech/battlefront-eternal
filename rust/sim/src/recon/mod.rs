@@ -181,7 +181,7 @@ pub trait World {
         owner: Ref<OwnerSnapshot>,
     );
     /// Append the remoteShot presentation notification after native fire.
-    fn fired(&mut self, droid: Ref<ReconDroid>, shot: Shot, at: Vector3);
+    fn fired(&mut self, store: &Store, droid: Ref<ReconDroid>, shot: Shot, at: Vector3);
     fn explode(
         &mut self,
         authority: &mut Authority,
@@ -1272,7 +1272,7 @@ impl Authority {
             dir.apply_quaternion(&q);
             let owner = d.launch_owner;
             world.fire(self, store, ordnance, at, dir, owner);
-            world.fired(r, shot, at);
+            world.fired(store, r, shot, at);
         }
         let d = store.recon_droid.get_mut(r).unwrap();
         let arsenal = Arsenal {

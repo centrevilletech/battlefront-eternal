@@ -310,13 +310,30 @@ impl<K: Copy + PartialEq> History<K> {
         world: &mut W,
         filter: &mut impl FnMut(K) -> bool,
     ) -> Option<Hit<K>> {
+        self.raycast_with(tick, origin, dir, far, exclude, riders, world, &mut |_, key| filter(key))
+    }
+
+    /// Predicate services share the caller's observer instead of capturing
+    /// another world borrow while the history owns its interpolation frame.
+    #[allow(clippy::too_many_arguments)]
+    pub fn raycast_with<W: World<Key = K>>(
+        &mut self,
+        tick: f64,
+        origin: &Vector3,
+        dir: &Vector3,
+        far: f64,
+        exclude: Option<K>,
+        riders: bool,
+        world: &mut W,
+        filter: &mut impl FnMut(&mut W, K) -> bool,
+    ) -> Option<Hit<K>> {
         let frame = self.sample(tick)?;
         // Broadphase precedes individual shapes, as in Units.raycast. Strict
         // improvement keeps the first member and shape on an exact tie.
         let mut best = far;
         let mut found = None;
         for entry in &frame.entries[..frame.count] {
-            if !world.eligible(entry.key, entry.life, riders) || Some(entry.key) == exclude || !filter(entry.key) {
+            if !world.eligible(entry.key, entry.life, riders) || Some(entry.key) == exclude || !filter(world, entry.key) {
                 continue;
             }
             if segment_sphere(origin, dir, best, &entry.center, entry.radius).is_none() {

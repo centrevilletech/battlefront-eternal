@@ -8,7 +8,6 @@
 use super::unit::or_zero;
 use crate::gen::{Air, MoveInput, Posture, Soldier};
 use crate::movement::soldier::{Air as MAir, Input, Posture as MPosture, V3};
-use crate::movement::{advance, mover, new_mover};
 
 fn posture(p: Posture) -> MPosture {
     match p {
@@ -47,10 +46,10 @@ fn air_back(a: MAir) -> Option<Air> {
 }
 
 /// Prepare the retained mover when UnitFactory builds its body.
-pub fn prepare(s: &mut Soldier, world: usize) {
+pub fn prepare_in(movement: &mut crate::movement::MovementOwner, s: &mut Soldier, world: usize) {
     // His id in the module, with his class's numbers, on his first tick.
     if s.mover < 0.0 {
-        let id = new_mover(world, |m| {
+        let id = movement.new_mover(world, |m| {
             m.max_speed = s.max_speed;
             m.max_strafe = s.max_strafe;
             m.max_jump = s.max_jump;
@@ -75,10 +74,10 @@ pub fn prepare(s: &mut Soldier, world: usize) {
 /// Soldier.tick(input, dt) for a store soldier, in collision world `world`;
 /// `pass_through`: the ray slot of the body he passes through (a rider's
 /// mount while he falls from it), -1 for none.
-pub fn tick_soldier(s: &mut Soldier, input: &MoveInput, dt: f64, world: usize, pass_through: i64) {
-    prepare(s, world);
+pub fn tick_soldier_in(movement: &mut crate::movement::MovementOwner, collision: &mut crate::collision::State, s: &mut Soldier, input: &MoveInput, dt: f64, world: usize, pass_through: i64) {
+    prepare_in(movement, s, world);
     let id = s.mover as u32;
-    let m = mover(id);
+    let m = movement.mover(id);
     m.position = V3::from(s.position);
     m.settled = V3::from(s.settled);
     m.velocity = V3::from(s.velocity);
@@ -112,8 +111,8 @@ pub fn tick_soldier(s: &mut Soldier, input: &MoveInput, dt: f64, world: usize, p
         prone: input.prone,
         jet_direction,
     };
-    advance(id, &inp, dt);
-    let m = mover(id);
+    movement.advance(collision, id, &inp, dt);
+    let m = movement.mover(id);
     s.previous = s.position;
     s.position = m.position.arr();
     s.settled = m.settled.arr();
@@ -136,3 +135,9 @@ pub fn tick_soldier(s: &mut Soldier, input: &MoveInput, dt: f64, world: usize, p
     s.look_x = 0.0;
     s.look_y = 0.0;
 }
+
+// facade shims: retained for unconverted callers.
+#[cfg(target_arch = "wasm32")]
+pub fn prepare(s: &mut Soldier, world: usize) { prepare_in(&mut crate::abi::world().movement, s, world); }
+#[cfg(target_arch = "wasm32")]
+pub fn tick_soldier(s: &mut Soldier, input: &MoveInput, dt: f64, world: usize, pass_through: i64) { let w = crate::abi::world(); tick_soldier_in(&mut w.movement, &mut w.collision.state, s, input, dt, world, pass_through); }

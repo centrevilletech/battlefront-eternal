@@ -1,7 +1,6 @@
 //! RemoteDroids' world services. Collision, F1 shots and recursive explosions
 //! share the owning phase's Store and authority borrow; no service calls JS.
 use super::{a, v, Authority, DroidDef, Hit, StrikeDef, WeaponLevel, World};
-use crate::abi::sim;
 use crate::combat::{module as combat, weapons::Shot};
 use crate::gen::*;
 use crate::store::{DefId, Ref};
@@ -10,9 +9,9 @@ use three::{Triangle, Vector3};
 
 // Game.createNetworkRemotes supplies the player bound once during setup.
 // This changes admission policy without reconstructing prepared droid content.
-#[no_mangle]
-pub extern "C" fn f3_recon_owners(owners: u32) {
-    f3::with_services(|services| {
+
+pub fn f3_recon_owners_in(world_ctx: &mut crate::world::owner::World, owners: u32) {
+    f3::with_services_in(world_ctx, |_world_ctx, services| {
         services.expect("recon construction services").recon.configure_owners(owners as usize);
     });
 }
@@ -56,31 +55,30 @@ impl Services {
 
 // NetworkRemoteWorld.finish supplies idle controls even when its owner is
 // seated or removed. Only that owner's Unit.remoteStep may consume intent.
-pub(crate) struct NativeWorld<'a> {
+pub(crate) struct NativeWorld<'w, 'a> {
+    w: &'w mut crate::world::owner::World,
     ai:Option<&'a mut dyn crate::ai::owned::callbacks::Callbacks>,
     controls: Option<Ref<Unit>>,
     queries: &'a mut crate::battle::live::Queries,
 }
-impl<'a> NativeWorld<'a> {
-    pub(crate) fn idle(queries: &'a mut crate::battle::live::Queries,ai:Option<&'a mut dyn crate::ai::owned::callbacks::Callbacks>) -> Self {
-        Self {
-            ai,controls: None,
-            queries,
-        }
-    }
-    pub(crate) fn controlled(owner: Ref<Unit>, queries: &'a mut crate::battle::live::Queries,ai:Option<&'a mut dyn crate::ai::owned::callbacks::Callbacks>) -> Self {
-        Self {
-            ai,controls: Some(owner),
-            queries,
-        }
-    }
+/// RemoteDroids lends its Store while the adapter owns the remaining battle.
+/// Fire and explosion callbacks swap that Store back for recursive services.
+pub(crate) fn with_native<'a, T>(w: &mut crate::world::owner::World, controls: Option<Ref<Unit>>,
+    authority: &mut Authority, queries: &'a mut crate::battle::live::Queries,
+    ai: Option<&'a mut dyn crate::ai::owned::callbacks::Callbacks>,
+    run: impl FnOnce(&mut Authority, &mut Store, &mut NativeWorld<'_, '_>) -> T) -> T {
+    let mut store = std::mem::take(&mut w.sim.store);
+    let mut world = NativeWorld { w, controls, queries, ai };
+    let result = run(authority, &mut store, &mut world);
+    world.w.sim.store = store;
+    result
 }
-impl World for NativeWorld<'_> {
+impl World for NativeWorld<'_, '_> {
     // RemoteDroids.aim and SoldierCamera.clearance use the same live world
     // as Unit movement. The cast must see the current hull transforms and
     // enabled flags, including changes made earlier in this outer span.
     fn cast(&mut self, origin: Vector3, direction: Vector3, far: f64) -> Option<Hit> {
-        native::cast(f3::collision_world(), &origin, &direction, far).map(|h| Hit {
+        native::cast_in(self.w, f3::collision_world_in(&self.w.units), &origin, &direction, far).map(|h| Hit {
             distance: h.distance,
             point: h.point,
             normal: h.normal,
@@ -90,7 +88,7 @@ impl World for NativeWorld<'_> {
     // ordinary aim cast here would let a passing hull shield a droid from
     // an explosion that the JavaScript static-only ray lets through.
     fn static_cast(&mut self, origin: Vector3, direction: Vector3, far: f64) -> Option<Hit> {
-        native::cast_static(f3::collision_world(), &origin, &direction, far, true).map(|h| Hit {
+        native::cast_static_in(self.w, f3::collision_world_in(&self.w.units), &origin, &direction, far, true).map(|h| Hit {
             distance: h.distance,
             point: h.point,
             normal: h.normal,
@@ -102,15 +100,10 @@ impl World for NativeWorld<'_> {
         // The collision world's order supplies its enabled bytes. Gather's
         // internal candidate order is retained when polygons are flattened;
         // reversing triangles can change which contact resolves first.
-        let collision = crate::collision::state();
-        let world = f3::collision_world();
-        let flags = unsafe {
-            std::slice::from_raw_parts(
-                crate::movement::movement_flags_ptr(),
-                collision.worlds[world].order.len(),
-            )
-        };
-        let gathered = &mut f3::recon_services().gathered;
+        let collision = &mut self.w.collision.state;
+        let world = f3::collision_world_in(&self.w.units);
+        let flags = &self.w.movement.flags_mut()[..collision.worlds[world].order.len()];
+        let gathered = &mut f3::recon_services_in(&mut self.w.units).gathered;
         crate::collision::spheres::gather(
             collision,
             world,
@@ -188,7 +181,7 @@ impl World for NativeWorld<'_> {
     // strikes; resolving the owner's current Unit is only for ray exclusion.
     fn capture_owner(&mut self, store: &mut Store, owner: &F3UnitKey) -> Ref<OwnerSnapshot> {
         let captured = crate::combat::owners::capture(store, owner).expect("recon launch owner");
-        crate::combat::owners::created(store, captured).emit(&mut sim().events);
+        crate::combat::owners::created(store, captured).emit(&mut self.w.sim.events);
         captured
     }
     // NetworkRemoteWorld.commitLaunch creates a new network identity even
@@ -206,18 +199,18 @@ impl World for NativeWorld<'_> {
             class: d.class,
             team: d.team,
         }
-        .emit(&mut sim().events);
+        .emit(&mut self.w.sim.events);
     }
     fn replacing(&mut self, store: &Store, droid: Ref<ReconDroid>) {
         // A new launch can reuse a slot before the outer publication. Sample
         // the old terminal state first so its facade never becomes the new life.
-        publish_droid(store, droid);
+        publish_droid(store, f3::recon_services_in(&mut self.w.units), &mut self.w.sim.events, &mut self.w.combat, droid);
         F3ReconRetired {
             context: false,
             slot: droid.slot,
             generation: droid.gen,
         }
-        .emit(&mut sim().events);
+        .emit(&mut self.w.sim.events);
     }
     // RemoteDroids.shoot and updateStrikes both enter F1 synchronously.
     // An instant round can kill a Unit or droid and complete a nested death
@@ -225,7 +218,7 @@ impl World for NativeWorld<'_> {
     fn fire(
         &mut self,
         authority: &mut Authority,
-        _store: &mut Store,
+        store: &mut Store,
         def: u32,
         at: Vector3,
         direction: Vector3,
@@ -233,8 +226,10 @@ impl World for NativeWorld<'_> {
     ) {
         // Recon's owning entry has already published its canonical Store.
         // Release that row loan before F1 can complete recursive damage.
+        std::mem::swap(store, &mut self.w.sim.store);
+        {
         let mut world = crate::ordnance::module::JsWorld::with_services(
-            crate::abi::world(), Some(f3::WorldServices {
+            self.w, Some(f3::WorldServices {
                 ai: self.ai.as_mut().map(|ai| &mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),
                 recon: authority, queries: self.queries,
             }));
@@ -251,18 +246,20 @@ impl World for NativeWorld<'_> {
             None,
             None,
         );
+            world.finish();
+        }
+        std::mem::swap(store, &mut self.w.sim.store);
     }
     // RemoteDroids.onFired is a notification after the native fire returns.
     // Sample its position and class now, since subsequent movement or slot
     // reuse must not rename a shot already recorded by the world journal.
-    fn fired(&mut self, reference: Ref<ReconDroid>, shot: Shot, at: Vector3) {
-        let d = sim()
-            .store
+    fn fired(&mut self, store: &Store, reference: Ref<ReconDroid>, shot: Shot, at: Vector3) {
+        let d = store
             .recon_droid
             .get(reference)
             .expect("fired recon droid");
         let weapon = &d.weapons[shot.weapon as usize];
-        let channel = weapon.channel(&combat::defs().weapons);
+        let channel = weapon.channel(&combat::defs_in(&mut self.w.combat).weapons);
         F3ReconShot {
             droid: reference,
             owner: d.launch_owner,
@@ -274,24 +271,27 @@ impl World for NativeWorld<'_> {
             pitch: d.pitch,
             channel,
         }
-        .emit(&mut sim().events);
+        .emit(&mut self.w.sim.events);
     }
     fn explode(
         &mut self,
         authority: &mut Authority,
-        _: &mut Store,
+        store: &mut Store,
         def: u32,
         at: Vector3,
         owner: Ref<OwnerSnapshot>,
     ) {
         // RemoteDroids.kill commits dead before its explosion reenters the
         // live recon list. The same authority is reborrowed down that chain.
-        crate::combat::live::blast(
+        std::mem::swap(store, &mut self.w.sim.store);
+        crate::combat::live::blast_in(
+            self.w,
             DefId(def),
             a(at),
             OrdnanceOwner::OwnerSnapshot(owner),
             Some(f3::WorldServices { ai:self.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),recon: authority, queries: self.queries }),
         );
+        std::mem::swap(store, &mut self.w.sim.store);
     }
 }
 
@@ -300,11 +300,11 @@ impl World for NativeWorld<'_> {
 // Remote replay checkpoints read every dynamic weapon timer as well as the
 // flight body. Copy those values into retained storage without recomputing
 // aim, camera placement or weapon selection in the JavaScript facade.
-fn publish_droid(store: &Store, reference: Ref<ReconDroid>) {
+fn publish_droid(store: &Store, services: &mut Services, events: &mut crate::store::calls::Events, combat: &mut crate::combat::module::CombatOwner, reference: Ref<ReconDroid>) {
     let Some(d) = store.recon_droid.get(reference) else {
         return;
     };
-    let out = &mut f3::recon_services().droid;
+    let out = &mut services.droid;
     out.droid = reference;
     out.position = d.position;
     out.velocity = d.velocity;
@@ -332,31 +332,31 @@ fn publish_droid(store: &Store, reference: Ref<ReconDroid>) {
     out.weapons
         .resize_with(d.weapons.len(), F3WeaponView::default);
     for (view, weapon) in out.weapons.iter_mut().zip(&d.weapons) {
-        *view = f3::weapon_view(weapon);
+        *view = f3::weapon_view_in(combat, weapon);
     }
-    out.emit(&mut sim().events);
+    out.emit(events);
 }
 // NetworkRemoteWorld retains context insertion order across owner deaths.
 // Publish only references marked by native mutations; scanning or copying
 // all droids after every hook would recreate the old all-body boundary.
-pub(crate) fn publish(authority: &mut Authority) {
+pub(crate) fn publish_in(world_ctx: &mut crate::world::owner::World, authority: &mut Authority) {
     for &reference in authority.changed_droids() {
-        publish_droid(&sim().store,reference);
+        publish_droid(&world_ctx.sim.store, f3::recon_services_in(&mut world_ctx.units), &mut world_ctx.sim.events, &mut world_ctx.combat, reference);
     }
     // A pruned context no longer has a row. Its retirement notice uses the
     // raw qualified key so decoding cannot accidentally construct a new
     // context facade in place of the one that has just finished.
     for &reference in authority.changed_contexts() {
-        let Some(c) = sim().store.recon_context.get(reference) else {
+        let Some(c) = world_ctx.sim.store.recon_context.get(reference) else {
             F3ReconRetired {
                 context: true,
                 slot: reference.slot,
                 generation: reference.gen,
             }
-            .emit(&mut sim().events);
+            .emit(&mut world_ctx.sim.events);
             continue;
         };
-        let out = &mut f3::recon_services().context;
+        let out = &mut f3::recon_services_in(&mut world_ctx.units).context;
         out.context = reference;
         out.owner = super::key(&c.owner);
         out.retired = c.retired;
@@ -379,22 +379,22 @@ pub(crate) fn publish(authority: &mut Authority) {
         out.droids.extend_from_slice(&c.droids);
         out.strikes.clear();
         out.strikes.extend_from_slice(&c.strikes);
-        out.emit(&mut sim().events);
+        out.emit(&mut world_ctx.sim.events);
     }
     authority.clear_changes();
 }
 
 // Immutable content uses the existing valueWords/read_js encoding. Generated
 // wrappers carry all boundaries, including optional handles and variable lists.
-#[no_mangle]
-pub extern "C" fn f3_recon_class() {
+
+pub fn f3_recon_class_in(world_ctx: &mut crate::world::owner::World) {
     // RemoteDroids.createDroid uses nullish class defaults, including the
     // misspelled Acceleraton field. The shared value encoding retains NaN,
     // Infinity and absent values that a JSON round trip would lose.
-    let (row, heap) = sim().calls.args();
+    let (row, heap) = world_ctx.sim.calls.args();
     let input = F3ReconClass::take(row, heap);
-    let def = combat::read_js(&input.value, &mut 0, &sim().strings);
-    f3::with_services(|authority| {
+    let def = combat::read_js(&input.value, &mut 0, &world_ctx.sim.strings);
+    f3::with_services_in(world_ctx, |world_ctx, authority| {
         let services = authority.unwrap();
         let authority = services.recon;
         let defs = &mut authority.defs;
@@ -406,19 +406,19 @@ pub extern "C" fn f3_recon_class() {
         // This is content construction, before any flight tick. Share the
         // same prepared weapon values as ordinary combat, then reserve each
         // network slot's largest loadout before its first admitted launch.
-        defs.weapons = combat::defs().weapons.clone();
+        defs.weapons = combat::defs_in(&mut world_ctx.combat).weapons.clone();
         authority.reserve_scratch(4096, 64);
     });
 }
-#[no_mangle]
-pub extern "C" fn f3_recon_level() {
+
+pub fn f3_recon_level_in(world_ctx: &mut crate::world::owner::World) {
     // RemoteDroids.shoot reads the merged charge level. Numeric ordnance
     // and strike handles keep property and string lookup out of the shot
     // loop, including a destruct weapon that has no ordinary ordnance.
-    let (row, heap) = sim().calls.args();
+    let (row, heap) = world_ctx.sim.calls.args();
     let input = F3ReconLevel::take(row, heap);
-    let def = combat::read_js(&input.value, &mut 0, &sim().strings);
-    f3::with_services(|authority| {
+    let def = combat::read_js(&input.value, &mut 0, &world_ctx.sim.strings);
+    f3::with_services_in(world_ctx, |_world_ctx, authority| {
         let defs = &mut authority.unwrap().recon.defs;
         defs.levels
             .resize_with(defs.levels.len().max(input.weapon.0 as usize + 1), Vec::new);
@@ -428,15 +428,15 @@ pub extern "C" fn f3_recon_level() {
             WeaponLevel::read(&def, input.ordnance.map(|d| d.0), input.strike);
     });
 }
-#[no_mangle]
-pub extern "C" fn f3_recon_strike() {
+
+pub fn f3_recon_strike_in(world_ctx: &mut crate::world::owner::World) {
     // RemoteDroids.strike takes salvo geometry from the destruct weapon,
     // not from StrikeOrdnanceName. Several such weapons may fire the same
     // F1 class with different counts, angles and scatter.
-    let (row, heap) = sim().calls.args();
+    let (row, heap) = world_ctx.sim.calls.args();
     let input = F3ReconStrike::take(row, heap);
-    let def = combat::read_js(&input.value, &mut 0, &sim().strings);
-    f3::with_services(|authority| {
+    let def = combat::read_js(&input.value, &mut 0, &world_ctx.sim.strings);
+    f3::with_services_in(world_ctx, |_world_ctx, authority| {
         let defs = &mut authority.unwrap().recon.defs;
         while defs.strikes.len() <= input.id as usize {
             defs.strikes
@@ -445,57 +445,57 @@ pub extern "C" fn f3_recon_strike() {
         defs.strikes[input.id as usize] = StrikeDef::read(&def, input.ordnance.0);
     });
 }
-#[no_mangle]
-pub extern "C" fn f3_recon_weapon() {
+
+pub fn f3_recon_weapon_in(world_ctx: &mut crate::world::owner::World) {
     // CombatWorld.remoteLaunch has an arsenal index at runtime. Bind its
     // immutable class handle here, along with SwitchImmediately, rather
     // than searching the authored droid table during a throw.
-    let (row, heap) = sim().calls.args();
+    let (row, heap) = world_ctx.sim.calls.args();
     let input = F3ReconWeapon::take(row, heap);
-    let all = &mut f3::recon_services().weapons;
+    let all = &mut f3::recon_services_in(&mut world_ctx.units).weapons;
     all.resize(all.len().max(input.weapon.0 as usize + 1), None);
     all[input.weapon.0 as usize] = Some((input.class, input.immediate));
 }
 
 /// CombatWorld.remoteOf and NetworkRemoteWorld.step use the current owner's
 /// exact life. A context left on a pooled object cannot control its new life.
-pub(crate) fn context(owner: Ref<Unit>) -> Option<Ref<ReconContext>> {
-    context_for(owner, sim().store.unit.get(owner)?.generation)
+pub(crate) fn context_in(world_ctx: &mut crate::world::owner::World, owner: Ref<Unit>) -> Option<Ref<ReconContext>> {
+    { let life = world_ctx.sim.store.unit.get(owner)?.generation; context_for_in(world_ctx, owner, life) }
 }
-pub(crate) fn context_for(owner: Ref<Unit>, life: f64) -> Option<Ref<ReconContext>> {
+pub(crate) fn context_for_in(world_ctx: &mut crate::world::owner::World, owner: Ref<Unit>, life: f64) -> Option<Ref<ReconContext>> {
     // Unit.tick and PlayerCombat.update temporarily take the owner out of its
     // row. Their value frame supplies life; a placeholder cannot validate it.
-    let reference = *f3::recon_services()
+    let reference = *f3::recon_services_in(&mut world_ctx.units)
         .contexts
         .get(owner.slot as usize)?
         .as_ref()?;
-    let c = sim().store.recon_context.get(reference)?;
+    let c = world_ctx.sim.store.recon_context.get(reference)?;
     (c.owner.reference() == owner && c.owner.life == life && !c.retired).then_some(reference)
 }
 // Unit.tick samples this gate before movement. It is canonical context
 // state, never a copy-in of JavaScript's piloted pointer. Later native
 // deaths refresh the corresponding narrow Unit mirror before an aimer.
-pub(crate) fn active(owner: Ref<Unit>) -> Option<bool> {
-    context(owner).map(|c| sim().store.recon_context.get(c).unwrap().piloted.is_some())
+pub(crate) fn active_in(world_ctx: &mut crate::world::owner::World, owner: Ref<Unit>) -> Option<bool> {
+    context_in(world_ctx, owner).map(|c| world_ctx.sim.store.recon_context.get(c).unwrap().piloted.is_some())
 }
 /// MultiplayerWorld rebinds a context before Unit.spawn advances gameplay
 /// life. Keep that owner pointer live without rewriting old launch snapshots.
-pub(crate) fn spawned(owner: Ref<Unit>, authority: &mut Authority) {
-    let Some(Some(reference)) = f3::recon_services()
+pub(crate) fn spawned_in(world_ctx: &mut crate::world::owner::World, owner: Ref<Unit>, authority: &mut Authority) {
+    let Some(Some(reference)) = f3::recon_services_in(&mut world_ctx.units)
         .contexts
         .get(owner.slot as usize)
         .copied()
     else {
         return;
     };
-    let Some(c) = sim().store.recon_context.get(reference) else {
+    let Some(c) = world_ctx.sim.store.recon_context.get(reference) else {
         return;
     };
     if c.owner.reference() != owner {
         return;
     }
-    let life = sim().store.unit.get(owner).unwrap().generation;
-    sim()
+    let life = world_ctx.sim.store.unit.get(owner).unwrap().generation;
+    world_ctx.sim
         .store
         .recon_context
         .get_mut(reference)
@@ -503,16 +503,16 @@ pub(crate) fn spawned(owner: Ref<Unit>, authority: &mut Authority) {
         .owner
         .life = life;
     authority.mark_context(reference);
-    publish_active(authority);
+    publish_active_in(world_ctx, authority);
 }
-pub(crate) fn weapon(definition: DefId) -> (u32, bool) {
-    f3::recon_services().weapons[definition.0 as usize].expect("prepared remote weapon")
+pub(crate) fn weapon_in(world_ctx: &mut crate::world::owner::World, definition: DefId) -> (u32, bool) {
+    f3::recon_services_in(&mut world_ctx.units).weapons[definition.0 as usize].expect("prepared remote weapon")
 }
 /// Only changed contexts can alter a soldier's remote gate. Refresh this bit
 /// before a later aimer; full droid geometry waits for the outer publication.
-pub(crate) fn publish_active(authority: &Authority) {
+pub(crate) fn publish_active_in(world_ctx: &mut crate::world::owner::World, authority: &Authority) {
     for &reference in authority.changed_contexts() {
-        let Some(c) = sim().store.recon_context.get(reference) else {
+        let Some(c) = world_ctx.sim.store.recon_context.get(reference) else {
             continue;
         };
         let key = super::key(&c.owner);
@@ -521,71 +521,72 @@ pub(crate) fn publish_active(authority: &Authority) {
         // Only its current piloted gate belongs on Unit; flight position
         // and weapon clocks remain on their independent recon rows.
         let active = Some(c.piloted.is_some() && !c.retired);
-        let Ok(u) = key.validate_mut(&mut sim().store) else {
+        let Ok(u) = key.validate_mut(&mut world_ctx.sim.store) else {
             continue;
         };
         if u.remotes_active != active {
             u.remotes_active = active;
-            f3::changed(owner);
+            f3::changed_in(world_ctx, owner);
         }
     }
 }
 
-#[no_mangle]
-pub extern "C" fn f3_recon_command() -> u32 {
+
+pub fn f3_recon_command_in(world_ctx: &mut crate::world::owner::World) -> u32 {
     // Network owner lifecycle is outside the unit span. The one shared row
     // carries an exact owner life and any droid's separate network generation.
-    let (row, heap) = sim().calls.args();
+    let (row, heap) = world_ctx.sim.calls.args();
     let input = F3ReconBinding::take(row, heap);
-    if input.owner.validate(&sim().store).is_err() {
+    if input.owner.validate(&world_ctx.sim.store).is_err() {
         return 0;
     }
     // This outer guard joins recursive Unit and F1 changes into one event
     // epoch. Restoring the authority borrow precedes the final publication;
     // no JavaScript facade is read while these operations own native rows.
-    let _outer = f3::external();
-    f3::with_services(|authority| {
+    let boundary = f3::external_in(world_ctx);
+    let result = (|| {
+    f3::with_services_in(world_ctx, |world_ctx, authority| {
         let mut services = authority.unwrap();
         let authority = services.recon;
-        let before = authority.context(&sim().store, input.key);
+        let before = authority.context(&world_ctx.sim.store, input.key);
         match input.action {
             F3ReconAction::Attach | F3ReconAction::Rebind => {
                 // Rebinding exits control on the old body too. Old flying
                 // droids retain their captured attribution and context order.
                 if let Some(previous) = before {
-                    let key = super::key(&sim().store.recon_context.get(previous).unwrap().owner);
+                    let key = super::key(&world_ctx.sim.store.recon_context.get(previous).unwrap().owner);
                     if !super::same(&key, &input.owner) {
-                        if let Ok(u) = key.validate_mut(&mut sim().store) {
+                        if let Ok(u) = key.validate_mut(&mut world_ctx.sim.store) {
                             u.remotes_active = Some(false);
-                            f3::changed(key.reference());
+                            f3::changed_in(world_ctx, key.reference());
                         }
                     }
                 }
                 let owner = input.owner.reference();
                 let result = if input.action == F3ReconAction::Attach {
-                    authority.attach(&mut sim().store, input.key, input.owner, input.seed)
+                    authority.attach(&mut world_ctx.sim.store, input.key, input.owner, input.seed)
                 } else {
-                    authority.rebind(&mut sim().store, input.key, input.owner, input.seed)
+                    authority.rebind(&mut world_ctx.sim.store, input.key, input.owner, input.seed)
                 };
                 let reference = result.expect("admitted recon owner");
-                let all = &mut f3::recon_services().contexts;
+                let all = &mut f3::recon_services_in(&mut world_ctx.units).contexts;
                 all.resize(all.len().max(owner.slot as usize + 1), None);
                 all[owner.slot as usize] = Some(reference);
-                sim().store.unit.get_mut(owner).unwrap().combat.has_remotes = true;
+                world_ctx.sim.store.unit.get_mut(owner).unwrap().combat.has_remotes = true;
                 if before.is_none() {
-                    let c = sim().store.recon_context.get(reference).unwrap();
+                    let c = world_ctx.sim.store.recon_context.get(reference).unwrap();
                     F3ReconContextCreated {
                         slot: reference.slot,
                         generation: reference.gen,
                         key: input.key,
                         owner: super::key(&c.owner),
                     }
-                    .emit(&mut sim().events);
+                    .emit(&mut world_ctx.sim.events);
                 }
             }
             _ => {
                 let Some(reference) = before else { return 0 };
-                let c = sim().store.recon_context.get(reference).unwrap();
+                let c = world_ctx.sim.store.recon_context.get(reference).unwrap();
                 if !super::same(&c.owner, &input.owner) {
                     return 0;
                 }
@@ -593,10 +594,10 @@ pub extern "C" fn f3_recon_command() -> u32 {
                     // Retirement exits control without killing surviving
                     // droids or cancelling a frozen strike. Core pruning
                     // removes the context only when both lists are empty.
-                    F3ReconAction::Retire => authority.retire(&mut sim().store, input.key),
-                    F3ReconAction::Exit => authority.exit(&mut sim().store, reference),
+                    F3ReconAction::Retire => authority.retire(&mut world_ctx.sim.store, input.key),
+                    F3ReconAction::Exit => authority.exit(&mut world_ctx.sim.store, reference),
                     F3ReconAction::Look => authority.look(
-                        &mut sim().store,
+                        &mut world_ctx.sim.store,
                         reference,
                         input.dx,
                         input.dy,
@@ -607,7 +608,7 @@ pub extern "C" fn f3_recon_command() -> u32 {
                     // observes it on the next authority step; toggling it
                     // alone does not resample aim or move the camera early.
                     F3ReconAction::FirstPerson => {
-                        sim()
+                        world_ctx.sim
                             .store
                             .recon_context
                             .get_mut(reference)
@@ -620,7 +621,7 @@ pub extern "C" fn f3_recon_command() -> u32 {
                     // Refuse another context's slot before changing control.
                     F3ReconAction::Kill | F3ReconAction::Enter => {
                         let droid = input.droid.expect("remote droid command");
-                        if !sim()
+                        if !world_ctx.sim
                             .store
                             .recon_droid
                             .get(droid)
@@ -629,9 +630,9 @@ pub extern "C" fn f3_recon_command() -> u32 {
                             return 0;
                         }
                         if input.action == F3ReconAction::Kill {
-                            authority.kill(&mut sim().store, &mut NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)), droid);
+                            crate::recon::module::with_native(world_ctx, None, authority, services.queries, services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks), |authority, store, world| authority.kill(store, world, droid));
                         } else {
-                            authority.enter(&mut sim().store, droid);
+                            authority.enter(&mut world_ctx.sim.store, droid);
                         }
                     }
                     _ => unreachable!(),
@@ -641,57 +642,85 @@ pub extern "C" fn f3_recon_command() -> u32 {
         // Damage reached during kill may have changed several Unit rows.
         // The outer guard publishes exactly those touched victims after
         // these recon snapshots, rather than republishing the whole registry.
-        publish_active(authority);
-        publish(authority);
+        publish_active_in(world_ctx, authority);
+        publish_in(world_ctx, authority);
         1
     })
+
+    })();
+    boundary.finish(world_ctx, true);
+    result
 }
 
 /// Battlefield reads the current piloted context through its explicit Store.
 /// The tail may own that Store locally while owner work buffers stay retained.
-pub(crate) fn piloted_in(s: &crate::gen::Store, owner: Ref<Unit>) -> Option<Ref<ReconDroid>> {
+pub(crate) fn piloted_in_in(services: &Services, s: &crate::gen::Store, owner: Ref<Unit>) -> Option<Ref<ReconDroid>> {
     let unit = s.unit.get(owner)?;
-    let reference = f3::recon_services().contexts.get(owner.slot as usize).copied().flatten()?;
+    let reference = services.contexts.get(owner.slot as usize).copied().flatten()?;
     let c = s.recon_context.get(reference)?;
     if c.owner.reference() != owner || c.owner.life != unit.generation || c.retired { return None; }
     c.piloted.filter(|r| s.recon_droid.get(*r).is_some_and(|d| !d.dead))
 }
-pub(crate) fn kill_piloted(owner: Ref<Unit>, mut services: f3::WorldServices<'_>) {
-    let Some(droid) = piloted_in(&sim().store, owner) else { return };
-    services.recon.kill(&mut sim().store, &mut NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)), droid);
+pub(crate) fn kill_piloted_in(world_ctx: &mut crate::world::owner::World, owner: Ref<Unit>, mut services: f3::WorldServices<'_>) {
+    let Some(droid) = piloted_in_in(f3::recon_services_in(&mut world_ctx.units), &world_ctx.sim.store, owner) else { return };
+    crate::recon::module::with_native(world_ctx, None, services.recon, services.queries, services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks), |authority, store, world| authority.kill(store, world, droid));
 }
 
 /// Player and connection class realization rebinds the native context before
 /// spawning. Surviving droids keep their immutable launch owner and RNG state.
-pub(crate) fn rebind_native(owner:Ref<Unit>, key:u32, seed:u32, services:&mut f3::WorldServices<'_>) {
+pub(crate) fn rebind_native_in(world_ctx: &mut crate::world::owner::World, owner:Ref<Unit>, key:u32, seed:u32, services:&mut f3::WorldServices<'_>) {
     let authority=&mut *services.recon;
-    let before=authority.context(&sim().store,key);
-    let input=F3UnitKey::of(owner,sim().store.unit.get(owner).expect("realized recon owner"));
+    let before=authority.context(&world_ctx.sim.store,key);
+    let input=F3UnitKey::of(owner,world_ctx.sim.store.unit.get(owner).expect("realized recon owner"));
     if let Some(previous)=before {
-        let old=super::key(&sim().store.recon_context.get(previous).unwrap().owner);
+        let old=super::key(&world_ctx.sim.store.recon_context.get(previous).unwrap().owner);
         if !super::same(&old,&input) {
-            if let Ok(unit)=old.validate_mut(&mut sim().store) {
-                unit.remotes_active=Some(false);f3::changed(old.reference());
+            if let Ok(unit)=old.validate_mut(&mut world_ctx.sim.store) {
+                unit.remotes_active=Some(false);f3::changed_in(world_ctx, old.reference());
             }
         }
     }
-    let reference=authority.rebind(&mut sim().store,key,input,seed).expect("admitted native recon owner");
-    let contexts=&mut f3::recon_services().contexts;
+    let reference=authority.rebind(&mut world_ctx.sim.store,key,input,seed).expect("admitted native recon owner");
+    let contexts=&mut f3::recon_services_in(&mut world_ctx.units).contexts;
     assert!((owner.slot as usize)<contexts.len(),"reserved native recon owner slots");
     contexts[owner.slot as usize]=Some(reference);
-    sim().store.unit.get_mut(owner).unwrap().combat.has_remotes=true;
+    world_ctx.sim.store.unit.get_mut(owner).unwrap().combat.has_remotes=true;
     if before.is_none() {
-        let context=sim().store.recon_context.get(reference).unwrap();
+        let context=world_ctx.sim.store.recon_context.get(reference).unwrap();
         F3ReconContextCreated {slot:reference.slot,generation:reference.gen,key,
-            owner:super::key(&context.owner)}.emit(&mut sim().events);
+            owner:super::key(&context.owner)}.emit(&mut world_ctx.sim.events);
     }
-    publish_active(authority);
+    publish_active_in(world_ctx, authority);
 }
 
 /// Factory admission reserves context links for future mixed unit ids.
 /// The authority retains its own separately admitted owner capacity.
-pub(crate) fn reserve_unit_slots(count:usize) {
-    let contexts=&mut f3::recon_services().contexts;
+pub(crate) fn reserve_unit_slots_in(world_ctx: &mut crate::world::owner::World, count:usize) {
+    let contexts=&mut f3::recon_services_in(&mut world_ctx.units).contexts;
     contexts.resize(count.max(contexts.len()),None);
 
 }
+
+// facade shims: retained for unconverted callers.
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_recon_owners(owners: u32){ f3_recon_owners_in(crate::abi::world(), owners) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_recon_class(){ f3_recon_class_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_recon_level(){ f3_recon_level_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_recon_strike(){ f3_recon_strike_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_recon_weapon(){ f3_recon_weapon_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn f3_recon_command() -> u32{ f3_recon_command_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn piloted_in(s: &crate::gen::Store, owner: Ref<Unit>) -> Option<Ref<ReconDroid>>{ piloted_in_in(f3::recon_services(), s, owner) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn kill_piloted(owner: Ref<Unit>, services: f3::WorldServices<'_>){ kill_piloted_in(crate::abi::world(), owner, services) }

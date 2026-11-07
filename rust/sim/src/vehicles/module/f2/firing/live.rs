@@ -514,6 +514,7 @@ pub(crate) fn fire_round_in(world_ctx: &mut crate::world::owner::World, def: cra
     if let Some((class, lifetime, speed)) = flight { if let Some(crate::ordnance::world::Shot::Round(r)) = round {
         if cx.s().round.get(r).is_some_and(|r| r.kind == RoundKind::Missile) { cx.flight_missile(r, Some(class), lifetime, speed); }
     } }
+    world.finish();
     round
 
 }

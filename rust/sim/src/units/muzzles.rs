@@ -7,7 +7,6 @@ use crate::gen::{Unit, UnitBody};
 use crate::pose::Pose;
 use crate::rig::droideka::{DroidekaAnimator, DroidekaRig};
 use crate::store::word_u32;
-use std::ptr::addr_of_mut;
 use three::{EulerOrder, Quaternion, TransformNode, TransformTree, Vector3};
 
 const ORDERS: [EulerOrder; 6] = [EulerOrder::XYZ, EulerOrder::YXZ, EulerOrder::ZXY, EulerOrder::ZYX, EulerOrder::YZX, EulerOrder::XZY];
@@ -21,7 +20,7 @@ pub(super) struct MuzzleRigs { rows: Vec<Option<Muzzles>> }
 impl MuzzleRigs {
     pub(super) const fn new() -> Self { Self { rows: Vec::new() } }
 }
-fn rigs() -> &'static mut MuzzleRigs { unsafe { &mut *addr_of_mut!(crate::abi::cold().units.muzzles) } }
+fn rigs_in(units: &mut super::owner::Units) -> &mut MuzzleRigs { &mut units.muzzles }
 
 struct Read<'a> { words: &'a [f64], at: usize }
 impl Read<'_> {
@@ -33,22 +32,22 @@ impl Read<'_> {
 
 /// The actor's prepared indices and transforms, including its current pose:
 /// attaching in the middle of a rolling pose must keep an unfold's source.
-pub fn attach(id: u32, parts: DroidekaParts, words: &[f64]) { rigs().attach(id, parts, words) }
+pub(crate) fn attach_in(units: &mut super::owner::Units, id: u32, parts: DroidekaParts, words: &[f64]) { rigs_in(units).attach(id, parts, words) }
 
-pub fn sample(id: u32, unit: &mut Unit, dt: f64) -> bool { rigs().sample(id, unit, dt) }
+pub(crate) fn sample_in(units: &mut super::owner::Units, id: u32, unit: &mut Unit, dt: f64) -> bool { rigs_in(units).sample(id, unit, dt) }
 
 /// The outer result distinguishes a missing prepared rig from a valid
 /// selection with no barrel. The native combat owner requires the rig.
-pub fn next_gun(id: u32, unit: &mut Unit) -> Option<Option<Vector3>> { rigs().next_gun(id, unit) }
+pub(crate) fn next_gun_in(units: &mut super::owner::Units, id: u32, unit: &mut Unit) -> Option<Option<Vector3>> { rigs_in(units).next_gun(id, unit) }
 
-pub fn gun_at(id: u32, selected: (f64, f64)) -> Option<Option<Vector3>> { rigs().gun_at(id, selected) }
+pub(crate) fn gun_at_in(units: &mut super::owner::Units, id: u32, selected: (f64, f64)) -> Option<Option<Vector3>> { rigs_in(units).gun_at(id, selected) }
 
 
 // UnitFactory cold construction transfers its private rig at activation.
 // No drawn skeleton or barrel query participates in the native birth.
-pub(crate) fn take(id: u32) -> Option<Muzzles> { rigs().take(id) }
-pub(crate) fn install(id: u32, rig: Option<Muzzles>) { rigs().install(id, rig) }
-pub(crate) fn reserve(count: usize) { rigs().reserve(count) }
+pub(crate) fn take_in(units: &mut super::owner::Units, id: u32) -> Option<Muzzles> { rigs_in(units).take(id) }
+pub(crate) fn install_in(units: &mut super::owner::Units, id: u32, rig: Option<Muzzles>) { rigs_in(units).install(id, rig) }
+pub(crate) fn reserve_in(units: &mut super::owner::Units, count: usize) { rigs_in(units).reserve(count) }
 
 impl MuzzleRigs {
     fn attach(&mut self, id: u32, mut parts: DroidekaParts, words: &[f64]) {

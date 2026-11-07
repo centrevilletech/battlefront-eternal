@@ -65,12 +65,16 @@ pub extern "C" fn items_args_words(which: u32) -> u32 {
 
 /// Runs `f` on a context over the instance's store, definitions and world.
 fn with_cx<T>(w: &mut crate::world::owner::World, f: impl FnOnce(&mut Cx<'_, JsWorld<'_, '_>>) -> T) -> T {
-    let _owned_boundary = crate::units::f3::external();
-    crate::units::f3::with_services(|recon| {
+    let boundary = crate::units::f3::external_in(w);
+    let result = crate::units::f3::with_services_in(w,|w,recon| {
         let mut world = JsWorld::with_services(w, recon);
         let mut cx = Cx::new(&mut world);
-        f(&mut cx)
-    })
+        let result = f(&mut cx);
+        world.finish();
+        result
+    });
+    boundary.finish(w,true);
+    result
 }
 
 /// items.js update: every item's tick, `targets` the number of targets the
