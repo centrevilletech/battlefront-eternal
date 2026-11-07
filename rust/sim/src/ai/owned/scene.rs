@@ -1,6 +1,7 @@
 //! One native identity dispatch for the three AI service worlds. This frame
 //! borrows canonical owners for scalar observations only. Geometry and commands
 //! use separate mutable scopes, so no observation borrow survives a callback.
+use super::rows::{view_context};
 use super::{
     buildings::Buildings,
     combat::{ControlOwners, Units as CombatUnits},
@@ -24,6 +25,8 @@ use crate::{
 };
 
 pub struct Scene<'a> {
+    #[cfg(target_arch="wasm32")]
+    pub w:&'a crate::world::owner::World,
     pub store: &'a Store,
     pub seats: &'a Seats,
     pub buildings: &'a Rows<Building>,
@@ -85,7 +88,7 @@ impl Scene<'_> {
             Entity::Control(r) => {
                 let character = |r| {
                     self.roster
-                        .index(self.store, self.characters, r)
+                        .index(view_context!(self), self.characters, r)
                         .expect("current native rider Character")
                 };
                 self.controls

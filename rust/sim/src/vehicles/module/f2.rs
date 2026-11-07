@@ -666,13 +666,7 @@ pub fn seat_origin(life:crate::vehicles::f2_seats::HullLife,index:usize)->Option
 #[cfg(target_arch = "wasm32")]
 pub fn seat_forward(life:crate::vehicles::f2_seats::HullLife,index:usize)->Option<three::Vector3> { seat_forward_in(crate::abi::world(), life, index) }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn seat_origin_owned(store:&Store,life:crate::vehicles::f2_seats::HullLife,index:usize)->Option<three::Vector3> { seat_origin_owned_in(&mut crate::abi::world().fleet,store, life, index) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn seat_forward_owned(store:&Store,life:crate::vehicles::f2_seats::HullLife,index:usize)->Option<three::Vector3> { seat_forward_owned_in(&mut crate::abi::world().fleet,store, life, index) }
-#[cfg(target_arch = "wasm32")]
 pub fn flight_keys_for(r: Ref<Vehicle>) -> (Config, Option<GearClip>) { flight_keys_for_in(&crate::abi::world().fleet,r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn flight_config(r:Ref<Vehicle>)->Option<Config> { flight_config_in(crate::abi::world(), r) }
 #[cfg(target_arch = "wasm32")]
 pub fn store_flight(hull: &Hull) { store_flight_in(crate::abi::world(), hull) }
 #[cfg(target_arch = "wasm32")]
@@ -681,8 +675,6 @@ pub fn take_hull(r: Ref<Vehicle>, index: usize) -> Hull { take_hull_in(crate::ab
 pub fn recycle(hull: Hull) { recycle_in(crate::abi::world(), hull) }
 #[cfg(target_arch = "wasm32")]
 pub fn active() -> bool { active_in(&crate::abi::world().fleet) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn world_level(level:f64) { world_level_in(crate::abi::world(), level) }
 #[cfg(target_arch = "wasm32")]
 pub fn mark(r: Ref<Vehicle>) { mark_in(&mut crate::abi::world().fleet,r) }
 #[cfg(target_arch = "wasm32")]

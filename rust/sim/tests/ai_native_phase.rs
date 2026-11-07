@@ -123,9 +123,9 @@ impl AiWorld for Native {
     fn weapons_firing_cone(&mut self, controller: usize, point: Vec3) -> bool {panic!("unbound native service weapons_firing_cone")}
     fn combat_repair_target(&mut self, unit: UKey) -> Option<UKey> {panic!("unbound native service combat_repair_target")}
     fn classes_needs(&self,unit:UKey,ammo:bool)->bool  {panic!("unbound native service classes_needs")}
-    fn classes_dispenser_available(&self,unit:UKey,index:usize)->bool  {panic!("unbound native service classes_dispenser_available")}
-    fn classes_mine_weapon(&self,unit:UKey)->Option<usize>  {panic!("unbound native service classes_mine_weapon")}
-    fn classes_service_weapon(&self,unit:UKey,health_type:f64,ammo:bool)->Option<usize>  {panic!("unbound native service classes_service_weapon")}
+    fn classes_dispenser_available(&mut self,unit:UKey,index:usize)->bool  {panic!("unbound native service classes_dispenser_available")}
+    fn classes_mine_weapon(&mut self,unit:UKey)->Option<usize>  {panic!("unbound native service classes_mine_weapon")}
+    fn classes_service_weapon(&mut self,unit:UKey,health_type:f64,ammo:bool)->Option<usize>  {panic!("unbound native service classes_service_weapon")}
     fn classes_repair_weapon(&self,unit:UKey,index:usize)->bool  {panic!("unbound native service classes_repair_weapon")}
     fn repair_matches(&self,target:UKey,current:UKey)->bool  {panic!("unbound native service repair_matches")}
     fn vehicles_notify(&mut self) -> List<(usize, EntRef)> {panic!("unbound native service vehicles_notify")}

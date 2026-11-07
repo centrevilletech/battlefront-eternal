@@ -1,6 +1,7 @@
 //! The combat world borrows canonical rows for its entire service scope.
 //! Geometry and cross-owner actions receive that same scope explicitly; no
 //! controller operation crosses the host or recreates a body service bag.
+use super::rows::{row_jet_enter,row_jet_tick,row_buildings,row_seats,row_seats_mut,row_store};
 use super::{arsenals::Mounted,rows::Rows,weapons::Changes};
 use crate::ai::{combat::{world::*},control::difficulty::Difficulty,phase::RandomState};
 use three::Vector3;
@@ -129,7 +130,7 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
     fn controller_objective(&self,c:Obj)->Option<Obj> {
         use super::entities::Entity;
         let Entity::Character(r)=self.rows.state.entities.get(self.ctl(c).character?)? else{return None};
-        let entity=match self.rows.store.character.get(r)?.objective {
+        let entity=match row_store!(self.rows).character.get(r)?.objective {
             crate::gen::PostRef::Post(r)=>Entity::Post(r),
             crate::gen::PostRef::MobilePost(r)=>Entity::MobilePost(r),
             _=>return None,
@@ -142,7 +143,7 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
         if self.rows.state.controllers.capturing_shots() {
             let Some(source)=source else{return};
             use crate::ai::combat::control::Objects as _;
-            let objects=super::objects::Objects {store:self.rows.store,commands:self.rows.characters,entities:&self.rows.state.entities,roster:&self.rows.state.roster,population:&self.rows.state.population};
+            let objects=super::objects::Objects {#[cfg(target_arch="wasm32")] w:self.rows.w,store:row_store!(self.rows),commands:self.rows.characters,entities:&self.rows.state.entities,roster:&self.rows.state.roster,population:&self.rows.state.population};
             let source=objects.alert_source(source);
             self.rows.state.controllers.shot(&self.rows.state.entities,c,source,known,point);
         }else{self.ctl_mut(c).notify_shot(source,known,point);}
@@ -223,9 +224,9 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
         let present=self.rows.state.controllers.helper(&self.rows.state.entities,controller).is_some_and(|(kind,_)|kind.is_some());
         let actor=if present {self.rows.state.actor(core)}else{None};
         let hint=hint.map(|key|match self.rows.state.entities.get(key).expect("current native jet hint") {super::entities::Entity::Hint(index)=>index as usize,_=>panic!("native jet hint identity")});
-        self.rows.state.jets.enter(controller,actor,hint,&mut self.rows.state.navigation,self.rows.store,self.rows.seats,self.random,self.hooks); }
+        row_jet_enter!(self.rows,controller,actor,hint,self.random,self.hooks); }
     fn jet_hints_exit(&mut self, controller: Obj, hint: Option<Obj>) { let _=hint;self.rows.state.jets.exit(controller,&mut self.rows.state.navigation); }
-    fn jet_hints_tick(&mut self, controller: Obj, hint: Option<Obj>, dt: f64)-> bool { let _=(hint,dt);self.rows.state.jets.tick(controller,&mut self.rows.state.navigation,self.rows.store,self.rows.seats,self.random,self.hooks) }
+    fn jet_hints_tick(&mut self, controller: Obj, hint: Option<Obj>, dt: f64)-> bool { let _=(hint,dt);row_jet_tick!(self.rows,controller,self.random,self.hooks) }
     // ClassicNav exposes barriers internally, not these optional extensions.
     fn nav_point_clear(&mut self, _point: &Vector3, _unit: Obj)-> Option<bool> { None }
     fn nav_segment_blocked(&mut self, _from: &Vector3, _to: &Vector3, _unit: Obj)-> Option<bool> { None }
@@ -256,8 +257,8 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
 
 impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> super::policy::Facts for Frame<'_,'_,C,M,H> {
     fn policy_post_contains(&self,index:usize,position:crate::ai::nav::math::Vec3)->bool {
-        let facts=self.rows.state.bindings.facts(self.rows.buildings.rows());
-        let post=self.rows.state.posts.read(self.rows.store,&self.rows.state.population,index,&facts).expect("current native AI post");
+        let facts=self.rows.state.bindings.facts(row_buildings!(self.rows));
+        let post=self.rows.state.posts.read(row_store!(self.rows),&self.rows.state.population,index,&facts).expect("current native AI post");
         crate::ai::control::goals::post_contains(&post,position)
     }
     fn policy_hint_forward(&self,index:usize)->crate::ai::nav::math::Vec3 {self.rows.state.navigation.nav.hints.list[index].forward}
@@ -364,7 +365,7 @@ struct VehicleDispatch<'a,'b,'c,'d,C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> {
 impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> crate::ai::vehicles::patterns::DispatchWorld for VehicleDispatch<'_,'_,'_,'_,C,M,H> {
     fn dispatch_hull(&self,hull:Obj)->crate::ai::vehicles::world::HullView {
         let Some(super::entities::Entity::Hull(reference))=self.frame.rows.state.entities.get(hull) else {panic!("current dispatch hull")};
-        self.frame.rows.state.mounts.hull(self.frame.rows.store,self.frame.rows.seats,&self.frame.rows.state.entities,reference).expect("current dispatch hull")
+        self.frame.rows.state.mounts.hull(row_store!(self.frame.rows),row_seats!(self.frame.rows),&self.frame.rows.state.entities,reference).expect("current dispatch hull")
     }
     fn dispatch_choice(&mut self,controller:Obj,unit:Obj,target:Obj,switch_allowed:bool)->crate::ai::vehicles::world::Choice {
         let choice=crate::ai::combat::weapons_ai::select_weapon(self.frame,self.shared,Some(controller),unit,Some(target),switch_allowed);
@@ -376,28 +377,28 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> crate::ai::vehicles::service::Moun
     fn mount_unit(&self,unit:Obj)->crate::ai::vehicles::world::UnitView {self.rows.scene().vehicle(unit).unwrap_or_else(||crate::ai::vehicles::world::UnitView {obj:unit,..Default::default()})}
     fn mount_lease(&self,lease:Obj)->crate::ai::vehicles::world::LeaseView {
         let Some(super::entities::Entity::Lease(reference))=self.rows.state.entities.get(lease) else {panic!("current native mount lease")};
-        self.rows.state.mounts.lease(self.rows.store,&self.rows.state.entities,reference).expect("current native mount lease")
+        self.rows.state.mounts.lease(row_store!(self.rows),&self.rows.state.entities,reference).expect("current native mount lease")
     }
     fn mount_hull(&self,hull:Obj)->crate::ai::vehicles::world::HullView {
         let Some(super::entities::Entity::Hull(reference))=self.rows.state.entities.get(hull) else {panic!("current native mount hull")};
-        self.rows.state.mounts.hull(self.rows.store,self.rows.seats,&self.rows.state.entities,reference).expect("current native mount hull")
+        self.rows.state.mounts.hull(row_store!(self.rows),row_seats!(self.rows),&self.rows.state.entities,reference).expect("current native mount hull")
     }
     fn mount_turret(&self,turret:Obj)->crate::ai::vehicles::world::TurretView {
         let Some(super::entities::Entity::Turret(reference))=self.rows.state.entities.get(turret) else {panic!("current native mount turret")};
-        self.rows.state.turrets.view(self.rows.seats,self.rows.buildings.rows(),&self.rows.state.entities,reference).expect("current native mount turret")
+        self.rows.state.turrets.view(row_seats!(self.rows),row_buildings!(self.rows),&self.rows.state.entities,reference).expect("current native mount turret")
     }
     fn mount_seat_count(&self,hull:Obj)->usize {
         let Some(super::entities::Entity::Hull(reference))=self.rows.state.entities.get(hull) else{return 0};
-        self.rows.state.mounts.seat_count(self.rows.store,reference).unwrap_or(0)
+        self.rows.state.mounts.seat_count(row_store!(self.rows),reference).unwrap_or(0)
     }
     fn mount_seat(&self,hull:Obj,index:usize)->Option<crate::ai::vehicles::world::SeatView> {
         let super::entities::Entity::Hull(reference)=self.rows.state.entities.get(hull)? else{return None};
-        self.rows.state.mounts.seat(self.rows.store,&self.rows.state.entities,reference,index)
+        self.rows.state.mounts.seat(row_store!(self.rows),&self.rows.state.entities,reference,index)
     }
     fn mount_eye(&mut self,origin:crate::ai::vehicles::world::Origin)->Option<Vector3> {self.hooks.mount_origin(self.rows,self.random,origin)}
     fn mount_hold_yaw(&mut self,turret:Obj,yaw:f64)->f64 {
         let Some(super::entities::Entity::Turret(reference))=self.rows.state.entities.get(turret) else {panic!("current native mount turret")};
-        self.rows.state.turrets.hold_yaw(self.rows.seats,self.rows.buildings.rows(),reference,yaw).expect("current native mount pivot")
+        self.rows.state.turrets.hold_yaw(row_seats_mut!(self.rows),row_buildings!(self.rows),reference,yaw).expect("current native mount pivot")
     }
 }
 

@@ -1,43 +1,44 @@
 //! AI weapon edits target F3's canonical combat rows. These methods leave
 //! timers, ammunition, trigger state and RNG ownership with the weapon owner.
+use super::rows::{WriteContext,changed,context_store_mut};
 use crate::{gen::{Store,F3UnitKey,Weapon},units::ownership::{Ownership,Stale}};
 use crate::ai::combat::world::WeaponSettings;
 
 pub trait Changes {
-    fn mark(&mut self,unit:crate::store::Ref<crate::gen::Unit>);
+    fn mark(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>);
     /// Tuning and selection join the next native unit span when promised.
     /// Other owners retain their ordinary immediate dirty-row contract.
-    fn weapon(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {self.mark(unit);}
-    fn body(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {self.mark(unit);}
-    fn intent(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {self.mark(unit);}
+    fn weapon(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {changed!(self,w,mark,unit);}
+    fn body(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {changed!(self,w,mark,unit);}
+    fn intent(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {changed!(self,w,mark,unit);}
     /// Native ownership also controls whether a command publication may copy
     /// held intents. Synthetic owners already observe their canonical rows.
-    fn native_intent(&mut self,unit:crate::store::Ref<crate::gen::Unit>,_owned:bool) {self.mark(unit);}
+    fn native_intent(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>,_owned:bool) {changed!(self,w,mark,unit);}
 }
-impl Changes for Ownership {fn mark(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {Ownership::mark(self,unit);}}
+impl Changes for Ownership {fn mark(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {#[cfg(target_arch="wasm32")] let _=w;Ownership::mark(self,unit);}}
 /// Native F3 keeps publication membership through recursive seat commands.
 /// A service view marks the owner without retaining its mutable row table.
 #[cfg(target_arch="wasm32")]
 pub struct F3;
 #[cfg(target_arch="wasm32")]
 impl Changes for F3 {
-    fn mark(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::changed(unit);}
-    fn intent(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::intent_changed(unit);}
-    fn weapon(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed(unit);}
-    fn body(&mut self,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed(unit);}
-    fn native_intent(&mut self,unit:crate::store::Ref<crate::gen::Unit>,owned:bool) {crate::units::f3::native_intent(unit,owned);}
+    fn mark(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::changed_in(w,unit);}
+    fn intent(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::intent_changed_in(&mut w.units,unit);}
+    fn weapon(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed_in(&mut w.units,unit);}
+    fn body(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>) {crate::units::f3::ai_changed_in(&mut w.units,unit);}
+    fn native_intent(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>,owned:bool) {crate::units::f3::native_intent_in(w,unit,owned);}
 }
 
 pub fn settings(store:&Store,key:&F3UnitKey,index:usize)->Result<WeaponSettings,Stale> {
     let unit=key.validate(store)?;
     Ok(read(unit.combat.weapons.get(index).expect("AI weapon index")))
 }
-pub fn edit<R,C:Changes+?Sized>(store:&mut Store,owner:&mut C,key:&F3UnitKey,index:usize,
+pub fn edit<R,C:Changes+?Sized>(context:WriteContext<'_>,owner:&mut C,key:&F3UnitKey,index:usize,
     edit:impl FnOnce(&mut WeaponSettings)->R)->Result<R,Stale> {
-    let unit=key.validate_mut(store)?;
+    let unit=key.validate_mut(context_store_mut!(context))?;
     let weapon=unit.combat.weapons.get_mut(index).expect("AI weapon index");
     let (result,changed)=edit_state(weapon,edit);
-    if changed {owner.weapon(key.reference());}
+    if changed {changed!(owner,context,weapon,key.reference());}
     Ok(result)
 }
 pub fn buttons(store:&mut Store,key:&F3UnitKey,first:f64,second:f64)->Result<(),Stale> {
@@ -116,10 +117,10 @@ impl Definitions {
             .nth(selected).map(|(index,_)|index)
     }
 }
-pub fn select<C:Changes+?Sized>(store:&mut Store,owner:&mut C,key:&F3UnitKey,index:usize,defs:&WeaponDefs)->Result<bool,Stale> {
-    let unit=key.validate_mut(store)?;let before=unit.combat.selected;
+pub fn select<C:Changes+?Sized>(context:WriteContext<'_>,owner:&mut C,key:&F3UnitKey,index:usize,defs:&WeaponDefs)->Result<bool,Stale> {
+    let unit=key.validate_mut(context_store_mut!(context))?;let before=unit.combat.selected;
     let selected=crate::combat::weapons::select(&mut unit.combat,defs,index);
-    if before.map(f64::to_bits)!=unit.combat.selected.map(f64::to_bits) {owner.weapon(key.reference());}
+    if before.map(f64::to_bits)!=unit.combat.selected.map(f64::to_bits) {changed!(owner,context,weapon,key.reference());}
     Ok(selected)
 }
 

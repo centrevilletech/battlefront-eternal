@@ -1,5 +1,6 @@
 //! VehicleAI reads canonical owners through one native frame. Scoped AI
 //! edits and F2 intent writes finish before boarding or damage reenters Core.
+use super::rows::{row_buildings,row_context,row_seats,row_seats_mut,row_store,row_store_mut};
 use super::{arsenals::Mounted,frame::{Frame as CombatFrame,Hooks as CombatHooks,Settings as CombatSettings},rows::Rows,weapons::Changes,entities::Entity,scratch::List};
 use crate::{ai::{vehicles::world::*,combat::binding::CombatAi,phase::RandomState},vehicles::{BodyId,Hit}};
 use three::Vector3;
@@ -47,7 +48,7 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> Frame<'_,'_,C,M,H> {
    Entity::Post(reference)=>crate::gen::PostRef::Post(reference),Entity::MobilePost(reference)=>crate::gen::PostRef::MobilePost(reference),_=>panic!("native post identity"),
   };
   let index=self.rows.state.population.index(post).expect("prepared native post");
-  self.rows.state.posts.read(self.rows.store,&self.rows.state.population,index,&self.rows.state.bindings.facts(self.rows.buildings.rows())).expect("current native post")
+  self.rows.state.posts.read(row_store!(self.rows),&self.rows.state.population,index,&self.rows.state.bindings.facts(row_buildings!(self.rows))).expect("current native post")
  }
  pub(super) fn combat<R>(&mut self,run:impl FnOnce(&mut CombatFrame<'_,'_,C,M,H>,&mut CombatAi)->R)->R {
   let mut frame=CombatFrame {rows:self.rows,hooks:self.hooks,random:self.random,settings:self.combat_settings,time:self.time,response:None};run(&mut frame,self.combat)
@@ -61,21 +62,21 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_,'_,C,M,H> {
  fn now(&self) -> f64 {self.time}
  fn settings(&self) -> &Settings {self.settings}
  fn unit(&self, u: Obj) -> UnitView {self.rows.scene().vehicle(u).unwrap_or_else(||UnitView {obj:u,..Default::default()})}
- fn hull(&self, h: Obj) -> HullView {let Some(Entity::Hull(reference))=self.rows.state.entities.get(h) else{return HullView {obj:h,..Default::default()}};self.rows.state.mounts.hull(self.rows.store,self.rows.seats,&self.rows.state.entities,reference).unwrap_or_else(||HullView {obj:h,..Default::default()})}
- fn turret(&self, t: Obj) -> TurretView {let Some(Entity::Turret(reference))=self.rows.state.entities.get(t) else{return TurretView {obj:t,..Default::default()}};self.rows.state.turrets.view(self.rows.seats,self.rows.buildings.rows(),&self.rows.state.entities,reference).unwrap_or_else(||TurretView {obj:t,..Default::default()})}
- fn lease(&self, l: Obj) -> LeaseView {let Some(Entity::Lease(reference))=self.rows.state.entities.get(l) else{return LeaseView {obj:l,..Default::default()}};self.rows.state.mounts.lease(self.rows.store,&self.rows.state.entities,reference).unwrap_or_else(||LeaseView {obj:l,..Default::default()})}
- fn controller(&self, c: Obj) -> ControllerView {self.rows.state.vehicle_controller(self.rows.store,c).unwrap_or_else(||ControllerView {obj:c,..Default::default()})}
+ fn hull(&self, h: Obj) -> HullView {let Some(Entity::Hull(reference))=self.rows.state.entities.get(h) else{return HullView {obj:h,..Default::default()}};self.rows.state.mounts.hull(row_store!(self.rows),row_seats!(self.rows),&self.rows.state.entities,reference).unwrap_or_else(||HullView {obj:h,..Default::default()})}
+ fn turret(&self, t: Obj) -> TurretView {let Some(Entity::Turret(reference))=self.rows.state.entities.get(t) else{return TurretView {obj:t,..Default::default()}};self.rows.state.turrets.view(row_seats!(self.rows),row_buildings!(self.rows),&self.rows.state.entities,reference).unwrap_or_else(||TurretView {obj:t,..Default::default()})}
+ fn lease(&self, l: Obj) -> LeaseView {let Some(Entity::Lease(reference))=self.rows.state.entities.get(l) else{return LeaseView {obj:l,..Default::default()}};self.rows.state.mounts.lease(row_store!(self.rows),&self.rows.state.entities,reference).unwrap_or_else(||LeaseView {obj:l,..Default::default()})}
+ fn controller(&self, c: Obj) -> ControllerView {self.rows.state.vehicle_controller(row_store!(self.rows),c).unwrap_or_else(||ControllerView {obj:c,..Default::default()})}
  fn post(&self, p: Obj) -> PostView {let post=self.post_snapshot(p);PostView {obj:p,position:Vector3::new(post.position.x,post.position.y,post.position.z),team:post.team}}
  fn character_unit(&self, character: Obj) -> Option<Obj> {self.rows.character_unit(character)}
- fn character_controller(&self, character: Obj) -> Option<Obj> {let reference=self.rows.character(character)?;self.rows.store.character.get(reference)?.controller.and_then(|c|self.rows.state.entities.find(Entity::Controller(c)))}
- fn hulls(&self) -> List<Obj> {self.rows.state.mounts.hulls(self.rows.store,self.rows.seats,&self.rows.state.entities)}
- fn turrets(&self) -> List<Obj> {let mut out=self.rows.state.buffers.units.take();for turret in &self.rows.seats.crews.turrets {if let Some(obj)=self.rows.state.entities.find(Entity::Turret(turret.turret)) {out.push_reserved(obj);}}out}
+ fn character_controller(&self, character: Obj) -> Option<Obj> {let reference=self.rows.character(character)?;row_store!(self.rows).character.get(reference)?.controller.and_then(|c|self.rows.state.entities.find(Entity::Controller(c)))}
+ fn hulls(&self) -> List<Obj> {self.rows.state.mounts.hulls(row_store!(self.rows),row_seats!(self.rows),&self.rows.state.entities)}
+ fn turrets(&self) -> List<Obj> {let mut out=self.rows.state.buffers.units.take();for turret in &row_seats!(self.rows).crews.turrets {if let Some(obj)=self.rows.state.entities.find(Entity::Turret(turret.turret)) {out.push_reserved(obj);}}out}
  fn tow_weapon(&self,control:Obj)->Option<(usize,f64)> {self.rows.tow_weapon(control)}
- fn reinforcements(&self, team: f64) -> Option<f64> {self.rows.store.battle.reinforcements.at(team)}
+ fn reinforcements(&self, team: f64) -> Option<f64> {row_store!(self.rows).battle.reinforcements.at(team)}
  fn human_units(&mut self) -> List<Obj> {let mut out=self.rows.state.buffers.units.take();for index in 0..self.rows.state.roster.handles().len() {
-        let Some(reference)=self.rows.state.roster.reference(self.rows.store,self.rows.characters,index) else{continue};
-        let character=self.rows.store.character.get(reference).unwrap();if !character.human {continue;}
-        if let Some(unit)=character.unit.filter(|r|self.rows.store.unit.get(*r).is_some_and(|u|u.alive)) {out.push_reserved(self.rows.state.entities.find(Entity::Unit(unit)).expect("prepared human identity"));}
+        let Some(reference)=self.rows.state.roster.reference(row_context!(self.rows),self.rows.characters,index) else{continue};
+        let character=row_store_mut!(self.rows).character.get(reference).unwrap();if !character.human {continue;}
+        if let Some(unit)=character.unit.filter(|r|row_store_mut!(self.rows).unit.get(*r).is_some_and(|u|u.alive)) {out.push_reserved(self.rows.state.entities.find(Entity::Unit(unit)).expect("prepared human identity"));}
         }out}
  fn has_planner(&self) -> bool {self.navigation}
  fn has_graph(&self) -> bool {self.navigation&&self.rows.state.navigation.nav.graph.is_some()}
@@ -103,9 +104,9 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_,'_,C,M,H> {
  fn origin(&mut self, control: Obj) -> Vector3 {CombatHooks::origin(self.hooks,self.rows,self.random,control)}
  fn forward(&mut self, control: Obj) -> Vector3 {CombatHooks::forward(self.hooks,self.rows,self.random,control)}
  fn mount_origin(&mut self, origin: Origin) -> Option<Vector3> {Hooks::mount_origin(self.hooks,self.rows,self.random,self.combat,origin)}
- fn hold_yaw(&mut self, turret: Obj, a: f64) -> f64 {let Some(Entity::Turret(reference))=self.rows.state.entities.get(turret) else{panic!("current native turret")};self.rows.state.turrets.hold_yaw(self.rows.seats,self.rows.buildings.rows(),reference,a).expect("current native turret pivot")}
+ fn hold_yaw(&mut self, turret: Obj, a: f64) -> f64 {let Some(Entity::Turret(reference))=self.rows.state.entities.get(turret) else{panic!("current native turret")};self.rows.state.turrets.hold_yaw(row_seats_mut!(self.rows),row_buildings!(self.rows),reference,a).expect("current native turret pivot")}
  fn eligible_seat(&mut self, unit: Obj, hull: Obj) -> f64 {Hooks::eligible_seat(self.hooks,self.rows,self.random,self.combat,unit,hull)}
- fn first_free_seat(&mut self, hull: Obj) -> f64 {let Some(Entity::Hull(reference))=self.rows.state.entities.get(hull) else{return -1.};self.rows.store.vehicle.get(reference).map_or(-1.,|h|crate::seats::boarding::first_free_seat(h) as f64)}
+ fn first_free_seat(&mut self, hull: Obj) -> f64 {let Some(Entity::Hull(reference))=self.rows.state.entities.get(hull) else{return -1.};row_store_mut!(self.rows).vehicle.get(reference).map_or(-1.,|h|crate::seats::boarding::first_free_seat(h) as f64)}
  fn board(&mut self, unit: Obj, hull: Obj) -> bool {Hooks::board(self.hooks,self.rows,self.random,self.combat,unit,hull)}
  fn man(&mut self, unit: Obj, turret: Obj) -> bool {Hooks::man(self.hooks,self.rows,self.random,self.combat,unit,turret)}
  fn request_exit_vehicle(&mut self, unit: Option<Obj>, options: ExitOptions) -> bool {Hooks::request_exit_vehicle(self.hooks,self.rows,self.random,self.combat,unit,options)}
@@ -153,6 +154,6 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_,'_,C,M,H> {
  fn helper_stop(&mut self, agent: Obj) {Hooks::helper_stop(self.hooks,self.rows,self.random,self.combat,agent)}
  fn helper_follow_path(&mut self, agent: Obj, points: &[[f64; 3]], over: bool, altitude: bool) {Hooks::helper_follow_path(self.hooks,self.rows,self.random,self.combat,agent,points,over,altitude)}
  fn helper_land(&mut self, agent: Obj, on: bool) {Hooks::helper_land(self.hooks,self.rows,self.random,self.combat,agent,on)}
- fn hull_seat_count(&self,h:Obj)->usize {let Some(Entity::Hull(reference))=self.rows.state.entities.get(h) else{return 0};self.rows.state.mounts.seat_count(self.rows.store,reference).unwrap_or(0)}
- fn hull_seat(&self,h:Obj,index:usize)->Option<SeatView> {let Entity::Hull(reference)=self.rows.state.entities.get(h)? else{return None};self.rows.state.mounts.seat(self.rows.store,&self.rows.state.entities,reference,index)}
+ fn hull_seat_count(&self,h:Obj)->usize {let Some(Entity::Hull(reference))=self.rows.state.entities.get(h) else{return 0};self.rows.state.mounts.seat_count(row_store!(self.rows),reference).unwrap_or(0)}
+ fn hull_seat(&self,h:Obj,index:usize)->Option<SeatView> {let Entity::Hull(reference)=self.rows.state.entities.get(h)? else{return None};self.rows.state.mounts.seat(row_store!(self.rows),&self.rows.state.entities,reference,index)}
 }

@@ -1,6 +1,8 @@
 //! squads.emitVo and Items.ownedBy publish their first-use facts in source
 //! order. Body and control identities remain distinct, even when a mounted
 //! proxy borrows its physical rider's weapons or both share a slab index.
+#[cfg(target_arch="wasm32")]
+use super::rows::row_store;
 use super::{arsenals::Mounted,entities::Entity,rows::Rows,weapons::Changes};
 use crate::{ai::combat::world::Obj,gen::{AiActor,AiItemOwnerNotice,AiVoiceNotice},store::{StrId,Strings}};
 use std::cell::Cell;
@@ -45,22 +47,22 @@ impl ItemOwners {
 }
 #[cfg(target_arch="wasm32")]
 impl super::host::Voice for &Voices {
-    fn emit(&self,time:f64,rows:&Rows<'_,super::weapons::F3,super::arsenals::Live>,unit:Obj,event:&str,property:&str,command:f64,context:Option<f64>,positional:Option<bool>,notice:Option<bool>) {
-        if let Some(record)=self.record(time,rows,unit,event,property,command,context,positional,notice) {record.emit(&mut crate::abi::sim().events);}
+    fn emit(&self,time:f64,rows:&mut Rows<'_,super::weapons::F3,super::arsenals::Live>,unit:Obj,event:&str,property:&str,command:f64,context:Option<f64>,positional:Option<bool>,notice:Option<bool>) {
+        if let Some(record)=self.record(time,rows,unit,event,property,command,context,positional,notice) {record.emit(&mut rows.w.sim.events);}
     }
 }
 #[cfg(target_arch="wasm32")]
 impl super::host::OwnedItems for &ItemOwners {
-    fn count(&self,rows:&Rows<'_,super::weapons::F3,super::arsenals::Live>,unit:Obj,weapon:&crate::gen::Weapon)->usize {
-        if let Some(record)=self.observe(rows,unit) {record.emit(&mut crate::abi::sim().events);}
+    fn count(&self,rows:&mut Rows<'_,super::weapons::F3,super::arsenals::Live>,unit:Obj,weapon:(crate::store::DefId,u32))->usize {
+        if let Some(record)=self.observe(rows,unit) {record.emit(&mut rows.w.sim.events);}
         let Some(Entity::Unit(reference))=rows.state.entities.get(unit) else {
             // ItemOwner admits physical bodies, player and null. A SeatUnit
             // has its own ownerKey; borrowing a rider's arsenal cannot make
             // that rider's item lists belong to the proxy.
             return 0;
         };
-        let life=rows.store.unit.get(reference).expect("current native dispenser body").generation;
-        let key=crate::units::f3::items().owned_key(reference.slot,life,weapon.def,weapon.level as u32).expect("prepared native dispenser owner key");
-        rows.store.items.owned.get(key).map_or(0,Vec::len)
+        let life=row_store!(rows).unit.get(reference).expect("current native dispenser body").generation;
+        let key=crate::units::f3::items_read(&rows.w.units).owned_key(reference.slot,life,weapon.0,weapon.1).expect("prepared native dispenser owner key");
+        row_store!(rows).items.owned.get(key).map_or(0,Vec::len)
     }
 }

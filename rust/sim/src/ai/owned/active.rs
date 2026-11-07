@@ -1,6 +1,7 @@
 //! Cross-owner combat callbacks carry the active Core as a Rust loan.
 //! Recursive interrupts construct a narrow world over the same owners and
 //! shared generators, without reacquiring an AI global or exporting mirrors.
+use super::rows::{row_nav,row_store,row_store_mut};
 use super::{arsenals::Mounted,frame::{Hooks,Settings},rows::Rows,weapons::Changes,world::{Facts,Services},scratch::List};
 use crate::ai::{control::Core,combat::world::*,phase::RandomState};
 use three::Vector3;
@@ -12,9 +13,9 @@ impl<S> Active<'_,S> {
     pub(super) fn helper<C:Changes+?Sized,M:Mounted>(&self,rows:&Rows<'_,C,M>,agent:Obj)->crate::ai::control::agents::Helper {
         let row=rows.state.agents.get(&rows.state.entities,agent).expect("running native helper agent");
         if rows.state.agents.key(row.core)==Some(agent) {
-            if let Some(current)=self.core.controllers[row.core].agent.as_ref() {let mut helper=current.helper;if let Some(key)=row.navigation {if let Some(obs)=rows.state.navigation.helper_observation_for(rows.store,key) {helper.obs=obs;}}return helper;}
+            if let Some(current)=self.core.controllers[row.core].agent.as_ref() {let mut helper=current.helper;if let Some(key)=row.navigation {if let Some(obs)=rows.state.navigation.helper_observation_for(row_store!(rows),key) {helper.obs=obs;}}return helper;}
         }
-        let mut helper=row.helper;if let Some(key)=row.navigation {if let Some(obs)=rows.state.navigation.helper_observation_for(rows.store,key) {helper.obs=obs;}}helper
+        let mut helper=row.helper;if let Some(key)=row.navigation {if let Some(obs)=rows.state.navigation.helper_observation_for(row_store!(rows),key) {helper.obs=obs;}}helper
     }
     pub(super) fn with_helper<C:Changes+?Sized,M:Mounted,Srv:super::navigation::Environment>(
         core:&mut Core,rows:&mut Rows<'_,C,M>,random:&mut RandomState,services:&mut Srv,agent:Obj,
@@ -41,15 +42,15 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Hooks<C,M> for Active<'_,S> {
     fn flight_path(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent:Obj,points:&[[f64;3]],over:bool,altitude:bool) {
         if points.is_empty() {return;}
         let key=rows.state.agents.get(&rows.state.entities,agent).expect("running native flyer helper").navigation.expect("native flyer helper identity");
-        let Some(actor)=rows.state.navigation.helper_actor(key) else{return};if rows.state.navigation.position(rows.store,actor).is_none() {return;}
-        let obs=rows.state.navigation.command_for(rows.store,rows.seats,random,self.services,key,super::navigation::Command::FlightPath(points,over,altitude));
+        let Some(actor)=rows.state.navigation.helper_actor(key) else{return};if rows.state.navigation.position(row_store_mut!(rows),actor).is_none() {return;}
+        let obs=row_nav!(rows,command_for,random,self.services,key,super::navigation::Command::FlightPath(points,over,altitude));
         self.flight_flags(rows,agent,over,altitude,None);
         if let Some(obs)=obs {
             let row=rows.state.agents.get_mut(&rows.state.entities,agent).unwrap();row.helper.obs=obs;
             let index=row.core;
             if rows.state.agents.key(index)==Some(agent) {
                 if let Some(current)=self.core.controllers[index].agent.as_mut() {current.helper.obs=obs;}
-                if let Some(control)=rows.state.navigation.observation(rows.store,actor) {self.core.controllers[index].request=control.request;self.core.controllers[index].nav_control=Some(control);}
+                if let Some(control)=rows.state.navigation.observation(row_store_mut!(rows),actor) {self.core.controllers[index].request=control.request;self.core.controllers[index].nav_control=Some(control);}
             }
         }
     }
@@ -115,7 +116,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Hooks<C,M> for Active<'_,S> {
 impl<S:super::navigation::Environment> super::navigation::Environment for Active<'_,S> {
  fn time(&self)->f64 {self.services.time()}
  fn remembered(&mut self,target:super::navigation::Actor)->Option<crate::ai::nav::math::Vec3> {self.services.remembered(target)}
- fn clear_above(&mut self,store:&mut crate::gen::Store,seats:&mut crate::vehicles::f2_seats::Seats,from:crate::ai::nav::math::Vec3,unit:&crate::gen::AiLifeHandle)->bool {self.services.clear_above(store,seats,from,unit)}
+ fn clear_above(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut crate::gen::Store,#[cfg(not(target_arch="wasm32"))] seats:&mut crate::vehicles::f2_seats::Seats,from:crate::ai::nav::math::Vec3,unit:&crate::gen::AiLifeHandle)->bool {#[cfg(target_arch="wasm32")] {self.services.clear_above(w,from,unit)} #[cfg(not(target_arch="wasm32"))] {self.services.clear_above(store,seats,from,unit)}}
  fn follow_far(&mut self)->f64 {self.services.follow_far()}
- fn seat_frame(&mut self,store:&mut crate::gen::Store,seats:&mut crate::vehicles::f2_seats::Seats,hull:crate::vehicles::f2_seats::HullLife,index:usize)->Option<(crate::ai::nav::math::Vec3,crate::ai::nav::math::Vec3)> {self.services.seat_frame(store,seats,hull,index)}
+ fn seat_frame(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,#[cfg(not(target_arch="wasm32"))] store:&mut crate::gen::Store,#[cfg(not(target_arch="wasm32"))] seats:&mut crate::vehicles::f2_seats::Seats,hull:crate::vehicles::f2_seats::HullLife,index:usize)->Option<(crate::ai::nav::math::Vec3,crate::ai::nav::math::Vec3)> {#[cfg(target_arch="wasm32")] {self.services.seat_frame(w,hull,index)} #[cfg(not(target_arch="wasm32"))] {self.services.seat_frame(store,seats,hull,index)}}
 }

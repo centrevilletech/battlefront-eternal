@@ -75,22 +75,13 @@ fn seats_state(seats: &mut Option<State>) -> &mut State {
         event_rows: Vec::with_capacity(512), event_output: Block::default(), rounds: Vec::with_capacity(32),
     }) }
 }
+/// Observe crews and hull membership after their solver has returned its loan.
+pub(crate) fn seats_ref(fleet: &super::super::Fleet) -> &crate::vehicles::f2_seats::Seats {
+    &fleet.seats.as_ref().expect("prepared native seats").owner
+}
+
 pub(in crate::vehicles::module) fn seats_owner(fleet: &mut super::super::Fleet) -> &mut crate::vehicles::f2_seats::Seats {
     &mut seats_state(&mut fleet.seats).owner
-}
-/// An outer native phase borrows the seat owner once. Narrow services loan
-/// it back before F3 observes a rider or F2 performs a recursive command.
-pub(crate) fn with_owned_seats_in<R>(world_ctx: &mut crate::world::owner::World, run:impl FnOnce(&mut crate::vehicles::f2_seats::Seats)->R)->R {
-    let mut owner=std::mem::take(&mut *world_ctx.fleet.seats_owner());
-    let result=run(&mut owner);
-    *world_ctx.fleet.seats_owner()=owner;
-    result
-}
-pub(crate) fn loan_seats_in<R>(world_ctx: &mut crate::world::owner::World, owner:&mut crate::vehicles::f2_seats::Seats,run:impl FnOnce()->R)->R {
-    std::mem::swap(owner,&mut *world_ctx.fleet.seats_owner());
-    let result=run();
-    std::mem::swap(owner,&mut *world_ctx.fleet.seats_owner());
-    result
 }
 // SeatUnit refers to the foreign registry slot, whose gameplay generation
 // is carried separately. Lease validation checks that generation before
@@ -809,7 +800,7 @@ impl SeatWorld for World<'_, '_> {
     // Resume native work with the accepted binding, not an older mirror value.
     fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, _: SeatRole) -> Option<Ref<SeatUnit>> { let world_ctx = &mut *self.world_ctx;
             if let Some(ai)=self.services.as_mut().and_then(|services|services.ai.as_mut()) {
-                let control=ai.controllable(&mut world_ctx.sim.store,&mut seats_state(&mut world_ctx.fleet.seats).owner,lease)?;
+                let control=ai.controllable(world_ctx,lease)?;
                 touch_lease_in(&mut world_ctx.fleet, lease);return Some(control);
             }
             touch_lease_in(&mut world_ctx.fleet, lease); super::publish_in(world_ctx);
@@ -1213,8 +1204,8 @@ fn touch_turret_in(fleet: &mut crate::vehicles::module::Fleet, r: Ref<Turret>) {
 // SeatUnit's arsenal keeps the turret's weapon, including its current ammo
 // and tuning. Resolve both generations before exposing a scalar observation.
 fn weapon_index_in(world_ctx: &mut crate::world::owner::World, r:Ref<Turret>,life:f64)->Option<usize> { seats_state(&mut world_ctx.fleet.seats).weapon_index(r, life) }
-pub(crate) fn weapon_count_in(world_ctx: &mut crate::world::owner::World, r:Ref<Turret>,life:f64)->Option<usize> { seats_state(&mut world_ctx.fleet.seats).weapon_count(r, life) }
-pub(crate) fn with_weapon_in<R>(world_ctx: &mut crate::world::owner::World, r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> { if index != 0 { return None; } seats_state(&mut world_ctx.fleet.seats).with_weapon(r, life, index, read) }
+pub(crate) fn weapon_count_ref(fleet:&crate::vehicles::module::Fleet,r:Ref<Turret>,life:f64)->Option<usize> {fleet.seats.as_ref()?.weapon_count(r,life)}
+pub(crate) fn with_weapon_ref<R>(fleet:&crate::vehicles::module::Fleet,r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> {fleet.seats.as_ref()?.with_weapon(r,life,index,read)}
 pub(crate) fn edit_weapon_in<R>(world_ctx: &mut crate::world::owner::World, r:Ref<Turret>,life:f64,index:usize,
     edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> {
     if index!=0 {return None;}
@@ -1355,7 +1346,8 @@ impl CrewWorld for World<'_, '_> {
             }
             let hint=self.services.as_ref().and_then(|services|services.ai.as_ref()).and_then(|ai| {
                 let lease=world_ctx.sim.store.seat_lease.get(lease)?;
-                Some(if lease.human {F2TurretHint::default()}else{ai.weapon_hint(&world_ctx.sim.store,lease.unit?,lease.controllable)})
+                let (human,unit,control)=(lease.human,lease.unit,lease.controllable);
+                Some(if human {F2TurretHint::default()}else{ai.weapon_hint_in(world_ctx,unit?,control)})
             });
             let picked = turret_lock_in(world_ctx, turret, origin, direction, lease,hint);
             let w = seats_state(&mut world_ctx.fleet.seats).weapons[turret].as_mut().unwrap();
@@ -1642,17 +1634,17 @@ impl State {
         s.owner.hulls.riders.reserve(count.saturating_sub(s.owner.hulls.riders.len()));
         s.owner.crews.riders.reserve(count.saturating_sub(s.owner.crews.riders.len()));
     }
-    fn weapon_index(&mut self, r:Ref<Turret>,life:f64)->Option<usize> {
+    fn weapon_index(&self, r:Ref<Turret>,life:f64)->Option<usize> {
         let st=self;
         let (current,i)=st.turret_indices.get(r.slot as usize).copied().flatten()?;
         if current!=r {return None;}
         (st.turret_lives[i]==life).then_some(i)
     }
-    fn weapon_count(&mut self, r:Ref<Turret>,life:f64)->Option<usize> {
+    fn weapon_count(&self, r:Ref<Turret>,life:f64)->Option<usize> {
         let i=self.weapon_index(r,life)?;
         Some(usize::from(self.weapons[i].is_some()))
     }
-    fn with_weapon<R>(&mut self, r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> {
+    fn with_weapon<R>(&self, r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> {
         if index!=0 {return None;}
         let i=self.weapon_index(r,life)?;let w=self.weapons[i].as_ref()?;
         w.class.as_ref()?;
@@ -1681,10 +1673,6 @@ pub(crate) fn refresh_weapon_masks_in(world_ctx: &mut crate::world::owner::World
 }
 
 // facade shims: callers outside the fleet bindings still enter through WASM.
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn with_owned_seats<R>(run:impl FnOnce(&mut crate::vehicles::f2_seats::Seats)->R)->R { with_owned_seats_in(crate::abi::world(), run) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn loan_seats<R>(owner:&mut crate::vehicles::f2_seats::Seats,run:impl FnOnce()->R)->R { loan_seats_in(crate::abi::world(), owner, run) }
 #[no_mangle]
 #[cfg(target_arch = "wasm32")]
 pub extern "C" fn f2_seats_init() -> *const f64 { f2_seats_init_in(crate::abi::world()) }
@@ -1715,8 +1703,6 @@ pub(crate) fn destroyed_with(index: usize, services: Option<crate::units::f3::Wo
 pub fn release(index: usize) { release_in(crate::abi::world(), index) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn release_with(index: usize, services: Option<crate::units::f3::WorldServices<'_>>) { release_with_in(crate::abi::world(), index, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn ai_command(a:F2SeatCommand,services:crate::units::f3::WorldServices<'_>)->F2SeatResult { ai_command_in(crate::abi::world(), a, services) }
 #[cfg(target_arch = "wasm32")]
 pub fn changed_lease(lease: Ref<SeatLease>) { changed_lease_in(crate::abi::world(), lease) }
 #[cfg(target_arch = "wasm32")]
@@ -1753,15 +1739,6 @@ pub(crate) fn turret_destroyed(r: Ref<Turret>, services: crate::units::f3::World
 pub fn retire(r: Ref<Vehicle>) { retire_in(crate::abi::world(), r) }
 #[cfg(target_arch = "wasm32")]
 pub fn finish() { finish_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub fn weapon_count(r:Ref<Turret>,life:f64)->Option<usize> { weapon_count_in(crate::abi::world(), r, life) }
-#[cfg(target_arch = "wasm32")]
-pub fn with_weapon<R>(r:Ref<Turret>,life:f64,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> { with_weapon_in(crate::abi::world(), r, life, index, read) }
-#[cfg(target_arch = "wasm32")]
-pub fn edit_weapon<R>(r:Ref<Turret>,life:f64,index:usize,
-    edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> { edit_weapon_in(crate::abi::world(), r, life, index, edit) }
-#[cfg(target_arch = "wasm32")]
-pub fn bind_ai_stream(r:Ref<Turret>,life:f64,binding:u32)->bool { bind_ai_stream_in(crate::abi::world(), r, life, binding) }
 #[no_mangle]
 #[cfg(target_arch = "wasm32")]
 pub extern "C" fn f2_turret_adopt() { f2_turret_adopt_in(crate::abi::world()) }
@@ -1790,5 +1767,3 @@ pub fn has_actor(unit: Ref<Unit>) -> bool { has_actor_in(&mut crate::abi::world(
 pub fn rider_posed(unit: Ref<Unit>) { rider_posed_in(&mut crate::abi::world().fleet,unit) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn battle_mount(turret: Ref<Turret>) -> Option<([f64; 3], Option<(crate::store::DefId, f64)>)> { battle_mount_in(crate::abi::world(), turret) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn refresh_weapon_masks(table:&crate::ai::combat::weapons_ai::WeaponAiTable) { refresh_weapon_masks_in(crate::abi::world(), table) }

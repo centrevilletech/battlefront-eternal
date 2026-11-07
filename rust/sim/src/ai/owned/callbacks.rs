@@ -1,7 +1,7 @@
 //! The native unit and seat phases carry an explicit AI callback loan. Each
 //! invocation receives the active cross-owner resources; it cannot acquire
 //! another Core or move a lifecycle action past its original source slot.
-use crate::{battle::live::Queries,gen::{F3UnitKey,F4AIHook,SeatLease,SeatUnit,Store,Unit},recon::Authority,store::Ref,vehicles::f2_seats::Seats};
+use crate::{battle::live::Queries,gen::{F3UnitKey,F4AIHook,SeatLease,SeatUnit,Store,Unit},recon::Authority,store::Ref};
 pub trait Callbacks {
     fn unit_born(&mut self,unit:Ref<Unit>)->bool;
     fn character_reassigned(&mut self,reference:Ref<crate::gen::Character>,handle:&crate::gen::F4Handle);
@@ -11,9 +11,9 @@ pub trait Callbacks {
     fn lifecycle_in(&mut self,w:&mut crate::world::owner::World,hook:&F4AIHook,recon:&mut Authority,queries:&mut Queries);
     fn controller_state(&self,store:&Store,unit:Option<Ref<Unit>>)->Option<f64>;
     fn owns_intent(&self,store:&Store,unit:crate::store::Ref<Unit>)->bool;
-    fn weapon_hint(&self,store:&Store,unit:crate::store::Ref<Unit>,control:Option<crate::store::Ref<SeatUnit>>)->crate::gen::F2TurretHint;
+    fn weapon_hint_in(&self,w:&mut crate::world::owner::World,unit:crate::store::Ref<Unit>,control:Option<crate::store::Ref<SeatUnit>>)->crate::gen::F2TurretHint;
     fn lease_created(&mut self,lease:Ref<SeatLease>);
-    fn controllable(&mut self,store:&mut Store,seats:&mut Seats,lease:Ref<SeatLease>)->Option<Ref<SeatUnit>>;
+    fn controllable(&mut self,w:&mut crate::world::owner::World,lease:Ref<SeatLease>)->Option<Ref<SeatUnit>>;
 
 }
 
@@ -54,36 +54,34 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
         let Some(object)=self.state.entities.try_register(super::entities::Entity::Unit(key.reference())) else{return};
         let Some(controller)=controller else{return};
         if !self.core.controllers.get(controller).is_some_and(|c|c.unit==Some(object)) {return;}
-        let mut store=std::mem::take(&mut w.sim.store);
         let mut services=self.factory.services(recon,queries);let mut random=self.random.share();
-        super::live::with_rows(w,self.state,&mut store,|rows| {
+        super::live::with_rows(w,self.state,|rows| {
             let mut world=super::world::World {rows,random:&mut random,combat:self.combat,services:&mut services,settings:self.settings,facts:self.facts};
             super::lifecycle::Callback {core:self.core,random:self.random}.aim_controller(&mut world,controller,dt);
         });
-        w.sim.store=store;
+        
     }
     fn lifecycle_in(&mut self,w:&mut crate::world::owner::World,hook:&F4AIHook,recon:&mut Authority,queries:&mut Queries) {
-        let mut store=std::mem::take(&mut w.sim.store);
         if let Some(handle)=hook.character_handle.as_ref() {
-            if let Some(reference)=crate::battle::f4_core::resolve_character_in(&mut w.battle,&store,handle) {
+            if let Some(reference)=crate::battle::f4_core::resolve_character_ref(&w.battle,&w.sim.store,handle) {
                 // Roster replacement advances F4 command life on the same
                 // Character object. Its AI index and unit link stay stable.
                 if let Some(index)=self.state.roster.storage_index(reference) {self.state.roster.replace(index,handle.clone());}else{
                     let index=self.state.roster.add(handle.clone());self.state.units.character(reference,index);
                 }
                 self.state.entities.register(super::entities::Entity::Character(reference));
-                if let Some(unit)=store.character.get(reference).and_then(|c|c.unit) {self.state.entities.register(super::entities::Entity::Unit(unit));}
+                if let Some(unit)=w.sim.store.character.get(reference).and_then(|c|c.unit) {self.state.entities.register(super::entities::Entity::Unit(unit));}
                 let count=self.state.roster.handles().len();
                 assert!(count<=self.core.by_character.len(),"admit native AI Character capacity before a roster birth");
                 self.core.character_count=count;
             }
         }
         let mut services=self.factory.services(recon,queries);let mut random=self.random.share();
-        super::live::with_rows(w,self.state,&mut store,|rows| {
+        super::live::with_rows(w,self.state,|rows| {
             let mut world=super::world::World {rows,random:&mut random,combat:self.combat,services:&mut services,settings:self.settings,facts:self.facts};
             super::lifecycle::Callback {core:self.core,random:self.random}.battle_hook(&mut world,hook).expect("current native AI lifecycle handles");
         });
-        w.sim.store=store;
+        
     }
     fn controller_state(&self,store:&Store,unit:Option<Ref<Unit>>)->Option<f64> {
         let reference=store.unit.get(unit?)?.controller?;
@@ -99,8 +97,8 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
         self.core.controllers.get(controller).is_some_and(|controller|controller.generation==body.generation&&
             controller.unit.and_then(|object|self.state.entities.get(object))==Some(super::entities::Entity::Unit(unit)))
     }
-    fn weapon_hint(&self,store:&Store,unit:crate::store::Ref<Unit>,control:Option<crate::store::Ref<SeatUnit>>)->crate::gen::F2TurretHint {
-        self.state.weapon_hint(store,unit,control,|member|crate::units::f3::target(crate::units::registry::target_id(member)).map(|target|target.life))
+    fn weapon_hint_in(&self,w:&mut crate::world::owner::World,unit:crate::store::Ref<Unit>,control:Option<crate::store::Ref<SeatUnit>>)->crate::gen::F2TurretHint {
+        self.state.weapon_hint_in(w,unit,control)
     }
 
     fn lease_created(&mut self,lease:Ref<SeatLease>) {
@@ -108,8 +106,8 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
         // participate in crew, takeover and shared-target identity queries.
         self.state.entities.register(super::entities::Entity::Lease(lease));
     }
-    fn controllable(&mut self,store:&mut Store,seats:&mut Seats,lease:Ref<SeatLease>)->Option<Ref<SeatUnit>> {
-        self.state.construct_control(store,seats,&crate::battle::f4::live().buildings,lease)
+    fn controllable(&mut self,w:&mut crate::world::owner::World,lease:Ref<SeatLease>)->Option<Ref<SeatUnit>> {
+        self.state.construct_control_in(w,lease)
     }
 }
 
@@ -122,16 +120,15 @@ pub fn with_services<F:Factory,R>(
     random:&mut crate::ai::phase::RandomState,combat:&mut crate::ai::combat::binding::CombatAi,
     settings:&super::frame::Settings,facts:&super::world::Facts,
     recon:&mut Authority,queries:&mut Queries,
-    run:impl FnOnce(crate::units::f3::WorldServices<'_>)->R)->R {
+    run:impl FnOnce(&mut crate::world::owner::World,crate::units::f3::WorldServices<'_>)->R)->R {
     let mut scope=Scope {core,state:rows.state,random,combat,settings,facts,factory};
-    crate::vehicles::module::f2::live_seats::loan_seats(rows.seats,||
-        crate::battle::f4_live::with_store(rows.store,||
-            run(crate::units::f3::WorldServices {recon,queries,ai:Some(&mut scope)})))
+    run(rows.w,crate::units::f3::WorldServices {recon,queries,ai:Some(&mut scope)})
 }
 
 // Facade shims for the unit service hub awaiting explicit context.
 #[cfg(target_arch="wasm32")]
 impl dyn Callbacks + '_ {
+    pub(crate) fn weapon_hint(&self,_store:&Store,unit:Ref<Unit>,control:Option<Ref<SeatUnit>>)->crate::gen::F2TurretHint {self.weapon_hint_in(crate::abi::world(),unit,control)}
     pub(crate) fn aim(&mut self,key:&F3UnitKey,dt:f64,recon:&mut Authority,queries:&mut Queries) {self.aim_in(crate::abi::world(),key,dt,recon,queries);}
     pub(crate) fn lifecycle(&mut self,hook:&F4AIHook,recon:&mut Authority,queries:&mut Queries) {self.lifecycle_in(crate::abi::world(),hook,recon,queries);}
 }

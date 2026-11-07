@@ -61,6 +61,16 @@ impl Controllers {
             shots:Pool::new(depth,capacity),intake:None,shot_marks:vec![None;capacity],
         }
     }
+    #[cfg(target_arch="wasm32")]
+    pub(crate) fn adopt_in(&mut self,w:&mut crate::world::owner::World,core:usize,entities:&mut Entities)->Obj {
+        let born=self.key(core).is_none();
+        let object=self.adopt(core,entities);
+        if born {
+            let Entity::Controller(r)=entities.get(object).expect("admitted AI controller") else{unreachable!()};
+            crate::gen::AiControllerBirth {slot:r.slot,generation:r.gen,index:core as u32}.emit(&mut w.sim.events);
+        }
+        object
+    }
     pub fn adopt(&mut self, core: usize, entities: &mut Entities) -> Obj {
         if let Some(r) = self.by_core.get(core) {
             return self.rows.get(r).unwrap().value.obj;
@@ -76,8 +86,7 @@ impl Controllers {
         self.by_core.insert(core,r);
         // Character and body publications can reference the private AI slab.
         // Establish only its facade identity before either record is decoded.
-        #[cfg(target_arch="wasm32")]
-        crate::gen::AiControllerBirth {slot:r.slot,generation:r.gen,index:core as u32}.emit(&mut crate::abi::sim().events);
+
         obj
     }
     fn reference(entities: &Entities, key: Obj) -> Option<Ref<Row>> {
@@ -286,14 +295,17 @@ pub fn link_unit(store:&mut crate::gen::Store,entities:&Entities,unit:Obj,contro
 
 /// ClassicAI.attach/detach links the Character even while it has no body.
 /// Its owning F4 life resolves before the link changes or is published.
-pub fn link_character(store:&mut crate::gen::Store,owner:&mut dyn super::roster::CharacterOwner,
+pub fn link_character(context:super::rows::WriteContext<'_>,owner:&mut dyn super::roster::CharacterOwner,
     roster:&super::roster::Roster,entities:&Entities,index:usize,controller:Obj,bound:bool)->Option<bool> {
-    let reference=roster.reference(store,owner,index)?;
+    let reference=roster.reference(&*context,owner,index)?;
     let Entity::Controller(controller)=entities.get(controller)? else {return None};
-    let character=store.character.get_mut(reference)?;let before=character.controller;
+    let character=super::rows::context_store_mut!(context).character.get_mut(reference)?;let before=character.controller;
     if bound {character.controller=Some(controller);}else if before==Some(controller) {character.controller=None;}
     let changed=before!=character.controller;
-    if changed {owner.changed(reference);}
+    if changed {
+        #[cfg(target_arch="wasm32")] owner.changed_in(context,reference);
+        #[cfg(not(target_arch="wasm32"))] owner.changed(reference);
+    }
     Some(changed)
 }
 

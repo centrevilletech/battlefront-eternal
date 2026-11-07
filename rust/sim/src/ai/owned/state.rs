@@ -1,5 +1,6 @@
 //! Battle-local AI authorities. Bodies, Characters, buildings, hulls and
 //! leases stay in their owners; this state retains identities and AI memory.
+use super::rows::{ReadContext,WriteContext,changed,context_store,context_store_mut};
 use super::{agents::Agents,battle::Bindings,buildings::Buildings,buffers::Buffers,classes::Classes,
     combat::Units as CombatUnits,controllers::Controllers,controls::HullControls,entities::{Entities,Entity},
     events::{Journal,Reader},hints::Hints,items::Items,lod::Lod,mounts::Mounts,navigation::{Actor,Navigation},
@@ -113,6 +114,12 @@ impl State {
     /// F2 has committed the lease and holder before requesting controllable.
     /// Install that same reference before the cooked views validate it; the
     /// caller's following assignment writes the identical reference again.
+    #[cfg(target_arch="wasm32")]
+    pub(crate) fn construct_control_in(&mut self,w:&mut crate::world::owner::World,lease:crate::store::Ref<crate::gen::SeatLease>)->Option<crate::store::Ref<crate::gen::SeatUnit>> {
+        let control=self.construct_control(&mut w.sim.store,w.fleet.seats_owner(),&crate::battle::f4::live_ref(&w.battle).buildings,lease)?;
+        crate::gen::AiControlBirth {slot:control.slot,generation:control.gen}.emit(&mut w.sim.events);
+        Some(control)
+    }
     pub fn construct_control(&mut self,store:&mut Store,seats:&mut Seats,buildings:&Rows<Building>,lease:crate::store::Ref<crate::gen::SeatLease>)->Option<crate::store::Ref<crate::gen::SeatUnit>> {
         let row=store.seat_lease.get(lease)?;let previous=row.controllable;
         let occupant=super::seats::Occupant::read(store,lease)?;
@@ -128,8 +135,6 @@ impl State {
             self.turrets.bind_control(store,seats,buildings,&mut self.entities,control,lease,turret,None,occupant)
         };
         if valid {
-            #[cfg(target_arch="wasm32")]
-            crate::gen::AiControlBirth {slot:control.slot,generation:control.gen}.emit(&mut crate::abi::sim().events);
             Some(control)
         }else{
             store.seat_lease.get_mut(lease).unwrap().controllable=previous;
@@ -219,8 +224,9 @@ impl State {
         self.hints=Some(Hints::new(&self.navigation.nav,self.scopes,post,
             |i|entities.find(Entity::Hint(i as u32)).unwrap()));
     }
-    pub fn scene<'a>(&'a self,store:&'a Store,seats:&'a Seats,buildings:&'a Rows<Building>,characters:&'a dyn CharacterOwner)->Scene<'a> {
-        Scene {store,seats,buildings,traps:None,characters,roster:&self.roster,entities:&self.entities,
+    pub fn scene<'a>(&'a self,context:ReadContext<'a>,seats:&'a Seats,buildings:&'a Rows<Building>,characters:&'a dyn CharacterOwner)->Scene<'a> {
+        let store=context_store!(context);
+        Scene {#[cfg(target_arch="wasm32")] w:context,store,seats,buildings,traps:None,characters,roster:&self.roster,entities:&self.entities,
             units:&self.units,combat_units:&self.combat_units,controls:&self.controls,mounts:&self.mounts,
             turrets:&self.turrets,props:&self.buildings}
     }
@@ -253,12 +259,15 @@ impl State {
     }
     /// First bind prepares the controller before any combat/perception hook.
     /// Body publication is sparse; a duplicate bind does not dirty its row.
-    pub fn link_controller<C:super::weapons::Changes+?Sized>(&mut self,store:&mut Store,owner:&mut C,unit:Obj,controller:usize,bound:bool)->bool {
+    pub fn link_controller<C:super::weapons::Changes+?Sized>(&mut self,context:WriteContext<'_>,owner:&mut C,unit:Obj,controller:usize,bound:bool)->bool {
+        #[cfg(target_arch="wasm32")]
+        let key=self.controllers.adopt_in(context,controller,&mut self.entities);
+        #[cfg(not(target_arch="wasm32"))]
         let key=self.controllers.adopt(controller,&mut self.entities);
         match self.entities.get(unit) {
             Some(Entity::Unit(reference))=>{
-                let Some(changed)=super::controllers::link_unit(store,&self.entities,unit,key,bound) else {return false};
-                if changed {owner.native_intent(reference,store.unit.get(reference).unwrap().controller.is_some());}
+                let Some(changed)=super::controllers::link_unit(context_store_mut!(context),&self.entities,unit,key,bound) else {return false};
+                if changed {let controlled=context_store!(context).unit.get(reference).unwrap().controller.is_some();changed!(owner,context,native_intent,reference,controlled);}
                 true
             },
             Some(Entity::Control(reference))=>self.controls.link_controller(reference,key,bound)
@@ -266,11 +275,16 @@ impl State {
             _=>false,
         }
     }
-    pub fn link_character(&mut self,store:&mut Store,owner:&mut dyn CharacterOwner,index:usize,controller:usize,bound:bool)->bool {
-        let key=if bound {self.controllers.adopt(controller,&mut self.entities)}else{
+    pub fn link_character(&mut self,context:WriteContext<'_>,owner:&mut dyn CharacterOwner,index:usize,controller:usize,bound:bool)->bool {
+        let key=if bound {
+            #[cfg(target_arch="wasm32")]
+            {self.controllers.adopt_in(context,controller,&mut self.entities)}
+            #[cfg(not(target_arch="wasm32"))]
+            {self.controllers.adopt(controller,&mut self.entities)}
+        }else{
             let Some(key)=self.controllers.key(controller) else{return false};key
         };
-        let found=super::controllers::link_character(store,owner,&self.roster,&self.entities,index,key,bound).is_some();
+        let found=super::controllers::link_character(context,owner,&self.roster,&self.entities,index,key,bound).is_some();
         if !bound {if let Some(actor)=self.actor(controller) {self.navigation.retire(actor);}self.set_actor(controller,None);self.controllers.retire(&mut self.entities,key);}
         found
     }
@@ -307,8 +321,22 @@ impl State {
     /// at their later lock point, after preceding synchronous death hooks.
     pub fn weapon_hint(&self,store:&Store,unit:crate::store::Ref<crate::gen::Unit>,control:Option<crate::store::Ref<crate::gen::SeatUnit>>,
         target_life:impl Fn(crate::gen::Member)->Option<f64>)->crate::gen::F2TurretHint {
-        let Some(body)=store.unit.get(unit) else{return Default::default()};
-        if body.human||body.network_human==Some(true)||body.combat.player {return Default::default();}
+        self.finish_weapon_hint(self.weapon_hint_target(store,unit,control),|member|match member {
+            crate::gen::Member::Unit(reference)=>store.unit.get(reference).map(|body|body.generation),
+            _=>target_life(member),
+        })
+    }
+    #[cfg(target_arch="wasm32")]
+    pub(crate) fn weapon_hint_in(&self,w:&mut crate::world::owner::World,unit:crate::store::Ref<crate::gen::Unit>,control:Option<crate::store::Ref<crate::gen::SeatUnit>>)->crate::gen::F2TurretHint {
+        let target=self.weapon_hint_target(&w.sim.store,unit,control);
+        self.finish_weapon_hint(target,|member|match member {
+            crate::gen::Member::Unit(reference)=>w.sim.store.unit.get(reference).map(|body|body.generation),
+            _=>crate::units::f3::target_in(w,crate::units::registry::target_id(member)).map(|target|target.life),
+        })
+    }
+    fn weapon_hint_target(&self,store:&Store,unit:crate::store::Ref<crate::gen::Unit>,control:Option<crate::store::Ref<crate::gen::SeatUnit>>)->Option<Option<crate::ai::combat::world::Ref>> {
+        let Some(body)=store.unit.get(unit) else{return None};
+        if body.human||body.network_human==Some(true)||body.combat.player {return None;}
         let controller=control.and_then(|control| {
             let birth=self.births.read(control)?;let lease=store.seat_lease.get(birth.lease)?;
             if lease.released||lease.unit!=Some(unit)||lease.controllable!=Some(control)||lease.generation!=body.generation {return None;}
@@ -321,14 +349,14 @@ impl State {
             None=>body.controller.and_then(|reference|self.controllers.read_reference(reference)),
         };
         let target=controller.and_then(|controller|controller.perception.as_ref()).and_then(|perception|perception.fire.weapon_target);
+        Some(target)
+    }
+    fn finish_weapon_hint(&self,target:Option<Option<crate::ai::combat::world::Ref>>,mut target_life:impl FnMut(crate::gen::Member)->Option<f64>)->crate::gen::F2TurretHint {
+        let Some(target)=target else{return Default::default()};
         let mut hint=crate::gen::F2TurretHint {bot:true,..Default::default()};
         if let Some(target)=target {
             if let Some(member)=self.queries.member(&self.entities,target.obj) {
-                let life=match member {
-                    crate::gen::Member::Unit(reference)=>store.unit.get(reference).map(|body|body.generation),
-                    _=>target_life(member),
-                };
-                if life==Some(target.generation) {hint.target=Some(member);hint.life=target.generation;}
+                if target_life(member)==Some(target.generation) {hint.target=Some(member);hint.life=target.generation;}
             }
         }
         hint

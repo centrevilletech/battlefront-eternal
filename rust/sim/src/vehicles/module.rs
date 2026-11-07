@@ -141,6 +141,10 @@ const MEMBER_HULL: u8 = 1;
 /// and body the hull's).
 const MEMBER_ON_HULL: u8 = 3;
 
+/// Borrow the collision service beside its immutable geometry and flag banks.
+pub(crate) fn collision_owner(fleet:&mut Fleet)->Option<&mut Collision> {fleet.collision.as_mut()}
+pub(crate) fn map_ref(fleet:&Fleet)->Option<&MapRules> {fleet.map.as_ref()}
+
 // Spatial readers borrow their prepared bank for the duration of a query.
 pub(crate) fn collision_world_in(world_ctx: &mut crate::world::owner::World) -> Option<&mut Collision> {
     world_ctx.fleet.collision.as_mut()
@@ -1144,8 +1148,6 @@ impl Fleet {
 pub(crate) fn collision_world() -> Option<&'static mut Collision> { collision_world_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn map() -> Option<&'static mut MapRules> { map_in(crate::abi::world()) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn flight_environment()->&'static Environment { flight_environment_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn flight_tuning(class: FlightClass) -> Tuning { flight_tuning_in(crate::abi::world(), class) }
 #[cfg(target_arch = "wasm32")]

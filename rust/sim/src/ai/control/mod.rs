@@ -2796,11 +2796,11 @@ impl Core {
 impl Core {
     // -- mine machine and repair services (classes.js) ---------------------
 
-    fn mine_weapon<W:AiWorld+?Sized>(&self, w: &W, ci: usize) -> Option<usize> {
+    fn mine_weapon<W:AiWorld+?Sized>(&self, w: &mut W, ci: usize) -> Option<usize> {
         w.classes_mine_weapon(self.agent_unit(ci)?)
     }
 
-    fn mine_eligible<W:AiWorld+?Sized>(&mut self, w: &W, ci: usize) -> bool {
+    fn mine_eligible<W:AiWorld+?Sized>(&mut self, w: &mut W, ci: usize) -> bool {
         if !self.options.bind.classes {
             return false;
         }
@@ -2997,7 +2997,7 @@ impl Core {
             }
             return;
         }
-        let Some(weapon) = self.mine_weapon(&*w, ci) else {
+        let Some(weapon) = self.mine_weapon(w, ci) else {
             self.request_state(Owner::Mine(ci), fsm::DONE);
             return;
         };
@@ -3052,7 +3052,7 @@ impl Core {
         }
     }
 
-    fn service_weapon<W:AiWorld+?Sized>(&self, w: &W, ci: usize, target: UKey, ammo: bool) -> Option<usize> {
+    fn service_weapon<W:AiWorld+?Sized>(&self, w: &mut W, ci: usize, target: UKey, ammo: bool) -> Option<usize> {
         w.classes_service_weapon(self.agent_unit(ci)?,classes::health_type(&w.unit(target)),ammo)
     }
 
@@ -3092,7 +3092,7 @@ impl Core {
         }
     }
 
-    fn useful_kinds<W:AiWorld+?Sized>(&mut self, w: &W, ci: usize, target: UKey) -> crate::ai::owned::scratch::Inline<bool,2> {
+    fn useful_kinds<W:AiWorld+?Sized>(&mut self, w: &mut W, ci: usize, target: UKey) -> crate::ai::owned::scratch::Inline<bool,2> {
         let mut out = crate::ai::owned::scratch::Inline::default();
         for ammo in [false, true] {
             if w.classes_needs(target,ammo)
@@ -3119,7 +3119,7 @@ impl Core {
         let mut best: Option<world::JobRef> = None;
         let mut best_d = f64::INFINITY;
         for target in candidates {
-            let useful = self.useful_kinds(&*w, ci, target);
+            let useful = self.useful_kinds(w, ci, target);
             if useful.is_empty() {
                 continue;
             }
@@ -3256,7 +3256,7 @@ impl Core {
         if !w.classes_needs(target,ammo) || self.nearby_service(&*w, target, ammo) {
             return None;
         }
-        let weapon = self.service_weapon(&*w, ci, target, ammo)?;
+        let weapon = self.service_weapon(w, ci, target, ammo)?;
         let unit = self.agent_unit(ci)?;
         let now = self.now(w);
         let distance = agents::horizontal_distance_sq(w.unit_scalars(unit).position, w.unit_scalars(target).position);

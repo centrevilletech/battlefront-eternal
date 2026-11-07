@@ -1,11 +1,14 @@
 //! Unit/SeatUnit/VehicleTarget/TurretTarget geometry (src/units.js and
 //! src/seats.js). Each method observes only its source geometry. In
 //! particular, an aim point reads the lazy sphere, never the gun origin.
+#[cfg(not(target_arch="wasm32"))]
+use crate::{gen::Store,vehicles::f2_seats::Seats};
+use super::rows::{row_body,row_buildings,row_hull,row_seats,row_seats_mut,row_store,row_store_mut,row_traps};
 use super::{arsenals::Mounted,entities::Entity,rows::Rows,weapons::Changes};
-use crate::{ai::combat::world::{Obj,Sphere},gen::{RepairTarget,SeatLease,Store,Vehicle},
+use crate::{ai::combat::world::{Obj,Sphere},gen::{RepairTarget,SeatLease,Vehicle},
     store::Ref,units::world::UnitsWorld};
 use three::Vector3;
-use crate::vehicles::f2_seats::Seats;
+
 
 #[derive(Clone,Copy)]
 struct ForwardSample {storage:u32,life:u64,yaw:u64,pitch:u64,value:Vector3}
@@ -28,86 +31,92 @@ impl ForwardCache {
 /// Native hull rigs are retained separately from the canonical row. A read
 /// loans that row's owner only for the duration of the requested seat pose.
 pub trait Bodies {
-    fn sphere(&mut self,store:&mut Store,seats:&mut Seats,unit:Ref<crate::gen::Unit>)->Option<Sphere>;
+    fn sphere(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,
+        #[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,unit:Ref<crate::gen::Unit>)->Option<Sphere>;
 }
 /// Isolated native worlds supply their own pose sampler, without a host.
 pub struct Shapes<'a>(pub &'a mut dyn UnitsWorld);
 impl Bodies for Shapes<'_> {
-    fn sphere(&mut self,store:&mut Store,_seats:&mut Seats,unit:Ref<crate::gen::Unit>)->Option<Sphere> {
+    fn sphere(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,
+        #[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] _seats:&mut Seats,unit:Ref<crate::gen::Unit>)->Option<Sphere> {
+        #[cfg(target_arch="wasm32")] let store=&mut w.sim.store;
         let key=crate::gen::F3UnitKey::of(unit,store.unit.get(unit)?);
         super::geometry::sphere(store,self.0,&key).ok()
     }
 }
 pub trait Hulls {
-    fn origin(&mut self,store:&mut Store,seats:&mut Seats,hull:Ref<Vehicle>,seat:usize)->Option<Vector3>;
-    fn forward(&mut self,store:&mut Store,seats:&mut Seats,hull:Ref<Vehicle>,seat:usize)->Option<Vector3>;
+    fn origin(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,
+        #[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,hull:Ref<Vehicle>,seat:usize)->Option<Vector3>;
+    fn forward(&mut self,#[cfg(target_arch="wasm32")] w:&mut crate::world::owner::World,
+        #[cfg(not(target_arch="wasm32"))] store:&mut Store,#[cfg(not(target_arch="wasm32"))] seats:&mut Seats,hull:Ref<Vehicle>,seat:usize)->Option<Vector3>;
 }
 impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
     fn control_lease(&self,reference:Ref<crate::gen::SeatUnit>)->Option<Ref<SeatLease>> {
-        self.state.controls.lease_reference(self.store,reference).or_else(||
-            self.state.turrets.lease_reference(self.store,self.seats,self.buildings.rows(),reference))
+        self.state.controls.lease_reference(row_store!(self),reference).or_else(||
+            self.state.turrets.lease_reference(row_store!(self),row_seats!(self),row_buildings!(self),reference))
     }
     pub(crate) fn lease_origin(&mut self,reference:Ref<SeatLease>,hulls:&mut impl Hulls)->Option<Vector3> {
-        let lease=self.store.seat_lease.get(reference)?;
+        let lease=row_store_mut!(self).seat_lease.get(reference)?;
         if let Some(hull)=lease.vehicle {
             let index=lease.index as usize;
-            hulls.origin(self.store,self.seats,hull,index)
+            row_hull!(self,hulls,origin,hull,index)
         }else{
             let turret=lease.turret?;
-            self.state.turrets.origin(self.seats,self.buildings.rows(),turret)
+            self.state.turrets.origin(row_seats_mut!(self),row_buildings!(self),turret)
         }
     }
     fn lease_forward(&mut self,reference:Ref<SeatLease>,hulls:&mut impl Hulls)->Option<Vector3> {
-        let lease=self.store.seat_lease.get(reference)?;
+        let lease=row_store_mut!(self).seat_lease.get(reference)?;
         if let Some(hull)=lease.vehicle {
             let index=lease.index as usize;
-            hulls.forward(self.store,self.seats,hull,index)
+            row_hull!(self,hulls,forward,hull,index)
         }else{
-            self.state.turrets.forward(self.seats,self.buildings.rows(),lease.turret?)
+            self.state.turrets.forward(row_seats_mut!(self),row_buildings!(self),lease.turret?)
         }
     }
     pub fn origin(&mut self,obj:Obj,hulls:&mut impl Hulls)->Option<Vector3> {
         match self.state.entities.get(obj)? {
             Entity::Unit(reference)=>{
-                let unit=self.store.unit.get(reference)?;
+                let unit=row_store_mut!(self).unit.get(reference)?;
                 if let Some(lease)=unit.seat {self.lease_origin(lease,hulls)}else{Some(unit.origin_on_foot())}
             },
             Entity::Control(reference)=>self.lease_origin(self.control_lease(reference)?,hulls),
-            Entity::HullEntry(reference)=>hulls.origin(self.store,self.seats,reference,0),
-            Entity::TurretEntry(reference)=>self.state.turrets.origin(self.seats,self.buildings.rows(),reference),
+            Entity::HullEntry(reference)=>row_hull!(self,hulls,origin,reference,0),
+            Entity::TurretEntry(reference)=>self.state.turrets.origin(row_seats_mut!(self),row_buildings!(self),reference),
             Entity::BuildingService(reference)|Entity::ObjectiveEntry(reference)=>
-                Some(self.state.buildings.sphere(self.buildings.rows(),self.buildings.traps(),RepairTarget::Building(reference))?.center),
-            Entity::TurretService(reference)=>Some(self.state.buildings.sphere(self.buildings.rows(),self.buildings.traps(),RepairTarget::Turret(reference))?.center),
+                Some(self.state.buildings.sphere(row_buildings!(self),row_traps!(self),RepairTarget::Building(reference))?.center),
+            Entity::TurretService(reference)=>Some(self.state.buildings.sphere(row_buildings!(self),row_traps!(self),RepairTarget::Turret(reference))?.center),
             _=>None,
         }
     }
     pub fn forward(&mut self,obj:Obj,hulls:&mut impl Hulls)->Option<Vector3> {
         match self.state.entities.get(obj)? {
             Entity::Unit(reference)=>{
-                let unit=self.store.unit.get(reference)?;
+                let unit=row_store_mut!(self).unit.get(reference)?;
                 if let Some(lease)=unit.seat {self.lease_forward(lease,hulls)}else{Some(self.state.forward_cache.read(reference,unit))}
             },
             Entity::Control(reference)=>self.lease_forward(self.control_lease(reference)?,hulls),
-            Entity::HullEntry(reference)=>hulls.forward(self.store,self.seats,reference,0),
-            Entity::TurretEntry(reference)=>self.state.turrets.forward(self.seats,self.buildings.rows(),reference),
-            Entity::BuildingService(reference)|Entity::ObjectiveEntry(reference)=>self.state.buildings.forward(self.buildings.rows(),self.buildings.traps(),RepairTarget::Building(reference)),
-            Entity::TurretService(reference)=>self.state.buildings.forward(self.buildings.rows(),self.buildings.traps(),RepairTarget::Turret(reference)),
+            Entity::HullEntry(reference)=>row_hull!(self,hulls,forward,reference,0),
+            Entity::TurretEntry(reference)=>self.state.turrets.forward(row_seats_mut!(self),row_buildings!(self),reference),
+            Entity::BuildingService(reference)|Entity::ObjectiveEntry(reference)=>self.state.buildings.forward(row_buildings!(self),row_traps!(self),RepairTarget::Building(reference)),
+            Entity::TurretService(reference)=>self.state.buildings.forward(row_buildings!(self),row_traps!(self),RepairTarget::Turret(reference)),
             _=>None,
         }
     }
     pub fn sphere(&mut self,obj:Obj,bodies:&mut impl Bodies)->Option<Sphere> {
         match self.state.entities.get(obj)? {
-            Entity::Unit(reference)=>bodies.sphere(self.store,self.seats,reference),
+            Entity::Unit(reference)=>row_body!(self,bodies,reference),
             Entity::Control(reference)=>{
-                let lease=self.store.seat_lease.get(self.control_lease(reference)?)?;
-                if let Some(hull)=lease.vehicle {self.state.mounts.sphere(self.store,hull)}else{
-                    self.state.turrets.sphere(self.seats,self.buildings.rows(),lease.turret?)
+                let key=self.control_lease(reference)?;
+                let lease=row_store!(self).seat_lease.get(key)?;
+                if let Some(hull)=lease.vehicle {self.state.mounts.sphere(row_store_mut!(self),hull)}else{
+                    self.state.turrets.sphere(row_seats_mut!(self),row_buildings!(self),lease.turret?)
                 }
             },
-            Entity::HullEntry(reference)=>self.state.mounts.sphere(self.store,reference),
-            Entity::TurretEntry(reference)=>self.state.turrets.sphere(self.seats,self.buildings.rows(),reference),
-            Entity::BuildingService(reference)|Entity::ObjectiveEntry(reference)=>self.state.buildings.sphere(self.buildings.rows(),self.buildings.traps(),RepairTarget::Building(reference)),
-            Entity::TurretService(reference)=>self.state.buildings.sphere(self.buildings.rows(),self.buildings.traps(),RepairTarget::Turret(reference)),
+            Entity::HullEntry(reference)=>self.state.mounts.sphere(row_store_mut!(self),reference),
+            Entity::TurretEntry(reference)=>self.state.turrets.sphere(row_seats_mut!(self),row_buildings!(self),reference),
+            Entity::BuildingService(reference)|Entity::ObjectiveEntry(reference)=>self.state.buildings.sphere(row_buildings!(self),row_traps!(self),RepairTarget::Building(reference)),
+            Entity::TurretService(reference)=>self.state.buildings.sphere(row_buildings!(self),row_traps!(self),RepairTarget::Turret(reference)),
             _=>None,
         }
     }
@@ -115,41 +124,31 @@ impl<C:Changes+?Sized,M:Mounted> Rows<'_,C,M> {
 }
 #[cfg(target_arch="wasm32")]
 impl Hulls for super::geometry::F2 {
-    fn origin(&mut self,store:&mut Store,_seats:&mut Seats,hull:Ref<Vehicle>,seat:usize)->Option<Vector3> {
-        let life=store.vehicle.get(hull)?.target_generation;
-        crate::vehicles::module::f2::seat_origin_owned(store,crate::vehicles::f2_seats::HullLife {vehicle:hull,life},seat)
+    fn origin(&mut self,w:&mut crate::world::owner::World,hull:Ref<Vehicle>,seat:usize)->Option<Vector3> {
+        let life=w.sim.store.vehicle.get(hull)?.target_generation;
+        crate::vehicles::module::f2::seat_origin_in(w,crate::vehicles::f2_seats::HullLife {vehicle:hull,life},seat)
     }
-    fn forward(&mut self,store:&mut Store,_seats:&mut Seats,hull:Ref<Vehicle>,seat:usize)->Option<Vector3> {
-        let life=store.vehicle.get(hull)?.target_generation;
-        crate::vehicles::module::f2::seat_forward_owned(store,crate::vehicles::f2_seats::HullLife {vehicle:hull,life},seat)
+    fn forward(&mut self,w:&mut crate::world::owner::World,hull:Ref<Vehicle>,seat:usize)->Option<Vector3> {
+        let life=w.sim.store.vehicle.get(hull)?.target_generation;
+        crate::vehicles::module::f2::seat_forward_in(w,crate::vehicles::f2_seats::HullLife {vehicle:hull,life},seat)
     }
 }
 
-/// The live sampler loans Store back to F3 before it observes held/rider
-/// geometry. No local Store borrow spans those native owner reads.
+/// The live sampler borrows the root for canonical lazy geometry. No local
+/// Store borrow spans held or rider observations.
 #[cfg(target_arch="wasm32")]
 pub struct F3;
 #[cfg(target_arch="wasm32")]
 impl Bodies for F3 {
-    fn sphere(&mut self,store:&mut Store,seats:&mut Seats,unit:Ref<crate::gen::Unit>)->Option<Sphere> {
-        let row=store.unit.get(unit)?;
+    fn sphere(&mut self,w:&mut crate::world::owner::World,unit:Ref<crate::gen::Unit>)->Option<Sphere> {
+        let row=w.sim.store.unit.get(unit)?;
         // Unit.sphere returns its already-observed bounds at this exact tick.
         // Borrow those scalars directly; only first observation may need the
         // native held/rider sampler and its cross-owner scope.
         if row.spheres_tick==row.tick_count {
             return Some(Sphere {center:Vector3::new(row.bounds.center[0],row.bounds.center[1],row.bounds.center[2]),radius:row.bounds.radius});
         }
-        // Ordinary on-foot bounds use Unit.updateSpheres' local primitives.
-        // Only an exposed seat or a held frame can ask its world for a pose;
-        // keep that lazy sampler path, without loaning Store for plain bodies.
-        let held=matches!(&row.held,crate::store::Nullable::Value(h) if !matches!(h.frame,crate::store::Nullable::Null|crate::store::Nullable::Undefined));
-        if row.seat.is_none()&&!held {
-            let key=crate::gen::F3UnitKey::of(unit,row);
-            let mut world=crate::units::module::ModuleWorld::sensor(crate::units::f3::collision_world());
-            return super::geometry::sphere(store,&mut world,&key).ok();
-        }
-        let (center,radius)=crate::vehicles::module::f2::live_seats::loan_seats(seats,||
-            crate::battle::f4_live::with_store(store,||crate::units::f3_sensors::unit_sphere(unit)));
+        let (center,radius)=crate::units::f3_sensors::unit_sphere_in(w,unit);
         Some(Sphere {center:Vector3::new(center[0],center[1],center[2]),radius})
     }
 }

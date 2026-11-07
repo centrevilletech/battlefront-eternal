@@ -1,6 +1,7 @@
 //! Cold map content enters through generated rows. Navigation consumes the
 //! original JSON bytes so signed zero and authored scalar forms survive;
 //! no JSON parsing, name resolution or row construction runs during phases.
+use super::rows::{row_buildings,row_seats,row_store,row_trap_geometry,row_traps};
 use crate::{ai::nav::{Nav,PlannerOptions,math::Vec3},gen::{AiNavSetup,SpawnPost,Store},store::Strings};
 use super::{state::State,population::Population};
 pub struct Navigation {pub nav:Nav,posts:Vec<SpawnPost>}
@@ -29,10 +30,10 @@ pub enum Stale {Character,Body}
 impl State {
     /// F4's handles are validated before any roster entries are installed.
     /// Character order is authoritative and independent of body slab slots.
-    pub fn prepare_roster(&mut self,store:&Store,owner:&dyn super::roster::CharacterOwner,handles:&[crate::gen::F4Handle])->Result<(),Stale> {
-        for handle in handles {owner.resolve(store,handle).ok_or(Stale::Character)?;}
+    pub fn prepare_roster(&mut self,context:super::rows::ReadContext<'_>,owner:&dyn super::roster::CharacterOwner,handles:&[crate::gen::F4Handle])->Result<(),Stale> {
+        for handle in handles {owner.resolve(context,handle).ok_or(Stale::Character)?;}
         for handle in handles {
-            let reference=owner.resolve(store,handle).unwrap();
+            let reference=owner.resolve(context,handle).unwrap();
             let index=self.roster.add(handle.clone());
             self.entities.register(super::entities::Entity::Character(reference));self.units.character(reference,index);
         }
@@ -109,39 +110,41 @@ impl super::posts::Definition {
 /// The full batch is checked before installation; runtime reads never import
 /// another hull, building or seat snapshot from JavaScript.
 impl<C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> super::rows::Rows<'_,C,M> {
-    pub fn prepare_members(&mut self,hulls:&[crate::gen::AiHullDefinition],props:&[crate::gen::AiPropDefinition],strings:&Strings)->bool {
+    pub fn prepare_members(&mut self,hulls:&[crate::gen::AiHullDefinition],props:&[crate::gen::AiPropDefinition],#[cfg(not(target_arch="wasm32"))] strings:&Strings)->bool {
         use crate::gen::{Member,RepairTarget};
         for row in hulls {
-            let Some(hull)=self.store.vehicle.get(row.hull) else{return false};
+            let Some(hull)=row_store!(self).vehicle.get(row.hull) else{return false};
             if row.member.is_some_and(|member|!matches!(member,Member::VehicleTarget(_))) || hull.seats.len()!=row.seats.len() {return false;}
         }
         for row in props {
             if row.owner.kind==crate::gen::F4ObjectKind::Trap {
                 if !matches!(row.target,RepairTarget::Building(_))||row.member.is_some()
-                    ||self.buildings.traps().and_then(|rows|rows.get(&row.owner)).is_none()
-                    ||self.buildings.trap_geometry(row.target).is_none() {return false;}
+                    ||row_traps!(self).and_then(|rows|rows.get(&row.owner)).is_none()
+                    ||row_trap_geometry!(self,row.target).is_none() {return false;}
                 continue;
             }
-            let Some(building)=self.buildings.rows().get(&row.owner) else{return false};
+            let Some(building)=row_buildings!(self).get(&row.owner) else{return false};
             match row.target {
                 RepairTarget::Vehicle(_)=>return false,
                 RepairTarget::Building(_)=>{
                     if building.settings.kind==crate::battle::props::Kind::Turret || row.member.is_some_and(|member|!matches!(member,Member::ObjectiveTarget(_))) {return false;}
                 },
                 RepairTarget::Turret(reference)=>{
-                    if !self.seats.crews.turrets.iter().any(|turret|turret.turret==reference) || building.settings.kind!=crate::battle::props::Kind::Turret || row.member.is_some_and(|member|!matches!(member,Member::TurretTarget(_))) {return false;}
+                    if !row_seats!(self).crews.turrets.iter().any(|turret|turret.turret==reference) || building.settings.kind!=crate::battle::props::Kind::Turret || row.member.is_some_and(|member|!matches!(member,Member::TurretTarget(_))) {return false;}
                 },
             }
             if row.post.is_some_and(|post|self.state.population.index(crate::battle::posts::post_ref(Some(post))).is_none()) {return false;}
         }
         for row in hulls {
+            #[cfg(target_arch="wasm32")]
+            let strings=&self.w.sim.strings;
             let class=super::content::UnitClass::read(&row.policy,strings);
             self.state.bindings.vehicle(row.hull,super::content::traversal_size(row.traversal_size,strings) as f64);
             let seats=row.seats.iter().map(|seat|crate::ai::vehicles::world::SeatView {
                 weapons:seat.weapons as usize,yaw_limits:seat.yaw.map(|id|String::from_utf16_lossy(strings.units(id)).into()),
                 pitch_limits:seat.pitch.map(|id|String::from_utf16_lossy(strings.units(id)).into()),..Default::default()
             }).collect();
-            self.state.mounts.register(self.store,&mut self.state.entities,row.hull,super::mounts::HullClass {
+            self.state.mounts.register(row_store!(self),&mut self.state.entities,row.hull,super::mounts::HullClass {
                 name:class.name,label:class.label,max_speed:row.max_speed,forward_speed:row.forward_speed,
                 slot_post:row.slot_post,decay_time:row.decay_time,seats,
             });
@@ -154,6 +157,9 @@ impl<C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> super::rows::R
             self.state.prepare_hull_controls(row.hull,classes);
         }
         for row in props {
+            let geometry=if row.owner.kind==crate::gen::F4ObjectKind::Trap {row_trap_geometry!(self,row.target)}else{None};
+            #[cfg(target_arch="wasm32")]
+            let strings=&self.w.sim.strings;
             let class=super::content::UnitClass::read(&row.policy,strings);
             let target_class=row.target_policy.as_ref().map(|policy|super::content::UnitClass::read(policy,strings));
             let policy=std::rc::Rc::new(class.policy);
@@ -165,16 +171,16 @@ impl<C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> super::rows::R
             let post=row.post.map(|post|self.state.entities.register(super::objects::post_entity(post)));
             let definition=super::buildings::Definition {name:Some(class.name.clone()),policy:policy.clone(),combat:class.combat.clone(),team:row.team,armed:row.armed,post};
             let wrapper=if row.owner.kind==crate::gen::F4ObjectKind::Trap {
-                self.state.buildings.register_trap(self.buildings.traps().unwrap(),&mut self.state.entities,row.target,row.owner.clone(),definition,
-                    self.buildings.trap_geometry(row.target).unwrap())
-            }else {self.state.buildings.register(self.buildings.rows(),&mut self.state.entities,row.target,row.owner.clone(),definition)};
+                self.state.buildings.register_trap(row_traps!(self).unwrap(),&mut self.state.entities,row.target,row.owner.clone(),definition,
+                    geometry.unwrap())
+            }else {self.state.buildings.register(row_buildings!(self),&mut self.state.entities,row.target,row.owner.clone(),definition)};
             // createServiceCandidates includes wrecks and unbuilt stations,
             // which the living target registry deliberately omits. Keep the
             // authored building order and the command-post repair exclusion.
             self.state.candidates.building(row.target,wrapper,row.command_post);
             match row.target {
                 RepairTarget::Turret(turret)=>{
-                    self.state.turrets.register(self.seats,self.buildings.rows(),&mut self.state.entities,turret,row.owner.clone(),
+                    self.state.turrets.register(row_seats!(self),row_buildings!(self),&mut self.state.entities,turret,row.owner.clone(),
                         row.yaw.map(|id|String::from_utf16_lossy(strings.units(id)).into()),row.pitch.map(|id|String::from_utf16_lossy(strings.units(id)).into()));
                     if let Some(member)=row.member {
                         // TurretTarget.classDef is the full descriptor; its
@@ -193,12 +199,14 @@ impl<C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> super::rows::R
                 RepairTarget::Vehicle(_)=>unreachable!(),
             }
         }
+        #[cfg(target_arch="wasm32")]
+        let strings=&self.w.sim.strings;
         // Following a live repair target accepts hull and building wrappers,
         // not only infantry. These passive identities own no movement helper.
         for row in hulls {
             let obj=self.state.entities.find(super::entities::Entity::HullEntry(row.hull)).unwrap();
             let policy=self.scene().policy(obj).unwrap_or_else(||crate::ai::control::world::AiUnit {
-                key:obj,kind:row.kind,generation:self.store.vehicle.get(row.hull).unwrap().target_generation,
+                key:obj,kind:row.kind,generation:row_store!(self).vehicle.get(row.hull).unwrap().target_generation,
                 class_def:Some(std::rc::Rc::new(super::content::UnitClass::read(&row.policy,strings).policy)),..Default::default()
             });
             self.state.prepare_follow_target(obj,super::navigation::FollowSource::Hull(row.hull),&policy);

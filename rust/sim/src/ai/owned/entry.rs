@@ -1,6 +1,7 @@
 //! Outer simulation entries take the AI battle out of its owner before
 //! lending canonical owners onward. Nested calls carry explicit callback
 //! scopes; they cannot reacquire a second Core from the instance slot.
+use super::rows::{row_buildings,row_context,row_store,row_store_mut};
 use crate::{world::owner::World,battle::live::Queries,recon::Authority,units::f3::WorldServices};
 
 /// missionTeams/teamTable are cold readers for the page's relationship,
@@ -37,7 +38,7 @@ pub fn ai_world_begin_in(w:&mut World)->u32 {
     let (words,heap)=w.sim.calls.args();let input=AiWorldSetup::take(words,heap);
     let Ok(navigation)=super::load::Navigation::read(&input.navigation,&w.sim.strings) else{return 0};
     let (navigation,posts)=navigation.into_parts();
-    let teams=super::load::teams(&w.sim.store,crate::units::f3::relation);
+    let teams=super::load::teams(&w.sim.store,|a,b|crate::units::f3::relation_in(&w.units,a,b));
     let battle=w.ai.begin(navigation,&input.settings,&mut w.sim.strings,teams);battle.navigation_posts=posts;1
 }
 
@@ -53,15 +54,15 @@ pub fn ai_world_boundary_in(w:&mut World)->*const f64 {
 pub fn ai_world_phase_in(w:&mut World)->u32 {
     if !w.ai.battle().is_some_and(|battle|battle.ready()) {return 0;}
     let before=crate::allocations::snapshot();
-    let outer=crate::units::f3::external();
+    let outer=crate::units::f3::external_in(w);
     let event_count=w.sim.events.count();let event_words=w.sim.events.len();
-    let version=crate::units::f3::publication_version();
+    let version=crate::units::f3::publication_version_in(&w.units);
     let control_version=w.ai.battle().unwrap().state.control_views.version();
     let mut owned=w.ai.take_battle().unwrap();
     let battle=&mut *owned;
     let mut exchange=std::mem::take(&mut battle.exchange);
     let header=exchange.decode();
-    let accepted=crate::units::f3::with_bare_services(|services| {
+    let accepted=crate::units::f3::with_bare_services_in(w,|w,services| {
             let Some(services)=services else{return false};
             let facts=super::world::Facts {time:header.time,paused:header.paused,network_secondary:header.network_secondary,..Default::default()};
             let accepted=battle.native_phase(w,services.recon,services.queries,&facts,&header.facts,&exchange.cameras,&exchange.journal).is_ok();
@@ -70,7 +71,7 @@ pub fn ai_world_phase_in(w:&mut World)->u32 {
     battle.exchange=exchange;w.ai.return_battle(owned);
     // All native loans end before sparse entity publication. Its allocations
     // belong to this crossing too, rather than disappearing from the census.
-    if header.unit_phase_follows {outer.before_units();}else{drop(outer);}
+    if header.unit_phase_follows {outer.before_units(w);}else{outer.finish(w,true);}
     finish_boundary(w,before,version,control_version,event_count,event_words,accepted);
     u32::from(accepted)
 }
@@ -80,8 +81,8 @@ pub fn ai_world_phase_in(w:&mut World)->u32 {
 pub fn ai_world_content_in(w:&mut World)->u32 {
     let (words,heap)=w.sim.calls.args();let content=crate::gen::AiWorldContent::take(words,heap);
     if !w.ai.battle().is_some_and(|battle|!battle.ready()) {return 0;}
-    if content.hulls.iter().any(|row|!crate::units::f3_hulls::matches_binding(row.hull,row.member))
-        ||content.props.iter().any(|row|!crate::units::f3_props::matches_binding(row.target,row.member,&row.owner)) {return 0;}
+    if content.hulls.iter().any(|row|!crate::units::f3_hulls::matches_binding_in(w,row.hull,row.member))
+        ||content.props.iter().any(|row|!crate::units::f3_props::matches_binding_in(w,row.target,row.member,&row.owner)) {return 0;}
     let definitions=crate::combat::module::defs_in(&mut w.combat);
     if content.weapons.iter().any(|id|!definitions.weapons.has(*id)) {return 0;}
     let mut owned=w.ai.take_battle().unwrap();let battle=&mut *owned;
@@ -94,12 +95,7 @@ pub fn ai_world_content_in(w:&mut World)->u32 {
             let definition=super::posts::Definition::read(post,&w.sim.strings);
             battle.state.posts.register(&w.sim.store,&mut battle.state.population,post.policy.clone(),definition).map_err(|_|String::from("invalid AI post"))?;
         }
-        let mut store=std::mem::take(&mut w.sim.store);
-        let prepared={
-            let World {fleet,combat,sim,..}=&mut *w;
-            super::live::with_rows_parts(fleet,combat,&mut battle.state,&mut store,|rows|rows.prepare_members(&content.hulls,&content.props,&sim.strings))
-        };
-        w.sim.store=store;
+        let prepared=super::live::with_rows(w,&mut battle.state,|rows|rows.prepare_members(&content.hulls,&content.props));
         if !prepared {return Err(String::from("invalid AI registry content"));}
         // Game.los accepts a hit on the candidate's own built body. Keep
         // that authored identity once; current enabled looks stay with F4.
@@ -110,7 +106,7 @@ pub fn ai_world_content_in(w:&mut World)->u32 {
                 crate::gen::RepairTarget::Turret(r)=>Entity::Turret(r),
                 crate::gen::RepairTarget::Vehicle(_)=>unreachable!(),
             };
-            if let Some(body)=crate::units::f3_props::built_body(row.target) {
+            if let Some(body)=crate::units::f3_props::built_body_in(w,row.target) {
                 let object=battle.state.entities.find(entity).expect("prepared AI sight identity");
                 battle.state.sight.prepare(object,body);
             }
@@ -125,7 +121,7 @@ pub fn ai_world_content_in(w:&mut World)->u32 {
 /// adopting the existing state here consumes none of A, B or private C.
 pub fn ai_world_activate_in(w:&mut World)->u32 {
     if !w.ai.battle().is_some_and(|battle|!battle.ready()) {return 0;}
-    let outer=crate::units::f3::external();
+    let outer=crate::units::f3::external_in(w);
     let mut owned=w.ai.take_battle().unwrap();let battle=&mut *owned;
     // UnitFactory finishes inactive hero/player stock after the initial
     // roster. Resolve the completed native weapon table now, including ids
@@ -134,35 +130,34 @@ pub fn ai_world_activate_in(w:&mut World)->u32 {
         let id=crate::store::DefId(index as u32);
         if let Some(class)=class.as_ref().filter(|_|!battle.state.weapons.contains(id)) {battle.weapon_class(id,class);}
     }
-    let accepted=crate::units::f3::with_bare_services(|services| {
+    let accepted=crate::units::f3::with_bare_services_in(w,|w,services| {
         let Some(services)=services else{return false};
-        let mut store=std::mem::take(&mut w.sim.store);
-        let handles:Option<Vec<_>>=store.battle.characters.iter().map(|reference|crate::battle::f4_core::character_handle_in(&mut w.battle,*reference)).collect();
+        let handles:Option<Vec<_>>=w.sim.store.battle.characters.iter().map(|reference|crate::battle::f4_core::character_handle_in(&mut w.battle,*reference)).collect();
         let accepted=if let Some(handles)=handles {
-            let bodies:Vec<_>=store.unit.iter().map(|(reference,_)|reference).collect();
-            let prepared=super::live::with_rows(w,&mut battle.state,&mut store,|rows| {
-                rows.state.prepare_roster(rows.store,rows.characters,&handles)?;
-                rows.state.prepare_bodies(rows.store,&bodies)?;
+            let bodies:Vec<_>=w.sim.store.unit.iter().map(|(reference,_)|reference).collect();
+            let prepared=super::live::with_rows(w,&mut battle.state,|rows| {
+                rows.state.prepare_roster(row_context!(rows),rows.characters,&handles)?;
+                rows.state.prepare_bodies(row_store!(rows),&bodies)?;
                 // CombatInput maps objectives through the same post identities
                 // as patrol and population, including before the first scan.
-                super::objects::Objects::prepare(rows.store,rows.characters,&mut rows.state.entities,&rows.state.roster,&rows.state.population);
+                super::objects::Objects::prepare(row_context!(rows),rows.characters,&mut rows.state.entities,&rows.state.roster,&rows.state.population);
                 Ok::<(),super::load::Stale>(())
             }).is_ok();
             if prepared {
                 let posts=super::load::Navigation::hint_posts(&battle.navigation_posts,&battle.state.population);
                 battle.state.prepare_hints(|index|posts.get(index as usize).copied().flatten());
-                crate::units::f3::bind_ai_stream(battle.stream_a,battle.runtime.random.weapon_stream());
-                if battle.runtime.core.options.bind.random_b {crate::units::f3::bind_ai_stream(battle.stream_b,battle.runtime.random.command_stream());}
+                crate::units::f3::bind_ai_stream_in(&mut w.units,battle.stream_a,battle.runtime.random.weapon_stream());
+                if battle.runtime.core.options.bind.random_b {crate::units::f3::bind_ai_stream_in(&mut w.units,battle.stream_b,battle.runtime.random.command_stream());}
                 battle.activate();
-                std::mem::swap(&mut store,&mut w.sim.store);
+                
                 battle.attach_initial(w,services.recon,services.queries);
-                std::mem::swap(&mut store,&mut w.sim.store);
+                
             }
             prepared
         }else{false};
-        w.sim.store=store;accepted
+        accepted
     });
-    w.ai.return_battle(owned);drop(outer);u32::from(accepted)
+    w.ai.return_battle(owned);outer.finish(w,true);u32::from(accepted)
 }
 
 // Boundary traffic includes the final sparse publication after every owner
@@ -170,7 +165,7 @@ pub fn ai_world_activate_in(w:&mut World)->u32 {
 fn finish_boundary(w:&mut World,before:crate::allocations::Counts,version:u32,control_version:u32,event_count:usize,event_words:usize,accepted:bool) {
     let count=crate::allocations::snapshot().since(before);
     let emitted=w.sim.events.count().saturating_sub(event_count) as u32;
-    let payload=if crate::units::f3::publication_version()!=version {crate::units::f3::output_words()}else{0};
+    let payload=if crate::units::f3::publication_version_in(&w.units)!=version {crate::units::f3::output_words_in(&w.units)}else{0};
     let output=(w.sim.events.len().saturating_sub(event_words) as u32).wrapping_add(payload).wrapping_add(crate::gen::AiPhaseCounters::WORDS as u32);
     let battle=w.ai.battle_mut().unwrap();
     let control_words=if battle.state.control_views.version()!=control_version {battle.state.control_views.word_count()}else{0};
@@ -188,24 +183,24 @@ pub fn ai_world_dangers_in(w:&mut World)->u32 {
     // Game.step has already drained battle and ordnance. With no live
     // grenade there are no warnings or RNG draws, and no owner needs a loan.
     // Unread structural work still takes the ordinary publication boundary.
-    if crate::units::f3::settled() && !crate::vehicles::module::f2::has_pending_in(w)
+    if crate::units::f3::settled_in(w) && !crate::vehicles::module::f2::has_pending_in(w)
         && !w.sim.store.ordnance.grenades.iter().any(|r|w.sim.store.grenade.get(*r).is_some_and(|g|g.gone!=Some(true))) {
-        let before=crate::allocations::snapshot();let version=crate::units::f3::publication_version();
+        let before=crate::allocations::snapshot();let version=crate::units::f3::publication_version_in(&w.units);
         let control_version=w.ai.battle().unwrap().state.control_views.version();
         let count=w.sim.events.count();let words=w.sim.events.len();
         w.ai.battle_mut().unwrap().record_danger_phase();
         finish_boundary(w,before,version,control_version,count,words,true);
         return crate::gen::AiDangerResult::Unchanged as u32;
     }
-    let before=crate::allocations::snapshot();let outer=crate::units::f3::external();
-    let event_count=w.sim.events.count();let event_words=w.sim.events.len();let version=crate::units::f3::publication_version();
+    let before=crate::allocations::snapshot();let outer=crate::units::f3::external_in(w);
+    let event_count=w.sim.events.count();let event_words=w.sim.events.len();let version=crate::units::f3::publication_version_in(&w.units);
     let control_version=w.ai.battle().unwrap().state.control_views.version();
     let mut owned=w.ai.take_battle().unwrap();
-    let accepted=crate::units::f3::with_bare_services(|services| {
+    let accepted=crate::units::f3::with_bare_services_in(w,|w,services| {
         let Some(services)=services else{return false};
         owned.native_dangers(w,services.recon,services.queries);true
     });
-    w.ai.return_battle(owned);drop(outer);finish_boundary(w,before,version,control_version,event_count,event_words,accepted);u32::from(accepted)
+    w.ai.return_battle(owned);outer.finish(w,true);finish_boundary(w,before,version,control_version,event_count,event_words,accepted);u32::from(accepted)
 }
 
 
@@ -215,11 +210,11 @@ pub fn ai_world_command_in(w:&mut World)->u32 {
     if !w.ai.battle().is_some_and(|battle|battle.ready()) {return 0;}
     let (words,heap)=w.sim.calls.args();let input=crate::gen::AiPlayerCommand::take(words,heap);
     if !input.time.is_finite() || !input.kind.is_finite() || input.kind<0. || input.kind>5. || input.kind.fract()!=0. {return 0;}
-    let before=crate::allocations::snapshot();let outer=crate::units::f3::external();
-    let event_count=w.sim.events.count();let event_words=w.sim.events.len();let version=crate::units::f3::publication_version();
+    let before=crate::allocations::snapshot();let outer=crate::units::f3::external_in(w);
+    let event_count=w.sim.events.count();let event_words=w.sim.events.len();let version=crate::units::f3::publication_version_in(&w.units);
     let control_version=w.ai.battle().unwrap().state.control_views.version();
     let mut owned=w.ai.take_battle().unwrap();
-    let accepted=crate::units::f3::with_bare_services(|services| {
+    let accepted=crate::units::f3::with_bare_services_in(w,|w,services| {
         let Some(services)=services else{return false};
         owned.native_command(w,services.recon,services.queries,&input)
     });
@@ -227,14 +222,14 @@ pub fn ai_world_command_in(w:&mut World)->u32 {
     battle.counters.commands=battle.counters.commands.wrapping_add(1);
     battle.counters.input_words=battle.counters.input_words.wrapping_add(crate::gen::AiPlayerCommand::WORDS as u32);
     let draws=battle.runtime.random.draw_counts();battle.counters.draws_a=draws[0] as u32;battle.counters.draws_b=draws[1] as u32;battle.counters.draws_c=draws[2] as u32;
-    w.ai.return_battle(owned);drop(outer);finish_boundary(w,before,version,control_version,event_count,event_words,accepted);u32::from(accepted)
+    w.ai.return_battle(owned);outer.finish(w,true);finish_boundary(w,before,version,control_version,event_count,event_words,accepted);u32::from(accepted)
 }
 
 
 /// F3 calls this after its unit, seat and lifecycle loans have ended. The
 /// sidecar never reads a JS mirror and never acquires another Core scope.
 pub fn publish_controls_in(w:&mut World) {
-    let deferred=crate::world::deferred();
+    let deferred=crate::world::deferred_in(&w.tick);
     if !w.ai.battle().is_some_and(|battle|battle.ready()) {return;}
     let mut owned=w.ai.take_battle().unwrap();let battle=&mut *owned;
     let previous=battle.exchange.control_output;
@@ -265,33 +260,32 @@ pub fn ai_world_roster_in(w:&mut World)->u32 {
         relations:program.spawning.teams.iter().map(|team|Some(team.relations.iter().map(|value|*value as f64).collect())).collect(),
         factions:program.spawning.teams.iter().map(|team|team.faction).collect(),alliances:Vec::new(),
     };
-    let outer=crate::units::f3::external();
+    let outer=crate::units::f3::external_in(w);
     let mut owned=w.ai.take_battle().unwrap();let battle=&mut *owned;
     battle.runtime.core.teams=teams;
-    crate::units::f3::bind_ai_stream(battle.stream_a,battle.runtime.random.weapon_stream());
-    if battle.runtime.core.options.bind.random_b {crate::units::f3::bind_ai_stream(battle.stream_b,battle.runtime.random.command_stream());}
-    let accepted=crate::units::f3::with_bare_services(|services| {
+    crate::units::f3::bind_ai_stream_in(&mut w.units,battle.stream_a,battle.runtime.random.weapon_stream());
+    if battle.runtime.core.options.bind.random_b {crate::units::f3::bind_ai_stream_in(&mut w.units,battle.stream_b,battle.runtime.random.command_stream());}
+    let accepted=crate::units::f3::with_bare_services_in(w,|w,services| {
         let Some(_services)=services else{return false};
-        let mut store=std::mem::take(&mut w.sim.store);
-        let World {fleet,combat,sim,..}=&mut *w;
-        super::live::with_rows_parts(fleet,combat,&mut battle.state,&mut store,|rows| {
-            let facts=rows.state.bindings.facts(rows.buildings.rows());
-            let mut world=super::initial::Native::new(rows.store,&input,&facts);
-            super::initial::begin(rows.store,&mut program,&mut rows.state.population,&mut battle.runtime.random,
-                &battle.runtime.core.teams,&facts,battle.runtime.core.options.bind.enhanced,&mut sim.strings,&mut world);
+        super::live::with_rows(w,&mut battle.state,|rows| {
+            let facts=rows.state.bindings.facts(row_buildings!(rows));
+            let mut world=super::initial::Native::new(row_store_mut!(rows),&input,&facts);
+            super::initial::begin(row_store_mut!(rows),&mut program,&mut rows.state.population,&mut battle.runtime.random,
+                &battle.runtime.core.teams,&facts,battle.runtime.core.options.bind.enhanced,&mut rows.w.sim.strings,&mut world);
         });
         if crate::battle::f4_core::owns_lifecycle_in(&mut w.battle) {
-            for index in 0..store.battle.characters.len() {
-                let character=store.battle.characters[index];crate::battle::f4_core::adopt_in(w,&mut store,character);
+            for index in 0..w.sim.store.battle.characters.len() {
+                let character=w.sim.store.battle.characters[index];
+                crate::battle::f4_core::adopt_character_in(&mut w.battle,&mut w.sim.store,&mut w.sim.events,character);
             }
-            let human=store.battle.characters.iter().copied().find(|reference|store.character.get(*reference).is_some_and(|character|character.human));
+            let human=w.sim.store.battle.characters.iter().copied().find(|reference|w.sim.store.character.get(*reference).is_some_and(|character|character.human));
             crate::battle::f4_tail::initial_human_in(&mut w.battle,human);
-            crate::battle::f4_core::roster_slots_in(&mut w.battle,&mut store);crate::battle::f4_core::mark_tail_in(&mut w.battle,&store);
+            crate::battle::f4_core::roster_slots_in(&mut w.battle,&mut w.sim.store);crate::battle::f4_core::mark_tail_in(&mut w.battle,&w.sim.store);
         }
-        w.sim.store=store;true
+        true
     });
     if accepted {battle.initial_naming=Some(program.naming);}
-    w.ai.return_battle(owned);drop(outer);
+    w.ai.return_battle(owned);outer.finish(w,true);
     if accepted {w.sim.store.battle.characters.len() as u32+1}else{0}
 }
 
@@ -309,8 +303,8 @@ pub fn ai_world_roster_character_in(w:&mut World,index:u32)->*const f64 {
 /// F3 construction already owns these canonical F4 identities. The cold AI
 /// loader can bind policies before the later live-phase host is constructed.
 pub fn ai_world_prop_owner_in(w:&mut World,index:u32)->*const f64 {
-    if index as usize>=crate::units::f3_props::count() {return std::ptr::null()};
-    let owner=crate::units::f3_props::owner(index as usize);
+    if index as usize>=crate::units::f3_props::count_in(&w.units) {return std::ptr::null()};
+    let owner=crate::units::f3_props::owner_in(w,index as usize);
     let battle=w.ai.battle_mut().unwrap();owner.put(&mut battle.initial_prop,&mut Vec::new());
     battle.initial_prop.as_ptr()
 }

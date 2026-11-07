@@ -71,6 +71,11 @@ pub(crate) fn point(battle: &mut BattleOwner, s: &mut Store, r: Option<Ref<Chara
 
 pub(crate) fn changed_battle(battle: &mut BattleOwner) { state(battle).core.mark_battle(); }
 
+/// AI observations validate the same retained command life as battle commands.
+pub(crate) fn resolve_character_ref(battle: &BattleOwner, store: &Store, handle: &F4Handle) -> Option<Ref<Character>> {
+    battle.core.as_ref().expect("battle owner initialized").resolve_character(store, handle)
+}
+
 pub(crate) fn resolve_character_in(battle: &mut BattleOwner, store:&Store,handle:&F4Handle)->Option<Ref<Character>> { state(battle).resolve_character(store, handle) }
 pub(crate) fn mark_character_in(battle: &mut BattleOwner, r:Ref<Character>){state(battle).core.mark(r);}
 pub(crate) fn credit(w: &mut Root, victim:Option<Ref<Character>>,killer:Option<Ref<Character>>,relation:f64){state(&mut w.battle).core.credit(&mut w.sim.store,victim,killer,relation);}
@@ -135,10 +140,12 @@ pub(crate) fn roster_slots_in(battle: &mut BattleOwner, s:&mut Store){
 pub(crate) fn character_handle_in(battle: &mut BattleOwner, r:Ref<Character>)->Option<F4Handle>{state(battle).core.character(r).cloned()}
 pub(crate) fn resolve(battle: &mut BattleOwner, s:&Store,h:&F4Handle)->Option<Ref<Character>>{state(battle).core.resolve(s,h)}
 pub(crate) fn adopt_in(w: &mut Root, s:&mut Store,r:Ref<Character>){
-    let handle=state(&mut w.battle).core.adopt(s,r);
-    // Native AI hooks no longer enter JS while a new roster member is
-    // attached. Admit its facade before sparse Battle/Spawning references.
-    handle.emit(&mut w.sim.events);
+    adopt_character_in(&mut w.battle,s,&mut w.sim.events,r);
+}
+/// Cold roster admission borrows the committed slabs beside their journal.
+pub(crate) fn adopt_character_in(battle:&mut BattleOwner,s:&mut Store,events:&mut crate::store::calls::Events,r:Ref<Character>){
+    let handle=state(battle).core.adopt(s,r);
+    handle.emit(events);
 }
 pub(crate) fn reassign(battle: &mut BattleOwner, s:&Store,r:Ref<Character>){state(battle).core.reassign(s,r);}
 pub(crate) fn recycle(battle: &mut BattleOwner, s:&mut Store,r:Ref<Character>){state(battle).core.reset_record(s,r);}
@@ -215,24 +222,14 @@ pub extern "C" fn f4_battle_command() -> u32 { f4_battle_command_in(crate::abi::
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn achievement(character: Option<Ref<Character>>, op: F4CommandOp) { achievement_in(crate::abi::world(), character, op) }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn resolve_character(store:&Store,handle:&F4Handle) ->Option<Ref<Character>> { resolve_character_in(&mut crate::abi::cold().battle, store, handle) }
-#[cfg(target_arch = "wasm32")]
 pub(crate) fn mark_character(r:Ref<Character>) { mark_character_in(&mut crate::abi::cold().battle, r) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn owns_lifecycle() ->bool { owns_lifecycle_in(&mut crate::abi::cold().battle) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn died(unit:Ref<Unit>,killer:Option<Ref<Character>>,relation:f64,services:crate::units::f3::WorldServices<'_>) ->Option<Ref<Controller>> { died_in(crate::abi::world(), unit, killer, relation, services) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn mark_tail(s:&Store) { mark_tail_in(&mut crate::abi::cold().battle, s) }
 #[cfg(target_arch = "wasm32")] #[no_mangle]
 pub extern "C" fn f4_tail_handle(kind:u32,index:u32) ->*const f64 { f4_tail_handle_in(crate::abi::world(), kind, index) }
 #[cfg(target_arch = "wasm32")] #[no_mangle]
 pub extern "C" fn f4_tail_capacity(kind:u32,index:u32) ->u32 { f4_tail_capacity_in(crate::abi::world(), kind, index) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn roster_slots(s:&mut Store) { roster_slots_in(&mut crate::abi::cold().battle, s) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn character_handle(r:Ref<Character>) ->Option<F4Handle> { character_handle_in(&mut crate::abi::cold().battle, r) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn adopt(s:&mut Store,r:Ref<Character>) { adopt_in(crate::abi::world(), s, r) }
 #[cfg(target_arch = "wasm32")] #[no_mangle]
 pub extern "C" fn f4_human_ready() -> u32 { f4_human_ready_in(crate::abi::world()) }

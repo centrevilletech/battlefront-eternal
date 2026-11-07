@@ -455,29 +455,29 @@ fn native_class_jobs_read_body_and_holder_arsenals_and_observe_only_eligible_own
     let mounted=state.entities.find(Entity::Control(control)).unwrap();assert_ne!(obj,mounted);
     let mut holder=Holder(Weapon {def:DefId(1),clip:1.,..Default::default()});
     let mut changes=bfe_sim::units::ownership::Ownership::default();let mut characters=Commands::new(0);let buildings=Live::new(0,0,0);
-    let rows=Rows {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut characters,state:&mut state,changes:&mut changes,mounted:&mut holder,definitions:&defs};
+    let mut rows=Rows {store:&mut store,seats:&mut seats,buildings:&buildings.buildings,characters:&mut characters,state:&mut state,changes:&mut changes,mounted:&mut holder,definitions:&defs};
     let owned=Cell::new(1);let observations=Cell::new(0);let last=Cell::new(None);
-    let count=|owner,weapon:&Weapon| {assert_eq!(weapon.def,DefId(1));last.set(Some(owner));observations.set(observations.get()+1);owned.get()};
+    let mut count=|_:&mut Rows<'_,_,_>,owner,weapon:(DefId,u32)| {assert_eq!(weapon.0,DefId(1));last.set(Some(owner));observations.set(observations.get()+1);owned.get()};
     ALLOCATIONS.with(|n|n.set(0));COUNTING.with(|n|n.set(true));
     for _ in 0..120 {
         for (owner,mine_index) in [(obj,1),(mounted,0)] {
-            assert!(rows.dispenser_available(owner,mine_index,&count));assert_eq!(last.get(),Some(owner));
-            assert_eq!(rows.mine_weapon(owner,&count),Some(mine_index));assert_eq!(last.get(),Some(owner));
-            assert_eq!(rows.service_weapon(owner,0.,false,&count),Some(0));
+            assert!(rows.dispenser_available(owner,mine_index,&mut count));assert_eq!(last.get(),Some(owner));
+            assert_eq!(rows.mine_weapon(owner,&mut count),Some(mine_index));assert_eq!(last.get(),Some(owner));
+            assert_eq!(rows.service_weapon(owner,0.,false,&mut count),Some(0));
         }
         let before=observations.get();owned.set(2);
-        assert_eq!(rows.mine_weapon(obj,&count),None);assert_eq!(rows.mine_weapon(mounted,&count),None);
+        assert_eq!(rows.mine_weapon(obj,&mut count),None);assert_eq!(rows.mine_weapon(mounted,&mut count),None);
         assert_eq!(observations.get(),before+2);
-        let before=observations.get();assert_eq!(rows.service_weapon(obj,0.,false,&count),Some(0));
+        let before=observations.get();assert_eq!(rows.service_weapon(obj,0.,false,&mut count),Some(0));
         assert_eq!(observations.get(),before,"repair selection never observes ownedBy");
         rows.store.unit.get_mut(body).unwrap().combat.weapons[1].clip=0.;rows.mounted.0.clip=0.;
-        assert!(!rows.dispenser_available(obj,1,&count));assert!(!rows.dispenser_available(mounted,0,&count));
+        assert!(!rows.dispenser_available(obj,1,&mut count));assert!(!rows.dispenser_available(mounted,0,&mut count));
         assert_eq!(observations.get(),before,"empty weapons do not number an owner");
         rows.store.unit.get_mut(body).unwrap().combat.weapons[1].clip=1.;rows.mounted.0.clip=1.;owned.set(1);
     }
     COUNTING.with(|n|n.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
     let before=observations.get();rows.store.seat_lease.get_mut(lease).unwrap().released=true;
-    assert_eq!(rows.mine_weapon(mounted,&count),None);assert_eq!(observations.get(),before);
+    assert_eq!(rows.mine_weapon(mounted,&mut count),None);assert_eq!(observations.get(),before);
 }
 
 #[test]

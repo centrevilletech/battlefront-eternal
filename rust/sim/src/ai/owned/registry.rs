@@ -51,6 +51,10 @@ impl Queries {
     }
     pub fn query_world(&self,world:&mut impl World,entities:&super::entities::Entities,
         center:&three::Vector3,radius:f64,filter:&mut dyn FnMut(crate::ai::combat::world::Obj,f64)->bool)->List<crate::ai::combat::world::Obj> {
+        self.query_with_context(world,entities,center,radius,&mut |_,obj,team|filter(obj,team))
+    }
+    fn query_with_context<W:World>(&self,world:&mut W,entities:&super::entities::Entities,
+        center:&three::Vector3,radius:f64,filter:&mut dyn FnMut(&W,crate::ai::combat::world::Obj,f64)->bool)->List<crate::ai::combat::world::Obj> {
         let mut out=self.objects();let mut at=0;
         while at<world.len() {
             let member=world.member(at);at+=1;
@@ -58,7 +62,8 @@ impl Queries {
             let sphere=world.sphere(member);let reach=radius+sphere.radius;
             if crate::units::shapes::v3(sphere.center).distance_to_squared(center)>reach*reach {continue;}
             let obj=self.object(entities,member).expect("prepared native AI registry identity");
-            if filter(obj,world.team(member)) {out.push_reserved(obj);}
+            let team=world.team(member);
+            if filter(world,obj,team) {out.push_reserved(obj);}
         }
         out
     }
@@ -97,15 +102,6 @@ impl Recruitment for Registry<'_> {
     }
     fn mask(&self,unit:&Unit)->f64 {self.queries.masks[unit.class_def.0 as usize].expect("prepared AI unit traversal")}
 }
-#[cfg(target_arch="wasm32")]
-pub struct F3Teams;
-#[cfg(target_arch="wasm32")]
-impl TargetTeams for F3Teams {
-    fn team(&self,member:Member)->f64 {
-        crate::units::f3::target(crate::units::registry::target_id(member)).expect("current native registry target").team
-    }
-}
-
 /// Short observations permit native pose/target readers to loan their owners
 /// without retaining a mutable Store reference across the geometry call.
 pub trait World {
@@ -130,34 +126,32 @@ impl World for Borrowed<'_> {
     fn team(&self,member:Member)->f64 {match member {Member::Unit(r)=>self.store.unit.get(r).unwrap().team,_=>self.targets.team(member)}}
 }
 #[cfg(target_arch="wasm32")]
-pub struct F3;
+pub struct F3<'a> {w:&'a mut crate::world::owner::World}
 #[cfg(target_arch="wasm32")]
-impl World for F3 {
-    fn len(&self)->usize {crate::abi::sim().store.units.list.len()}
-    fn member(&self,index:usize)->Member {crate::abi::sim().store.units.list[index]}
+impl World for F3<'_> {
+    fn len(&self)->usize {self.w.sim.store.units.list.len()}
+    fn member(&self,index:usize)->Member {self.w.sim.store.units.list[index]}
     fn alive(&mut self,member:Member)->bool {match member {
-        Member::Unit(r)=>crate::abi::sim().store.unit.get(r).is_some_and(|u|u.alive),
-        _=>crate::units::f3::target(crate::units::registry::target_id(member)).is_some_and(|t|t.alive),
+        Member::Unit(r)=>self.w.sim.store.unit.get(r).is_some_and(|u|u.alive),
+        _=>crate::units::f3::target_in(self.w,crate::units::registry::target_id(member)).is_some_and(|t|t.alive),
     }}
     fn sphere(&mut self,member:Member)->crate::gen::Bounds {match member {
-        Member::Unit(r)=>{let (center,radius)=crate::units::f3_sensors::unit_sphere(r);crate::gen::Bounds {center,radius}},
-        _=>{let t=crate::units::f3::target(crate::units::registry::target_id(member)).expect("current native registry target");crate::gen::Bounds {center:t.bounds.center,radius:t.bounds.radius}},
+        Member::Unit(r)=>{let (center,radius)=crate::units::f3_sensors::unit_sphere_in(self.w,r);crate::gen::Bounds {center,radius}},
+        _=>{let t=crate::units::f3::target_in(self.w,crate::units::registry::target_id(member)).expect("current native registry target");crate::gen::Bounds {center:t.bounds.center,radius:t.bounds.radius}},
     }}
     fn team(&self,member:Member)->f64 {match member {
-        Member::Unit(r)=>crate::abi::sim().store.unit.get(r).unwrap().team,
-        _=>crate::units::f3::target(crate::units::registry::target_id(member)).expect("current native registry target").team,
+        Member::Unit(r)=>self.w.sim.store.unit.get(r).unwrap().team,
+        _=>crate::units::f3::prepared_target_in(&self.w.units,crate::units::registry::target_id(member)).expect("current native registry target").team,
     }}
 }
 #[cfg(target_arch="wasm32")]
 impl Queries {
-    pub fn query_live(&self,store:&mut Store,seats:&mut crate::vehicles::f2_seats::Seats,entities:&super::entities::Entities,center:&three::Vector3,radius:f64,
+    pub fn query_live(&self,w:&mut crate::world::owner::World,entities:&super::entities::Entities,center:&three::Vector3,radius:f64,
         filter:crate::ai::combat::world::QueryFilter)->List<crate::ai::combat::world::Obj> {
-        crate::vehicles::module::f2::live_seats::loan_seats(seats,||
-            crate::battle::f4_live::with_store(store,||self.query_world(&mut F3,entities,center,radius,
-                &mut |obj,team|filter.keeps(obj,team,&mut crate::units::f3::relation))))
+        self.query_with_context(&mut F3 {w},entities,center,radius,
+            &mut |world,obj,team|filter.keeps(obj,team,&mut |a,b|crate::units::f3::relation_in(&world.w.units,a,b)))
     }
-    pub fn living_live(&self,store:&mut Store,seats:&mut crate::vehicles::f2_seats::Seats,entities:&super::entities::Entities)->List<crate::ai::combat::world::Obj> {
-        crate::vehicles::module::f2::live_seats::loan_seats(seats,||
-            crate::battle::f4_live::with_store(store,||self.living_world(&mut F3,entities)))
+    pub fn living_live(&self,w:&mut crate::world::owner::World,entities:&super::entities::Entities)->List<crate::ai::combat::world::Obj> {
+        self.living_world(&mut F3 {w},entities)
     }
 }

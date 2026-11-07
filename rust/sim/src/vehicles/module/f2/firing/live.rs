@@ -186,29 +186,19 @@ pub(crate) fn bind_ai_stream_in(world_ctx: &mut crate::world::owner::World, hull
 /// rather than observing a controller replaced by a later shot or death.
 pub(crate) fn freeze_ai_targets_in(world_ctx: &mut crate::world::owner::World, ai:&dyn crate::ai::owned::callbacks::Callbacks) {
     if world_ctx.sim.store.vehicles.vehicles.is_empty() { return; }
-    firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings).freeze_ai_targets(&world_ctx.sim.store, ai)
+    firing_state(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings);
+    let mut state=world_ctx.fleet.firing.take().unwrap();
+    state.freeze_ai_targets(world_ctx,ai);
+    world_ctx.fleet.firing=Some(state);
 
 }
 
-/// Native AI reads the mounted owner's current weapon without a mirror.
-/// A detached fire update cannot expose its temporary empty weapon state.
-pub(crate) fn weapon_count_in(world_ctx: &mut crate::world::owner::World, hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> {
-    weapon_count_owned_in(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings, &world_ctx.sim.store,hull,seat)
+/// AI observes the admitted mounted bank without initializing or mutating it.
+pub(crate) fn weapon_count_ref(w:&crate::world::owner::World,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> {
+    w.fleet.firing.as_ref()?.weapon_count_owned(&w.sim.store,hull,seat)
 }
-/// The whole native AI phase supplies its loaned canonical Store here.
-pub(crate) fn weapon_count_owned_in(firing: &mut Option<State>, strings: &mut crate::store::Strings, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> {
-    if store.vehicle.get(hull.vehicle)?.target_generation != hull.life { return None; }
-    firing_state(firing, strings).weapon_count_owned(store, hull, seat)
-}
-pub(crate) fn with_weapon_in<R>(world_ctx: &mut crate::world::owner::World, hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    read:impl FnOnce(&Weapon)->R)->Option<R> {
-    with_weapon_owned_in(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings, &world_ctx.sim.store,hull,seat,index,read)
-}
-/// The whole native AI phase supplies its loaned canonical Store here.
-pub(crate) fn with_weapon_owned_in<R>(firing: &mut Option<State>, strings: &mut crate::store::Strings, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    read:impl FnOnce(&Weapon)->R)->Option<R> {
-    if store.vehicle.get(hull.vehicle)?.target_generation != hull.life { return None; }
-    firing_state(firing, strings).with_weapon_owned(store, hull, seat, index, read)
+pub(crate) fn with_weapon_ref<R>(w:&crate::world::owner::World,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,read:impl FnOnce(&Weapon)->R)->Option<R> {
+    w.fleet.firing.as_ref()?.with_weapon_owned(&w.sim.store,hull,seat,index,read)
 }
 /// AI tuning shares the exact edit operation with ordinary F3 weapons. These
 /// callbacks must only edit the supplied scalar settings, without world calls.
@@ -216,7 +206,7 @@ pub(crate) fn edit_weapon_in<R>(world_ctx: &mut crate::world::owner::World, hull
     edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> {
     edit_weapon_owned_in(&mut world_ctx.fleet.firing, &mut world_ctx.sim.strings, &world_ctx.sim.store,hull,seat,index,edit)
 }
-/// The whole native AI phase supplies its loaned canonical Store here.
+/// Scalar edits borrow the canonical Store beside the mounted owner.
 pub(crate) fn edit_weapon_owned_in<R>(firing: &mut Option<State>, strings: &mut crate::store::Strings, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
     edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> {
     if store.vehicle.get(hull.vehicle)?.target_generation != hull.life { return None; }
@@ -913,23 +903,23 @@ impl State {
         }
         true
     }
-    fn freeze_ai_targets(&mut self, store: &Store, ai:&dyn crate::ai::owned::callbacks::Callbacks) {
-        let count=(*store).vehicles.vehicles.len();
+    fn freeze_ai_targets(&mut self, w:&mut crate::world::owner::World, ai:&dyn crate::ai::owned::callbacks::Callbacks) {
+        let count=w.sim.store.vehicles.vehicles.len();
         for index in 0..count {
-            let hull=(*store).vehicles.vehicles[index];
+            let hull=w.sim.store.vehicles.vehicles[index];
             let Some(craft)=self.crafts.get(hull.slot as usize).and_then(Option::as_ref) else{continue};
             if craft.id!=hull {continue;}
             let seats=craft.seats.len();
             for seat in 0..seats {
-                let hint=(*store).vehicle.get(hull).and_then(|hull|hull.seats.get(seat)).and_then(|seat|seat.lease)
-                    .and_then(|lease|(*store).seat_lease.get(lease)).and_then(|lease|lease.unit.map(|unit|(unit,lease.controllable)))
-                    .map(|(unit,control)|ai.weapon_hint(&(*store),unit,control));
+                let hint=w.sim.store.vehicle.get(hull).and_then(|hull|hull.seats.get(seat)).and_then(|seat|seat.lease)
+                    .and_then(|lease|w.sim.store.seat_lease.get(lease)).and_then(|lease|lease.unit.map(|unit|(unit,lease.controllable)));
+                let hint=hint.map(|(unit,control)|ai.weapon_hint_in(w,unit,control));
                 let target=match hint {
                     Some(hint) if hint.bot=>hint.target.and_then(|target| {
                         // Ordinary factory order matches native slots. Check the
                         // complete qualified reference before using that index;
                         // sparse or reordered registries retain source lookup.
-                        let list=&store.units.list;
+                        let list=&w.sim.store.units.list;
                         if let crate::gen::Member::Unit(unit)=target {
                             let slot=unit.slot as usize;if list.get(slot)==Some(&target) {return Some(slot);}
                         }
@@ -945,13 +935,13 @@ impl State {
             }
         }
     }
-    fn weapon_count_owned(&mut self, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> {
+    fn weapon_count_owned(&self, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> {
         if store.vehicle.get(hull.vehicle)?.target_generation!=hull.life {return None;}
         let craft=self.crafts.get(hull.vehicle.slot as usize)?.as_ref()?;
         if craft.id!=hull.vehicle||craft.life!=hull.life {return None;}
         Some(craft.seats.get(seat)?.len())
     }
-    fn with_weapon_owned<R>(&mut self, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
+    fn with_weapon_owned<R>(&self, store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
     read:impl FnOnce(&Weapon)->R)->Option<R> {
         if store.vehicle.get(hull.vehicle)?.target_generation!=hull.life {return None;}
         let st=self;let craft=st.crafts.get(hull.vehicle.slot as usize)?.as_ref()?;
@@ -1063,25 +1053,7 @@ pub fn retire(r: Ref<Vehicle>) { retire_in(crate::abi::world(), r) }
 #[cfg(target_arch = "wasm32")]
 pub fn inputs(data: &[f64]) -> usize { let w = crate::abi::world(); inputs_in(&mut w.fleet.firing, &mut w.sim.strings, data) }
 #[cfg(target_arch = "wasm32")]
-pub fn bind_ai_stream(hull:crate::vehicles::f2_seats::HullLife,seat:usize,stream:crate::ai::random::SharedRandom)->bool { bind_ai_stream_in(crate::abi::world(), hull, seat, stream) }
-#[cfg(target_arch = "wasm32")]
 pub fn freeze_ai_targets(ai:&dyn crate::ai::owned::callbacks::Callbacks) { freeze_ai_targets_in(crate::abi::world(), ai) }
-#[cfg(target_arch = "wasm32")]
-pub fn weapon_count(hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> { weapon_count_in(crate::abi::world(), hull, seat) }
-#[cfg(target_arch = "wasm32")]
-pub fn weapon_count_owned(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize)->Option<usize> { let w = crate::abi::world(); weapon_count_owned_in(&mut w.fleet.firing, &mut w.sim.strings,store, hull, seat) }
-#[cfg(target_arch = "wasm32")]
-pub fn with_weapon<R>(hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    read:impl FnOnce(&Weapon)->R)->Option<R> { with_weapon_in(crate::abi::world(), hull, seat, index, read) }
-#[cfg(target_arch = "wasm32")]
-pub fn with_weapon_owned<R>(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    read:impl FnOnce(&Weapon)->R)->Option<R> { let w = crate::abi::world(); with_weapon_owned_in(&mut w.fleet.firing, &mut w.sim.strings,store, hull, seat, index, read) }
-#[cfg(target_arch = "wasm32")]
-pub fn edit_weapon<R>(hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> { edit_weapon_in(crate::abi::world(), hull, seat, index, edit) }
-#[cfg(target_arch = "wasm32")]
-pub fn edit_weapon_owned<R>(store:&crate::gen::Store,hull:crate::vehicles::f2_seats::HullLife,seat:usize,index:usize,
-    edit:impl FnOnce(&mut crate::ai::combat::world::WeaponSettings)->R)->Option<R> { let w = crate::abi::world(); edit_weapon_owned_in(&mut w.fleet.firing, &mut w.sim.strings,store, hull, seat, index, edit) }
 #[cfg(target_arch = "wasm32")]
 pub fn policy(r: Ref<Vehicle>, seat: usize, player: bool, random: bool) { policy_in(crate::abi::world(), r, seat, player, random) }
 #[cfg(target_arch = "wasm32")]
@@ -1099,9 +1071,6 @@ pub(crate) fn supply(hull: Ref<Vehicle>, amount: f64, powerup: bool) -> bool { s
 pub(crate) fn supply_station(hull: Ref<Vehicle>,life:f64,amount:f64)->bool { supply_station_in(crate::abi::world(), hull, life, amount) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn first_weapon(hull:Ref<Vehicle>,seat:usize)->Option<(crate::store::DefId,f64)> { first_weapon_in(crate::abi::world(), hull, seat) }
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn refresh_weapon_masks(table:&crate::ai::combat::weapons_ai::WeaponAiTable) { refresh_weapon_masks_in(crate::abi::world(), table) }
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {

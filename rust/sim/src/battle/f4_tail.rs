@@ -397,9 +397,6 @@ pub(crate) fn wire_roster(team: usize) -> &'static [StrId] { wire_roster_in(&mut
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn refresh_mobile_views() { refresh_mobile_views_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn initial_human(character:Option<crate::store::Ref<Character>>) { initial_human_in(&mut crate::abi::cold().battle, character) }
-
-#[cfg(target_arch = "wasm32")]
 pub(crate) fn owns_player(unit:crate::store::Ref<Unit>) ->bool { owns_player_in(crate::abi::world(), unit) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn auto_respawn(services:f3::WorldServices<'_>) { auto_respawn_in(crate::abi::world(), services) }

@@ -1,6 +1,8 @@
 //! The simulation instance owns one native AI battle. Content is prepared
 //! before activation; phase scopes borrow this retained state and canonical
 //! entity owners, rather than constructing another per-method AI service.
+#[cfg(target_arch="wasm32")]
+use super::rows::row_context;
 use super::{frame::Settings,process::Process,runtime::Runtime,state::{Capacity,State},vehicles::{Authority,Binding}};
 use crate::{ai::{combat::{binding::CombatAi,enhanced::EnhancedCombat,weapons_ai::Registered},
     control::{self,difficulty::{Difficulty,DifficultyOptions,MissionCall},goals::mission_controls,world::{Bind,TeamTable}},
@@ -176,7 +178,11 @@ impl Battle {
 /// The phase borrows each canonical owner once. Geometry and lifecycle
 /// services may loan them onward only after the current row read ends.
 pub struct Owners<'a,C:super::weapons::Changes+?Sized,M:super::arsenals::Mounted> {
+    #[cfg(target_arch="wasm32")]
+    pub w:&'a mut crate::world::owner::World,
+    #[cfg(not(target_arch="wasm32"))]
     pub store:&'a mut crate::gen::Store,
+    #[cfg(not(target_arch="wasm32"))]
     pub seats:&'a mut crate::vehicles::f2_seats::Seats,
     pub buildings:&'a dyn super::rows::BuildingOwner,
     pub characters:&'a mut dyn super::roster::CharacterOwner,
@@ -190,7 +196,7 @@ impl Battle {
         run:impl FnOnce(&mut Runtime,&mut super::world::World<'_,'_,C,M,S>)->R)->R {
         assert!(self.ready,"activate native AI content before entering a world scope");
         let mut random=self.runtime.random.share();
-        let mut rows=super::rows::Rows {store:owners.store,seats:owners.seats,buildings:owners.buildings,
+        let mut rows=super::rows::Rows {#[cfg(target_arch="wasm32")] w:owners.w,#[cfg(not(target_arch="wasm32"))] store:owners.store,#[cfg(not(target_arch="wasm32"))] seats:owners.seats,buildings:owners.buildings,
             characters:owners.characters,state:&mut self.state,changes:owners.changes,mounted:owners.mounted,definitions:owners.definitions};
         let mut world=super::world::World {rows:&mut rows,random:&mut random,combat:&mut self.combat,
             services,settings:&self.settings,facts};
@@ -238,12 +244,11 @@ impl Battle {
         let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
             stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
-        let mut store=std::mem::take(&mut w.sim.store);
-        super::live::with_rows(w,&mut self.state,&mut store,|rows| {
+        super::live::with_rows(w,&mut self.state,|rows| {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             for index in 0..self.runtime.core.character_count {self.runtime.attach(&mut world,index);}
         });
-        w.sim.store=store;
+        
     }
     pub fn native_phase(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,
         facts:&super::world::Facts,input:&crate::gen::AiPhaseFacts,cameras:&[crate::gen::AiPhaseCamera],journal:&crate::gen::AiJournalInput)->Result<(),super::events::Invalid> {
@@ -254,12 +259,11 @@ impl Battle {
         let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
             stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
-        let mut store=std::mem::take(&mut w.sim.store);
-        super::live::with_rows(w,&mut self.state,&mut store,|rows| {
+        super::live::with_rows(w,&mut self.state,|rows| {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             self.runtime.phase(&mut world,input.dt);
         });
-        w.sim.store=store;
+        
         self.phase_counters(input.dt);
         self.counters.input_words=self.counters.input_words.wrapping_add((crate::gen::AiPhaseHeader::WORDS+cameras.len()*crate::gen::AiPhaseCamera::WORDS
             +journal.records.len()*crate::gen::AiJournalEvent::WORDS) as u32);
@@ -279,12 +283,12 @@ impl Battle {
         let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
             stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
-        let mut store=std::mem::take(&mut w.sim.store);
-        super::live::with_rows(w,&mut self.state,&mut store,|rows| {
+        super::live::with_rows(w,&mut self.state,|rows| {
+            let viewpoint=crate::units::f3::viewpoint_in(&rows.w.units);
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
-            world.grenade_dangers(&mut self.runtime.core,||Some(crate::units::f3::viewpoint()));
+            world.grenade_dangers(&mut self.runtime.core,||Some(viewpoint));
         });
-        w.sim.store=store;
+        
         self.record_danger_phase();
     }
     pub fn record_danger_phase(&mut self) {
@@ -307,13 +311,12 @@ impl Battle {
         let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
             stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
-        let mut store=std::mem::take(&mut w.sim.store);
-        let result=super::live::with_rows(w,&mut self.state,&mut store,|rows| {
-            let Some(reference)=rows.characters.resolve(rows.store,&input.character) else{return false};
-            let Some(character)=rows.state.roster.index(rows.store,rows.characters,reference) else{return false};
+        let result=super::live::with_rows(w,&mut self.state,|rows| {
+            let Some(reference)=rows.characters.resolve(row_context!(rows),&input.character) else{return false};
+            let Some(character)=rows.state.roster.index(row_context!(rows),rows.characters,reference) else{return false};
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             self.runtime.core.player_command(&mut world,character,input.kind);true
         });
-        w.sim.store=store;result
+        result
     }
 }

@@ -1,6 +1,7 @@
 //! Control/combat identity mapping over native Character and post owners.
 //! The numeric token always names an Entities row. Roster indices and slab
 //! slots are independent and never become object identities by arithmetic.
+use super::rows::{view_context};
 use super::{
     entities::{Entities, Entity},
     population::Population,
@@ -15,6 +16,8 @@ use crate::{
 };
 
 pub struct Objects<'a> {
+    #[cfg(target_arch="wasm32")]
+    pub w:&'a crate::world::owner::World,
     pub store: &'a Store,
     pub commands: &'a dyn CharacterOwner,
     pub entities: &'a Entities,
@@ -24,7 +27,7 @@ pub struct Objects<'a> {
 impl Objects<'_> {
     /// Cold construction or an authored-post insertion prepares equality keys.
     pub fn prepare(
-        store: &Store,
+        context: super::rows::ReadContext<'_>,
         commands: &dyn CharacterOwner,
         entities: &mut Entities,
         roster: &Roster,
@@ -33,7 +36,7 @@ impl Objects<'_> {
         for index in 0..roster.handles().len() {
             entities.register(Entity::Character(
                 roster
-                    .reference(store, commands, index)
+                    .reference(context, commands, index)
                     .expect("current AI roster life"),
             ));
         }
@@ -60,7 +63,7 @@ impl CombatObjects for Objects<'_> {
     fn character(&self, index: usize) -> Obj {
         let r = self
             .roster
-            .reference(self.store, self.commands, index)
+            .reference(view_context!(self), self.commands, index)
             .expect("current native AI Character");
         self.entities
             .find(Entity::Character(r))
@@ -83,7 +86,7 @@ impl CombatObjects for Objects<'_> {
         {
             Entity::Character(r) => AlertSource::Character(
                 self.roster
-                    .index(self.store, self.commands, r)
+                    .index(view_context!(self), self.commands, r)
                     .expect("current AI alert Character"),
             ),
             _ => AlertSource::Unit(obj),

@@ -1,6 +1,7 @@
 //! The control Core observes canonical owners through this native world.
 //! Combat calls use one retained frame; mounted actions and lifecycle reentry
 //! carry their active Core explicitly, without acquiring a second AI owner.
+use super::rows::{changed,row_buildings,row_context,row_nav,row_seats,row_seats_mut,row_store,row_store_mut};
 use crate::ai::vehicles::service::VehicleServices;
 use super::{arsenals::Mounted,frame::{Frame,Settings},navigation::Environment,rows::Rows,weapons::Changes,scratch::List};
 use crate::ai::{control::{self as ctl,world::*},combat::{binding::CombatAi,world::World as CombatWorld},phase::RandomState,nav::math::Vec3};
@@ -12,7 +13,7 @@ fn body_actor<C:Changes+?Sized,M:Mounted>(rows:&Rows<'_,C,M>,controller:usize)->
     rows.state.actor(controller).expect("prepared native body actor")
 }
 fn body_reference<C:Changes+?Sized,M:Mounted>(rows:&mut Rows<'_,C,M>,target:EntRef)->crate::ai::nav::units::UnitRef {
-    let actor=rows.state.follow_actor(rows.store,rows.seats,rows.buildings.rows(),target.unit);
+    let actor=rows.state.follow_actor(row_store_mut!(rows),row_seats_mut!(rows),row_buildings!(rows),target.unit);
     // An invalid weak target resolves to null inside the helper, as the
     // source's resolve(ref) does; it cannot stop the remaining world phase.
     crate::ai::nav::units::UnitRef {unit:actor.map_or(u64::MAX,|actor|actor.0),generation:Some(target.generation)}
@@ -42,13 +43,13 @@ pub trait Services<C:Changes+?Sized,M:Mounted>:super::vehicle_frame::Hooks<C,M>+
     fn hull_damage(&mut self,core:&mut ctl::Core,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi,facts:&Facts,settings:&Settings,hull:UKey,amount:f64) {
         let _=(core,facts,settings);super::vehicle_frame::Hooks::damage(self,rows,random,combat,hull,amount);
     }
-    fn owned_item_count(&self,rows:&Rows<'_,C,M>,unit:UKey,weapon:&crate::gen::Weapon)->usize;
+    fn owned_item_count(&self,rows:&mut Rows<'_,C,M>,unit:UKey,weapon:(crate::store::DefId,u32))->usize;
     fn bind_actor(&mut self,rows:&mut Rows<'_,C,M>,_random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller:usize,unit:UKey) {
         if rows.unit_priority(unit).kind==7. {
-            if rows.state.actor(controller).is_some() {rows.state.controller_control(rows.store,rows.seats,rows.buildings.rows(),controller,unit).expect("prepared stationary controller binding");}
+            if rows.state.actor(controller).is_some() {rows.state.controller_control(row_store_mut!(rows),row_seats_mut!(rows),row_buildings!(rows),controller,unit).expect("prepared stationary controller binding");}
             return;
         }
-        rows.state.controller_hull(rows.store,controller,unit).expect("prepared native hull navigation class and control");
+        rows.state.controller_hull(row_store_mut!(rows),controller,unit).expect("prepared native hull navigation class and control");
     }
     fn mine_ground_height(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi,facts:&Facts,settings:&Settings,point: Vec3) -> f64;
     fn emit_vo(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi,facts:&Facts,settings:&Settings,unit: UKey,event: &str,property: &str,command: f64,context: Option<f64>,positional: Option<bool>,notice: Option<bool>);
@@ -57,41 +58,41 @@ pub trait Services<C:Changes+?Sized,M:Mounted>:super::vehicle_frame::Hooks<C,M>+
         // StationaryHelper never constructs NavControl, including a bot's
         // first life in a turret. Existing controller navigation is retained.
         if rows.unit_priority(unit).kind==7. {return (HelperKind::Stationary,HelperObs {arrived:true,..Default::default()},None);}
-        let actor=body_actor(rows,controller);let obs=rows.state.navigation.renew_helper(rows.store,actor).expect("current native body helper");
+        let actor=body_actor(rows,controller);let obs=rows.state.navigation.renew_helper(row_store_mut!(rows),actor).expect("current native body helper");
         let kind=if rows.unit_priority(unit).kind==5. {HelperKind::Fly}else{HelperKind::Ground};
-        (kind,obs,rows.state.navigation.observation(rows.store,actor))
+        (kind,obs,rows.state.navigation.observation(row_store_mut!(rows),actor))
     }
     fn helper_goto(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize,point: Vec3,mode: GotoMode) -> HelperObs {
-        let actor=body_actor(rows,controller);rows.state.navigation.command(rows.store,rows.seats,random,self,actor,Command::Goto(point,match mode {GotoMode::Route=>crate::ai::nav::goto::GotoMode::Route,GotoMode::Direct=>crate::ai::nav::goto::GotoMode::Direct,GotoMode::Straight=>crate::ai::nav::goto::GotoMode::Straight})).expect("current native body helper")
+        let actor=body_actor(rows,controller);row_nav!(rows,command,random,self,actor,Command::Goto(point,match mode {GotoMode::Route=>crate::ai::nav::goto::GotoMode::Route,GotoMode::Direct=>crate::ai::nav::goto::GotoMode::Direct,GotoMode::Straight=>crate::ai::nav::goto::GotoMode::Straight})).expect("current native body helper")
     }
     fn helper_stop(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize) -> HelperObs {
-        let actor=body_actor(rows,controller);rows.state.navigation.command(rows.store,rows.seats,random,self,actor,Command::Stop).expect("current native body helper")
+        let actor=body_actor(rows,controller);row_nav!(rows,command,random,self,actor,Command::Stop).expect("current native body helper")
     }
     fn helper_terminate(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize) -> HelperObs {
-        let actor=body_actor(rows,controller);rows.state.navigation.command(rows.store,rows.seats,random,self,actor,Command::Stop).expect("current native body helper")
+        let actor=body_actor(rows,controller);row_nav!(rows,command,random,self,actor,Command::Stop).expect("current native body helper")
     }
     fn helper_tick(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize,dt: f64) -> HelperObs {
-        let actor=body_actor(rows,controller);rows.state.navigation.command(rows.store,rows.seats,random,self,actor,Command::Tick(dt)).expect("current native body helper")
+        let actor=body_actor(rows,controller);row_nav!(rows,command,random,self,actor,Command::Tick(dt)).expect("current native body helper")
     }
     fn helper_destination(&mut self,rows:&mut Rows<'_,C,M>,_random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize) -> Vec3 {
-        let actor=body_actor(rows,controller);rows.state.navigation.destination(rows.store,actor).expect("current native body helper")
+        let actor=body_actor(rows,controller);rows.state.navigation.destination(row_store_mut!(rows),actor).expect("current native body helper")
     }
     fn helper_install_path(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize,points: &[Vec3]) -> HelperObs {
-        let actor=body_actor(rows,controller);rows.state.navigation.command(rows.store,rows.seats,random,self,actor,Command::Install(points)).expect("current native body helper")
+        let actor=body_actor(rows,controller);row_nav!(rows,command,random,self,actor,Command::Install(points)).expect("current native body helper")
     }
     fn helper_follow(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize,target: EntRef) -> HelperObs {
         let actor=body_actor(rows,controller);let target=body_reference(rows,target);
-        rows.state.navigation.command(rows.store,rows.seats,random,self,actor,Command::Follow(target,0.,false)).expect("current native body helper")
+        row_nav!(rows,command,random,self,actor,Command::Follow(target,0.,false)).expect("current native body helper")
     }
     fn helper_follow_trail(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize,on: bool) -> HelperObs {
-        let actor=body_actor(rows,controller);rows.state.navigation.command(rows.store,rows.seats,random,self,actor,Command::Trail(on)).expect("current native body helper")
+        let actor=body_actor(rows,controller);row_nav!(rows,command,random,self,actor,Command::Trail(on)).expect("current native body helper")
     }
     fn helper_hold_path(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize,on: bool) -> HelperObs {
-        let actor=body_actor(rows,controller);rows.state.navigation.command(rows.store,rows.seats,random,self,actor,Command::Hold(on)).expect("current native body helper")
+        let actor=body_actor(rows,controller);row_nav!(rows,command,random,self,actor,Command::Hold(on)).expect("current native body helper")
     }
     fn helper_set_leader(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize,leader: Option<EntRef>) -> HelperObs {
         let actor=body_actor(rows,controller);let leader=leader.map(|target|body_reference(rows,target));
-        rows.state.navigation.command(rows.store,rows.seats,random,self,actor,Command::Leader(leader)).expect("current native body helper")
+        row_nav!(rows,command,random,self,actor,Command::Leader(leader)).expect("current native body helper")
     }
     fn helper_dispose(&mut self,rows:&mut Rows<'_,C,M>,_random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize) {
         let _=body_actor(rows,controller);
@@ -99,23 +100,23 @@ pub trait Services<C:Changes+?Sized,M:Mounted>:super::vehicle_frame::Hooks<C,M>+
     fn nav_control_ensure(&mut self,rows:&mut Rows<'_,C,M>,_random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize) -> ControlObs {
         let key=rows.state.controllers.key(controller).expect("current native input controller");
         let unit=rows.state.controllers.read(&rows.state.entities,key).unwrap().unit.expect("bound native input unit");
-        if rows.unit_priority(unit).kind==7. {rows.state.controller_control(rows.store,rows.seats,rows.buildings.rows(),controller,unit).expect("prepared stationary input control");}
-        let actor=body_actor(rows,controller);rows.state.navigation.observation(rows.store,actor).expect("current native body control")
+        if rows.unit_priority(unit).kind==7. {rows.state.controller_control(row_store_mut!(rows),row_seats_mut!(rows),row_buildings!(rows),controller,unit).expect("prepared stationary input control");}
+        let actor=body_actor(rows,controller);rows.state.navigation.observation(row_store_mut!(rows),actor).expect("current native body control")
     }
     fn nav_control_reset(&mut self,rows:&mut Rows<'_,C,M>,_random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize) {
         let actor=body_actor(rows,controller);assert!(rows.state.navigation.reset(actor));
     }
     fn nav_control_obs(&mut self,rows:&mut Rows<'_,C,M>,_random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize) -> ControlObs {
-        let actor=body_actor(rows,controller);rows.state.navigation.retained_observation(rows.store,actor).expect("current native body control")
+        let actor=body_actor(rows,controller);rows.state.navigation.retained_observation(row_store_mut!(rows),actor).expect("current native body control")
     }
     fn nav_navigation_input(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,controller: usize,step: f64,aim: Option<Vec3>,facing:bool) -> (Option<HelperObs>, Vec<CoreEffect>) {
-        let actor=body_actor(rows,controller);let changed=rows.state.navigation.input(rows.store,rows.seats,random,self,actor,step,aim,facing).expect("current native body control");
+        let actor=body_actor(rows,controller);let changed=row_nav!(rows,input,random,self,actor,step,aim,facing).expect("current native body control");
         let controller=rows.state.controllers.key(controller).unwrap();
         let unit=rows.state.controllers.read(&rows.state.entities,controller).unwrap().unit.unwrap();
         if changed {if let Some(super::entities::Entity::Unit(reference))=rows.state.entities.get(unit) {
-            if rows.state.navigation.input_body_changed() {rows.changes.body(reference);}else{rows.changes.intent(reference);}
+            if rows.state.navigation.input_body_changed() {changed!(rows.changes,row_context!(rows),body,reference);}else{changed!(rows.changes,row_context!(rows),intent,reference);}
         }}
-        (rows.state.navigation.helper_observation(rows.store,actor),Vec::new())
+        (rows.state.navigation.helper_observation(row_store_mut!(rows),actor),Vec::new())
     }
     fn nav_analogs(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi,facts:&Facts,settings:&Settings,controller: usize,aim: Option<Vec3>,step: f64,_facing:bool) -> ([f64; 4], Vec<CoreEffect>);
 }
@@ -128,7 +129,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> World<'_,'_,C,M,S> {
     fn agent(&self,core:usize)->u64 {self.rows.state.agents.key(core).expect("current native AI agent")}
     fn observed_helper(&self,controller:usize,mut helper:ctl::agents::Helper)->ctl::agents::Helper {
         if let Some(key)=self.rows.state.agents.key(controller).and_then(|key|self.rows.state.agents.get(&self.rows.state.entities,key)).and_then(|a|a.navigation) {
-            if let Some(obs)=self.rows.state.navigation.helper_observation_for(self.rows.store,key) {helper.obs=obs;}
+            if let Some(obs)=self.rows.state.navigation.helper_observation_for(row_store!(self.rows),key) {helper.obs=obs;}
         }
         helper
     }
@@ -197,15 +198,15 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> World<'_,'_,C,M,S> {
     }
 }
 impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Characters for World<'_,'_,C,M,S> {
-    fn character(&self,index:usize)->CharacterSnap {self.rows.state.roster.read(self.rows.store,self.rows.characters,&self.rows.state.entities,&self.rows.state.population,index).expect("current native AI Character")}
+    fn character(&self,index:usize)->CharacterSnap {self.rows.state.roster.read(row_context!(self.rows),self.rows.characters,&self.rows.state.entities,&self.rows.state.population,index).expect("current native AI Character")}
     fn character_unit(&self,index:usize)->Option<UKey> {
-        let reference=self.rows.state.roster.reference(self.rows.store,self.rows.characters,index)?;
-        let unit=self.rows.store.character.get(reference)?.unit?;
-        self.rows.store.unit.get(unit)?;
+        let reference=self.rows.state.roster.reference(row_context!(self.rows),self.rows.characters,index)?;
+        let unit=row_store!(self.rows).character.get(reference)?.unit?;
+        row_store!(self.rows).unit.get(unit)?;
         self.rows.state.entities.find(super::entities::Entity::Unit(unit))
     }
-    fn character_objective(&self,index:usize)->Option<usize> {self.rows.state.roster.objective(self.rows.store,self.rows.characters,&self.rows.state.population,index).expect("current native AI objective")}
-    fn character_set_objective(&mut self,index:usize,post:Option<usize>) {self.rows.state.roster.assign(self.rows.store,self.rows.characters,&self.rows.state.population,index,post).expect("current native objective publication");}
+    fn character_objective(&self,index:usize)->Option<usize> {self.rows.state.roster.objective(row_context!(self.rows),self.rows.characters,&self.rows.state.population,index).expect("current native AI objective")}
+    fn character_set_objective(&mut self,index:usize,post:Option<usize>) {self.rows.state.roster.assign(row_context!(self.rows),self.rows.characters,&self.rows.state.population,index,post).expect("current native objective publication");}
 }
 impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> {
     fn agent_target_override(&mut self,controller:usize,target:UKey)->Option<bool> {
@@ -216,15 +217,15 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
         let agent=self.rows.state.agents.key(controller)?;
         self.combat(|frame,_|frame.board_override(agent,candidate))
     }
-    fn link_character(&mut self,character:usize,controller:usize,bound:bool) { assert!(self.rows.state.link_character(self.rows.store,self.rows.characters,character,controller,bound)); }
-    fn link_controller(&mut self,key:UKey,controller:usize,bound:bool) { assert!(self.rows.state.link_controller(self.rows.store,self.rows.changes,key,controller,bound));
-        self.rows.state.seat_driven(self.rows.seats,key);
+    fn link_character(&mut self,character:usize,controller:usize,bound:bool) { assert!(self.rows.state.link_character(row_context!(self.rows),self.rows.characters,character,controller,bound)); }
+    fn link_controller(&mut self,key:UKey,controller:usize,bound:bool) { assert!(self.rows.state.link_controller(row_context!(self.rows),self.rows.changes,key,controller,bound));
+        self.rows.state.seat_driven(row_seats_mut!(self.rows),key);
         let native=self.rows.state.controllers.key(controller).expect("current native controller");
         let generation=self.unit(key).generation;
         let row=self.rows.state.controllers.write(&self.rows.state.entities,native).unwrap();
         if bound {row.unit=Some(key);row.generation=generation;}else if row.unit==Some(key) {row.unit=None;}
         if bound {if matches!(self.rows.state.entities.get(key),Some(super::entities::Entity::Unit(_))) {
-            self.rows.state.controller_body(self.rows.store,controller,key).expect("prepared native controller body");
+            self.rows.state.controller_body(row_store_mut!(self.rows),controller,key).expect("prepared native controller body");
         }else{Services::bind_actor(self.services,self.rows,self.random,self.combat,self.facts,self.settings,controller,key);}} }
     fn nav_stance_changed(&mut self,controller:usize,stance:f64) { if let Some(actor)=self.rows.state.actor(controller) {if let Some(c)=self.rows.state.navigation.control_mut(actor) {c.stance=stance;}} }
     fn nav_jet_requested(&mut self,controller:usize,vector:Vec3) { if let Some(actor)=self.rows.state.actor(controller) {if let Some(c)=self.rows.state.navigation.control_mut(actor) {c.jet.pending=true;c.jet.vector=vector;}} }
@@ -236,20 +237,20 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
     }
     fn unit_live(&self,key:UKey,generation:f64)->bool {
         if let Some(super::entities::Entity::Unit(reference))=self.rows.state.entities.get(key) {
-            self.rows.state.units.bound_live(self.rows.store,reference,generation)
+            self.rows.state.units.bound_live(row_store!(self.rows),reference,generation)
         }else {self.rows.policy(key).is_some_and(|u|u.alive&&u.generation==generation)}
     }
     fn unit_scalars(&self,key:UKey)->UnitScalars {self.rows.policy_scalars(key)}
     fn unit_motion(&self,key:UKey)->UnitMotion {self.rows.motion(key)}
     fn intent_command(&mut self,key:UKey,command:crate::ai::owned::intent::Command) { assert!(self.rows.intent(key,command)); }
-    fn units_len(&self) -> usize { self.rows.store.units.list.len() }
-    fn unit_key(&self,index:usize)->UKey { self.rows.state.queries.object(&self.rows.state.entities,self.rows.store.units.list[index]).expect("prepared native AI registry identity") }
+    fn units_len(&self) -> usize { row_store!(self.rows).units.list.len() }
+    fn unit_key(&self,index:usize)->UKey { self.rows.state.queries.object(&self.rows.state.entities,row_store!(self.rows).units.list[index]).expect("prepared native AI registry identity") }
     fn unit_sphere_radius(&mut self,key:UKey)->Option<f64> { Some(self.combat(|f,_|CombatWorld::sphere(f,key).radius)) }
     fn unit_forward(&mut self,key:UKey)->Option<Vec3> { Some(point(self.combat(|f,_|CombatWorld::forward(f,key)))) }
     fn unit_aim_point(&mut self,key:UKey)->Option<Vec3> { Some(point(self.combat(|f,_|CombatWorld::aim_point(f,key)))) }
     fn unit_has_origin_forward(&self,key:UKey)->bool { self.rows.unit_has_origin(key) }
-    fn post(&self, index: usize) -> PostSnap { self.rows.state.posts.read(self.rows.store,&self.rows.state.population,index,&self.rows.state.bindings.facts(self.rows.buildings.rows())).expect("current native AI post") }
-    fn objective_post(&self,index:usize)->ctl::goals::ObjectivePost<'_> { self.rows.state.population.view(self.rows.store,index,&self.rows.state.bindings.facts(self.rows.buildings.rows())).expect("current native objective post") }
+    fn post(&self, index: usize) -> PostSnap { self.rows.state.posts.read(row_store!(self.rows),&self.rows.state.population,index,&self.rows.state.bindings.facts(row_buildings!(self.rows))).expect("current native AI post") }
+    fn objective_post(&self,index:usize)->ctl::goals::ObjectivePost<'_> { self.rows.state.population.view(row_store!(self.rows),index,&self.rows.state.bindings.facts(row_buildings!(self.rows))).expect("current native objective post") }
     fn posts_len(&self) -> usize { self.rows.state.population.len() }
     fn post_name_id(&self,index:usize)->u32 { self.rows.state.posts.name_id(index) }
     fn cameras(&self) -> &[CameraView] { self.rows.state.lod.cameras() }
@@ -266,8 +267,8 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
         let mut out=self.rows.state.buffers.units.take();let mut index=0;
         // A lazy sphere precedes the filter for each registry member; pose
         // observations must not be pulled forward into a separate batch.
-        while index<self.rows.store.units.list.len() {
-            let member=self.rows.store.units.list[index];index+=1;
+        while index<row_store_mut!(self.rows).units.list.len() {
+            let member=row_store_mut!(self.rows).units.list[index];index+=1;
             let key=self.rows.state.queries.object(&self.rows.state.entities,member).expect("prepared native query identity");
             if !self.unit(key).alive {continue;}
             let sphere=self.combat(|frame,_|CombatWorld::sphere(frame,key));
@@ -279,7 +280,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
     }
     fn service_candidates(&mut self,center:Vec3,radius:f64)->List<UKey> {
         // Source repair jobs snapshot body, fleet and wreck order first.
-        let mut out=self.rows.state.candidates.snapshot(self.rows.store,&self.rows.state.entities);
+        let mut out=self.rows.state.candidates.snapshot(row_store_mut!(self.rows),&self.rows.state.entities);
         out.retain(|key| {
             let position=self.unit(*key).position;
             let distance=ctl::vec::distance_sq(position,center);
@@ -288,22 +289,22 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
             distance<=(radius+r)*(radius+r)
         });out
     }
-    fn items_len(&self)->usize { self.rows.state.items.len(self.rows.store) }
-    fn item(&self,index:usize)->ItemSnap { self.rows.state.items.read(self.rows.store,&self.rows.state.entities,index) }
+    fn items_len(&self)->usize { self.rows.state.items.len(row_store!(self.rows)) }
+    fn item(&self,index:usize)->ItemSnap { self.rows.state.items.read(row_store!(self.rows),&self.rows.state.entities,index) }
     fn crew(&mut self,character:usize)->Option<CrewSnap> {
-        super::crew::read(self.rows.store,&self.rows.state.entities,&self.rows.state.roster,self.rows.characters,character)
+        super::crew::read(row_context!(self.rows),&self.rows.state.entities,&self.rows.state.roster,self.rows.characters,character)
     }
     fn crew_occupants(&self,character:usize)->List<usize> {
-        super::crew::occupants(self.rows.store,self.rows.seats,&self.rows.state.turrets,&self.rows.state.roster,self.rows.characters,&self.rows.state.buffers.indices,character)
+        super::crew::occupants(row_context!(self.rows),row_seats!(self.rows),&self.rows.state.turrets,&self.rows.state.roster,self.rows.characters,&self.rows.state.buffers.indices,character)
     }
     fn objective_vehicle_mask(&self,vehicle:UKey)->f64 {
         match self.rows.state.entities.get(vehicle) {
-            Some(super::entities::Entity::Hull(reference))=>super::population::Facts::vehicle_mask(&self.rows.state.bindings.facts(self.rows.buildings.rows()),reference),
+            Some(super::entities::Entity::Hull(reference))=>super::population::Facts::vehicle_mask(&self.rows.state.bindings.facts(row_buildings!(self.rows)),reference),
             _=>crate::ai::nav::units::traversal_mask(&self.unit(vehicle).nav_unit()) as f64,
         }
     }
-    fn tickets(&self,team:f64)->Option<f64> {Some(crate::battle::spawning::tickets(self.rows.store,team))}
-    fn reinforcements(&self,team:f64)->Option<f64> {self.rows.store.battle.reinforcements.at(team)}
+    fn tickets(&self,team:f64)->Option<f64> {Some(crate::battle::spawning::tickets(row_store!(self.rows),team))}
+    fn reinforcements(&self,team:f64)->Option<f64> {row_store!(self.rows).battle.reinforcements.at(team)}
     fn mine_ground_height(&mut self, point: Vec3) -> f64 { Services::mine_ground_height(self.services,self.rows,self.random,self.combat,self.facts,self.settings,point) }
     fn emit_vo(&mut self, unit: UKey, event: &str, property: &str, command: f64, context: Option<f64>, positional: Option<bool>, notice: Option<bool>) { Services::emit_vo(self.services,self.rows,self.random,self.combat,self.facts,self.settings,unit,event,property,command,context,positional,notice) }
     // Hearing notifies the control owner at each append. Its private combat
@@ -418,9 +419,9 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
         if ammo {return self.rows.needs_ammo(unit);}
         let unit=self.unit(unit);ctl::classes::unit_health(&unit)<ctl::classes::unit_maximum(&unit)
     }
-    fn classes_dispenser_available(&self,unit:UKey,index:usize)->bool {self.rows.dispenser_available(unit,index,&|unit,weapon|self.services.owned_item_count(self.rows,unit,weapon))}
-    fn classes_mine_weapon(&self,unit:UKey)->Option<usize> {self.rows.mine_weapon(unit,&|unit,weapon|self.services.owned_item_count(self.rows,unit,weapon))}
-    fn classes_service_weapon(&self,unit:UKey,health_type:f64,ammo:bool)->Option<usize> {self.rows.service_weapon(unit,health_type,ammo,&|unit,weapon|self.services.owned_item_count(self.rows,unit,weapon))}
+    fn classes_dispenser_available(&mut self,unit:UKey,index:usize)->bool {self.rows.dispenser_available(unit,index,&mut |rows,unit,weapon|self.services.owned_item_count(rows,unit,weapon))}
+    fn classes_mine_weapon(&mut self,unit:UKey)->Option<usize> {self.rows.mine_weapon(unit,&mut |rows,unit,weapon|self.services.owned_item_count(rows,unit,weapon))}
+    fn classes_service_weapon(&mut self,unit:UKey,health_type:f64,ammo:bool)->Option<usize> {self.rows.service_weapon(unit,health_type,ammo,&mut |rows,unit,weapon|self.services.owned_item_count(rows,unit,weapon))}
     fn classes_repair_weapon(&self,unit:UKey,index:usize)->bool {
         self.rows.repair_weapon(unit,index)
     }
@@ -438,13 +439,13 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
     fn vehicles_boarded(&mut self, controller: usize) -> bool { let controller=self.controller(controller);self.vehicles(|v,f|v.boarded(f,Some(controller))) }
     fn vehicles_boarded_vehicle(&mut self, controller: usize) -> Option<UKey> { let controller=self.controller(controller);self.vehicles(|v,f|v.boarded_vehicle(f,Some(controller))) }
     fn vehicles_boarded_vehicle_of(&mut self, unit: UKey) -> Option<UKey> { self.vehicles(|v,f|v.boarded_vehicle_of(f,Some(unit))) }
-    fn vehicles_boarded_vehicle_of_character(&mut self, character: usize) -> Option<UKey> { let character=self.rows.state.entities.find(super::entities::Entity::Character(self.rows.state.roster.reference(self.rows.store,self.rows.characters,character).expect("current native Character"))).expect("prepared native Character identity");self.vehicles(|v,f|v.boarded_vehicle_of_character(f,Some(character))) }
+    fn vehicles_boarded_vehicle_of_character(&mut self, character: usize) -> Option<UKey> { let character=self.rows.state.entities.find(super::entities::Entity::Character(self.rows.state.roster.reference(row_context!(self.rows),self.rows.characters,character).expect("current native Character"))).expect("prepared native Character identity");self.vehicles(|v,f|v.boarded_vehicle_of_character(f,Some(character))) }
     fn vehicles_current_controllable(&mut self, character: usize) -> Option<UKey> {
-        let reference=self.rows.state.roster.reference(self.rows.store,self.rows.characters,character).expect("current native Character");
+        let reference=self.rows.state.roster.reference(row_context!(self.rows),self.rows.characters,character).expect("current native Character");
         // currentControllable stops at an absent body lease. Most roster
         // members are on foot, so do not build their full vehicle/class view
         // or loan every vehicle service merely to discover that absence.
-        self.rows.store.character.get(reference)?.unit.and_then(|unit|self.rows.store.unit.get(unit))?.seat?;
+        row_store_mut!(self.rows).character.get(reference)?.unit.and_then(|unit|row_store_mut!(self.rows).unit.get(unit))?.seat?;
         let character=self.rows.state.entities.find(super::entities::Entity::Character(reference)).expect("prepared native Character identity");
         self.vehicles(|v,f|v.current_controllable(f,Some(character)))
     }
@@ -554,7 +555,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
         let replaced=frame.rows.state.agents.key(controller)!=Some(agent);
         let current=frame.hooks.core.controllers[controller].agent.as_ref();
         let mut helper=current.map(|a|a.helper).unwrap_or_default();
-        if let Some(key)=frame.rows.state.agents.key(controller).and_then(|key|frame.rows.state.agents.get(&frame.rows.state.entities,key)).and_then(|a|a.navigation) {if let Some(obs)=frame.rows.state.navigation.helper_observation_for(frame.rows.store,key) {helper.obs=obs;}}
+        if let Some(key)=frame.rows.state.agents.key(controller).and_then(|key|frame.rows.state.agents.get(&frame.rows.state.entities,key)).and_then(|a|a.navigation) {if let Some(obs)=frame.rows.state.navigation.helper_observation_for(row_store_mut!(frame.rows),key) {helper.obs=obs;}}
         let interrupts=current.map(|a|a.interrupts).unwrap_or_default();
         let mut shared=ForeignShared::read(&frame.hooks.core.controllers[controller]);
         // The running CombatAgent owns aimTarget, even when its old look
@@ -609,7 +610,7 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
         if self.mounted(core,controller) {
             self.seat_input(core,controller,step,aim,true);
             let stationary=core.controllers[controller].agent.as_ref().is_some_and(|agent|agent.helper.kind==Some(HelperKind::Stationary));
-            let obs=if stationary {None}else{self.rows.state.actor(controller).and_then(|actor|self.rows.state.navigation.helper_observation(self.rows.store,actor))};
+            let obs=if stationary {None}else{self.rows.state.actor(controller).and_then(|actor|self.rows.state.navigation.helper_observation(row_store_mut!(self.rows),actor))};
             return (obs,Vec::new());
         }
         Services::nav_navigation_input(self.services,self.rows,self.random,self.combat,self.facts,self.settings,controller,step,aim,facing)
@@ -647,11 +648,11 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> super::runtime::World for World
 }
 impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> super::lifecycle::Bindings for World<'_,'_,C,M,S> {
     fn character_index(&self,handle:&crate::gen::F4Handle)->Option<usize> {
-        let reference=self.rows.characters.resolve(self.rows.store,handle)?;
-        self.rows.state.roster.index(self.rows.store,self.rows.characters,reference)
+        let reference=self.rows.characters.resolve(row_context!(self.rows),handle)?;
+        self.rows.state.roster.index(row_context!(self.rows),self.rows.characters,reference)
     }
     fn post_index(&self,post:crate::gen::SpawnPost)->Option<usize> {
-        let present=match post {crate::gen::SpawnPost::Post(r)=>self.rows.store.post.contains(r),crate::gen::SpawnPost::MobilePost(r)=>self.rows.store.mobile_post.contains(r)};
+        let present=match post {crate::gen::SpawnPost::Post(r)=>row_store!(self.rows).post.contains(r),crate::gen::SpawnPost::MobilePost(r)=>row_store!(self.rows).mobile_post.contains(r)};
         present.then(||self.rows.state.population.index(crate::battle::posts::post_ref(Some(post)))).flatten()
     }
 }
@@ -664,9 +665,9 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> World<'_,'_,C,M,S> {
         use crate::gen::OrdnanceOwner;
         use super::entities::Entity;
         let mut visited=0;
-        for index in 0..self.rows.store.ordnance.grenades.len() {
-            let reference=self.rows.store.ordnance.grenades[index];
-            let Some(grenade)=self.rows.store.grenade.get(reference) else{continue};
+        for index in 0..row_store_mut!(self.rows).ordnance.grenades.len() {
+            let reference=row_store_mut!(self.rows).ordnance.grenades[index];
+            let Some(grenade)=row_store_mut!(self.rows).grenade.get(reference) else{continue};
             if grenade.gone==Some(true) {continue;}
             let position=three::Vector3::new(grenade.position[0],grenade.position[1],grenade.position[2]);
             let owner=match grenade.owner {

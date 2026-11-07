@@ -55,7 +55,7 @@ fn emit_vo(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,unit: Obj,ev
 }
 #[allow(unused_variables)]
 impl<C:Changes+?Sized,M:Mounted> owned::world::Services<C,M> for Services {
-fn owned_item_count(&self,rows:&Rows<'_,C,M>,unit:UKey,weapon:&bfe_sim::gen::Weapon)->usize {panic!("no dispensers in this fixture")}
+fn owned_item_count(&self,rows:&mut Rows<'_,C,M>,unit:UKey,weapon:(bfe_sim::store::DefId,u32))->usize {panic!("no dispensers in this fixture")}
 fn bind_actor(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi,facts:&Facts,settings:&Settings,controller:usize,unit:UKey) {panic!("disabled canonical fixture service bind_actor")}
 
 fn mine_ground_height(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,combat:&mut CombatAi,facts:&Facts,settings:&Settings,point: Vec3) -> f64 {panic!("disabled canonical fixture service mine_ground_height")}

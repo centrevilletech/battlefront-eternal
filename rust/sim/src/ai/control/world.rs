@@ -870,18 +870,18 @@ pub trait AiWorld: Characters {
     // Native class policies can read the real arsenal; captured worlds keep
     // the same defaults over their recorded weapon facts.
     fn classes_needs(&self,unit:UKey,ammo:bool)->bool { super::classes::needs(&self.unit(unit),ammo) }
-    fn classes_dispenser_available(&self,unit:UKey,index:usize)->bool {
+    fn classes_dispenser_available(&mut self,unit:UKey,index:usize)->bool {
         let unit=self.unit(unit);let weapon=&unit.weapons[index];
         if super::classes::remaining_ammo(weapon)==0. {return false;}
         let max=weapon.max_items.unwrap_or(0.);max==0.||max.is_nan()||weapon.owned_count<max
     }
-    fn classes_mine_weapon(&self,unit:UKey)->Option<usize> {
+    fn classes_mine_weapon(&mut self,unit:UKey)->Option<usize> {
         let row=self.unit(unit);
         (0..row.weapons.len()).find(|&i| {let w=&row.weapons[i];
             w.base.as_deref()==Some("dispenser")&&w.item_base.as_deref()==Some("mine")
                 &&w.item_life_missing&&self.classes_dispenser_available(unit,i)})
     }
-    fn classes_service_weapon(&self,unit:UKey,health_type:f64,ammo:bool)->Option<usize> {
+    fn classes_service_weapon(&mut self,unit:UKey,health_type:f64,ammo:bool)->Option<usize> {
         let row=self.unit(unit);
         (0..row.weapons.len()).find(|&i| {let w=&row.weapons[i];
             let quantity=if w.base.as_deref()==Some("repair") {Some(&w.qty_def)}

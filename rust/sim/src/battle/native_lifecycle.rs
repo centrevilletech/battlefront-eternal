@@ -17,7 +17,10 @@ pub struct Native {
 /// qualified objective or controller command, but never reimports the tables.
 pub(crate) fn hook(w: &mut Root, input: F4AIHook,mut services:WorldServices<'_>) {
     super::f4_tail::refresh_mobile_views_in(w);
-    if services.lifecycle(&input) || crate::world::deferred() {
+    let native=if let Some(ai)=services.ai.as_deref_mut() {
+        ai.lifecycle_in(w,&input,services.recon,services.queries);true
+    }else{false};
+    if native || crate::world::deferred() {
         // Native authority finishes synchronously. The outer boundary later
         // delivers presentation notices without reentering an AI decision.
         if matches!(input.op,F4AIHookOp::Post|F4AIHookOp::Mobile|F4AIHookOp::Over|F4AIHookOp::Retarget|F4AIHookOp::Rejected) {

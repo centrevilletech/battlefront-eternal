@@ -416,10 +416,6 @@ pub(crate) fn wire_trap_count() -> usize { wire_trap_count_in(&mut crate::abi::c
 pub(crate) fn wire_trap(index: usize) -> Option<[f64; 3]> { wire_trap_in(&mut crate::abi::cold().battle, index) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn publish() { publish_in(crate::abi::world()) }
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn with_store<T>(store: &mut Store, run: impl FnOnce() -> T) -> T { with_store_in(crate::abi::world(), store, |_| run()) }
-
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn held_clip(r: Ref<Unit>, unit: &Unit) -> Option<u32> { held_clip_in(&mut crate::abi::cold().battle, r, unit) }
 #[cfg(target_arch = "wasm32")]
