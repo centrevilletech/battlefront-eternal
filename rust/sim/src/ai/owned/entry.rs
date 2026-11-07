@@ -293,8 +293,8 @@ pub fn ai_world_roster_in(w:&mut World)->u32 {
 /// This cold structural identity precedes F4 command/publication handles.
 /// It names only the canonical Character slab and cannot issue a command.
 pub fn ai_world_roster_character_in(w:&mut World,index:u32)->*const f64 {
+    let Some(battle)=w.ai.battle_mut() else{return std::ptr::null()};
     let Some(reference)=w.sim.store.battle.characters.get(index as usize).copied() else{return std::ptr::null()};
-    let battle=w.ai.battle_mut().unwrap();
     crate::gen::AiCharacterBirth {slot:reference.slot,generation:reference.gen}.put(&mut battle.initial_character,&mut Vec::new());
     battle.initial_character.as_ptr()
 }
@@ -303,9 +303,12 @@ pub fn ai_world_roster_character_in(w:&mut World,index:u32)->*const f64 {
 /// F3 construction already owns these canonical F4 identities. The cold AI
 /// loader can bind policies before the later live-phase host is constructed.
 pub fn ai_world_prop_owner_in(w:&mut World,index:u32)->*const f64 {
+    // Cold and reentrant callers may have no AI owner or prepared unit props.
+    if w.ai.battle().is_none() {return std::ptr::null();}
     if index as usize>=crate::units::f3_props::count_in(&w.units) {return std::ptr::null()};
     let owner=crate::units::f3_props::owner_in(w,index as usize);
-    let battle=w.ai.battle_mut().unwrap();owner.put(&mut battle.initial_prop,&mut Vec::new());
+    let Some(battle)=w.ai.battle_mut() else{return std::ptr::null()};
+    owner.put(&mut battle.initial_prop,&mut Vec::new());
     battle.initial_prop.as_ptr()
 }
 

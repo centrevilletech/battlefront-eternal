@@ -1684,31 +1684,15 @@ pub extern "C" fn f2_seats_adopt(prepared: u32) { f2_seats_adopt_in(crate::abi::
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn reserve_unit_slots(count: usize) { reserve_unit_slots_in(crate::abi::world(), count) }
 #[cfg(target_arch = "wasm32")]
-pub fn reserve_riders(count: usize) { reserve_riders_in(crate::abi::world(), count) }
-#[cfg(target_arch = "wasm32")]
 pub(crate) fn adopt_unit(unit: Ref<Unit>, actor: bool, no_enter: f64) { adopt_unit_in(crate::abi::world(), unit, actor, no_enter) }
-#[cfg(target_arch = "wasm32")]
-pub fn import_phase_input(native_ai:bool) { import_phase_input_in(crate::abi::world(), native_ai) }
-#[cfg(target_arch = "wasm32")]
-pub fn publish() -> *const f64 { publish_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn bind_random(unit: Ref<Unit>, lease: Ref<SeatLease>, binding: u32) -> bool { bind_random_in(crate::abi::world(), unit, lease, binding) }
 #[cfg(target_arch = "wasm32")]
 pub fn command(a: F2SeatCommand) -> F2SeatResult { command_in(crate::abi::world(), a) }
 #[cfg(target_arch = "wasm32")]
-pub fn destroyed(index: usize) { destroyed_in(crate::abi::world(), index) }
-#[cfg(target_arch = "wasm32")]
 pub(crate) fn destroyed_with(index: usize, services: Option<crate::units::f3::WorldServices<'_>>) { destroyed_with_in(crate::abi::world(), index, services) }
 #[cfg(target_arch = "wasm32")]
-pub fn release(index: usize) { release_in(crate::abi::world(), index) }
-#[cfg(target_arch = "wasm32")]
 pub(crate) fn release_with(index: usize, services: Option<crate::units::f3::WorldServices<'_>>) { release_with_in(crate::abi::world(), index, services) }
-#[cfg(target_arch = "wasm32")]
-pub fn changed_lease(lease: Ref<SeatLease>) { changed_lease_in(crate::abi::world(), lease) }
-#[cfg(target_arch = "wasm32")]
-pub fn lease_origin(reference:Ref<SeatLease>)->Option<Vector3> { lease_origin_in(crate::abi::world(), reference) }
-#[cfg(target_arch = "wasm32")]
-pub fn lease_forward(reference:Ref<SeatLease>)->Option<Vector3> { lease_forward_in(crate::abi::world(), reference) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn exposed(lease: &SeatLease) -> bool { exposed_in(crate::abi::world(), lease) }
 #[cfg(target_arch = "wasm32")]
@@ -1735,10 +1719,6 @@ pub(crate) fn turret_team(r: Ref<Turret>, fallback: f64) -> Option<f64> { turret
 pub(crate) fn turret_life(r: Ref<Turret>, alive: bool, attacker: Attacker, life: f64, center: Vector3, radius: f64) { turret_life_in(crate::abi::world(), r, alive, attacker, life, center, radius) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn turret_destroyed(r: Ref<Turret>, services: crate::units::f3::WorldServices<'_>) { turret_destroyed_in(crate::abi::world(), r, services) }
-#[cfg(target_arch = "wasm32")]
-pub fn retire(r: Ref<Vehicle>) { retire_in(crate::abi::world(), r) }
-#[cfg(target_arch = "wasm32")]
-pub fn finish() { finish_in(crate::abi::world()) }
 #[no_mangle]
 #[cfg(target_arch = "wasm32")]
 pub extern "C" fn f2_turret_adopt() { f2_turret_adopt_in(crate::abi::world()) }
@@ -1761,9 +1741,5 @@ pub fn beam_pose(r: Ref<SeatLease>, local: [f64; 3], position: &mut [f64; 3], di
 pub extern "C" fn f2_bodies() { f2_bodies_in(crate::abi::world()) }
 #[cfg(target_arch = "wasm32")]
 pub fn animal(hull: Ref<Vehicle>) -> bool { animal_in(&mut crate::abi::world().fleet,hull) }
-#[cfg(target_arch = "wasm32")]
-pub fn has_actor(unit: Ref<Unit>) -> bool { has_actor_in(&mut crate::abi::world().fleet,unit) }
-#[cfg(target_arch = "wasm32")]
-pub fn rider_posed(unit: Ref<Unit>) { rider_posed_in(&mut crate::abi::world().fleet,unit) }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn battle_mount(turret: Ref<Turret>) -> Option<([f64; 3], Option<(crate::store::DefId, f64)>)> { battle_mount_in(crate::abi::world(), turret) }

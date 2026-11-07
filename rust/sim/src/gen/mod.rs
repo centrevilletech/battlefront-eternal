@@ -1108,6 +1108,18 @@ pub fn cmd_relay_in(w: &mut crate::world::owner::World, w0: f64, w1: f64, w2: f6
 #[cfg(not(target_arch = "wasm32"))]
 pub fn cmd_relay(_w0: f64, _w1: f64, _w2: f64, _w3: f64, _w4: f64, _w5: f64, _w6: f64, _w7: f64) -> *const f64 { std::ptr::null() }
 
+/// Runs f2Seat from the generated call block without retaining its store loan.
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn cmd_f2_seat_block() -> *const f64 {
+    if !crate::abi::command_available(COMMAND_F2_SEAT) { return std::ptr::null(); }
+    let args = { let sim = crate::abi::sim(); let (row, heap) = sim.calls.args(); F2SeatCommand::take(row, heap) };
+    let result = crate::vehicles::f2_seats::command(args);
+    let sim = crate::abi::sim();
+    sim.calls.result(F2SeatResult::WORDS, |row, heap| result.put(row, heap));
+    sim.calls.block.ptr()
+}
+
 impl AiControlBirth {
     /// Emits it as the event aiControlBirth (drained in order at the end of the phase).
     pub fn emit(&self, events: &mut crate::store::calls::Events) {
