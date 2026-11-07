@@ -171,10 +171,11 @@ impl PageUnits {
     pub fn collision_output_len(&self)->usize{self.inner.collision.output.len()}
     pub fn collision_shapes_ptr(&self)->*const f64{self.inner.collision.shapes.as_ptr()}
     pub fn collision_shapes_len(&self)->usize{self.inner.collision.shapes.len()}
-    pub fn collide_units(&mut self){self.inner.collision_frame();}
+    pub fn collision_actors_ptr(&self)->*const u32{self.inner.collision.actors.as_ptr()}
+    pub fn collision_actors_len(&self)->usize{self.inner.collision.actors.len()}
+    pub fn collide_units(&mut self,count:usize){self.inner.collision_frame(count);}
     pub fn present_units(&mut self) {
         self.inner.pose_frame();
-        self.inner.collision_frame();
     }
     pub fn present_first_person(&mut self) {
         self.inner.attachment_frame();

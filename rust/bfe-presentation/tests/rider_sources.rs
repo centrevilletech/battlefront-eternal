@@ -50,14 +50,14 @@ fn replica_hit_shapes_follow_native_mount_and_hold_frames(){
  vehicles.borrow_mut().rig(1);let mut frame=Matrix4::default();frame.elements[12]=7.0;
  vehicles.borrow_mut().publish(0,0,Source{frame,..Default::default()});
  let x=&mut units.collision.input;x[c::ENABLED]=1.0;x[c::GENERATION]=1.0;x[c::SCALE]=1.0;x[c::SEAT]=1.0;x[c::EXPOSED]=1.0;x[c::SOURCE_TURRET]=-1.0;x[c::SOURCE_PROP]=-1.0;
- units.collision_frame();assert_eq!(units.collision.output[o::COUNT],6.0);
+ units.collision_frame(1);assert_eq!(units.collision.output[o::COUNT],6.0);
  let head=units.collision.shapes[s::CENTER];assert!(head>6.0);
  // Held output replaces the mount resource, without a matrix crossing JS.
  frame.elements[12]=20.0;props.borrow_mut().held.push(Held{placed:true,time:0.0,frame});
  units.collision.input[c::SOURCE_PROP]=0.0;units.collision.input[c::SEAT]=0.0;units.collision.input[c::TICK]=1.0;
- units.collision_frame();assert_eq!(units.collision.output[o::COUNT],6.0);assert_eq!(units.collision.shapes[s::CENTER]-head,13.0);
+ units.collision_frame(1);assert_eq!(units.collision.output[o::COUNT],6.0);assert_eq!(units.collision.shapes[s::CENTER]-head,13.0);
  // Repeated live observations retain all limb and accumulator capacity.
  COUNT.with(|c|c.set(0));TRACK.with(|t|t.set(true));
- for tick in 2..600 {units.collision.input[c::TICK]=tick as f64;units.collision_frame();}
+ for tick in 2..600 {units.collision.input[c::TICK]=tick as f64;units.collision_frame(1);}
  TRACK.with(|t|t.set(false));assert_eq!(COUNT.with(Cell::get),0);
 }

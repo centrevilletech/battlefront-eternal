@@ -127,6 +127,7 @@ fn unit_frame_has_no_allocation_even_during_lifecycle_changes() {
         units.commands[c::ACTOR] = (frame % 32) as f64;
         units.commands[c::KIND] = if frame % 30 == 0 { k::RESET } else { k::FIRE } as f64;
         for row in 0..32 {
+            units.collision.actors[row]=row as u32;
             let collision=row*ci::STRIDE;
             units.collision.input[collision+ci::ENABLED]=1.0;
             units.collision.input[collision+ci::TICK]=frame as f64;
@@ -168,7 +169,7 @@ fn unit_frame_has_no_allocation_even_during_lifecycle_changes() {
             units.input[at + i::GENERATION] = if frame < 300 { 1.0 } else { 2.0 };
         }
         units.pose_frame();
-        units.collision_frame();
+        units.collision_frame(32);
         posed |= units.header[h::CHANGED] > 0.0;
         units.attachment_frame();
         valid &= units.header[h::STATUS] == 0.0;
@@ -238,4 +239,16 @@ fn overfull_counts_and_unknown_ids_never_fail_a_frame() {
         units.refresh_actor(usize::MAX);
         assert_eq!(units.header[h::STATUS], 0.0);
     }
+    // A query prefix clamps its count and skips unknown resource handles.
+    // Ordinary frame() must leave even an enabled, stale collision row alone.
+    use bfe_presentation::layout::unit_collision_output as co;
+    units.collision.input[ci::ENABLED]=1.0;
+    units.collision.input[ci::SCALE]=1.0;
+    units.collision.input[ci::SOURCE_PROP]=-1.0;
+    units.frame();assert_eq!(units.collision.output[co::COUNT],0.0);
+    units.collision.actors[0]=u32::MAX;
+    units.collision_frame(usize::MAX);assert_eq!(units.collision.output[co::COUNT],0.0);
+    units.collision.actors[0]=0;
+    units.collision_frame(usize::MAX);assert_eq!(units.collision.output[co::COUNT],2.0);
+
 }

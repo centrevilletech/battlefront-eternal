@@ -195,10 +195,11 @@ impl PageUnits {
     pub fn collision_output_len(&self)->usize{self.inner.collision.output.len()}
     pub fn collision_shapes_ptr(&self)->*const f64{self.inner.collision.shapes.as_ptr()}
     pub fn collision_shapes_len(&self)->usize{self.inner.collision.shapes.len()}
-    pub fn collide_units(&mut self){self.inner.collision_frame();}
+    pub fn collision_actors_ptr(&self)->*const u32{self.inner.collision.actors.as_ptr()}
+    pub fn collision_actors_len(&self)->usize{self.inner.collision.actors.len()}
+    pub fn collide_units(&mut self,count:usize){self.inner.collision_frame(count);}
     pub fn present_units(&mut self) {
         self.inner.pose_frame();
-        self.inner.collision_frame();
     }
     pub fn present_first_person(&mut self) {
         self.inner.attachment_frame();
@@ -225,6 +226,7 @@ pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
 "collision_input"=>Ok(crate::session::bytes_mut(&mut self.inner.collision.input)),
 "collision_output"=>Ok(crate::session::bytes_mut(&mut self.inner.collision.output)),
 "collision_shapes"=>Ok(crate::session::bytes_mut(&mut self.inner.collision.shapes)),
+"collision_actors"=>Ok(crate::session::bytes_mut(&mut self.inner.collision.actors)),
 _=>Err(format!("unknown presentation input bank {name}")),}}
 pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
 "input"=>Ok(crate::session::bytes(&self.inner.input)),
@@ -239,6 +241,7 @@ pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
 "collision_input"=>Ok(crate::session::bytes(&self.inner.collision.input)),
 "collision_output"=>Ok(crate::session::bytes(&self.inner.collision.output)),
 "collision_shapes"=>Ok(crate::session::bytes(&self.inner.collision.shapes)),
+"collision_actors"=>Ok(crate::session::bytes(&self.inner.collision.actors)),
 _=>Err(format!("unknown presentation bank {name}")),}}
 pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
 ("input", self.inner.input.len()),
@@ -253,6 +256,7 @@ pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
 ("collision_input", self.inner.collision.input.len()),
 ("collision_output", self.inner.collision.output.len()),
 ("collision_shapes", self.inner.collision.shapes.len()),
+("collision_actors", self.inner.collision.actors.len()),
 ]}
 }
 pub enum PageUnitsCommand {
@@ -260,7 +264,7 @@ load_content(String),
 add_actor(usize,String,String),
 add_view(String,String),
 unbind_network(usize),
-collide_units,
+collide_units(usize),
 present_units,
 present_first_person,
 place_actors(usize),
@@ -272,7 +276,7 @@ pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self
 "add_actor"=>Self::add_actor(a.usize(0)?,a.string(1)?,a.string(2)?),
 "add_view"=>Self::add_view(a.string(0)?,a.string(1)?),
 "unbind_network"=>Self::unbind_network(a.usize(0)?),
-"collide_units"=>Self::collide_units,
+"collide_units"=>Self::collide_units(a.usize(0)?),
 "present_units"=>Self::present_units,
 "present_first_person"=>Self::present_first_person,
 "place_actors"=>Self::place_actors(a.usize(0)?),
@@ -283,7 +287,7 @@ Self::load_content(data)=>{let _=host.load_content(data)?;},
 Self::add_actor(content,inverses,attachments)=>{let _=host.add_actor(*content,inverses,attachments)?;},
 Self::add_view(data,attachments)=>{let _=host.add_view(data,attachments)?;},
 Self::unbind_network(actor)=>{let _=host.unbind_network(*actor);},
-Self::collide_units=>{let _=host.collide_units();},
+Self::collide_units(count)=>{let _=host.collide_units(*count);},
 Self::present_units=>{let _=host.present_units();},
 Self::present_first_person=>{let _=host.present_first_person();},
 Self::place_actors(count)=>{let _=host.place_actors(*count);},

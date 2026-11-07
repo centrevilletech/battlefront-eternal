@@ -1352,8 +1352,25 @@ export class PageUnits {
         const ret = wasm.pageunits_changed_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
-    collide_units() {
-        wasm.pageunits_collide_units(this.__wbg_ptr);
+    /**
+     * @param {number} count
+     */
+    collide_units(count) {
+        wasm.pageunits_collide_units(this.__wbg_ptr, count);
+    }
+    /**
+     * @returns {number}
+     */
+    collision_actors_len() {
+        const ret = wasm.pageunits_collision_actors_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    collision_actors_ptr() {
+        const ret = wasm.pageunits_collision_actors_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @returns {number}

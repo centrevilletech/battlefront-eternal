@@ -1,5 +1,5 @@
-// Unit.updateSpheres' page mirrors. A registry operation observes the whole
-// native fleet once; individual bodies only expose retained resource values.
+// Unit.updateSpheres' page mirrors. A query observes stale bodies in one
+// native batch; drawing an actor never prepares or publishes its hit shapes.
 import * as THREE from 'three';
 import {UnitCollisionInput as I,UnitCollisionOutput as O,UnitShape as S,UnitShapeKind as K,UnitCollisionLimits as L} from './layout.js';
 const TYPES=Object.keys(K).map(key=>key.toLowerCase()),POSTURES=['stand','crouch','prone'];
@@ -7,12 +7,13 @@ const TYPES=Object.keys(K).map(key=>key.toLowerCase()),POSTURES=['stand','crouch
 // storage as a double even when a posture changes to a vector half-size.
 function half(){return this.type==='box'||this.type==='capsule'?this.halfSize:this.halfNumber;}
 export class UnitCollision {
- constructor(owner){this.owner=owner;this.buffer=null;this.refresh();}
+ constructor(owner){this.owner=owner;this.pending=[];this.buffer=null;this.refresh();}
  // Resource birth can relocate a vector without growing linear memory.
  // Ordinary frames compare only the memory object and make no getter call.
  refresh(force=false){const owner=this.owner,k=owner.kernel,b=owner.loaded.memory.buffer;
   if(this.buffer===b&&!force)return;
-  this.buffer=b;this.input=new Float64Array(b,k.collision_input_ptr(),k.collision_input_len());
+  this.buffer=b;this.actors=new Uint32Array(b,k.collision_actors_ptr(),k.collision_actors_len());
+  this.input=new Float64Array(b,k.collision_input_ptr(),k.collision_input_len());
   this.output=new Float64Array(b,k.collision_output_ptr(),k.collision_output_len());
   this.shapes=new Float64Array(b,k.collision_shapes_ptr(),k.collision_shapes_len());
  }
@@ -23,10 +24,17 @@ export class UnitCollision {
   row.collisionShapes=Array.from({length:L.SHAPES},()=>{const s={type:'sphere',part:'body',center:new THREE.Vector3(),radius:NaN,halfNumber:NaN,halfSize:new THREE.Vector3(),yaw:NaN};Object.defineProperty(s,'half',{get:half});return s;});
   row.collisionList=row.collisionShapes.slice();while(row.collisionList.length)row.collisionList.pop();
   row.collisionBounds={center:new THREE.Vector3(),radius:NaN};unit.bounds=row.collisionBounds;unit.hitSet=row.collisionList;
+  row.collisionObservedBinding=row.collisionGeneration=row.collisionTick=NaN;
+  while(this.pending.length<this.owner.rows.length)this.pending.push(null);
+  // A direct bounds/limb reader requests the same coarse batch as a registry
+  // query. Later bodies reuse its stamps without per-object native calls.
+  const collision=this;
+  Object.defineProperty(unit,'sphere',{configurable:true,get(){collision.read(row,this);return this.bounds;}});
+  unit.hitShapes=function(){collision.read(row,this);return this.hitSet;};
  }
  // These are correction facts and resource handles, with no shape math.
  // Current native mount/held samples are joined when the batch observes them.
- write(row,unit){this.refresh();const x=this.input,at=row.id*I.STRIDE,s=unit.soldier;if(at>=x.length)return;
+ write(row,unit){const x=this.input,at=row.id*I.STRIDE,s=unit.soldier;if(at>=x.length)return;
   // A prepared class can be rebound without advancing its tick or life.
   x[at+I.BINDING]=row.collisionBinding;
   x[at+I.ENABLED]=unit.removed?0:1;x[at+I.GENERATION]=unit.generation;x[at+I.TICK]=unit.tickCount;
@@ -42,20 +50,30 @@ export class UnitCollision {
   x[at+I.TIMED]=pick?.timed?1:0;x[at+I.FIXED_TIME]=pick?.time!=null?1:0;x[at+I.TIME]=pick?.time??0;
   x[at+I.NINE]=(turret?.rider||vehicle?.seats[lease.index]?.view.rider)?.ninePose?1:0;
  }
- // Queries can precede the body display. Observe current correction fields
- // and the preceding native source pose in one coarse registry phase.
- observe(riders=true,exclude=null,alive=false){this.refresh();this.input.fill(0);
+ // Unit.updateSpheres retained a sample until the body's next tick/life.
+ // Checking the same stamp before packing also avoids unchanged input copies.
+ stale(row,unit){return row.collisionObservedBinding!==row.collisionBinding||row.collisionGeneration!==unit.generation||row.collisionTick!==unit.tickCount;}
+ read(row,unit){if(this.stale(row,unit))this.observe(true,null,false,row);}
+ // Queries can precede the body display. Only requested stale rows enter
+ // the fixed actor-id prefix; native work and readback use that same prefix.
+ observe(riders=true,exclude=null,alive=false,requested=null){this.refresh();let count=0;
   for(const row of this.owner.rows){const unit=row.unit;
-   if(!unit||unit.f3||(alive?!unit.alive:!unit.alive&&!(unit.dead&&!unit.removed)))continue;
-   if(unit.seat&&!riders||unit===exclude||Array.isArray(exclude)&&exclude.includes(unit))continue;
-   this.write(row,unit);
+   if(!unit||unit.f3||!this.stale(row,unit))continue;
+   if(row!==requested){
+    if(alive?!unit.alive:!unit.alive&&!(unit.dead&&!unit.removed))continue;
+    if(unit.seat&&!riders||unit===exclude||Array.isArray(exclude)&&exclude.includes(unit))continue;
+   }
+   this.write(row,unit);this.actors[count]=row.id;this.pending[count++]=row;
   }
-  this.owner.kernel.collide_units();this.refresh();this.publish();
+  if(!count)return;
+  this.owner.kernel.collide_units(count);this.refresh();this.publish(count);
  }
- // Only changed stamps publish. Existing vectors and the shape list survive
- // every posture, seat transition and pooled life.
- publish(){this.refresh();const x=this.output,shapes=this.shapes;
-  for(const row of this.owner.rows){if(!row.collisionBounds||!x[row.id*O.STRIDE+O.CHANGED])continue;
+ // Only the observed prefix publishes. Vectors and shape-list capacity are
+ // retained across every posture, seat transition and pooled life.
+ publish(count){const x=this.output,shapes=this.shapes,input=this.input;
+  for(let index=0;index<count;index++){const row=this.pending[index],a=row.id*I.STRIDE;
+   row.collisionObservedBinding=input[a+I.BINDING];row.collisionGeneration=input[a+I.GENERATION];row.collisionTick=input[a+I.TICK];
+   if(!x[row.id*O.STRIDE+O.CHANGED])continue;
    const at=row.id*O.STRIDE,n=x[at+O.COUNT],list=row.collisionList;
    row.collisionBounds.center.fromArray(x,at+O.CENTER);row.collisionBounds.radius=x[at+O.RADIUS];
    while(list.length>n)list.pop();while(list.length<n)list.push(row.collisionShapes[list.length]);

@@ -691,7 +691,7 @@ export class PageUnits {
     // enclosure and saddle lean across frames, including a released corpse
     // whose former hull was destroyed. A hull's explicit pilot sample belongs
     // to lease birth (rust/sim/src/vehicles/module/f2/riders.rs). Stationary turret aim is refreshed by the native body phase.
-    if(!unit.f3&&this.byUnit.get(unit)!==row)this.collision.bind(row,unit);
+    if(row.unit!==unit&&!unit.f3)this.collision.bind(row,unit);
     row.unit = unit;
     const lease = unit.seat, vehicle = lease?.vehicle, turret = lease?.turret;
     input[at + I.RIDER_RESET] = row.riderLease !== lease ? 1 : 0;
@@ -720,7 +720,6 @@ export class PageUnits {
         input[at+I.SOURCE_RIG]=lease.sourceRig;input[at+I.SOURCE_VERSION]=lease.sourceVersion;
       }else input[at+I.SOURCE_TURRET]=turret.presentationSource;
     }
-    this.collision.write(row,unit);
     this.writeParent(row, input, at, I.HAS_POSE_PARENT, I.POSE_PARENT);
     this.writeParent(row, input, at, I.HAS_ATTACHMENT_PARENT, I.ATTACHMENT_PARENT);
     return at;
@@ -792,7 +791,7 @@ export class PageUnits {
     this.commandCount = 0;
     if (this.header[H.STATUS]) throw Error(`unit presentation status ${this.header[H.STATUS]}`);
     this.publishNodes();
-    this.publishRows();this.collision.publish();
+    this.publishRows();
   }
   publishSkin(row) {
     // Only a placed row: attached skin bindings are native output too, and

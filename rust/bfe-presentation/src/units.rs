@@ -278,14 +278,20 @@ impl Units {
         self.views[id].node_start
     }
 
-    /// One complete registry observation, before any per-target JS readers.
-    pub fn collision_frame(&mut self){for(id,actor)in self.actors.iter().enumerate(){self.collision.observe(id,&self.contents[actor.content],&actor.rig,&self.rider_sources);}}
+    /// Unit.updateSpheres observes only the requested, stale actor prefix.
+    /// Drawn frames never consume or advance a collision cache stamp.
+    pub fn collision_frame(&mut self,count:usize){
+        for n in 0..count.min(self.collision.actors.len()) {
+            let id=self.collision.actors[n] as usize;
+            let Some(actor)=self.actors.get(id)else{continue};
+            self.collision.observe(id,&self.contents[actor.content],&actor.rig,&self.rider_sources);
+        }
+    }
 
     /// One presented frame, in original command order. Invalid counts fail
     /// explicitly and retain the previous outputs rather than running JS.
     pub fn frame(&mut self) {
         self.pose_frame();
-        self.collision_frame();
         self.attachment_frame();
     }
 

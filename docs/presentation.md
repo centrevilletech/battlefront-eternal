@@ -150,9 +150,10 @@ source fields publish once per lease; displayed matrices remain native.
 World rider collision samples the unit's retained BodyPose through the native
 vehicle owner. Held shapes use the same unit sampler and native prop frame;
 Unit.updateSpheres and the page riderPoints solver have no JS implementation.
-Page registry observations refresh all admitted native shape caches in one call;
-individual units expose retained bounds and shape mirrors. Body display also
-observes those caches after posing. Both owners share the posture primitives
+Page registry observations submit only stale bodies through one retained actor-id
+prefix. Direct bounds and limb readers request that same coarse batch; unchanged
+samples copy no inputs or outputs and make no native call. Body display neither
+prepares nor observes collision shapes. Both owners share the posture primitives
 and broadphase arithmetic in bfe-pose, preserving each tick's lazy observation.
 The prop display owner registers a held body from the native unit skeleton
 and snapshots its current local pose once. Unkeyed grab joints retain that

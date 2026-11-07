@@ -107,7 +107,12 @@
       },
       {
         "name": "collide_units",
-        "args": [],
+        "args": [
+          [
+            "count",
+            "usize"
+          ]
+        ],
         "result": ""
       },
       {
@@ -253,6 +258,12 @@
         "type": "f64",
         "pointer": "collision_shapes_ptr",
         "length": "collision_shapes_len"
+      },
+      {
+        "name": "collision_actors",
+        "type": "u32",
+        "pointer": "collision_actors_ptr",
+        "length": "collision_actors_len"
       }
     ]
   },

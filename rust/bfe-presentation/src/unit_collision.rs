@@ -1,5 +1,5 @@
-//! Page replicas' Unit.updateSpheres cache. Registry queries refresh every
-//! admitted body in one native phase, then read retained shape resources.
+//! Page replicas' Unit.updateSpheres cache. Registry queries refresh stale
+//! admitted bodies in one native phase, then read retained shape resources.
 //! The authority uses the same on-foot tables and broadphase arithmetic.
 use crate::{layout::{unit_collision_input as i,unit_collision_output as o,unit_shape as s,unit_shape_kind as k,unit_collision_limits as lim},unit_content::Content,rider_sources::{Bindings,Source}};
 use bfe_pose::{display::DisplayRig,rig::{body_shapes::{self,Shape,Kind},rider::{self,RiderSkeleton,RiderScratch,RiderPoints,RiderSample}}};
@@ -8,12 +8,14 @@ use three::{Vector3,Quaternion,Matrix4};
 // A query changes values in these stores and never grows their capacity.
 struct Cache {binding:f64,generation:f64,tick:f64,skeleton:RiderSkeleton,scratch:RiderScratch,q:Vec<Quaternion>,p:Vec<Vector3>,points:RiderPoints,rider:[rider::HitShape;lim::SHAPES],shapes:[Shape;lim::SHAPES]}
 #[derive(Default)]
-pub struct Collision {rows:Vec<Cache>,pub input:Vec<f64>,pub output:Vec<f64>,pub shapes:Vec<f64>}
+pub struct Collision {rows:Vec<Cache>,pub actors:Vec<u32>,pub input:Vec<f64>,pub output:Vec<f64>,pub shapes:Vec<f64>}
 impl Collision {
  /// Only actor registration grows stores or creates a pose accumulator.
  pub fn actor(&mut self,skeleton:&bfe_pose::rig::skeleton::Skeleton){
   let skeleton=RiderSkeleton::new(skeleton);let n=skeleton.parent.len();let scratch=RiderScratch::new(&skeleton);
   self.rows.push(Cache{binding:f64::NAN,generation:f64::NAN,tick:f64::NAN,skeleton,scratch,q:vec![Quaternion::default();n],p:vec![Vector3::default();n],points:RiderPoints::default(),rider:[rider::HitShape::default();lim::SHAPES],shapes:[Shape::default();lim::SHAPES]});
+  // The host submits a retained actor-id prefix, not the whole resource pool.
+  self.actors.resize(self.rows.len(),0);
   self.input.resize(self.rows.len()*i::STRIDE,0.0);self.output.resize(self.rows.len()*o::STRIDE,0.0);self.shapes.resize(self.rows.len()*lim::SHAPES*s::STRIDE,0.0);
  }
  pub fn observe(&mut self,id:usize,content:&Content,rig:&DisplayRig,sources:&Bindings){
@@ -52,7 +54,6 @@ impl Collision {
    }
   }
   // Posture precedence follows the old getter: dead, dive, air, posture.
-  // Collision uses authority coordinates.
   if count==0 {
    let posture=if x[i::DEAD]!=0.0{2}else if x[i::DIVE]!=0.0{1}else if x[i::AIR]!=0.0{0}else{x[i::POSTURE]as u8};
    count=body_shapes::standing(Vector3::new(x[i::POSITION],x[i::POSITION+1],x[i::POSITION+2]),x[i::YAW],posture,x[i::SCALE],(x[i::WALKER]!=0.0).then_some(x[i::MODE]),x[i::BALL_RADIUS],&mut cache.shapes);
