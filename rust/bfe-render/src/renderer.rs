@@ -52,6 +52,7 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub foliage: FoliagePass<C>,
     pub view: ViewPass<C>,
     pub post: PostPass<C>,
+    pub post_chain: crate::post_chain::PostChain,
     pub hud: HudPass<C>,
     pub interface: InterfacePass,
     pub water: WaterPass<C>,
@@ -76,7 +77,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let shadow = ShadowPass::new(&mut core);
         let motion = MotionPass::new(&mut core);
         let canopies = CanopiesPass::new(&mut core);
-        Renderer { core, world, instances, far, transparent, effects, foliage, view, post, hud, interface: InterfacePass::default(), water, shadow, motion, canopies }
+        Renderer { core, world, instances, far, transparent, effects, foliage, view, post, post_chain: crate::post_chain::PostChain::default(), hud, interface: InterfacePass::default(), water, shadow, motion, canopies }
     }
 
     // Replace a pending image's sampler in every retained draw binding.
@@ -263,6 +264,23 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.core.begin_phase();
         self.post.draw(&mut self.core, steps);
         self.core.end_phase()
+    }
+
+    // Graphics' post policy and Upscaler's commit form one native phase.
+    // The low-level post_frame remains the screen/replay draw primitive.
+    pub fn post_chain_frame(&mut self) -> Result<(), String> {
+        let steps = self.post_chain.plan(&mut self.post.input);
+        self.core.begin_phase();
+        self.post.draw(&mut self.core, steps);
+        let stats = match self.core.end_phase() {
+            Ok(stats) => stats,
+            Err(error) => { self.post_chain.invalidate(); return Err(error); }
+        };
+        self.post_chain.stats(stats);
+        // WebGL can lose the context during a draw, before its event reaches
+        // the host. That frame must not publish a history bank or jitter tick.
+        self.post_chain.complete(stats.pass_draws[crate::core::PASS_POST] as usize, self.core.multi.context_lost());
+        Ok(())
     }
 
     // A full-screen pass outside the post chain, drawn on its own (the

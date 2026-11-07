@@ -1,3 +1,4 @@
+import { STATE, FACTS, MODE } from "../src/rust-render/post-layout.js";
 import { checkResources } from "./renderer-resource-checks.js";
 import * as THREE from 'three';
 import { Graphics } from '../src/graphics.js';
@@ -242,7 +243,11 @@ export async function checkRenderer(backend, manifests) {
         if(name==='post_frame')for(let i=0;i<args[0];i++)ownedDraws.add(g.rust.postInput[i*(5+12*18)]);
         if(name==='hud_frame')ownedDraws.add(g.rust.hudInput[1]);
         if (name === 'frame') { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, poison); }
-        const value = fn.apply(target, args);
+        let value = fn.apply(target, args);
+        if (name === 'post_chain_frame') {
+          g.rust.views(); value = g.rust.postStats;
+          for (let i = 0; i < g.rust.postState[STATE.STEPS]; i++) ownedDraws.add(g.rust.postInput[i*(5+12*18)]);
+        }
         if(checkShadowAttachments && name==='shadow_frame' && g.rust.casterInput[0]>=0){
           const texture=g.rust.textureSources[g.rust.casterInput[0]];
           const expected=g.renderer.properties.get(texture).__webglTexture;
@@ -349,7 +354,7 @@ export async function checkRenderer(backend, manifests) {
     settings.set('upscaler','temporal');
     assert('Temporal targets supported',g.upscaling==='temporal');
     const temporalSequence=()=>{
-      g.upscaler.invalidate();g.upscaler.frame=0;g.upscaler.read=0;
+      g.upscaler.reset();
       let pixels;for(let i=0;i<8;i++)pixels=capture();return pixels;
     };
     const temporalA=temporalSequence(),temporalB=temporalSequence();
@@ -375,7 +380,7 @@ export async function checkRenderer(backend, manifests) {
     assert('Alpha-to-coverage drew on a four-sample target',alphaCoverageDraws>0&&alphaSamples.has(4),{alphaCoverageDraws,samples:[...alphaSamples]});
     settings.set('antialiasing','off');compare('multisampling switched off');
     assert('Unpainted terrain taken by Rust', groundMaterial.visible === false);
-    for (const name of ['frame', 'far_frame', 'transparent_frame', 'view_frame', 'post_frame']) assert(`${name} issues Rust programs`, phaseDraws[name] > 0, phaseDraws);
+    for (const name of ['frame', 'far_frame', 'transparent_frame', 'view_frame', 'post_chain_frame']) assert(`${name} issues Rust programs`, phaseDraws[name] > 0, phaseDraws);
     // Motion has its own target and depth input, separate from post history.
     // Use real motion tracking with synthetic depth and two distinct view matrices.
     // Nonzero velocity proves the shader did work; exact repetition detects stale
@@ -522,7 +527,14 @@ export async function checkRenderer(backend, manifests) {
     const canvas = g.renderer.domElement;
     console.log("renderer smoke: context loss");
     const lost = new Promise(resolve => canvas.addEventListener('webglcontextlost', resolve, { once: true }));
+    // Loss is observable natively before the browser dispatches its event.
+    // A pending temporal chain must not advance either bank or phase then.
+    g.rust.postFacts[FACTS.MODE] = MODE.TEMPORAL;
+    g.rust.rust.post_chain_begin_frame();
+    const lostRead=g.upscaler.read,lostFrame=g.upscaler.frame;
     loss.loseContext();
+    g.rust.rust.post_chain_frame();
+    assert('A lost post frame never commits history',g.upscaler.read===lostRead&&g.upscaler.frame===lostFrame&&!g.upscaler.valid);
     await lost;
     // Loading and window changes can create/resize descriptors while drawing
     // is suspended. They must be realized by restoration, never by native GL.

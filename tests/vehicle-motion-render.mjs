@@ -30,7 +30,12 @@ try {
    if(radius<.1){center+=d;nc+=3}else if(radius>.4){edges+=d;ne+=3}
   }
   b.settings.set('vehicleMotionBlur',false);b.graphics.setVehicleMotion(1,1);
-  return {driving:b.driver.active,center:center/nc,edges:edges/ne,calls,blurCalls,disabled:b.graphics.composite.material.uniforms.speedBlur.value,image};
+  b.graphics.render(0);b.graphics.rust.views();
+  const core=b.graphics.rust,post=core.postInput,entry=core.ownedPrograms.get('post-hud/composite');
+  // Existing post.rs operation ABI; the uniform slot comes from its catalog.
+  const STRIDE=221,FIRST=5,UNIFORM=18,DATA=2,slot=entry.uniforms.findIndex(u=>u.name==='speedBlur');
+  let disabled=null;for(let at=0;at<post.length;at+=STRIDE)if(post[at]===entry.id)disabled=post[at+FIRST+slot*UNIFORM+DATA];
+  return {driving:b.driver.active,center:center/nc,edges:edges/ne,calls,blurCalls,disabled,image};
  });
  const {image,...metrics}=result;console.log({entered,...metrics});
  assert.ok(result.center<.2,'aiming area must stay sharp');assert.ok(result.edges>.3,'peripheral speed streaks must be visible');

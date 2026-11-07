@@ -87,6 +87,8 @@ pub trait MultiDraw {
     fn save_framebuffers(&mut self) -> bool { false }
     fn read_saved_draw_framebuffer(&self) {}
     fn restore_framebuffers(&self) {}
+    // The platform reports loss before a temporal draw can commit history.
+    fn context_lost(&self) -> bool { false }
 }
 
 #[derive(Clone, Copy, PartialEq)]

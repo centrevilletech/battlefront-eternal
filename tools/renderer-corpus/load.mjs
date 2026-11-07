@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import { expand, readManifest } from './manifest.mjs';
 import { programLayouts } from '../../src/render-programs.js';
+import { POST_KEYS } from '../../src/rust-render/post-layout.js';
 import { connect, loadBattle } from './battle.mjs';
 const manifest = expand(readManifest());
 const testCase = manifest.cases.find(c => c.id === (process.env.BFE_CORPUS_CASE || 'classic-nab2'));
@@ -21,7 +22,7 @@ const extraSrc = `(() => {
 const c = await connect();
 try {
   const loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query, extraSrc });
-  const metrics = await c.ev(`({coverage:(() => {const g=__bf.graphics, R=g.renderer,materials=[g.downsample.material,g.composite.material,g.fxaa.material,g.fxaaFast?.material,g.bloom.extract.material,g.bloom.blur.material,...[g.upscaler.motionPass,g.upscaler.resolvePass,g.upscaler.sharpenPass,g.upscaler.spatialPass,g.upscaler.bilinearPass].map(p=>p.material),...__bf.hud.batch.mesh.material].filter(Boolean);const rows=materials.map(m=>({key:m.userData.bfeProgram,three:!!R.properties.get(m).currentProgram,owned:g.rust.ownedPrograms?.has(m.userData.bfeProgram)||false}));for(const key of ${JSON.stringify(Object.keys(programLayouts).filter(k=>k.startsWith('effects/')))})rows.push({key,owned:g.rust.ownedPrograms?.has(key)||false});return rows;})(),load:window.__shaderLoad, programs:__bf.graphics.rust.shaderPrograms || [],enabled:__bf.graphics.rust.enabled,errors:__bf.graphics.rust.errors})`);
+  const metrics = await c.ev(`({coverage:(() => {const g=__bf.graphics, R=g.renderer,materials=[...__bf.hud.batch.mesh.material].filter(Boolean);const postKeys=${JSON.stringify(POST_KEYS)};const rows=postKeys.map(key=>({key,three:false,owned:g.rust.ownedPrograms?.has(key)||false}));rows.push(...materials.map(m=>({key:m.userData.bfeProgram,three:!!R.properties.get(m).currentProgram,owned:g.rust.ownedPrograms?.has(m.userData.bfeProgram)||false})));for(const key of ${JSON.stringify(Object.keys(programLayouts).filter(k=>k.startsWith('effects/')))})rows.push({key,owned:g.rust.ownedPrograms?.has(key)||false});return rows;})(),load:window.__shaderLoad, programs:__bf.graphics.rust.shaderPrograms || [],enabled:__bf.graphics.rust.enabled,errors:__bf.graphics.rust.errors})`);
   const firstUse = await c.ev(`(async()=>{
     const b=__bf,g=b.graphics,T=window.__shaderLoad;
     const counts=()=>Object.fromEntries(Object.entries(T.methods).map(([name,m])=>[name,m.count]));

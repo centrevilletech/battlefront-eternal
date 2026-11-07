@@ -835,6 +835,9 @@ ratio capped at 2), and the HUD is drawn over the result at full resolution.
 Before, they shrank the canvas itself, and the browser stretched everything,
 HUD included. The far scene, near scene, soft focus and bloom run at the
 render size. Upscaler set to "off" restores the old behaviour.
+Rust selects the post programs and uniforms and owns temporal jitter, camera-cut
+resets and history commit. `src/upscaler.js` retains target/camera shells and
+applies the published native camera adjustment.
 
 - Settings:
   - `upscaler`: `temporal` (default), `spatial`, `bilinear` or `off`.
@@ -844,7 +847,7 @@ render size. Upscaler set to "off" restores the old behaviour.
   - `upscaleSharpness`: 0 to 1, default 0.4.
   - The render-scale slider now steps by 0.05, so 0.5 (4K from 1080p) and
     0.65 to 0.7 (4K from about 1440p) are reachable.
-- **Spatial** (`src/upscaler.js`): one pass of Catmull-Rom (9 bilinear taps),
+- **Spatial** (`rust/bfe-render/src/post_chain.rs`): one pass of Catmull-Rom (9 bilinear taps),
   clamped to the range of the four nearest texels so edges don't ring.
   Scales above 1 are box-filtered down.
 - **Temporal**: TAAU in the FSR 2 / UE TAAU family, written for this

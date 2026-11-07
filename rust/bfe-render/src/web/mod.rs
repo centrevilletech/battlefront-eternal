@@ -30,6 +30,7 @@ pub struct WebMultiDraw(Option<web_sys::WebglMultiDraw>, web_sys::WebGl2Renderin
     Option<(Option<web_sys::WebGlFramebuffer>, Option<web_sys::WebGlFramebuffer>)>);
 
 impl MultiDraw for WebMultiDraw {
+    fn context_lost(&self) -> bool { self.1.is_context_lost() }
     fn multi_draw(&self, mode: u32, counts: &mut [i32], element_type: u32, offsets: &mut [i32]) {
         match &self.0 {
             Some(ext) => ext.multi_draw_elements_webgl_with_i32_array_and_i32_array(mode, counts, 0, element_type, offsets, 0, counts.len() as i32),
@@ -145,7 +146,12 @@ impl BfeRenderer {
     // compile or selects a browser draw when linking fails.
     pub fn add_owned_program(&mut self, key: &str) -> Result<u32, JsValue> {
         self.remember_add_owned_program(key); // recovery
- self.r.core.add_owned_program(key).map_err(|e| JsValue::from_str(&e))
+ let id = self.r.core.add_owned_program(key).map_err(|e| JsValue::from_str(&e))?;
+        if key.starts_with("post-hud/") {
+            let spec = crate::programs::spec(key).map_err(|e| JsValue::from_str(&e))?;
+            self.r.post.prepare_program(id as usize, spec.uniforms);
+        }
+        Ok(id)
     }
 
     // Draw a captured shader-conformance fixture with its already restored GL

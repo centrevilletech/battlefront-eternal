@@ -10,6 +10,7 @@ pub mod lights;
 pub mod math;
 pub mod motion;
 pub mod post;
+pub mod post_chain;
 pub mod programs;
 pub mod renderer;
 pub mod shader;

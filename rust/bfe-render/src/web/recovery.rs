@@ -1403,6 +1403,9 @@ impl BfeRenderer {
         // Preserve transparent input storage; replay must not reset the live frame values.
         self.r.transparent.keys = std::mem::take(&mut old.transparent.keys);
         self.r.transparent.objects = std::mem::take(&mut old.transparent.objects);
+        // Temporal CPU ownership survives reconstruction, but old history cannot.
+        self.r.post_chain = std::mem::take(&mut old.post_chain);
+        self.r.post_chain.invalidate();
         // These passes own dynamic GPU buffers backed by the moved mirrors.
         // Populate them before the first restored frame can sample their VAOs.
         self.r.hud.reupload(&mut self.r.core);

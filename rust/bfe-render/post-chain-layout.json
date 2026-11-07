@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "facts": [
+    [
+      "mode",
+      1
+    ],
+    [
+      "aa",
+      1
+    ],
+    [
+      "softFocus",
+      1
+    ],
+    [
+      "blurEnabled",
+      1
+    ],
+    [
+      "blurBlend",
+      1
+    ],
+    [
+      "bloom",
+      1
+    ],
+    [
+      "speedEnabled",
+      1
+    ],
+    [
+      "speedAmount",
+      1
+    ],
+    [
+      "speedTurn",
+      1
+    ],
+    [
+      "sharpness",
+      1
+    ],
+    [
+      "resetSerial",
+      1
+    ],
+    [
+      "resetFrame",
+      1
+    ],
+    [
+      "resetRead",
+      1
+    ],
+    [
+      "inputWidth",
+      1
+    ],
+    [
+      "inputHeight",
+      1
+    ],
+    [
+      "outputWidth",
+      1
+    ],
+    [
+      "outputHeight",
+      1
+    ],
+    [
+      "canvasWidth",
+      1
+    ],
+    [
+      "canvasHeight",
+      1
+    ],
+    [
+      "projection",
+      16
+    ],
+    [
+      "view",
+      16
+    ],
+    [
+      "world",
+      16
+    ]
+  ],
+  "state": [
+    [
+      "read",
+      1
+    ],
+    [
+      "frame",
+      1
+    ],
+    [
+      "valid",
+      1
+    ],
+    [
+      "resetSerial",
+      1
+    ],
+    [
+      "outputWidth",
+      1
+    ],
+    [
+      "outputHeight",
+      1
+    ],
+    [
+      "lastEye",
+      3
+    ],
+    [
+      "lastLook",
+      3
+    ],
+    [
+      "current",
+      16
+    ],
+    [
+      "previous",
+      16
+    ],
+    [
+      "inverseJittered",
+      16
+    ],
+    [
+      "jitter",
+      2
+    ],
+    [
+      "shift",
+      2
+    ],
+    [
+      "phases",
+      1
+    ],
+    [
+      "temporal",
+      1
+    ],
+    [
+      "upscale",
+      1
+    ],
+    [
+      "pending",
+      1
+    ],
+    [
+      "steps",
+      1
+    ],
+    [
+      "stats",
+      20
+    ]
+  ],
+  "resources": [
+    "scene",
+    "quarter",
+    "bloom",
+    "scratch",
+    "post",
+    "aa",
+    "history0",
+    "history1",
+    "velocity",
+    "motion",
+    "depth"
+  ],
+  "resourceFields": [
+    "texture",
+    "target",
+    "width",
+    "height"
+  ],
+  "programs": {
+    "copy": "post-hud/copy",
+    "extract": "post-hud/bloom-extract",
+    "blur": "post-hud/bloom-blur",
+    "composite": "post-hud/composite",
+    "fxaa": "post-hud/fxaa",
+    "fxaaFast": "post-hud/fxaa-fast",
+    "bilinear": "post-hud/bilinear",
+    "spatial": "post-hud/spatial",
+    "motion": "post-hud/motion",
+    "resolve": "post-hud/resolve",
+    "sharpen": "post-hud/sharpen"
+  },
+  "modes": {
+    "off": 0,
+    "bilinear": 1,
+    "spatial": 2,
+    "temporal": 3
+  },
+  "aa": {
+    "off": 0,
+    "fxaa": 1,
+    "fast": 2
+  }
+}

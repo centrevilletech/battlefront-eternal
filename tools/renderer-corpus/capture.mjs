@@ -2,9 +2,13 @@
 // applications; comparison never selects an alternate runtime implementation.
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
-import { gzipSync, gunzipSync } from 'node:zlib';
+import { gzipSync } from 'node:zlib';
 import { expand, readManifest } from './manifest.mjs';
 import { installReplay } from './replay.mjs';
+import { replayBlobStore } from './replay-blobs.mjs';
+import { uploadReplayBlobs } from './blob-transfer.mjs';
+import { installPostPolicy } from './post-policy.mjs';
+import * as postLayout from '../../src/rust-render/post-layout.js';
 import { installScenario } from './scenarios.mjs';
 import { installGLTracking, installGLReplay } from './gl-replay.mjs';
 import { connect, loadBattle, GL_STATE, HELPERS_SRC } from './battle.mjs';
@@ -25,7 +29,7 @@ const log = process.env.BFE_GPU_LOG;
 const gpuDeaths = () => log && fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(l => /GPU process exited|GPU process isn't usable|GPU process crashed|Lost UI shared context|exit_code=512/i.test(l)) : ['missing GPU log'];
 // One capture is one application session in one role (reference, control or candidate); compare.mjs reads the three directories together.
 const c = await connect();
-const result = { role, id, contract: manifest.version, gpuInputVersion: shaderIndex ? 3 : null, points: [] };
+const result = { role, id, build:process.env.BFE_CORPUS_BUILD || null, contract: manifest.version, gpuInputVersion: shaderIndex ? 3 : null, points: [] };
 try {
   // Load the immutable case: same query, settings and seeded world in every role, advanced to a fixed authority tick before sampling.
   result.loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query, extraSrc: shaderIndex?`(${installGLTracking.toString()})(${JSON.stringify(shaderIndex)})`:"" });
@@ -43,7 +47,7 @@ try {
       const error=gl.getError();if(error)throw Error(name+' read GL '+error);
       T.stages[name]={w,h,bytes:half?2:1,buf};
     };
-    const post=g.postSteps;g.postSteps=function(...a){if(T.want){
+    const postName=typeof g.postSteps === "function" ? "postSteps" : "finishPost";const post=g[postName];g[postName]=function(...a){if(T.want){
       read('far',g.farTarget);read('scene',g.sceneTarget);
       if(g.upscaling==='temporal'){read('velocity',g.upscaler.velocity);read('motion',g.upscaler.motion);read('history',g.upscaler.history[g.upscaler.read]);}
       const water=g.scene.userData.water;
@@ -52,7 +56,8 @@ try {
     const hud=b.hud.render;b.hud.render=function(...a){if(T.want)read('post',null);const r=hud.apply(this,a);if(T.want)read('presented',null);return r;};
     return {buffer:[gl.drawingBufferWidth,gl.drawingBufferHeight],target:[g.sceneTarget.width,g.sceneTarget.height],samples:g.sceneTarget.samples,supportedSamples:g.supportedSamples,upscaling:g.upscaling};
   })()`);
-  await c.ev(`(${installReplay.toString()})()`);
+  await c.ev(`(${installReplay.toString()})(${replayBlobStore.toString()})`);
+  await c.ev(`(${installPostPolicy.toString()})(${JSON.stringify(postLayout)},${JSON.stringify(testCase.post) || "null"})`);
   if(shaderIndex)await c.ev(`(${installGLReplay.toString()})()`);
   await c.ev(`window.__corpus.captureReplay=${role === 'reference'};window.__corpus.referenceBuild=${role !== 'candidate'}`);
   if (testCase.camera === 'water') await c.ev(`(() => {
@@ -78,9 +83,9 @@ try {
       window.dispatchEvent(new MouseEvent('mouseup',{button:0,bubbles:true}));G.key('KeyW',false);G.key('KeyA',false);T.place?.(${k});
       for(const w of g.cascadeWindows || [])w.invalidate();
       for(let i=0;i<${manifest.settleFrames || 2};i++)await b.lockstep(0,true);
-      g.upscaler?.invalidate();if(g.upscaling==='temporal')g.upscaler.frame=${k};
+      if(!${Boolean(testCase.retainHistory)}){if(g.upscaler?.reset)g.upscaler.reset(${k},-1);else{g.upscaler?.invalidate();if(g.upscaling==='temporal')g.upscaler.frame=${k};}}
       for(let i=0;i<${manifest.historyFrames};i++)await b.lockstep(0,true);
-      await T.scenarioCapture?.();G.resetFrame();T.stages={};T.records=[];T.blobs={};T.resetGLStages?.();T.want=true;const tick=await b.lockstep(0,true);T.want=false;
+      await T.scenarioCapture?.();G.resetFrame();T.stages={};T.records=[];T.blobs={};T.resetGLStages?.();T.want=true;const tick=await b.lockstep(0,true);T.want=false;T.completePostPolicy?.();
       const s=T.stages.presented;if(!s)throw Error('HUD did not draw');
       let lit=0;for(let i=0;i<s.buf.length;i+=64)if(s.buf[i]>8 || s.buf[i+1]>8 || s.buf[i+2]>8)lit++;
       return {k:${k},tick,lit:lit/(s.buf.length/64),rustDraws:G.rustDraws(),rustPhases:Object.keys(G.frameStats),programGaps:T.programGaps || [],errors:[...g.rust.errors],gl:{...${GL_STATE},error:gl.getError()},stages:Object.fromEntries(Object.entries(T.stages).map(([n,s])=>[n,{w:s.w,h:s.h,bytes:s.bytes}]))};
@@ -98,17 +103,14 @@ try {
       }
       for (const [key,blob] of Object.entries(payload.blobs)) {
         const data=await c.ev(`(() => {const b=window.__corpus.blobs[${JSON.stringify(key)}],buf=new Uint8Array(b.buffer,b.byteOffset,b.byteLength);let str='';for(let i=0;i<buf.length;i+=0x8000)str+=String.fromCharCode.apply(null,buf.subarray(i,i+0x8000));return btoa(str);})()`);
-        blob.file=`${rawDir}/${k}-replay-${key}.bin.gz`;blob.compression="gzip";fs.writeFileSync(blob.file,gzipSync(Buffer.from(data,'base64'),{level:1}));
+        blob.file=`${rawDir}/${k}-replay-${key}.bin`;fs.writeFileSync(blob.file,Buffer.from(data,'base64'));
       }
       point.replayFile=`${rawDir}/${k}-replay.json`;fs.writeFileSync(point.replayFile,JSON.stringify(payload));
       point.selfReplay=await c.ev(`window.__corpus.replay(window.__corpus.records,window.__corpus.blobs)`);
     } else if(role==='candidate' || role==='control') {
       const payload=JSON.parse(fs.readFileSync(`${process.env.BFE_CORPUS_RAW || out}/${id}-reference/${k}-replay.json`));
       await c.ev(`window.__corpus.payload={records:${JSON.stringify(payload.records)},blobs:{}};1`);
-      for(const [key,blob] of Object.entries(payload.blobs)) {
-        const raw=fs.readFileSync(blob.file);const data=(blob.compression==='gzip'?gunzipSync(raw):raw).toString('base64');
-        await c.ev(`(() => {const raw=atob(${JSON.stringify(data)}),bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));window.__corpus.payload.blobs[${JSON.stringify(key)}]=new window[${JSON.stringify(blob.type)}](bytes.buffer);return 1;})()`);
-      }
+      await uploadReplayBlobs(c,payload.blobs);
       point.replay=await c.ev(`window.__corpus.replay(window.__corpus.payload.records,window.__corpus.payload.blobs)`);
       await c.ev(`window.__corpus.payload=null;1`);
     }
@@ -156,11 +158,12 @@ try {
   // What the candidate registered from the catalog and how long each link took (the loading-time measurement reads this).
   result.shaderPrograms=await c.ev(`__bf.graphics.rust.shaderPrograms || []`);
   result.gpuDeaths=gpuDeaths();
-  const size=result.setup.buffer[0]===1600 && result.setup.buffer[1]===900 && result.setup.target[0]===Math.round(1600*testCase.settings.renderScale) && result.setup.target[1]===Math.round(900*testCase.settings.renderScale);
+  const canvasScale=result.setup.upscaling==='off'?testCase.settings.renderScale:1;
+  const size=result.setup.buffer[0]===Math.floor(1600*canvasScale) && result.setup.buffer[1]===Math.floor(900*canvasScale) && result.setup.target[0]===Math.round(1600*testCase.settings.renderScale) && result.setup.target[1]===Math.round(900*testCase.settings.renderScale);
   // The candidate must have no error naming an owned family: a refused variant is a failure, not a skipped draw.
   result.familyErrors=role==='candidate'?result.points.flatMap(p=>p.errors).filter(e=>/^effects |^water |^motion |effects\/|Owned (?:water|underwater|transparent)|First-person arc/.test(e)):[];
   // A session is valid only with a full set of points, retained draws, no GPU death or context loss, no program gaps and no GL error.
-  result.valid=size && !result.familyErrors.length && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>p.lit>=.2 && p.rustDraws>0 && !p.gl.lostEvents && p.gl.lostEvents!==null && !p.gl.contextLost && !p.gl.rustLost && !(p.programGaps?.length) && p.gl.rustEnabled && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
+  result.valid=size && !result.familyErrors.length && !result.gpuDeaths.length && result.points.length===manifest.captures && result.points.every(p=>p.lit>=.2 && p.rustDraws>0 && (!testCase.post?.restore || (/NVIDIA/.test(p.gl.renderer) && !/SwiftShader|llvmpipe|Vulkan/i.test(p.gl.renderer))) && p.gl.lostEvents===(testCase.post?.restore&&p.k>0?1:0) && p.gl.restoredEvents===(testCase.post?.restore&&p.k>0?1:0) && !p.gl.contextLost && !p.gl.rustLost && !(p.programGaps?.length) && p.gl.rustEnabled && !p.gl.error && (testCase.camera!=='water' || (p.rustPhases.includes('mirror') && p.stages.reflection)));
 } catch(error) { result.error=String(error.stack || error);result.valid=false; }
 finally {
   result.console=c.consoleErrors.slice(0,30);

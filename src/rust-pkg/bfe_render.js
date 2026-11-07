@@ -1386,6 +1386,63 @@ export class BfeRenderer {
         BfeRendererFinalization.register(this, this.__wbg_ptr, this);
         return this;
     }
+    post_chain_begin_frame() {
+        wasm.bferenderer_post_chain_begin_frame(this.__wbg_ptr);
+    }
+    /**
+     * @returns {string | undefined}
+     */
+    post_chain_error_frame() {
+        const ret = wasm.bferenderer_post_chain_error_frame(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]);
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * @returns {boolean}
+     */
+    post_chain_frame() {
+        const ret = wasm.bferenderer_post_chain_frame(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {number}
+     */
+    post_chain_input_len() {
+        const ret = wasm.bferenderer_post_chain_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    post_chain_input_ptr() {
+        const ret = wasm.bferenderer_post_chain_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    post_chain_plan_frame() {
+        const ret = wasm.bferenderer_post_chain_plan_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    post_chain_state_len() {
+        const ret = wasm.bferenderer_post_chain_state_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    post_chain_state_ptr() {
+        const ret = wasm.bferenderer_post_chain_state_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
     /**
      * @param {number} steps
      * @returns {Uint32Array}

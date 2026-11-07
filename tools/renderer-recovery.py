@@ -279,7 +279,10 @@ fields = {'core':['input','bones','shadow_input'], 'effects':['input','data','ma
 for owner,names in fields.items():
     out.append(f'        // Preserve {owner} input storage; replay must not reset the live frame values.')
     for name in names: out.append(f'        self.r.{owner}.{name} = std::mem::take(&mut old.{owner}.{name});')
-out += ['        // These passes own dynamic GPU buffers backed by the moved mirrors.',
+out += ['        // Temporal CPU ownership survives reconstruction, but old history cannot.',
+        '        self.r.post_chain = std::mem::take(&mut old.post_chain);',
+        '        self.r.post_chain.invalidate();',
+        '        // These passes own dynamic GPU buffers backed by the moved mirrors.',
         '        // Populate them before the first restored frame can sample their VAOs.']
 out += [f'        self.r.{name}.reupload(&mut self.r.core);' for name in ('hud','interface','canopies','water','far')]
 out += ['        // Keep the same history for another loss. Only successful completion',

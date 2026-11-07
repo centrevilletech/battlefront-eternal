@@ -72,7 +72,6 @@ const PHASES = {
   // ctx.image: the far scene's image drawn first (screen.js).
   transparent: { view: VIEW_NEAR, draw: (rust, ctx) => rust.transparent_frame(ctx.commands ?? 0, ctx.image ?? 0) },
   view: { view: VIEW_FIRST_PERSON, draw: (rust, ctx) => rust.view_frame(ctx.records) },
-  post: { view: null, draw: (rust, ctx) => rust.post_frame(ctx.steps ?? 0) },
   hud: { view: null, draw: (rust) => rust.hud_frame() },
   // The near phase's passes from a mirror camera (water.js's reflection).
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
@@ -220,7 +219,8 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass, linesPass]) this.addPass(make(this));
+    this.byName.post = postPass(this);
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass, linesPass]) this.addPass(make(this));
     this.interface = new InterfacePass(this);
     bindInterfaceRenderer(this.renderer, this.interface);
   }
@@ -245,6 +245,7 @@ export class RustRender {
     this.buffer = null;
     this.views();
     this.shadowMaps = "";
+    this.byName.post.revision = -1;
     this.byName.hud.full = true;
     this.byName.water.full = true;
     for (const window of this.graphics.cascadeWindows || []) window.invalidate();
@@ -747,10 +748,10 @@ export class RustRender {
     this.resources.resolve(target);
   }
 
-  // graphics.js: draw every post step; incomplete ownership is fatal.
-  post(renderer, steps) {
+  // Graphics.finishPost: native planning, drawing and history commit.
+  post() {
     if (this.contextLost) return true;
-    try { if (!this.byName.post.cover(renderer, steps)) this.fail(new Error("Incomplete Rust post chain")); return true; } catch (error) { this.fail(error, renderer); }
+    try { return this.byName.post.cover(); } catch (error) { this.fail(error); }
   }
 
   // Draw every near-scene item through Rust; incomplete ownership is fatal.

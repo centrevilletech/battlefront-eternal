@@ -36,7 +36,7 @@ try {
       const error=gl.getError();if(error)throw Error(name+' read GL '+error);
       T.stages[name]={w,h,bytes:half?2:1,buf};
     };
-    const post=g.postSteps;g.postSteps=function(...a){if(T.want){
+    const postName=typeof g.postSteps === "function" ? "postSteps" : "finishPost";const post=g[postName];g[postName]=function(...a){if(T.want){
       read('far',g.farTarget);read('scene',g.sceneTarget);
       if(g.upscaling==='temporal'){read('velocity',g.upscaler.velocity);read('motion',g.upscaler.motion);read('history',g.upscaler.history[g.upscaler.read]);}
       const water=g.scene.userData.water;
@@ -89,7 +89,7 @@ try {
       window.dispatchEvent(new MouseEvent('mouseup',{button:0,bubbles:true}));G.key('KeyW',false);G.key('KeyA',false);T.place?.(${k});
       for(const w of g.cascadeWindows || [])w.invalidate();
       for(let i=0;i<${manifest.settleFrames || 2};i++)await b.lockstep(0,true);
-      g.upscaler?.invalidate();if(g.upscaling==='temporal')g.upscaler.frame=${k};
+      if(g.upscaler?.reset)g.upscaler.reset(${k},-1);else{g.upscaler?.invalidate();if(g.upscaling==='temporal')g.upscaler.frame=${k};}
       for(let i=0;i<${manifest.historyFrames};i++)await b.lockstep(0,true);
       G.resetFrame();T.stages={};T.records=[];T.blobs={};T.want=true;const tick=await b.lockstep(0,true);T.want=false;
       const s=T.stages.presented;if(!s)throw Error('HUD did not draw');

@@ -3,9 +3,11 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { generate as interfaceLayout } from './render-interface-layout.mjs';
+import { generate as postLayout } from './render-post-layout.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 export function generate(check = false) {
   interfaceLayout(check);
+  postLayout(check);
   const base = root + 'rust/bfe-render/shaders/';
   const sources = {}, rows = [], twins = [];
   for (const family of readdirSync(base).sort()) {

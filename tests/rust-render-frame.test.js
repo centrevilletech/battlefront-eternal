@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { Upscaler } from "../src/upscaler.js";
+import { STATE } from "../src/rust-render/post-layout.js";
 import { actorMaterial } from "../src/materials.js";
 import { ownedEffectMaterial, ownedBasicEffect, ownedEffectProgram } from "../src/rust-render/effect-material.js";
 
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
-const { Bloom, ownedFullScreenPass } = await import("../src/render-passes.js");
-const { Upscaler } = await import("../src/upscaler.js");
 
 import { programLayouts } from "../src/render-programs.js";
 
@@ -185,90 +185,6 @@ test("an unclaimed view object is skipped and reported, the owned parts drawn, o
  assert.equal(core.cover('view',renderer,scene,camera),true);
  assert.equal(actor.material.visible,false);assert.equal(effect.material.visible,true);
  assert.match(core.errors.join("\n"),/Not drawn: .* Mesh material ShaderMaterial: view mesh no pass owns/);assert.equal(core.failure,undefined);
-});
-
-test("post uses declared Rust programs and initializes targets without a three draw", () => {
-  const { core, calls, renderer, graphics, properties } = bridge();
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  const postTarget = { width: 8, height: 4, texture: new THREE.Texture() };
-  properties.get(postTarget.texture).__webglTexture = undefined;
-  renderer.initRenderTarget = (target) => { calls.push(["initRenderTarget", target]); properties.get(target.texture).__webglTexture ||= {}; };
-  const composite = ownedFullScreenPass("post-hud/composite", {
-    map: { value: graphics.farTarget.texture }, blurred: { value: null }, glow: { value: null },
-    blend: { value: .3 }, bloomStrength: { value: 0 }, speedBlur: { value: 0 }, speedTurn: { value: 0 },
-  });
-  const fxaa = ownedFullScreenPass("post-hud/fxaa", { tDiffuse: { value: postTarget.texture }, resolution: { value: new THREE.Vector2(1 / 8, 1 / 4) } });
-  assert.equal(core.post(renderer, [{ pass: composite, target: postTarget, camera }, { pass: fxaa, target: null, camera }]), true);
-  assert.deepEqual(calls.filter(c => c[0] === "add_owned_program" && c[1].startsWith("post-hud/")).map(c => c[1]), ["post-hud/composite", "post-hud/fxaa"]);
-  assert.equal(calls.filter(c => c[0] === "add_program").length, 0);
-  assert.equal(calls.filter(c => c[0] === "initRenderTarget").length, 2);
-  const input = core.postInput, step = 5 + 12 * 18;
-  assert.deepEqual([...input.subarray(0, 5)], [core.ownedPrograms.get("post-hud/composite").id, 0, 8, 4, 7]);
-  assert.deepEqual([...input.subarray(5 + 2 * 18, 5 + 2 * 18 + 3)], [2, 32, -1]);
-  assert.deepEqual([...input.subarray(5 + 3 * 18, 5 + 3 * 18 + 3)], [3, 1, .3]);
-  assert.deepEqual([...input.subarray(step, step + 5)], [core.ownedPrograms.get("post-hud/fxaa").id, -1, 800, 600, 4]);
-  assert.deepEqual([...input.subarray(step + 5 + 3 * 18, step + 5 + 3 * 18 + 4)], [3, 2, .125, .25]);
-  assert.throws(() => core.post(renderer, [{ run: () => {} }]), /Incomplete Rust/);
-
-});
-
-test("the post steps' values: set on a step's material as it is written, bloom's blur drawn twice with other values", () => {
-  const { core, calls, renderer, properties } = bridge();
-  const programOf = (mesh) => { properties.get(mesh.material).currentProgram = program(Object.keys(mesh.material.uniforms).map((name) => [name, name === "texel" || name === "direction" ? GL.FLOAT_VEC2 : GL.SAMPLER_2D])); };
-  const bloom = new Bloom(new THREE.Texture());
-  bloom.resize(16, 8);
-  programOf(bloom.extract);
-  programOf(bloom.blur);
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  const steps = bloom.steps(camera);
-  assert.deepEqual(steps.map((s) => s.target), [bloom.target, bloom.scratch, bloom.target], "extract, blur across, blur down");
-  assert.equal(core.post(renderer, steps), true);
-  assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 3]);
-  const input = core.postInput, step = 5 + 12 * 18;
-  // add_texture's ids, in the order the steps registered them: the source,
-  // the target (as the extract's target), the scratch target.
-  const texture = (t) => core.textures.get(properties.get(t).__webglTexture);
-  const uniform = (s, k, n) => [...input.subarray(s * step + 5 + k * 18, s * step + 5 + k * 18 + n)];
-  assert.deepEqual(uniform(1, 0, 3), [0, 32, texture(bloom.target.texture)], "across: the extract's target");
-  assert.deepEqual(uniform(1, 1, 4), [1, 2, 1 / 4, 0], "one texel across the quarter-size target");
-  assert.deepEqual(uniform(2, 0, 3), [0, 32, texture(bloom.scratch.texture)], "down: the scratch target");
-  assert.deepEqual(uniform(2, 1, 4), [1, 2, 0, 1 / 2]);
-  assert.equal(bloom.blur.material.uniforms.map.value, bloom.scratch.texture, "the material left as three's draws leave it");
-});
-
-test("the temporal upscaler's steps: the motion resolve, the resolve into the history, the sharpen, then its commit", () => {
-  const { core, calls, renderer, properties } = bridge();
-  const upscaler = new Upscaler({ extensions: { has: () => true } });
-  upscaler.resize(8, 4, 16, 8);
-  const types = { inverseJittered: GL.FLOAT_MAT4, currentViewProjection: GL.FLOAT_MAT4, previousViewProjection: GL.FLOAT_MAT4, inputSize: GL.FLOAT_VEC2, outputSize: GL.FLOAT_VEC2,
-    jitter: GL.FLOAT_VEC2, reset: GL.FLOAT, maxWeight: GL.FLOAT, kernel: GL.FLOAT, sharpness: GL.FLOAT };
-  for (const pass of [upscaler.motionPass, upscaler.resolvePass, upscaler.sharpenPass]) {
-    properties.get(pass.material).currentProgram = program(Object.keys(pass.material.uniforms).map((name) => [name, types[name] ?? GL.SAMPLER_2D]));
-  }
-  upscaler.motionPass.material.uniforms.depthMap.value = new THREE.Texture();
-  const image = new THREE.Texture();
-  let steps = upscaler.steps(image, "temporal");
-  assert.deepEqual(steps.map((s) => s.target), [upscaler.motion, upscaler.history[1], null]);
-  assert.equal(core.post(renderer, steps), true);
-  assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 3]);
-  const input = core.postInput, step = 5 + 12 * 18;
-  const texture = (t) => core.textures.get(properties.get(t).__webglTexture);
-  const uniform = (s, name, n) => { const k = Object.keys(steps[s].pass.material.uniforms).indexOf(name); return [...input.subarray(s * step + 5 + k * 18 + 2, s * step + 5 + k * 18 + 2 + n)]; };
-  assert.deepEqual(uniform(1, "colorMap", 1), [texture(image)]);
-  assert.deepEqual(uniform(1, "historyMap", 1), [texture(upscaler.history[0].texture)]);
-  assert.deepEqual(uniform(1, "reset", 1), [1], "no history yet");
-  assert.deepEqual(uniform(2, "map", 1), [texture(upscaler.history[1].texture)], "the sharpen reads the history just resolved");
-  assert.equal(upscaler.frame, 0, "the commit is graphics.js's to run");
-  for (const s of steps) s.after?.();
-  assert.deepEqual([upscaler.read, upscaler.valid, upscaler.frame], [1, true, 1]);
-  steps = upscaler.steps(image, "temporal");
-  assert.equal(steps[1].target, upscaler.history[0], "the other history written next");
-  assert.equal(steps[1].values.historyMap, upscaler.history[1].texture);
-  assert.equal(steps[1].values.reset, 0);
-  // Spatial: one step to the screen, and no history.
-  steps = upscaler.steps(image, "spatial");
-  assert.deepEqual(steps.map((s) => [s.pass, s.target, s.values.map]), [[upscaler.spatialPass, null, image]]);
-  assert.equal(upscaler.valid, false);
 });
 
 test("the HUD's batch: every vertex the first time, the batch's update range after, three's own copy made whole when it draws again", async () => {
@@ -611,7 +527,7 @@ test("phases drawn between three's renders reset three's state once, when three 
   core.byName.view.draw = function () { this.complete = true; };
   const viewScene = new THREE.Scene();
   assert.equal(core.cover("view", renderer, viewScene, camera), true);
-  core.phase("post", renderer, null, camera, true);
+  core.phase("image", renderer, null, camera, true);
   core.phase("hud", renderer, scene, camera, true);
   assert.equal(calls.filter((c) => c[0] === "resetState").length, 0, "none yet");
   assert.equal(core.stale, true);
@@ -792,4 +708,26 @@ test('a reflection registers a newly added transparent object before the main ca
  const count=compiled.length;
  scene.onBeforeRender(renderer,scene,camera,graphics.sceneTarget);
  assert.equal(compiled.length,count,'the main view reuses resources discovered by the reflection');
+});
+
+// The battle has near/far/view cameras. An extra caller must not turn a
+// bounded camera shell store into a frame exception or corrupt restoration.
+test("published camera adjustments are bounded and restore every admitted shell", () => {
+  const u=new Upscaler({extensions:{has:()=>true}}),state=new Float64Array(STATE.LEN);
+  u.core={postState:state};state[STATE.SHIFT]=.002;state[STATE.SHIFT+1]=-.003;
+  const cameras=Array.from({length:5},()=>new THREE.PerspectiveCamera(71,1.7,.3,900));
+  const originals=cameras.map(c=>c.projectionMatrix.elements.slice());
+  const slots=u.shiftedCameras,offsets=u.shiftedOffsets;
+  for(const camera of cameras)assert.doesNotThrow(()=>u.shift(camera));
+  assert.equal(u.shiftedCount,3);
+  for(let i=0;i<cameras.length;i++){
+    const e=cameras[i].projectionMatrix.elements;
+    assert.equal(e[8],originals[i][8]-(i<3?state[STATE.SHIFT]:0));
+    assert.equal(e[9],originals[i][9]-(i<3?state[STATE.SHIFT+1]:0));
+  }
+  u.restore();u.restore();
+  for(let i=0;i<cameras.length;i++)assert.deepEqual(cameras[i].projectionMatrix.elements,originals[i]);
+  u.shift(cameras[0]);u.restore();
+  assert.equal(u.shiftedCameras,slots);assert.equal(u.shiftedOffsets,offsets);assert.equal(u.shiftedCount,0);
+  assert.ok(slots.every(camera=>camera===null));u.dispose();
 });

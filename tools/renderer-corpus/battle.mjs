@@ -89,7 +89,8 @@ export const CONTEXT_SRC = `window.__gateGl = { lost: 0, restored: 0, events: []
 // The page expression for the context's state now: lost events since the load, the context's
 // own flag, and the bridge's (RustRender.lost on builds that have it).
 export const GL_STATE = `(() => { const b = __bf, g = b.graphics, gl = b.renderer.getContext(), G = window.__gateGl || null;
-  return { lostEvents: G ? G.lost : null, restoredEvents: G ? G.restored : null, events: G ? G.events.slice(0, 8) : null,
+  const debug=gl.getExtension('WEBGL_debug_renderer_info');
+  return { renderer: debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null,lostEvents: G ? G.lost : null, restoredEvents: G ? G.restored : null, events: G ? G.events.slice(0, 8) : null,
     contextLost: gl.isContextLost(), rustLost: g.rust ? (g.rust.contextLost ?? g.rust.lost ?? false) : null, rustEnabled: g.rust ? (g.rust.enabled ?? !g.rust.contextLost) : null }; })()`;
 
 // Xvfb is EMU_SCREEN, but the Electron window opens smaller. Pixel parity needs the
@@ -191,6 +192,16 @@ export const HELPERS_SRC = `(() => { const b = __bf, g = b.graphics;
   G.rustDraws = () => Object.values(G.frameStats).reduce((a, s) => a + s.slice(5).reduce((x, y) => x + y, 0), 0);
   const rust = g.rust;
   if (rust) {
+    // The retained post phase publishes fixed statistics without entering the
+    // scene dispatcher. Include it in capture draw accounting on new builds.
+    if (rust.rust.post_chain_frame) {
+      const post = rust.post;
+      rust.post = function (...args) {
+        G.inRust++;
+        try { return post.apply(this,args); }
+        finally { G.inRust--; G.phaseCalls++; G.frameStats.post=Array.from(this.phaseStats.post || []); }
+      };
+    }
     const phase = rust.phase;
     rust.phase = function (name, ...args) {
       G.inRust++;

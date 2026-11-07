@@ -10,6 +10,7 @@ description = "Battle renderer spike: the static world and soldiers drawn throug
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+three = { path = "../three" }
 glow = "0.18"
 image-webp = "=0.2.4"
 png = "0.18"

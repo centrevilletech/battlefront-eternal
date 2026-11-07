@@ -1,23 +1,13 @@
-// The post pass (post.rs): the frame's last passes over the near scene's
-// image as graphics.js plans them (Graphics.postSteps): the soft focus's
-// quarter-size copy, bloom's extract and two blurs, the composite, FXAA or
-// FXAA (FAST), and the upscale (bilinear, spatial, or the temporal
-// upscaler's motion resolve, resolve and sharpen). Each step is a
-// full-screen pass (render-passes.js) into a target (three's, or the
-// canvas), with the values it is drawn with (applyValues: set on its
-// material as the step is written, as three's postStep sets them); the
-// renderer uses source-owned programs for tagged post/HUD materials and the
-// compiled-source bridge for unported materials (Kind::Plain). A refused step
-// stops the battle. The temporal commit (`after`) runs once per completed chain.
+// Uniform packing for auxiliary screen draws, plus the retained post host.
+// Post policy, uniform values and temporal commit belong to post_chain.rs;
+// source-bearing utility materials still serve the separate scene passes.
 import * as THREE from "three";
 import { ownedProgram, ownsEffectSource } from "./programs.js";
 import { ownedEffectProgram } from "./effect-material.js";
-import { applyValues } from "../render-passes.js";
+import { FACTS, STATE, RESOURCE, MODE, AA, POST_KEYS } from "./post-layout.js";
+const MODES = { off: MODE.OFF, bilinear: MODE.BILINEAR, spatial: MODE.SPATIAL, temporal: MODE.TEMPORAL };
 
 const PLAIN = 3;
-// post.rs's step layout.
-const STEP = { PROGRAM: 0, TARGET: 1, WIDTH: 2, HEIGHT: 3, UNIFORMS: 4, FIRST: 5 };
-const UNIFORM = 18, MAX_UNIFORMS = 12, STRIDE = 5 + MAX_UNIFORMS * UNIFORM, MAX_STEPS = 8;
 const SAMPLER = 32, SAMPLER_3D = 33;
 // Where post.rs's triangle has its position and uv.
 const ATTRIBUTES = "position:0,uv:1";
@@ -162,45 +152,100 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
 
 class PostPass {
   constructor(core) {
-    this.core = core;
-    this.name = "post";
-    this.phase = "post";
-    this.targets = new Map(); // WebGLTexture of a target -> post.rs target
-    this.pending = null;
-    this.complete = false;
-    this.input = false;
+    this.core = core; this.name = "post";
+    this.targets = new Map(); this.programIds = new Uint32Array(POST_KEYS.length);
+    this.ready = false; this.revision = -1; this.epoch = -1; this.depth = null;
+    this.viewport = new THREE.Vector4();
+    core.addView("postFacts", Float64Array, () => core.rust.post_chain_input_ptr(), () => core.rust.post_chain_input_len());
+    core.addView("postState", Float64Array, () => core.rust.post_chain_state_ptr(), () => core.rust.post_chain_state_len());
+    core.addView("postStats", Float64Array, () => core.rust.post_chain_state_ptr() + STATE.STATS * Float64Array.BYTES_PER_ELEMENT, () => STATE.LEN - STATE.STATS);
+    core.addView("postInput", Float64Array, () => core.rust.post_input_ptr(), () => core.rust.post_input_len());
   }
 
-  // graphics.js: the frame's post steps ({ pass, target, camera, values }
-  // each, or { run } for one only three can draw), drawn here when every one
-  // is a pass the renderer has a program for; true when it drew them.
-  cover(renderer, steps) {
-    const core = this.core;
-    if (!steps.length || steps.length > MAX_STEPS) return false;
-    for (const step of steps) {
-      if (!step.pass) return false;
-      const program=ownedProgram(core,step.pass.material.userData.bfeProgram,ATTRIBUTES);
-      if (step.target && this.target(step.target) < 0) return false;
-      // Sampler registration may grow memory; complete it before draw() takes
-      // shared views. Values supplied by a later step are registered there too.
-      for(const uniform of program.uniforms){
-        const value=step.values && Object.hasOwn(step.values,uniform.name)?step.values[uniform.name]:step.pass.material.uniforms?.[uniform.name]?.value;
-        if(value?.isTexture){
-          const props=renderer.properties.get(value);
-          if(!value.isRenderTargetTexture && value.version>0 && props.__version!==value.version && value.image)renderer.initTexture(value);
-          core.texture(value);
-        }
-      }
+  // Programs are finite cold resources. Paced loading yields between links;
+  // synthetic callers of Graphics.warmup use the same synchronous registrar.
+  programs() {
+    if (this.ready) return;
+    for (let i = 0; i < POST_KEYS.length; i++) this.programIds[i] = ownedProgram(this.core, POST_KEYS[i], ATTRIBUTES).id;
+    this.bindPrograms();
+  }
+  async warm(settle) {
+    if (this.ready) return;
+    for (let i = 0; i < POST_KEYS.length; i++) {
+      this.programIds[i] = ownedProgram(this.core, POST_KEYS[i], ATTRIBUTES).id;
+      await settle();
     }
-    this.pending = steps;
-    this.complete = false;
-    core.phase("post", renderer, null, steps[0].camera, true);
-    this.pending = null;
-    return this.complete;
+    this.bindPrograms();
+  }
+  bindPrograms() {
+    const core = this.core;
+    core.views(); core.postFacts.set(this.programIds, FACTS.PROGRAMS);
+    this.ready = true; core.stale = true;
+    core.graphics.upscaler.core = core;
   }
 
+  // Resource ids change only at cold admission, resize or context restoration.
+  // Finish every registration before acquiring the shared facts view.
+  resource(target, row) {
+    const core = this.core, id = this.target(target), texture = core.texture(target.texture);
+    core.views(); const out = core.postFacts, at = FACTS.RESOURCES + row * RESOURCE.STRIDE;
+    out[at + RESOURCE.TEXTURE] = texture; out[at + RESOURCE.TARGET] = id;
+    out[at + RESOURCE.WIDTH] = target.width; out[at + RESOURCE.HEIGHT] = target.height;
+  }
+  resources() {
+    const core = this.core, g = core.graphics, u = g.upscaler, epoch = core.resources.gpu.epoch();
+    if (this.revision === g.postRevision && this.epoch === epoch) return;
+    this.resource(g.sceneTarget, RESOURCE.SCENE); this.resource(g.quarterTarget, RESOURCE.QUARTER);
+    this.resource(g.bloomTarget, RESOURCE.BLOOM); this.resource(g.bloomScratch, RESOURCE.SCRATCH);
+    this.resource(g.postTarget, RESOURCE.POST); this.resource(g.aaTarget, RESOURCE.AA);
+    this.resource(u.history[0], RESOURCE.HISTORY0); this.resource(u.history[1], RESOURCE.HISTORY1);
+    this.resource(u.velocity, RESOURCE.VELOCITY); this.resource(u.motion, RESOURCE.MOTION);
+    this.revision = g.postRevision; this.epoch = epoch; this.depth = null;
+    core.stale = true;
+  }
 
-  // A target of three's, by its colour texture (made again on a resize).
+  // One native temporal preparation publishes jitter and current/previous
+  // matrices. The scene/motion hosts only copy those published camera facts.
+  begin(camera) {
+    const core = this.core, g = core.graphics, u = g.upscaler;
+    this.programs(); this.resources(); core.views();
+    const f = core.postFacts, aa = g.settings.get("antialiasing");
+    f[FACTS.MODE] = MODES[g.upscaling]; f[FACTS.AA] = aa === "off" ? AA.OFF : aa === "fxaa-fast" ? AA.FAST : AA.FXAA;
+    f[FACTS.SOFT_FOCUS] = g.settings.get("softFocus") ? 1 : 0;
+    f[FACTS.BLUR_ENABLED] = g.blur ? 1 : 0; f[FACTS.BLUR_BLEND] = g.blur ? g.blur.blend : 0;
+    f[FACTS.BLOOM] = g.settings.get("bloom") ? 1 : 0; f[FACTS.SPEED_ENABLED] = g.settings.get("vehicleMotionBlur") ? 1 : 0;
+    f[FACTS.SPEED_AMOUNT] = g.vehicleMotion; f[FACTS.SPEED_TURN] = g.vehicleTurn; f[FACTS.SHARPNESS] = u.sharpness;
+    f[FACTS.RESET_SERIAL] = u.resetSerial; f[FACTS.RESET_FRAME] = u.resetFrame; f[FACTS.RESET_READ] = u.resetRead;
+    f[FACTS.INPUT_WIDTH] = g.renderSize.x; f[FACTS.INPUT_HEIGHT] = g.renderSize.y;
+    f[FACTS.OUTPUT_WIDTH] = g.outputSize.x; f[FACTS.OUTPUT_HEIGHT] = g.outputSize.y;
+    core.renderer.getViewport(this.viewport).multiplyScalar(core.renderer.getPixelRatio()).floor();
+    f[FACTS.CANVAS_WIDTH] = this.viewport.z; f[FACTS.CANVAS_HEIGHT] = this.viewport.w;
+    f.set(camera.projectionMatrix.elements, FACTS.PROJECTION); f.set(camera.matrixWorldInverse.elements, FACTS.VIEW); f.set(camera.matrixWorld.elements, FACTS.WORLD);
+    core.rust.post_chain_begin_frame();
+    const s = core.postState, current = u.current.elements, previous = u.previous.elements;
+    for (let i = 0; i < 16; i++) { current[i] = s[STATE.CURRENT+i]; previous[i] = s[STATE.PREVIOUS+i]; }
+    u.jitter.set(s[STATE.JITTER], s[STATE.JITTER+1]);
+  }
+
+  // Draw and commit form one native phase. Statistics borrow retained memory
+  // instead of allocating a context object, skeleton map or bindgen result.
+  cover() {
+    const core = this.core, depth = core.graphics.upscaler.depth;
+    if (core.contextLost) return true;
+    if (depth && depth !== this.depth) {
+      const texture = core.texture(depth); core.views();
+      core.postFacts[FACTS.RESOURCES + RESOURCE.DEPTH * RESOURCE.STRIDE + RESOURCE.TEXTURE] = texture;
+      this.depth = depth;
+    }
+    const started = performance.now();
+    if (!core.rust.post_chain_frame()) throw new Error(core.rust.post_chain_error_frame());
+    core.views();
+    core.phaseStats.post = core.postStats; core.phaseMs.post = performance.now() - started;
+    if (core.postStats[4]) core.stale = true;
+    return true;
+  }
+
+  // Auxiliary screen/replay draws share the existing Rust framebuffer wrapper.
   target(target) {
     const core = this.core;
     core.renderer.initRenderTarget(target);
@@ -214,39 +259,6 @@ class PostPass {
     }
     return id;
   }
-
-  // The phase: the steps written for post.rs.
-  draw(ctx) {
-    const steps = this.pending;
-    if (!steps) return;
-    const core = this.core;
-    if (!this.input) { core.addView("postInput", Float64Array, () => core.rust.post_input_ptr(), () => core.rust.post_input_len()); this.input = true; }
-    core.views();
-    const out = core.postInput, size = this.size ||= new THREE.Vector4();
-    let n = 0;
-    for (const step of steps) {
-      const program = ownedProgram(core, step.pass.material.userData.bfeProgram, ATTRIBUTES);
-      const o = n * STRIDE;
-      if (step.values) applyValues(step.pass.material, step.values);
-      out[o + STEP.PROGRAM] = program.id;
-      if (step.target) { out[o + STEP.TARGET] = this.target(step.target); out[o + STEP.WIDTH] = step.target.width; out[o + STEP.HEIGHT] = step.target.height; }
-      else {
-        // The canvas: three's viewport, the drawing buffer's pixels.
-        core.renderer.getViewport(size).multiplyScalar(core.renderer.getPixelRatio()).floor();
-        out[o + STEP.TARGET] = -1; out[o + STEP.WIDTH] = size.z; out[o + STEP.HEIGHT] = size.w;
-      }
-      if (program.uniforms.length > MAX_UNIFORMS) return;
-      out[o + STEP.UNIFORMS] = program.uniforms.length;
-      for (let k = 0; k < program.uniforms.length; k++) {
-        if (!writeUniform(core, out, o + STEP.FIRST + k * UNIFORM, k, program.uniforms[k], step.pass.material, step.pass, step.camera)) return;
-      }
-      n++;
-    }
-    ctx.steps = n;
-    this.complete = true;
-  }
 }
 
-export function postPass(core) {
-  return new PostPass(core);
-}
+export function postPass(core) { return new PostPass(core); }

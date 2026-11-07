@@ -9,7 +9,7 @@ spawn rooms, the projector, motes and holomap surfaces. Its skinning source
 license is retained in `shaders/interface/NOTICE`.
 Those passes register Rust source directly. They have no source switch,
 compiled-three-program bridge, or shader fallback. Registration errors throw a
-message naming the variant. Unported shader families still borrow three programs.
+message naming the variant. Line utilities still use three's compiler on first use.
 
 Each variant has a unique `<family>/<name>` key, self-contained vertex and
 fragment bodies, explicit attribute locations, and named uniform slots with the
@@ -36,6 +36,15 @@ to passes. `ownedFullScreenPass(key, uniforms)` creates a three Material carryin
 uniform values and the key, without browser shader source. Registration requires
 no prior three draw. `core.shaderPrograms` records key, source/layout SHA-256 and
 registration duration. Post targets are explicitly initialized before adoption.
+
+The battle post chain publishes generated facts to `post_chain.rs`: settings,
+render/output dimensions, vehicle blur and resource IDs. Rust chooses the
+ordered programs, targets and uniform values, owns camera-cut/jitter/history
+state, and commits history only after the complete draw succeeds. The browser
+retains target and camera shells; it applies the published camera adjustment.
+There are no post-step material shells or browser post-step arrays. Paced
+loading registers all eleven post variants before battle drawing. The boundary
+comes from `post-chain-layout.json` and `tools/render-post-layout.mjs`.
 
 Interface Batch descriptors carry texture/mask values without Three materials
 or browser shader text. Menu and spawn scenes publish generated draw records to
@@ -118,6 +127,19 @@ Comparison is exact for every byte. The only exceptions are the named cases in
 channel delta and the explanation of where the difference comes from. A bound
 applies to that case's candidate only: its control stays exact, and a larger
 count or delta fails. The summary records the expectations file's hash.
+
+Post-policy captures record scalar/resource facts and temporal state before
+selection, plus the initial scene, depth, velocity and history samplers. Native
+replay must reproduce every active plan word exactly before executing the
+whole chain. Frozen self/control and candidate outputs must then match exactly;
+per-step post/HUD replay remains an independent downstream check. Separate
+fresh-launch frame comparisons retain their own determinism limits.
+`post-manifest.json` adds continuous temporal sequences, scale changes in both
+directions, direct bilinear and FXAA choices, strong/tiny vehicle blur, mixed
+resize/settings transitions and deliberate context loss/restoration. The last
+case requires one observed loss/restore pair and the same NVIDIA OpenGL backend
+before and after it. The readback framebuffer is recreated independently of the
+renderer's managed resources.
 
 The manifest freezes all 17 maps at Classic/Balanced/High, valid first-person
 player queries, requested 2x MSAA, four walking/turning points and four history

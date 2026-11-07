@@ -3,7 +3,10 @@
 export function installReplay(createStore) {
   const b=__bf,g=b.graphics,core=g.rust,R=g.renderer,gl=R.getContext(),T=window.__corpus;
   const postFrame=core.rust.post_frame.bind(core.rust),hudFrame=core.rust.hud_frame.bind(core.rust);
-  const fb=gl.createFramebuffer();
+  // This raw readback framebuffer is outside the renderer's resource bank.
+  // Recreate it after deliberate loss; managed texture targets restore there.
+  let fb=gl.createFramebuffer();
+  R.domElement.addEventListener('webglcontextrestored',()=>{fb=gl.createFramebuffer();});
   const STEP=221,UNIFORM=18,HUD_GROUP=45;
   const textureCopies=new Map();
   const anisotropy=gl.getExtension('EXT_texture_filter_anisotropic');
@@ -93,7 +96,9 @@ export function installReplay(createStore) {
     const error=gl.getError();if(error)throw Error('Texture replay read GL '+error);
     return {id,w,h,bytes:texture.isDepthTexture?4:bytes,params,levels};
   };
-  const resources=(ids,objects)=>[...new Set(ids.filter(id=>id>=0))].map(id=>snapshot(id,objects));
+  // Post samplers read depth as a float, without comparison. Re-uploading
+  // that float through normalized depth storage can round it a second time.
+  const resources=(ids,objects)=>[...new Set(ids.filter(id=>id>=0))].map(id=>({...snapshot(id,objects),sampledDepth:!!objects.get(id)?.texture.isDepthTexture}));
   const post=core.post;
   core.post=function(renderer,steps){
     if(!T.want || !T.captureReplay)return post.call(this,renderer,steps);
@@ -114,7 +119,8 @@ export function installReplay(createStore) {
     if(!T.want || !T.captureReplay)return hudFrame();
     core.views();const input=Array.from(core.hudInput.subarray(0,HUD_GROUP+core.hudInput[0]*5)),ids=[];
     for(let i=0;i<input[0];i++)ids.push(input[HUD_GROUP+i*5+2],input[HUD_GROUP+i*5+3]);
-    const objects=textures(b.hud.batch.mesh.material.flatMap(m=>[m.uniforms.map.value,m.uniforms.mask.value]));
+    // Native HUD assets are retained renderer registrations, not batch materials.
+    const objects=textures(core.textureSources);
     const data=resources(ids,objects),background=read(null);
     const arrays=Object.fromEntries(['hudPosition','hudUv','hudMaskUv','hudTint'].map(name=>[name,store(core[name].slice())]));
     const result=hudFrame(),output=read(null);
@@ -152,6 +158,11 @@ export function installReplay(createStore) {
     return {handle,id,resource:R.resources.textureId(texture),dispose:()=>{texture.dispose();target.dispose();}};
   };
   const upload=(s,blobs)=>{
+    if(s.sampledDepth){
+      // Preserve the exact shader-visible texels. Comparison samplers in
+      // world/actor fixtures still take uploadDepth and their storage type.
+      return upload({...s,depth:undefined,depthType:undefined,packedDepth:undefined,sampledDepth:false,levels:['sample']},{sample:depthRGBA(s,blobs)});
+    }
     // The frozen reference still lets three own its textures; the candidate's are the
     // Rust resource owner's, so replayed bytes go through that owner there.
     if(s.depth || s.depthType!==undefined)return uploadDepth(s,blobs);
@@ -183,6 +194,7 @@ export function installReplay(createStore) {
     const savedArrays=Object.fromEntries(['hudPosition','hudUv','hudMaskUv','hudTint'].map(n=>[n,core[n].slice()]));
     const before=R.getRenderTarget();
     for(const row of records){
+      if(row.kind==='post-policy'){metrics.push(await T.replayPostPolicy(row,blobs));continue;}
       if(row.kind==='gl-effect'){metrics.push(await T.replayGL(row,blobs));continue;}
       // A GL error is named by the row and step that raised it, not left for the readback to report.
       const checked=step=>{const error=gl.getError();if(error)throw Error(`Phase replay GL ${error} at ${step} of ${row.kind} ${row.key}`);};

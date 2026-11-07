@@ -52,18 +52,33 @@ test('registering a new HUD sampler cannot detach the frame inputs being written
  assert.equal(core.hudInput[46],6,'its six indices survive the refreshed shared view');
 });
 
-// The same hazard applies to a source-owned post step, not just HUD batches.
-// A valid step must retain its dimensions/uniform count after sampler growth.
-// The material itself deliberately carries no native shader source.
-test('a post sampler is registered before its shared step record is written',async()=>{
- const {ownedFullScreenPass}=await import('../src/render-passes.js');
+// Native post facts must survive every cold target/sampler registration. A
+// detached view here would retain dimensions but silently lose the camera.
+test('native post facts survive resource registration and retain program bindings',async()=>{
+ const {Upscaler}=await import('../src/upscaler.js');
+ const {FACTS:F,RESOURCE:R,PROGRAM:P}=await import('../src/rust-render/post-layout.js');
  const {BfeRenderer,memory,calls}=standinModule(),{renderer,graphics}=standinThree(calls);
+ const target=()=>new THREE.WebGLRenderTarget(800,600,{depthBuffer:false});
+ Object.assign(graphics,{quarterTarget:target(),bloomTarget:target(),bloomScratch:target(),postTarget:target(),aaTarget:target(),
+  renderSize:new THREE.Vector2(800,600),outputSize:new THREE.Vector2(800,600),postRevision:0,vehicleMotion:0,vehicleTurn:0,blur:null,
+  upscaler:new Upscaler({extensions:{has:()=>true}})});
  const backing=new WebAssembly.Memory({initial:128});memory.buffer=backing.buffer;
  const core=new RustRender(graphics,{memory},BfeRenderer),add=core.rust.add_texture.bind(core.rust);
  core.rust.add_texture=(...args)=>{const id=add(...args);backing.grow(1);memory.buffer=backing.buffer;return id;};
- const pass=ownedFullScreenPass('post-hud/copy',{map:{value:new THREE.Texture()}});
- core.post(renderer,[{pass,target:null,camera:new THREE.OrthographicCamera(-1,1,1,-1,0,1)}]);
- core.views();assert.equal(core.postInput[2],800);assert.equal(core.postInput[4],1);
+ const camera=new THREE.PerspectiveCamera();camera.position.set(1,2,3);camera.updateMatrixWorld();
+ core.byName.post.begin(camera);core.views();
+ assert.equal(core.postFacts[F.INPUT_WIDTH],800);assert.equal(core.postFacts[F.INPUT_HEIGHT],600);
+ assert.equal(core.postFacts[F.WORLD+12],1);assert.equal(core.postFacts[F.WORLD+13],2);assert.equal(core.postFacts[F.WORLD+14],3);
+ assert.equal(core.postFacts[F.PROGRAMS+P.FXAA],core.ownedPrograms.get('post-hud/fxaa').id);
+ assert.equal(core.postFacts[F.RESOURCES+R.MOTION*R.STRIDE+R.WIDTH],1);
+ const facts=core.postFacts,stats=core.postStats,registrations=calls.filter(c=>c[0]==='add_texture').length;
+ core.post();core.byName.post.begin(camera);core.post();
+ assert.equal(core.postFacts,facts);assert.equal(core.postStats,stats);
+ assert.equal(calls.filter(c=>c[0]==='add_texture').length,registrations);
+ assert.equal(calls.filter(c=>c[0]==='post_chain_frame').length,2);
+ assert.equal(calls.some(c=>c[0]==='post_frame'),false,'the old step planner is not called');
+ core.rust.post_chain_frame=()=>false;core.rust.post_chain_error_frame=()=> 'Synthetic post refusal';
+ assert.throws(()=>core.post(),/Synthetic post refusal/,'a rejected native frame stays visible');
 });
 
 // A pending-image placeholder can allocate even when the requested image is
@@ -111,8 +126,8 @@ test('an anisotropy revision uploads and rebinds retained static texture samples
  const core=new RustRender(graphics,{memory},BfeRenderer),id=core.texture(texture),replacement={};
  texture.needsUpdate=true;graphics.textureRevision=1;
  renderer.initTexture=t=>{const p=renderer.properties.get(t);p.__webglTexture=replacement;p.__version=t.version;};
- core.phase('post',renderer,new THREE.Scene(),new THREE.Camera());
+ core.phase('image',renderer,new THREE.Scene(),new THREE.Camera());
  assert.equal(core.texture(texture),id);
  assert.deepEqual(calls.find(c=>c[0]==='replace_sample_texture'),['replace_sample_texture',id,renderer.resources.gpu,renderer.resources.textureId(texture)]);
- assert.ok(calls.findIndex(c=>c[0]==='replace_sample_texture')<calls.findIndex(c=>c[0]==='post_frame'));
+ assert.ok(calls.findIndex(c=>c[0]==='replace_sample_texture')<calls.findIndex(c=>c[0]==='screen_frame'));
 });

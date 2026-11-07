@@ -217,6 +217,18 @@ impl<C: HasContext> PostPass<C> {
         PostPass { vao, _buffer: buffer, targets: vec![], input: vec![0.0; MAX_STEPS * STEP], matrices: HashMap::new(), states: vec![0.0; MAX_STEPS * STATE] }
     }
 
+    // Graphics.warmupPaced registers every post key before play. Reserve its
+    // matrix cache rows then, including variants first selected by a later
+    // settings change. NaNs force the first real upload without a draw-time
+    // HashMap allocation; restoration follows the same cold registration.
+    pub fn prepare_program(&mut self, program: usize, uniforms: &[(&str, u32)]) {
+        for (slot, (_, ty)) in uniforms.iter().enumerate() {
+            if *ty == TYPE_MAT3 || *ty == TYPE_MAT4 {
+                self.matrices.entry((program,slot)).or_insert([f32::NAN;16]);
+            }
+        }
+    }
+
     // A target: a framebuffer over one of three's targets' colour textures.
     pub fn add_target<M: MultiDraw>(&mut self, core: &mut Core<C, M>, texture: u32) -> u32 {
         let gl = &core.gl;

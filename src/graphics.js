@@ -5,7 +5,7 @@ import { requireLinkedPrograms } from "./rust-render/failure.js";
 import { loadRustRenderer } from "./rust-render/load.js";
 import { warmEffectPrograms } from "./rust-render/effect-material.js";
 import * as THREE from "three";
-import { Bloom, applyValues, ownedFullScreenPass } from "./render-passes.js";
+import { ownedFullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
 import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
 import { CascadeWindow, planCascades } from "./shadow-cascades.js";
@@ -190,7 +190,6 @@ export class Graphics {
     });
     this.farTarget = target();
     this.sceneTarget = target();
-    this.quarterTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.UnsignedByteType, depthBuffer: false });
     lighting.farMap.value = this.farTarget.texture;
 
     // The far scene's image behind everything in the near scene. It is drawn
@@ -217,19 +216,7 @@ export class Graphics {
     // Construction starts the fetch before preparation awaits it. Attach a
     // rejection handler now without consuming the promise's failure.
     this.rustReady.catch(() => {});
-    this.downsample = ownedFullScreenPass("post-hud/copy",
-      { map: { value: this.sceneTarget.texture } },
-    );
-    this.composite = ownedFullScreenPass("post-hud/composite",
-      {
-        map: { value: this.sceneTarget.texture }, blurred: { value: this.quarterTarget.texture },
-        blend: { value: 0 }, glow: { value: null }, bloomStrength: { value: 0 },
-        speedBlur: { value: 0 }, speedTurn: { value: 0 },
-      },
-    );
-    this.bloom = new Bloom(this.sceneTarget.texture);
     this.particleDepth = new ParticleDepth(this.renderer);
-    this.composite.material.uniforms.glow.value = this.bloom.target.texture;
     this.postTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
     // FXAA's output when an upscaler still follows it.
     this.aaTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
@@ -239,13 +226,13 @@ export class Graphics {
     this.outputSize = new THREE.Vector2(1, 1);
     this.renderScale = 1;
     this.upscaling = "off";
-    this.fxaa = ownedFullScreenPass("post-hud/fxaa", { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1 / 1024, 1 / 512) } });
-    this.fxaa.material.uniforms.tDiffuse.value = this.postTarget.texture;
-    // Made when first used (fastFxaa): three's objects draw their IDs from
-    // Math.random, and seeded layouts (flower beds) follow the draws.
-    this.fxaaFast = null;
-    this.blur = null;
-    this.passCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    // Source/sampler/target descriptors remain host resources; Rust chooses
+    // every post program, uniform and history transition from scalar facts.
+    this.blur = null; this.vehicleMotion = 0; this.vehicleTurn = 0;
+    this.postRevision = 0;
+    this.quarterTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
+    this.bloomTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
+    this.bloomScratch = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
 
     this.upscaler.sharpness = Number(settings.get("upscaleSharpness") ?? 0.4) || 0;
     this.applyScale();
@@ -389,6 +376,7 @@ export class Graphics {
     await this.rustReady;
     await warmActorPrograms(this.rust, settle);
     await warmEffectPrograms(this.rust, settle);
+    await this.rust.byName.post.warm(settle);
     const { renderer } = this;
     const count = () => renderer.info.programs?.length ?? 0;
     const before = count(), started = performance.now();
@@ -464,6 +452,7 @@ export class Graphics {
   // depth variants register directly from their owned catalog.
   warmup() {
     const { renderer } = this;
+    this.rust.byName.post.programs();
     const before = renderer.info.programs?.length ?? 0, started = performance.now();
     const target = renderer.getRenderTarget();
     // compile() visits invisible materials too. Source-owned material shells
@@ -683,9 +672,9 @@ export class Graphics {
     this.postTarget.setSize(width, height);
     this.aaTarget.setSize(width, height);
     this.upscaler.resize(width, height, Math.max(1, size.x), Math.max(1, size.y));
-    this.fxaa.material.uniforms.resolution.value.set(1 / width, 1 / height);
-    this.fxaaFast?.material.uniforms.resolution.value.set(1 / width, 1 / height);
-    this.bloom.resize(width, height);
+    this.bloomTarget.setSize(Math.max(1, Math.ceil(width / 4)), Math.max(1, Math.ceil(height / 4)));
+    this.bloomScratch.setSize(this.bloomTarget.width, this.bloomTarget.height);
+    this.postRevision++;
     if (this.settings.get("softParticles")) this.particleDepth.prepare(width, height);
     const factor = this.blur?.downsize || 0.25;
     this.quarterTarget.setSize(Math.max(1, Math.round(width * factor)), Math.max(1, Math.round(height * factor)));
@@ -822,9 +811,7 @@ export class Graphics {
   }
 
   setVehicleMotion(amount, turn) {
-    const uniforms = this.composite.material.uniforms;
-    uniforms.speedBlur.value = this.settings.get('vehicleMotionBlur') ? Math.min(1, Math.max(0, amount)) * .085 : 0;
-    uniforms.speedTurn.value = THREE.MathUtils.clamp(turn, -2, 2);
+    this.vehicleMotion = amount; this.vehicleTurn = turn;
   }
 
   render(time = 0) {
@@ -836,7 +823,6 @@ export class Graphics {
     renderer.info.reset();
     this.profiler.begin();
     const temporal = this.upscaling === "temporal";
-    const upscale = temporal || (this.upscaling !== "off" && !this.renderSize.equals(this.outputSize));
     lighting.time.value = time;
     this.localLights.begin(Boolean(this.settings.get("lampLighting")));
     // Ordnance pushes next frame's bolts in this look.
@@ -844,8 +830,7 @@ export class Graphics {
     sniperLook.enhanced = this.settings.get("sniperEffects") !== "classic";
     lighting.terrainShade.value = this.settings.get("terrainDetail") === "original" ? 0 : 1;
     camera.updateMatrixWorld();
-    if (temporal) this.upscaler.begin(camera);
-    else this.upscaler.invalidate();
+    this.rust.byName.post.begin(camera);
     if (this.csm) {
       // Keep a stable, conservative FOV for shadows. Breathing, zoom and
       // chase-camera FOV easing must not continually resize the texel grid.
@@ -935,10 +920,8 @@ export class Graphics {
     // Full-screen triangles overwrite every pixel with blending disabled.
     // Clearing each post target first only burns fill/bandwidth.
     renderer.autoClear = false;
-    // 3-4. Rust draws the complete post chain returned by postSteps.
-    const steps = this.postSteps(temporal, upscale);
-    this.rust.post(renderer, steps);
-    for (const step of steps) step.after?.();
+    // 3-4. The retained native owner plans, draws and commits the post chain.
+    this.finishPost();
     renderer.autoClear = true;
     this.restoreOffView();
     // All scene, shadow and post passes; captured before the separate HUD.
@@ -947,53 +930,8 @@ export class Graphics {
     this.profiler.end();
   }
 
-  // The frame's post passes, in order, their uniforms set: 3. soft focus,
-  // bloom, and out to the screen; 4. rebuilt at the window's resolution.
-  // Each is { pass, target, camera } (a full-screen pass drawn into a
-  // target, null the canvas), with `values` (uniform name -> value, set on
-  // the pass's material as it is drawn: one pass drawn twice in a frame
-  // with other values) and `after` (run once every step is drawn: the
-  // temporal upscaler's commit), or { run } (one that draws itself).
-  postSteps(temporal, upscale) {
-    const steps = [], camera = this.passCamera;
-    const blur = this.blur && this.settings.get("softFocus");
-    if (blur) steps.push({ pass: this.downsample, target: this.quarterTarget, camera });
-    this.composite.material.uniforms.blend.value = blur ? this.blur.blend : 0;
-    const bloom = Boolean(this.settings.get("bloom"));
-    if (bloom) steps.push(...this.bloom.steps(camera));
-    this.composite.material.uniforms.bloomStrength.value = bloom ? 0.65 : 0;
-    // The temporal upscaler antialiases on its own; FXAA would only blur it.
-    const fxaa = !temporal && this.settings.get("antialiasing") !== "off";
-    // Nothing to composite but the frame itself (no soft focus, bloom or
-    // motion blur): the composite would only copy it.
-    const plain = !blur && !bloom && !(this.composite.material.uniforms.speedBlur.value > 0.0001);
-    // Bilinear, with nothing to composite: the composite draws straight to
-    // the window, its texture filtering the upscale, and no pass of its own
-    // follows.
-    const direct = upscale && this.upscaling === "bilinear" && !fxaa && plain;
-    // FXAA over a plain frame reads the scene's image itself (the copy's
-    // colours are the same texels), one pass the fewer.
-    const fxaaSource = fxaa && plain ? this.sceneTarget : this.postTarget;
-    if (!(fxaa && plain)) steps.push({ pass: this.composite, target: (fxaa || upscale) && !direct ? this.postTarget : null, camera });
-    if (fxaa) {
-      const pass = this.settings.get("antialiasing") === "fxaa-fast" ? this.fastFxaa() : this.fxaa;
-      pass.material.uniforms.tDiffuse.value = fxaaSource.texture;
-      steps.push({ pass, target: upscale ? this.aaTarget : null, camera });
-    }
-    if (upscale && !direct) steps.push(...this.upscaler.steps(fxaa ? this.aaTarget.texture : this.postTarget.texture, this.upscaling));
-    return steps;
-  }
-
-  // One post step drawn by three, its values set first.
-
-  // The owned fast FXAA pass, at the 3D frame's resolution.
-  fastFxaa() {
-    if (!this.fxaaFast) {
-      this.fxaaFast = ownedFullScreenPass("post-hud/fxaa-fast", { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1 / 1024, 1 / 512) } });
-      this.fxaaFast.material.uniforms.resolution.value.copy(this.fxaa.material.uniforms.resolution.value);
-    }
-    return this.fxaaFast;
-  }
+  // A capture boundary after scene/motion publication, before native post.
+  finishPost() { this.rust.post(); }
 
   // The stats line's part: the 3D view's size (adaptive resolution moves
   // it), and a warning when the GPU draws or composites in software.
