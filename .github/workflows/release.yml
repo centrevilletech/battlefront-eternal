@@ -65,14 +65,6 @@ jobs:
           npm pkg set bfeUpdateChannel=development-preview
           echo "tag=preview-$number" >> "$GITHUB_OUTPUT"
           echo "version=0.1.0-preview.$number" >> "$GITHUB_OUTPUT"
-      - name: Install the pinned Node host Rust toolchain
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh
-          sh rustup-init.sh -y --no-modify-path --default-toolchain none
-          rm rustup-init.sh
-          export PATH="$HOME/.cargo/bin:$PATH"
-          (cd rust && rustup toolchain install)
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Bundle engine and portable host
         env:
           GH_TOKEN: ${{ github.token }}

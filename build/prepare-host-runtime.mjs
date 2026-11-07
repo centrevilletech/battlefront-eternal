@@ -69,15 +69,10 @@ try {
   const update = join(root, 'update'); await mkdir(update, { recursive: true });
   for (const file of SERVER_UPDATER) await cp(join('electron', 'update', file), join(update, file));
   await writeFile(join(update, 'package.json'), JSON.stringify({ type: 'module', private: true }));
+  // The native bridge has no production world or publication operations.
+  // Keep its separately built development artifact out of releases so the
+  // WASM host retains its platform and libc requirements on every target.
   const targets = [];
-  if (process.platform === 'linux' && process.arch === 'x64' && process.report.getReport().header.glibcVersionRuntime) {
-    run(process.execPath, ['tools/build-node-host.mjs'], resolve('.'));
-    const metadata = JSON.parse(await readFile('.host-addon/target.json'));
-    if (metadata.engineBuild !== identity || metadata.schema !== schema) throw Error('Stale host addon');
-    await mkdir(join(engine, 'native'));
-    await cp('.host-addon/bfe-node.node', join(engine, 'native/bfe-node.node'));
-    targets.push({ target: metadata.target, artifact: 'engine/native/bfe-node.node', napiMinimum: spec.napiMinimum });
-  }
   // Hash every shipped file after installation; this also pairs the server
   // adapter and its dependencies with exactly this engine and updater.
   const artifacts = {};

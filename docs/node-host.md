@@ -1,13 +1,16 @@
 # Node simulation host
 
 `npm run host:prepare` assembles the pinned server, engine and updater in
-`.host-runtime`. On Linux x64 with glibc it also builds `rust/bfe-node` using
-the pinned Rust toolchain. `npm run host:addon` stages that addon separately.
+`.host-runtime`. Release bundles carry the Rust WASM world without a native
+addon, so packaging requires no Rust compiler. The current addon has no native
+world or publication operations and stays out of these bundles.
+`npm run host:addon` builds it separately for development on Linux x64 with
+glibc and the pinned Rust toolchain.
+
 A build service may stage an exact `git archive` using
 `BFE_HOST_SERVER_ARCHIVE`, whose embedded revision must match the server pin.
 `BFE_HOST_ENGINE_REVISION` carries the source revision when Git worktree metadata
 is unavailable; the content-derived build identity still covers the engine.
-Other targets carry the Rust WASM world without an advertised addon.
 
 The addon currently supplies owned Context lifecycle and a checked numeric
 block boundary. Its handshake reports `nativeWorld: false` and

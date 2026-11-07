@@ -7,7 +7,5 @@
   "storeABI": 1,
   "napiMinimum": 8,
   "worldBackend": "wasm",
-  "targets": [
-    "linux-x64-gnu"
-  ]
+  "targets": []
 }
