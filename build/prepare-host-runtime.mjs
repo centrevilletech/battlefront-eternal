@@ -7,13 +7,13 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { NETWORK_CONTRACT } from '../src/runtime/network-contract.js';
-import { engineBuild, schemaFingerprint, generate } from '../tools/host-contract.mjs';
+import { engineBuild, schemaFingerprint, operationTableFingerprint, generate } from '../tools/host-contract.mjs';
 const destination = resolve('.host-runtime');
 // electron/update/server.js and what it imports.
 const SERVER_UPDATER = ['server.js', 'feed.js', 'install.js', 'keys.js', 'state.js', 'tree.js', 'version.js', 'fs.js'];
 const spec = JSON.parse(await readFile(new URL('./host-runtime.json', import.meta.url)));
 if (!/^centrevilletech\/battlefront-eternal-server$/.test(spec.repository) || !/^[a-f0-9]{40}$/.test(spec.revision)) throw Error('Invalid pinned host runtime');
-if (spec.format !== 1 || spec.serverAdapterABI !== 4 || spec.addonABI !== 1 || spec.storeABI !== 1 || spec.worldBackend !== 'wasm') throw Error('Invalid host bundle ABI');
+if (spec.format !== 2 || spec.serverAdapterABI !== 5 || spec.addonABI !== 2 || spec.storeABI !== 1 || spec.napiMinimum !== 8 || Object.hasOwn(spec, 'worldBackend') || !Array.isArray(spec.targets)) throw Error('Invalid host bundle ABI');
 const root = await mkdtemp(resolve('.host-runtime-stage-'));
 let installed = false;
 const temporary = await mkdtemp(join(tmpdir(), 'bfe-host-source-'));
@@ -43,15 +43,17 @@ try {
     // and Windows' bsdtar has no --force-local.
     run('tar', ['-xzf', 'source.tar.gz', '-C', 'source', '--strip-components=1'], temporary);
   }
-  // A local source must be the exact clean pin too. This is a paired build,
-  // so an independently modified server checkout is never a release input.
+  // Development pairs may precede publication of a new server pin. Record
+  // their exact clean commit; CI still downloads only the published pin.
+  let serverRevision = spec.revision;
   if (process.env.BFE_HOST_SERVER_SOURCE) {
     const revision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' });
     const status = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: source, encoding: 'utf8' });
-    if (revision.status || status.status || revision.stdout.trim() !== spec.revision || status.stdout.trim()) throw Error('Host server source must match the clean pinned revision');
+    if (revision.status || status.status || !/^[a-f0-9]{40}$/.test(revision.stdout.trim()) || status.stdout.trim()) throw Error('Host server source must be a clean commit');
+    serverRevision = revision.stdout.trim();
   }
   generate(true);
-  const identity = engineBuild(), schema = schemaFingerprint();
+  const identity = engineBuild(), schema = schemaFingerprint(), operationTable = operationTableFingerprint();
   const server = join(root, 'server'), engine = join(root, 'engine'); await mkdir(server, { recursive: true }); await mkdir(engine, { recursive: true });
   for (const file of ['src', 'scripts', 'LICENSE']) await cp(join(source, file), join(server, file), { recursive: true });
   // Transport and authentication remain in the server. The simulation addon
@@ -61,7 +63,7 @@ try {
   // Headless actors need the renderer's cold resource compiler for bind bounds.
   // Image and texture decoders remain page-only; no drawing context is created.
   await cp('src', join(engine, 'src'), { recursive: true, filter: (source) => !['texture-pkg','image-pkg'].includes(relative('src', source)) });
-  await writeFile(join(engine, 'package.json'), JSON.stringify({ type: 'module', private: true, bfeHostBundle: 1 }));
+  await writeFile(join(engine, 'package.json'), JSON.stringify({ type: 'module', private: true, bfeHostBundle: 2, bfeEngineBuild: identity }));
   for (const dependency of ['three', 'three-mesh-bvh']) await cp(join('node_modules', dependency), join(engine, 'node_modules', dependency), { recursive: true });
   // The dedicated server's updater (docs/server-updates.md) and the signed
   // release code it shares with the client's: every release carries the
@@ -69,10 +71,19 @@ try {
   const update = join(root, 'update'); await mkdir(update, { recursive: true });
   for (const file of SERVER_UPDATER) await cp(join('electron', 'update', file), join(update, file));
   await writeFile(join(update, 'package.json'), JSON.stringify({ type: 'module', private: true }));
-  // The native bridge has no production world or publication operations.
-  // Keep its separately built development artifact out of releases so the
-  // WASM host retains its platform and libc requirements on every target.
-  const targets = [];
+  // The target list is explicit. Missing builds and probe capabilities are
+  // errors, never a reason to silently remove an advertised native target.
+  const targets = spec.targets;
+  for (const entry of targets) {
+    if (entry.target !== 'linux-x64-gnu' || entry.artifact !== `engine/native/${entry.target}/bfe-node.node` || entry.glibcMinimum !== '2.28' || entry.napiMinimum !== spec.napiMinimum || entry.addonABI !== spec.addonABI) throw Error('Invalid host target');
+    const directory = resolve('.host-addon');
+    const metadata = JSON.parse(await readFile(join(directory, 'target.json')));
+    const addon = await readFile(join(directory, 'bfe-node.node'));
+    const hash = createHash('sha256').update(addon).digest('hex');
+    if (metadata.target !== entry.target || metadata.lifecycleProbe !== false || metadata.glibcMinimum !== entry.glibcMinimum || metadata.addonABI !== spec.addonABI || metadata.storeABI !== spec.storeABI || metadata.napiMinimum !== entry.napiMinimum || metadata.schema !== schema || metadata.operationTable !== operationTable || metadata.engineBuild !== identity || metadata.sha256 !== hash || metadata.nativeWorld !== true || metadata.nativePublication !== true) throw Error('Host addon build identity or capabilities mismatch');
+    await mkdir(join(root, entry.artifact, '..'), { recursive: true });
+    await writeFile(join(root, entry.artifact), addon);
+  }
   // Hash every shipped file after installation; this also pairs the server
   // adapter and its dependencies with exactly this engine and updater.
   const artifacts = {};
@@ -86,9 +97,9 @@ try {
   for (const directory of ['engine', 'server', 'update']) await inventory(directory);
   const revision = process.env.BFE_HOST_ENGINE_REVISION ?? spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim();
   if (!/^[a-f0-9]{40}$/.test(revision)) throw Error('Missing engine revision');
-  const manifest = { ...spec, wire: NETWORK_CONTRACT, engineRevision: revision, serverRevision: spec.revision, engineBuild: identity, schema, targets, artifacts };
+  const manifest = { ...spec, wire: NETWORK_CONTRACT, engineRevision: revision, serverRevision, engineBuild: identity, schema, operationTable, targets, artifacts };
   await writeFile(join(engine, 'host-runtime.json'), JSON.stringify(manifest, null, 2) + '\n');
-  await writeFile(join(root, 'version.json'), JSON.stringify({ ...spec, engineRevision: manifest.engineRevision, engineBuild: identity, schema }, null, 2) + '\n');
+  await writeFile(join(root, 'version.json'), JSON.stringify({ ...spec, serverRevision, engineRevision: manifest.engineRevision, engineBuild: identity, schema, operationTable }, null, 2) + '\n');
   const { loadHostRuntime } = await import(pathToFileURL(join(server, 'src/host-runtime.js')));
   await loadHostRuntime(engine);
   // A failed preparation leaves the last complete bundle in place.

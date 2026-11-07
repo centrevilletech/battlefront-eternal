@@ -65,7 +65,7 @@ A future native lifecycle adapter supplied with `--backend-module=MODULE` export
 `createQualificationBackend({engine,manifest})`: capability flags, acquisition
 stage names, process-wide `counts()` with created/released/live totals, and `open(config)`. Its battle contract is the one exercised in
 `tools/host-qualification/lifecycle.mjs`; the WASM adapter documents the methods.
-Native service qualification accepts `--world-worker=MODULE`, a harness worker
+Native service qualification can use the production worker or `--world-worker=MODULE`, a harness worker
 exporting `qualificationBackend = 'native'` and the production worker protocol,
 including diagnostics with actual used/reserved and created/released/live counts.
 The bundle itself must support that native backend before it can qualify.
@@ -78,6 +78,75 @@ CI runs content-free argument/telemetry/queue self-tests and diagnostic addon
 lifecycle tests. Content soaks, privileged cgroup and network cases are farm
 commands. Preserve the exact bundle and harness revision throughout a long run;
 keep raw data on the farm and retain only summaries for review.
+
+Host bundles use format 2: server adapter ABI 5, addon ABI 2, store ABI 1 and
+Node-API 8. The network contract has its own adapter ABI and is unchanged.
+`operationTable` uses the complete schema fingerprint, including generated
+operation codes and numeric arena layouts. Addon handshakes must match both
+fingerprints and the engine build, with native world and publication enabled.
+
+`build/host-runtime.json` lists native targets explicitly. The
+`linux-x64-gnu` entry requires glibc 2.28 and its hashed
+`engine/native/linux-x64-gnu/bfe-node.node` artifact. Other platforms have no
+entry and select WASM. A missing, corrupted, unloadable or incompatible
+advertised addon stops readiness; there is no backend preference or retry.
+Package verification permits only those exact native resource paths and rejects
+development binaries, including libraries hidden outside the host directory.
+
+Run `npm run host:addon` through the build environment before `host:prepare`.
+The production build uses the digest-pinned manylinux glibc 2.28 container in
+`tools/build-node-host.mjs`, with Podman installed on the builder. It verifies
+both the builder libc and the linked GLIBC symbol versions. Probe builds made
+with `--fixtures` are test inputs and are rejected by bundle preparation.
+`BFE_HOST_CONTAINER_RUNTIME` selects a compatible container executable; it does
+not change the target or backend. Native owner diagnostics come from
+`bridge.memoryDiagnostics()`, alongside backend identity; they do not read WASM
+linear memory or infer live Rust owners from process RSS.
+
+For development, `BFE_HOST_SERVER_SOURCE` may name a clean local server commit.
+Preparation records that exact revision and still runs its loader against the
+staged bundle before replacing the last complete bundle. CI rejects this source
+override and uses only the published revision pin. Publish the paired server
+revision before updating that pin for release builds. Loading a handshake
+fixture proves loader validation, not native battle qualification.
+
+Worker readiness and each client initialization reply include `hostBuild`,
+`worldBackend` and `addonIdentity`. Source engines report WASM with a null build
+and addon identity. Bundled native identities include the target, artifact hash
+and validated handshake. Operator memory samples repeat that selected identity;
+qualification checks the worker's build, backend and addon against the loaded
+bundle before starting its clock or local service. The UDP transport can already
+be open while the worker loads.
+
+The service driver reports the selected backend in its initial `ready` message,
+world descriptions and samples. Its optional `--backend` argument asserts the
+expected result; a mismatch fails. It never changes bundle selection. A supplied
+harness worker must declare the same backend as the bundle.
+
+Memory sampling calls `game.simBridge.memoryDiagnostics()` once per operator
+request. Its neutral result contains `worldBackend` and either `linearBytes`
+for WASM or `native` with actual reserved/used words and created/released/live
+counts. Missing accounting is reported unavailable. A conflicting backend label
+fails the sample, and the server never reaches through bridge exports to memory.
+Headless actor admission retains the renderer's cold resource compiler for bind
+bounds; this does not create a graphics context. Browser image codecs stay out
+of the host bundle.
+
+The loader calls `hostSimulation(manifest, target, addon)`, where `target` is
+its platform identifier string and `addon` is the validated native module or
+null for an unadvertised target. Factory implementations use the target entries;
+format 2 has no manifest-level `worldBackend` requirement. This factory and the
+bridge's accounting hook must be supplied by the engine backend implementation.
+An unavailable native world remains a readiness failure until its real world
+and publication entries are implemented.
+
+Build validation applies to every target, including WASM. Preparation records
+`bfeEngineBuild` in the engine package metadata and includes that file in the
+artifact hashes. The loader requires the manifest build, that hashed record and
+`version.json` to agree before importing the factory. An advertised addon must
+also report that same build in its handshake. Package checks enforce the same
+identity comparisons, including a valid manifest hash that differs from the
+recorded build.
 
 ## Farm acceptance runner
 

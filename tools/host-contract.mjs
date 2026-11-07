@@ -23,6 +23,11 @@ export function digest(root, paths) {
 export function schemaFingerprint(root = ROOT) {
   return digest(root, ['tools/sim-schema.mjs', ...files(root, 'rust/sim/schema'), ...files(root, 'src/sim/gen')]);
 }
+// Both providers identify operations with the complete generated boundary.
+// Its inputs already include the operation table and every numeric arena row.
+export function operationTableFingerprint(root = ROOT) {
+  return schemaFingerprint(root);
+}
 export function engineBuild(root = ROOT) {
   const crates = ['sim', 'bfe-node', 'content', 'three', 'v8math', 'jsrt', 'bfe-pose', 'bfe-presentation', 'audio-control'];
   return digest(root, [...files(root, 'src'), ...crates.flatMap(crate => files(root, 'rust/' + crate)),

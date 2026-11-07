@@ -1,10 +1,11 @@
 // Verify the actual archives, then execute the current architecture's network
 // modules inside packaged Electron: a real native UDP session over loopback
 // between the client transport in app.asar and the bundled host server. No
-// game data, native module or WebRTC stack is involved.
+// game data or WebRTC stack is involved.
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { resolve, join, dirname, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { checkHostRuntime, nativeFiles } from './check-host-runtime.mjs';
 import { listPackage } from '@electron/asar';
 const root = resolve(process.argv[2] || 'release');
 function archives(directory, depth = 0) {
@@ -28,11 +29,15 @@ for (const archive of files) {
   console.log('Packaged resources verified:', archive);
   const resources = dirname(archive), app = dirname(resources);
   for (const file of ['server/src/main.js', 'server/src/udp-server.js', 'server/node_modules/ws/package.json', 'engine/src/game.js', 'engine/src/net/endpoint.js', 'engine/node_modules/three/package.json']) if (!existsSync(join(resources, 'host-runtime', file))) throw Error(`Missing bundled host resource ${file}`);
-  for (const folder of ['rust-pkg','texture-pkg','image-pkg']) if (existsSync(join(resources, 'host-runtime/engine/src',folder))) throw Error(`The host runtime must not carry browser codecs or GPU modules (${folder})`);
-  // The server runs the WASM world. An unused advertised addon would make
-  // startup depend on the build machine's libc and CPU architecture.
-  const hostManifest = JSON.parse(readFileSync(join(resources, 'host-runtime/engine/host-runtime.json'), 'utf8'));
-  if (hostManifest.worldBackend !== 'wasm' || hostManifest.targets?.length !== 0 || existsSync(join(resources, 'host-runtime/engine/native'))) throw Error('The packaged WASM host must not carry a native development addon');
+  for (const folder of ['texture-pkg','image-pkg']) if (existsSync(join(resources, 'host-runtime/engine/src',folder))) throw Error(`The host runtime must not carry browser image codecs (${folder})`);
+  // The host's libraries stay outside app.asar. Every one must be an
+  // explicitly advertised format 2 target with the exact recorded hash.
+  const hostRoot = join(resources, 'host-runtime');
+  await checkHostRuntime(hostRoot);
+  for (const file of await nativeFiles(resources)) {
+    const local = file.slice(hostRoot.length + 1);
+    if (!file.startsWith(hostRoot + '/') && !file.startsWith(hostRoot + '\\')) throw Error('Unexpected native resource: ' + local);
+  }
   for (const stack of ['node-datachannel', 'werift']) if (existsSync(join(resources, 'host-runtime/server/node_modules', stack))) throw Error(`Host package must not contain the retired WebRTC stack (${stack})`);
   if (!existsSync(join(resources, 'tools/content-version.json'))) throw Error('Missing preparation version resource');
   for (const file of ["Claxon.txt", "Opus.txt"]) if (!existsSync(join(resources, "legal", "audio-codecs", file))) throw Error(`Missing codec license ${file}`);
