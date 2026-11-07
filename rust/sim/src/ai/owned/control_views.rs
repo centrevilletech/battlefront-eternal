@@ -1,7 +1,7 @@
 //! SeatUnit mirrors carry structural identities only. Steering remains in
 //! the native holder consumed by F2; the page needs the lease and controller
 //! to resolve captured references, never a second live intent.
-use crate::{gen::AiControlView,seats::lease::control_key,vehicles::f2_seats::Seats};
+use crate::{gen::AiControlView,vehicles::f2_seats::Seats};
 use super::{entities::Entity,state::State};
 // Structural identities must cross before a lifecycle callback can resolve
 // them. Ordinary steering never changes these identity links.
@@ -47,16 +47,9 @@ impl Publication {
             };
             let active=holder && store.seat_lease.get(birth.lease).is_some_and(|lease|
                 !lease.released && lease.controllable==Some(reference) && lease.index==birth.index as f64 && crate::seats::lease::live(lease,birth.lease,&store.unit));
-            // A live qualified lease retains its F2 control. Only released
-            // controls need a table probe and the deferred Core unbind read.
-            if !active {
-                let key=control_key(reference);
-                let present=match birth.source {
-                    super::seats::Source::Hull(..)=>seats.hulls.controls.get(&key).is_some(),
-                    super::seats::Source::Turret(..)=>seats.crews.controls.get(&key).is_some(),
-                };
-                if !present {continue;}
-            }
+            // F2 may already have removed its steering entry when retiring a
+            // released lease. That absence must not skip the AI identity's
+            // retirement, or repeated boarding exhausts the bounded birth pool.
             let controller_object=state.controls.controller_key(reference).or_else(||state.turrets.controller_key(reference));
             let controller=active.then_some(controller_object).flatten()
                 .and_then(|object|if let Some(Entity::Controller(reference))=state.entities.get(object) {Some(reference)}else{None});

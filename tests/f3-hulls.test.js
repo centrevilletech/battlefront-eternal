@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Vector3 } from 'three';
+import { BoxGeometry, Vector3 } from 'three';
 import { f3World } from './fixtures/f3-world.js';
 import { fleetFixture } from './fixtures/f3-fleet.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
@@ -428,4 +428,19 @@ test('the first walker leg sample and its respawn reuse cold native storage',asy
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);
 
+});
+
+// UnitFactory can add collision bodies after the fleet's initial topology.
+// A real exit query must resolve that late body through F3's shared names.
+test('native seat exit casts accept collision bodies named after fleet construction',async()=>{
+  const world=await f3World({soldier},{prepareFleet:fleetFixture({positions:[0]})});
+  const vehicles=world.factory.context.vehicles,hull=vehicles.vehicles[0];
+  const unit=world.spawn('soldier',0,0,true);
+  assert.equal(vehicles.board(unit,hull,0),true);
+  const floor=new BoxGeometry(20,.5,20).translate(0,.25,0),collision=world.phase.collision;
+  const body=collision.addBody(floor.attributes.position.array,floor.index.array,new Uint32Array(floor.index.count/3));
+  body.enabled=true;
+  world.phase.bodiesIn();
+  assert.equal(vehicles.unboard(unit,{force:true,placement:true}),true);
+  assert.equal(unit.seat,null);
 });

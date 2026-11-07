@@ -129,7 +129,14 @@ pub fn cast_static(world: usize, origin: &Vector3, direction: &Vector3, far: f64
 /// OrdnanceWorld.cast and castMoving use the same live collision tree as
 /// soldier movement, including the shooter's ignored body and moving mask.
 pub fn ordnance_cast(world: usize, origin: [f64; 3], direction: [f64; 3], far: f64, ignore: Option<crate::store::Ref<crate::gen::Body>>, static_only: bool, moving: bool) -> Option<crate::ordnance::world::Hit> {
-    let ignored = ignore.map_or(-1, |r| crate::vehicles::module::collision_world().and_then(|c| c.kernel_slot(r.slot)).expect("named ignored body") as i64);
+    let ignored = match ignore {
+        Some(body)=>{
+            let collision=crate::vehicles::module::collision_world()?;
+            if collision.body_reference(body.slot)!=Some(body) {return None;}
+            collision.kernel_slot(body.slot)? as i64
+        },
+        None=>-1,
+    };
     let s = collision::state();
     let ray = collision::Ray { ox: origin[0], oy: origin[1], oz: origin[2], dx: direction[0], dy: direction[1], dz: direction[2] };
     let count = broad::world_candidates_near(s, world, &ray, far, ignored, static_only, moving);
@@ -141,6 +148,7 @@ pub fn ordnance_cast(world: usize, origin: [f64; 3], direction: [f64; 3], far: f
     // launch; treating it as a moving hit would overwrite its terrain surface.
     let (code, h) = if moving { collision::world_cast_moving_ray(s, world, &ray, far, count) }
         else { collision::world_cast_ray(s, world, &ray, far, v8math::hypot(direction[0], direction[2]), count) };
-    (code != MISS).then(|| crate::ordnance::world::Hit { distance: h.distance, point: [h.px, h.py, h.pz], normal: [h.nx, h.ny, h.nz],
-        terrain: code == TERRAIN, body: if code >= 0 { Some(super::f3::body_reference(code as usize)) } else { None } })
+    if code == MISS {return None;}
+    let body=if code >= 0 {Some(super::f3::body_reference(code as usize)?)}else{None};
+    Some(crate::ordnance::world::Hit {distance:h.distance,point:[h.px,h.py,h.pz],normal:[h.nx,h.ny,h.nz],terrain:code==TERRAIN,body})
 }

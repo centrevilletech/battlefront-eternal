@@ -2005,6 +2005,8 @@ fn native_combat_row_scope_reads_and_writes_one_canonical_body() {
         rows.store.seat_lease.get_mut(lease).unwrap().controllable=Some(next);
         let born=output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows());output.acknowledge(born[2]);
         rows.store.seat_lease.get_mut(lease).unwrap().released=true;
+        // F2 retires steering before the AI publisher sees the released lease.
+        rows.seats.hulls.controls.remove(&bfe_sim::seats::lease::control_key(next));
         let retired=output.publish(rows.state,rows.store,rows.seats,rows.buildings.rows());output.acknowledge(retired[2]);
         assert!(rows.state.births.read(next).is_none());
     }
@@ -2658,4 +2660,63 @@ fn authored_item_services_keep_empty_tables_and_canonical_order_without_allocati
     ALLOCATIONS.with(|count|count.set(0));COUNTING.with(|active|active.set(true));
     for _ in 0..120 {let view=items.read(&store,&entities,0);assert_eq!(quantity(&view.qty,0.,false),50.);}
     COUNTING.with(|active|active.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
+}
+
+#[test]
+fn late_network_body_admission_precedes_roster_reads_and_rejects_stale_units() {
+    use bfe_sim::{gen::*,store::Ref,battle::commands::Commands,ai::{nav::Nav,owned::{state::{State,Capacity},entities::Entity}}};
+    let mut store=Store::default();
+    let mut commands=Commands::new(64);
+    let mut state=State::new(Nav::empty(Default::default()),false,Capacity {registry:64,characters:64,posts:0,hulls:0,buildings:0,controls:0,scopes:1,cameras:0});
+    let characters:Vec<_>=(0..64).map(|_|store.character.insert(Character {human:true,..Default::default()})).collect();
+    let handles:Vec<_>=characters.iter().map(|&r|commands.adopt(&store,r)).collect();
+    state.prepare_roster(&store,&commands,&handles).unwrap();
+    // These bodies are realized after initial AI activation, as network
+    // admission exhausts the warm class pool. No aim callback has run yet.
+    let bodies:Vec<_>=(0..64).map(|_|store.unit.insert(Unit::default())).collect();
+    ALLOCATIONS.with(|c|c.set(0));COUNTING.with(|c|c.set(true));
+    for (index,&body) in bodies.iter().enumerate() {
+        assert!(state.admit_body(&store,body));
+        store.character.get_mut(characters[index]).unwrap().unit=Some(body);
+        let snap=state.roster.read(&store,&commands,&state.entities,&state.population,index).unwrap();
+        assert_eq!(snap.unit,state.entities.find(Entity::Unit(body)));
+        assert!(snap.unit.is_some());
+    }
+    COUNTING.with(|c|c.set(false));assert_eq!(ALLOCATIONS.with(Cell::get),0);
+    let old=bodies[0];store.unit.remove(old).unwrap();
+    let next=store.unit.insert(Unit::default());assert_eq!(old.slot,next.slot);assert_ne!(old.gen,next.gen);
+    assert!(!state.admit_body(&store,old));assert!(!state.admit_body(&store,Ref::new(u32::MAX,1)));
+    assert_eq!(state.roster.read(&store,&commands,&state.entities,&state.population,0).unwrap().unit,None);
+    store.character.get_mut(characters[0]).unwrap().unit=Some(next);
+    assert_eq!(state.roster.read(&store,&commands,&state.entities,&state.population,0).unwrap().unit,None);
+    assert!(state.admit_body(&store,next));
+    assert_eq!(state.entities.find(Entity::Unit(old)),None);
+    assert_eq!(state.roster.read(&store,&commands,&state.entities,&state.population,0).unwrap().unit,state.entities.find(Entity::Unit(next)));
+}
+
+#[test]
+fn seat_birth_rejects_invalid_holder_index_and_occupant_generations() {
+    use bfe_sim::{gen::*,store::Ref,ai::owned::{seats::Controls,entities::Entities},vehicles::f2_seats::Seats};
+    let mut store=Store::default();let mut pool=Controls::new(1);let mut entities=Entities::new(8);let mut seats=Seats::default();
+    let unit=store.unit.insert(Unit {generation:4.,..Default::default()});
+    let hull=store.vehicle.insert(Vehicle {seats:vec![Default::default()],..Default::default()});
+    let lease=store.seat_lease.insert(SeatLease {unit:Some(unit),generation:4.,vehicle:Some(hull),..Default::default()});
+    store.vehicle.get_mut(hull).unwrap().seats[0].lease=Some(lease);
+    for index in [-1.,0.5,f64::NAN,f64::INFINITY,u32::MAX as f64,1.] {
+        store.seat_lease.get_mut(lease).unwrap().index=index;
+        assert!(pool.construct(&store,&mut seats,&mut entities,lease,None).is_none());
+    }
+    store.seat_lease.get_mut(lease).unwrap().index=0.;
+    store.seat_lease.get_mut(lease).unwrap().unit=Some(Ref::new(unit.slot,unit.gen+1));
+    assert!(pool.construct(&store,&mut seats,&mut entities,lease,None).is_none());
+    store.seat_lease.get_mut(lease).unwrap().unit=Some(unit);
+    store.seat_lease.get_mut(lease).unwrap().generation=5.;
+    assert!(pool.construct(&store,&mut seats,&mut entities,lease,None).is_none());
+    store.seat_lease.get_mut(lease).unwrap().generation=4.;
+    store.seat_lease.get_mut(lease).unwrap().vehicle=Some(Ref::new(hull.slot,hull.gen+1));
+    assert!(pool.construct(&store,&mut seats,&mut entities,lease,None).is_none());
+    store.seat_lease.get_mut(lease).unwrap().vehicle=Some(hull);
+    let control=pool.construct(&store,&mut seats,&mut entities,lease,None).unwrap();
+    assert!(pool.construct(&store,&mut seats,&mut entities,lease,None).is_none());
+    assert!(pool.read(control).is_some());
 }

@@ -577,7 +577,11 @@ impl Crews {
         let holder = Holder::Turret(self.turrets[turret].index);
         foreign!(self, st, w, w.seat_policy(holder, 0, network, true));
         if !network {
-            let c = foreign!(self, st, w, w.controllable(r, 0, SeatRole::Gunner));
+            let Some(c) = foreign!(self, st, w, w.controllable(r, 0, SeatRole::Gunner)) else {
+                self.turrets[turret].lease = None; self.turrets[turret].gunner = None;
+                st.seat_lease.get_mut(r).unwrap().released = true;
+                return false;
+            };
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         let mut combat = self.facts(unit).combat;

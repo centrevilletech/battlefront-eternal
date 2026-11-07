@@ -38,6 +38,11 @@ impl State {
         }
         Ok(())
     }
+    /// UnitFactory realizes late network bodies before Character.unit is
+    /// published. Admission belongs at that owner boundary, not first aim.
+    pub fn admit_body(&mut self, store:&Store, body:crate::store::Ref<crate::gen::Unit>)->bool {
+        store.unit.contains(body) && self.entities.try_register(super::entities::Entity::Unit(body)).is_some()
+    }
     /// Prepared removed bodies already have their native object identity.
     /// A later F3 activation changes live registry order without recreating it.
     pub fn prepare_bodies(&mut self,store:&Store,bodies:&[crate::store::Ref<crate::gen::Unit>])->Result<(),Stale> {

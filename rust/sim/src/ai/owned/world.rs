@@ -199,9 +199,10 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> World<'_,'_,C,M,S> {
 impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Characters for World<'_,'_,C,M,S> {
     fn character(&self,index:usize)->CharacterSnap {self.rows.state.roster.read(self.rows.store,self.rows.characters,&self.rows.state.entities,&self.rows.state.population,index).expect("current native AI Character")}
     fn character_unit(&self,index:usize)->Option<UKey> {
-        let reference=self.rows.state.roster.reference(self.rows.store,self.rows.characters,index).expect("current native AI Character");
-        self.rows.store.character.get(reference).unwrap().unit.map(|unit|
-            self.rows.state.entities.find(super::entities::Entity::Unit(unit)).expect("prepared AI Character body"))
+        let reference=self.rows.state.roster.reference(self.rows.store,self.rows.characters,index)?;
+        let unit=self.rows.store.character.get(reference)?.unit?;
+        self.rows.store.unit.get(unit)?;
+        self.rows.state.entities.find(super::entities::Entity::Unit(unit))
     }
     fn character_objective(&self,index:usize)->Option<usize> {self.rows.state.roster.objective(self.rows.store,self.rows.characters,&self.rows.state.population,index).expect("current native AI objective")}
     fn character_set_objective(&mut self,index:usize,post:Option<usize>) {self.rows.state.roster.assign(self.rows.store,self.rows.characters,&self.rows.state.population,index,post).expect("current native objective publication");}

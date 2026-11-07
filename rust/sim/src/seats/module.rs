@@ -202,8 +202,8 @@ impl SeatWorld for JsSeats {
         import_seat_controller_state(&SeatWho { unit: unit.map_or(-1.0, |u| u as f64) }).value
     }
 
-    fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, role: SeatRole) -> Ref<SeatUnit> {
-        import_seat_controllable(&SeatLeaseArgs { lease, index: index as f64, role }).seat_unit
+    fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, role: SeatRole) -> Option<Ref<SeatUnit>> {
+        Some(import_seat_controllable(&SeatLeaseArgs { lease, index: index as f64, role }).seat_unit)
     }
 
     fn boarded(&mut self, unit: u32, holder: Holder, index: usize) {

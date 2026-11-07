@@ -18,7 +18,8 @@
 //!   bobs with the battle's clock, comes in with each phase) and the death
 //!   regions (game.js inDeathRegion over src/regions.js inRegion).
 
-use crate::gen::{F2BodyHeader, F2BodyToggle, F2BodyPlaced};
+use crate::gen::{Body, F2BodyHeader, F2BodyToggle, F2BodyPlaced};
+use crate::store::Ref;
 use super::{BodyId, Ground, Hit};
 use crate::collision::spheres::{self, box_apply_matrix4, Bounds, GatherCache, Gathered, Probes, Pushed};
 use crate::collision::{self, broad, candidate, State, MAX_BODIES, MISS, TERRAIN};
@@ -94,6 +95,8 @@ pub struct Collision {
     /// body slots) and the kernel's.
     kernel_of: Vec<i32>,
     ref_of: Vec<i32>,
+    /// Qualified identity is shared by the unit and vehicle collision owners.
+    bodies: Vec<Option<(Ref<Body>, u32)>>,
     /// The hulls' bodies, by BodyId.
     colliders: Vec<Option<Collider>>,
     ground: GroundCache,
@@ -119,6 +122,7 @@ impl Collision {
         let mut view = Self::new(self.world, self.blockers);
         view.kernel_of.clone_from(&self.kernel_of);
         view.ref_of.clone_from(&self.ref_of);
+        view.bodies.clone_from(&self.bodies);
         view.colliders.clone_from(&self.colliders);
         view
     }
@@ -140,6 +144,7 @@ impl Collision {
         if self.world == source.world {
             self.kernel_of.clone_from(&source.kernel_of);
             self.ref_of.clone_from(&source.ref_of);
+            self.bodies.clone_from(&source.bodies);
         }
     }
     pub fn new(world: usize, blockers: Option<usize>) -> Collision {
@@ -151,6 +156,7 @@ impl Collision {
             places_for: None,
             kernel_of: Vec::new(),
             ref_of: Vec::new(),
+            bodies: Vec::new(),
             colliders: Vec::new(),
             ground: GroundCache::default(),
             toggled: Vec::new(),
@@ -181,8 +187,46 @@ impl Collision {
         if self.ref_of.len() <= k {
             self.ref_of.resize(k + 1, -1);
         }
+        // Rebinding either namespace retires the old edge. A late body must
+        // never inherit an earlier body's generation through a reused slot.
+        let old_kernel = self.kernel_of[b];
+        if old_kernel >= 0 && old_kernel != kernel as i32 {
+            self.ref_of[old_kernel as usize] = -1;
+        }
+        let old_body = self.ref_of[k];
+        if old_body >= 0 && old_body != body as i32 {
+            self.kernel_of[old_body as usize] = -1;
+        }
         self.kernel_of[b] = kernel as i32;
         self.ref_of[k] = body as i32;
+    }
+
+    /// CollisionWorld.rayBodies binds both identities at construction, even
+    /// for variants admitted after vehicle topology was prepared.
+    pub fn bind_body(&mut self, body: Ref<Body>, kernel: u32) -> bool {
+        if body.slot as usize >= MAX_BODIES || kernel as usize >= MAX_BODIES { return false; }
+        if self.bodies.get(body.slot as usize).copied().flatten().is_some_and(|(old,_)|
+            old.gen != body.gen && body.gen.wrapping_sub(old.gen) >= 1 << 31) { return false; }
+        self.name_body(body.slot, kernel);
+        let slot = body.slot as usize;
+        if self.bodies.len() <= slot { self.bodies.resize(slot + 1, None); }
+        self.bodies[slot] = Some((body, kernel));
+        true
+    }
+
+    /// Seat casts must reject stale identities, including a store slot reused
+    /// before its replacement has been named. Missing bodies are not terrain.
+    pub fn body_reference(&self, slot: u32) -> Option<Ref<Body>> {
+        let (body, bound_kernel) = self.bodies.get(slot as usize).copied().flatten()?;
+        let kernel = *self.kernel_of.get(slot as usize)?;
+        (kernel >= 0 && kernel as u32 == bound_kernel && self.ref_of.get(kernel as usize) == Some(&(slot as i32))).then_some(body)
+    }
+
+    /// Kernel hits and public body slots use the same qualified bijection.
+    pub fn kernel_reference(&self, kernel: usize) -> Option<Ref<Body>> {
+        let slot = *self.ref_of.get(kernel)?;
+        if slot < 0 || self.kernel_of.get(slot as usize).copied()!=Some(kernel as i32) { return None; }
+        self.body_reference(slot as u32)
     }
 
     /// A hull's body: its kernel slot (named with it), bounds and caches.
@@ -530,6 +574,42 @@ mod tests {
 
     fn rules(json: &str, kill_y: f64) -> MapRules {
         MapRules::from_json(&bfe_content::json::parse(json).unwrap(), kill_y)
+    }
+
+    #[test]
+    fn late_collision_body_names_share_the_seat_cast_bank() {
+        let mut collision = Collision::new(0, None);
+        let hull = Ref::new(2, 1);
+        assert!(collision.bind_body(hull, 7));
+        // Late CollisionWorld bodies updated only the numeric mapping,
+        // leaving the seat world's separate reference vector at length three.
+        let late = Ref::new(4096, 3);
+        assert!(collision.bind_body(late, 19));
+        assert_eq!(collision.body_reference(late.slot), Some(late));
+        assert_eq!(collision.body_reference(u32::MAX), None);
+        assert!(!collision.bind_body(Ref::new(u32::MAX, 1), 19));
+        assert!(!collision.bind_body(late, u32::MAX));
+        assert_eq!(collision.body_reference(hull.slot), Some(hull));
+    }
+
+    #[test]
+    fn body_rebinding_rejects_old_generations_and_both_old_mapping_edges() {
+        let mut collision = Collision::new(0, None);
+        let old = Ref::new(4, 2);
+        let next = Ref::new(4, 3);
+        assert!(collision.bind_body(old, 8));
+        assert!(collision.bind_body(next, 9));
+        assert!(!collision.bind_body(old, 8));
+        assert_eq!(collision.body_reference(4), Some(next));
+        assert_eq!(collision.ref_of[8], -1);
+        let replacement = Ref::new(12, 1);
+        assert!(collision.bind_body(replacement, 9));
+        assert_eq!(collision.body_reference(4), None);
+        assert_eq!(collision.body_reference(12), Some(replacement));
+        // Legacy numeric naming may move geometry but cannot grant a body
+        // reference until its exact construction generation is bound.
+        collision.name_body(12, 10);
+        assert_eq!(collision.body_reference(12), None);
     }
 
     #[test]

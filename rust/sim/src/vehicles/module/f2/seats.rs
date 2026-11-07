@@ -222,10 +222,10 @@ impl Seats {
         let Some(v) = self.lease(st, r) else { return false };
         if !st.vehicle.get(v).is_some_and(|v| index < v.seats.len()) { return false; }
         self.touch_hull(st, v);
-        self.hulls.move_seat(st, world, r, index);
+        let moved=self.hulls.move_seat(st, world, r, index).is_some();
         lease_views(st, v);
         self.touch_hull(st, v);
-        true
+        moved
     }
 
     /// networkSeat.cycle swaps a human with a bot, retaining both identities.

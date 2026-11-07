@@ -22,6 +22,7 @@ struct World {
     // 0 clear floor, 1 no floor, 2 floor but every path out is blocked.
     collision: u8,
     controls: u32,
+    reject_control: bool,
     kill_entries: usize,
     nested_destroy: Option<usize>,
     expected_empty: Option<Ref<Vehicle>>,
@@ -71,8 +72,9 @@ impl SeatWorld for World {
     fn rider_drop(&mut self, _: Holder, _: usize, _: u32) -> Option<Vector3> { Some(Vector3::new(3.0, 4.0, 5.0)) }
     fn sync_rider(&mut self, _: Ref<SeatLease>, u: &mut Unit) { u.tick_count += 1.0; }
     fn controller_state(&mut self, _: Option<u32>) -> Option<f64> { None }
-    fn controllable(&mut self, _: Ref<SeatLease>, _: usize, _: SeatRole) -> Ref<SeatUnit> {
-        self.controls += 1; Ref::new(self.controls, 1)
+    fn controllable(&mut self, _: Ref<SeatLease>, _: usize, _: SeatRole) -> Option<Ref<SeatUnit>> {
+        if self.reject_control {return None;}
+        self.controls += 1; Some(Ref::new(self.controls, 1))
     }
     fn boarded(&mut self, id: u32, _: Holder, _: usize) { self.events.push(Event::Board(id)); }
     fn unboarded(&mut self, id: Option<u32>, _: Holder, _: usize, _: Option<Ref<Post>>, reason: Reason) {
@@ -385,4 +387,29 @@ fn another_hull_birth_keeps_existing_crew_look_and_pending_ai_input() {
     assert_eq!(st.vehicle.get(h.vehicle).unwrap().seats[0].aim_yaw, yaw);
     assert_eq!(st.vehicle.get(h.vehicle).unwrap().seats[0].pitch, pitch);
     assert_eq!(st.seat_lease.get(bot_lease).unwrap().input.forward, 0.75);
+}
+
+#[test]
+fn rejected_seat_controls_leave_no_half_boarding_and_failed_promotions_restore_the_lease() {
+    let (mut st, mut phase, mut world, hull)=setup(2);
+    let body=unit(&mut st,1,false);
+    world.reject_control=true;
+    assert!(!phase.board(&mut st,&mut world,body,hull,0));
+    assert!(st.unit.get(body.unit).unwrap().seat.is_none());
+    assert!(st.vehicle.get(hull.vehicle).unwrap().seats[0].lease.is_none());
+    phase.published(&mut st);
+    world.reject_control=false;
+    assert!(phase.board(&mut st,&mut world,body,hull,0));
+    let lease=seat(&st,body);let control=st.seat_lease.get(lease).unwrap().controllable;
+    st.seat_lease.get_mut(lease).unwrap().input.pressed=vec![true,true];
+    world.reject_control=true;
+    assert!(!phase.move_seat(&mut st,&mut world,lease,1));
+    assert_eq!(st.seat_lease.get(lease).unwrap().index,0.);
+    assert_eq!(st.seat_lease.get(lease).unwrap().controllable,control);
+    assert_eq!(st.seat_lease.get(lease).unwrap().input.pressed,[true,true]);
+    assert_eq!(st.vehicle.get(hull.vehicle).unwrap().seats[0].lease,Some(lease));
+    assert!(st.vehicle.get(hull.vehicle).unwrap().seats[1].lease.is_none());
+    assert!(phase.hulls.move_seat(&mut st,&mut world,lease,usize::MAX).is_none());
+    st.seat_lease.get_mut(lease).unwrap().index=f64::NAN;
+    assert!(phase.hulls.move_seat(&mut st,&mut world,lease,1).is_none());
 }

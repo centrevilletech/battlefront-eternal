@@ -3,6 +3,7 @@
 //! another Core or move a lifecycle action past its original source slot.
 use crate::{battle::live::Queries,gen::{F3UnitKey,F4AIHook,SeatLease,SeatUnit,Store,Unit},recon::Authority,store::Ref,vehicles::f2_seats::Seats};
 pub trait Callbacks {
+    fn unit_born(&mut self,store:&Store,unit:Ref<Unit>)->bool;
     fn character_reassigned(&mut self,reference:Ref<crate::gen::Character>,handle:&crate::gen::F4Handle);
     fn hull_born(&mut self,hull:crate::store::Ref<crate::gen::Vehicle>,member:crate::gen::Member);
     fn grenade_contact(&mut self,grenade:crate::store::Ref<crate::gen::Grenade>);
@@ -31,6 +32,7 @@ pub struct Scope<'a,F:Factory> {
     pub factory:&'a F,
 }
 impl<F:Factory> Callbacks for Scope<'_,F> {
+    fn unit_born(&mut self,store:&Store,unit:Ref<Unit>)->bool {self.state.admit_body(store,unit)}
     fn character_reassigned(&mut self,reference:Ref<crate::gen::Character>,handle:&crate::gen::F4Handle) {
         // Human admission has no later bot attach hook. Refresh its command
         // life at the F4 reassignment, before another controller reads crew,
@@ -48,7 +50,7 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
         };
         // Preserve identity admission even for a body with no bot controller.
         // Its canonical binding avoids a second per-unit Core map lookup.
-        let object=self.state.entities.register(super::entities::Entity::Unit(key.reference()));
+        let Some(object)=self.state.entities.try_register(super::entities::Entity::Unit(key.reference())) else{return};
         let Some(controller)=controller else{return};
         if !self.core.controllers.get(controller).is_some_and(|c|c.unit==Some(object)) {return;}
         let mut store=std::mem::take(&mut crate::abi::sim().store);

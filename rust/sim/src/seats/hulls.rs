@@ -241,7 +241,14 @@ impl Hulls {
         let holder = Holder::Hull(self.hulls[hull].index);
         foreign!(self, st, w, w.seat_policy(holder, index, network, true));
         if !network {
-            let c = foreign!(self, st, w, w.controllable(r, index, role));
+            let Some(c) = foreign!(self, st, w, w.controllable(r, index, role)) else {
+                // A rejected control cannot leave a half-boarded occupant or
+                // let a later acquisition inherit this unpublished lease.
+                st.vehicle.get_mut(vref).unwrap().seats[index].lease = None;
+                st.seat_lease.get_mut(r).unwrap().released = true;
+                lease_views(st, vref);
+                return false;
+            };
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         let mut combat = self.facts(unit).combat;
@@ -404,18 +411,30 @@ impl Hulls {
         }
         let from = from?;
         let r = v.seats[from].lease.unwrap();
-        Some(self.move_seat(st, w, r, index))
+        self.move_seat(st, w, r, index)
     }
 
     /// Vehicles.move (2319): a lease to another seat of its hull; its batch's
     /// edges are dropped, held values carry on, and a bot's seat gets a new
     /// control for the AI.
-    pub fn move_seat<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, w: &mut W, r: Ref<SeatLease>, index: usize) -> Ref<SeatLease> {
-        let lease = st.seat_lease.get(r).unwrap();
-        let vref = lease.vehicle.unwrap();
-        let hull = self.side_of(vref);
+    pub fn move_seat<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, w: &mut W, r: Ref<SeatLease>, index: usize) -> Option<Ref<SeatLease>> {
+        let lease = st.seat_lease.get(r)?;
+        if lease.released || !lease.index.is_finite() || lease.index < 0. || lease.index.fract()!=0. {return None;}
+        if let Some(unit)=lease.unit {
+            let body=st.unit.get(unit)?;
+            if body.generation!=lease.generation || body.seat!=Some(r) {return None;}
+        }
+        let vref = lease.vehicle?;
+        let hull = self.hulls.iter().position(|h|h.vehicle==vref)?;
         let from = lease.index as usize;
+        let vehicle=st.vehicle.get(vref)?;
+        // switchSeat deliberately overwrites the bot's seat before moving
+        // that captured bot to the vacated seat. Its Unit still owns this
+        // qualified lease throughout both legs; occupancy is not a validator.
+        if !vehicle.alive || from>=vehicle.seats.len() || index>=vehicle.seats.len() {return None;}
+        let old_edges=([lease.input.pressed[0],lease.input.pressed[1]],lease.input.reload,lease.input.exit);
         let human = lease.human;
+        let old_role = lease.role;
         let network = lease.unit.and_then(|u| st.unit.get(u)).is_some_and(network_human);
         let unit = lease.unit.map(|u| u.slot);
         let v = st.vehicle.get_mut(vref).unwrap();
@@ -435,13 +454,22 @@ impl Hulls {
         let holder = Holder::Hull(self.hulls[hull].index);
         foreign!(self, st, w, w.seat_policy(holder, index, human || network, !human));
         if !human && !network {
-            let c = foreign!(self, st, w, w.controllable(r, index, role));
+            let Some(c) = foreign!(self, st, w, w.controllable(r, index, role)) else {
+                let v = st.vehicle.get_mut(vref).unwrap();
+                v.seats[index].lease = None; v.seats[from].lease = Some(r);
+                let lease = st.seat_lease.get_mut(r).unwrap();
+                lease.index = from as f64; lease.role = old_role;
+                lease.input.pressed[0]=old_edges.0[0];lease.input.pressed[1]=old_edges.0[1];
+                lease.input.reload=old_edges.1;lease.input.exit=old_edges.2;
+                lease_views(st, vref);
+                return None;
+            };
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         lease_views(st, vref);
         let holder = Holder::Hull(self.hulls[hull].index);
         foreign!(self, st, w, w.moved(unit, holder, index));
-        r
+        Some(r)
     }
 
     /// Vehicles.displace (2339): the player takes a seat a bot holds: the
@@ -456,7 +484,7 @@ impl Hulls {
         for k in 1..n {
             let i = (index + k) % n;
             if seat_free(st.vehicle.get(vref).unwrap(), i) {
-                return Some(self.move_seat(st, w, r, i));
+                return self.move_seat(st, w, r, i);
             }
         }
         self.vacate(st, w, r, Vacate { placement: true, promote: Some(false), reason: Reason::Displaced, ..Vacate::default() });

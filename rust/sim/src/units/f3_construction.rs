@@ -130,6 +130,11 @@ pub(crate) fn realize(request: &F3PlayerRealization, mut services: f3::WorldServ
         Some(cookie)
     } else {None};
     let reference=activate(result,retired_cookie);
+    // A new pooled body can be observed by AI roster queries before it ever
+    // aims. Bind its generation at realization, while the native loan exists.
+    if let Some(ai)=services.ai.as_mut() {
+        if !ai.unit_born(&sim().store,reference) { return None; }
+    }
     let m=&request.metadata;
     let metadata=F3Metadata {character:m.character,controller:m.controller,team:m.team,
         life:sim().store.unit.get(reference).unwrap().generation,
@@ -162,7 +167,7 @@ pub(crate) fn player(character: Ref<Character>, previous: Option<Ref<Unit>>, cla
     let old=previous.or(binding.body);
     let (combat_random,weapon_random,recon_key,recon_seed)=
         (binding.combat_random,binding.weapon_random,binding.recon_key,binding.recon_seed);
-    let previous=old.map(|reference|F3UnitKey::of(reference,sim().store.unit.get(reference).expect("current admitted body")));
+    let previous=match old {Some(reference)=>Some(F3UnitKey::of(reference,sim().store.unit.get(reference)?)),None=>None};
     // Validate stock before removing a connection's existing body. A cold
     // capacity error must leave the old life and its registry entry intact.
     if let Some(key)=&previous {

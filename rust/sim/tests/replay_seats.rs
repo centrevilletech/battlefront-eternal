@@ -355,14 +355,14 @@ impl SeatWorld for Served<'_, '_> {
         call.result().opt_num()
     }
 
-    fn controllable(&mut self, lease: Ref<SeatLease>, _index: usize, _role: SeatRole) -> Ref<SeatUnit> {
-        let Some(call) = self.call("seats.controllable") else { return Ref::new(u32::MAX, 0) };
+    fn controllable(&mut self, lease: Ref<SeatLease>, _index: usize, _role: SeatRole) -> Option<Ref<SeatUnit>> {
+        let Some(call) = self.call("seats.controllable") else { return None };
         self.check_lease("controllable lease", call.arg(0), lease);
         match self.cx.ref_in(KIND_SEAT_UNIT, call.result(), "controllable") {
-            Ok(r) => r,
+            Ok(r) => Some(r),
             Err(e) => {
                 self.fail(format!("controllable: {e}"));
-                Ref::new(u32::MAX, 0)
+                None
             }
         }
     }
@@ -1387,7 +1387,7 @@ impl SeatWorld for ReachCasts<'_, '_, '_> {
     fn controller_state(&mut self, u: Option<u32>) -> Option<f64> {
         self.0.controller_state(u)
     }
-    fn controllable(&mut self, l: Ref<SeatLease>, i: usize, r: SeatRole) -> Ref<SeatUnit> {
+    fn controllable(&mut self, l: Ref<SeatLease>, i: usize, r: SeatRole) -> Option<Ref<SeatUnit>> {
         self.0.controllable(l, i, r)
     }
     fn boarded(&mut self, u: u32, h: Holder, i: usize) {

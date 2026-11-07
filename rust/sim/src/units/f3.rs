@@ -86,7 +86,6 @@ pub(super) struct State {
     bounds_cache:Vec<f64>,
     foreign: Vec<F3PropFact>,
     foreign_header: [f64; F3ForeignHeader::WORDS],
-    bodies: Vec<Option<Ref<Body>>>,
     // PlayerCombat resolves its health scale from the class at construction.
     // Victims read the numeric index without decoding a String during a blast.
     health: Vec<crate::combat::impacts::HealthScale>,
@@ -429,7 +428,6 @@ pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f6
             bounds_cache:Vec::new(),
             foreign: Vec::with_capacity(RESERVED_UNITS),
             foreign_header: [0.0; F3ForeignHeader::WORDS],
-            bodies: Vec::new(),
             health: Vec::new(),
             categories: Vec::new(),
             bot_targets: Vec::new(),native_intents:Vec::new(),
@@ -1864,20 +1862,14 @@ pub extern "C" fn f3_registry_remove(id: u32) {
 // must identify the exact body, including after a pooled slot is reused.
 #[no_mangle]
 pub extern "C" fn f3_body_names(count: u32) {
-    for i in 0..count as usize {
-        let at = i * F3BodyName::WORDS;
-        let row = F3BodyName::take(&state().input[at..], &[]);
-        let s = state();
-        if s.bodies.len() <= row.kernel as usize {
-            s.bodies.resize(row.kernel as usize + 1, None);
+    let count=(count as usize).min(state().input.len()/F3BodyName::WORDS);
+    for i in 0..count {
+        let at=i*F3BodyName::WORDS;
+        let row=F3BodyName::take(&state().input[at..],&[]);
+        if row.kernel as usize >= crate::collision::state().bodies.len() {continue;}
+        if let Some(collision)=crate::vehicles::module::collision_world() {
+            collision.bind_body(row.body,row.kernel);
         }
-        // Kernel slots and store references are different namespaces. The
-        // reverse mapping belongs here so a cast can return an exact Ref
-        // directly rather than asking JS to identify the collision body.
-        s.bodies[row.kernel as usize] = Some(row.body);
-        crate::vehicles::module::collision_world()
-            .expect("prepared collision world")
-            .name_body(row.body.slot, row.kernel);
     }
     // Body membership is a construction boundary. Build the cast index here,
     // rather than charging the first weapon's ray with index allocations.
@@ -1886,8 +1878,8 @@ pub extern "C" fn f3_body_names(count: u32) {
 }
 // A native F1 cast returns the body that was named with the collision tree.
 // It must never manufacture generation zero from the kernel's numeric slot.
-pub(crate) fn body_reference(kernel: usize) -> Ref<Body> {
-    state().bodies[kernel].expect("a collision body named at construction")
+pub(crate) fn body_reference(kernel: usize) -> Option<Ref<Body>> {
+    crate::vehicles::module::collision_world()?.kernel_reference(kernel)
 }
 
 // Weapon-targeting's bot override is a phase fact from JS AI. Missing and null
@@ -2078,8 +2070,10 @@ pub(crate) fn acquire_native(class: crate::store::StrId) -> Option<Ref<Unit>> {
     state().owner.acquire(&sim().store,class).map(|key|key.reference())
 }
 /// A cold miss activates an already prepared row through the same owner.
-pub(crate) fn construct_native(class: crate::store::StrId, _services: WorldServices<'_>) -> Option<Ref<Unit>> {
-    super::f3_construction::cold(class)
+pub(crate) fn construct_native(class: crate::store::StrId, mut services: WorldServices<'_>) -> Option<Ref<Unit>> {
+    let unit=super::f3_construction::cold(class)?;
+    if let Some(ai)=services.ai.as_mut() { if !ai.unit_born(&sim().store,unit) {return None;} }
+    Some(unit)
 }
 /// Player and connection realization is independent of the subsequent spawn.
 pub(crate) fn realize_native(request:&F3PlayerRealization, services:WorldServices<'_>) -> Option<Ref<Unit>> {

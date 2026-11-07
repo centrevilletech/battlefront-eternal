@@ -172,7 +172,7 @@ pub trait SeatWorld {
     fn controller_state(&mut self, unit: Option<u32>) -> Option<f64>;
     /// The seat as the AI drives it, made for a bot's lease (SeatUnit), the
     /// lease in seat `index` with `role` by then.
-    fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, role: SeatRole) -> Ref<SeatUnit>;
+    fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, role: SeatRole) -> Option<Ref<SeatUnit>>;
     /// The battle's hooks: a seat taken, left, changed.
     fn boarded(&mut self, unit: u32, holder: Holder, index: usize);
     fn unboarded(&mut self, unit: Option<u32>, holder: Holder, index: usize, post: Option<Ref<Post>>, reason: Reason);

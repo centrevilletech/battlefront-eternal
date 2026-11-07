@@ -57,7 +57,6 @@ pub(crate) struct State {
     leases: Block, units: Block, controls: Block, effects: Block,
     body_effects: Vec<F2SeatEffect>,
     ordnance_output: Block, ordnance_dirty: bool,
-    body_refs: Vec<Option<Ref<Body>>>,
     command_relations: Vec<F2SeatRelation>,
     actors: Vec<bool>, rider_sides: Vec<bool>, rider_posed: Vec<bool>,
     turret_lives: Vec<f64>, turret_indices: Vec<Option<(Ref<Turret>,usize)>>, posed: Vec<bool>, timed: Vec<bool>, weapons: Vec<Option<TurretWeapon>>, turret_rows: Vec<F2TurretOut>, turret_output: Block,
@@ -70,7 +69,7 @@ fn state() -> &'static mut State {
         lease_inputs: Default::default(),
         leases: Block::default(), units: Block::default(), controls: Block::default(), effects: Block::default(),
         ordnance_output: Block { words: Vec::with_capacity(32768), heap: Vec::with_capacity(32768) }, ordnance_dirty: false,
-        body_effects: Vec::with_capacity(512), body_refs: Vec::with_capacity(4096), command_relations: Vec::with_capacity(256),
+        body_effects: Vec::with_capacity(512), command_relations: Vec::with_capacity(256),
         actors: Vec::with_capacity(512), rider_sides: Vec::with_capacity(512), rider_posed: Vec::with_capacity(512),
         turret_lives: Vec::with_capacity(128), turret_indices: Vec::with_capacity(128), posed: Vec::with_capacity(128), timed: Vec::with_capacity(128), weapons: Vec::with_capacity(128), turret_rows: Vec::with_capacity(128), turret_output: Block::default(),
         event_rows: Vec::with_capacity(512), event_output: Block::default(), rounds: Vec::with_capacity(32),
@@ -714,14 +713,18 @@ impl SeatWorld for World<'_> {
     // SeatsWorld.cast and overlapsSphere run against the shared native world.
     // Keeping them here lets each exit observe the preceding crew's placement.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<Ref<Body>>) -> Option<SeatHit> {
-            collision_world().expect("the vehicle collision world")
-                .cast(crate::collision::state(), origin, direction, far, ignore.map(|b| b.slot))
-                .expect("named collision bodies").map(|h| SeatHit { point: h.point, normal: h.normal, distance: h.distance,
-                    body: h.body.and_then(|b| state().body_refs[b as usize]) })
+            let collision = collision_world()?;
+            if let Some(body) = ignore {
+                if collision.body_reference(body.slot) != Some(body) { return None; }
+            }
+            let hit = collision.cast(crate::collision::state(), origin, direction, far, ignore.map(|b| b.slot))??;
+            let body = match hit.body { Some(slot) => Some(collision.body_reference(slot)?), None => None };
+            Some(SeatHit { point: hit.point, normal: hit.normal, distance: hit.distance, body })
     }
     fn overlaps_sphere(&mut self, center: &Vector3, radius: f64, ignore: Option<Ref<Body>>) -> bool {
-            collision_world().expect("the vehicle collision world")
-                .overlaps_sphere(crate::collision::state(), center, radius, ignore.map(|b| b.slot))
+            let Some(collision)=collision_world() else {return true};
+            if ignore.is_some_and(|body|collision.body_reference(body.slot)!=Some(body)) {return true;}
+            collision.overlaps_sphere(crate::collision::state(), center, radius, ignore.map(|b| b.slot))
     }
     // turretAimPoint still queries the foreign unit registry. Publish native
     // body samples first because its lazy hit-shape reader can inspect them.
@@ -801,10 +804,10 @@ impl SeatWorld for World<'_> {
     // Publish the current lease before asking that foreign AI query.
     // Its constructor may bind a shared random stream for mounted fire.
     // Resume native work with the accepted binding, not an older mirror value.
-    fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, _: SeatRole) -> Ref<SeatUnit> {
+    fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, _: SeatRole) -> Option<Ref<SeatUnit>> {
             if let Some(ai)=self.services.as_mut().and_then(|services|services.ai.as_mut()) {
-                let control=ai.controllable(&mut sim().store,&mut state().owner,lease).expect("prepared native AI seat control");
-                touch_lease(lease);return control;
+                let control=ai.controllable(&mut sim().store,&mut state().owner,lease)?;
+                touch_lease(lease);return Some(control);
             }
             touch_lease(lease); super::publish();
             let answer = self.action(F2SeatAction { kind: F2SeatActionKind::Control, lease: Some(lease),
@@ -821,9 +824,9 @@ impl SeatWorld for World<'_> {
                     }
                 }
             }
-            let r = answer.control.expect("seat control");
+            let r = answer.control?;
             state().owner.hulls.controls.insert(control_key(r), SeatControl::default());
-            state().owner.crews.controls.insert(control_key(r), SeatControl::default()); r
+            state().owner.crews.controls.insert(control_key(r), SeatControl::default()); Some(r)
     }
     fn boarded(&mut self, unit: u32, h: Holder, index: usize) { self.hook(F2SeatActionKind::Boarded, Some(unit), h, index, None, Reason::Exit); }
     fn unboarded(&mut self, unit: Option<u32>, h: Holder, index: usize, post: Option<Ref<Post>>, reason: Reason) { self.hook(F2SeatActionKind::Unboarded, unit, h, index, post, reason); }
@@ -949,7 +952,9 @@ fn run_command(a: F2SeatCommand, services: Option<crate::units::f3::WorldService
         F2SeatOp::Vacate => if let Some(r) = a.lease { result.accepted = hulls.vacate(&mut st, &mut world, r, how); },
         F2SeatOp::Move => if let Some(r) = a.lease {
             if let Some(v) = st.seat_lease.get(r).and_then(|l| l.vehicle).and_then(|v| st.vehicle.get(v)) {
-                if a.index >= 0.0 && a.index < v.seats.len() as f64 { result.lease = Some(hulls.move_seat(&mut st, &mut world, r, a.index as usize)); result.accepted = true; }
+                if a.index >= 0.0 && a.index.fract()==0.0 && a.index < v.seats.len() as f64 {
+                    result.lease = hulls.move_seat(&mut st, &mut world, r, a.index as usize); result.accepted = result.lease.is_some();
+                }
             }
         },
         F2SeatOp::Displace => if let Some(r) = a.lease { result.lease = hulls.displace(&mut st, &mut world, r); result.accepted = true; },
@@ -1595,9 +1600,8 @@ pub extern "C" fn f2_body_words() -> u32 { F2Bodies::WORDS as u32 }
 pub extern "C" fn f2_bodies() {
     let a = { let (row, heap) = sim().calls.args(); F2Bodies::take(row, heap) };
     for row in a.bodies {
-        if state().body_refs.len() <= row.body.slot as usize { state().body_refs.resize(row.body.slot as usize + 1, None); }
-        state().body_refs[row.body.slot as usize] = Some(row.body);
-        collision_world().expect("F2 collision topology").name_body(row.body.slot, row.kernel);
+        if row.kernel as usize >= crate::collision::state().bodies.len() {continue;}
+        if let Some(collision) = collision_world() { collision.bind_body(row.body, row.kernel); }
     }
     if super::active() { super::super::prepare_collision(); }
 }

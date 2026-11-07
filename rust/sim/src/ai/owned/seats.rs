@@ -58,17 +58,27 @@ impl Controls {
         lease: Ref<SeatLease>,
         turret_life: Option<f64>,
     ) -> Option<Ref<SeatUnit>> {
-        if self.rows.len() == self.capacity {
+        if self.rows.len() >= self.capacity {
             return None;
         }
         let l = store.seat_lease.get(lease)?;
         if !(l.index >= 0. && l.index.is_finite() && l.index.fract() == 0.) {
             return None;
         }
+        // A construction callback runs before Unit.seat is committed. Validate
+        // the occupant's storage and gameplay lives without requiring that link.
+        if l.released { return None; }
+        if let Some(unit) = l.unit {
+            if store.unit.get(unit)?.generation != l.generation { return None; }
+        }
         let source = if let Some(hull) = l.vehicle {
-            Source::Hull(hull, store.vehicle.get(hull)?.target_generation)
+            let vehicle = store.vehicle.get(hull)?;
+            if l.turret.is_some() || vehicle.seats.get(l.index as usize)?.lease != Some(lease) { return None; }
+            Source::Hull(hull, vehicle.target_generation)
         } else {
-            Source::Turret(l.turret?, turret_life?)
+            let turret = l.turret?;
+            if l.index != 0. || !seats.crews.turrets.iter().any(|t| t.turret == turret && t.lease == Some(lease)) { return None; }
+            Source::Turret(turret, turret_life?)
         };
         let birth = Birth {
             lease,

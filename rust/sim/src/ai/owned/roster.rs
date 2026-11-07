@@ -72,7 +72,7 @@ impl Roster {
             post=>Some(posts.index(post).ok_or(Stale::Post)?),
         };
         Ok(CharacterSnap {index,team:c.team,human:c.human,
-            unit:c.unit.map(|r|entities.find(Entity::Unit(r)).expect("prepared AI Character body")),objective})
+            unit:c.unit.filter(|r|store.unit.contains(*r)).and_then(|r|entities.find(Entity::Unit(r))),objective})
     }
     pub fn assign(&self,store:&mut Store,commands:&mut dyn CharacterOwner,posts:&Population,index:usize,post:Option<usize>)->Result<(),Stale> {
         let handle=self.handles.get(index).ok_or(Stale::Character)?;

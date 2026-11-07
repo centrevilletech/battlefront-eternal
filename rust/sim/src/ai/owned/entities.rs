@@ -49,11 +49,12 @@ impl Index {
 
 pub struct Entities {
     entries: Slab<Entity>,
+    capacity: usize,
     indices: [Vec<Index>;17],
 }
 impl Entities {
     pub fn new(capacity: usize) -> Self {
-        Self { entries:Slab::with_capacity(capacity), indices:std::array::from_fn(|_|vec![Index::default();capacity]) }
+        Self { entries:Slab::with_capacity(capacity), capacity, indices:std::array::from_fn(|_|vec![Index::default();capacity]) }
     }
     /// Construction/lifecycle operation. Hot reads below never insert or grow.
     pub fn register(&mut self, entity: Entity) -> Obj {
@@ -67,6 +68,15 @@ impl Entities {
         let r=self.entries.insert(entity);
         let obj=object(r);
         index[slot as usize]=Index {generation,object:r}; obj
+    }
+    /// Runtime births use the battle's cold reservation. Replacing a storage
+    /// generation releases its previous entry before consuming another slot.
+    pub fn try_register(&mut self, entity: Entity) -> Option<Obj> {
+        if let Some(object) = self.find(entity) { return Some(object); }
+        let (kind, slot, _) = entity.parts();
+        let previous = self.indices[kind].get(slot as usize)?;
+        if previous.read().is_none() && self.entries.len() >= self.capacity { return None; }
+        Some(self.register(entity))
     }
     pub fn find(&self, entity: Entity) -> Option<Obj> {
         let (kind,slot,generation)=entity.parts();
