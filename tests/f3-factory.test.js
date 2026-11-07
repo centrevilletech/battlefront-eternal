@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { Character } from '../src/battle.js';
 import { f3World } from './fixtures/f3-world.js';
+import { playersWorld } from './fixtures/players-world.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
 import { ClassicRandom, uniformRandom } from '../src/ai/random.js';
 
@@ -65,19 +66,21 @@ test('native local class realization retains the viewpoint Unit identity',async(
 // All cold stock, including preparation after a first history capture, must
 // already own its frame/shape storage when the native factory activates it.
 test('prepared births and late stock capture history without native allocation',async()=>{
-  const w = await f3World(classes,{debug:false});
-  const first = w.spawn('soldier',0,0);
-  w.phase.phase(1/60);w.phase.history.capture(0);
-  w.phase.construction.prepare('hero',4);
+  const f = await playersWorld({definitions:classes});
+  await f.world.addPlayer('first',{team:1,className:'soldier'});
+  const first = f.world.players.get('first').unit;
+  f.world.step(1000);
+  f.phase.construction.prepare('hero',4);
   const bodies = [first];
   for (let i=0;i<7;i++) {
-    const unit=w.factory.acquire('hero');unit.spawn(i*3,0,0,0);bodies.push(unit);
+    const unit=f.factory.acquire('hero');unit.spawn(i*3,0,0,0);bodies.push(unit);
   }
   for (let tick=1;tick<=80;tick++) {
-    w.phase.counters.reset();w.phase.phase(1/60);w.phase.history.capture(tick);
-    assert.equal(w.phase.counters.rustAllocations,0);
-    assert.equal(w.phase.counters.rustReallocations,0);
-    assert.equal(w.phase.history.tick,tick);
+    f.world.step(1000);
+    assert.equal(f.tick.output.allocations,0);
+    assert.equal(f.tick.output.reallocations,0);
+    assert.equal(f.game.worldClock.tick,tick+1);
   }
-  assert.equal(bodies.length,8);assert.equal(w.units.list.length,8);
+  assert.equal(bodies.length,8);
+  assert.equal(f.units.list.filter(unit=>unit.alive).length,8);
 });

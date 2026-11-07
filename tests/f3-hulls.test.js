@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BoxGeometry, Vector3 } from 'three';
 import { f3World } from './fixtures/f3-world.js';
+import { playerCombatWorld } from './fixtures/player-combat-world.js';
 import { fleetFixture } from './fixtures/f3-fleet.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
 import { ClassicRandom, randomBinding, uniformRandom } from '../src/ai/random.js';
@@ -49,14 +50,14 @@ test('an instant native body hit uses the hull health scale without the JS hit a
   const gun = weaponDefinition('rifle',0,{TriggerSingle:1,ShotDelay:1,SpreadThreshold:0,SpreadPerShot:0,
     HeatPerShot:0,YawSpread:0,PitchSpread:0,StandStillSpread:0,StandMoveSpread:0,
     ordnance:{class:'hull-bolt',base:'bolt',Velocity:120,LifeSpan:1,Damage:25,VehicleScale:.5}});
-  const world = await f3World({soldier:{...soldier,weapons:[gun]}},{prepareFleet:fleetFixture({positions:[0]})});
-  const unit = world.spawn('soldier',0,-4,true);
+  const world = await playerCombatWorld({shooter:{...soldier,class:'shooter',weapons:[gun]}},{prepareFleet:fleetFixture({positions:[0]})});
+  const unit = world.shooter;
+  world.game.unitsSim.placeBody(unit,0,0,-4,0);
   world.ordnance.onHit = ()=>{throw Error('legacy hull hit callback reached');};
   world.phase.bridge.handlers.riderMount=()=>{throw Error('native rider lookup returned to the host');};
-  for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
-  unit.networkShot = {button:0,id:7,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  unit.networkViewTick = 8; unit.intent.buttons[0] = 1;
-  world.phase.bodiesIn(); world.phase.counters.reset(); world.phase.phase(1/60);
+  world.capture();
+  assert.equal(world.fire({id:7}),true);
+  world.phase.bodiesIn(); world.phase.counters.reset(); world.step();
   world.factory.context.vehicles.f2.sync();
   assert.equal(world.factory.context.vehicles.vehicles[0].health,87.5);
   assert.equal(world.phase.counters.rustAllocations,0);
@@ -68,13 +69,13 @@ test('later instant shots pass through a hull disabled earlier in the same phase
     SpreadThreshold:0,SpreadPerShot:0,HeatPerShot:0,YawSpread:0,PitchSpread:0,
     StandStillSpread:0,StandMoveSpread:0,
     ordnance:{class:'through-wreck',base:'bolt',Velocity:600,LifeSpan:1,Damage:25}});
-  const world = await f3World({soldier:{...soldier,weapons:[gun]}},
+  const world = await playerCombatWorld({shooter:{...soldier,class:'shooter',weapons:[gun]}},
     {prepareFleet:fleetFixture({positions:[[0,0],[0,3]],health:25})});
-  const unit = world.spawn('soldier',0,-4,true);
-  for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
-  unit.networkShot = {button:0,id:7,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  unit.networkViewTick = 8; unit.intent.buttons[0] = 1;
-  world.phase.bodiesIn(); world.phase.counters.reset(); world.phase.phase(1/60);
+  const unit = world.shooter;
+  world.game.unitsSim.placeBody(unit,0,0,-4,0);
+  world.capture();
+  assert.equal(world.fire({id:7}),true);
+  world.phase.bodiesIn(); world.phase.counters.reset(); world.step();
   const [first,second] = world.factory.context.vehicles.vehicles;
   assert.equal(first.alive,false); assert.equal(second.alive,false);
   assert.equal(first.health,0); assert.equal(second.health,0);

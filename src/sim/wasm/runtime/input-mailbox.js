@@ -6,6 +6,9 @@ import { INPUT_CODES } from '../../../runtime/network-entity-input.js';
 import { InputMailboxCallMirror, InputMailboxCallLayout, ImEntryMirror, ImResultMirror, ImStateMirror, ImTakenMirror, ImLookMirror, ImFireMirror, InputViewUpdateMirror, ImEntryLayout as E, ImOperation_INDEX, putImLook, putImFire, putImField, putWiView,
   InputMailboxSetupLayout, putInputMailboxSetup, putInputMailboxCall, putInputViewUpdate, syncImResult, syncImState, InputViewUpdateLayout, WireSpawnFactsMirror, WireSpawnFactsLayout, putWireSpawnFacts } from '../../gen/index.js';
 import { BLOCK_HEADER_WORDS } from '../../gen/boundary.js';
+// Spawn, team and suicide choices cross as records the native players'
+// phase reads itself (rust/sim/src/players); the host keeps no token for them.
+import { putHsCommand, HsCommandMirror } from '../../gen/battle.js';
 function trim(array,length){while(array.length>length)array.pop();}
 const keys = ['mouseScale','invertMouse','firstPerson','aspect','viewTick','flightSettings','gamepad'];
 const result = { Mirror: ImResultMirror, sync: syncImResult }, inspected = { Mirror: ImStateMirror, sync: syncImState };
@@ -80,8 +83,9 @@ export class InputMailbox {
     this.emptyDown = []; this.down = this.emptyDown; this.lookTotal = [0,0];
     // Each queue slot lends producer references until Rust retires its held
     // and view tokens. Eight extra slots cover the retained held/view owners.
-    this.references = Array.from({length:capacity+8}, () => ({command:null,pending:false,held:false,human:[],humanRows:Array.from({length:16},()=>({team:{kind:'team',team:0},spawn:{kind:'spawn',className:'',post:null},suicide:{kind:'suicide'},cancel:{kind:'cancel'}}))}));
-    this.retained = []; this.previousRetained = []; this.pendingLooks=0;this.pendingFires=0;
+    this.references = Array.from({length:capacity+8}, () => ({command:null,pending:false,pendingIndex:-1,queued:0,held:false,human:[],humanRows:Array.from({length:16},()=>({team:{kind:'team',team:0,className:null,post:null},spawn:{kind:'spawn',team:0,className:'',post:null},suicide:{kind:'suicide',team:0,className:null,post:null},cancel:{kind:'cancel',team:0,className:null,post:null}}))}));
+    this.pendingReferences = []; this.syncSerial = 0;
+    this.retained = []; this.previousRetained = []; this.pendingLooks=0;this.pendingFires=0;this.pendingHumans=0;
     this.cursor = 0; this.lastRejection = null;
     // take lends this command only until the next mailbox operation. The
     // world consumes it synchronously; historical callers must copy it. Keep
@@ -104,13 +108,16 @@ export class InputMailbox {
     this.resultLooks = Array.from({length:2048}, () => new ImLookMirror());
     this.resultFires = Array.from({length:16*capacity}, () => new ImFireMirror());
     this.fireRows = Array.from({length:16*capacity}, () => ({id:0,button:0,pressed:false}));
+    this.resultHumans = Array.from({length:16*capacity}, () => new HsCommandMirror());
+    this.humanOut = Array.from({length:16*capacity}, () => ({team:{kind:'team',team:0},spawn:{kind:'spawn',className:'',post:null},suicide:{kind:'suicide'},cancel:{kind:'cancel'}}));
     this.stateViews = keys.map(key => ({key,value:0}));
     // Variable record sizes come from their generated writers too. Probe
     // them once, then write directly into the reserved native call block.
     const probe=[];
     putImLook(bridge,this.lookRows[0],probe,0,null);this.lookWords=probe.length;probe.length=0;
     putImFire(bridge,this.resultFires[0]??new ImFireMirror(),probe,0,null);this.fireWords=probe.length;probe.length=0;
-    putImField(bridge,this.viewRows[0],probe,0,null);this.fieldWords=probe.length;
+    putImField(bridge,this.viewRows[0],probe,0,null);this.fieldWords=probe.length;probe.length=0;
+    putHsCommand(bridge,this.resultHumans[0],probe,0,null);this.humanWords=probe.length;
     this.viewInput = { words: InputViewUpdateLayout.words, put: putInputViewUpdate };
   }
   changedView(key, present) {
@@ -122,10 +129,11 @@ export class InputMailbox {
   // record layouts and leaf writers still define every boundary position.
   writeCall() {
     const b=this.bridge,c=this.change,e=c.entry,C=InputMailboxCallLayout;
-    const count=e?e.codes.length+e.actions.length+e.look.length*this.lookWords+e.view.length*this.fieldWords+e.human.length+e.fire.length*this.fireWords:0;
+    const count=e?e.codes.length+e.actions.length+e.look.length*this.lookWords+e.view.length*this.fieldWords+e.human.length*this.humanWords+e.fire.length*this.fireWords:0;
     // Intern before taking the writable view: a first use can grow memory
     // and detach it. Registry and view names were admitted during construction.
     if(e)for(let i=0;i<e.actions.length;i++)b.strings.id(e.actions[i]);
+    if(e)for(let i=0;i<e.human.length;i++){const h=e.human[i];if(h.className!=null)b.strings.id(h.className);if(h.post!=null)b.strings.id(h.post);}
     const ptr=b.x.sim_call_room(C.words,count),block=b.readBlock(ptr),f=block.words,at=block.base+BLOCK_HEADER_WORDS;
     f.fill(0,at,at+C.words);
     f[at+C.op]=ImOperation_INDEX.get(c.op);f[at+C.entry]=e?0:1;
@@ -145,7 +153,7 @@ export class InputMailbox {
     f[row+E.view]=n;f[row+E.viewLength]=e.view.length;
     for(let i=0;i<e.view.length;i++){putImField(b,e.view[i],f,heap+n,null);n+=this.fieldWords;}
     f[row+E.human]=n;f[row+E.humanLength]=e.human.length;
-    for(let i=0;i<e.human.length;i++)f[heap+n++]=e.human[i];
+    for(let i=0;i<e.human.length;i++){putHsCommand(b,e.human[i],f,heap+n,null);n+=this.humanWords;}
     f[row+E.fire]=n;f[row+E.fireLength]=e.fire.length;
     for(let i=0;i<e.fire.length;i++){putImFire(b,e.fire[i],f,heap+n,null);n+=this.fireWords;}
   }
@@ -161,11 +169,20 @@ export class InputMailbox {
     if(op==='take'){
       for(let i=this.taken.look.length;i<Math.min(2048,this.pendingLooks);i++)this.taken.look[i]=this.resultLooks[i];
       for(let i=this.taken.fire.length;i<this.pendingFires;i++)this.taken.fire[i]=this.resultFires[i];
+      for(let i=this.taken.human.length;i<this.pendingHumans;i++)this.taken.human[i]=this.resultHumans[i];
     }
     for(let i=this.exchange.state.view.length;i<7;i++)this.exchange.state.view[i]=this.stateViews[i];
     const out = this.bridge.callResult(result, ptr, this.exchange), s = out.state;
+    this.publishState(s);
+    for(let i=0;i<out.retired.length;i++)this.retireReference(this.references[out.retired[i]-1]);
+    if(op==='clear'){for(let i=0;i<this.references.length;i++){const row=this.references[i];row.pending=false;row.pendingIndex=-1;if(!row.held)row.command=null;}trim(this.pendingReferences,0);this.pendingLooks=0;this.pendingFires=0;this.pendingHumans=0;}
+    this.lastRejection=out.error;
+    return out;
+  }
+  publishState(s) {
     this.received = s.received; this.ack = s.ack; this.ackTick = s.ackTick; this.discarded = s.discarded; this.generation = s.generation; this.late = s.late; this.stateTick = s.stateTick;
     this.down = s.down === null ? this.emptyDown : this.references[s.down-1].command.down;
+    this.command.down = this.down;
     this.lookTotal[0] = s.lookTotal[0]; this.lookTotal[1] = s.lookTotal[1];
     // Rust retains view tokens and publishes their protocol projection. Only
     // borrowed producer values needed by gameplay appear on this command.
@@ -175,13 +192,35 @@ export class InputMailbox {
       if(field){if(field.value>=8)this.command[key]=this.references[Math.floor(field.value/8)-1].command[key];}
       else this.command[key]=undefined;
     }
-    for(let i=0;i<out.retired.length;i++){
-      const row=this.references[out.retired[i]-1];row.pending=false;
-      this.pendingLooks-=row.command.lookTotal?1:row.command.look.length;this.pendingFires-=row.command.fire?.length??0;
+  }
+  retireReference(row) {
+    if(!row.pending)return;
+    row.pending=false;
+    this.pendingLooks-=row.command.lookTotal?1:row.command.look.length;this.pendingFires-=row.command.fire?.length??0;this.pendingHumans-=row.command.human?.length??0;
+    const at=row.pendingIndex,last=this.pendingReferences.pop();
+    if(at<this.pendingReferences.length){this.pendingReferences[at]=last;last.pendingIndex=at;}
+    row.pendingIndex=-1;
+  }
+  // InputMailbox.take now runs inside the players' phase. Read its facts
+  // after the enclosing step, without consuming another command or making
+  // admission decisions. Only pending producers need retirement checks.
+  synchronize() {
+    if(!this.handle)return;
+    for(let i=this.exchange.state.view.length;i<7;i++)this.exchange.state.view[i]=this.stateViews[i];
+    const ptr=this.bridge.x.input_mailbox_inspect(this.handle);
+    if(!ptr)throw Error('input mailbox inspection refused');
+    const s=this.bridge.callResult(inspected,ptr,this.exchange.state);
+    this.publishState(s);
+    const serial=++this.syncSerial;
+    for(let i=0;i<s.queue.length;i++)this.references[s.queue[i].identity-1].queued=serial;
+    // Establish the newly held/view owners before releasing consumed input:
+    // their original arrays and settings remain borrowed by publication.
+    this.cleanup();
+    for(let i=0;i<this.pendingReferences.length;){
+      const row=this.pendingReferences[i];
+      if(row.queued===serial){i++;continue;}
+      this.retireReference(row);if(!row.held)row.command=null;
     }
-    if(op==='clear'){for(let i=0;i<this.references.length;i++){const row=this.references[i];row.pending=false;if(!row.held)row.command=null;}this.pendingLooks=0;this.pendingFires=0;}
-    this.lastRejection=out.error;
-    return out;
   }
   // Only the previous held/view owners and newly retired packets can lose
   // their last reference. Pending queue slots need no per-tick full scan.
@@ -233,12 +272,12 @@ export class InputMailbox {
     // serial or a Map entry allocated for each newly admitted command.
     trim(e.look,command.look.length);
     for(let i=0;i<command.look.length;i++){const look=this.lookRows[i];look.point=command.look[i];look.object=id*2048+i;e.look[i]=look;}
-    trim(e.human,row.human.length);for(let i=0;i<row.human.length;i++)e.human[i]=id*16+i;
+    trim(e.human,row.human.length);for(let i=0;i<row.human.length;i++)e.human[i]=row.human[i];
     e.fire=command.fire??this.emptyDown;trim(e.view,0);
     for(let i=0;i<keys.length;i++)if(command[keys[i]]!==undefined){const field=this.viewRows[i];field.value=id*8+i;e.view[e.view.length]=field;}
     publicationView(command,e.publication);c.entry=e;
     try {
-      const accepted=this.run('push').accepted;if(!accepted){row.pending=false;row.command=null;}else{this.pendingLooks+=command.lookTotal?1:command.look.length;this.pendingFires+=command.fire?.length??0;}return accepted;
+      const accepted=this.run('push').accepted;if(!accepted){row.pending=false;row.command=null;}else{row.pendingIndex=this.pendingReferences.length;this.pendingReferences.push(row);this.pendingLooks+=command.lookTotal?1:command.look.length;this.pendingFires+=command.fire?.length??0;this.pendingHumans+=humanCount;}return accepted;
     } catch(error) {row.pending=false;row.command=null;return this.reject('invalid input payload');}
     finally {c.entry=null;this.cleanup();}
   }
@@ -253,7 +292,7 @@ export class InputMailbox {
     // These lists borrow the reserved output rows. Truncation uses pop so
     // V8 keeps their backing storage across alternating empty/full ticks.
     trim(this.humans,taken.human.length);
-    for(let i=0;i<taken.human.length;i++){const token=taken.human[i];this.humans[i]=this.references[Math.floor(token/16)-1].human[token%16];}
+    for(let i=0;i<taken.human.length;i++){const source=taken.human[i],row=this.humanOut[i][source.kind];if(source.kind==='team')row.team=source.team;if(source.kind==='spawn'){row.className=source.className;row.post=source.post;}this.humans[i]=row;}
     command.human=this.humans.length?this.humans:undefined;
     trim(this.fires,taken.fire.length);
     for(let i=0;i<taken.fire.length;i++){const source=taken.fire[i],row=this.fireRows[i];row.id=source.id;row.button=source.button;row.pressed=source.pressed;this.fires[i]=row;}
@@ -267,6 +306,8 @@ export class InputMailbox {
     if (!ptr) throw Error('input mailbox inspection refused');
     return this.bridge.callResult(inspected, ptr).queue.map(row => this.references[row.identity-1].command);
   }
+  // The players' phase dropped the owner with its player's grace.
+  retired() { this.handle = 0; }
   dispose() { if (this.handle) { this.bridge.x.input_mailbox_drop(this.handle); this.handle = 0; this.references.length=0; } }
 }
 

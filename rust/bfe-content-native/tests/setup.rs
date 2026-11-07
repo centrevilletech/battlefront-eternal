@@ -23,10 +23,16 @@ fn row(input: &WorldTickInput) -> Vec<f64> {
     input.put(&mut row, &mut Vec::new());
     row
 }
+// The recorded fixtures predate the row's two host words (the wall time and
+// the mouse setting), which the builder carries verbatim: compare the
+// recorded prefix, and the two words against what was passed.
 fn same_bits(a: &[f64], b: &[f64]) -> Option<usize> {
-    assert_eq!(a.len(), b.len());
-    (0..a.len()).find(|&i| a[i].to_bits() != b[i].to_bits())
+    assert_eq!(a.len(), b.len() + 2);
+    assert_eq!((a[WorldTickInput::AT], a[WorldTickInput::MOUSE_SCALE]), (AT, MOUSE_SCALE));
+    (0..b.len()).find(|&i| a[i].to_bits() != b[i].to_bits())
 }
+const AT: f64 = 1000.0;
+const MOUSE_SCALE: f64 = 1.0;
 
 #[test]
 fn options_compose_the_harness_query_and_refuse_stray_names() {
@@ -77,16 +83,16 @@ fn clock_rows_match_the_recorded_host_rows_to_the_bit() {
     assert_eq!(rows.clock, battle_clock());
     assert_eq!(rows.clock.budget, 0.035);
     let recorded = words(TICK_1);
-    assert_eq!(same_bits(&row(&rows.input(1, true, true, 0, false, 0)), &recorded), None);
+    assert_eq!(same_bits(&row(&rows.input(1, true, true, 0, false, 0, AT, MOUSE_SCALE)), &recorded), None);
     // Completing a tick is the world's arithmetic; the host copies it back.
     let output = WorldTickOutput { clock: rows.completed().unwrap(), ..Default::default() };
     rows.complete(&output);
-    assert_eq!(same_bits(&row(&rows.input(1, true, true, 0, false, 0)), &words(TICK_2)), None);
+    assert_eq!(same_bits(&row(&rows.input(1, true, true, 0, false, 0, AT, MOUSE_SCALE)), &words(TICK_2)), None);
     for _ in 2..2400 { rows.clock = rows.completed().unwrap(); }
     let last = words(TICK_2400);
     let units = last[WorldTickInput::UNITS] as u32;
     assert_eq!(units, 10);
-    assert_eq!(same_bits(&row(&rows.input(units, true, true, 0, false, 0)), &last), None);
+    assert_eq!(same_bits(&row(&rows.input(units, true, true, 0, false, 0, AT, MOUSE_SCALE)), &last), None);
     assert_eq!(rows.next_tick(), 2400.0);
     assert_ne!(rows.clock.compensation, 0.0, "the compensated sum keeps its rounding term");
     // Only the eight running fields come back from an output: the limits stay the host's.

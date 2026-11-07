@@ -273,6 +273,17 @@ pub(crate) fn f2_init_in(world_ctx: &mut crate::world::owner::World, json: u32, 
     Some(&world_ctx.fleet.scheduler.descriptor[..])
 }
 
+// The phase descriptor and the banks it names, for a native host that reads
+// them by name rather than by address (Context::read_bank); None before the
+// owner that fills a bank is prepared.
+pub(crate) fn descriptor_bank_in(world_ctx: &crate::world::owner::World) -> &[f64] { &world_ctx.fleet.scheduler.descriptor[..] }
+pub(crate) fn hulls_bank_in(world_ctx: &crate::world::owner::World) -> Option<&[f64]> { world_ctx.fleet.scheduler.publication.as_ref().map(|p| &p.hulls.words[..]) }
+pub(crate) fn pads_bank_in(world_ctx: &crate::world::owner::World) -> Option<&[f64]> { world_ctx.fleet.scheduler.publication.as_ref().map(|p| &p.pads.words[..]) }
+pub(crate) fn lives_bank_in(world_ctx: &crate::world::owner::World) -> Option<&[f64]> { world_ctx.fleet.scheduler.publication.as_ref().map(|p| &p.lives.words[..]) }
+pub(crate) fn poses_bank_in(world_ctx: &crate::world::owner::World) -> Option<&[f64]> { geometry::bank_in(&world_ctx.fleet.geometry) }
+pub(crate) fn seats_bank_in(world_ctx: &crate::world::owner::World) -> Option<&[f64]> { live_seats::descriptor_bank(&world_ctx.fleet) }
+pub(crate) fn firing_bank_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> { world_ctx.fleet.firing.as_ref()?; Some(firing::phase_words_in(world_ctx)) }
+
 /// Publish without a getter crossing from JS, also before a synchronous hook.
 /// No reference to the store survives a foreign call.
 // Flush the pending touched rows before exposing addresses. Native callbacks

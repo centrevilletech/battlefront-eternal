@@ -14,23 +14,26 @@ test('replaceable state retains cumulative look while actions use reliable lane'
   sender.send([{...command(7),generation:2}]);assert.deepEqual(states.at(-1).commands[0].lookTotal,[7,-7]);
 });
 import {InputMailbox} from './fixtures/input-mailbox.js';
-import {InputActions} from '../src/runtime/input-actions.js';
-for(const rtt of [0,50,100,200])test(`real split sender recovers lost/reordered movement and delayed action at ${rtt}ms RTT`,()=>{
- const mailbox=new InputMailbox(),actions=new InputActions(),wire=[],reliable=[];let serial=0;
+import {playersWorld} from './fixtures/players-world.js';
+for(const rtt of [0,50,100,200])test(`real split sender recovers lost/reordered movement and delayed action at ${rtt}ms RTT`,async t=>{
+ t.mock.method(performance,'now',()=>1000);
+ const {world}=await playersWorld();await world.addPlayer('input',{team:1,separateActions:true});
+ const actor=world.players.get('input');actor.actions.enableOutcomes();
+ const mailbox=new InputMailbox(),wire=[],reliable=[];let serial=0;
  const sender=new NetworkInputs({state:message=>{const n=++serial;if(n%20!==0&&!(n>=80&&n<=86))wire.push({at:n+Math.ceil(rtt/33.333)+(n%7===0?3:0),message:capturePublication(message)});return true;},events:message=>{reliable.push({at:serial+1+Math.ceil(rtt/33.333)+9,message:capturePublication(message)});return true;},fire:()=>true});
  let dx=0,dy=0,jumps=0;
  for(let tick=1;tick<=260;tick++){
   if(tick<=240)sender.send([{...command(tick),look:[[1,-2]],actions:tick===80?['jump']:[],down:tick<230?['KeyW']:[]}]);
   for(const item of wire.filter(x=>x.at===tick))for(const c of item.message.commands)mailbox.push(c);
-  for(const item of reliable.filter(x=>x.at===tick)){actions.push(item.message,tick,1);actions.push(item.message,tick,1);}
+  for(const item of reliable.filter(x=>x.at===tick)){assert.equal(world.actions('input',item.message),true);assert.equal(world.actions('input',item.message),false);}
   for(const [x,y] of mailbox.take(tick,1).look){dx+=x;dy+=y;}
-  jumps+=actions.take(tick,1).actions.filter(x=>x==='jump').length;
+  world.step(1000);jumps+=actor.actions.drainOutcomes().filter(x=>x.status==='consumed').length;
  }
  // Last dropped state240 is repaired by a final neutral state241.
  sender.send([{...command(241),look:[],down:[]}]);
  for(const c of wire.at(-1).message.commands)mailbox.push(c);
  for(const [x,y] of mailbox.take(300,1).look){dx+=x;dy+=y;}
- assert.equal(dx,240);assert.equal(dy,-480);assert.equal(jumps,1);assert.equal(actions.ack,80);assert.deepEqual(mailbox.down,[]);
+ assert.equal(dx,240);assert.equal(dy,-480);assert.equal(jumps,1,'the native reliable lane consumed the one press');assert.equal(actor.actions.ack,80);assert.deepEqual(mailbox.down,[]);
 });
 
 import {DEFAULTS} from '../src/settings.js';

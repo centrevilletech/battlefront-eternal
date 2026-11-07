@@ -5426,7 +5426,7 @@ export class UnitMirror {
   }
 }
 
-export const UNIT_KEYS = new Set(["generation", "side", "className", "classDef", "walker", "human", "kind", "hero", "team", "character", "controller", "seat", "alive", "dead", "deadTime", "removed", "intent", "controls", "input", "bounds", "rootScale", "shapes", "shapeCount", "spheresTick", "tickCount", "navRadius", "targetable", "waterContact", "riderHits", "held", "networkHuman", "soldier", "combat", "hitSet", "actor", "animator", "presentation", "jetFlame", "bubble", "poseClock", "gone", "ownMaterials", "crowdSlot", "shadowNear", "flameAt", "flameTurn", "flameScale", "onRemoved", "onMoved", "enhancedDeath", "supply", "itemTarget", "steer", "remoteStep", "networkShot", "networkShots", "networkViewTick", "networkInputLeadTicks", "networkPlayoutMaxTicks"]);
+export const UNIT_KEYS = new Set(["generation", "side", "className", "classDef", "walker", "human", "kind", "hero", "team", "character", "controller", "seat", "alive", "dead", "deadTime", "removed", "intent", "controls", "input", "bounds", "rootScale", "shapes", "shapeCount", "spheresTick", "tickCount", "navRadius", "targetable", "waterContact", "riderHits", "held", "networkHuman", "soldier", "combat", "hitSet", "actor", "animator", "presentation", "jetFlame", "bubble", "poseClock", "gone", "ownMaterials", "crowdSlot", "shadowNear", "flameAt", "flameTurn", "flameScale", "onRemoved", "onMoved", "enhancedDeath", "supply", "itemTarget", "steer", "remoteStep", "networkShot", "networkShots"]);
 export const UNIT_EXPORT_STRIDE = 199, UNIT_IMPORT_STRIDE = 201, UNIT_FULL_STRIDE = 264;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.

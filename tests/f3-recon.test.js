@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { f3World } from './fixtures/f3-world.js';
+import { playerCombatWorld } from './fixtures/player-combat-world.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
 import { ClassicRandom, uniformRandom } from '../src/ai/random.js';
 import { reconRandom } from '../src/runtime/recon-random.js';
@@ -22,13 +23,14 @@ function remoteDefinition(extra = {}) {
     StandStillSpread:0,StandMoveSpread:0,
   });
 }
-async function fixture(extra, definitions = {}) {
+async function fixture(extra, definitions = {}, ingress = false) {
   const remote = remoteDefinition(extra);
-  const world = await f3World({
+  const classes = {
     scout:{class:'scout',base:'soldier',MaxHealth:2000,weapons:[remote]},
     soldier:{class:'soldier',base:'soldier',MaxHealth:2000,weapons:[]},
     ...definitions,
-  });
+  };
+  const world = ingress ? await playerCombatWorld(classes, {}, {className:'rifleman',position:[5,0,0],defer:true}) : await f3World(classes);
   world.phase.recon.randomFor = key=>reconRandom(7,key);
   const owner = world.spawn('scout',0,0,true);
   const context = world.phase.recon.attach(12,owner);
@@ -39,10 +41,10 @@ async function fixture(extra, definitions = {}) {
 }
 function launch(world) {
   world.owner.intent.buttons[1] = 1;
-  world.phase.phase(1/60);
+  if(world.step)world.step();else world.phase.phase(1/60);
   world.owner.intent.buttons[1] = 0;
   // The native remote release is a pending shot rather than a facade call.
-  for (let i = 0; i < 30 && !world.context.droids.length; i++) world.phase.phase(1/60);
+  for (let i = 0; i < 30 && !world.context.droids.length; i++) {if(world.step)world.step();else world.phase.phase(1/60);}
   assert.equal(world.context.droids.length,1);
   return world.context.droids[0];
 }
@@ -189,9 +191,9 @@ test('same-phase slot reuse keeps an earlier context pointing at its terminal dr
     rifleman:{class:'rifleman',base:'soldier',MaxHealth:2000,weapons:[rifle]},
     bomb:{class:'bomb',base:'soldier',MaxHealth:100,weapons:[],chunks:[{}],ChunkFrequency:1,
       explosion:{class:'reuse-blast',Damage:1000,DamageRadiusInner:10,DamageRadiusOuter:11,Push:0}},
-  });
+  }, true);
   const old = launch(world);
-  const shooter = world.spawn('rifleman',5,0,true);
+  const shooter = await world.admit();
   const bomb = world.spawn('bomb',5,1.5);
   bomb.combat.random = world.ordnance.random;
   const nextOwner = world.spawn('scout',30,0,true);
@@ -202,14 +204,13 @@ test('same-phase slot reuse keeps an earlier context pointing at its terminal dr
   const caster = world.spawn('arc',60,0);
   caster.combat.arsenal.weapons[0].random = world.ordnance.random;
   world.phase.random.refresh(world.phase.bindings[caster.id]);
+  world.capture(world.game.worldClock.tick+10);
+  assert.equal(world.fire({viewTick:world.game.worldClock.tick-2}),true);
   caster.intent.buttons[0] = 1;
-  for (let tick = 0; tick <= 10; tick++) world.phase.history.capture(tick);
-  shooter.networkShot = {button:0,id:41,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  shooter.networkViewTick = 8;shooter.intent.buttons[0] = 1;
   nextOwner.intent.buttons[1] = 1;
   // The first owner already advanced before the instant blast kills its
   // droid. A later owner reuses that slot before the first context steps again.
-  world.phase.phase(1/60);
+  world.step();
   assert.equal(old.dead,true);
   assert.equal(world.context.droids.length,1);
   assert.ok(world.context.droids[0] === old);
@@ -217,7 +218,7 @@ test('same-phase slot reuse keeps an earlier context pointing at its terminal dr
   assert.ok(next !== old);
   assert.deepEqual(world.phase.recon.identityFor(next),{id:0,generation:2});
   assert.equal(next.dead,false);
-  world.phase.phase(1/60);
+  world.step();
   assert.equal(world.context.droids.length,0);
   assert.equal(world.phase.bridge.refs[KIND_RECON_DROID].displaced.size,0,
     'the next context publication releases the retained generation');
@@ -235,26 +236,25 @@ test('a newly captured launch owner is bound before an immediate death publishes
     rifleman:{class:'rifleman',base:'soldier',MaxHealth:2000,weapons:[rifle]},
     bomb:{class:'bomb',base:'soldier',MaxHealth:100,weapons:[],chunks:[{}],ChunkFrequency:1,
       explosion:{class:'body-blast',Damage:1000,DamageRadiusInner:10,DamageRadiusOuter:11,Push:0}},
-  });
-  const shooter = world.spawn('rifleman',5,0,true);
+  }, true);
+  const shooter = await world.admit();
   const bomb = world.spawn('bomb',5,1.5);
   bomb.combat.random = world.ordnance.random;
   world.phase.random.refresh(world.phase.bindings[bomb.id]);
-  for (let tick = 0; tick <= 10; tick++) world.phase.history.capture(tick);
-  shooter.networkShot = {button:0,id:41,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  shooter.networkViewTick = 8;shooter.intent.buttons[0] = 1;
+  world.capture(world.game.worldClock.tick+10);
+  assert.equal(world.fire({viewTick:world.game.worldClock.tick-2}),true);
   world.owner.intent.buttons[1] = 1;
   const prepared = world.phase.owners.frames.length;
   const reservedOwner = world.phase.owners.frames[0].snapshot;
   let barriers = 0;
-  world.factory.context.deathCredit = () => {
-    assert.equal(world.phase.active,true);
+  world.factory.context.deathNotice = () => {
+    assert.equal(world.phase.active,false);
     assert.equal(world.phase.owners.frames.length,prepared);
     assert.ok(world.owner.combat.lastAttacker === reservedOwner);
     barriers++;
   };
   world.phase.counters.reset();
-  world.phase.phase(1/60);
+  world.step();
   assert.equal(barriers,1);
   const droid = world.phase.recon.slots[0].droid;
   assert.equal(droid.dead,true);

@@ -9,6 +9,8 @@ use crate::gen::*;
 use crate::store::{block::Block, Ref};
 
 const INPUT_WORDS:usize=PHASE_INPUT_WORDS as usize;
+// Room for every connection's intent row and network tail (players::owner::PLAYER_CAPACITY).
+const ROWS_WORDS:usize=65*(F3PhaseInput::WORDS+F3PhaseNetwork::WORDS);
 const RESERVED_UNITS: usize = 1024;
 const RANDOM_CAPACITY: usize = 128;
 const NO_STREAM:u32=NO_RANDOM_STREAM;
@@ -42,6 +44,10 @@ pub(super) struct State {
     // Intent/foreign rows and scalar commands have separate reserved storage.
     // Hooks can consume a command without replacing the phase's input facts.
     input: Vec<f64>,
+    // The connections' rows (players::rows), beside the host's own rows.
+    rows: Vec<f64>,
+    rows_count: u32,
+    rows_network: u32,
     command: [f64; F3Change::WORDS],
     layout: F3Boundary,
     descriptor: [f64; F3Boundary::WORDS],
@@ -126,6 +132,32 @@ pub(super) struct State {
     // frame borrows its own retained fat-ray query rather than cloning it.
     ordnance_queries: Vec<Vec<Ref<Unit>>>,
     ordnance_depth: usize,
+}
+/// The scalar command row a native caller fills before f3_command_in
+/// (the host's F3Change mirror, src/f3-sim.js begin/commit).
+pub(crate) fn command_row_in(units: &mut super::owner::Units) -> &mut [f64] {
+    &mut units.state.as_mut().expect("prepared unit service").command[..]
+}
+/// Whether a native controller owns this body's intent (UnitController.bind).
+pub(crate) fn native_intent_owned_in(units: &super::owner::Units, reference: Ref<Unit>) -> bool {
+    units.state.as_ref().expect("prepared unit service").native_intents.get(reference.slot as usize) == Some(&Some(reference))
+}
+/// The connections' rows for this tick (players::rows), bounded by the
+/// reserved room; the next unit phase reads them after the host's rows.
+pub(crate) fn connection_rows_in(units: &mut super::owner::Units, rows: &[F3PhaseInput], tails: &[F3PhaseNetwork]) {
+    let state = units.state.as_mut().expect("prepared unit service");
+    let mut heap = Vec::new();
+    let count = rows.len().min(ROWS_WORDS / (F3PhaseInput::WORDS + F3PhaseNetwork::WORDS));
+    let tails = &tails[..tails.len().min(count)];
+    for (i, row) in rows[..count].iter().enumerate() { row.put(&mut state.rows[i * F3PhaseInput::WORDS..], &mut heap); }
+    let at = count * F3PhaseInput::WORDS;
+    for (i, tail) in tails.iter().enumerate() { tail.put(&mut state.rows[at + i * F3PhaseNetwork::WORDS..], &mut heap); }
+    state.rows_count = count as u32;
+    state.rows_network = tails.len() as u32;
+}
+/// A recon context by its connection's key (F3Recon.contexts).
+pub(crate) fn recon_context_by_key_in(world_ctx: &mut crate::world::owner::World, key: u32) -> Option<Ref<ReconContext>> {
+    world_ctx.units.state.as_ref().expect("prepared unit service").recon.as_ref()?.context(&world_ctx.sim.store, key)
 }
 pub(crate) fn props_read(units: &super::owner::Units) -> &super::f3_props::Props { &units.state.as_ref().expect("prepared unit service").props }
 // A battle owns one instance. This identifies ownership, not whether a tick
@@ -312,6 +344,7 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
     store.ordnance.bolts.reserve(1024); store.ordnance.beams.reserve(1024);
     store.ordnance.grenades.reserve(1024); store.ordnance.rounds.reserve(1024);
     let input = vec![0.0; INPUT_WORDS];
+    let rows = vec![0.0; ROWS_WORDS];
     let random_states = vec![0.0; RANDOM_CAPACITY * F3RandomState::WORDS];
     let aim_input = vec![0.0; AIM_CAPACITY * F3AimChange::WORDS];
     let mut block = Block::default();
@@ -389,6 +422,9 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
             pushers,
             world: world as usize,
             input,
+            rows,
+            rows_count: 0,
+            rows_network: 0,
             command: [0.0; F3Change::WORDS],
             layout,
             descriptor: [0.0; F3Boundary::WORDS],
@@ -490,6 +526,18 @@ fn descriptor_in(world_ctx: &mut crate::world::owner::World) -> Option<&[f64]> {
     s.layout.put(&mut s.descriptor, &mut s.block.heap);
     Some(&s.descriptor[..])
 }
+
+// The retained banks the descriptor names, for a native host that reads them
+// by name rather than by address (Context::read_bank); None before f3_init.
+pub(crate) fn descriptor_bank_in(w: &mut crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref()?; descriptor_in(w) }
+pub(crate) fn output_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.block.words[..]) }
+pub(crate) fn random_states_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.random_states[..]) }
+pub(crate) fn random_epoch_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.random_epoch[..]) }
+pub(crate) fn random_globals_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.random_globals[..]) }
+pub(crate) fn aim_header_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.aim_header[..]) }
+pub(crate) fn foreign_header_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.foreign_header[..]) }
+pub(crate) fn bounds_cache_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.bounds_cache[..]) }
+pub(crate) fn acknowledgement_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.acknowledgement[..]) }
 
 /// Publish the touched body only; do not compute hit shapes as a side effect.
 // Unit.spawn, remove and scalar setters must be visible before returning to
@@ -851,9 +899,13 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
         let slot=world_ctx.units.state.as_mut().expect("prepared unit service").phase_input_slots[i];world_ctx.units.state.as_mut().expect("prepared unit service").phase_inputs[slot]=None;
     }
     world_ctx.units.state.as_mut().expect("prepared unit service").phase_input_slots.clear();
-    for i in 0..count as usize {
-        let at=i*F3PhaseInput::WORDS;
-        let key=F3UnitKey::take(&world_ctx.units.state.as_mut().expect("prepared unit service").input[at+F3PhaseInput::KEY..at+F3PhaseInput::KEY+F3UnitKey::WORDS],&[]);
+    let rows_count=world_ctx.units.state.as_ref().expect("prepared unit service").rows_count as usize;
+    let rows_network=world_ctx.units.state.as_ref().expect("prepared unit service").rows_network;
+    for i in 0..count as usize+rows_count {
+        let at=if i<count as usize {i*F3PhaseInput::WORDS} else {(i-count as usize)*F3PhaseInput::WORDS};
+        let key={let state=world_ctx.units.state.as_ref().expect("prepared unit service");
+            let source=if i<count as usize {&state.input} else {&state.rows};
+            F3UnitKey::take(&source[at+F3PhaseInput::KEY..at+F3PhaseInput::KEY+F3UnitKey::WORDS],&[])};
         if key.validate(&world_ctx.sim.store).is_err() {
             if crate::world::deferred_in(&world_ctx.tick) {continue;}
             world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;
@@ -869,14 +921,17 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
     // tick list deliberately excludes. Preserve their source input order;
     // append only omitted native bots, whose requests are already canonical.
     let built=world_ctx.units.state.as_mut().expect("prepared unit service").owner.built().len();
-    for i in 0..count as usize+built {
-        let (reference,mut input)=if i<count as usize {
-            let at=i*F3PhaseInput::WORDS;
-            let input=F3PhaseInput::take(&world_ctx.units.state.as_mut().expect("prepared unit service").input[at..at+F3PhaseInput::WORDS],&[]);
+    let explicit=count as usize+rows_count;
+    for i in 0..explicit+built {
+        let (reference,mut input)=if i<explicit {
+            let connection=i>=count as usize;
+            let at=if connection {(i-count as usize)*F3PhaseInput::WORDS} else {i*F3PhaseInput::WORDS};
+            let input={let state=world_ctx.units.state.as_ref().expect("prepared unit service");
+                F3PhaseInput::take(&(if connection {&state.rows} else {&state.input})[at..at+F3PhaseInput::WORDS],&[])};
             if crate::world::deferred_in(&world_ctx.tick) && input.key.validate(&world_ctx.sim.store).is_err() {continue;}
             (input.key.reference(),Some(input))
         }else{
-            let reference=world_ctx.units.state.as_mut().expect("prepared unit service").owner.built()[i-count as usize];
+            let reference=world_ctx.units.state.as_mut().expect("prepared unit service").owner.built()[i-explicit];
             if world_ctx.units.state.as_mut().expect("prepared unit service").phase_inputs[reference.slot as usize].is_some() {continue;}
             let Some(unit)=world_ctx.sim.store.unit.get(reference) else {continue};
             if unit.removed {continue;}
@@ -908,10 +963,14 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
         world_ctx.units.state.as_mut().expect("prepared unit service").bot_targets[reference.slot as usize] = if let Some(ai)=recon.as_ref().and_then(|services|services.ai.as_ref()) {
             let hint=ai.weapon_hint_in(world_ctx,reference,None);hint.bot.then_some(hint.target)
         }else{input.as_ref().filter(|input|input.bot_target_set).map(|input|input.bot_target)};
+        // A connection's tail follows the connections' rows, as the host's
+        // tail follows its own.
+        let connection=i>=count as usize && i<explicit;
         let network=if let Some(input)=input.as_ref().filter(|input|input.has_network) {
-            if input.network_index>=foreign.network {world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;}
-            let at=network_at+input.network_index as usize*F3PhaseNetwork::WORDS;
-            Some(F3PhaseNetwork::take(&world_ctx.units.state.as_mut().expect("prepared unit service").input[at..at+F3PhaseNetwork::WORDS],&[]))
+            if input.network_index>=if connection {rows_network} else {foreign.network} {world_ctx.units.state.as_mut().expect("prepared unit service").running=false;finish_allocations_in(&mut world_ctx.units, allocations);return 0;}
+            let at=(if connection {rows_count*F3PhaseInput::WORDS} else {network_at})+input.network_index as usize*F3PhaseNetwork::WORDS;
+            let state=world_ctx.units.state.as_ref().expect("prepared unit service");
+            Some(F3PhaseNetwork::take(&(if connection {&state.rows} else {&state.input})[at..at+F3PhaseNetwork::WORDS],&[]))
         }else{None};
         world_ctx.units.state.as_mut().expect("prepared unit service").network[reference.slot as usize]=network.as_ref().map(|r|F3NetworkView {
             view:r.network.view,lead:r.network.lead,playout:r.network.playout,
@@ -1949,14 +2008,21 @@ pub(crate) fn relation_in(units: &super::owner::Units, a:f64,b:f64) -> f64 {
 // HitHistory.capture belongs at the multiplayer world's end-of-tick capture
 // boundary, after ordnance and items. Capturing never imports body rows.
 
-pub fn f3_history_capture_in(world_ctx: &mut crate::world::owner::World, tick: u32) {
+/// The hit history's capture at the start of a match's tick
+/// (multiplayer-world.js hitHistory.capture): the host's `units` intent
+/// rows and its network tail precede the foreign facts it wrote.
+pub(crate) fn f3_history_capture_at_in(world_ctx: &mut crate::world::owner::World, tick: u32, units: u32) {
     let allocations = crate::allocations::snapshot();
     crate::allocations::begin();
     // F4 may have advanced foreign building life after the unit span. Those
-    // changed rows start at zero because capture has no intent rows before it.
+    // changed rows follow the intent rows the host prepared for this tick.
     let foreign = F3ForeignHeader::take(&world_ctx.units.state.as_mut().expect("prepared unit service").foreign_header, &[]);
-    foreign_rows_in(&mut world_ctx.units, 0, foreign.count);
-    building_rows_in(world_ctx, foreign.count as usize * F3PropFact::WORDS, foreign.buildings);
+    let offset = (units as usize).min(INPUT_WORDS / F3PhaseInput::WORDS) * F3PhaseInput::WORDS
+        + (foreign.network as usize).min(INPUT_WORDS / F3PhaseNetwork::WORDS) * F3PhaseNetwork::WORDS;
+    let count = if offset + foreign.count as usize * F3PropFact::WORDS + foreign.buildings as usize * F3BuildingState::WORDS > INPUT_WORDS { 0 } else { foreign.count };
+    let buildings = if count == foreign.count { foreign.buildings } else { 0 };
+    foreign_rows_in(&mut world_ctx.units, offset, count);
+    building_rows_in(world_ctx, offset + count as usize * F3PropFact::WORDS, buildings);
     let mut history = world_ctx.units.state.as_mut().expect("prepared unit service").history.take().expect("available hit history");
     history.capture(tick, &mut super::f3_sensors::Sensors { w: world_ctx });
     world_ctx.units.state.as_mut().expect("prepared unit service").history = Some(history);
@@ -2615,8 +2681,6 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn f3_relations(count:u32) -> u32 { f3_relations_in(crate::abi::facade::world(), count) }
     #[no_mangle]
-    pub extern "C" fn f3_history_capture(tick: u32) { f3_history_capture_in(crate::abi::facade::world(), tick) }
-    #[no_mangle]
     pub extern "C" fn f3_hit_policy() { f3_hit_policy_in(crate::abi::facade::world()) }
     #[no_mangle]
     pub extern "C" fn f3_blast_binding() { f3_blast_binding_in(crate::abi::facade::world()) }
@@ -2626,7 +2690,7 @@ mod exports {
     pub extern "C" fn f3_world_blast() { f3_world_blast_in(crate::abi::facade::world()) }
 }
 #[cfg(target_arch = "wasm32")]
-pub use exports::{f3_init, f3_adopt, f3_weapon_services, f3_step, f3_command, f3_acquire, f3_sensor, f3_pose, f3_foreign, f3_registry_prepare, f3_registry_add, f3_registry_remove, f3_body_names, f3_missile_classes, f3_relations, f3_history_capture, f3_hit_policy, f3_blast_binding, f3_impact_rules, f3_world_blast};
+pub use exports::{f3_init, f3_adopt, f3_weapon_services, f3_step, f3_command, f3_acquire, f3_sensor, f3_pose, f3_foreign, f3_registry_prepare, f3_registry_add, f3_registry_remove, f3_body_names, f3_missile_classes, f3_relations, f3_hit_policy, f3_blast_binding, f3_impact_rules, f3_world_blast};
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod native_banks {

@@ -16,15 +16,23 @@ impl World {
     /// The caller keeps input independent of the shared command block.
     /// Calling existing owner entries preserves their independent event epochs,
     /// numeric substeps and publication banks without a host phase dispatcher.
-    #[cfg(target_arch = "wasm32")]
     pub fn step(&mut self, input: &WorldTickInput) -> WorldTickOutput {
         let mut output = WorldTickOutput {clock:input.clock.clone(),..Default::default()};
         let before=crate::allocations::snapshot();
         if input.dt.is_finite() && input.dt >= 0.0 && input.tick.is_finite() && !self.tick.running
-            && crate::units::f3::registered_viewpoint().is_some_and(|r|self.sim.store.unit.get(r).is_some())
+            && crate::units::f3::registered_viewpoint_in(&self.units).is_some_and(|r|self.sim.store.unit.get(r).is_some())
             && input.tick==input.clock.tick+1.0
             && super::clock::advance(&mut output.clock,input.dt,false,&mut CompletedClock)==Ok(1.0) {
+            // The match's players act before the world advances, as its
+            // host did between ticks. The host read each of those commands'
+            // publications as it made them; here it reads only the tick's,
+            // so their rows stay deferred and encode against what it last
+            // consumed, like every command made inside the tick.
             self.tick.running=true;
+            crate::players::step::run(self,input);
+            // The host delivers these notices with the clock of the tick before,
+            // as it did when it ran the players itself.
+            output.players_events=self.sim.events.len() as u32;
             let water=self.tick.water.as_mut();
             let level=if let Some(water)=water {
                 let level=water.step(input.dt);output.water_time=water.time;output.wave=water.wave;level
@@ -35,34 +43,34 @@ impl World {
             if input.ai {
                 for (index, kind) in [0.0,2.0,3.0,1.0].into_iter().enumerate() {
                     if input.squads & (1<<index)==0 {continue;}
-                    let Some(local)=crate::units::f3::registered_viewpoint() else {continue};
+                    let Some(local)=crate::units::f3::registered_viewpoint_in(&self.units) else {continue};
                     let Some(unit)=self.sim.store.unit.get(local) else {continue};
                     if unit.combat.dead {continue;}
                     let Some(character)=unit.character.and_then(|r| crate::battle::f4_core::character_handle_in(&mut self.battle, r)) else {continue};
                     let command=crate::gen::AiPlayerCommand {character,kind,time:input.tick/60.0};
                     self.sim.calls.result(crate::gen::AiPlayerCommand::WORDS,|row,heap|command.put(row,heap));
-                    if crate::ai::owned::entry::ai_world_command()!=0 {output.squads|=1<<index;}
+                    if crate::ai::owned::entry::ai_world_command_in(self)!=0 {output.squads|=1<<index;}
                 }
             }
             crate::vehicles::module::f2::world_level_in(self,if level.is_finite() {level}else{0.0});
             crate::battle::f4_live::f4_viewpoint_clock_in(self);
             if input.camera!=0 {crate::cameras::world_frame(self,input.camera,input.offline_camera);}
-            let ai = !input.ai || crate::ai::owned::entry::ai_world_phase() != 0;
-            if ai && crate::units::f3::f3_step(input.units, input.dt, level, input.tick) != 0 {
+            let ai = !input.ai || crate::ai::owned::entry::ai_world_phase_in(self) != 0;
+            if ai && crate::units::f3::f3_step_in(self, input.units, input.dt, level, input.tick) != 0 {
                 if input.live { crate::battle::f4_live::f4_live_in(self); }
                 output.ordnance = crate::ordnance::module::ord_update_in(self,input.dt);
-                let targets = crate::units::f3_items::world_targets();
+                let targets = crate::units::f3_items::world_targets_in(self);
                 if let Some(targets)=targets {
                     output.items = crate::items::module::items_update_in(self,input.dt, targets);
                 }
                 crate::battle::f4_tail::f4_tail_in(self);
-                if input.ai { crate::ai::owned::entry::ai_world_dangers(); }
+                if input.ai { crate::ai::owned::entry::ai_world_dangers_in(self); }
                 output.accepted = targets.is_some();
             }
             self.tick.running=false;
             // Each producer kept dirty rows and retired leases until this point.
             // Commit their encoded baselines once, against what the host consumed.
-            crate::units::f3::publish_changed();
+            crate::units::f3::publish_changed_in(self);
         }
         let used=crate::allocations::snapshot().since(before);
         output.allocations=used.calls as u32;output.reallocations=used.reallocs as u32;output.allocation_bytes=used.bytes as u32;
@@ -76,7 +84,6 @@ pub fn world_step_init_in(w: &mut World) -> Option<&mut [f64]> {
     w.step_init(&setup); Some(&mut w.tick.input[..])
 }
 
-#[cfg(target_arch = "wasm32")]
 pub fn world_step_run_in(w: &mut World) -> Option<&[f64]> {
     let input=WorldTickInput::take(&w.tick.input,&[]);
     let output=w.step(&input);

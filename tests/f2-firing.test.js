@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { mountedFleet } from './fixtures/f2-mounted.js';
 import { weaponDefinition } from './fixtures/f2-weapon.js';
 import { mountedCases, mountedScenario } from './fixtures/f2-mounted-scenarios.js';
+import { setPilotKeys } from './helpers/hull-prediction.js';
 
 // Recorded from the last switched engine over invented geometry and weapons.
 // These cover the live scheduler without depending on game files or a JS twin.
@@ -19,11 +20,11 @@ test('warm F2 flight reaches a new warning without allocating native storage', a
   const f = await mountedFleet(weaponDefinition('fixture-flight-warning'),
     { flying: true, tow: true, network: true, environment: { ceiling: 15 } });
   const keys = { forward: 1, right: 0, stickX: 0, stickY: 0 };
-  f.crew.intent.flight = keys;
   let ceiling = false;
   try {
     for (let tick = 0; tick < 600; tick++) {
       if (tick === 200) keys.stickY = .2;
+      setPilotKeys(f.vs, f.v, keys);
       f.vs.update(1 / 60);
       if (tick > 60) assert.equal(f.vs.f2.x.f2_allocations(), 0, `flight allocation at ${tick}`);
       if (tick >= 200 && f.v.flightWarning === 'Flight ceiling') ceiling = true;

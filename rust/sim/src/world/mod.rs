@@ -4,8 +4,6 @@ pub mod clock;
 pub mod events;
 pub mod local;
 pub mod step;
-pub mod network;
-pub mod network_controls;
 mod module;
 
 /// Reserved whole-tick input and completed output. These buffers contain no

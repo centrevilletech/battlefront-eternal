@@ -2,7 +2,7 @@
 //! Foreign values keep opaque identities until their consumers migrate;
 //! this queue owns stamps, coalescing, cumulative look and acknowledgement.
 use super::actions::safe_integer;
-use crate::gen::{ImInput, ImLook, ImOperation, ImResult, ImState, ImTaken};
+use crate::gen::{HsCommandKind, ImInput, ImLook, ImOperation, ImResult, ImState, ImTaken};
 use crate::store::Strings;
 
 fn admits(s: &ImState, epoch_matches: bool, sequence: f64) -> bool {
@@ -23,7 +23,14 @@ pub(super) fn invalid_entry(e:&crate::gen::ImEntry,codes:&[crate::store::StrId],
         ||e.view.len()>7||e.view.iter().any(|field|strings.list.get(field.key.0 as usize).is_none_or(|key|
             !["mouseScale","invertMouse","firstPerson","aspect","viewTick","flightSettings","gamepad"].iter().any(|name|key.iter().copied().eq(name.encode_utf16())))
             ||!safe_integer(field.value)||field.value<0.)
-        ||e.human.len()>16||e.human.iter().any(|n|!safe_integer(*n)||*n<0.)||e.fire.len()>16 {return Some("invalid input payload");}
+        ||e.human.len()>16||e.fire.len()>16 {return Some("invalid input payload");}
+    // Choices are records (src/sim/wasm/runtime/input-mailbox.js invalidCommand's
+    // human rules): a team of 1 to 7, a named class with an optional post.
+    let named=|id:Option<crate::store::StrId>|id.is_some_and(|id|strings.list.get(id.0 as usize).is_some_and(|s|!s.is_empty()&&s.len()<=64));
+    if e.human.iter().any(|h|match h.kind {
+        HsCommandKind::Team=>!safe_integer(h.team)||!(1. ..=7.).contains(&h.team),
+        HsCommandKind::Spawn=>!named(h.class_name)||h.post.is_some()&&!named(h.post),
+        _=>false}) {return Some("invalid human input");}
     if e.look_total.is_some_and(|v|v.iter().any(|n|!n.is_finite()||n.abs()>2_f64.powi(48))) {return Some("invalid cumulative look");}
     if e.fire.iter().any(|v|!safe_integer(v.id)||v.id<1.||(v.button!=0.&&v.button!=1.)) {return Some("invalid trigger edges");}
     let v=&e.publication;

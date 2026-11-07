@@ -44,6 +44,7 @@ pub mod items;
 pub mod input;
 pub mod movement;
 pub mod ordnance;
+pub mod players;
 pub mod pose;
 pub mod prediction;
 pub mod recon;

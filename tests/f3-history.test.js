@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { ObjectiveTarget } from '../src/objectives.js';
 import { f3World } from './fixtures/f3-world.js';
+import { playersWorld } from './fixtures/players-world.js';
 import { building } from './fixtures/f3-building.js';
 
 test('bounds observations defer limb publication and preserve stale death shapes',async()=>{
@@ -49,33 +50,23 @@ test('ordinary sight rays send endpoint exclusions without a registry mask',asyn
 // chained-blast and recon fixtures. None imports JS body shapes into history.
 test('owned history captures pre-existing registry members and survives snapshot-host release', {timeout:10000}, async() => {
   const prop = building('objective',0,4);
-  const world = await f3World({soldier:{class:'soldier',base:'soldier',MaxHealth:2000,weapons:[]}}, {
+  const f = await playersWorld({ unitOptions: {
     prepareLive:(collision,units)=>{
       prop.aiTarget = units.add(new ObjectiveTarget(prop));
       return {buildings:[prop]};
     },
-  });
-  const history = world.phase.history;
-  const lease = history.lease;
-  assert.ok(lease.source === history);
-  world.phase.counters.reset();
-  history.capture(0);
-  assert.equal(history.tick,0);
-  assert.equal(world.phase.counters.captureCalls,1);
-  assert.equal(world.phase.counters.wasmCalls,1);
-  assert.equal(world.phase.counters.importCalls,0);
-  assert.equal(world.phase.counters.rustAllocations,0);
-  assert.equal(world.phase.counters.rustReallocations,0);
-  // Unit construction reserves all later frames too. The first shape read in
-  // its first native capture must not grow a ring or create shape storage.
-  const unit = world.spawn('soldier',0,0,true);
-  world.phase.counters.reset();
-  for (let tick=1;tick<=60;tick++) history.capture(tick);
-  assert.equal(world.phase.counters.captureCalls,60);
-  assert.equal(world.phase.counters.wasmCalls,60);
-  assert.equal(world.phase.counters.rustAllocations,0);
-  assert.equal(world.phase.counters.rustReallocations,0);
-  lease.dispose();history.capture(61);
-  assert.equal(history.tick,61);
-  assert.ok(world.units.raycast(new Vector3(0,1,-2),new Vector3(0,0,1),4).unit === unit);
+  } });
+  const history = f.phase.history, lease = history.lease;
+  assert.equal(lease.source,history);
+  await f.world.addPlayer('body',{team:1});
+  const unit = f.world.players.get('body').unit;
+  f.game.unitsSim.placeBody(unit,0,0,0,0);
+  for (let tick=0;tick<=60;tick++) {
+    f.world.step(1000);
+    assert.equal(f.tick.output.allocations,0);
+    assert.equal(f.tick.output.reallocations,0);
+  }
+  lease.dispose();f.world.step(1000);
+  assert.equal(f.game.worldClock.tick,62);
+  assert.equal(f.units.raycast(new Vector3(0,1,-2),new Vector3(0,0,1),4).unit,unit);
 });

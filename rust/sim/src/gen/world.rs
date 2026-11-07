@@ -133,239 +133,6 @@ impl WorldLocalCall {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u8)]
-pub enum WorldNetworkChoice {
-    #[default] Other = 0,
-    Suicide = 1,
-    Team = 2,
-    Spawn = 3,
-}
-
-impl WorldNetworkChoice {
-    pub const NAMES: [&'static str; 4] = ["other", "suicide", "team", "spawn"];
-
-    pub fn from_u8(v: u8) -> Option<Self> {
-        match v {
-            0 => Some(WorldNetworkChoice::Other),
-            1 => Some(WorldNetworkChoice::Suicide),
-            2 => Some(WorldNetworkChoice::Team),
-            3 => Some(WorldNetworkChoice::Spawn),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u8)]
-pub enum WorldNetworkCall {
-    #[default] Capture = 0,
-    Players = 1,
-    NextPlayer = 2,
-    Ended = 3,
-    Release = 4,
-    Retire = 5,
-    Delete = 6,
-    Stop = 7,
-    Command = 8,
-    Actions = 9,
-    Accept = 10,
-    Choices = 11,
-    NextChoice = 12,
-    Suicide = 13,
-    SwitchTeam = 14,
-    Team = 15,
-    CurrentAlive = 16,
-    Spawn = 17,
-    Trace = 18,
-    Unit = 19,
-    DeadTime = 20,
-    AutoSpawn = 21,
-    DeadPhase = 22,
-    Controls = 23,
-    Views = 24,
-    Step = 25,
-}
-
-impl WorldNetworkCall {
-    pub const NAMES: [&'static str; 26] = ["capture", "players", "nextPlayer", "ended", "release", "retire", "delete", "stop", "command", "actions", "accept", "choices", "nextChoice", "suicide", "switchTeam", "team", "currentAlive", "spawn", "trace", "unit", "deadTime", "autoSpawn", "deadPhase", "controls", "views", "step"];
-
-    pub fn from_u8(v: u8) -> Option<Self> {
-        match v {
-            0 => Some(WorldNetworkCall::Capture),
-            1 => Some(WorldNetworkCall::Players),
-            2 => Some(WorldNetworkCall::NextPlayer),
-            3 => Some(WorldNetworkCall::Ended),
-            4 => Some(WorldNetworkCall::Release),
-            5 => Some(WorldNetworkCall::Retire),
-            6 => Some(WorldNetworkCall::Delete),
-            7 => Some(WorldNetworkCall::Stop),
-            8 => Some(WorldNetworkCall::Command),
-            9 => Some(WorldNetworkCall::Actions),
-            10 => Some(WorldNetworkCall::Accept),
-            11 => Some(WorldNetworkCall::Choices),
-            12 => Some(WorldNetworkCall::NextChoice),
-            13 => Some(WorldNetworkCall::Suicide),
-            14 => Some(WorldNetworkCall::SwitchTeam),
-            15 => Some(WorldNetworkCall::Team),
-            16 => Some(WorldNetworkCall::CurrentAlive),
-            17 => Some(WorldNetworkCall::Spawn),
-            18 => Some(WorldNetworkCall::Trace),
-            19 => Some(WorldNetworkCall::Unit),
-            20 => Some(WorldNetworkCall::DeadTime),
-            21 => Some(WorldNetworkCall::AutoSpawn),
-            22 => Some(WorldNetworkCall::DeadPhase),
-            23 => Some(WorldNetworkCall::Controls),
-            24 => Some(WorldNetworkCall::Views),
-            25 => Some(WorldNetworkCall::Step),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u8)]
-pub enum WorldControlsCall {
-    #[default] Start = 0,
-    SquadTake = 1,
-    SquadReady = 2,
-    Squad = 3,
-    SquadEvent = 4,
-    NextSpawn = 5,
-    Scheme = 6,
-    FirstPerson = 7,
-    CombatView = 8,
-    Remotes = 9,
-    RemoteView = 10,
-    FiniteAspect = 11,
-    PositiveAspect = 12,
-    AimCamera = 13,
-    Aspect = 14,
-    Axis = 15,
-    PitchZero = 16,
-    Action = 17,
-    Metadata = 18,
-    Reliable = 19,
-    Fire = 20,
-    FireButtons = 21,
-    Shots = 22,
-    NextShot = 23,
-    ShotTick = 24,
-    ShotLate = 25,
-    PublishShots = 26,
-    Held = 27,
-    Key = 28,
-    Scale = 29,
-    Looks = 30,
-    NextLook = 31,
-    Dx = 32,
-    Dy = 33,
-    RemoteActive = 34,
-    RemoteLook = 35,
-    SoldierLook = 36,
-    Seat = 37,
-    Vehicle = 38,
-    Selection = 39,
-    Cycle = 40,
-    ClearSelection = 41,
-    VehicleInput = 42,
-    VehicleKeys = 43,
-    TurnStart = 44,
-    Reduce = 45,
-    Turn = 46,
-    TurnOther = 47,
-    Invert = 48,
-    Pitch = 49,
-    PitchOther = 50,
-    Use = 51,
-    Mount = 52,
-    MountVehicle = 53,
-    Board = 54,
-    MountTurret = 55,
-    Man = 56,
-    ClearUse = 57,
-    Clear = 58,
-    Unit = 59,
-    StopIntent = 60,
-    StopMetadata = 61,
-    Driver = 62,
-    StopSticks = 63,
-}
-
-impl WorldControlsCall {
-    pub const NAMES: [&'static str; 64] = ["start", "squadTake", "squadReady", "squad", "squadEvent", "nextSpawn", "scheme", "firstPerson", "combatView", "remotes", "remoteView", "finiteAspect", "positiveAspect", "aimCamera", "aspect", "axis", "pitchZero", "action", "metadata", "reliable", "fire", "fireButtons", "shots", "nextShot", "shotTick", "shotLate", "publishShots", "held", "key", "scale", "looks", "nextLook", "dx", "dy", "remoteActive", "remoteLook", "soldierLook", "seat", "vehicle", "selection", "cycle", "clearSelection", "vehicleInput", "vehicleKeys", "turnStart", "reduce", "turn", "turnOther", "invert", "pitch", "pitchOther", "use", "mount", "mountVehicle", "board", "mountTurret", "man", "clearUse", "clear", "unit", "stopIntent", "stopMetadata", "driver", "stopSticks"];
-
-    pub fn from_u8(v: u8) -> Option<Self> {
-        match v {
-            0 => Some(WorldControlsCall::Start),
-            1 => Some(WorldControlsCall::SquadTake),
-            2 => Some(WorldControlsCall::SquadReady),
-            3 => Some(WorldControlsCall::Squad),
-            4 => Some(WorldControlsCall::SquadEvent),
-            5 => Some(WorldControlsCall::NextSpawn),
-            6 => Some(WorldControlsCall::Scheme),
-            7 => Some(WorldControlsCall::FirstPerson),
-            8 => Some(WorldControlsCall::CombatView),
-            9 => Some(WorldControlsCall::Remotes),
-            10 => Some(WorldControlsCall::RemoteView),
-            11 => Some(WorldControlsCall::FiniteAspect),
-            12 => Some(WorldControlsCall::PositiveAspect),
-            13 => Some(WorldControlsCall::AimCamera),
-            14 => Some(WorldControlsCall::Aspect),
-            15 => Some(WorldControlsCall::Axis),
-            16 => Some(WorldControlsCall::PitchZero),
-            17 => Some(WorldControlsCall::Action),
-            18 => Some(WorldControlsCall::Metadata),
-            19 => Some(WorldControlsCall::Reliable),
-            20 => Some(WorldControlsCall::Fire),
-            21 => Some(WorldControlsCall::FireButtons),
-            22 => Some(WorldControlsCall::Shots),
-            23 => Some(WorldControlsCall::NextShot),
-            24 => Some(WorldControlsCall::ShotTick),
-            25 => Some(WorldControlsCall::ShotLate),
-            26 => Some(WorldControlsCall::PublishShots),
-            27 => Some(WorldControlsCall::Held),
-            28 => Some(WorldControlsCall::Key),
-            29 => Some(WorldControlsCall::Scale),
-            30 => Some(WorldControlsCall::Looks),
-            31 => Some(WorldControlsCall::NextLook),
-            32 => Some(WorldControlsCall::Dx),
-            33 => Some(WorldControlsCall::Dy),
-            34 => Some(WorldControlsCall::RemoteActive),
-            35 => Some(WorldControlsCall::RemoteLook),
-            36 => Some(WorldControlsCall::SoldierLook),
-            37 => Some(WorldControlsCall::Seat),
-            38 => Some(WorldControlsCall::Vehicle),
-            39 => Some(WorldControlsCall::Selection),
-            40 => Some(WorldControlsCall::Cycle),
-            41 => Some(WorldControlsCall::ClearSelection),
-            42 => Some(WorldControlsCall::VehicleInput),
-            43 => Some(WorldControlsCall::VehicleKeys),
-            44 => Some(WorldControlsCall::TurnStart),
-            45 => Some(WorldControlsCall::Reduce),
-            46 => Some(WorldControlsCall::Turn),
-            47 => Some(WorldControlsCall::TurnOther),
-            48 => Some(WorldControlsCall::Invert),
-            49 => Some(WorldControlsCall::Pitch),
-            50 => Some(WorldControlsCall::PitchOther),
-            51 => Some(WorldControlsCall::Use),
-            52 => Some(WorldControlsCall::Mount),
-            53 => Some(WorldControlsCall::MountVehicle),
-            54 => Some(WorldControlsCall::Board),
-            55 => Some(WorldControlsCall::MountTurret),
-            56 => Some(WorldControlsCall::Man),
-            57 => Some(WorldControlsCall::ClearUse),
-            58 => Some(WorldControlsCall::Clear),
-            59 => Some(WorldControlsCall::Unit),
-            60 => Some(WorldControlsCall::StopIntent),
-            61 => Some(WorldControlsCall::StopMetadata),
-            62 => Some(WorldControlsCall::Driver),
-            63 => Some(WorldControlsCall::StopSticks),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldClockState {
     pub hz: f64,
@@ -879,10 +646,12 @@ pub struct WorldTickInput {
     pub camera: u32,
     pub offline_camera: bool,
     pub squads: u32,
+    pub at: f64,
+    pub mouse_scale: f64,
 }
 
 impl WorldTickInput {
-    pub const WORDS: usize = 21;
+    pub const WORDS: usize = 23;
     pub const DT: usize = 0;
     pub const TICK: usize = 1;
     pub const CLOCK: usize = 2;
@@ -892,9 +661,11 @@ impl WorldTickInput {
     pub const CAMERA: usize = 18;
     pub const OFFLINE_CAMERA: usize = 19;
     pub const SQUADS: usize = 20;
+    pub const AT: usize = 21;
+    pub const MOUSE_SCALE: usize = 22;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 21] = (&mut row[..21]).try_into().unwrap();
+        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
         row[0] = self.dt;
         row[1] = self.tick;
         self.clock.put(&mut row[2..], heap);
@@ -904,10 +675,12 @@ impl WorldTickInput {
         row[18] = self.camera as f64;
         row[19] = if self.offline_camera { 1.0 } else { 0.0 };
         row[20] = self.squads as f64;
+        row[21] = self.at;
+        row[22] = self.mouse_scale;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 21] = (&row[..21]).try_into().unwrap();
+        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
         Self {
             dt: row[0],
             tick: row[1],
@@ -918,6 +691,8 @@ impl WorldTickInput {
             camera: word_u32(row[18]),
             offline_camera: row[19] != 0.0,
             squads: word_u32(row[20]),
+            at: row[21],
+            mouse_scale: row[22],
         }
     }
 
@@ -936,10 +711,11 @@ pub struct WorldTickOutput {
     pub allocations: u32,
     pub reallocations: u32,
     pub allocation_bytes: u32,
+    pub players_events: u32,
 }
 
 impl WorldTickOutput {
-    pub const WORDS: usize = 23;
+    pub const WORDS: usize = 24;
     pub const ACCEPTED: usize = 0;
     pub const CLOCK: usize = 1;
     pub const ORDNANCE: usize = 14;
@@ -951,9 +727,10 @@ impl WorldTickOutput {
     pub const ALLOCATIONS: usize = 20;
     pub const REALLOCATIONS: usize = 21;
     pub const ALLOCATION_BYTES: usize = 22;
+    pub const PLAYERS_EVENTS: usize = 23;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
+        let row: &mut [f64; 24] = (&mut row[..24]).try_into().unwrap();
         row[0] = if self.accepted { 1.0 } else { 0.0 };
         self.clock.put(&mut row[1..], heap);
         row[14] = self.ordnance as f64;
@@ -965,10 +742,11 @@ impl WorldTickOutput {
         row[20] = self.allocations as f64;
         row[21] = self.reallocations as f64;
         row[22] = self.allocation_bytes as f64;
+        row[23] = self.players_events as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
+        let row: &[f64; 24] = (&row[..24]).try_into().unwrap();
         Self {
             accepted: row[0] != 0.0,
             clock: WorldClockState::take(&row[1..], heap),
@@ -981,221 +759,7 @@ impl WorldTickOutput {
             allocations: word_u32(row[20]),
             reallocations: word_u32(row[21]),
             allocation_bytes: word_u32(row[22]),
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldNetworkState {
-    pub disconnected: bool,
-    pub disconnected_at: f64,
-    pub spectator: bool,
-    pub stale: bool,
-    pub last_input_at: f64,
-    pub separate_actions: bool,
-    pub alive: bool,
-    pub removed: bool,
-    pub dead_time: f64,
-    pub auto_respawn: bool,
-    pub spawned_once: bool,
-    pub team_select: bool,
-    pub choice: WorldNetworkChoice,
-    pub choice_team: f64,
-}
-
-impl WorldNetworkState {
-    pub const WORDS: usize = 14;
-    pub const DISCONNECTED: usize = 0;
-    pub const DISCONNECTED_AT: usize = 1;
-    pub const SPECTATOR: usize = 2;
-    pub const STALE: usize = 3;
-    pub const LAST_INPUT_AT: usize = 4;
-    pub const SEPARATE_ACTIONS: usize = 5;
-    pub const ALIVE: usize = 6;
-    pub const REMOVED: usize = 7;
-    pub const DEAD_TIME: usize = 8;
-    pub const AUTO_RESPAWN: usize = 9;
-    pub const SPAWNED_ONCE: usize = 10;
-    pub const TEAM_SELECT: usize = 11;
-    pub const CHOICE: usize = 12;
-    pub const CHOICE_TEAM: usize = 13;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
-        row[0] = if self.disconnected { 1.0 } else { 0.0 };
-        row[1] = self.disconnected_at;
-        row[2] = if self.spectator { 1.0 } else { 0.0 };
-        row[3] = if self.stale { 1.0 } else { 0.0 };
-        row[4] = self.last_input_at;
-        row[5] = if self.separate_actions { 1.0 } else { 0.0 };
-        row[6] = if self.alive { 1.0 } else { 0.0 };
-        row[7] = if self.removed { 1.0 } else { 0.0 };
-        row[8] = self.dead_time;
-        row[9] = if self.auto_respawn { 1.0 } else { 0.0 };
-        row[10] = if self.spawned_once { 1.0 } else { 0.0 };
-        row[11] = if self.team_select { 1.0 } else { 0.0 };
-        row[12] = self.choice as u8 as f64;
-        row[13] = self.choice_team;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
-        Self {
-            disconnected: row[0] != 0.0,
-            disconnected_at: row[1],
-            spectator: row[2] != 0.0,
-            stale: row[3] != 0.0,
-            last_input_at: row[4],
-            separate_actions: row[5] != 0.0,
-            alive: row[6] != 0.0,
-            removed: row[7] != 0.0,
-            dead_time: row[8],
-            auto_respawn: row[9] != 0.0,
-            spawned_once: row[10] != 0.0,
-            team_select: row[11] != 0.0,
-            choice: WorldNetworkChoice::from_u8(word_u32(row[12]) as u8).unwrap_or_default(),
-            choice_team: row[13],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldNetworkInput {
-    pub state: WorldNetworkState,
-    pub tick: f64,
-    pub at: f64,
-    pub grace: f64,
-    pub respawn: f64,
-}
-
-impl WorldNetworkInput {
-    pub const WORDS: usize = 18;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
-        self.state.put(&mut row[0..], heap);
-        row[14] = self.tick;
-        row[15] = self.at;
-        row[16] = self.grace;
-        row[17] = self.respawn;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
-        Self {
-            state: WorldNetworkState::take(&row[0..], heap),
-            tick: row[14],
-            at: row[15],
-            grace: row[16],
-            respawn: row[17],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldNetworkArgs {
-    pub op: WorldNetworkCall,
-    pub value: f64,
-}
-
-impl WorldNetworkArgs {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        row[0] = self.op as u8 as f64;
-        row[1] = self.value;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            op: WorldNetworkCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
-            value: row[1],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldNetworkReply {
-    pub state: WorldNetworkState,
-    pub value: bool,
-}
-
-impl WorldNetworkReply {
-    pub const WORDS: usize = 15;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 15] = (&mut row[..15]).try_into().unwrap();
-        self.state.put(&mut row[0..], heap);
-        row[14] = if self.value { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 15] = (&row[..15]).try_into().unwrap();
-        Self {
-            state: WorldNetworkState::take(&row[0..], heap),
-            value: row[14] != 0.0,
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldControlsArgs {
-    pub op: WorldControlsCall,
-    pub index: f64,
-    pub value: f64,
-    pub other: f64,
-}
-
-impl WorldControlsArgs {
-    pub const WORDS: usize = 4;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        row[0] = self.op as u8 as f64;
-        row[1] = self.index;
-        row[2] = self.value;
-        row[3] = self.other;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
-        Self {
-            op: WorldControlsCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
-            index: row[1],
-            value: row[2],
-            other: row[3],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WorldControlsReply {
-    pub value: f64,
-    pub flag: bool,
-}
-
-impl WorldControlsReply {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        row[0] = self.value;
-        row[1] = if self.flag { 1.0 } else { 0.0 };
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            value: row[0],
-            flag: row[1] != 0.0,
+            players_events: word_u32(row[23]),
         }
     }
 

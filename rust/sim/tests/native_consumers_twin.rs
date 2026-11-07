@@ -50,7 +50,6 @@ impl Lane {
         for code in [
             IMPORT_WORLD_EVENTS,
             IMPORT_WORLD_LOCAL,
-            IMPORT_WORLD_NETWORK,
         ] {
             let calls = calls.clone();
             context
@@ -82,6 +81,11 @@ fn native_world_consumers_match_existing_port_fixtures() {
         let event = json::parse(&text.unwrap())
             .unwrap_or_else(|error| panic!("consumer record {count}: {error:?}"));
         if event.get("summary").is_some() {
+            assert_eq!(get(&event, "tests").as_f64(), Some(7.0));
+            assert!(get(&event, "callbackFailuresCheckedByJs").as_f64().unwrap() > 0.0);
+            for name in ["world_events_run", "world_local_run"] {
+                assert!(get(get(&event, "counts"), name).as_f64().unwrap() > 0.0);
+            }
             summary = true;
             continue;
         }
@@ -109,31 +113,20 @@ fn native_world_consumers_match_existing_port_fixtures() {
             .borrow_mut()
             .extend(get(&event, "calls").as_array().unwrap().iter().cloned());
         let input = record(get(&event, "input"));
-        let scalar = match get(&event, "name").as_str().unwrap() {
+        match get(&event, "name").as_str().unwrap() {
             "world_events_run" => {
                 context
                     .world_events(input.read(WorldEventInput::take))
                     .unwrap();
-                None
             }
             "world_local_run" => {
                 context
                     .world_local(input.read(WorldLocalInput::take))
                     .unwrap();
-                None
             }
-            "world_network_run" => Some(
-                context
-                    .world_network(input.read(WorldNetworkInput::take))
-                    .unwrap()
-                    .tick,
-            ),
             name => panic!("unexpected consumer {name}"),
-        };
-        if let Some(scalar) = scalar {
-            assert_eq!(bits(&[scalar]), bits(&words(get(&event, "scalar"))));
         }
-        if let Some(output) = event.get("output").or_else(|| event.get("state")) {
+        if let Some(output) = event.get("output") {
             same(&context.calls().unwrap(), output);
         }
         assert!(calls.borrow().is_empty());

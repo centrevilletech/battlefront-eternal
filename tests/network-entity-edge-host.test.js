@@ -47,9 +47,12 @@ test('edge and result backlogs drop and count instead of failing the client',()=
 test('a spun mouse wheel refuses weapon changes past the queue instead of ending the session',async()=>{
  // A player's report: scrolling fast through weapons disconnected them;
  // a 1 ms autoclicker did not. Edges outran the one-a-tick action queue.
- const {InputActions}=await import('../src/runtime/input-actions.js');
  const {EntityEdgeReceiver}=await import('../src/runtime/network-entity-edges.js');
- const actions=new InputActions(1),fire={received:0,enableOutcomes(){},drainOutcomes(){return [];}};
+ // A bounded reliable lane: a full queue refuses a message, one message
+ // drains a tick (the native lane's rule, rust/sim/src/input/actions.rs).
+ const actions={capacity:128,queue:[],received:0,ack:0,enableOutcomes(){},drainOutcomes(){return [];},
+  push(message){if(this.queue.length>=this.capacity)return false;this.received=message.id;this.queue.push(message);return true;},
+  take(){const entry=this.queue.shift();if(entry)this.ack=entry.id;}},fire={received:0,enableOutcomes(){},drainOutcomes(){return [];}};
  const actor={unit:{generation:2},actions,fire};
  const world={actions:(client,message)=>actions.push(message,tick,2),fire:()=>true};
  const edges=new EntityEdges({Receiver:EntityEdgeReceiver,actor,world,client:'one',registry:{classes:new Map()}});

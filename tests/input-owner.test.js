@@ -161,7 +161,7 @@ test('retained mailbox writer uses the generated command layout exactly',async()
   const box=new InputMailbox(),b=box.bridge,c=box.change,e=box.entry;
   const words=()=>{const block=b.readBlock(b.x.sim_calls()),f=block.words,at=block.base;return Array.from(f.subarray(at,at+H.words+f[at]*f[at+1]+f[at+3]));};
   try{
-    Object.assign(e,{identity:1,down:1,sequence:1,tick:2,generation:3,codes:['KeyW'],actions:['jump'],look:[{point:[1.25,-2],object:2048}],lookTotal:[9,8],view:[{key:'aspect',value:11}],human:[16],fire:[{id:1,button:0,pressed:true}]});
+    Object.assign(e,{identity:1,down:1,sequence:1,tick:2,generation:3,codes:['KeyW'],actions:['jump'],look:[{point:[1.25,-2],object:2048}],lookTotal:[9,8],view:[{key:'aspect',value:11}],human:[{kind:'team',team:1,className:null,post:null},{kind:'spawn',team:0,className:'soldier',post:null}],fire:[{id:1,button:0,pressed:true}]});
     Object.assign(c,{op:'push',entry:e,sequence:1,epochMatches:true,tick:0,generation:0});
     for(const entry of [e,null]){
       c.entry=entry;b.callArgs(box.input,c);const expected=words();box.writeCall();assert.deepEqual(words(),expected);

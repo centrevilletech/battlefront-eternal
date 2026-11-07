@@ -121,6 +121,9 @@ async function battle(index) {
   sent = [];
   if (interval !== 1) server.host.setLocalInterval(interval);
   const world = server.world, step = world.step.bind(world);
+  // The fingerprints qualify the retained player ingress as well as the
+  // simulation phases. A fixture with host-driven player controls is invalid.
+  if (!game.unitsSim.nativePlayers || !server.actor.mailbox.handle) throw Error('required native player ingress did not attach');
   let stepMs = 0, measured = 0;
   world.step = (...args) => { const start = wallNow(); try { return step(...args); } finally { if (game.worldClock.tick > 900) { stepMs += wallNow() - start; measured++; } } };
 

@@ -633,7 +633,7 @@ pub struct ImEntry {
     pub look: Vec<ImLook>,
     pub look_total: Option<[f64; 2]>,
     pub view: Vec<ImField>,
-    pub human: Vec<f64>,
+    pub human: Vec<HsCommand>,
     pub fire: Vec<ImFire>,
 }
 
@@ -656,7 +656,7 @@ impl ImEntry {
     pub fn actions_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[20] as usize; let length = row[21] as usize; heap[start..start + length * 1].chunks_exact(1) }
     pub fn look_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[22] as usize; let length = row[23] as usize; heap[start..start + length * 4].chunks_exact(4) }
     pub fn view_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[27] as usize; let length = row[28] as usize; heap[start..start + length * 2].chunks_exact(2) }
-    pub fn human_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[29] as usize; let length = row[30] as usize; heap[start..start + length * 1].chunks_exact(1) }
+    pub fn human_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[29] as usize; let length = row[30] as usize; heap[start..start + length * 6].chunks_exact(6) }
     pub fn fire_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[31] as usize; let length = row[32] as usize; heap[start..start + length * 3].chunks_exact(3) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
@@ -672,7 +672,7 @@ impl ImEntry {
         { let at = heap.len(); row[22] = at as f64; row[22 + 1] = self.look.len() as f64; heap.reserve(self.look.len() * 4); for e in self.look.iter() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         match &self.look_total { Some(v) => { row[24] = 0.0; row[24 + 1..24 + 1 + 2].copy_from_slice(&(*v)); } None => { row[24] = 1.0; row[24 + 1..24 + 3].fill(0.0); } }
         { let at = heap.len(); row[27] = at as f64; row[27 + 1] = self.view.len() as f64; heap.reserve(self.view.len() * 2); for e in self.view.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
-        { let at = heap.len(); row[29] = at as f64; row[29 + 1] = self.human.len() as f64; heap.extend_from_slice(self.human.as_slice()); }
+        { let at = heap.len(); row[29] = at as f64; row[29 + 1] = self.human.len() as f64; heap.reserve(self.human.len() * 6); for e in self.human.iter() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         { let at = heap.len(); row[31] = at as f64; row[31 + 1] = self.fire.len() as f64; heap.reserve(self.fire.len() * 3); for e in self.fire.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
@@ -690,7 +690,7 @@ impl ImEntry {
             look: { let (at, n) = (word_u32(row[22]) as usize, word_u32(row[22 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(ImLook::take(&row[0..], heap)); } out },
             look_total: if row[24] == 0.0 { Some({ let mut a = [0.0; 2]; a.copy_from_slice(&row[24 + 1..24 + 1 + 2]); a }) } else { None },
             view: { let (at, n) = (word_u32(row[27]) as usize, word_u32(row[27 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(ImField::take(&row[0..], heap)); } out },
-            human: { let (at, n) = (word_u32(row[29]) as usize, word_u32(row[29 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            human: { let (at, n) = (word_u32(row[29]) as usize, word_u32(row[29 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(HsCommand::take(&row[0..], heap)); } out },
             fire: { let (at, n) = (word_u32(row[31]) as usize, word_u32(row[31 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(ImFire::take(&row[0..], heap)); } out },
         }
     }
@@ -759,7 +759,7 @@ impl ImState {
 pub struct ImTaken {
     pub actions: Vec<StrId>,
     pub look: Vec<ImLook>,
-    pub human: Vec<f64>,
+    pub human: Vec<HsCommand>,
     pub fire: Vec<ImFire>,
 }
 
@@ -770,7 +770,7 @@ impl ImTaken {
         let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
         { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.actions.len() as f64; heap.reserve(self.actions.len() * 1); for e in self.actions.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap.extend_from_slice(&item); } }
         { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.look.len() as f64; heap.reserve(self.look.len() * 4); for e in self.look.iter() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
-        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.human.len() as f64; heap.extend_from_slice(self.human.as_slice()); }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.human.len() as f64; heap.reserve(self.human.len() * 6); for e in self.human.iter() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.fire.len() as f64; heap.reserve(self.fire.len() * 3); for e in self.fire.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
@@ -779,7 +779,7 @@ impl ImTaken {
         Self {
             actions: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(StrId(word_u32(row[0]))); } out },
             look: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(ImLook::take(&row[0..], heap)); } out },
-            human: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            human: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(HsCommand::take(&row[0..], heap)); } out },
             fire: { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(ImFire::take(&row[0..], heap)); } out },
         }
     }
@@ -909,23 +909,25 @@ pub struct ImResult {
     pub command: Option<ImTaken>,
     pub replaced_look_total: bool,
     pub error: Option<StrId>,
+    pub down: Vec<StrId>,
 }
 
 impl ImResult {
-    pub const WORDS: usize = 32;
+    pub const WORDS: usize = 34;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 32] = (&mut row[..32]).try_into().unwrap();
+        let row: &mut [f64; 34] = (&mut row[..34]).try_into().unwrap();
         { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.retired.len() as f64; heap.extend_from_slice(self.retired.as_slice()); }
         self.state.put(&mut row[2..], heap);
         row[19] = if self.accepted { 1.0 } else { 0.0 };
         match &self.command { Some(v) => { row[20] = 0.0; v.put(&mut row[20 + 1..], heap); } None => { row[20] = 1.0; row[20 + 1..20 + 9].fill(0.0); } }
         row[29] = if self.replaced_look_total { 1.0 } else { 0.0 };
         match &self.error { Some(v) => { row[30] = 0.0; row[30 + 1] = (*v).0 as f64; } None => { row[30] = 1.0; row[30 + 1..30 + 2].fill(0.0); } }
+        { let at = heap.len(); row[32] = at as f64; row[32 + 1] = self.down.len() as f64; heap.reserve(self.down.len() * 1); for e in self.down.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 32] = (&row[..32]).try_into().unwrap();
+        let row: &[f64; 34] = (&row[..34]).try_into().unwrap();
         Self {
             retired: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
             state: ImState::take(&row[2..], heap),
@@ -933,6 +935,7 @@ impl ImResult {
             command: if row[20] == 0.0 { Some(ImTaken::take(&row[20 + 1..], heap)) } else { None },
             replaced_look_total: row[29] != 0.0,
             error: if row[30] == 0.0 { Some(StrId(word_u32(row[30 + 1]))) } else { None },
+            down: { let (at, n) = (word_u32(row[32]) as usize, word_u32(row[32 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(StrId(word_u32(row[0]))); } out },
         }
     }
 

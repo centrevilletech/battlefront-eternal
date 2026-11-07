@@ -137,6 +137,12 @@ fn bind_descriptor(w: &mut Root, phase: &mut F4Phase) {
     phase.battle = super::f4_core::publication_ptr(&mut w.battle);
     phase.events = w.sim.events.ptr() as u32;
 }
+// The retained banks the descriptor names, for a native host that reads them
+// by name rather than by address (Context::read_bank); None before f4_live_init.
+pub(crate) fn counters_bank_in(w: &Root) -> Option<&[f64]> { w.battle.io.as_ref().map(|io| &io.counters[..]) }
+pub(crate) fn buildings_bank_in(w: &Root) -> Option<&[f64]> { w.battle.live.as_ref().map(|live| &live.buildings.publication.words[..]) }
+pub(crate) fn animated_bank_in(w: &Root) -> Option<&[f64]> { w.battle.live.as_ref().map(|live| &live.animated.publication.words[..]) }
+pub(crate) fn traps_bank_in(w: &Root) -> Option<&[f64]> { w.battle.live.as_ref().map(|live| &live.traps.publication.words[..]) }
 /// Only actual foreign barriers and outer returns publish. Native setters mark
 /// their rows; an intermediate commit must not overwrite an unread delta.
 pub(crate) fn publish_in(w: &mut Root) {

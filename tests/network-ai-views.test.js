@@ -1,20 +1,48 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as THREE from 'three';
-import { networkViews } from '../src/runtime/network-views.js';
+import { existsSync } from 'node:fs';
+import { PerspectiveCamera, Vector3 } from 'three';
+import { contentPath } from './helpers/content.js';
+import { AiPhaseHeaderLayout, AiPhaseCameraLayout } from '../src/sim/gen/ai-phase.js';
 
-// Visibility and carried LOD decisions live in Rust. This host supplies the
-// ordered authoritative camera facts, including remote humans and departures.
-test('online AI camera facts follow every authoritative human',()=>{
-  const world={},game={ai:{worldData:world}};
-  const player=x=>({unit:{alive:true,position:new THREE.Vector3(x,0,0),soldier:{aimYaw:0,aimPitch:0}}});
-  const first=player(0),second=player(1000),players=new Map([['a',first],['b',second]]);
-  const update=networkViews(game,players),direction=new THREE.Vector3();update();
-  assert.equal(world.networkViews,true);assert.equal(world.cameras.length,2);
-  assert.deepEqual(world.cameras.map(camera=>camera.position.toArray()),[[0,1.7,0],[1000,1.7,0]]);
-  world.cameras[1].getWorldDirection(direction);assert.ok(direction.z>.999);
-  const retained=world.cameras[1];second.unit.soldier.aimYaw=Math.PI;update();
-  assert.equal(world.cameras[1],retained);retained.getWorldDirection(direction);assert.ok(direction.z<-.999);
-  second.disconnectedAt=1;update();assert.equal(world.cameras.length,1);
-  first.unit.alive=false;update();assert.equal(world.cameras.length,0);
-});
+const content = contentPath();
+// Read the AI's generated input block after the native players phase. The
+// host has no camera list to update or camera objects to retain any more.
+test('native AI views follow every living authoritative human and exclude departures and spectators',
+  { skip: !existsSync(`${content}/maps/nab2/map.json`) }, async t => {
+    t.mock.method(performance, 'now', () => 1000);
+    process.env.BFE_CONTENT_DIR ||= content;
+    const { headlessGame } = await import('../tools/headless-world.mjs');
+    const { createMultiplayerWorld } = await import('../src/runtime/multiplayer-world.js');
+    const game = await headlessGame('?map=nab2&side=rep&ai=classic&seed=1');
+    const world = createMultiplayerWorld(game);
+    for (const id of ['first', 'second']) await world.addPlayer(id, { team: 1 });
+    await world.addPlayer('watch', { team: 1, spectator: true });
+    const first = world.players.get('first').unit, second = world.players.get('second').unit;
+    game.unitsSim.placeBody(first, 0, 0, 0, 0);
+    game.unitsSim.placeBody(second, 50, 0, 0, Math.PI);
+    function cameras() {
+      const { bridge: b, layout } = game.ai.owner; b.views();
+      const count = b.f[layout.header / 8 + AiPhaseHeaderLayout.cameras];
+      return Array.from({ length: count }, (_, index) => Array.from(b.f.slice(
+        layout.cameras / 8 + index * AiPhaseCameraLayout.words,
+        layout.cameras / 8 + index * AiPhaseCameraLayout.words + 16)));
+    }
+    const expected = unit => {
+      const camera = new PerspectiveCamera(100, 4, .1, 2000);
+      const { aimYaw: yaw, aimPitch: pitch } = unit.soldier;
+      camera.position.copy(unit.position); camera.position.y += 1.7;
+      camera.lookAt(camera.position.clone().add(new Vector3(
+        Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))));
+      camera.updateMatrixWorld(true); return camera.matrixWorld.toArray();
+    };
+    const before = [expected(first), expected(second)];
+    world.step(1000);
+    assert.equal(game.ai.worldData.networkViews, true);
+    assert.deepEqual(cameras(), before);
+    game.unitsSim.placeBody(second, 50, 0, 0, 0);
+    const turned = expected(second);
+    world.step(1000); assert.deepEqual(cameras()[1], turned);
+    world.removePlayer('second'); world.step(1000); assert.equal(cameras().length, 1);
+    first.combat.damage(Infinity); world.step(1000); assert.equal(cameras().length, 0);
+  });

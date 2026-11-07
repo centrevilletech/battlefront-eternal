@@ -813,7 +813,7 @@ export function syncImEntry(b, f, at, h, m) {
   { const items = (m.look ??= []), start = h + f[at + 22], n = f[at + 23]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncImLook(b, f, at + 0, h, v ?? new ImLookMirror()); } items[i] = v; } }
   { const tag = f[at + 24]; if (tag === 0) { { const a = (m.lookTotal ??= new Array(2)); a[0] = f[at + 25]; a[1] = f[at + 26]; } } else m.lookTotal = tag === 1 ? null : undefined; }
   { const items = (m.view ??= []), start = h + f[at + 27], n = f[at + 28]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncImField(b, f, at + 0, h, v ?? new ImFieldMirror()); } items[i] = v; } }
-  { const items = (m.human ??= []), start = h + f[at + 29], n = f[at + 30]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.human ??= []), start = h + f[at + 29], n = f[at + 30]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
   { const items = (m.fire ??= []), start = h + f[at + 31], n = f[at + 32]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncImFire(b, f, at + 0, h, v ?? new ImFireMirror()); } items[i] = v; } }
   return m;
 }
@@ -830,7 +830,7 @@ export function putImEntry(b, o, f, at, heap) {
   heap.items(o.look, f, at + 22, 4, (f, at, v) => { putImLook(b, v, f, at + 0, heap); });
   { const $x = o.lookTotal; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f[at + 25] = 0; f[at + 26] = 0; } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v[0]; f[at + 26] = $v[1]; } } }
   heap.items(o.view, f, at + 27, 2, (f, at, v) => { putImField(b, v, f, at + 0, heap); });
-  heap.items(o.human, f, at + 29, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.human, f, at + 29, 6, (f, at, v) => { putHsCommand(b, v, f, at + 0, heap); });
   heap.items(o.fire, f, at + 31, 3, (f, at, v) => { putImFire(b, v, f, at + 0, heap); });
 }
 
@@ -846,7 +846,7 @@ export function sameImEntry(a, b) {
   if (!sameEach(a.look, b.look, (x, y) => sameImLook(x, y) === null)) return ".look";
   { const p = a.lookTotal, q = b.lookTotal; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".lookTotal"; } else { if (!sameArray(p, q, 2)) return ".lookTotal"; } }
   if (!sameEach(a.view, b.view, (x, y) => sameImField(x, y) === null)) return ".view";
-  if (!sameEach(a.human, b.human, (x, y) => Object.is(x, y))) return ".human";
+  if (!sameEach(a.human, b.human, (x, y) => sameHsCommand(x, y) === null)) return ".human";
   if (!sameEach(a.fire, b.fire, (x, y) => sameImFire(x, y) === null)) return ".fire";
   return null;
 }
@@ -867,7 +867,7 @@ export function exportImEntry(o, cx) {
   v.look = o.look.map((x) => exportImLook(x, cx));
   v.lookTotal = ((x) => (x === null || x === undefined ? x : [...x]))(o.lookTotal);
   v.view = o.view.map((x) => exportImField(x, cx));
-  v.human = o.human.map((x) => x);
+  v.human = o.human.map((x) => exportHsCommand(x, cx));
   v.fire = o.fire.map((x) => exportImFire(x, cx));
   return v;
 }
@@ -973,7 +973,7 @@ export class ImTakenMirror {
 export function syncImTaken(b, f, at, h, m) {
   { const items = (m.actions ??= []), start = h + f[at + 0], n = f[at + 1]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
   { const items = (m.look ??= []), start = h + f[at + 2], n = f[at + 3]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncImLook(b, f, at + 0, h, v ?? new ImLookMirror()); } items[i] = v; } }
-  { const items = (m.human ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.human ??= []), start = h + f[at + 4], n = f[at + 5]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncHsCommand(b, f, at + 0, h, v ?? new HsCommandMirror()); } items[i] = v; } }
   { const items = (m.fire ??= []), start = h + f[at + 6], n = f[at + 7]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncImFire(b, f, at + 0, h, v ?? new ImFireMirror()); } items[i] = v; } }
   return m;
 }
@@ -981,14 +981,14 @@ export function syncImTaken(b, f, at, h, m) {
 export function putImTaken(b, o, f, at, heap) {
   heap.items(o.actions, f, at + 0, 1, (f, at, v) => { f[at + 0] = b.strings.id(v); });
   heap.items(o.look, f, at + 2, 4, (f, at, v) => { putImLook(b, v, f, at + 0, heap); });
-  heap.items(o.human, f, at + 4, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.human, f, at + 4, 6, (f, at, v) => { putHsCommand(b, v, f, at + 0, heap); });
   heap.items(o.fire, f, at + 6, 3, (f, at, v) => { putImFire(b, v, f, at + 0, heap); });
 }
 
 export function sameImTaken(a, b) {
   if (!sameEach(a.actions, b.actions, (x, y) => Object.is(x, y))) return ".actions";
   if (!sameEach(a.look, b.look, (x, y) => sameImLook(x, y) === null)) return ".look";
-  if (!sameEach(a.human, b.human, (x, y) => Object.is(x, y))) return ".human";
+  if (!sameEach(a.human, b.human, (x, y) => sameHsCommand(x, y) === null)) return ".human";
   if (!sameEach(a.fire, b.fire, (x, y) => sameImFire(x, y) === null)) return ".fire";
   return null;
 }
@@ -1000,7 +1000,7 @@ export function exportImTaken(o, cx) {
   cx.seen.set(o, v);
   v.actions = o.actions.map((x) => x);
   v.look = o.look.map((x) => exportImLook(x, cx));
-  v.human = o.human.map((x) => x);
+  v.human = o.human.map((x) => exportHsCommand(x, cx));
   v.fire = o.fire.map((x) => exportImFire(x, cx));
   return v;
 }
@@ -1173,6 +1173,7 @@ export class ImResultMirror {
     this.command = null;
     this.replacedLookTotal = false;
     this.error = null;
+    this.down = [];
   }
 }
 
@@ -1183,6 +1184,7 @@ export function syncImResult(b, f, at, h, m) {
   { const tag = f[at + 20]; if (tag === 0) { m.command = syncImTaken(b, f, at + 21, h, m.command ?? new ImTakenMirror()); } else m.command = tag === 1 ? null : undefined; }
   m.replacedLookTotal = f[at + 29] !== 0;
   { const tag = f[at + 30]; if (tag === 0) { m.error = b.strings.at(f[at + 31]); } else m.error = tag === 1 ? null : undefined; }
+  { const items = (m.down ??= []), start = h + f[at + 32], n = f[at + 33]; while (items.length > n) items.pop(); for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = b.strings.at(f[at + 0]); } items[i] = v; } }
   return m;
 }
 
@@ -1193,6 +1195,7 @@ export function putImResult(b, o, f, at, heap) {
   { const $x = o.command; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; f[at + 23] = 0; f[at + 24] = 0; f[at + 25] = 0; f[at + 26] = 0; f[at + 27] = 0; f[at + 28] = 0; } else { f[at + 20] = 0; putImTaken(b, $x, f, at + 21, heap); } }
   f[at + 29] = o.replacedLookTotal ? 1 : 0;
   { const $x = o.error; if ($x === null || $x === undefined) { f[at + 30] = $x === null ? 1 : 2; f[at + 31] = 0; } else { f[at + 30] = 0; f[at + 31] = b.strings.id($x); } }
+  heap.items(o.down, f, at + 32, 1, (f, at, v) => { f[at + 0] = b.strings.id(v); });
 }
 
 export function sameImResult(a, b) {
@@ -1202,6 +1205,7 @@ export function sameImResult(a, b) {
   { const p = a.command, q = b.command; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".command"; } else { { const d = sameImTaken(p, q); if (d) return ".command" + d; } } }
   if (!Object.is(a.replacedLookTotal, b.replacedLookTotal)) return ".replacedLookTotal";
   { const p = a.error, q = b.error; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".error"; } else { if (!Object.is(p, q)) return ".error"; } }
+  if (!sameEach(a.down, b.down, (x, y) => Object.is(x, y))) return ".down";
   return null;
 }
 
@@ -1216,6 +1220,7 @@ export function exportImResult(o, cx) {
   v.command = ((x) => (x === null || x === undefined ? x : exportImTaken(x, cx)))(o.command);
   v.replacedLookTotal = o.replacedLookTotal;
   v.error = o.error;
+  v.down = o.down.map((x) => x);
   return v;
 }
 

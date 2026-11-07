@@ -96,6 +96,12 @@ impl Source {
     // Copy the fixed header so output allocation cannot invalidate a view.
     // The full descriptor is validated before any list is decoded.
     pub(crate) fn publication_clock(&self) -> [f64; crate::gen::WireWorldFacts::WORDS] { self.input[..crate::gen::WireWorldFacts::WORDS].try_into().unwrap() }
+    /// The host's writeWorldFacts without an address: the row and its links'
+    /// heap, which must fit the input bank. None refuses a malformed row.
+    pub(crate) fn stamp_publication_clock(&mut self, facts: &[f64]) -> Option<()> {
+        if facts.len() < crate::gen::WireWorldFacts::WORDS || facts.len() > self.input.len() { return None; }
+        self.input[..facts.len()].copy_from_slice(facts); Some(())
+    }
     // captureSpawnSummary queries choices without advancing spawn queues.
     // Its cache includes the completed tick, epoch and game-over state.
     // An invalid team is a normal capture fault, never an array index.

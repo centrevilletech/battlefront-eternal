@@ -10,6 +10,8 @@
 
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub mod context;
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub mod context_step;
 
 use crate::gen::{Echo, Fill, Store, KINDS, KIND_HASHES};
 use crate::store::block::Block;
@@ -178,8 +180,9 @@ pub(crate) fn sim_events_clear_in(w: &mut crate::world::owner::World) -> () { w.
 pub fn command_available(code: u32) -> bool {
     #[cfg(target_arch = "wasm32")]
     { let _ = code; true }
+    // Relay asks the host back; only Context::command may dispatch a callback.
     #[cfg(not(target_arch = "wasm32"))]
-    { matches!(code, crate::gen::COMMAND_ECHO | crate::gen::COMMAND_FILL) }
+    { code != crate::gen::COMMAND_RELAY }
 }
 
 /// The store's own command (rust/sim/schema/store.mjs), for its tests and

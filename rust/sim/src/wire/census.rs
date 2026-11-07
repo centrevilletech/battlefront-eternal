@@ -6,6 +6,8 @@ pub struct Census {before:Option<Counts>,result:[f64;WireCensus::WORDS]}
 impl Census {
     pub const fn new()->Self {Self {before:None,result:[0.;WireCensus::WORDS]}}
     pub fn begin(&mut self,counts:Counts) {self.before=Some(counts);}
+    /// The last measurement, for a native host reading by name.
+    pub fn result(&self)->&[f64] {&self.result}
     pub fn end(&mut self,now:Counts)->*const f64 {
         let counts=now.since(self.before.take().unwrap_or(now));
         self.result[WireCensus::ALLOCATIONS]=counts.calls as f64;

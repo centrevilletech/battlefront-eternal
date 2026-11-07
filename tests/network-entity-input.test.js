@@ -5,18 +5,15 @@ import {EntityEdgeSender,EntityEdgeReceiver} from '../src/runtime/network-entity
 const command=(sequence=1)=>({sequence,tick:sequence+5,down:['KeyW','Mouse0'],lookTotal:[100.5,-55],mouseScale:1,aspect:16/9,flightSettings:{sensitivity:1,curve:1.35,invert:false,bindings:{}},gamepad:{axes:[.1,.2,.3,.4],buttons:[{pressed:true}]}});
 test('fractional view ticks survive input and reliable fire encoding without changing the ABI header',async()=>{
  const {InputMailbox}=await import('./fixtures/input-mailbox.js');
- const {FireCommands}=await import('../src/runtime/fire-commands.js');
  const viewTick=4.987654321,edge={id:1,tick:6,kind:'fire',button:'fireSecondary',pressed:true,viewTick,aimYaw:0,aimPitch:0};
  const bytes=encodeEntityInput({epoch:1,generation:3,commands:[{...command(),viewTick}],edges:[edge]});
  const header=new DataView(bytes.buffer);assert.equal(header.getUint32(0,true),0x31494e42);assert.equal(header.getUint32(4,true),1);assert.equal(header.getUint32(8,true),3);
  const decoded=decodeEntityInput(bytes);assert.equal(decoded.commands[0].viewTick,viewTick);assert.equal(decoded.edges[0].viewTick,viewTick);
  const mailbox=new InputMailbox();assert.equal(mailbox.push(decoded.commands[0]),true);
- const fire=new FireCommands();assert.equal(fire.push({...decoded.edges[0],button:1},6,3),true);assert.equal(fire.take(6,3).shots[0].viewTick,viewTick);
  for(const invalid of [-.1,Infinity,NaN,0x100000000]){
   assert.throws(()=>encodeEntityInput({epoch:1,generation:3,commands:[{...command(),viewTick:invalid}]}));
   assert.throws(()=>encodeEntityInput({epoch:1,generation:3,edges:[{...edge,viewTick:invalid}]}));
  }
- assert.equal(new FireCommands().push({...edge,epoch:1,generation:3,button:1,viewTick:8.001},6,3),false,'future budget remains two ticks');
 });
 test('input scalar optimization preserves the established little-endian wire vector and truncation guards',()=>{
  const packet={epoch:0x01020304,generation:0x05060708,commands:[{sequence:0x090a0b0c,tick:0x0d0e0f10,down:['KeyW'],lookTotal:[1.25,-2.5]}],edges:[{id:1,tick:2,kind:'spawn',classId:0x1122,postId:0x3344}],snapshotAck:{epoch:0xfffe,tick:0xffffffff}};

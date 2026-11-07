@@ -32,12 +32,17 @@ packet bytes with the same three SHA-1 truncations as the WASM harness.
 No recorded expected output or JS simulation is supplied to Rust.
 
 The `world-twin` binary requires Cargo feature `world-twin`, off by default.
-It requires panic=unwind. It is prepared source, **not yet a compiling or qualified native backend**.
-Its expected Context entries are:
+It requires panic=unwind. It compiles against the native world API on
+`Context` (rust/sim/src/abi/context_step.rs carries the signature table) but
+is **not yet a qualified native backend**: `provided()` reports which entries
+have bodies. Its entries are:
 
 - Existing `Context::new`, `dispose` and `ErrorKind::Disposed`.
-- Planned `world_step_init(WorldTickSetup)` and `world_step(WorldTickInput)`,
-  the latter guarding the owning `World::step` borrow and poisoning on panic.
+- `world_step_init(WorldTickSetup)` binds the battle's water clock.
+  `world_step(WorldTickInput)` guards the owning `World::step` borrow and
+  poisons the context on a panic; it fails `Unavailable` until the native
+  tick ingress lands, because the tick is still bound to the WebAssembly
+  module.
 - Harness-only `world_replay_admit(&serde_json::Value) -> Result<WorldTickSetup, Error>`:
   admit the options and decoded cold assets, local player and publication host.
 - Harness-only `world_replay_prepare(&Value) -> Result<(), Error>`: apply recorded
@@ -52,9 +57,19 @@ Its expected Context entries are:
   `world_replay_panic() -> Result<(), Error>` and `ErrorKind::Poisoned`.
   The live-handle diagnostic remains readable after disposal.
 
-These adapter entries still need native cold/content/input/publication/readback
-bindings; removing module cfgs alone does not implement them. Their bodies must
-use the existing owners and never call WASM or install a second world.
+The three replay adapters fail `Unavailable`. The corpus records cold asset
+bytes, options, setup rows and tick inputs, not the host's admission calls:
+a native admission therefore means loading content and building every owner
+from those bytes in Rust, which the JavaScript host does today through the
+store imports and operations. Until that exists, the native proof of the 61
+rows runs the JavaScript host over the native backend (the addon and
+`src/sim/native-backend.js`), not this driver.
+
+The host-facing entries beside the tick are `world_publish_into`
+(`wire_publish_in` for one publication session, spans relative to the
+returned bytes), `read_bank` (every bank a phase descriptor names, by
+number) and `run_operation_into` (the generated `OPERATION_*` table: the
+flat-row commands and the input mailbox, edge and host operations).
 
 Prepared scenarios are `interleave`, `threads`, `sequential` (20 worlds), `close`
 and `poison`, passed through `world-native.mjs --scenario NAME`. They have not

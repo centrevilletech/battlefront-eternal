@@ -6,7 +6,8 @@ import { captureGroundCorrection } from '../../src/runtime/network-entity-ground
 import { captureFlightCorrection } from '../../src/runtime/network-entity-flight.js';
 import { presentationHull } from '../../src/runtime/client-hull.js';
 import { createClientPrediction } from '../../src/sim/wasm/runtime/client-prediction.js';
-import { pullPose } from '../../src/sim/wasm/vehicle-phase-data.js';
+import { pullPose, flightKeys } from '../../src/sim/wasm/vehicle-phase-data.js';
+import { F2FlightInMirror, F2FlightInLayout, putF2FlightIn } from '../../src/sim/gen/f2.js';
 import { drawHull } from './page-presentation.js';
 import { nativeVehicles } from './native-vehicles.js';
 import { KIND_VEHICLE } from '../../src/sim/gen/index.js';
@@ -14,6 +15,7 @@ import { Soldier } from './body.js';
 import { Unit } from '../../src/units.js';
 
 const owners = new WeakMap(), packs = new WeakMap();
+const FLIGHT = { words: F2FlightInLayout.words, put: putF2FlightIn };
 export function registerHullFixture(system, pack) { packs.set(system, pack); }
 export function prepareHullFixture(system) { return owner(system); }
 // Authority fixtures finish the shared registry before naming network ids or
@@ -25,7 +27,7 @@ export function prepareAuthorityFixture(system) {
 }
 function owner(system) {
   let row = owners.get(system); if (row) return row;
-  if (system.f2) { row = { bridge: system.f2.bridge, pilots: new WeakMap() }; owners.set(system, row); return row; }
+  if (system.f2) { row = { bridge: system.f2.bridge, pilots: new WeakMap(), flight: new F2FlightInMirror() }; owners.set(system, row); return row; }
   const instance = system.collision.fixtureInstance;
   if (!instance) throw Error('native hull fixture requires its own battle instance');
   let buffer = new ArrayBuffer(0), indexBuffer = buffer, animationBuffer = buffer;
@@ -37,7 +39,7 @@ function owner(system) {
   nativeVehicles(system, packs.get(system) ?? { data: system.data, buffer, indexBuffer, animationBuffer });
   const bridge = system.f2.bridge;
   system.cosmetic = false; system.clock = () => system.time;
-  row = { bridge, pilots: new WeakMap() }; owners.set(system, row); return row;
+  row = { bridge, pilots: new WeakMap(), flight: new F2FlightInMirror() }; owners.set(system, row); return row;
 }
 export function stepPrediction(system, dt, v = system.vehicles[0], input = {}) {
   const row = prepareAuthorityFixture(system);
@@ -64,9 +66,16 @@ export function stepPrediction(system, dt, v = system.vehicles[0], input = {}) {
   const intent = unit.intent;
   intent.forward = input.forward || 0; intent.right = input.right || 0;
   intent.turn = input.turn || 0; intent.pitch = input.pitch || 0; intent.brake = Boolean(input.brake);
-  intent.flight = input;
+  setPilotKeys(system, v, input);
   system.update(dt);
   drawHull(v);
+}
+export function setPilotKeys(system, v, input) {
+  const row = owner(system);
+  // His flight keys, as the players' phase sets a network pilot's.
+  const keys = row.flight; keys.hull = v.simSlot; keys.network = true; flightKeys(keys.remote, input);
+  row.bridge.callArgs(FLIGHT, keys);
+  if (!system.f2.x.veh_flight_keys()) throw Error('fixture pilot keys refused');
 }
 
 // Test/tool frames enter the same required session as the page. This helper

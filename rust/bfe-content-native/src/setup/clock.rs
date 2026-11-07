@@ -30,8 +30,12 @@ impl TickRows {
     /// completed by the previous tick; the rest are the host's facts for
     /// this tick (the foreign unit rows written, whether the AI and live
     /// owners attached, the aim camera handle, whether the AI has no
-    /// cameras of its own, the squad orders pressed).
-    pub fn input(&self, units: u32, ai: bool, live: bool, camera: u32, offline_camera: bool, squads: u32) -> WorldTickInput {
+    /// cameras of its own, the squad orders pressed, the host's wall time
+    /// for the tick in milliseconds and the world's mouse setting when a
+    /// player's command names none; WorldTick.run's defaults for the last
+    /// two are 0 and 1: a harness keeps no wall clock for the players'
+    /// stale-input rule, and its players name their own mouse scale).
+    pub fn input(&self, units: u32, ai: bool, live: bool, camera: u32, offline_camera: bool, squads: u32, at: f64, mouse_scale: f64) -> WorldTickInput {
         WorldTickInput {
             dt: self.clock.dt,
             tick: self.next_tick(),
@@ -42,6 +46,8 @@ impl TickRows {
             camera,
             offline_camera,
             squads,
+            at,
+            mouse_scale,
         }
     }
     /// WorldTick.complete: the eight running fields (CLOCK_FIELDS) copied

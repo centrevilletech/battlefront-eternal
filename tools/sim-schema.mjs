@@ -857,6 +857,32 @@ function flat(model, name) {
 }
 const recordWords = (model, name) => words(model, { base: 'rec', of: name, nullable: { null: false, undefined: false } });
 
+// The operation table: what a native host drives one at a time through
+// Context::run_operation, by a generated OPERATION id. First the commands
+// with a flat argument row (relay excluded: it asks the host back, and only
+// Context::command may dispatch a callback), then these export bodies, which
+// the WebAssembly host calls with scalar parameters after writing a record
+// into the call block. An operation's argument row is its scalars, then that
+// record's row and (for a record with lists) its heap words.
+const EXPORT_OPERATIONS = [
+  { name: 'inputMailboxOwnedRun', rust: 'input::module::input_mailbox_owned_run_in', scalars: ['u32'], record: 'InputMailboxCall', answers: true },
+  { name: 'inputMailboxView', rust: 'input::module::input_mailbox_view_in', scalars: ['u32'], record: 'InputViewUpdate', answers: false },
+  // The publication's edge results and its host operations (ACK acceptance is
+  // host op 4); pool keys cross as the scalar the export took as a pointer.
+  { name: 'wireEdgesRun', rust: 'wire::edges::wire_edges_run_in', scalars: ['usize'], record: 'WeCall', answers: true, unsafe: true },
+  { name: 'wireHostOp', rust: 'wire::host::wire_host_op_in', scalars: ['usize', 'u32', 'u32', 'f64', 'f64'], record: null, answers: 'scalar', unsafe: true },
+  // A connected player's input receipt, reliable fire edge and action message.
+  { name: 'playersInput', rust: 'players::module::players_input_in', scalars: ['u32', 'f64', 'f64', 'u32'], record: null, answers: false },
+  { name: 'playersFire', rust: 'players::module::players_fire_in', scalars: ['u32'], record: 'PlayerFire', answers: 'scalar' },
+  { name: 'playersActions', rust: 'players::module::players_actions_in', scalars: ['u32'], record: 'PlayerActions', answers: true },
+];
+function operationsOf(model) {
+  const commands = model.commandsList.filter((c) => flat(model, c.args) && c.name !== 'relay')
+    .map((c) => ({ name: c.name, command: c, scalars: [], record: c.args, heap: false, answers: Boolean(c.result) }));
+  const exports = EXPORT_OPERATIONS.map((o) => ({ ...o, heap: o.record ? !flat(model, o.record) : false }));
+  return [...commands, ...exports].map((o, i) => ({ ...o, code: i + 1 }));
+}
+
 // Commands' dispatch, events' emitters and imports' calls.
 function rustCalls(model) {
   const lines = [''];
@@ -919,6 +945,40 @@ function rustCalls(model) {
       `    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
     else lines.push(`    crate::${c.rust}(args);`, '    std::ptr::null()');
     lines.push('}', '');
+  }
+  // The operation table (EXPORT_OPERATIONS above): ids, shapes and the
+  // dispatcher a native Context runs them through. Scalars are cast from the
+  // row as the export declares them; a record is written to the call block
+  // first, as the WebAssembly host writes it before calling the export.
+  if (!model.target.test) {
+    const operations = operationsOf(model);
+    for (const o of operations) lines.push(`pub const OPERATION_${upper(o.name)}: u32 = ${o.code};`);
+    lines.push(`pub const OPERATION_NAMES: [&str; ${operations.length + 1}] = ["", ${operations.map((o) => JSON.stringify(o.name)).join(', ')}];`, '');
+    lines.push('/// One operation\'s shape: `scalars` words, then its record\'s `record` row words', '/// and, when `heap`, the record\'s heap words; `answers` says a block comes back.',
+      'pub struct Operation { pub name: &\'static str, pub scalars: usize, pub record: usize, pub heap: bool, pub answers: bool }',
+      `pub const OPERATIONS: [Operation; ${operations.length}] = [`);
+    for (const o of operations) lines.push(`    Operation { name: ${JSON.stringify(o.name)}, scalars: ${o.scalars.length}, record: ${o.record ? recordWords(model, o.record) : 0}, heap: ${o.heap}, answers: ${o.answers ? 'true' : 'false'} },`);
+    lines.push('];', '/// The operation an id names; None for a code outside the table.', 'pub fn operation(op: u32) -> Option<&\'static Operation> {', '    OPERATIONS.get(op.checked_sub(1)? as usize)', '}', '');
+    lines.push('/// Runs operation `op` over its argument row (shaped as `operation` says, checked', '/// by the caller), answering with the words its export returns a pointer to;', '/// None where that export answers null or returns nothing.',
+      "pub fn run_operation<'a>(w: &'a mut crate::world::owner::World, op: u32, args: &[f64]) -> Option<&'a [f64]> {", '    match op {');
+    const cast = (type, at) => (type === 'f64' ? `args[${at}]` : `args[${at}] as ${type}`);
+    for (const o of operations) {
+      if (o.command) {
+        const c = o.command, values = Array.from({ length: recordWords(model, c.args) }, (_, i) => `args[${i}]`);
+        lines.push(`        OPERATION_${upper(o.name)} => cmd_${snake(c.name).replace(/^r#/, '')}_in(w, ${c.detached ? `crate::${c.owned}, ` : ''}${values.join(', ')}).map(|block| &block.words[..]),`);
+        continue;
+      }
+      const scalars = o.scalars.map((type, i) => cast(type, i)).join(', ');
+      const call = `${o.unsafe ? 'unsafe { ' : ''}crate::${o.rust}(w, ${scalars})${o.unsafe ? ' }' : ''}`;
+      lines.push(`        OPERATION_${upper(o.name)} => {`);
+      if (o.record) lines.push(`            let record = &args[${o.scalars.length}..];`,
+        `            w.sim.calls.result(${o.record}::WORDS, |row, heap| { row.copy_from_slice(&record[..${o.record}::WORDS]); heap.extend_from_slice(&record[${o.record}::WORDS..]); });`);
+      if (o.answers === 'scalar') lines.push(`            let value = ${call};`, '            w.sim.calls.result(1, |row, _| row[0] = value as f64);', '            Some(&w.sim.calls.block.words[..])');
+      else if (o.answers) lines.push(`            ${call}`);
+      else lines.push(`            ${call};`, '            None');
+      lines.push('        }');
+    }
+    lines.push('        _ => None,', '    }', '}', '');
   }
   for (const e of model.eventsList) {
     lines.push(`impl ${e.record} {`, `    /// Emits it as the event ${e.name} (drained in order at the end of the phase).`, '    pub fn emit(&self, events: &mut crate::store::calls::Events) {', `        events.emit(EVENT_${upper(e.name)}, ${e.record}::WORDS, |row, heap| self.put(row, heap));`, '    }', '}', '');
@@ -1864,6 +1924,8 @@ function jsKinds(model) {
   lines.push(`export const KINDS = ${model.kindList.length};`);
   // Commands', events' and imports' codes (their names in order, from 1).
   for (const [prefix, list] of [['COMMAND', model.commandsList], ['EVENT', model.eventsList], ['IMPORT', model.importsList]]) for (const c of list) lines.push(`export const ${prefix}_${upper(c.name)} = ${c.code};`);
+  const operations = model.target.test ? [] : operationsOf(model);
+  for (const o of operations) lines.push(`export const OPERATION_${upper(o.name)} = ${o.code};`);
   return lines.join('\n') + '\n';
 }
 
@@ -1877,7 +1939,8 @@ function jsImports(model) {
 
 function jsIndex(model) {
   const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/; do not edit.`, '// Every kind: its code, name, layout and generated functions, for the', '// store\'s runtime (src/sim/runtime.js) to dispatch on (docs/sim-store.md).'];
-  const callRecords = new Set([...model.commandsList.flatMap((c) => [c.args, c.result]), ...model.eventsList.map((e) => e.record), ...model.importsList.flatMap((c) => [c.args, c.result])].filter(Boolean));
+  const operations = model.target.test ? [] : operationsOf(model);
+  const callRecords = new Set([...model.commandsList.flatMap((c) => [c.args, c.result]), ...model.eventsList.map((e) => e.record), ...model.importsList.flatMap((c) => [c.args, c.result]), ...operations.map((o) => o.record)].filter(Boolean));
   for (const f of model.files) {
     const names = [];
     for (const k of model.kindList) if (k.file === f) names.push(`${k.rust}Mirror`, `sync${k.rust}`, `syncFull${k.rust}`, `put${k.rust}`, `putFull${k.rust}`, `check${k.rust}`, `same${k.rust}`, `export${k.rust}`, `${upper(k.name)}_KEYS`);
@@ -1900,6 +1963,8 @@ function jsIndex(model) {
   lines.push('// Commands, events and imports by code: name, and their records\' words and functions.');
   // Every command uses one generated argument/result block on either backend.
   lines.push(`export const COMMAND_TABLE = [null, ${model.commandsList.map((c) => `{ name: ${JSON.stringify(c.name)}, code: ${c.code}, args: ${fnsOf(c.args)}, result: ${c.result ? fnsOf(c.result) : 'null'}, bulk: ${c.detached && !model.target.test ? JSON.stringify(`cmd_${snake(c.name).replace(/^r#/, '')}_block`) : 'null'} }`).join(', ')}];`);
+  // Operations by id: the native host's row is the scalars (their types), then the record's row and heap.
+  lines.push(`export const OPERATION_TABLE = [null, ${operations.map((o) => `{ name: ${JSON.stringify(o.name)}, code: ${o.code}, scalars: ${JSON.stringify(o.scalars)}, record: ${o.record ? fnsOf(o.record) : 'null'}, heap: ${o.heap}, answers: ${o.answers ? 'true' : 'false'} }`).join(', ')}];`);
   lines.push(`export const EVENT_TABLE = [null, ${model.eventsList.map((e) => `{ name: ${JSON.stringify(e.name)}, code: ${e.code}, record: ${fnsOf(e.record)} }`).join(', ')}];`);
   lines.push(`export const IMPORT_TABLE = [null, ${model.importsList.map((c) => `{ name: ${JSON.stringify(c.name)}, code: ${c.code}, symbol: ${JSON.stringify(`bfe_import_${snake(c.name).replace(/^r#/, '')}`)}, args: ${fnsOf(c.args)}, result: ${c.result ? fnsOf(c.result) : 'null'} }`).join(', ')}];`, '');
   lines.push(`export const DEF_TABLES = ${JSON.stringify([...new Set([...model.kindList.flatMap((k) => k.fields), ...[...model.records.values()].flatMap((r) => r.fields)].filter((f) => f.type.base === 'def').map((f) => f.type.of))].sort())};`);

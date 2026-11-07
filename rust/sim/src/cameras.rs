@@ -48,6 +48,10 @@ extern "C" {
 }
 #[cfg(target_arch = "wasm32")]
 pub(crate) struct HostMath;
+// A native world has no page Math to call: the authority camera runs on the
+// server's V8 arithmetic, as its recorded frames do.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) type HostMath = bfe_presentation::cameras::math::V8;
 #[cfg(target_arch = "wasm32")]
 impl Math for HostMath {
     fn sin(x: f64) -> f64 {
@@ -233,7 +237,6 @@ pub(crate) fn camera_frame_in<M: Math>(w: &mut crate::world::owner::World, id: u
 
 /// The world coordinator runs the authority camera at its original slot.
 /// Its completed matrix feeds offline LOD directly, before any host mirror.
-#[cfg(target_arch = "wasm32")]
 pub(crate) fn world_frame(w: &mut crate::world::owner::World, id:u32, offline:bool) {
     use bfe_presentation::layout::camera_output as o;
     camera_frame_in::<HostMath>(w, id);

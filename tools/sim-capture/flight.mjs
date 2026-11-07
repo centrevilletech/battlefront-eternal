@@ -61,7 +61,7 @@ const locksValue = (v) => v.seats.map((s) => s.weapons.map((w) => ({
 })));
 
 // What fly() reads of its pilot's lease: whether he is a network player,
-// and then his flight keys (src/runtime/multiplayer-world.js intent.flight).
+// and then his flight keys (the players' phase, rust/sim/src/players/commands.rs, as the seat read them).
 function pilotValue(v) {
   const lease = v.seats[0]?.lease;
   const network = Boolean(lease?.unit?.networkHuman);

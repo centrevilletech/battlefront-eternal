@@ -22,11 +22,6 @@ export const EDITS = {
     around('targetHud','    updateTargetHud(dt);'),
     around('spawnFlush','    humanSpawn.flush();'),
   ],
-  '/src/runtime/multiplayer-world.js': [
-    around('hitHistory', '      hitHistory.capture(game.worldClock.tick);\n'),
-    ...span('players', '      for(const p of players.values()) {\n        p.spawn.ended = game.battle.gameOver;', '      updateViews();\n'),
-    around('views', '      updateViews();\n'),
-  ],
   '/src/runtime/local-server.js': [
     around('edges', 'const faults=host.advanceEdges();if(faults.length)throw faults[0].error;'),
     around('consumedEdges', 'const consumed=host.consumedEdges(tick);if(consumed.length)throw consumed[0].error;'),

@@ -1,11 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InputMailbox } from './fixtures/input-mailbox.js';
-import { InputActions } from '../src/runtime/input-actions.js';
 
 const state = (sequence, extra = {}) => ({ epoch:1, generation:1, sequence, tick:sequence,
   down:['KeyW'], actions:[], look:[], lookTotal:[sequence * 2, -sequence], ...extra });
-const action = (id, extra = {}) => ({ epoch:1, generation:1, id, tick:id, actions:['jump'], ...extra });
 
 test('held-state recovery uses consumed client time, never future or previous-life state', () => {
   const mailbox = new InputMailbox();
@@ -47,40 +45,29 @@ test('cumulative input ignores duplicate delta representation and rejects malfor
   }
 });
 
-test('delayed reliable actions survive a newer movement acknowledgment exactly once', () => {
-  const movement = new InputMailbox(), actions = new InputActions();
-  movement.push(state(20)); movement.take(20,1);
-  assert.equal(actions.push(action(5),20,1),true);
-  assert.equal(actions.ack,0,'receipt is not an execution acknowledgment');
-  assert.deepEqual(actions.take(21,1),{actions:['jump'],human:[]});
-  assert.equal(actions.ack,5); assert.equal(movement.ack,20);
-  assert.equal(actions.push(action(5),21,1),false);
-  assert.deepEqual(actions.take(22,1),{actions:[],human:[]});
-  assert.equal(actions.push(action(25,{actions:['reload']}),22,1),true);
-  assert.deepEqual(actions.take(24,1),{actions:[],human:[]});
-  assert.deepEqual(actions.take(25,1).actions,['reload']);
-  assert.equal(actions.ack,25,'gaps in command sequence are expected');
+test('native outgoing triggers preserve short clicks, holds and life changes', async () => {
+  const {EntityInputSender}=await import('../src/runtime/network-entity-sender.js');
+  const {decodeEntityInput,INPUT_CODES,DEFAULT_BINDING_PROFILES}=await import('../src/runtime/network-entity-input.js');
+  const registry={inputCodes:INPUT_CODES,bindingProfiles:DEFAULT_BINDING_PROFILES},seen=[],held=[];let sequence=0,generation=1;
+  const sender=new EntityInputSender({registry,onFire:event=>{if(event.held)held.push(event.button);},send:bytes=>{
+    const packet=decodeEntityInput(bytes,registry);for(const event of packet.edges)if(event.kind==='fire')seen.push([event.button==='fireSecondary'?1:0,event.pressed]);
+    sender.edges.receipt({epoch:1,generation,ids:packet.edges.map(edge=>edge.id)});return true;
+  }});
+  const run=command=>{generation=command.generation??1;sender.send([{epoch:1,generation,sequence:++sequence,tick:sequence,...command}]);};
+  run({down:[],actions:['firePrimary']});assert.deepEqual(seen.splice(0),[[0,true],[0,false]]);
+  run({down:['Mouse0'],actions:['firePrimary']});assert.deepEqual(seen.splice(0),[[0,true]]);
+  run({down:['Mouse0'],actions:[]});run({down:['Mouse0','Mouse2'],actions:['fireSecondary']});
+  assert.deepEqual(seen.splice(0),[[1,true]]);assert.deepEqual(held.splice(0),[0,0]);
+  run({down:[],actions:[]});assert.deepEqual(seen.splice(0),[[0,false],[1,false]]);
+  run({down:['Mouse0'],actions:[],generation:2});assert.deepEqual(seen.splice(0),[[0,true]]);sender.dispose();
 });
-
-test('reliable actions preserve repeated presses, spawn order, lifetime and bounded recovery', () => {
-  const actions = new InputActions(1,2);
-  const human=[{kind:'team',team:2},{kind:'spawn',className:'soldier',post:null}];
-  actions.push(action(1,{actions:['use','use'],human}),1,1);
-  assert.deepEqual(actions.take(1,1),{actions:['use'],human});
-  assert.equal(actions.ack,0);
-  assert.deepEqual(actions.take(2,1),{actions:['use'],human:[]});
-  assert.equal(actions.ack,1);
-  actions.push(action(3),3,1);
-  assert.deepEqual(actions.take(4,2),{actions:[],human:[]});
-  assert.equal(actions.ack,1);assert.equal(actions.discarded,3,'old-life queued edges cannot act on a new body');
-  assert.equal(actions.push(action(4),4,2),false);
-  actions.push(action(5,{generation:2}),5,2);
-  assert.deepEqual(actions.take(126,2),{actions:[],human:[]});
-  assert.equal(actions.ack,1);assert.equal(actions.discarded,5,'obsolete edges are reported as discarded');
-  actions.push(action(127,{generation:2}),127,2);
-  actions.push(action(128,{generation:2}),128,2);
-  assert.equal(actions.push(action(129,{generation:2}),129,2),false,'a full queue refuses the press without failing the player');
-  assert.equal(actions.queue.length,actions.capacity);
-  actions.clear(); assert.equal(actions.ack,1);assert.equal(actions.discarded,128);
-  assert.throws(()=>actions.push(action(129,{generation:2,actions:['firePrimary']}),129,2),/reliable actions/);
+test('a failed outgoing packet retains its reliable trigger without duplicating the edge', async () => {
+  const {EntityInputSender}=await import('../src/runtime/network-entity-sender.js');
+  const {decodeEntityInput,INPUT_CODES,DEFAULT_BINDING_PROFILES}=await import('../src/runtime/network-entity-input.js');
+  const registry={inputCodes:INPUT_CODES,bindingProfiles:DEFAULT_BINDING_PROFILES};let accept=false,packet;
+  const sender=new EntityInputSender({registry,send:bytes=>{packet=decodeEntityInput(bytes,registry);return accept;}});
+  const command=sequence=>({epoch:1,generation:1,sequence,tick:sequence,down:['Mouse0'],actions:[],look:[]});
+  assert.equal(sender.send([command(1)]),false);assert.equal(sender.edges.pending.size,1);
+  accept=true;assert.equal(sender.send([command(2)]),true);assert.equal(packet.edges.length,1);assert.equal(packet.edges[0].pressed,true);
+  sender.clearPending();sender.send([command(3)]);assert.equal(packet.edges.length,2);sender.dispose();
 });

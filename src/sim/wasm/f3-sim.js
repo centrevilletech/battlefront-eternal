@@ -5,8 +5,8 @@ import {F3DroidekaClassMirror,F3DroidekaClassLayout,putF3DroidekaClass,F3Boundar
 import * as THREE from 'three';
 import { bridgeFor } from '../runtime.js';
 import { KIND_UNIT, KIND_BOLT, KIND_BEAM, KIND_GRENADE, KIND_ROUND, F3BoundaryMirror, F3ChangeMirror, F3AdoptionMirror,
-  F3AcknowledgementMirror, F3AcknowledgementLayout, putF3Acknowledgement, F3PhaseInputMirror, IntentLayout, syncIntent, F3PhaseNetworkMirror, F3PublicationLayout, F3UnitKeyMirror, F3MetadataMirror,
-  F3SoldierMotionLayout, F3DroidekaMotionLayout, syncF3Boundary, syncF3UnitMirrorDelta, syncF3CombatView, syncF3CombatViewDelta, syncF3WeaponView, F3CombatViewLayout, F3WeaponViewLayout, syncF3ControlViewDelta, F3ControlViewLayout, F3ForeignControlsLayout, syncF3UnitKey, F3UnitMirrorLayout, putF3Change, putF3Adoption, putF3PhaseInput, putF3PhaseNetwork, putF3WeaponService,
+  F3AcknowledgementMirror, F3AcknowledgementLayout, putF3Acknowledgement, F3PhaseInputMirror, IntentLayout, syncIntent, F3PublicationLayout, F3UnitKeyMirror, F3MetadataMirror,
+  F3SoldierMotionLayout, F3DroidekaMotionLayout, syncF3Boundary, syncF3UnitMirrorDelta, syncF3CombatView, syncF3CombatViewDelta, syncF3WeaponView, F3CombatViewLayout, F3WeaponViewLayout, syncF3ControlViewDelta, F3ControlViewLayout, F3ForeignControlsLayout, syncF3UnitKey, F3UnitMirrorLayout, putF3Change, putF3Adoption, putF3PhaseInput, putF3WeaponService,
   F3DamageInfoMirror, F3HitPolicyMirror, putF3HitPolicy, F3BlastBindingMirror, putF3BlastBinding, F3ImpactRulesMirror, putF3ImpactRules,
   F3AimHeaderMirror, F3AimChangeMirror, putF3AimHeader, putF3AimChange,
   F3MissileClassMirror, putF3MissileClass,
@@ -81,7 +81,12 @@ class F3 {
     this.metadata = new F3MetadataMirror();
     this.adoption = new F3AdoptionMirror();
     this.input = new F3PhaseInputMirror();
-    this.networkInput = new F3PhaseNetworkMirror();
+    // A dedicated match's players write their own bodies' rows natively
+    // (rust/sim/src/players); fixtures drive synthetic network humans here.
+    this.nativePlayers = false;
+    // The match's tick delivers the players' phase's notices (the first
+    // eventPrefix words) with the clock of the tick before.
+    this.eventClock = null; this.eventPrefix = 0;
     // Game.separateSoldiers reads one camera scope after recon finishes.
     // This retained generated row contains no body or registry snapshots.
     this.separation = new F3SeparationMirror();
@@ -264,7 +269,7 @@ class F3 {
     binding.arsenal = 0;
     binding.inputJetDirection = new THREE.Vector3();
     binding.intentAim = new THREE.Vector3();binding.intentJetDirection = new THREE.Vector3();
-    binding.inputNetwork = false; binding.nativeIntent = false;
+    binding.nativeIntent = false;
     binding.aimed = false;
     // AnimatedProp holds reuse one object and frame for this pooled body.
     // Clip handles resolve cold, rather than by name during every carry.
@@ -1108,6 +1113,7 @@ class F3 {
         this.props.drainEffects();
         if (this.eventOffset>=b.f[base]) break;
         const before=this.eventOffset;
+        if (this.eventClock) this.eventClock(before < this.eventPrefix);
         const next=b.drainFrom(this.layout.events,before,this.eventMirrors,this.eventHandlers,false,this);
         this.counters.outputFields += next-before;
         // Only read the descriptor here. An observer's completed command may
@@ -1143,8 +1149,6 @@ class F3 {
   }
 
   // The Unit.tick loop consumes intents and trigger facts, never body rows.
-  // Keep the first edge for each button. An empty networkShots array is
-  // still present and suppresses networkShot, matching networkShotFor.
   // The native loop keeps construction order, including pooled corpses.
   preparePhase(dt, tick = this.tick) {
     // Instrumentation resets cannot rewind a recon owner's once-per-tick
@@ -1157,50 +1161,25 @@ class F3 {
     this.bodiesIn();
     if (this.fleet) this.fleet.prepareStep();
     this.random.push();
-    let count = 0, networks = 0, nativeIntents = 0, at = this.layout.input / 8;
+    let count = 0, at = this.layout.input / 8;
     for (let i = 0; i < built.length; i++) {
       const u = built[i]; if (u.removed) continue;
       const binding = this.bindings[u.id];
-      // Preserve explicit remote/network facts, including an empty shot list.
-      // Native bots otherwise need no foreign row: Rust resolves their input
-      // directly from the same canonical controller and unit generation.
-      binding.inputNetwork = Boolean(u.networkShots || u.networkShot ||
-        u.networkViewTick !== undefined || u.networkInputLeadTicks !== undefined || u.networkPlayoutMaxTicks !== undefined);
-      this.input.remoteFirstPerson = Boolean(u.combat.remotes?.firstPerson);
-      if (binding.nativeIntent && !binding.inputNetwork && !this.input.remoteFirstPerson) continue;
+      // A match's network humans have their intent, shots and seat keys
+      // written by their connections (rust/sim/src/players): native rows
+      // beside these. Native bots need no foreign row either: Rust resolves
+      // their input directly from the same canonical controller and life.
+      if ((u.networkHuman && this.nativePlayers) || binding.nativeIntent) continue;
       this.input.key = binding.view.key;
-      if (binding.nativeIntent) {
-        this.input.intent = null;this.input.botTargetSet = false;this.input.botTarget = null;nativeIntents++;
-      } else {
-        this.input.intent = u.intent;
-        const target = botLockTarget(u);
-        this.input.botTargetSet = target !== undefined;this.input.botTarget = target ?? null;
-      }
-      this.input.hasNetwork = binding.inputNetwork;
-      this.input.networkIndex = binding.inputNetwork ? networks++ : 0;
+      this.input.intent = u.intent;
+      const target = botLockTarget(u);
+      this.input.botTargetSet = target !== undefined;this.input.botTarget = target ?? null;
+      this.input.remoteFirstPerson = false;
+      this.input.hasNetwork = false;
+      this.input.networkIndex = 0;
       putF3PhaseInput(b, this.input, b.f, at, this.heap); at += this.layout.inputStride; count++;
     }
-    // networkShotFor consumes this sparse tail after all intent rows. Keep
-    // first-button order and leave retirement to the network input owner.
-    const input = this.networkInput;
-    for (let i = 0; i < built.length; i++) {
-      const u = built[i]; if (u.removed || !this.bindings[u.id].inputNetwork) continue;
-      input.edgeList = Boolean(u.networkShots); input.edge = u.networkShot ?? null;
-      input.edge0 = input.edge1 = null;
-      if (u.networkShots) for (let k = 0; k < u.networkShots.length; k++) {
-        const edge = u.networkShots[k];
-        if (edge.button === 0 && !input.edge0) input.edge0 = edge;
-        if (edge.button === 1 && !input.edge1) input.edge1 = edge;
-      }
-      const net = input.network;
-      net.view = u.networkViewTick; net.lead = u.networkInputLeadTicks; net.playout = u.networkPlayoutMaxTicks;
-      const edge0 = input.edgeList ? input.edge0 : input.edge;
-      const edge1 = input.edgeList ? input.edge1 : input.edge;
-      net.fire0 = edge0?.id ?? 0; net.fire1 = edge1?.id ?? 0;
-      net.view0 = edge0?.viewTick; net.view1 = edge1?.viewTick;
-      putF3PhaseNetwork(b, input, b.f, at, this.heap); at += this.layout.networkWords;
-    }
-    this.registry.foreign(count, networks);
+    this.registry.foreign(count, 0);
     const scope = this.separationScope;
     this.separation.global = scope.global;
     this.separation.camera = scope.global ? this.globalSeparationCamera : scope.camera;
@@ -1208,7 +1187,7 @@ class F3 {
     this.counters.ticks++;
     this.counters.phaseCalls++;
     this.counters.wasmCalls++;
-    this.counters.inputFields += count * this.layout.inputStride - nativeIntents * IntentLayout.words + networks * this.layout.networkWords + this.layout.separationWords + 4;
+    this.counters.inputFields += count * this.layout.inputStride + this.layout.separationWords + 4;
     if (this.fleet) this.counters.inputFields += this.fleet.preparedWords;
     return count;
   }

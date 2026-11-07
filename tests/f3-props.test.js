@@ -4,6 +4,7 @@ import { Matrix4, Object3D, Vector3 } from 'three';
 import { ObjectiveTarget } from '../src/objectives.js';
 import { Trap } from '../src/traps.js';
 import { f3World } from './fixtures/f3-world.js';
+import { playerCombatWorld } from './fixtures/player-combat-world.js';
 import { building } from './fixtures/f3-building.js';
 import {F4Live} from '../src/sim/wasm/f4-live.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
@@ -74,7 +75,7 @@ test('F1 raw body hits damage an unregistered building without the JavaScript hi
     YawSpread:0,PitchSpread:0,StandStillSpread:0,StandMoveSpread:0,
     ordnance:{class:'bolt',base:'bolt',Velocity:120,LifeSpan:1,Damage:25,BuildingScale:.5},
   });
-  const world = await f3World({soldier:{...soldier,weapons:[gun]}}, {
+  const world = await playerCombatWorld({shooter:{...soldier,class:'shooter',weapons:[gun]}}, {
     prepareLive:collision=>{
       b = building('wall',0,2,{health:100});
       const body = collision.addBody(new Float32Array([-2,0,2,2,0,2,0,3,2]),
@@ -84,12 +85,11 @@ test('F1 raw body hits damage an unregistered building without the JavaScript hi
     },
   });
   world.ordnance.onHit = ()=>{ throw Error('legacy raw hit callback reached'); };
-  const unit = world.spawn('soldier',0,0,true);
-  for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
-  unit.networkShot = {button:0,id:7,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  unit.networkViewTick = 8;unit.intent.buttons[0] = 1;
+  const unit = world.shooter;
+  world.capture();
+  assert.equal(world.fire({id:7}),true);
   world.phase.bodiesIn();world.phase.counters.reset();
-  world.phase.phase(1/60);
+  world.step();
   assert.equal(b.health,87.5);
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);

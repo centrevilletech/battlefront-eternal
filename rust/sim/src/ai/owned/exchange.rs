@@ -20,6 +20,8 @@ impl Default for Exchange {
         control_output:[0;4],cameras:Vec::new(),journal:AiJournalInput::default(),descriptor:[0.;AiPhaseBoundary::WORDS],counters:[0.;AiPhaseCounters::WORDS]}}
 }
 impl Exchange {
+    /// The counters bank the descriptor names, for a native host reading by name.
+    pub fn counters(&self)->&[f64] {&self.counters}
     pub fn new(cameras:usize,journal:usize)->Self {
         Self {camera_words:vec![0.;cameras*AiPhaseCamera::WORDS],journal_words:vec![0.;journal*AiJournalEvent::WORDS],
             cameras:Vec::with_capacity(cameras),journal:AiJournalInput {sequence:0.,records:Vec::with_capacity(journal)},..Self::default()}

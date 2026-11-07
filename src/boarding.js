@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { flightBindings, flightInput } from "./flight/controls.js";
+import { flightBindings } from "./flight/controls.js";
 
 // Getting into a vehicle, out of it and from seat to seat, and what a seat's
 // keys do, as one set of rules for everyone aboard: the player (a page's own
@@ -159,22 +159,4 @@ export const seatScheme = (vehicle, bindings) => (vehicle?.flying ? flightBindin
 // the seat's limits (the mouse scale and invert).
 export function seatLook(vehicle, index, dx, dy, settings) {
   vehicle.system.f2.seats.look(vehicle, index, dx, dy, settings);
-}
-
-// A seat's keys this tick, as the hull takes them (seatControl): the flight
-// keys with the bindings the command carries, the driving keys (Space
-// brakes), or nothing for a gunner's seat. assist false keeps steering
-// assistance out (a network pilot's, whose replay must not depend on remote
-// targets).
-export function seatInput(vehicle, index, controls, command = {}, { assist = true } = {}) {
-  const control = seatControl(vehicle, index);
-  if (control === "flight") {
-    const fs = command.flightSettings || {};
-    const input = flightInput(controls, flightBindings(fs.bindings), command.gamepad);
-    input.responseCurve = fs.curve;
-    if (!assist) input.steeringAssist = false;
-    return input;
-  }
-  if (control === "drive") return { forward: controls.axis("forward"), right: controls.axis("right"), turn: controls.axis("turn"), brake: controls.down.has("Space") };
-  return { forward: 0, right: 0, turn: 0, brake: false };
 }

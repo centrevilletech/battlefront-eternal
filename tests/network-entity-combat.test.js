@@ -114,14 +114,13 @@ test('simulation 19 rejects old bolt payloads and preserves the fractional physi
 });
 
 test('simultaneous primary and secondary presses retain independent IDs through bolt and sound capture',async()=>{
- const {FireCommands}=await import('../src/runtime/fire-commands.js');
  const {attachPresentationCapture}=await import('../src/runtime/entity-presentation-events.js');
  const {SimEvents}=await import('../src/sim-events.js');
  const f=fixture();f.authority.collision.cast=()=>null;
  const weapons=[0,1].map(channel=>({name:`gun${channel}`,channel,def:{...def,base:'bolt'}}));
- const owner={id:7,generation:2,alive:true,combat:{arsenal:{weapons}}},fire=new FireCommands(),events=new SimEvents();
- for(const channel of [0,1])assert.equal(fire.push({epoch:1,id:11+channel,tick:10,generation:2,button:channel,pressed:true,viewTick:8.5,aimYaw:channel,aimPitch:0},10,2),true);
- owner.networkShots=fire.take(10,2).shots;
+ const owner={id:7,generation:2,alive:true,combat:{arsenal:{weapons}}},events=new SimEvents();
+ // The two presses a reliable take yields for one tick, one a button.
+ owner.networkShots=[0,1].map(channel=>({id:11+channel,tick:10,generation:2,button:channel,pressed:true,viewTick:8.5,aimYaw:channel,aimPitch:0,late:0}));
  const dispose=attachPresentationCapture({simEvents:events},f.capture,{weaponIds:new Map([['gun0',1],['gun1',2]])});
  for(const weapon of weapons){
   f.authority.fire(weapon.def,new Vector3(),new Vector3(0,0,1),owner,null,null,null,{weapon});

@@ -42,6 +42,8 @@ mod ordnance;
 pub use self::ordnance::*;
 mod phase;
 pub use self::phase::*;
+mod players;
+pub use self::players::*;
 mod props;
 pub use self::props::*;
 mod recon;
@@ -954,7 +956,8 @@ pub const EVENT_F4_HUMAN: u32 = 44;
 pub const EVENT_F4_SERVE: u32 = 45;
 pub const EVENT_F4_SOUND: u32 = 46;
 pub const EVENT_F4_SPAWN: u32 = 47;
-pub const EVENT_NAMES: [&str; 48] = ["", "aiControlBirth", "aiControllerBirth", "aiItemOwner", "aiNotice", "aiVoice", "echoed", "f2Shot", "f2Tow", "f3Blast", "f3Body", "f3Damage", "f3Death", "f3Dispenser", "f3Effect", "f3Held", "f3Hull", "f3HullBirth", "f3Item", "f3ItemRetired", "f3LifeStreams", "f3Ordnance", "f3OwnerCreated", "f3Pickup", "f3PowerupEffect", "f3Presentation", "f3PropDamage", "f3PropEffect", "f3ReconContext", "f3ReconContextCreated", "f3ReconDroid", "f3ReconDroidCreated", "f3ReconRetired", "f3ReconShot", "f3Removed", "f3Seat", "f3Shield", "f3Shot", "f3Splash", "f3Turret", "f3UnitBirth", "f4CharacterBirth", "f4Effect", "f4Held", "f4Human", "f4Serve", "f4Sound", "f4Spawn"];
+pub const EVENT_PLAYER_SQUAD: u32 = 48;
+pub const EVENT_NAMES: [&str; 49] = ["", "aiControlBirth", "aiControllerBirth", "aiItemOwner", "aiNotice", "aiVoice", "echoed", "f2Shot", "f2Tow", "f3Blast", "f3Body", "f3Damage", "f3Death", "f3Dispenser", "f3Effect", "f3Held", "f3Hull", "f3HullBirth", "f3Item", "f3ItemRetired", "f3LifeStreams", "f3Ordnance", "f3OwnerCreated", "f3Pickup", "f3PowerupEffect", "f3Presentation", "f3PropDamage", "f3PropEffect", "f3ReconContext", "f3ReconContextCreated", "f3ReconDroid", "f3ReconDroidCreated", "f3ReconRetired", "f3ReconShot", "f3Removed", "f3Seat", "f3Shield", "f3Shot", "f3Splash", "f3Turret", "f3UnitBirth", "f4CharacterBirth", "f4Effect", "f4Held", "f4Human", "f4Serve", "f4Sound", "f4Spawn", "playerSquad"];
 
 pub const IMPORT_ASK: u32 = 1;
 pub const IMPORT_BEAM_LOCAL_ORIGIN: u32 = 2;
@@ -1025,11 +1028,9 @@ pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 66;
 pub const IMPORT_WATER_CROSSING: u32 = 67;
 pub const IMPORT_WAVER: u32 = 68;
 pub const IMPORT_WORLD_CLOCK: u32 = 69;
-pub const IMPORT_WORLD_CONTROLS: u32 = 70;
-pub const IMPORT_WORLD_EVENTS: u32 = 71;
-pub const IMPORT_WORLD_LOCAL: u32 = 72;
-pub const IMPORT_WORLD_NETWORK: u32 = 73;
-pub const IMPORT_NAMES: [&str; 74] = ["", "ask", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "dropRoll", "explode", "explosion", "f2Fired", "f2Foreign", "f2Life", "f2Posed", "f2SeatAction", "f2TargetFacts", "f2TurretDraw", "f2TurretHint", "f2TurretTarget", "f2Variant", "f2WeaponDraw", "f3CharacterRelease", "f3DeathCredit", "f3HeadCredit", "f3HullCredit", "f4AIHook", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkSeatsWorld", "ownerKey", "pickup", "projectile", "raycastUnits", "riderMount", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spin", "unitAim", "unitSphere", "vehAimPoint", "vehAimPoints", "vehDamaged", "vehDestroyed", "vehEffect", "vehExplosion", "vehRaycastUnits", "waterCrossing", "waver", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork"];
+pub const IMPORT_WORLD_EVENTS: u32 = 70;
+pub const IMPORT_WORLD_LOCAL: u32 = 71;
+pub const IMPORT_NAMES: [&str; 72] = ["", "ask", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "dropRoll", "explode", "explosion", "f2Fired", "f2Foreign", "f2Life", "f2Posed", "f2SeatAction", "f2TargetFacts", "f2TurretDraw", "f2TurretHint", "f2TurretTarget", "f2Variant", "f2WeaponDraw", "f3CharacterRelease", "f3DeathCredit", "f3HeadCredit", "f3HullCredit", "f4AIHook", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkSeatsWorld", "ownerKey", "pickup", "projectile", "raycastUnits", "riderMount", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spin", "unitAim", "unitSphere", "vehAimPoint", "vehAimPoints", "vehDamaged", "vehDestroyed", "vehEffect", "vehExplosion", "vehRaycastUnits", "waterCrossing", "waver", "worldClock", "worldEvents", "worldLocal"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1118,6 +1119,87 @@ pub extern "C" fn cmd_f2_seat_block() -> *const f64 {
     let sim = crate::abi::sim();
     sim.calls.result(F2SeatResult::WORDS, |row, heap| result.put(row, heap));
     sim.calls.block.ptr()
+}
+
+pub const OPERATION_ECHO: u32 = 1;
+pub const OPERATION_F2_SEAT: u32 = 2;
+pub const OPERATION_FILL: u32 = 3;
+pub const OPERATION_INPUT_MAILBOX_OWNED_RUN: u32 = 4;
+pub const OPERATION_INPUT_MAILBOX_VIEW: u32 = 5;
+pub const OPERATION_WIRE_EDGES_RUN: u32 = 6;
+pub const OPERATION_WIRE_HOST_OP: u32 = 7;
+pub const OPERATION_PLAYERS_INPUT: u32 = 8;
+pub const OPERATION_PLAYERS_FIRE: u32 = 9;
+pub const OPERATION_PLAYERS_ACTIONS: u32 = 10;
+pub const OPERATION_NAMES: [&str; 11] = ["", "echo", "f2Seat", "fill", "inputMailboxOwnedRun", "inputMailboxView", "wireEdgesRun", "wireHostOp", "playersInput", "playersFire", "playersActions"];
+
+/// One operation's shape: `scalars` words, then its record's `record` row words
+/// and, when `heap`, the record's heap words; `answers` says a block comes back.
+pub struct Operation { pub name: &'static str, pub scalars: usize, pub record: usize, pub heap: bool, pub answers: bool }
+pub const OPERATIONS: [Operation; 10] = [
+    Operation { name: "echo", scalars: 0, record: 8, heap: false, answers: true },
+    Operation { name: "f2Seat", scalars: 0, record: 23, heap: false, answers: true },
+    Operation { name: "fill", scalars: 0, record: 2, heap: false, answers: false },
+    Operation { name: "inputMailboxOwnedRun", scalars: 1, record: 39, heap: true, answers: true },
+    Operation { name: "inputMailboxView", scalars: 1, record: 15, heap: false, answers: false },
+    Operation { name: "wireEdgesRun", scalars: 1, record: 43, heap: true, answers: true },
+    Operation { name: "wireHostOp", scalars: 5, record: 0, heap: false, answers: true },
+    Operation { name: "playersInput", scalars: 4, record: 0, heap: false, answers: false },
+    Operation { name: "playersFire", scalars: 1, record: 17, heap: false, answers: true },
+    Operation { name: "playersActions", scalars: 1, record: 14, heap: true, answers: true },
+];
+/// The operation an id names; None for a code outside the table.
+pub fn operation(op: u32) -> Option<&'static Operation> {
+    OPERATIONS.get(op.checked_sub(1)? as usize)
+}
+
+/// Runs operation `op` over its argument row (shaped as `operation` says, checked
+/// by the caller), answering with the words its export returns a pointer to;
+/// None where that export answers null or returns nothing.
+pub fn run_operation<'a>(w: &'a mut crate::world::owner::World, op: u32, args: &[f64]) -> Option<&'a [f64]> {
+    match op {
+        OPERATION_ECHO => cmd_echo_in(w, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]).map(|block| &block.words[..]),
+        OPERATION_F2_SEAT => cmd_f2_seat_in(w, crate::vehicles::module::f2::live_seats::command_in, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], args[13], args[14], args[15], args[16], args[17], args[18], args[19], args[20], args[21], args[22]).map(|block| &block.words[..]),
+        OPERATION_FILL => cmd_fill_in(w, args[0], args[1]).map(|block| &block.words[..]),
+        OPERATION_INPUT_MAILBOX_OWNED_RUN => {
+            let record = &args[1..];
+            w.sim.calls.result(InputMailboxCall::WORDS, |row, heap| { row.copy_from_slice(&record[..InputMailboxCall::WORDS]); heap.extend_from_slice(&record[InputMailboxCall::WORDS..]); });
+            crate::input::module::input_mailbox_owned_run_in(w, args[0] as u32)
+        }
+        OPERATION_INPUT_MAILBOX_VIEW => {
+            let record = &args[1..];
+            w.sim.calls.result(InputViewUpdate::WORDS, |row, heap| { row.copy_from_slice(&record[..InputViewUpdate::WORDS]); heap.extend_from_slice(&record[InputViewUpdate::WORDS..]); });
+            crate::input::module::input_mailbox_view_in(w, args[0] as u32);
+            None
+        }
+        OPERATION_WIRE_EDGES_RUN => {
+            let record = &args[1..];
+            w.sim.calls.result(WeCall::WORDS, |row, heap| { row.copy_from_slice(&record[..WeCall::WORDS]); heap.extend_from_slice(&record[WeCall::WORDS..]); });
+            unsafe { crate::wire::edges::wire_edges_run_in(w, args[0] as usize) }
+        }
+        OPERATION_WIRE_HOST_OP => {
+            let value = unsafe { crate::wire::host::wire_host_op_in(w, args[0] as usize, args[1] as u32, args[2] as u32, args[3], args[4]) };
+            w.sim.calls.result(1, |row, _| row[0] = value as f64);
+            Some(&w.sim.calls.block.words[..])
+        }
+        OPERATION_PLAYERS_INPUT => {
+            crate::players::module::players_input_in(w, args[0] as u32, args[1], args[2], args[3] as u32);
+            None
+        }
+        OPERATION_PLAYERS_FIRE => {
+            let record = &args[1..];
+            w.sim.calls.result(PlayerFire::WORDS, |row, heap| { row.copy_from_slice(&record[..PlayerFire::WORDS]); heap.extend_from_slice(&record[PlayerFire::WORDS..]); });
+            let value = crate::players::module::players_fire_in(w, args[0] as u32);
+            w.sim.calls.result(1, |row, _| row[0] = value as f64);
+            Some(&w.sim.calls.block.words[..])
+        }
+        OPERATION_PLAYERS_ACTIONS => {
+            let record = &args[1..];
+            w.sim.calls.result(PlayerActions::WORDS, |row, heap| { row.copy_from_slice(&record[..PlayerActions::WORDS]); heap.extend_from_slice(&record[PlayerActions::WORDS..]); });
+            crate::players::module::players_actions_in(w, args[0] as u32)
+        }
+        _ => None,
+    }
 }
 
 impl AiControlBirth {
@@ -1449,6 +1531,13 @@ impl F4SpawnNotice {
     }
 }
 
+impl PlayerSquad {
+    /// Emits it as the event playerSquad (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_PLAYER_SQUAD, PlayerSquad::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "bfe")]
 extern "C" {
@@ -1521,10 +1610,8 @@ extern "C" {
     fn bfe_import_water_crossing();
     fn bfe_import_waver();
     fn bfe_import_world_clock();
-    fn bfe_import_world_controls();
     fn bfe_import_world_events();
     fn bfe_import_world_local();
-    fn bfe_import_world_network();
 }
 
 /// Asks JavaScript (the import ask): its arguments go out in the import block,
@@ -3033,28 +3120,6 @@ pub fn import_world_clock_in(context: &crate::abi::context::Context, args: &Worl
     Ok(reply.read(WorldClockReply::take))
 }
 
-/// Asks JavaScript (the import worldControls): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_world_controls(args: &WorldControlsArgs) -> WorldControlsReply {
-    crate::store::calls::import_out(WorldControlsArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_world_controls() };
-    crate::store::calls::import_in(|row, heap| WorldControlsReply::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[cold]
-pub fn import_world_controls(_args: &WorldControlsArgs) -> WorldControlsReply { crate::abi::no_native_host("worldControls") }
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_world_controls_in(context: &crate::abi::context::Context, args: &WorldControlsArgs) -> Result<WorldControlsReply, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(WorldControlsArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_WORLD_CONTROLS, args)?;
-    Ok(reply.read(WorldControlsReply::take))
-}
-
 /// Asks JavaScript (the import worldEvents): its arguments go out in the import block,
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
@@ -3097,28 +3162,6 @@ pub fn import_world_local_in(context: &crate::abi::context::Context, args: &Worl
     let args = crate::abi::context::Record::new(WorldLocalArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WORLD_LOCAL, args)?;
     Ok(reply.read(WorldLocalReply::take))
-}
-
-/// Asks JavaScript (the import worldNetwork): its arguments go out in the import block,
-/// its result comes back there (store::calls). The module only (a native build serves
-/// its boundary from elsewhere: the replay harness, or Rust).
-#[cfg(target_arch = "wasm32")]
-pub fn import_world_network(args: &WorldNetworkArgs) -> WorldNetworkReply {
-    crate::store::calls::import_out(WorldNetworkArgs::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_world_network() };
-    crate::store::calls::import_in(|row, heap| WorldNetworkReply::take(row, heap))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[cold]
-pub fn import_world_network(_args: &WorldNetworkArgs) -> WorldNetworkReply { crate::abi::no_native_host("worldNetwork") }
-
-/// Calls the explicitly owned native host; no context borrow spans dispatch.
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-pub fn import_world_network_in(context: &crate::abi::context::Context, args: &WorldNetworkArgs) -> Result<WorldNetworkReply, crate::abi::context::Failure> {
-    let args = crate::abi::context::Record::new(WorldNetworkArgs::WORDS, |row, heap| args.put(row, heap));
-    let reply = context.call_import(IMPORT_WORLD_NETWORK, args)?;
-    Ok(reply.read(WorldNetworkReply::take))
 }
 
 #[cfg(target_arch = "wasm32")]

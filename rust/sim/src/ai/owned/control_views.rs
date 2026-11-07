@@ -20,6 +20,8 @@ pub struct Publication {
     version:u32,ack:[f64;1],count:u32,pending:bool,
 }
 impl Publication {
+    /// The published control views, for a native host reading by name.
+    pub fn words(&self)->&[f64] {&self.words}
     pub fn new(capacity:usize)->Self {
         Self {last:vec![[0.;AiControlView::WORDS];capacity],dirty:vec![false;capacity],
             links:vec![None;capacity],words:Vec::with_capacity(capacity*AiControlView::WORDS),..Default::default()}

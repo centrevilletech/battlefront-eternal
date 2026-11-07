@@ -26,15 +26,6 @@ fn local_input() -> WorldLocalInput {
         ..Default::default()
     }
 }
-fn network_input() -> WorldNetworkInput {
-    WorldNetworkInput {
-        tick: 4.0,
-        at: 501.0,
-        grace: 3600.0,
-        respawn: 4.0,
-        ..Default::default()
-    }
-}
 
 #[test]
 fn native_input_consumers_keep_colliding_string_ids_and_partial_errors_local() {
@@ -154,11 +145,13 @@ fn native_input_consumers_keep_colliding_string_ids_and_partial_errors_local() {
             ..Default::default()
         })
         .unwrap();
-    assert!(out.error.is_some());
+    // A full receipt backlog drops the receipt; the take still finishes.
+    assert!(out.error.is_none());
     assert!(out.replaced_buttons);
-    assert!(!out.replaced_queue);
+    assert!(out.replaced_queue);
     assert_eq!(out.state.generation, Some(2.0));
-    assert_eq!(out.state.queue.len(), 1);
+    assert!(out.state.queue.is_empty());
+    assert_eq!(out.state.outcomes.as_ref().unwrap().len(), 64);
     assert_eq!(out.state.buttons, [0.0; 2]);
     a.dispose().unwrap();
     b.dispose().unwrap();
@@ -338,10 +331,6 @@ fn native_world_consumers_missing_handlers_and_unmatched_panics_release_guards()
         cx.world_local(local_input()).unwrap_err().error.kind(),
         ErrorKind::MissingHandler
     );
-    assert_eq!(
-        cx.world_network(network_input()).unwrap_err().error.kind(),
-        ErrorKind::MissingHandler
-    );
     cx.dispose().unwrap();
     assert_eq!(
         cx.world_events(event_input(WorldEventOperation::Reset))
@@ -350,4 +339,74 @@ fn native_world_consumers_missing_handlers_and_unmatched_panics_release_guards()
             .kind(),
         ErrorKind::Disposed
     );
+}
+
+#[test]
+fn retained_mailbox_delivers_owned_choices_and_edges_once_to_native_players() {
+    use bfe_sim::input::owner::Mailbox;
+    use bfe_sim::store::Strings;
+    let mut strings = Strings::default();
+    let key = strings.intern_str("KeyW");
+    let jump = strings.intern_str("jump");
+    let class = strings.intern_str("soldier");
+    let mut mailbox = Mailbox::new(1., 4., vec![key], &mut strings).unwrap();
+    let choices = vec![
+        HsCommand { kind: HsCommandKind::Team, team: 2., ..Default::default() },
+        HsCommand { kind: HsCommandKind::Spawn, class_name: Some(class), ..Default::default() },
+    ];
+    let entry = ImEntry {
+        identity: 1., sequence: 20., tick: 5., generation: 1., down: 1.,
+        codes: vec![key], actions: vec![jump], human: choices.clone(),
+        look_total: Some([12., -6.]),
+        fire: vec![ImFire { id: 9., button: 1., pressed: true }],
+        ..Default::default()
+    };
+    let out = mailbox.run(ImInput {
+        op: ImOperation::Push, entry: Some(entry), epoch_matches: true,
+        ..Default::default()
+    }, &mut strings);
+    assert!(out.accepted);
+    assert!(mailbox.take_command(4., 1., &mut strings));
+    assert!(mailbox.taken().human.is_empty());
+    assert_eq!(mailbox.state.ack, 0.);
+    assert!(mailbox.take_command(5., 1., &mut strings));
+    assert_eq!(mailbox.state.ack, 20.);
+    assert_eq!(mailbox.down(), &[key]);
+    assert_eq!(mailbox.taken().human, choices);
+    assert_eq!(mailbox.taken().actions, vec![jump]);
+    assert_eq!(mailbox.taken().look[0].point, [12., -6.]);
+    assert_eq!(mailbox.taken().fire[0].id, 9.);
+    assert!(mailbox.take_command(6., 1., &mut strings));
+    assert!(mailbox.taken().human.is_empty());
+    assert!(mailbox.taken().actions.is_empty());
+    assert!(mailbox.taken().look.is_empty());
+    assert!(mailbox.taken().fire.is_empty());
+    assert_eq!(mailbox.down(), &[key]);
+    mailbox.clear_command(&mut strings);
+    assert!(mailbox.down().is_empty());
+    assert_eq!(mailbox.state.ack, 20.);
+}
+
+#[test]
+fn native_player_admission_refuses_excess_and_never_revives_a_retired_handle() {
+    use bfe_sim::players::owner::{Player, Players, PLAYER_CAPACITY};
+    use bfe_sim::store::Strings;
+    let mut strings = Strings::default();
+    let mut players = Players::new();
+    players.activate(&mut strings, 256);
+    let first = players.admit(Player::new(1, 1000.)).unwrap();
+    for mailbox in 2..=PLAYER_CAPACITY {
+        assert!(players.admit(Player::new(mailbox, 1000.)).is_some());
+    }
+    // Repeated excess admissions leave the accepted prefix and its order.
+    for mailbox in 0..4096 {
+        assert!(players.admit(Player::new(mailbox, 1000.)).is_none());
+    }
+    assert_eq!(players.order.len(), PLAYER_CAPACITY);
+    assert!(players.remove(first));
+    let replacement = players.admit(Player::new(5000, 1001.)).unwrap();
+    assert_ne!(replacement, first);
+    assert!(players.pool.get(first).is_none());
+    assert_eq!(players.pool.get(replacement).unwrap().mailbox, 5000);
+    assert_eq!(players.order.last(), Some(&replacement));
 }

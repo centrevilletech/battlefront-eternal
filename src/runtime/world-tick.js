@@ -10,10 +10,12 @@ export class WorldTick {
     this.clock=clock;this.phase=phase;this.input=new WorldTickInputMirror();this.output=new WorldTickOutputMirror();
     this.operation=phase.bridge.world(phase,clock);
   }
-  run(dt,tick,server,human,ai,live,camera,offlineCamera,squads){
+  // at: the host's wall time for the tick (ms); mouseScale: the world's
+  // setting when a player's command names none.
+  run(dt,tick,server,human,ai,live,camera,offlineCamera,squads,at=0,mouseScale=1){
     const p=this.phase,b=p.bridge,row=this.input;
     row.dt=dt;row.tick=tick;row.clock=this.clock;row.ai=ai;row.live=live;
-    row.camera=camera;row.offlineCamera=offlineCamera;row.squads=squads;
+    row.camera=camera;row.offlineCamera=offlineCamera;row.squads=squads;row.at=at;row.mouseScale=mouseScale;
     const water=p.water;
     b.decode(OUTPUT,this.operation.step(row,server,human),this.output);
     if(!this.output.accepted)throw Error('native world tick rejected invalid state or input');

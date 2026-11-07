@@ -9,16 +9,15 @@ import { F2Riders } from './f2-riders.js';
 import { Weapon } from '../../weapons.js';
 import { Vehicle } from '../../vehicles.js';
 import { FLIGHT_CLASSES, flightConfig } from '../../flight/config.js';
-import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, F2PhaseFlag_INDEX, F2BodyHeaderLayout as BODY_HEADER, F2BodyToggleLayout as TOGGLE, F2BodyPlacedLayout as PLACED, F2PhaseLayout as PHASE, F2PoseMirror, F2PoseSeatMirror, F2AimerMirror, syncF2Pose, F2InputLayout, F2FlightInLayout, F2FlightInMirror, F2PadTeamLayout, putF2FlightIn, F2InputMirror, putF2Input, putF2PadTeam } from '../gen/f2.js';
+import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, F2PhaseFlag_INDEX, F2BodyHeaderLayout as BODY_HEADER, F2BodyToggleLayout as TOGGLE, F2BodyPlacedLayout as PLACED, F2PhaseLayout as PHASE, F2PoseMirror, F2PoseSeatMirror, F2AimerMirror, syncF2Pose, F2InputLayout, F2PadTeamLayout, F2InputMirror, putF2Input, putF2PadTeam } from '../gen/f2.js';
 
 import { MirrorPool } from '../runtime.js';
 import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, VEHICLE_KEYS } from '../gen/index.js';
-import { json, classKeys, giveMapRules, pullPose, flightKeys } from './vehicle-phase-data.js';
+import { json, classKeys, giveMapRules, pullPose } from './vehicle-phase-data.js';
 import { putOrdnanceOwner } from '../gen/ordnance.js';
 import { ordnanceTests } from './ordnance-sim.js';
 import { F2MirrorCheck } from './f2-contract.js';
 const MISS = { found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: -1 };
-const NO_INPUT = {};
 const OWNED_FIELDS = VEHICLE_KEYS;
 const FLAG_POSES = 1 << F2PhaseFlag_INDEX.get('poses'), FLAG_COSMETIC = 1 << F2PhaseFlag_INDEX.get('cosmetic');
 const FLAG_FLIGHT = 1 << F2PhaseFlag_INDEX.get('flight'), FLAG_ASSISTS = 1 << F2PhaseFlag_INDEX.get('assists');
@@ -81,7 +80,6 @@ class F2 extends VehicleContent {
     this.ownerScratch = new Float64Array(3);
     this.prepared = [];
     this.classes = new Set();
-    this.flightIn = new F2FlightInMirror(); this.flightScratch = new Float64Array(F2FlightInLayout.words); this.flightCache = new WeakMap();
     this.inputHeader = new F2InputMirror();
     this.padTeam = {hasTeam:false,team:0};
     this.padPosts = vehicles.slots.map(slot => slot.desc.post ? vehicles.posts?.posts.find(p => p.desc.name.toLowerCase() === slot.desc.post) : null); this.aimPoints = [];
@@ -165,7 +163,6 @@ class F2 extends VehicleContent {
     if (!this.x.veh_pull(slot, v.aiTarget.generation, values.length, seed)) throw Error('F2 could not retain a vehicle rig');
     // Registration sizes working leg buffers from this retained class rig.
     this.x.f2_register(v.simSlot, v.simGen, v.f2Prepared ? 1 : 0);
-    const flightCache = new Float64Array(F2FlightInLayout.words); flightCache.fill(NaN); this.flightCache.set(v, flightCache);
     // Mirror readers keep the usual objects and shared arrays. Their encoded
     // rows are retained separately, so native output can omit unchanged words
     // without changing legSide or seat identity seen by prediction and capture.
@@ -276,23 +273,9 @@ class F2 extends VehicleContent {
     h.occupant = vs.spawnOccupant;
     h.memberLength = h.memberCount = h.teamCount = 0;
     h.members = h.teams = h.relations = at - base;
-    // Only network pilot keys remain foreign. Bot controls are frozen from
-    // canonical leases inside the phase, after exits and promotion. Retain each
-    // network row and send changes, including the transition back to no pilot.
+    // Network pilot keys are set by the players' phase (rust/sim/src/players)
+    // into the fleet's retained slots; no flight row crosses here.
     h.flights = at - base; h.flightCount = 0;
-    for (let i = 0; i < vs.vehicles.length; i++) {
-      const v = vs.vehicles[i]; if (!v.flying) continue;
-      const l = v.seats[0]?.lease, network = l?.unit?.networkHuman && l.intent.flight;
-      const row = this.flightIn; row.hull = v.simSlot; row.network = Boolean(network);
-      flightKeys(row.remote, network || NO_INPUT);
-      putF2FlightIn(b, row, this.flightScratch, 0, null);
-      const cache = this.flightCache.get(v); let changed = false;
-      for (let j = 0; j < cache.length; j++) {
-        const old = cache[j], next = this.flightScratch[j];
-        if (old === next ? old === 0 && 1 / old !== 1 / next : old === old || next === next) changed = true;
-      }
-      if (changed) { f.set(this.flightScratch, at); at += F2FlightInLayout.words; h.flightCount++; }
-    }
     // Weapon modifiers and AI target hints use their own generated change rows.
     // Pressed, held, reload and aim are absent here: importing their JS mirrors
     // would restore pre-latch edges after the native seat phase consumed them.
@@ -308,12 +291,7 @@ class F2 extends VehicleContent {
   // current JS objects instead would hide deaths or AI edits made by later
   // callbacks in the same phase. Copy only the submitted changed records.
   commitForeign() {
-    const b = this.bridge; b.views(); const f = b.f, base = this.inputBase, h = this.inputHeader;
-    for (let i = 0; i < h.flightCount; i++) {
-      const at = base + h.flights + i * F2FlightInLayout.words, v = this.pool.objects[f[at + F2FlightInLayout.hull]];
-      const cache = this.flightCache.get(v);
-      for (let j = 0; j < cache.length; j++) cache[j] = f[at + j];
-    }
+    const base = this.inputBase, h = this.inputHeader;
     this.firing.commitInput(base + h.firing);
   }
   // Retain the backing array as well as the mirrors. Truncating an Array to

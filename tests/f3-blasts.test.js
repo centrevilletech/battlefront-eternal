@@ -1,9 +1,9 @@
 import { CombatCapture } from './fixtures/projectile-capture-reference.js';
 import test from 'node:test';
-import {worldFrame} from './helpers/world-frame.js';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { f3World } from './fixtures/f3-world.js';
+import { playerCombatWorld } from './fixtures/player-combat-world.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
 import { attachCombatCapture } from '../src/runtime/network-entity-combat.js';
 import { SimEvents } from '../src/sim-events.js';
@@ -17,7 +17,7 @@ test('an instant lethal shot completes a native class blast before its source de
     TriggerSingle:1,ShotDelay:1,SpreadThreshold:0,SpreadPerShot:0,HeatPerShot:0,
     YawSpread:0,PitchSpread:0,StandStillSpread:0,StandMoveSpread:0,ordnance:bolt,
   });
-  const world = await f3World({
+  const world = await playerCombatWorld({
     shooter:{class:'shooter',base:'soldier',MaxHealth:2000,weapons:[gun]},
     primed:{class:'primed',base:'soldier',MaxHealth:100,weapons:[],chunks:[{}],ChunkFrequency:1,explosion},
     neighbor:{class:'neighbor',base:'soldier',MaxHealth:100,weapons:[]},
@@ -27,7 +27,7 @@ test('an instant lethal shot completes a native class blast before its source de
     bodyNotice:unit=>calls.push(`apart:${unit.className}`),
     blastNotice:()=>calls.push('explosion'),
   });
-  const shooter = world.spawn('shooter',0,0,true);
+  const shooter = world.shooter;
   const primed = world.spawn('primed',0,1.5), neighbor = world.spawn('neighbor',0,3);
   primed.combat.random = world.ordnance.random;
   shooter.combat.onDamaged = ()=>calls.push('damage:shooter');
@@ -35,21 +35,19 @@ test('an instant lethal shot completes a native class blast before its source de
   neighbor.combat.onDamaged = ()=>calls.push('damage:neighbor');
   const capture = new CombatCapture({tick:()=>10,definitionId:()=>1});
   const dispose = attachCombatCapture({ordnance:world.ordnance,simEvents:new SimEvents()},capture);
-  for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
-  shooter.networkShot = {button:0,id:41,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  shooter.networkViewTick = 8;shooter.intent.buttons[0] = 1;
-  world.phase.bodiesIn();world.phase.counters.reset();world.phase.phase(1/60);
+  world.capture();
+  assert.equal(world.fire(),true);
+  world.phase.bodiesIn();world.phase.counters.reset();world.step();
   assert.equal(primed.dead,true);assert.equal(neighbor.dead,true);
   assert.equal(shooter.combat.health,1000);
   assert.deepEqual(calls,[
-    'credit:neighbor','credit:primed',
     'damage:primed','damage:shooter','damage:neighbor','death:neighbor',
     'explosion','apart:primed','death:primed',
   ]);
   // stepBolt notifies its terminal before applying the hit and the class blast.
   assert.deepEqual(capture.drain().map(record=>record.view.schema),[1,2,5]);
   assert.equal(world.phase.counters.wasmCalls,1);
-  assert.equal(world.phase.counters.importCalls,3,'one aimer and the two Character leaves');
+  assert.equal(world.phase.counters.importCalls,0,'player input and battle credit stay native');
   assert.equal(world.phase.counters.commandCalls,0);
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);
@@ -85,27 +83,26 @@ test('a native class blast finishes chained mines depth first inside the unit ph
     YawSpread:0,PitchSpread:0,StandStillSpread:0,StandMoveSpread:0,ordnance:bolt,
   });
   const events = [], completed = [];
-  const world = await f3World({
+  const world = await playerCombatWorld({
     shooter:{class:'shooter',base:'soldier',MaxHealth:2000,weapons:[gun]},
     primed:{class:'primed',base:'soldier',MaxHealth:100,weapons:[],chunks:[{}],ChunkFrequency:1,explosion:start},
   }, {blastNotice:def=>events.push(def.class)});
-  const shooter = world.spawn('shooter',0,0,true), primed = world.spawn('primed',0,1.5);
+  const shooter = world.shooter, primed = world.spawn('primed',0,1.5);
   primed.combat.random = world.ordnance.random;
   const first = world.items.spawn(mine,new Vector3(1,0.1,1),new Vector3(),0,{owner:shooter});
   const second = world.items.spawn(mine,new Vector3(2,0.1,1),new Vector3(),0,{owner:shooter});
-  const step=worldFrame(world,shooter);for (let tick=0;tick<12;tick++) step();
+  for (let tick=0;tick<12;tick++) world.step();
   assert.equal(first.landed,true);assert.equal(second.landed,true);
   world.ordnance.onExplosion = def=>completed.push(def.class);
-  for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
-  shooter.networkShot = {button:0,id:41,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  shooter.networkViewTick = 8;shooter.intent.buttons[0] = 1;
-  world.phase.bodiesIn();world.phase.counters.reset();world.phase.phase(1/60);
+  world.capture();
+  assert.equal(world.fire(),true);
+  world.phase.bodiesIn();world.phase.counters.reset();world.step();
   assert.equal(primed.dead,true);assert.equal(shooter.combat.health,2000);
   assert.equal(first.gone,true);assert.equal(second.gone,true);
   assert.deepEqual(events,['chain-start','mine-pop','mine-pop']);
   assert.deepEqual(completed,['mine-pop','mine-pop','chain-start']);
   assert.equal(world.phase.counters.wasmCalls,1);
-  assert.equal(world.phase.counters.importCalls,1,'the aimer crosses while the real native battle handles death');
+  assert.equal(world.phase.counters.importCalls,0,'player input and battle credit stay native');
   assert.equal(world.phase.counters.commandCalls,0);
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);

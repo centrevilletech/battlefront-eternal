@@ -476,6 +476,32 @@ pub(crate) fn store_hull_in(world_ctx: &mut crate::world::owner::World, hull: &H
     }
 }
 
+/// A network pilot's flight keys for a flying hull (src/f2-sim.js
+/// prepareStep's flight rows): the keys his seat read this tick, or none
+/// while no network human flies it. Set every tick; the host sent only
+/// the changed rows into this same retained slot.
+pub(crate) fn network_flight_in(world_ctx: &mut crate::world::owner::World, hull: Ref<Vehicle>, keys: Option<FlightInput>) {
+    let given = &mut world_ctx.fleet.flight_inputs;
+    if given.len() <= hull.slot as usize { given.resize(hull.slot as usize + 1, None); }
+    given[hull.slot as usize] = Some((idle_input(), keys));
+}
+
+/// A fixture's or a tool's pilot keys for one hull, as the players' phase
+/// sets them for a connection (the F2FlightIn record).
+pub(crate) fn veh_flight_keys_in(world_ctx: &mut crate::world::owner::World) -> u32 {
+    let (row, heap) = world_ctx.sim.calls.args();
+    if row.len() < F2FlightIn::WORDS { return 0; }
+    let a = F2FlightIn::take(row, heap);
+    let Some((hull, _)) = world_ctx.sim.store.vehicle.at(a.hull) else { return 0 };
+    let k = a.remote;
+    network_flight_in(world_ctx, hull, a.network.then_some(FlightInput {
+        forward: k.forward, right: k.right, turn: k.turn, pitch: k.pitch, up: k.up, down: k.down, takeoff: k.takeoff,
+        stick_x: k.has_x.then_some(k.stick_x), stick_y: k.has_y.then_some(k.stick_y), boost: k.boost, trick: k.trick, immelmann: k.immelmann,
+        roll_lock: k.roll_lock, target_lock: k.target_lock, bot: k.bot, response_curve: k.response_curve, no_assist: k.no_assist,
+    }));
+    1
+}
+
 /// An idle stick: { forward: 0, right: 0, turn: 0, brake: false }.
 fn idle_input() -> FlightInput {
     FlightInput { forward: 0.0, right: 0.0, turn: 0.0, ..FlightInput::default() }
@@ -1185,6 +1211,8 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn veh_flight_inputs(count: u32) { veh_flight_inputs_in(crate::abi::facade::world(), count) }
     #[no_mangle]
+    pub extern "C" fn veh_flight_keys() -> u32 { veh_flight_keys_in(crate::abi::facade::world()) }
+    #[no_mangle]
     pub extern "C" fn veh_flight_acc() -> f64 { veh_flight_acc_in(crate::abi::facade::world()) }
     #[no_mangle]
     pub extern "C" fn veh_locks() -> *const f64 { veh_locks_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
@@ -1192,7 +1220,7 @@ mod exports {
     pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64, flags: u32) -> f64 { veh_ground_in(crate::abi::facade::world(), dt, acc, flight_acc, level, clock, flags) }
 }
 #[cfg(target_arch = "wasm32")]
-pub use exports::{veh_class, veh_map, veh_collision, veh_flags, veh_input, veh_bodies, veh_collider, veh_changes, veh_bytes, veh_pack, veh_pull, veh_flight_env, veh_flight_tune, veh_members, veh_relations, veh_flight_inputs, veh_flight_acc, veh_locks, veh_ground};
+pub use exports::{veh_class, veh_map, veh_collision, veh_flags, veh_input, veh_bodies, veh_collider, veh_changes, veh_bytes, veh_pack, veh_pull, veh_flight_env, veh_flight_tune, veh_members, veh_relations, veh_flight_inputs, veh_flight_keys, veh_flight_acc, veh_locks, veh_ground};
 
 #[cfg(test)]
 mod robustness_tests {

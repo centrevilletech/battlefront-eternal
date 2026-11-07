@@ -1,17 +1,14 @@
 import './fixtures/native-anim.js';
 // The shared boarding rules (src/boarding.js) as every path uses them: the
-// player's VehicleDriver, a network human through Vehicles.board, and the
+// network human through Vehicles.board and the
 // bots. Synthetic fixtures only: a flat floor, box hulls, made-up weapons.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
-import { Vehicles, VehicleDriver } from '../src/vehicles.js';
-import { Units } from '../src/registry.js';
+import { Vehicles } from '../src/vehicles.js';
 import { blankIntent } from '../src/units.js';
-import { CommandControls } from '../src/runtime/commands.js';
-import { cycleNetworkSeat } from '../src/runtime/network-seat.js';
-import { boardingSeat, mayLeave, mountInReach, seatControl, seatInput, seatScheme, turretTakeover } from '../src/boarding.js';
+import { mountInReach, seatControl, seatScheme, turretTakeover } from '../src/boarding.js';
 
 // Identity checks that never print their operands (a unit's object graph).
 const same = (actual, expected, message) => assert.ok(actual === expected, message ?? `${typeof actual} !== ${typeof expected}`);
@@ -58,21 +55,6 @@ function soldier(team = 1, { person = false, x = 4, z = 0 } = {}) {
   return unit;
 }
 
-// The player: his VehicleDriver and body.
-function player(system, c, team = 1) {
-  const body = { position: new THREE.Vector3(4, 0, 0), previous: new THREE.Vector3(), settled: new THREE.Vector3(), velocity: new THREE.Vector3(),
-    aimYaw: 0, aimPitch: 0, air: null, spawn(x, y, z, yaw) { this.position.set(x, y, z); this.aimYaw = yaw; this.velocity.set(0, 0, 0); } };
-  const unit = { team, generation: 1, alive: true, seat: null, human: true };
-  const combat = { dead: false, mounted: false, team, owner: unit };
-  const driver = new VehicleDriver({ vehicles: system, soldier: body, combat, actor: { root: new THREE.Group() }, animator: {}, clips: new Map(),
-    camera: system.camera, collision: c, hud: { message() {} } });
-  return { driver, unit, body, combat };
-}
-
-
-
-
-
 test('E reaches a bot-manned turret for a person, never another person\'s', () => {
   const turret = { gunner: {}, lease: { released: false, human: false, unit: {} } };
   same(turretTakeover(turret), true, "a bot's turret can be taken over");
@@ -91,29 +73,45 @@ test('E reaches a bot-manned turret for a person, never another person\'s', () =
 });
 
 
-
-
-
-test('seat controls: only a craft\'s pilot flies it, and its keys are read for the seat held when read', () => {
+test('seat controls: only a craft\'s pilot flies it, and a craft reads the flight key map', () => {
   const { v: craft } = hull({ base: 'flyer', seats: 2, name: 'ship' });
   const { v: tank } = hull();
   same(seatControl(craft, 0), 'flight');
   same(seatControl(craft, 1), 'turret');
   same(seatControl(tank, 0), 'drive');
   same(seatControl(tank, 1), 'turret');
-  const controls = new CommandControls();
-  controls.accept({ epoch: 1, sequence: 1, generation: 1, down: ['KeyW', 'AltLeft'], actions: ['takeoff'] });
-  // A command without flight settings (a playtest crash: no bindings yet).
-  const flight = seatInput(craft, 0, controls, {});
-  same(flight.forward, 1);
-  same(flight.takeoff, true);
-  same(seatInput(craft, 1, controls, {}).forward, 0, 'the gunner does not fly the craft');
-  same(seatInput(tank, 0, controls, {}).forward, 1);
-  same(seatInput(tank, 1, controls, {}).forward, 0);
-  // The fire keys follow the seat at the moment they are read.
-  let seated = null;
-  controls.flightScheme = () => seatScheme(seated, undefined);
-  same(controls.held('fireSecondary'), true, 'on foot Alt fires the secondary');
-  seated = craft;
-  same(controls.held('fireSecondary'), false, 'in a craft Alt is a trick, read at once after boarding');
+  same(seatScheme(tank, undefined), null, 'on foot or driving, the soldier\'s keys');
+  same(seatScheme(craft, undefined).fireSecondary[0], 'Mouse2', 'in a craft the flight bindings');
+});
+
+import { playersWorld, playerCommand } from './fixtures/players-world.js';
+import { fleetFixture } from './fixtures/f3-fleet.js';
+import { KIND_SEAT_LEASE } from '../src/sim/gen/kinds.js';
+
+for (const base of ['hover', 'flyer']) test(`native ${base} controls read the occupied seat with default flight bindings`, async t => {
+  t.mock.method(performance, 'now', () => 1000);
+  const { game, world } = await playersWorld({ fleet: fleetFixture({ base, seats: 2, positions: [20] }) });
+  await world.addPlayer('pilot', { team: 1, separateActions: true });
+  const p = world.players.get('pilot'), v = game.vehicles.vehicles[0];
+  const command = tick => playerCommand(p, tick, { down: ['KeyW', 'AltLeft'] });
+  assert.equal(game.vehicles.board(p.unit, v), true);
+  assert.equal(world.input('pilot', command(1)), true);
+  world.step(1000);
+  assert.equal(p.unit.intent.forward, 1);
+  assert.equal(p.unit.intent.buttons[1], base === 'flyer' ? 0 : 1,
+    'Alt is a flight trick in a craft and secondary fire in a ground hull');
+  assert.equal(world.actions('pilot', { epoch: 1, id: 1, tick: 2, generation: p.unit.generation, actions: ['nextPrimary'] }), true);
+  assert.equal(world.input('pilot', command(2)), true);
+  world.step(1000);
+  const nativeLease = game.simBridge.read(KIND_SEAT_LEASE).find(row => row.object.unit === p.unit);
+  assert.equal(nativeLease.object.index, 1, 'the native command selected the gunner seat');
+  assert.equal(p.unit.seat.index, 1, 'the host must publish that same seat after the step');
+  assert.equal(p.unit.intent.forward, 0, 'the gunner never drives or flies');
+  assert.equal(p.unit.intent.nextPrimary, false, 'the seat switch consumes its press');
+  assert.equal(world.actions('pilot', { epoch: 1, id: 2, tick: 3, generation: p.unit.generation, actions: ['previousPrimary'] }), true);
+  world.step(1000); assert.equal(p.unit.seat.index, 0);
+  assert.equal(p.unit.intent.forward, 1, 'held movement follows the seat after the switch');
+  world.removePlayer('pilot');
+  assert.equal(p.unit.seat, null); assert.equal(v.seats[0].lease, null);
+  game.vehicles.dispose();
 });

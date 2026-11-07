@@ -38,5 +38,7 @@ export const PHASE_NAMES = PHASES.map((p) => p.name);
 
 // A combined native owner replaces these former JavaScript phase boundaries.
 // Keep their names above so historical capture files still decode unchanged.
-const nativeMembers = new Set(['restorePose','ai','unitTick','vehicles','turretSeats','gunner','remotes','separate','live','ordnance','items','battlefield','aiGrenades']);
+// The players' phase (the hit history's capture, each player's commands and
+// the AI's views of them) runs inside the native world tick as well.
+const nativeMembers = new Set(['hitHistory','players','views','restorePose','ai','unitTick','vehicles','turretSeats','gunner','remotes','separate','live','ordnance','items','battlefield','aiGrenades']);
 export const LIVE_PHASES = PHASES.filter(phase => !nativeMembers.has(phase.name));

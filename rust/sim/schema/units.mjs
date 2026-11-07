@@ -371,8 +371,7 @@ export default {
         onRemoved: 'the factory\'s hook', onMoved: 'the AI\'s hook (ai.aim)',
         enhancedDeath: 'the page\'s setting', supply: 'getters over its body and combat', itemTarget: 'getters over its body, and hooks',
         steer: 'the vehicle AI\'s', remoteStep: 'the network world\'s hook (a network player\'s recon droid)',
-        networkShot: 'the network capture\'s', networkShots: 'the network capture\'s', networkViewTick: 'the network capture\'s',
-        networkInputLeadTicks: 'the network mailbox\'s', networkPlayoutMaxTicks: 'the network mailbox\'s',
+        networkShot: 'the network host\'s shot records', networkShots: 'the network host\'s shot records',
       },
     },
 

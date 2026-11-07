@@ -29,5 +29,5 @@ pub mod delivery;
 pub mod journal;
 pub mod store_projectiles;
 pub mod publisher;
-mod publish_module;
+pub(crate) mod publish_module;
 pub(crate) mod store_source;

@@ -68,7 +68,8 @@ fn check_rows() -> Result<(), String> {
             .collect::<Result<_, _>>()?;
         if recorded.len() != WorldTickInput::WORDS { return Err(format!("row of {} words", recorded.len())); }
         let units = recorded[WorldTickInput::UNITS] as u32;
-        let expected = row_words(&rows.input(units, true, true, 0, false, 0));
+        // The host's wall time and mouse setting are its own words: carried, not derived.
+        let expected = row_words(&rows.input(units, true, true, 0, false, 0, recorded[WorldTickInput::AT], recorded[WorldTickInput::MOUSE_SCALE]));
         if let Some(word) = (0..WorldTickInput::WORDS).find(|&w| expected[w].to_bits() != recorded[w].to_bits()) {
             differences += 1;
             if first.is_none() {

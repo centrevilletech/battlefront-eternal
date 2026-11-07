@@ -161,11 +161,9 @@ export class Unit {
     this.held = undefined;
     this.steer = undefined;
     this.networkHuman = undefined;
+    // The presses its connection fired this tick (the host's shot records).
     this.networkShot = undefined;
     this.networkShots = undefined;
-    this.networkViewTick = undefined;
-    this.networkInputLeadTicks = undefined;
-    this.networkPlayoutMaxTicks = undefined;
     this.remoteStep = undefined;
   }
 

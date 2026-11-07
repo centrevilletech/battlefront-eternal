@@ -15,8 +15,6 @@
 
 import * as THREE from 'three';
 import { hasMissileLock } from '../../src/weapon-targeting.js';
-import { networkVehicle } from '../../src/runtime/network-vehicle.js';
-import { networkSeat } from '../../src/runtime/network-seat.js';
 import { boardingReach } from '../../src/boarding.js';
 import { Handle } from './format.mjs';
 
@@ -277,23 +275,6 @@ const crewFrame = (method, named = () => ({})) => ({
   boundaries: crewBoundaries,
 });
 
-// ---- A network human's mouse and keys in a hull's seat
-// (src/runtime/network-vehicle.js): the hull's seats as the mouse turns
-// them (a craft's pilot's virtual stick, the hull's), and the driving keys
-// he holds.
-const networkSeatFrame = {
-  method: 'networkVehicle.input',
-  target: () => networkVehicle,
-  state: (game, args, cap) => {
-    const [v, , controls] = args;
-    return {
-      index: game.vehicles.vehicles.indexOf(v), hull: hullExport(cap, v),
-      keys: { forward: controls.axis('forward'), right: controls.axis('right'), turn: controls.axis('turn'), space: controls.down.has('Space') },
-    };
-  },
-  boundaries: () => [],
-};
-
 export const seats = {
   frames: [
     hullFrame('latchCrews'),
@@ -307,9 +288,6 @@ export const seats = {
     crewFrame('destroyed', (args) => ({ turrets: [args[0]] })),
     crewFrame('requestExit', (args) => ({ units: [args[0]] })),
     crewFrame('leave', (args) => ({ units: [args[0]] })),
-    networkSeatFrame,
-    // A network human's seat switch (src/runtime/network-seat.js).
-    { ...hullFrame('cycle', (args) => ({ units: [args[1]] })), method: 'networkSeat.cycle', target: () => networkSeat },
     // What a soldier's use key gets him into (src/boarding.js mountInReach):
     // every hull and every turret, in the battle's order, as the reach
     // queries walk them.

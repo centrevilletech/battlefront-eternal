@@ -1,9 +1,7 @@
-use super::{clock, events, local, network};
+use super::{clock, events, local};
 use crate::gen::{WorldClockInput, WorldClockResult, WorldClockState, WorldClockOperation, WorldClockCall, WorldClockArgs, import_world_clock};
 use crate::gen::{WorldEventState, WorldEventInput, WorldEventOperation, WorldEventCall, WorldEventArgs, import_world_events};
 use crate::gen::{WorldLocalState, WorldLocalInput, WorldLocalOperation, WorldLocalCall, WorldLocalArgs, import_world_local};
-use crate::gen::{WorldNetworkState, WorldNetworkInput, WorldNetworkCall, WorldNetworkArgs, import_world_network};
-use crate::gen::{WorldControlsCall, WorldControlsArgs, WorldControlsReply, import_world_controls};
 
 struct ClockHost;
 impl ClockHost {
@@ -87,33 +85,6 @@ pub(crate) fn world_local_run_in(w: &mut crate::world::owner::World) -> Option<&
     Some(&sim.calls.block.words[..])
 }
 
-struct NetworkHost;
-impl network::Host for NetworkHost {
-    fn call(&mut self, state: &mut WorldNetworkState, op: WorldNetworkCall, value: f64) -> bool {
-        let reply = import_world_network(&WorldNetworkArgs { op, value });
-        *state = reply.state;
-        reply.value
-    }
-}
-pub fn world_network_words() -> u32 { WorldNetworkInput::WORDS as u32 }
-
-pub(crate) fn world_network_run_in(w: &mut crate::world::owner::World) -> f64 {
-    let input = { let (row, heap) = w.sim.calls.args(); WorldNetworkInput::take(row, heap) };
-    let mut state = input.state;
-    network::step(&mut state, input.tick, input.at, input.grace, input.respawn, &mut NetworkHost)
-}
-
-struct ControlsHost;
-impl super::network_controls::Host for ControlsHost {
-    fn call(&mut self, op: WorldControlsCall, index: f64, value: f64, other: f64) -> WorldControlsReply {
-        import_world_controls(&WorldControlsArgs { op, index, value, other })
-    }
-}
-pub fn world_controls_run(stop: u32, tick: f64) {
-    if stop != 0 { super::network_controls::stop(&mut ControlsHost); }
-    else { super::network_controls::apply(tick, &mut ControlsHost); }
-}
-
 // The WASM boundary owns addresses; shared services borrow their owners.
 #[cfg(target_arch = "wasm32")]
 mod exports {
@@ -127,15 +98,9 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn world_local_words(which: u32) -> u32 { super::world_local_words(which) }
     #[no_mangle]
-    pub extern "C" fn world_network_words() -> u32 { super::world_network_words() }
-    #[no_mangle]
-    pub extern "C" fn world_controls_run(stop: u32, tick: f64) { super::world_controls_run(stop, tick) }
-    #[no_mangle]
     pub extern "C" fn world_clock_run() -> *const f64 { world_clock_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
     pub extern "C" fn world_events_run() -> *const f64 { world_events_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
     pub extern "C" fn world_local_run() -> *const f64 { world_local_run_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
-    #[no_mangle]
-    pub extern "C" fn world_network_run() -> f64 { world_network_run_in(crate::abi::facade::world()) }
 }

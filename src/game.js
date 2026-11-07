@@ -69,7 +69,7 @@ import { Unit, UnitFactory } from "./units.js";
 import { goneUp } from "./droideka.js";
 import { ClassicRandom, RandomStreams } from "./ai/random.js";
 import {loadAIWeaponData} from "./ai-data.js";
-import { CommandHistory, CommandControls, queueHumanCommand, stillCommand } from "./runtime/commands.js";
+import { CommandHistory, queueHumanCommand, stillCommand } from "./runtime/commands.js";
 import { InputLead, advanceInputClock } from "./runtime/reconcile.js";
 import { HeadlessGraphics, HeadlessHud, HeadlessAudio, HeadlessControls } from "./runtime/headless-ports.js";
 import { WaterState } from "./runtime/water-state.js";
@@ -1068,7 +1068,6 @@ async function start() {
   // drawing it and playing its sound.
   let paused = false, frozen = false;
   const commandHistory = new CommandHistory();
-  const worldControls = new CommandControls();
   let previewYaw = 0, previewPitch = 0;
   const ownPreview=new OwnPreview();
   let activeCommand = null;
@@ -1097,9 +1096,6 @@ async function start() {
     player: () => ({ name: (params.has("network") ? settings.get("playerName") : playerUnit.character?.name) || "PLAYER 1", team: playerTeam }),
   });
   controls.flightScheme = () => seatScheme(driver?.vehicle, settings.get('flightBindings'));
-  // The world's keys read his seat's map at the moment they are read (E or
-  // a seat key earlier in the tick may have changed the seat).
-  worldControls.flightScheme = () => seatScheme(driver?.vehicle, activeCommand?.flightSettings?.bindings);
   // The flight keys go already as the world's (Controls.command), so the
   // world reads them with the defaults ({}), the one profile the network
   // has (DEFAULT_BINDING_PROFILES).
@@ -1110,7 +1106,7 @@ async function start() {
     flightSettings: { sensitivity: settings.get('flightSensitivity'), invert: settings.get('flightInvertY'), curve: settings.get('flightResponseCurve'), bindings: {} },
     gamepad: !headless && driver?.vehicle?.flying ? (() => { const p = navigator.getGamepads?.()[0]; return p ? { axes: [...p.axes], buttons: p.buttons.map(b => ({pressed:b.pressed})) } : null; })() : null,
   });
-  controls.onClear = () => { worldControls.clear(); previewYaw = previewPitch = 0; };
+  controls.onClear = () => { previewYaw = previewPitch = 0; };
   // The pause menu (src/pause): Esc, or the browser letting go of the mouse,
   // hides the HUD and, offline, freezes the world and fades the game's
   // sound; online the battle and its sound play on behind it. RESUME
@@ -1252,7 +1248,7 @@ async function start() {
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;
-    driver.onRelease = () => { controls.clear(); worldControls.clear(); };
+    driver.onRelease = () => { controls.clear(); };
     driver.aimView = { cameraSet: false, speedEffect: 0 };
     hud.vehicles = vehicles;
     if (live) { live.vehicleTargets = vehicles.vehicles; live.playerTeam = playerTeam; }
@@ -1772,24 +1768,20 @@ async function start() {
   // entry. No host callback chooses or advances a simulation phase.
   let tickLookYaw = 0;
   const worldTick = headless ? new WorldTick(unitsSim,worldClock) : null;
-  const stepSquads = ["squadMoveOut","squadHold","squadFollow","squadAtEase"];
-  const squadNotices = ["moveout","hold","follow","atease"];
-  const worldFireEdges = [], emptyFlightSettings = {};
+  const emptyFlightSettings = {};
+  // The world's tick takes the match's one command: its stamp, the host's
+  // wall time (the players' stale-input clock) and the world's mouse scale.
   function step(dt,tick,recordedCommand=null) {
     backend.enter();
     try {
     runtimeProfile?.step(dt);
     const command = recordedCommand || controls.command(tick, commandHistory.epoch, playerUnit.generation);
     activeCommand = command;
-    worldFireEdges.length=0;
-    if(command.fire)for(let index=0;index<command.fire.length;index++)if(command.fire[index].pressed)worldFireEdges.push(command.fire[index]);
-    playerUnit.networkShots=worldFireEdges;playerUnit.networkShot=null;
     if (typeof command.firstPerson === 'boolean' && command.firstPerson !== firstPerson) setPerspective(command.firstPerson);
     if (Number.isFinite(command.aspect) && command.aspect > 0 && simulationCamera.aspect !== command.aspect) {
       simulationCamera.aspect = command.aspect; simulationView.applyFov(command.aspect);
     }
     commandHistory.put(command);
-    if (!worldControls.accept(command)) throw new Error('stale world command');
     if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles.f2.retune(name, key, value); }
     const fs = command.flightSettings || emptyFlightSettings;
     if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
@@ -1799,8 +1791,6 @@ async function start() {
     presentation.previousYaw += soldier.aimYaw - yawBeforeLook; previewYaw = previewPitch = 0;
 
     simTime=tick/60;simEvents.time=simTime;
-    let squads=0;
-    for(let index=0;index<4;index++)if(worldControls.take(stepSquads[index]))squads|=1<<index;
     simulationZoom=1;
     if(!deathView.active&&!remotes.active&&!driver?.active&&!gunner.active)simulationZoom=combat.zoom;
     if(deathView.active||remotes.active||driver?.active||gunner.active||!(game.serverWorld&&playerUnit.removed)){
@@ -1812,10 +1802,17 @@ async function start() {
     if(ai)ai.prepare(dt,tick,true);
     worldTick.run(dt,tick,Boolean(game.serverWorld),command.human,Boolean(ai),Boolean(live),
       deathView.active||remotes.active||driver?.active||gunner.active||!(game.serverWorld&&playerUnit.removed)?aimCameras.handle:0,
-      !ai?.worldData.cameras,squads);
-    for(let index=0;index<4;index++)if(worldTick.output.squads&(1<<index))hud.squadCommand(squadNotices[index]);
+      !ai?.worldData.cameras,0,command.at ?? 0,settings.mouseScale);
+    // The players' phase ran before the world advanced: the host mirrors
+    // its shots first, and delivers its notices with the clock of the tick
+    // before, as when the host ran the players itself.
+    game.beforeWorldFinish?.();
+    const previousTime=(tick-1)/60,playersEvents=worldTick.output.playersEvents;
+    unitsSim.eventClock=(early)=>{simEvents.time=early?previousTime:simTime;};
+    unitsSim.eventPrefix=playersEvents;
     if(worldTick.input.camera){aimCameras.publishFrame(firstPerson,deathView,null,remotes,driver,gunner);aimCameras.finish();}
     worldTick.finish();
+    unitsSim.eventClock=null;simEvents.time=simTime;
     presentBattle(dt);
     updateTargetHud(dt);
     humanSpawn.flush();
@@ -2895,7 +2892,6 @@ async function start() {
     framePacer,
     resolution,
     commandHistory,
-    worldControls,
     simulationCamera,
     view,
     deathView,

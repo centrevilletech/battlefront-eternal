@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { f3World } from './fixtures/f3-world.js';
+import { playerCombatWorld } from './fixtures/player-combat-world.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
 import { attachCombatCapture } from '../src/runtime/network-entity-combat.js';
 import { SimEvents } from '../src/sim-events.js';
@@ -46,33 +47,26 @@ test('unit shots retain their capacity across ordnance filtering',async()=>{
   assert.equal(world.phase.counters.rustReallocations,0);
 });
 
-// networkShotFor distinguishes an empty button list from an absent list.
-// Exercise the real sparse input tail beside an ordinary bot. A held trigger
-// still fires; the empty list suppresses its legacy press attribution.
-test('sparse network input preserves empty-list suppression and retires absent edges',async()=>{
+// Unreliable held fire has no edge identity. Reliable fire carries the
+// accepted edge's identity and never manufactures another press from held state.
+test('native player fire attributes reliable edges and leaves held-only fire unattributed',async()=>{
   const gun=weaponDefinition('edge-rifle',0,{TriggerSingle:1,ShotDelay:.01,HeatPerShot:0,
     ordnance:{class:'edge-bolt',base:'bolt',Velocity:60,LifeSpan:1,Damage:0}});
-  const world=await f3World({soldier:{class:'soldier',base:'soldier',MaxHealth:300,weapons:[gun]}});
-  const actor=world.spawn('soldier',0,0,true),bot=world.spawn('soldier',10,0);
-  actor.combat.arsenal.weapons[0].random=world.ordnance.random;
-  bot.combat.arsenal.weapons[0].random=world.ordnance.random;
+  const f=await playerCombatWorld({shooter:{class:'shooter',base:'soldier',MaxHealth:300,weapons:[gun]}});
+  const actor=f.world.players.get('shooter');
   const capture=new CombatCapture({tick:()=>10,definitionId:()=>1});
-  const dispose=attachCombatCapture({ordnance:world.ordnance,simEvents:new SimEvents()},capture);
-  actor.intent.buttons[0]=1;
-  actor.networkShot={button:0,id:41,late:0,aimYaw:0,aimPitch:0};
-  actor.networkShots=[];
-  world.phase.phase(1/60);
+  const dispose=attachCombatCapture({ordnance:f.ordnance,simEvents:new SimEvents()},capture);
+  const held=down=>f.world.input('shooter',{epoch:1,sequence:f.game.worldClock.tick+1,tick:f.game.worldClock.tick+1,
+    generation:actor.unit.generation,down,actions:[],look:[]});
   const fireId=()=>capture.drain().map(e=>e.view).find(e=>e.schema===1)?.fireId;
-  assert.equal(fireId(),0);
-  actor.intent.buttons[0]=0;world.phase.phase(1/60);
-  actor.networkShots=undefined;actor.intent.buttons[0]=1;
-  world.phase.phase(1/60);
-  assert.equal(fireId(),41);
-  actor.intent.buttons[0]=0;world.phase.phase(1/60);
-  actor.networkShot=undefined;actor.intent.buttons[0]=1;
-  world.phase.phase(1/60);
-  assert.equal(fireId(),0);
-  assert.equal(world.phase.bindings[bot.id].inputNetwork,false);
+  f.world.removePlayer('shooter');await f.world.addPlayer('shooter',{reliableFire:false,separateActions:true});
+  held(['Mouse0']);f.step();assert.equal(fireId(),0);
+  held([]);f.step();
+  f.world.removePlayer('shooter');await f.world.addPlayer('shooter',{reliableFire:true,separateActions:true});
+  assert.equal(f.fire({viewTick:0}),true);f.step();assert.equal(fireId(),41);
+  assert.equal(f.fire({id:42,pressed:false,viewTick:0}),true);f.step();capture.drain();
+  held(['Mouse0']);f.step();assert.equal(fireId(),undefined,'held state cannot recreate a consumed reliable edge');
+  assert.equal(actor.unit.networkShot,null);assert.deepEqual(actor.unit.networkShots,[]);
   dispose();
 });
 
@@ -104,22 +98,20 @@ test('an instant native bolt keeps its launch and terminal snapshots without com
     TriggerSingle:1,ShotDelay:1,SpreadThreshold:0,SpreadPerShot:0,HeatPerShot:0,
     YawSpread:0,PitchSpread:0,StandStillSpread:0,StandMoveSpread:0,ordnance:definition,
   });
-  const world = await f3World({
+  const world = await playerCombatWorld({
     shooter:{ class:'shooter',base:'soldier',MaxHealth:2000,weapons:[gun] },
     victim:{ class:'victim',base:'soldier',MaxHealth:2000,weapons:[] },
   });
-  const shooter = world.spawn('shooter',0,0,true);
+  const shooter = world.shooter;
   const victim = world.spawn('victim',0,1.5);
   const capture = new CombatCapture({tick:()=>10,definitionId:()=>1});
   const dispose = attachCombatCapture({ordnance:world.ordnance,simEvents:new SimEvents()},capture);
   // These are complete native frames, not a stubbed ray result. The launch
   // catches up from tick eight to ten and ends before fireRound returns.
-  for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
-  shooter.networkShot = {button:0,id:41,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  shooter.networkViewTick = 8;
-  shooter.intent.buttons[0] = 1;
+  world.capture();
+  assert.equal(world.fire({id:41}),true);
   world.phase.bodiesIn();world.phase.counters.reset();
-  world.phase.phase(1/60);
+  world.step();
   assert.ok(victim.combat.health < 2000);
   const records = capture.drain().map(entry=>entry.view);
   assert.deepEqual(records.map(record=>record.schema),[1,2]);
@@ -128,11 +120,11 @@ test('an instant native bolt keeps its launch and terminal snapshots without com
   assert.equal(records[0].executionTick,10);
   assert.equal(records[0].life,1,'launch keeps the life before catch-up retired the bolt');
   assert.equal(records[0].fireId,41);
-  assert.equal(records[0].ownerGeneration,1);
+  assert.equal(records[0].ownerGeneration,shooter.generation);
   assert.ok(records[1].position[2] < 2);
   const measured = world.phase.counters.snapshot();
   assert.equal(measured.phaseCalls,1);
-  assert.equal(measured.importCalls,2,'only post-movement aimers cross during the armed phase');
+  assert.equal(measured.importCalls,1,'one declared observer import during the native interval');
   assert.equal(measured.commandCalls,0);
   assert.equal(measured.rustAllocations,0);
   assert.equal(measured.rustReallocations,0);
@@ -245,33 +237,33 @@ test('native F1 water crossings share the phase surface and reject dry cells', a
 });
 
 test('a native head hit credits the prior captured Character before replacing the attacker', async() => {
-  const credited = [];
   const bullet = {class:'head-credit-bolt',base:'bolt',Velocity:60,LifeSpan:1,Damage:30};
   const gun = weaponDefinition('rifle',0,{
     TriggerSingle:1,ShotDelay:1,SpreadThreshold:0,SpreadPerShot:0,HeatPerShot:0,
     YawSpread:0,PitchSpread:0,StandStillSpread:0,StandMoveSpread:0,ordnance:bullet,
   });
-  const world = await f3World({
+  const world = await playerCombatWorld({
     shooter:{class:'shooter',base:'soldier',MaxHealth:2000,weapons:[gun]},
     soldier:{class:'soldier',base:'soldier',MaxHealth:2000,weapons:[]},
-  }, {headshotCredit:character=>credited.push(character)});
-  const prior = world.spawn('soldier',10,0);
-  const oldCharacter = {};
-  prior.character = oldCharacter;prior.spawn(10,0,0,0);
+  });
+  await world.world.addPlayer('prior',{team:1,className:'soldier'});
+  const priorActor = world.world.players.get('prior'), prior = priorActor.unit, oldCharacter = priorActor.character;
+  world.game.unitsSim.placeBody(prior,10,0,0,0);
   const oldOwner = captureOrdnanceOwner(prior);
-  prior.character = {};prior.spawn(10,0,0,0);
-  const shooter = world.spawn('shooter',0,0,true);
+  world.world.removePlayer('prior');await world.world.addPlayer('prior',{team:1,className:'soldier'});
+  assert.ok(prior.generation>oldOwner.generation);
+  assert.equal(oldOwner.character,oldCharacter);
+  const shooter = world.shooter;
   const victim = world.spawn('soldier',0,1.5);
   victim.combat.damage(1,1,null,oldOwner);
-  for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
-  shooter.networkShot = {button:0,id:42,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  shooter.networkViewTick = 8;shooter.intent.buttons[0] = 1;
+  world.capture();
+  assert.equal(world.fire({id:42}),true);
   world.phase.bodiesIn();
-  world.phase.counters.reset();world.phase.phase(1/60);
-  assert.deepEqual(credited,[oldCharacter]);
+  world.phase.counters.reset();world.step();
+  assert.equal(oldCharacter.record.slots[0].headshots,1,'the prior launching Character receives the head hit');
   assert.equal(victim.combat.health,1909);
   assert.equal(victim.combat.lastAttacker,shooter);
-  assert.equal(world.phase.counters.importCalls,4,'three aimers and the declared Character credit cross');
+  assert.equal(world.phase.counters.importCalls,1,'one declared observer import during the native interval');
   assert.equal(world.phase.counters.commandCalls,0);
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);

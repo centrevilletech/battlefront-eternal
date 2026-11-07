@@ -99,8 +99,6 @@ test('the AT-AT and AT-ST stomp at the foot, level with the root, turned as the 
 });
 
 test('the hull he drives is posed on the page, and its predicted legs keep up with it', { skip: !available.some(([n]) => n === 'imp_walk_atst_snow') }, async () => {
-  const { CommandControls } = await import('../src/runtime/commands.js');
-  const { networkVehicleInput } = await import('../src/runtime/network-vehicle.js');
   const a = walker('imp_walk_atst_snow', 'hot1').v, b = walker('imp_walk_atst_snow', 'hot1').v;
   const foot = (v) => v.byName.bone_l_toe.getWorldPosition(new THREE.Vector3()).sub(v.root.position);
   // No record poses his own hull: present() does, from its walk cycle, and
@@ -115,10 +113,8 @@ test('the hull he drives is posed on the page, and its predicted legs keep up wi
   assert.ok(Math.abs(b.age - 2 / 60) < 1e-9);
   b.walkPhase = 0; b.walkBlend = 0;
   // The world's walker and his prediction of it over the same commands.
-  const controls = new CommandControls();
   const pending = Array.from({ length: 90 }, (_, i) => ({ tick: i + 1, sequence: i + 1, epoch: 1, generation: 1, down: ['KeyW'], actions: [], look: [], mouseScale: 1 }));
-  for (const c of pending) {
-    controls.accept(c);
+  for (let index = 0; index < pending.length; index++) {
     const input = { forward: 1, right: 0, turn: 0 };
     stepPrediction(a.system, 1 / 60, a, input);
   }

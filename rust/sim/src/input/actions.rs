@@ -16,15 +16,18 @@ fn human_valid(value: &IaHuman, strings: &Strings) -> bool {
     }
 }
 
+// A receipt backlog of twice the queue threw in JavaScript and would have
+// ended the server's tick. A full backlog now drops the receipt, which the
+// client treats as any lost receipt.
 fn outcome(s: &mut IaState, id: f64, status: StrId) -> Result<(), &'static str> {
     if let Some(outcomes) = s.outcomes.as_mut() {
-        if outcomes.len() as f64 >= s.capacity * 2.0 { return Err("action outcome backlog exceeded"); }
+        if outcomes.len() as f64 >= s.capacity * 2.0 { return Ok(()); }
         outcomes.push(IaOutcome { id, status });
     }
     Ok(())
 }
 
-fn push(s: &mut IaState, entry: Option<IaEntry>, same_epoch: bool, same_generation: bool,
+pub(crate) fn push(s: &mut IaState, entry: Option<IaEntry>, same_epoch: bool, same_generation: bool,
     payload_valid: bool, humans_valid: bool, humans: Vec<IaHuman>, tick: f64, strings: &Strings) -> Result<bool, &'static str> {
     let Some(mut entry) = entry else { return Ok(false) };
     if !same_epoch || !same_generation || !safe_integer(entry.id) || entry.id <= s.received ||
@@ -42,7 +45,10 @@ fn push(s: &mut IaState, entry: Option<IaEntry>, same_epoch: bool, same_generati
     Ok(true)
 }
 
-fn take(s: &mut IaState, tick: f64, generation: f64, strings: &mut Strings) -> Result<(Vec<StrId>, Vec<HsCommand>), &'static str> {
+/// InputActions.take into the caller's retained lists: the first due
+/// message's distinct presses and its choices; repeated presses in one
+/// message remain separate ticks.
+pub(crate) fn take_into(s: &mut IaState, tick: f64, generation: f64, actions: &mut Vec<StrId>, human: &mut Vec<HsCommand>, strings: &mut Strings) -> Result<(), &'static str> {
     while let Some(entry) = s.queue.first() {
         if entry.generation != generation || entry.tick < tick - 120.0 {
             let id = entry.id;
@@ -54,10 +60,9 @@ fn take(s: &mut IaState, tick: f64, generation: f64, strings: &mut Strings) -> R
         }
         if entry.tick > tick { break; }
         let entry = &mut s.queue[0];
-        let mut actions = Vec::new();
         for &action in &entry.actions { if !actions.contains(&action) { actions.push(action); } }
-        let human = std::mem::take(&mut entry.human);
-        for action in &actions {
+        human.append(&mut entry.human);
+        for action in actions.iter() {
             let at = entry.actions.iter().position(|a| a == action).expect("an action from this entry");
             entry.actions.remove(at);
         }
@@ -67,9 +72,26 @@ fn take(s: &mut IaState, tick: f64, generation: f64, strings: &mut Strings) -> R
             s.ack = id;
             s.queue.remove(0);
         }
-        return Ok((actions, human));
+        return Ok(());
     }
-    Ok((Vec::new(), Vec::new()))
+    Ok(())
+}
+
+fn take(s: &mut IaState, tick: f64, generation: f64, strings: &mut Strings) -> Result<(Vec<StrId>, Vec<HsCommand>), &'static str> {
+    let (mut actions, mut human) = (Vec::new(), Vec::new());
+    take_into(s, tick, generation, &mut actions, &mut human, strings)?;
+    Ok((actions, human))
+}
+
+/// InputActions.clear: queued messages are receipted as cleared and the
+/// discard watermark moves past them.
+pub(crate) fn clear(s: &mut IaState, strings: &mut Strings) -> Result<(), &'static str> {
+    for i in 0..s.queue.len() {
+        let id = s.queue[i].id;
+        outcome(s, id, strings.intern_str("cleared"))?;
+    }
+    s.discarded = v8math::max(s.discarded, s.queue.last().map_or(0.0, |e| e.id));
+    s.queue.clear(); Ok(())
 }
 
 pub fn run(input: IaInput, strings: &mut Strings) -> IaResult {
@@ -78,14 +100,7 @@ pub fn run(input: IaInput, strings: &mut Strings) -> IaResult {
         IaOperation::Push => push(&mut out.state, input.entry, input.same_epoch, input.same_generation,
             input.payload_valid, input.human_valid, input.human, input.tick, strings).map(|v| out.accepted = v),
         IaOperation::Take => take(&mut out.state, input.tick, input.generation, strings).map(|(actions, human)| { out.actions = actions; out.human = human; }),
-        IaOperation::Clear => (|| {
-            for i in 0..out.state.queue.len() {
-                let id = out.state.queue[i].id;
-                outcome(&mut out.state, id, strings.intern_str("cleared"))?;
-            }
-            out.state.discarded = v8math::max(out.state.discarded, out.state.queue.last().map_or(0.0, |e| e.id));
-            out.state.queue.clear(); Ok(())
-        })(),
+        IaOperation::Clear => clear(&mut out.state, strings),
         IaOperation::Enable => { out.state.outcomes.get_or_insert_with(Vec::new); Ok(()) },
         IaOperation::Drain => { if let Some(v) = out.state.outcomes.as_mut() { out.outcomes = std::mem::take(v); } Ok(()) },
         IaOperation::Outcome => outcome(&mut out.state, input.id, input.status.expect("an outcome status")),

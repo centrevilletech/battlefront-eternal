@@ -4,15 +4,18 @@ use super::actions::safe_integer;
 use crate::gen::{IaOperation, IaOutcome, IfEdge, IfInput, IfMovement, IfResult, IfState};
 use crate::store::{StrId, Strings};
 
+// A receipt backlog of 64 threw in JavaScript and would have ended the
+// server's tick. A full backlog now drops the receipt: the client repeats
+// the edge or reports it expired, as it does for any lost receipt.
 fn outcome(s: &mut IfState, id: f64, status: StrId) -> Result<(), &'static str> {
     if let Some(outcomes) = s.outcomes.as_mut() {
-        if outcomes.len() >= 64 { return Err("fire outcome backlog exceeded"); }
+        if outcomes.len() >= 64 { return Ok(()); }
         outcomes.push(IaOutcome { id, status });
     }
     Ok(())
 }
 
-fn push(s: &mut IfState, edge: Option<IfEdge>, epoch_one: bool, pressed_valid: bool, same_generation: bool, tick: f64) -> bool {
+pub(crate) fn push(s: &mut IfState, edge: Option<IfEdge>, epoch_one: bool, pressed_valid: bool, same_generation: bool, tick: f64) -> bool {
     let Some(mut edge) = edge else { return false };
     if !epoch_one || !pressed_valid || !same_generation || !safe_integer(edge.id) || edge.id <= s.received ||
         !safe_integer(edge.tick) || edge.tick < 1.0 || edge.tick > tick + 120.0 || !safe_integer(edge.generation) ||
@@ -31,7 +34,16 @@ fn push(s: &mut IfState, edge: Option<IfEdge>, epoch_one: bool, pressed_valid: b
     true
 }
 
-fn take(out: &mut IfResult, tick: f64, generation: f64, movement: Option<IfMovement>, strings: &mut Strings) -> Result<(), &'static str> {
+/// FireCommands.clear: every queued edge is receipted as cleared.
+pub(crate) fn clear(s: &mut IfState, strings: &mut Strings) -> Result<(), &'static str> {
+    for i in 0..s.queue.len() {
+        let id = s.queue[i].id;
+        outcome(s, id, strings.intern_str("cleared"))?;
+    }
+    s.queue.clear(); s.buttons = [0.0; 2]; s.press_ticks = [0.0; 2]; Ok(())
+}
+
+pub(crate) fn take(out: &mut IfResult, tick: f64, generation: f64, movement: Option<IfMovement>, strings: &mut Strings) -> Result<(), &'static str> {
     let s = &mut out.state;
     if s.generation != Some(generation) {
         s.buttons = [0.0; 2]; s.press_ticks = [0.0; 2]; s.generation = Some(generation);
@@ -83,13 +95,7 @@ pub fn run(input: IfInput, strings: &mut Strings) -> IfResult {
     let result = match input.op {
         IaOperation::Push => { out.accepted = push(&mut out.state, input.edge, input.epoch_one, input.pressed_valid, input.same_generation, input.tick); Ok(()) },
         IaOperation::Take => take(&mut out, input.tick, input.generation, input.movement, strings),
-        IaOperation::Clear => (|| {
-            for i in 0..out.state.queue.len() {
-                let id = out.state.queue[i].id;
-                outcome(&mut out.state, id, strings.intern_str("cleared"))?;
-            }
-            out.state.queue.clear(); out.state.buttons = [0.0; 2]; out.state.press_ticks = [0.0; 2]; out.replaced_buttons = true; Ok(())
-        })(),
+        IaOperation::Clear => { let cleared = clear(&mut out.state, strings); out.replaced_buttons = true; cleared },
         IaOperation::Enable => { out.state.outcomes.get_or_insert_with(Vec::new); Ok(()) },
         IaOperation::Drain => { if let Some(v) = out.state.outcomes.as_mut() { out.outcomes = std::mem::take(v); } Ok(()) },
         IaOperation::Outcome => outcome(&mut out.state, input.id, input.status.expect("an outcome status")),
@@ -117,13 +123,14 @@ mod tests {
         take(&mut out, 16.0, 1.0, None, &mut strings).unwrap(); assert_eq!(out.state.buttons, [0.0, 1.0]);
     }
     #[test]
-    fn outcome_overflow_keeps_a_generation_filters_old_queue() {
+    fn a_full_receipt_backlog_drops_the_receipt_and_still_filters_the_old_life() {
         let mut strings = Strings::default();
         let status = strings.intern_str("consumed");
         let mut out = IfResult { state: IfState { generation: Some(1.0), buttons: [1.0, 1.0],
             queue: vec![edge(1.0, 1.0, 0.0, true)], outcomes: Some(vec![IaOutcome { id: 0.0, status }; 64]), ..Default::default() }, ..Default::default() };
-        assert_eq!(take(&mut out, 2.0, 2.0, None, &mut strings), Err("fire outcome backlog exceeded"));
+        assert_eq!(take(&mut out, 2.0, 2.0, None, &mut strings), Ok(()));
         assert_eq!(out.state.generation, Some(2.0)); assert_eq!(out.state.buttons, [0.0; 2]);
-        assert_eq!(out.state.queue.len(), 1); assert!(!out.replaced_queue); assert!(out.replaced_buttons);
+        assert!(out.state.queue.is_empty()); assert!(out.replaced_queue); assert!(out.replaced_buttons);
+        assert_eq!(out.state.outcomes.as_ref().unwrap().len(), 64);
     }
 }

@@ -891,6 +891,39 @@ pub(crate) fn bind_random_in(world_ctx: &mut crate::world::owner::World, unit: R
     true
 }
 
+/// A network human's mouse samples for a Look or Network command
+/// (src/f2-seats.js invoke with looks): the header names only the samples.
+pub(crate) fn seat_samples_in(world_ctx: &mut crate::world::owner::World, scales: &crate::seats::boarding::LookScales, looks: &[[f64; 2]]) {
+    let state = seats_state(&mut world_ctx.fleet.seats);
+    let o = F2SeatHeader::WORDS as u32;
+    let count = looks.len().min((INPUT_CAPACITY - F2SeatHeader::WORDS) / F2SeatSample::WORDS);
+    let header = F2SeatHeader { relations: o, relation_count: 0, units: o, unit_count: 0, controls: o, control_count: 0, turrets: o, turret_count: 0,
+        looks: o, look_count: count as u32, mouse_scale: scales.scale, invert: scales.invert, flight_scale: scales.flight_scale, flight_invert: scales.flight_invert,
+        soldiers: o, soldier_count: 0 };
+    let mut heap = Vec::new();
+    header.put(&mut state.input[..F2SeatHeader::WORDS], &mut heap);
+    for (i, look) in looks[..count].iter().enumerate() {
+        F2SeatSample { dx: look[0], dy: look[1] }.put(&mut state.input[F2SeatHeader::WORDS + i * F2SeatSample::WORDS..], &mut heap);
+    }
+}
+/// boarding.js mountInReach for a network human's use key: the hull or
+/// turret his eye reaches, by the battle's lists (Vehicles.enterable,
+/// LiveObjects.enterable), with the same casts the seats make.
+pub(crate) fn mount_in_reach_in(world_ctx: &mut crate::world::owner::World, unit: Ref<Unit>, person: bool) -> Option<crate::seats::boarding::Mount> {
+    let st = std::mem::take(&mut world_ctx.sim.store);
+    let owner = std::mem::take(&mut seats_state(&mut world_ctx.fleet.seats).owner);
+    let mut world = World::with_services_in(world_ctx, None);
+    let mount = crate::seats::boarding::mount_in_reach(&mut world, &st, &owner.hulls, &owner.crews, unit.slot, person);
+    seats_state(&mut world_ctx.fleet.seats).owner = owner;
+    world_ctx.sim.store = st;
+    mount
+}
+/// A turret's current life (its target's generation), the hull life a
+/// Man command is qualified by.
+pub(crate) fn turret_generation_in(world_ctx: &mut crate::world::owner::World, index: usize) -> f64 {
+    seats_state(&mut world_ctx.fleet.seats).turret_lives.get(index).copied().unwrap_or(0.0)
+}
+
 /// The synchronous commands used by AI, network input and death/disconnect.
 /// Scalar arguments are decoded before taking native ownership from the instance.
 pub(crate) fn command_in(world_ctx: &mut crate::world::owner::World, a: F2SeatCommand) -> F2SeatResult {
@@ -1772,6 +1805,8 @@ fn bind_descriptor(state:&mut State,riders:&super::riders::Riders,descriptor:&mu
     descriptor.riders=riders.words().as_ptr() as usize as u32;
 }
 pub(super) fn descriptor_words(fleet:&super::super::Fleet)->&[f64] { &fleet.seats.as_ref().expect("prepared native seats").io }
+/// The same bank for a native host reading by name; None before the seats are prepared.
+pub(super) fn descriptor_bank(fleet:&super::super::Fleet)->Option<&[f64]> { fleet.seats.as_ref().map(|seats|&seats.io[..]) }
 
 #[cfg(test)]
 pub(crate) fn admit_test_seats(fleet:&mut super::super::Fleet,owner:crate::vehicles::f2_seats::Seats) { seats_state(&mut fleet.seats).owner=owner; }

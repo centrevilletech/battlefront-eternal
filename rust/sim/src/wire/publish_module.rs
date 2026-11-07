@@ -34,6 +34,21 @@ pub(crate) fn wire_publish_in(w: &mut crate::world::owner::World, session:usize)
     Some(&s.publisher.block.words[..])
 
 }
+/// The native publication (Context::world_publish): `facts`, a WireWorldFacts
+/// row with its links, stamps the source's publication clock as the host's
+/// writeWorldFacts does, then the shared body runs. Answers with the result
+/// block and the encoder bytes its spans point into; None for an unknown
+/// session or a facts row of the wrong size.
+pub(crate) fn wire_publish_native_in<'a>(w: &'a mut crate::world::owner::World, session:usize, facts:&[f64]) -> Option<(&'a [f64], &'a [u8])> {
+    {
+        let owner = w.wire.as_deref_mut()?;
+        let s = owner.publications.get(session)?;
+        owner.sources.get_mut(s.source)?.stamp_publication_clock(facts)?;
+    }
+    wire_publish_in(w, session)?;
+    let s = w.wire.as_deref()?.publications.get(session)?;
+    Some((&s.publisher.block.words[..], &s.publisher.bytes[..]))
+}
 pub(crate) fn wire_publish_drop_in(w: &mut crate::world::owner::World, session:usize) {super::owner::with_in(w, |owner|{owner.publications.remove(session as usize);});}
 /// Occupancy observes retained banks without changing capture or ACK state.
 pub(crate) fn wire_publish_load_in(w: &mut crate::world::owner::World, session:usize) -> Option<&[f64]> {

@@ -14,6 +14,10 @@ pub(crate) fn active_in(battle: &mut BattleOwner) -> bool { battle.core.is_some(
 pub(crate) fn publication_ptr(battle: &mut BattleOwner) -> u32 {
     if !active_in(battle) { return 0; } state(battle).core.publication.block.ptr() as u32
 }
+/// The same bank by name, for a native host (Context::read_bank).
+pub(crate) fn publication_bank_in(battle: &mut BattleOwner) -> Option<&[f64]> {
+    if !active_in(battle) { return None; } Some(&state(battle).core.publication.block.words[..])
+}
 pub(crate) fn publish_in(w: &mut Root) {
     if crate::world::deferred_in(&w.tick) {return;}
 

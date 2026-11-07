@@ -3,13 +3,24 @@
 //! consumed held/view values rather than serializing every actor each time.
 use crate::{gen::*,store::{handles::Pool,StrId,Strings}};
 // WiView keeps protocol presence independent of numeric values and truthiness.
-const INVERT_MOUSE:u16=1;const FIRST_PERSON:u16=2;const FLIGHT:u16=4;const FLIGHT_INVERT:u16=8;
-const GAMEPAD:u16=16;const MOUSE_SCALE:u16=32;const ASPECT:u16=64;const VIEW_TICK:u16=128;
-const SENSITIVITY:u16=256;const CURVE:u16=512;const BINDINGS:u16=1024;
-pub struct Owner {pub mailboxes:Pool<Mailbox>}
-impl Owner {pub const fn new()->Self {Self {mailboxes:Pool::new(15)}}}
+/// The view record's presence bits (src/runtime/input-view.js VIEW).
+pub mod view_flags {
+    pub const INVERT_MOUSE:u16=1;pub const FIRST_PERSON:u16=2;pub const FLIGHT:u16=4;pub const FLIGHT_INVERT:u16=8;
+    pub const GAMEPAD:u16=16;pub const MOUSE_SCALE:u16=32;pub const ASPECT:u16=64;pub const VIEW_TICK:u16=128;
+    pub const SENSITIVITY:u16=256;pub const CURVE:u16=512;pub const BINDINGS:u16=1024;
+}
+use view_flags::*;
+pub struct Owner {pub mailboxes:Pool<Mailbox>,
+    /// The match's connected players, whose commands these mailboxes carry.
+    pub players:crate::players::owner::Players}
+impl Owner {pub const fn new()->Self {Self {mailboxes:Pool::new(15),players:crate::players::owner::Players::new()}}}
 impl Default for Owner {fn default()->Self {Self::new()}}
-pub struct Mailbox {pub rejected:u32,pub state:ImState,pub publication:WireOwnFacts,names:[StrId;7],codes:Vec<StrId>,taken:ImTaken,retired:Vec<f64>}
+/// The command the players' phase reads is the last take's lists plus the
+/// held codes of the last consumed entry (`InputMailbox.take`'s `down`).
+pub struct Mailbox {pub rejected:u32,pub state:ImState,pub publication:WireOwnFacts,names:[StrId;7],codes:Vec<StrId>,taken:ImTaken,retired:Vec<f64>,down:Vec<StrId>,down_out:Vec<StrId>,
+    /// The packets the players' phase consumed since the host's last exchange:
+    /// the host frees their lent producer objects when it hears of them.
+    consumed:Vec<f64>}
 impl Mailbox {
     pub fn new(epoch:f64,capacity:f64,codes:Vec<StrId>,strings:&mut Strings)->Option<Self> {
         // The host supplies registry order, which is also the wire bit order.
@@ -20,7 +31,7 @@ impl Mailbox {
         let names=["mouseScale","invertMouse","firstPerson","aspect","viewTick","flightSettings","gamepad"].map(|s|strings.intern_str(s));
         Some(Self {rejected:0,state:ImState {epoch,capacity,queue:Vec::with_capacity(capacity.clamp(0.,4096.) as usize),view:Vec::with_capacity(7),..Default::default()},
             publication:WireOwnFacts {held_valid:true,recon_aspect:1.,view:WiView {profile_found:true,..Default::default()},spawn:WireSpawnFacts {valid:true,..Default::default()},..Default::default()},names,codes,
-            taken:ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),human:Vec::with_capacity(16*capacity as usize),fire:Vec::with_capacity(16*capacity as usize)},retired:Vec::with_capacity(capacity as usize)})
+            taken:ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),human:Vec::with_capacity(16*capacity as usize),fire:Vec::with_capacity(16*capacity as usize)},retired:Vec::with_capacity(2*capacity as usize),down:Vec::with_capacity(64),down_out:Vec::with_capacity(64),consumed:Vec::with_capacity(capacity as usize)})
     }
     // WiView's presence flags remain independent from numeric values. In
     // particular a viewTick of zero and a signed-zero axis stay observable.
@@ -45,6 +56,7 @@ impl Mailbox {
         } else {self.state.view.retain(|field|field.key!=name);}
     }
     fn consumed(&mut self,entry:&ImEntry) {
+        self.down.clear();self.down.extend(entry.codes.iter().copied().take(64));
         self.publication.held.0.fill(0);self.publication.held_valid=true;
         for code in &entry.codes {if let Some(bit)=self.codes.iter().position(|id|id==code).filter(|&bit|bit<128) {self.publication.held.0[bit>>3]|=1<<(bit&7);} else {self.publication.held_valid=false;}}
         for field in &entry.view {if let Some(key)=self.names.iter().position(|&id|id==field.key) {self.view(key,true,&entry.publication);}}
@@ -56,6 +68,44 @@ impl Mailbox {
         // An early refusal never borrowed this buffer. Keep its reservation
         // rather than replacing it with the empty default error result.
         if result.retired.capacity()>0 {self.retired=std::mem::take(&mut result.retired);}
+    }
+    /// The players' phase takes this tick's command (InputMailbox.take):
+    /// true when it was admitted; a refused burst leaves an empty command,
+    /// where the host threw and lost the tick.
+    pub fn take_command(&mut self,tick:f64,generation:f64,strings:&mut Strings)->bool {
+        let mut result=self.run(ImInput {op:ImOperation::Take,tick,generation,..Default::default()},strings);
+        let ok=result.error.is_none()&&result.command.is_some();
+        self.keep_consumed(&result);
+        self.recycle(&mut result);
+        if !ok {self.taken.actions.clear();self.taken.look.clear();self.taken.human.clear();self.taken.fire.clear();}
+        ok
+    }
+    /// InputMailbox.clear.
+    pub fn clear_command(&mut self,strings:&mut Strings) {
+        let mut result=self.run(ImInput {op:ImOperation::Clear,..Default::default()},strings);
+        self.keep_consumed(&result);
+        self.recycle(&mut result);
+    }
+    /// A native take's retired identities, kept for the host (bounded by the
+    /// queue: a packet retires once, and only pushes refill the queue).
+    fn keep_consumed(&mut self,result:&ImResult) {
+        for &id in &result.retired {if self.consumed.len()<self.consumed.capacity() {self.consumed.push(id);}}
+    }
+    /// The host's exchange learns of the natively consumed packets too
+    /// (src/sim/wasm/runtime/input-mailbox.js run reads `retired`).
+    pub fn lend_consumed(&mut self,result:&mut ImResult) {result.retired.extend(self.consumed.drain(..));}
+    /// The host's result lends this retained list for the held codes.
+    pub fn lend_down(&mut self,result:&mut ImResult) {result.down=std::mem::take(&mut self.down_out);result.down.clear();result.down.extend_from_slice(&self.down);}
+    pub fn return_down(&mut self,result:&mut ImResult) {self.down_out=std::mem::take(&mut result.down);}
+    /// The last take's lists.
+    pub fn taken(&self)->&ImTaken {&self.taken}
+    /// The held codes of the last consumed entry.
+    pub fn down(&self)->&[StrId] {&self.down}
+    /// Whether the command carries the view field (its key's index in
+    /// InputMailbox's `keys`: mouseScale, invertMouse, firstPerson, aspect,
+    /// viewTick, flightSettings, gamepad).
+    pub fn present(&self,key:usize)->bool {
+        self.names.get(key).is_some_and(|name|self.state.view.iter().any(|field|field.key==*name))
     }
     pub fn run(&mut self,mut input:ImInput,strings:&mut Strings)->ImResult {
         // Transport validation precedes string interning; native callers must
@@ -87,7 +137,10 @@ impl Mailbox {
         let (mut result,spare)=super::mailbox::run_reusing(input,strings,taken,retired,|entry|self.consumed(entry));
         self.taken=spare;
         if matches!(input_op,ImOperation::Take) && self.publication.view.aspect.is_finite() && self.publication.view.aspect>0. {self.publication.recon_aspect=self.publication.view.aspect;}
-        self.publication.discarded=result.state.discarded;self.state=std::mem::take(&mut result.state);result
+        self.publication.discarded=result.state.discarded;self.state=std::mem::take(&mut result.state);
+        // A clear or a new life forgets the held keys with the consumed entry.
+        if self.state.down.is_none() {self.down.clear();}
+        result
     }
 }
 
@@ -102,7 +155,7 @@ pub fn valid_call(row:&[f64],heap:&[f64])->bool {
     if row[C::ENTRY]!=0. {return false;}
     let entry=&row[C::ENTRY+1..];
     for (field,width,max) in [(E::CODES,1,64),(E::ACTIONS,1,2048),(E::LOOK,ImLook::WORDS,2048),
-        (E::VIEW,ImField::WORDS,7),(E::HUMAN,1,16),(E::FIRE,ImFire::WORDS,16)] {
+        (E::VIEW,ImField::WORDS,7),(E::HUMAN,HsCommand::WORDS,16),(E::FIRE,ImFire::WORDS,16)] {
         if !integer(entry[field],heap.len())||!integer(entry[field+1],max) {return false;}
         let end=(entry[field] as usize).saturating_add((entry[field+1] as usize).saturating_mul(width));
         if end>heap.len() {return false;}
@@ -142,7 +195,7 @@ mod tests {
                 state:ImState {capacity:1.0,generation:1.0,queue:vec![ImEntry {
                     identity:7.0,sequence:1.0,tick:1.0,generation:1.0,down:17.0,
                     actions:vec![jump;actions],look:vec![ImLook::default();looks],
-                    human:vec![1.0;humans],look_total:total,..Default::default()
+                    human:vec![HsCommand::default();humans],look_total:total,..Default::default()
                 }],..Default::default()},..Default::default()};
             let mut owner=Mailbox::new(1.,1.,Vec::new(),&mut strings).unwrap();
             owner.state=input.state;
@@ -176,7 +229,9 @@ mod tests {
         bad.push(ImEntry {actions:vec![code;2049],..good.clone()});
         bad.push(ImEntry {look:vec![ImLook {point:[f64::NAN,0.],object:None}],..good.clone()});
         bad.push(ImEntry {look_total:Some([f64::INFINITY,0.]),..good.clone()});
-        bad.push(ImEntry {human:vec![1.;17],..good.clone()});
+        bad.push(ImEntry {human:vec![HsCommand {kind:HsCommandKind::Suicide,..Default::default()};17],..good.clone()});
+        bad.push(ImEntry {human:vec![HsCommand {kind:HsCommandKind::Team,team:8.,..Default::default()}],..good.clone()});
+        bad.push(ImEntry {human:vec![HsCommand {kind:HsCommandKind::Spawn,..Default::default()}],..good.clone()});
         bad.push(ImEntry {fire:vec![ImFire {id:0.,button:0.,pressed:true}],..good.clone()});
         for entry in bad {
             let count=owner.rejected;

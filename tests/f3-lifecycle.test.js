@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { f3World } from './fixtures/f3-world.js';
+import { playerCombatWorld } from './fixtures/player-combat-world.js';
 import { weaponDefinition } from './fixtures/client-weapons.js';
 import { ClassicRandom, uniformRandom } from '../src/ai/random.js';
 
@@ -133,55 +134,57 @@ test('owned corpse removal detaches its Character synchronously and returns one 
   assert.equal(world.phase.x.f3_acquire(world.phase.bridge.strings.id('corpse')),-1);
 });
 
-// An instant shot enters damage while the shooter is still inside Unit.tick.
-// Character detachment returns a scalar pointer; drops and corpse mechanics
-// remain native, and pure notices are delivered after that span has returned.
-test('a lethal owned shot detaches its controller before a native side-local item drop', async() => {
+// An instant shot enters damage during the native unit interval.
+// Character detachment, drops and corpse mechanics remain native; sampled
+// notices preserve the death and birth values after the complete tick.
+test('a lethal network shot preserves death and native side-local item drop samples', async() => {
   const { weaponDefinition } = await import('./fixtures/client-weapons.js');
   const bolt = {class:'fatal-bolt',base:'bolt',Velocity:60,LifeSpan:1,Damage:5000};
   const gun = weaponDefinition('rifle',0,{
     TriggerSingle:1,ShotDelay:1,SpreadThreshold:0,SpreadPerShot:0,HeatPerShot:0,
     YawSpread:0,PitchSpread:0,StandStillSpread:0,StandMoveSpread:0,ordnance:bolt,
   });
-  const characters = {shooter:{unit:null},victim:{unit:null}};
   const calls = [];
   const medpack = {class:'medpack',base:'health',LifeSpan:30};
   let world;
-  world = await f3World({
+  world = await playerCombatWorld({
     shooter:{class:'shooter',base:'soldier',MaxHealth:2000,weapons:[gun]},
     victim:{class:'victim',base:'soldier',MaxHealth:2000,weapons:[],drops:[{class:'medpack',probability:1}]},
   }, {
     itemClasses:{medpack},
-    prepareUnit:unit=>{ unit.character = characters[unit.className];unit.character.unit = unit; },
-    deathCredit:(unit,killer,relation)=>{
-      calls.push(['credit',unit.alive,unit.dead,killer,relation,unit.soldier.air]);
-      unit.character.unit = null;
-      world.phase.controller(unit,null);
-    },
     deathNotice:(unit,event)=>calls.push(['death',unit,event.key.life,event.position.y]),
   });
-  const shooter = world.spawn('shooter',0,0,true), victim = world.spawn('victim',0,1.5);
+  const shooter = world.shooter;
+  await world.world.addPlayer('victim',{team:2,className:'victim'});
+  const victimActor = world.world.players.get('victim'), victim = victimActor.unit;
+  world.game.unitsSim.placeBody(victim,0,0,1.5,0);
+  let birth;
+  const itemNotice = world.phase.eventHandlers.f3Item;
+  world.phase.eventHandlers.f3Item = event => {
+    if (event.made) birth = {position:event.state.position.clone(),velocity:event.state.velocity.clone()};
+    itemNotice(event);
+  };
   world.phase.begin(world.phase.bindings[victim.id],'bodyAir');
   world.phase.change.field = 3;world.phase.commit();
-  for (let tick=0;tick<=10;tick++) world.phase.history.capture(tick);
-  shooter.networkShot = {button:0,id:41,viewTick:8,late:0,aimYaw:0,aimPitch:0};
-  shooter.networkViewTick = 8;shooter.intent.buttons[0] = 1;
+  world.capture();
+  world.phase.begin(world.phase.bindings[victim.id],'bodyAir');
+  world.phase.change.field = 3;world.phase.commit();
+  assert.equal(world.fire(),true);
   world.phase.bodiesIn();world.phase.counters.reset();
-  world.phase.phase(1/60);
+  world.step();
   assert.equal(victim.alive,false);
   assert.equal(victim.dead,true);
   assert.equal(victim.controller,null);
-  assert.equal(characters.victim.unit,null);
-  assert.deepEqual(calls[0],['credit',false,true,characters.shooter,0,'fall']);
-  assert.equal(calls[1][0],'death');assert.equal(calls[1][1],victim);
-  assert.equal(calls[1][2],victim.generation);
+  assert.equal(victimActor.character.unit,null);
+  assert.equal(calls[0][0],'death');assert.equal(calls[0][1],victim);
+  assert.equal(calls[0][2],victim.generation);
   const dropped = world.items.items[0];
   assert.equal(dropped.def,medpack);
-  assert.equal(dropped.position.y,calls[1][3]+1.048);
+  assert.equal(birth.position.y,calls[0][3]+1.048);
   assert.equal(dropped.owner,null);assert.equal(dropped.team,0);
-  assert.equal(dropped.velocity.length(),3);
+  assert.equal(birth.velocity.length(),3);
   assert.equal(world.phase.counters.wasmCalls,1);
-  assert.equal(world.phase.counters.importCalls,2,'one aimer and the Character credit leaf');
+  assert.equal(world.phase.counters.importCalls,0,'player input and Character credit stay native');
   assert.equal(world.phase.counters.commandCalls,0);
   assert.equal(world.phase.counters.rustAllocations,0);
   assert.equal(world.phase.counters.rustReallocations,0);

@@ -4,11 +4,11 @@ import {f3World} from './fixtures/f3-world.js';
 
 const classes={soldier:{class:'soldier',base:'soldier',MaxHealth:300,weapons:[]}};
 
-// HitHistory has already made its ordinary lazy observation. Reading that
+// A native bounds sensor has already made its lazy observation. Reading that
 // exact qualified sample changes neither the canonical cache nor its order.
 test('history bounds retain vector identity without another sensor export',async()=>{
   const w=await f3World(classes,{debug:false}),unit=w.spawn('soldier',0,0);
-  w.phase.phase(1/60);w.phase.history.capture(1);
+  w.phase.phase(1/60);w.phase.registry.bounds(unit);
   const before=w.phase.counters.wasmCalls,bounds=unit.bounds,center=bounds.center;
   assert.equal(unit.sphere,bounds);assert.equal(unit.sphere.center,center);
   assert.equal(w.phase.counters.wasmCalls,before);
@@ -23,7 +23,7 @@ test('history bounds retain vector identity without another sensor export',async
   assert.equal(w.phase.counters.wasmCalls,calls+1,'an old-life cache cannot answer a new life');
   // The head's lateral offset also contributes to this broadphase sphere.
   assert.equal(unit.bounds.center.x,11.955);
-  w.phase.history.capture(2);
+  w.phase.registry.bounds(unit);
   w.phase.placeBody(unit,30,0,4,0);
   const placed=w.phase.counters.wasmCalls;
   w.phase.registry.bounds(unit);
@@ -40,7 +40,7 @@ test('bounds reject a completed native tick hidden by delayed body publication',
   const w=await f3World(classes,{debug:false});
   const target=w.spawn('soldier',0,0),observer=w.spawn('soldier',10,0);
   w.phase.controller(target,null);
-  w.phase.phase(1/60);w.phase.history.capture(1);
+  w.phase.phase(1/60);w.phase.registry.bounds(target);
   const oldTick=target.tickCount;
   target.intent.forward=1;
   let seen=null;

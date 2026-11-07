@@ -26,18 +26,6 @@ export const WorldLocalCall_NAMES = ["battle","ready","spawn","clearHuman","remo
 export const WorldLocalCall_INDEX = new Map(WorldLocalCall_NAMES.map((name, i) => [name, i]));
 export const WorldLocalCall_VALUE = Object.freeze({"battle":0,"ready":1,"spawn":2,"clearHuman":3,"remove":4,"present":5});
 
-export const WorldNetworkChoice_NAMES = ["other","suicide","team","spawn"];
-export const WorldNetworkChoice_INDEX = new Map(WorldNetworkChoice_NAMES.map((name, i) => [name, i]));
-export const WorldNetworkChoice_VALUE = Object.freeze({"other":0,"suicide":1,"team":2,"spawn":3});
-
-export const WorldNetworkCall_NAMES = ["capture","players","nextPlayer","ended","release","retire","delete","stop","command","actions","accept","choices","nextChoice","suicide","switchTeam","team","currentAlive","spawn","trace","unit","deadTime","autoSpawn","deadPhase","controls","views","step"];
-export const WorldNetworkCall_INDEX = new Map(WorldNetworkCall_NAMES.map((name, i) => [name, i]));
-export const WorldNetworkCall_VALUE = Object.freeze({"capture":0,"players":1,"nextPlayer":2,"ended":3,"release":4,"retire":5,"delete":6,"stop":7,"command":8,"actions":9,"accept":10,"choices":11,"nextChoice":12,"suicide":13,"switchTeam":14,"team":15,"currentAlive":16,"spawn":17,"trace":18,"unit":19,"deadTime":20,"autoSpawn":21,"deadPhase":22,"controls":23,"views":24,"step":25});
-
-export const WorldControlsCall_NAMES = ["start","squadTake","squadReady","squad","squadEvent","nextSpawn","scheme","firstPerson","combatView","remotes","remoteView","finiteAspect","positiveAspect","aimCamera","aspect","axis","pitchZero","action","metadata","reliable","fire","fireButtons","shots","nextShot","shotTick","shotLate","publishShots","held","key","scale","looks","nextLook","dx","dy","remoteActive","remoteLook","soldierLook","seat","vehicle","selection","cycle","clearSelection","vehicleInput","vehicleKeys","turnStart","reduce","turn","turnOther","invert","pitch","pitchOther","use","mount","mountVehicle","board","mountTurret","man","clearUse","clear","unit","stopIntent","stopMetadata","driver","stopSticks"];
-export const WorldControlsCall_INDEX = new Map(WorldControlsCall_NAMES.map((name, i) => [name, i]));
-export const WorldControlsCall_VALUE = Object.freeze({"start":0,"squadTake":1,"squadReady":2,"squad":3,"squadEvent":4,"nextSpawn":5,"scheme":6,"firstPerson":7,"combatView":8,"remotes":9,"remoteView":10,"finiteAspect":11,"positiveAspect":12,"aimCamera":13,"aspect":14,"axis":15,"pitchZero":16,"action":17,"metadata":18,"reliable":19,"fire":20,"fireButtons":21,"shots":22,"nextShot":23,"shotTick":24,"shotLate":25,"publishShots":26,"held":27,"key":28,"scale":29,"looks":30,"nextLook":31,"dx":32,"dy":33,"remoteActive":34,"remoteLook":35,"soldierLook":36,"seat":37,"vehicle":38,"selection":39,"cycle":40,"clearSelection":41,"vehicleInput":42,"vehicleKeys":43,"turnStart":44,"reduce":45,"turn":46,"turnOther":47,"invert":48,"pitch":49,"pitchOther":50,"use":51,"mount":52,"mountVehicle":53,"board":54,"mountTurret":55,"man":56,"clearUse":57,"clear":58,"unit":59,"stopIntent":60,"stopMetadata":61,"driver":62,"stopSticks":63});
-
 export class WorldClockStateMirror {
   constructor() {
     this.hz = NaN;
@@ -757,7 +745,7 @@ export function exportWorldTickSetup(o, cx) {
   return v;
 }
 
-export const WorldTickInputLayout = Object.freeze({ words: 21, dt: 0, tick: 1, clock: 2, units: 15, ai: 16, live: 17, camera: 18, offlineCamera: 19, squads: 20 });
+export const WorldTickInputLayout = Object.freeze({ words: 23, dt: 0, tick: 1, clock: 2, units: 15, ai: 16, live: 17, camera: 18, offlineCamera: 19, squads: 20, at: 21, mouseScale: 22 });
 export const WORLD_TICK_INPUT_WORDS = WorldTickInputLayout.words;
 export const WORLD_TICK_INPUT_OFFSETS = WorldTickInputLayout;
 
@@ -772,6 +760,8 @@ export class WorldTickInputMirror {
     this.camera = 0;
     this.offlineCamera = false;
     this.squads = 0;
+    this.at = NaN;
+    this.mouseScale = NaN;
   }
 }
 
@@ -785,6 +775,8 @@ export function syncWorldTickInput(b, f, at, h, m) {
   m.camera = f[at + 18] >>> 0;
   m.offlineCamera = f[at + 19] !== 0;
   m.squads = f[at + 20] >>> 0;
+  m.at = f[at + 21];
+  m.mouseScale = f[at + 22];
   return m;
 }
 
@@ -798,6 +790,8 @@ export function putWorldTickInput(b, o, f, at, heap) {
   f[at + 18] = o.camera;
   f[at + 19] = o.offlineCamera ? 1 : 0;
   f[at + 20] = o.squads;
+  f[at + 21] = o.at;
+  f[at + 22] = o.mouseScale;
 }
 
 export function sameWorldTickInput(a, b) {
@@ -810,6 +804,8 @@ export function sameWorldTickInput(a, b) {
   if (!Object.is(a.camera, b.camera)) return ".camera";
   if (!Object.is(a.offlineCamera, b.offlineCamera)) return ".offlineCamera";
   if (!Object.is(a.squads, b.squads)) return ".squads";
+  if (!Object.is(a.at, b.at)) return ".at";
+  if (!Object.is(a.mouseScale, b.mouseScale)) return ".mouseScale";
   return null;
 }
 
@@ -827,10 +823,12 @@ export function exportWorldTickInput(o, cx) {
   v.camera = o.camera;
   v.offlineCamera = o.offlineCamera;
   v.squads = o.squads;
+  v.at = o.at;
+  v.mouseScale = o.mouseScale;
   return v;
 }
 
-export const WorldTickOutputLayout = Object.freeze({ words: 23, accepted: 0, clock: 1, ordnance: 14, items: 15, waterTime: 16, wave: 17, level: 18, squads: 19, allocations: 20, reallocations: 21, allocationBytes: 22 });
+export const WorldTickOutputLayout = Object.freeze({ words: 24, accepted: 0, clock: 1, ordnance: 14, items: 15, waterTime: 16, wave: 17, level: 18, squads: 19, allocations: 20, reallocations: 21, allocationBytes: 22, playersEvents: 23 });
 export const WORLD_TICK_OUTPUT_WORDS = WorldTickOutputLayout.words;
 export const WORLD_TICK_OUTPUT_OFFSETS = WorldTickOutputLayout;
 
@@ -847,6 +845,7 @@ export class WorldTickOutputMirror {
     this.allocations = 0;
     this.reallocations = 0;
     this.allocationBytes = 0;
+    this.playersEvents = 0;
   }
 }
 
@@ -862,6 +861,7 @@ export function syncWorldTickOutput(b, f, at, h, m) {
   m.allocations = f[at + 20] >>> 0;
   m.reallocations = f[at + 21] >>> 0;
   m.allocationBytes = f[at + 22] >>> 0;
+  m.playersEvents = f[at + 23] >>> 0;
   return m;
 }
 
@@ -877,6 +877,7 @@ export function putWorldTickOutput(b, o, f, at, heap) {
   f[at + 20] = o.allocations;
   f[at + 21] = o.reallocations;
   f[at + 22] = o.allocationBytes;
+  f[at + 23] = o.playersEvents;
 }
 
 export function sameWorldTickOutput(a, b) {
@@ -891,6 +892,7 @@ export function sameWorldTickOutput(a, b) {
   if (!Object.is(a.allocations, b.allocations)) return ".allocations";
   if (!Object.is(a.reallocations, b.reallocations)) return ".reallocations";
   if (!Object.is(a.allocationBytes, b.allocationBytes)) return ".allocationBytes";
+  if (!Object.is(a.playersEvents, b.playersEvents)) return ".playersEvents";
   return null;
 }
 
@@ -910,298 +912,6 @@ export function exportWorldTickOutput(o, cx) {
   v.allocations = o.allocations;
   v.reallocations = o.reallocations;
   v.allocationBytes = o.allocationBytes;
-  return v;
-}
-
-export const WorldNetworkStateLayout = Object.freeze({ words: 14, disconnected: 0, disconnectedAt: 1, spectator: 2, stale: 3, lastInputAt: 4, separateActions: 5, alive: 6, removed: 7, deadTime: 8, autoRespawn: 9, spawnedOnce: 10, teamSelect: 11, choice: 12, choiceTeam: 13 });
-export const WORLD_NETWORK_STATE_WORDS = WorldNetworkStateLayout.words;
-export const WORLD_NETWORK_STATE_OFFSETS = WorldNetworkStateLayout;
-
-export class WorldNetworkStateMirror {
-  constructor() {
-    this.disconnected = false;
-    this.disconnectedAt = NaN;
-    this.spectator = false;
-    this.stale = false;
-    this.lastInputAt = NaN;
-    this.separateActions = false;
-    this.alive = false;
-    this.removed = false;
-    this.deadTime = NaN;
-    this.autoRespawn = false;
-    this.spawnedOnce = false;
-    this.teamSelect = false;
-    this.choice = "other";
-    this.choiceTeam = NaN;
-  }
-}
-
-export function syncWorldNetworkState(b, f, at, h, m) {
-  m.disconnected = f[at + 0] !== 0;
-  m.disconnectedAt = f[at + 1];
-  m.spectator = f[at + 2] !== 0;
-  m.stale = f[at + 3] !== 0;
-  m.lastInputAt = f[at + 4];
-  m.separateActions = f[at + 5] !== 0;
-  m.alive = f[at + 6] !== 0;
-  m.removed = f[at + 7] !== 0;
-  m.deadTime = f[at + 8];
-  m.autoRespawn = f[at + 9] !== 0;
-  m.spawnedOnce = f[at + 10] !== 0;
-  m.teamSelect = f[at + 11] !== 0;
-  m.choice = WorldNetworkChoice_NAMES[f[at + 12]];
-  m.choiceTeam = f[at + 13];
-  return m;
-}
-
-export function putWorldNetworkState(b, o, f, at, heap) {
-  f[at + 0] = o.disconnected ? 1 : 0;
-  f[at + 1] = o.disconnectedAt;
-  f[at + 2] = o.spectator ? 1 : 0;
-  f[at + 3] = o.stale ? 1 : 0;
-  f[at + 4] = o.lastInputAt;
-  f[at + 5] = o.separateActions ? 1 : 0;
-  f[at + 6] = o.alive ? 1 : 0;
-  f[at + 7] = o.removed ? 1 : 0;
-  f[at + 8] = o.deadTime;
-  f[at + 9] = o.autoRespawn ? 1 : 0;
-  f[at + 10] = o.spawnedOnce ? 1 : 0;
-  f[at + 11] = o.teamSelect ? 1 : 0;
-  f[at + 12] = WorldNetworkChoice_INDEX.get(o.choice);
-  f[at + 13] = o.choiceTeam;
-}
-
-export function sameWorldNetworkState(a, b) {
-  if (!Object.is(a.disconnected, b.disconnected)) return ".disconnected";
-  if (!Object.is(a.disconnectedAt, b.disconnectedAt)) return ".disconnectedAt";
-  if (!Object.is(a.spectator, b.spectator)) return ".spectator";
-  if (!Object.is(a.stale, b.stale)) return ".stale";
-  if (!Object.is(a.lastInputAt, b.lastInputAt)) return ".lastInputAt";
-  if (!Object.is(a.separateActions, b.separateActions)) return ".separateActions";
-  if (!Object.is(a.alive, b.alive)) return ".alive";
-  if (!Object.is(a.removed, b.removed)) return ".removed";
-  if (!Object.is(a.deadTime, b.deadTime)) return ".deadTime";
-  if (!Object.is(a.autoRespawn, b.autoRespawn)) return ".autoRespawn";
-  if (!Object.is(a.spawnedOnce, b.spawnedOnce)) return ".spawnedOnce";
-  if (!Object.is(a.teamSelect, b.teamSelect)) return ".teamSelect";
-  if (!Object.is(a.choice, b.choice)) return ".choice";
-  if (!Object.is(a.choiceTeam, b.choiceTeam)) return ".choiceTeam";
-  return null;
-}
-
-export function exportWorldNetworkState(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.disconnected = o.disconnected;
-  v.disconnectedAt = o.disconnectedAt;
-  v.spectator = o.spectator;
-  v.stale = o.stale;
-  v.lastInputAt = o.lastInputAt;
-  v.separateActions = o.separateActions;
-  v.alive = o.alive;
-  v.removed = o.removed;
-  v.deadTime = o.deadTime;
-  v.autoRespawn = o.autoRespawn;
-  v.spawnedOnce = o.spawnedOnce;
-  v.teamSelect = o.teamSelect;
-  v.choice = o.choice;
-  v.choiceTeam = o.choiceTeam;
-  return v;
-}
-
-export class WorldNetworkInputMirror {
-  constructor() {
-    this.state = new WorldNetworkStateMirror();
-    this.tick = NaN;
-    this.at = NaN;
-    this.grace = NaN;
-    this.respawn = NaN;
-  }
-}
-
-export function syncWorldNetworkInput(b, f, at, h, m) {
-  m.state = syncWorldNetworkState(b, f, at + 0, h, m.state ?? new WorldNetworkStateMirror());
-  m.tick = f[at + 14];
-  m.at = f[at + 15];
-  m.grace = f[at + 16];
-  m.respawn = f[at + 17];
-  return m;
-}
-
-export function putWorldNetworkInput(b, o, f, at, heap) {
-  putWorldNetworkState(b, o.state, f, at + 0, heap);
-  f[at + 14] = o.tick;
-  f[at + 15] = o.at;
-  f[at + 16] = o.grace;
-  f[at + 17] = o.respawn;
-}
-
-export function sameWorldNetworkInput(a, b) {
-  { const d = sameWorldNetworkState(a.state, b.state); if (d) return ".state" + d; }
-  if (!Object.is(a.tick, b.tick)) return ".tick";
-  if (!Object.is(a.at, b.at)) return ".at";
-  if (!Object.is(a.grace, b.grace)) return ".grace";
-  if (!Object.is(a.respawn, b.respawn)) return ".respawn";
-  return null;
-}
-
-export function exportWorldNetworkInput(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.state = exportWorldNetworkState(o.state, cx);
-  v.tick = o.tick;
-  v.at = o.at;
-  v.grace = o.grace;
-  v.respawn = o.respawn;
-  return v;
-}
-
-export class WorldNetworkArgsMirror {
-  constructor() {
-    this.op = "capture";
-    this.value = NaN;
-  }
-}
-
-export function syncWorldNetworkArgs(b, f, at, h, m) {
-  m.op = WorldNetworkCall_NAMES[f[at + 0]];
-  m.value = f[at + 1];
-  return m;
-}
-
-export function putWorldNetworkArgs(b, o, f, at, heap) {
-  f[at + 0] = WorldNetworkCall_INDEX.get(o.op);
-  f[at + 1] = o.value;
-}
-
-export function sameWorldNetworkArgs(a, b) {
-  if (!Object.is(a.op, b.op)) return ".op";
-  if (!Object.is(a.value, b.value)) return ".value";
-  return null;
-}
-
-export function exportWorldNetworkArgs(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.op = o.op;
-  v.value = o.value;
-  return v;
-}
-
-export class WorldNetworkReplyMirror {
-  constructor() {
-    this.state = new WorldNetworkStateMirror();
-    this.value = false;
-  }
-}
-
-export function syncWorldNetworkReply(b, f, at, h, m) {
-  m.state = syncWorldNetworkState(b, f, at + 0, h, m.state ?? new WorldNetworkStateMirror());
-  m.value = f[at + 14] !== 0;
-  return m;
-}
-
-export function putWorldNetworkReply(b, o, f, at, heap) {
-  putWorldNetworkState(b, o.state, f, at + 0, heap);
-  f[at + 14] = o.value ? 1 : 0;
-}
-
-export function sameWorldNetworkReply(a, b) {
-  { const d = sameWorldNetworkState(a.state, b.state); if (d) return ".state" + d; }
-  if (!Object.is(a.value, b.value)) return ".value";
-  return null;
-}
-
-export function exportWorldNetworkReply(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.state = exportWorldNetworkState(o.state, cx);
-  v.value = o.value;
-  return v;
-}
-
-export class WorldControlsArgsMirror {
-  constructor() {
-    this.op = "start";
-    this.index = NaN;
-    this.value = NaN;
-    this.other = NaN;
-  }
-}
-
-export function syncWorldControlsArgs(b, f, at, h, m) {
-  m.op = WorldControlsCall_NAMES[f[at + 0]];
-  m.index = f[at + 1];
-  m.value = f[at + 2];
-  m.other = f[at + 3];
-  return m;
-}
-
-export function putWorldControlsArgs(b, o, f, at, heap) {
-  f[at + 0] = WorldControlsCall_INDEX.get(o.op);
-  f[at + 1] = o.index;
-  f[at + 2] = o.value;
-  f[at + 3] = o.other;
-}
-
-export function sameWorldControlsArgs(a, b) {
-  if (!Object.is(a.op, b.op)) return ".op";
-  if (!Object.is(a.index, b.index)) return ".index";
-  if (!Object.is(a.value, b.value)) return ".value";
-  if (!Object.is(a.other, b.other)) return ".other";
-  return null;
-}
-
-export function exportWorldControlsArgs(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.op = o.op;
-  v.index = o.index;
-  v.value = o.value;
-  v.other = o.other;
-  return v;
-}
-
-export class WorldControlsReplyMirror {
-  constructor() {
-    this.value = NaN;
-    this.flag = false;
-  }
-}
-
-export function syncWorldControlsReply(b, f, at, h, m) {
-  m.value = f[at + 0];
-  m.flag = f[at + 1] !== 0;
-  return m;
-}
-
-export function putWorldControlsReply(b, o, f, at, heap) {
-  f[at + 0] = o.value;
-  f[at + 1] = o.flag ? 1 : 0;
-}
-
-export function sameWorldControlsReply(a, b) {
-  if (!Object.is(a.value, b.value)) return ".value";
-  if (!Object.is(a.flag, b.flag)) return ".flag";
-  return null;
-}
-
-export function exportWorldControlsReply(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.value = o.value;
-  v.flag = o.flag;
+  v.playersEvents = o.playersEvents;
   return v;
 }

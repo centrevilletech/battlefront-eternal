@@ -6,10 +6,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeSync } from 'node:fs';
 import { bridgeFor, Heap } from '../src/sim/runtime.js';
 import { IMPORT_TABLE } from '../src/sim/gen/index.js';
-import * as worldRecords from '../src/sim/gen/world.js';
 
 const names = new Set(['world_events_run', 'world_local_run']);
-const stateRecords = { world_network_run: ['WorldNetworkState', worldRecords.WorldNetworkStateLayout.words] };
 const counts = Object.fromEntries([...names].map(n => [n, 0]));
 const bridges = new WeakMap(); let next = 0, failures = 0, tests = 0;
 const hex = values => { const bytes = Buffer.alloc(values.length * 8); values.forEach((v, i) => bytes.writeDoubleLE(v, i * 8)); return bytes.toString('hex'); };
@@ -51,10 +49,7 @@ function instrument(instance) {
       frames.push(frame);
       try {
         const value = original(...args);
-        if (stateRecords[name]) {
-          assert.ok(frame.state, 'a completed world operation must reply at least once');
-          if (name === 'world_network_run') frame.scalar = hex([value]);
-        } else frame.output = block(b, value);
+        frame.output = block(b, value);
         counts[name]++; emit(frame);
         return value;
       } catch (error) { failures++; throw error; }
@@ -72,8 +67,6 @@ function instrument(instance) {
       frame.calls.push(call);
       const value = handler(args);
       call.output = encode(b, imp.result, value);
-      const state = stateRecords[frame.name];
-      if (state) frame.state = encode(b, { words: state[1], put: worldRecords[`put${state[0]}`] }, value.state);
       return value;
     }];
   })));
@@ -105,8 +98,8 @@ for (const file of ['world-events-sim.test.js',
   for (const [name, run] of tasks) { await run(); tests++; }
 }
 assert.ok(Object.values(counts).every(n => n > 0));
-// Six journal fixtures and the remaining local context-driver fixture.
-// The retired input/roster adapters no longer contribute tests here.
+// Journal and local observer fixtures cover the remaining callback entries.
+// Player commands enter their retained owner and have no callback transcript.
 assert.equal(tests, 7);
 assert.ok(next > 2 && failures > 0);
 const summary = { summary: true, contexts: next, tests, callbackFailuresCheckedByJs: failures, counts };

@@ -49,6 +49,11 @@ pub fn ai_world_boundary_in(w:&mut World)->Option<&[f64]> {
     Some(battle.exchange.descriptor(&battle.counters))
 }
 
+// The retained banks the descriptor names, for a native host that reads them
+// by name rather than by address (Context::read_bank); None before ai_world_begin.
+pub fn ai_counters_bank_in(w:&World)->Option<&[f64]> { w.ai.battle().map(|battle|battle.exchange.counters()) }
+pub fn ai_controls_bank_in(w:&World)->Option<&[f64]> { w.ai.battle().map(|battle|battle.state.control_views.words()) }
+
 /// ai.update crosses once. Decisions, mounted aim and recursive physical
 /// effects all borrow one native Core and the original shared generators.
 pub fn ai_world_phase_in(w:&mut World)->u32 {

@@ -36,12 +36,14 @@ pub(crate) fn input_mailbox_owned_run_in(w: &mut crate::world::owner::World, han
         tick:call.tick,generation:call.generation,..Default::default()};
     let Some(owner)=w.input.mailboxes.get_mut(handle as usize) else {return None};
     let mut result=owner.run(input,&mut sim.strings);
+    owner.lend_down(&mut result);
+    owner.lend_consumed(&mut result);
     result.state=std::mem::take(&mut owner.state);
     // Queued commands stay with their owner. Only consumed values and fixed
     // counters return to the caller; inspection is a separate cold operation.
     let queue=std::mem::take(&mut result.state.queue);
     sim.calls.result(ImResult::WORDS,|row,heap|result.put(row,heap));
-    result.state.queue=queue;owner.state=std::mem::take(&mut result.state);owner.recycle(&mut result);
+    result.state.queue=queue;owner.state=std::mem::take(&mut result.state);owner.recycle(&mut result);owner.return_down(&mut result);
     Some(&sim.calls.block.words[..])
 }
 pub fn input_queue_words(which: u32) -> u32 {

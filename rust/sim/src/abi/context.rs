@@ -9,14 +9,15 @@
 //!
 //! Clones are aliases, not new worlds. Dispose rejects active invocations and
 //! invalidates all aliases; creating a replacement never revives an old handle.
-//! Rc makes handles !Send and !Sync. All buffers returned here are owned copies,
-//! valid after growth, nested calls and disposal. Entity and string IDs are local
+//! Rc makes handles !Send and !Sync. Returned buffers are owned copies, except
+//! explicit reader loans that expire before returning. Owned copies stay valid
+//! after growth, nested calls and disposal. Entity and string IDs are local
 //! to this context. Store-only reset is deliberately not a context operation.
 #[path = "context_input.rs"]
 mod input;
 #[path = "context_world.rs"]
 mod world;
-pub use world::{NetworkResult, WorldFailure};
+pub use world::WorldFailure;
 #[path = "context_collision.rs"]
 mod collision;
 pub use collision::{CollisionError, CollisionQuery, CollisionResult};
@@ -72,6 +73,10 @@ pub enum ErrorKind {
     InvalidKind,
     ExchangeCapacity,
     Host,
+    /// The entry has no native body yet. Its message names the entry.
+    Unavailable,
+    /// A panic escaped an owning entry; only `dispose` still succeeds.
+    Poisoned,
 }
 
 /// Cloning preserves the original error's identity, even for an empty message.
@@ -124,6 +129,7 @@ struct Owner {
     exchange: RefCell<ImportExchange>,
     handlers: RefCell<HashMap<u32, Rc<Handler>>>,
     active: Cell<usize>,
+    poisoned: Cell<bool>,
 }
 
 /// A handle cannot move to a different thread, even before its first call.
@@ -134,7 +140,7 @@ struct Owner {
 /// ```
 #[derive(Clone)]
 pub struct Context(Rc<Owner>);
-struct Flight(Context);
+pub(crate) struct Flight(Context);
 impl Drop for Flight {
     fn drop(&mut self) {
         self.0 .0.active.set(self.0 .0.active.get() - 1);
@@ -152,21 +158,36 @@ impl Context {
             exchange: RefCell::new(ImportExchange::new()),
             handlers: RefCell::new(HashMap::new()),
             active: Cell::new(0),
+            poisoned: Cell::new(false),
         }))
     }
-    fn check(&self) -> Result<(), Error> {
+    pub(crate) fn live(&self) -> Result<(), Error> {
         if self.0.world.borrow().is_some() {
             Ok(())
         } else {
             Err(Error::new(ErrorKind::Disposed, "context disposed"))
         }
     }
-    fn enter(&self) -> Result<Flight, Error> {
+    /// Disposal wins over poisoning: a closed world reports Disposed.
+    pub(crate) fn check(&self) -> Result<(), Error> {
+        self.live()?;
+        if self.0.poisoned.get() {
+            return Err(Error::new(ErrorKind::Poisoned, "context poisoned"));
+        }
+        Ok(())
+    }
+    /// A panic that escaped an owning entry may have left the world half
+    /// stepped. Every later entry fails Poisoned; dispose still succeeds.
+    pub(crate) fn poison(&self) {
+        self.0.poisoned.set(true);
+    }
+    pub(crate) fn enter(&self) -> Result<Flight, Error> {
         self.check()?;
         self.0.active.set(self.0.active.get() + 1);
         Ok(Flight(self.clone()))
     }
-    fn world<T>(&self, f: impl FnOnce(&mut crate::world::owner::World) -> T) -> Result<T, Error> {
+    pub(crate) fn world<T>(&self, f: impl FnOnce(&mut crate::world::owner::World) -> T) -> Result<T, Error> {
+        self.check()?;
         let mut owner = self.0.world.borrow_mut();
         let world = owner
             .as_mut()
@@ -177,7 +198,7 @@ impl Context {
         self.world(|w| f(&mut w.sim))
     }
     pub fn dispose(&self) -> Result<(), Error> {
-        self.check()?;
+        self.live()?;
         if self.0.active.get() != 0 {
             return Err(Error::new(
                 ErrorKind::Busy,
@@ -253,7 +274,7 @@ impl Context {
             }
         })
     }
-    fn publish(&self, record: &Record) -> Result<(), Error> {
+    pub(crate) fn publish(&self, record: &Record) -> Result<(), Error> {
         self.store(|s| s.calls.result(record.row.len(), |r, h| record.put(r, h)))
     }
     pub fn events(&self) -> Result<Vec<f64>, Error> {
