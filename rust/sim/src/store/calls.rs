@@ -145,17 +145,23 @@ impl ImportExchange {
     }
 }
 
-static mut EXCHANGE_BLOCK: ImportExchange = ImportExchange::new();
+// The raw entry facade owns one bank per WASM instance. Native Context owns
+// ImportExchange directly; neither path holds its bank across host dispatch.
+mod facade {
+    use super::ImportExchange;
+    static mut EXCHANGE_BLOCK: ImportExchange = ImportExchange::new();
 
-fn exchange() -> &'static mut ImportExchange {
-    // WASM facade: one instance, one thread; no borrow spans an import.
-    unsafe { &mut *std::ptr::addr_of_mut!(EXCHANGE_BLOCK) }
+    fn exchange() -> &'static mut ImportExchange {
+        // WASM facade: one instance, one thread; no borrow spans an import.
+        unsafe { &mut *std::ptr::addr_of_mut!(EXCHANGE_BLOCK) }
+    }
+
+    pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) { exchange().out(words, put); }
+    pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T { exchange().read(take) }
+    pub fn import_args_ptr() -> *const f64 { exchange().ptr() }
+    pub fn import_room(words: usize, heap: usize) -> *mut f64 { exchange().room(words, heap) }
 }
-
-pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) { exchange().out(words, put); }
-pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T { exchange().read(take) }
-pub fn import_args_ptr() -> *const f64 { exchange().ptr() }
-pub fn import_room(words: usize, heap: usize) -> *mut f64 { exchange().room(words, heap) }
+pub use facade::{import_out, import_in, import_args_ptr, import_room};
 
 const _: () = assert!(HEADER == 5);
 

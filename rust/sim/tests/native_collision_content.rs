@@ -5,12 +5,12 @@
 use bfe_content::{
     bvh::{build, Positions},
     collision::MapCollision,
-    install::read_trees,
+    install::{install, read_trees},
     js::js_hypot,
 };
 use bfe_sim::{
     abi::context::{CollisionQuery, Context},
-    collision::{Ray, MISS},
+    collision::{CollisionOwner, Ray, MISS},
 };
 use std::{
     fs,
@@ -71,10 +71,13 @@ fn native_collision_owned_worlds_match_every_content_map() {
             let cx = Context::new();
             let ids = cx.collision_install(&c, &b, t.as_ref()).unwrap();
             assert_eq!(ids.world, 0);
-            worlds.push((map, cx, ids, casts));
+            let mut owner = CollisionOwner::new();
+            let owned_ids = install(&mut owner, &c, &b, t.as_ref()).unwrap();
+            assert_eq!(owned_ids.world, ids.world);
+            worlds.push((map, cx, ids, casts, owner));
         }
         for i in 0..worlds.iter().map(|w| w.3.len()).max().unwrap() {
-            for (map, cx, ids, casts) in &worlds {
+            for (map, cx, ids, casts, owner) in &mut worlds {
                 let Some(c) = casts.get(i) else { continue };
                 let ray = Ray {
                     ox: c.origin[0],
@@ -98,6 +101,19 @@ fn native_collision_owned_worlds_match_every_content_map() {
                         &[],
                     )
                     .unwrap();
+                // Exercise the same owner used by WASM veneers, with equal
+                // local ids interleaved across maps and the Context reference.
+                unsafe {
+                    let io = std::slice::from_raw_parts_mut(owner.io_ptr(), 64);
+                    io[..8].copy_from_slice(&[ray.ox, ray.oy, ray.oz, ray.dx, ray.dy, ray.dz, c.far, js_hypot(&[ray.dx, ray.dz])]);
+                }
+                let count = owner.world_candidates(ids.world, -1, 0, 0);
+                assert_eq!(count, 0);
+                assert_eq!(owner.world_cast(ids.world, count), c.code, "{map} owner cast {i}");
+                if c.code != MISS {
+                    let hit = unsafe { std::slice::from_raw_parts(owner.io_ptr().add(10), 7) };
+                    assert!(hit.iter().zip(&c.hit).all(|(a, b)| a.to_bits() == b.to_bits()), "{map} owner hit {i}");
+                }
                 assert_eq!(result.code, c.code, "{map} cast {i}");
                 if c.code != MISS {
                     assert_eq!(
@@ -112,7 +128,7 @@ fn native_collision_owned_worlds_match_every_content_map() {
                 total += 1;
             }
         }
-        for (map, cx, _, casts) in worlds {
+        for (map, cx, _, casts, _) in worlds {
             cx.dispose().unwrap();
             eprintln!("owned collision {map}: {} exact casts", casts.len())
         }

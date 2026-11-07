@@ -35,14 +35,14 @@ pub mod install;
 /// 11-13 point, 14-16 normal; 20-57 a body's bounds, matrix and inverse
 /// (`body_set`); 0-6 a grid's numbers (`grid_new`).
 pub(crate) const IO_LEN: usize = 64;
-static mut IO: [f64; IO_LEN] = [0.0; IO_LEN];
+
 /// A cast's candidate bodies (`world_candidates`): their places in the
 /// world's order, and whether each is enabled, which JavaScript writes
-/// before the cast itself (`world_cast`). Fixed statics, so their addresses
-/// never move.
+/// before the cast itself (`world_cast`). The facade's owner keeps these
+/// banks inline, so their addresses stay fixed for the instance.
 pub const MAX_BODIES: usize = 1 << 16;
-pub(crate) static mut CANDIDATES: [u32; MAX_BODIES] = [0; MAX_BODIES];
-pub(crate) static mut ENABLED: [u8; MAX_BODIES] = [0; MAX_BODIES];
+
+
 
 /// Return codes of the world casts.
 pub const MISS: i32 = -2;
@@ -164,21 +164,38 @@ pub struct State {
     pub fixed_version: u64,
 }
 
-static mut STATE: Option<State> = None;
-
-/// The module's state. One thread: JavaScript calls in one at a time, and
-/// a function of this crate that holds it must not call back into an export.
-pub fn state() -> &'static mut State {
-    // One thread: JavaScript calls in one at a time.
-    unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(State::default) }
+/// Collision geometry and query scratch have one lifetime. The WASM facade
+/// lends individual fields to existing in-module services; owned calls split
+/// those fields explicitly and never invoke the host while they are borrowed.
+pub struct CollisionOwner {
+    pub state: State,
+    pub(crate) io: [f64; IO_LEN],
+    pub(crate) candidates: [u32; MAX_BODIES],
+    pub(crate) enabled: [u8; MAX_BODIES],
+    pub(crate) gathers: spheres::Gathers,
 }
-
-pub(crate) fn io() -> &'static mut [f64; IO_LEN] {
-    unsafe { &mut *addr_of_mut!(IO) }
+impl CollisionOwner {
+    pub fn io_mut(&mut self) -> &mut [f64; IO_LEN] { &mut self.io }
+    pub fn enabled_mut(&mut self) -> &mut [u8; MAX_BODIES] { &mut self.enabled }
+    pub const fn new() -> Self {
+        Self { state: State { positions: Vec::new(), trees: Vec::new(), grids: Vec::new(), bodies: Vec::new(), worlds: Vec::new(), sets: Vec::new(), fixed_version: 0 },
+            io: [0.; IO_LEN], candidates: [0; MAX_BODIES], enabled: [0; MAX_BODIES], gathers: spheres::Gathers::new() }
+    }
 }
+impl Default for CollisionOwner { fn default() -> Self { Self::new() } }
 
-pub(crate) fn candidate(c: usize) -> usize {
-    unsafe { (*addr_of_mut!(CANDIDATES))[c] as usize }
+// Instance-local WASM entry storage. Field projections keep service loans
+// disjoint: a geometry loan must not also borrow the gather cache bank.
+static mut OWNER: CollisionOwner = CollisionOwner::new();
+fn owner() -> &'static mut CollisionOwner { unsafe { &mut *addr_of_mut!(OWNER) } }
+pub fn state() -> &'static mut State { unsafe { &mut *addr_of_mut!(OWNER.state) } }
+pub(crate) fn candidate(c: usize) -> usize { unsafe { (*addr_of_mut!(OWNER.candidates))[c] as usize } }
+
+pub(crate) fn enabled() -> &'static mut [u8; MAX_BODIES] { unsafe { &mut *addr_of_mut!(OWNER.enabled) } }
+
+// Narrow WASM service scratch, disjoint from state()'s geometry loan.
+pub(crate) fn cast_buffers() -> (&'static mut [u32; MAX_BODIES], &'static mut [u8; MAX_BODIES]) {
+    unsafe { (&mut *addr_of_mut!(OWNER.candidates), &mut *addr_of_mut!(OWNER.enabled)) }
 }
 
 /// Math.min(a, b): NaN if either is, and -0 below +0.
@@ -582,7 +599,7 @@ pub fn body_raycast(s: &State, slot: usize, ray: &Ray, far: f64) -> Option<Hit> 
 /// JavaScript's body loop reads and changes nothing, so making them in two
 /// passes gives the same bodies in the same order.
 pub fn world_candidates_for(s: &State, world: usize, ray: &Ray, ignore: i64, static_only: bool, moving_only: bool) -> usize {
-    world_candidates_into(s, world, ray, ignore, static_only, moving_only, unsafe { &mut *addr_of_mut!(CANDIDATES) })
+    world_candidates_into(s, world, ray, ignore, static_only, moving_only, unsafe { &mut *addr_of_mut!(OWNER.candidates) })
 }
 
 /// The same ordered candidates in caller-owned storage.
@@ -603,8 +620,8 @@ pub fn world_candidates_into(s: &State, world: usize, ray: &Ray, ignore: i64, st
 /// TERRAIN, STATIC or the body's slot) and the hit, its normal facing back
 /// along the ray.
 pub fn world_cast_ray(s: &mut State, world: usize, ray: &Ray, far: f64, hypot_xz: f64, count: usize) -> (i32, Hit) {
-    let candidates = unsafe { &*std::ptr::addr_of!(CANDIDATES) };
-    let enabled = unsafe { &*std::ptr::addr_of!(ENABLED) };
+    let candidates = unsafe { &*std::ptr::addr_of!(OWNER.candidates) };
+    let enabled = unsafe { &*std::ptr::addr_of!(OWNER.enabled) };
     world_cast_ray_in(s, world, ray, far, hypot_xz, &candidates[..count], &enabled[..count])
 }
 
@@ -651,8 +668,8 @@ pub fn world_cast_ray_in(s: &mut State, world: usize, ray: &Ray, far: f64, hypot
 /// bodies only): the nearest one's hit (MISS or the body's slot), its normal
 /// facing back along the ray.
 pub fn world_cast_moving_ray(s: &State, world: usize, ray: &Ray, far: f64, count: usize) -> (i32, Hit) {
-    let candidates = unsafe { &*std::ptr::addr_of!(CANDIDATES) };
-    let enabled = unsafe { &*std::ptr::addr_of!(ENABLED) };
+    let candidates = unsafe { &*std::ptr::addr_of!(OWNER.candidates) };
+    let enabled = unsafe { &*std::ptr::addr_of!(OWNER.enabled) };
     world_cast_moving_ray_in(s, world, ray, far, &candidates[..count], &enabled[..count])
 }
 
@@ -678,13 +695,11 @@ pub fn world_cast_moving_ray_in(s: &State, world: usize, ray: &Ray, far: f64, ca
     (code, out)
 }
 
-fn read_ray() -> Ray {
-    let v = io();
+fn read_ray(v: &[f64; IO_LEN]) -> Ray {
     Ray { ox: v[0], oy: v[1], oz: v[2], dx: v[3], dy: v[4], dz: v[5] }
 }
 
-fn write_hit(h: &Hit) {
-    let v = io();
+fn write_hit(v: &mut [f64; IO_LEN], h: &Hit) {
     v[10] = h.distance;
     v[11] = h.px; v[12] = h.py; v[13] = h.pz;
     v[14] = h.nx; v[15] = h.ny; v[16] = h.nz;
@@ -693,169 +708,94 @@ fn write_hit(h: &Hit) {
 // The module's exports, for src/ray-kernel.js.
 
 #[no_mangle]
-pub extern "C" fn io_ptr() -> *mut f64 { addr_of_mut!(IO) as *mut f64 }
+pub extern "C" fn io_ptr() -> *mut f64 { owner().io_ptr() }
 
 #[no_mangle]
-pub extern "C" fn enabled_ptr() -> *mut u8 { addr_of_mut!(ENABLED) as *mut u8 }
+pub extern "C" fn enabled_ptr() -> *mut u8 { owner().enabled_ptr() }
 
 #[no_mangle]
-pub extern "C" fn candidates_ptr() -> *mut u32 { addr_of_mut!(CANDIDATES) as *mut u32 }
+pub extern "C" fn candidates_ptr() -> *mut u32 { owner().candidates_ptr() }
 
 /// Room for `count` corner coordinates, f32 (`wide` 0) or f64; returns its
 /// id (`positions_at` for where).
 #[no_mangle]
-pub extern "C" fn positions_new(count: u32, wide: u32) -> u32 {
-    let s = state();
-    s.positions.push(if wide != 0 { Corners::F64(vec![0.0; count as usize]) } else { Corners::F32(vec![0.0; count as usize]) });
-    (s.positions.len() - 1) as u32
-}
+pub extern "C" fn positions_new(count: u32, wide: u32) -> u32 { owner().positions_new(count, wide) }
 
 #[no_mangle]
-pub extern "C" fn positions_at(id: u32) -> *mut u8 {
-    match &mut state().positions[id as usize] {
-        Corners::F32(v) => v.as_mut_ptr() as *mut u8,
-        Corners::F64(v) => v.as_mut_ptr() as *mut u8,
-    }
-}
+pub extern "C" fn positions_at(id: u32) -> *mut u8 { owner().positions_at(id) }
 
 /// A tree over positions `positions`: `indices` u32s of index (0 for none) and
 /// `indirect` of indirect buffer; fill them at `tree_index` and
 /// `tree_indirect`, and add each root with `tree_root`.
 #[no_mangle]
-pub extern "C" fn tree_new(positions: u32, indices: u32, indirect: u32) -> u32 {
-    let s = state();
-    s.trees.push(Tree { roots: Vec::new(), positions: positions as usize, index: vec![0; indices as usize], indexed: indices > 0, indirect: vec![0; indirect as usize], polygons: Vec::new() });
-    (s.trees.len() - 1) as u32
-}
+pub extern "C" fn tree_new(positions: u32, indices: u32, indirect: u32) -> u32 { owner().tree_new(positions, indices, indirect) }
 
 #[no_mangle]
-pub extern "C" fn tree_index(id: u32) -> *mut u32 { state().trees[id as usize].index.as_mut_ptr() }
+pub extern "C" fn tree_index(id: u32) -> *mut u32 { owner().tree_index(id) }
 
 #[no_mangle]
-pub extern "C" fn tree_indirect(id: u32) -> *mut u32 { state().trees[id as usize].indirect.as_mut_ptr() }
+pub extern "C" fn tree_indirect(id: u32) -> *mut u32 { owner().tree_indirect(id) }
 
 /// A root's packed node buffer of `words` u32s, to fill at the pointer.
 #[no_mangle]
-pub extern "C" fn tree_root(id: u32, words: u32) -> *mut u32 {
-    let t = &mut state().trees[id as usize];
-    t.roots.push(vec![0; words as usize]);
-    t.roots.last_mut().unwrap().as_mut_ptr()
-}
+pub extern "C" fn tree_root(id: u32, words: u32) -> *mut u32 { owner().tree_root(id, words) }
 
 /// A terrain grid over positions `positions`, with `indices` u32s of index,
 /// `cells` of cells, `start` of cell starts and `triangles` stamps, its
 /// numbers in IO 0-6 (minX, minZ, maxX, maxZ, size, nx, nz).
 #[no_mangle]
-pub extern "C" fn grid_new(positions: u32, indices: u32, cells: u32, start: u32, triangles: u32) -> u32 {
-    let v = *io();
-    let s = state();
-    s.grids.push(Grid { positions: positions as usize, index: vec![0; indices as usize], cells: vec![0; cells as usize], start: vec![0; start as usize],
-        stamp: vec![0; triangles as usize], serial: 0, min_x: v[0], min_z: v[1], max_x: v[2], max_z: v[3], size: v[4], nx: v[5], nz: v[6] });
-    (s.grids.len() - 1) as u32
-}
+pub extern "C" fn grid_new(positions: u32, indices: u32, cells: u32, start: u32, triangles: u32) -> u32 { owner().grid_new(positions, indices, cells, start, triangles) }
 
 #[no_mangle]
-pub extern "C" fn grid_index(id: u32) -> *mut u32 { state().grids[id as usize].index.as_mut_ptr() }
+pub extern "C" fn grid_index(id: u32) -> *mut u32 { owner().grid_index(id) }
 
 #[no_mangle]
-pub extern "C" fn grid_cells(id: u32) -> *mut u32 { state().grids[id as usize].cells.as_mut_ptr() }
+pub extern "C" fn grid_cells(id: u32) -> *mut u32 { owner().grid_cells(id) }
 
 #[no_mangle]
-pub extern "C" fn grid_start(id: u32) -> *mut u32 { state().grids[id as usize].start.as_mut_ptr() }
+pub extern "C" fn grid_start(id: u32) -> *mut u32 { owner().grid_start(id) }
 
 /// A body over tree `tree`; returns its slot, or -1 when there is no room.
 #[no_mangle]
-pub extern "C" fn body_new(tree: u32, moving: u32) -> i32 {
-    let s = state();
-    if s.bodies.len() >= MAX_BODIES { return -1; }
-    s.bodies.push(Body { tree: tree as usize, moving: moving != 0, offset: 0.0, bounds: [0.0; 6], matrix: [0.0; 16], inverse: [0.0; 16] });
-    (s.bodies.len() - 1) as i32
-}
+pub extern "C" fn body_new(tree: u32, moving: u32) -> i32 { owner().body_new(tree, moving) }
 
 /// A body's bounds from IO 20-25, and a moving one's matrix and inverse
 /// from IO 26-41 and 42-57.
 #[no_mangle]
-pub extern "C" fn body_set(slot: u32) {
-    let v = io();
-    let s = state();
-    let b = &mut s.bodies[slot as usize];
-    b.bounds.copy_from_slice(&v[20..26]);
-    if b.moving {
-        b.matrix.copy_from_slice(&v[26..42]);
-        b.inverse.copy_from_slice(&v[42..58]);
-    } else {
-        s.fixed_version += 1;
-    }
-}
+pub extern "C" fn body_set(slot: u32) { owner().body_set(slot) }
 
 /// A world over the buildings' tree, and the terrain's tree and grid (-1 for none).
 #[no_mangle]
-pub extern "C" fn world_new(tree: u32, terrain: i32, grid: i32) -> u32 {
-    let s = state();
-    s.worlds.push(World { tree: tree as usize, terrain: (terrain >= 0).then_some(terrain as usize), grid: (grid >= 0).then_some(grid as usize), order: Vec::new(), prepared: Vec::new(), version: 0, statics: None, broad: Default::default() });
-    (s.worlds.len() - 1) as u32
-}
+pub extern "C" fn world_new(tree: u32, terrain: i32, grid: i32) -> u32 { owner().world_new(tree, terrain, grid) }
 
 /// Room for the world's `count` bodies' slots, in order, to fill at the pointer.
 #[no_mangle]
-pub extern "C" fn world_order(id: u32, count: u32) -> *mut u32 {
-    let w = &mut state().worlds[id as usize];
-    w.order.clear();
-    w.order.resize(count as usize, 0);
-    w.version += 1;
-    w.order.as_mut_ptr()
-}
+pub extern "C" fn world_order(id: u32, count: u32) -> *mut u32 { owner().world_order(id, count) }
 
 /// A cast's candidate bodies (the ray in IO), in CANDIDATES; returns how
 /// many. `ignore` is the ignored body's slot (-1 none).
 #[no_mangle]
-pub extern "C" fn world_candidates(id: u32, ignore: i32, static_only: u32, moving_only: u32) -> u32 {
-    broad::world_candidates_near(state(), id as usize, &read_ray(), io()[6], ignore as i64, static_only != 0, moving_only != 0) as u32
-}
+pub extern "C" fn world_candidates(id: u32, ignore: i32, static_only: u32, moving_only: u32) -> u32 { owner().world_candidates(id, ignore, static_only, moving_only) }
 
 /// cast(origin, direction, far, out, ignoreBody, staticOnly) with the ray,
 /// far and hypot in IO, over `count` candidates whose ENABLED is written:
 /// MISS, TERRAIN, STATIC or the body's slot, the hit in IO.
 #[no_mangle]
-pub extern "C" fn world_cast(id: u32, count: u32) -> i32 {
-    let ray = read_ray();
-    let (far, hypot) = (io()[6], io()[7]);
-    let (code, hit) = world_cast_ray(state(), id as usize, &ray, far, hypot, count as usize);
-    if code != MISS { write_hit(&hit); }
-    code
-}
+pub extern "C" fn world_cast(id: u32, count: u32) -> i32 { owner().world_cast(id, count) }
 
 /// castMoving(origin, direction, far, out, ignoreBody) over `count` moving
 /// candidates: MISS or the body's slot.
 #[no_mangle]
-pub extern "C" fn world_cast_moving(id: u32, count: u32) -> i32 {
-    let ray = read_ray();
-    let (code, hit) = world_cast_moving_ray(state(), id as usize, &ray, io()[6], count as usize);
-    if code != MISS { write_hit(&hit); }
-    code
-}
+pub extern "C" fn world_cast_moving(id: u32, count: u32) -> i32 { owner().world_cast_moving(id, count) }
 
 /// TriangleGrid.raycastFirst(ray, far) with the ray and far in IO: 1 and the
 /// hit in IO, or 0.
 #[no_mangle]
-pub extern "C" fn grid_ray(id: u32) -> u32 {
-    let ray = read_ray();
-    match grid_raycast(state(), id as usize, &ray, io()[6]) {
-        Some(hit) => { write_hit(&hit); 1 }
-        None => 0,
-    }
-}
+pub extern "C" fn grid_ray(id: u32) -> u32 { owner().grid_ray(id) }
 
 /// MeshBVH.raycastFirst(ray, DoubleSide, near, far) on one tree, near in IO 8.
 #[no_mangle]
-pub extern "C" fn tree_ray(id: u32) -> u32 {
-    let ray = read_ray();
-    let v = io();
-    match tree_raycast(state(), id as usize, &ray, v[8], v[6]) {
-        Some(hit) => { write_hit(&hit); 1 }
-        None => 0,
-    }
-}
+pub extern "C" fn tree_ray(id: u32) -> u32 { owner().tree_ray(id) }
 
 /// Nothing: what a call into the module costs by itself.
 #[no_mangle]
@@ -884,5 +824,105 @@ mod tests {
         assert_eq!(triangle_normal(a, b, c), [0.0, -1.0, 0.0]);
         let miss = Ray { ox: 2.0, oy: 1.0, oz: 2.0, dx: 0.0, dy: -1.0, dz: 0.0 };
         assert_eq!(intersect_triangle(&miss, a, b, c, false), None);
+    }
+}
+
+impl CollisionOwner {
+    pub fn io_ptr(&mut self) -> *mut f64 { self.io.as_mut_ptr() }
+    pub fn enabled_ptr(&mut self) -> *mut u8 { self.enabled.as_mut_ptr() }
+    pub fn candidates_ptr(&mut self) -> *mut u32 { self.candidates.as_mut_ptr() }
+    pub fn positions_new(&mut self, count: u32, wide: u32) -> u32 {
+        let s = &mut self.state;
+        s.positions.push(if wide != 0 { Corners::F64(vec![0.0; count as usize]) } else { Corners::F32(vec![0.0; count as usize]) });
+        (s.positions.len() - 1) as u32
+    }
+    pub fn positions_at(&mut self, id: u32) -> *mut u8 {
+        match &mut self.state.positions[id as usize] {
+            Corners::F32(v) => v.as_mut_ptr() as *mut u8,
+            Corners::F64(v) => v.as_mut_ptr() as *mut u8,
+        }
+    }
+    pub fn tree_new(&mut self, positions: u32, indices: u32, indirect: u32) -> u32 {
+        let s = &mut self.state;
+        s.trees.push(Tree { roots: Vec::new(), positions: positions as usize, index: vec![0; indices as usize], indexed: indices > 0, indirect: vec![0; indirect as usize], polygons: Vec::new() });
+        (s.trees.len() - 1) as u32
+    }
+    pub fn tree_index(&mut self, id: u32) -> *mut u32 { self.state.trees[id as usize].index.as_mut_ptr() }
+    pub fn tree_indirect(&mut self, id: u32) -> *mut u32 { self.state.trees[id as usize].indirect.as_mut_ptr() }
+    pub fn tree_root(&mut self, id: u32, words: u32) -> *mut u32 {
+        let t = &mut self.state.trees[id as usize];
+        t.roots.push(vec![0; words as usize]);
+        t.roots.last_mut().unwrap().as_mut_ptr()
+    }
+    pub fn grid_new(&mut self, positions: u32, indices: u32, cells: u32, start: u32, triangles: u32) -> u32 {
+        let v = self.io;
+        let s = &mut self.state;
+        s.grids.push(Grid { positions: positions as usize, index: vec![0; indices as usize], cells: vec![0; cells as usize], start: vec![0; start as usize],
+            stamp: vec![0; triangles as usize], serial: 0, min_x: v[0], min_z: v[1], max_x: v[2], max_z: v[3], size: v[4], nx: v[5], nz: v[6] });
+        (s.grids.len() - 1) as u32
+    }
+    pub fn grid_index(&mut self, id: u32) -> *mut u32 { self.state.grids[id as usize].index.as_mut_ptr() }
+    pub fn grid_cells(&mut self, id: u32) -> *mut u32 { self.state.grids[id as usize].cells.as_mut_ptr() }
+    pub fn grid_start(&mut self, id: u32) -> *mut u32 { self.state.grids[id as usize].start.as_mut_ptr() }
+    pub fn body_new(&mut self, tree: u32, moving: u32) -> i32 {
+        let s = &mut self.state;
+        if s.bodies.len() >= MAX_BODIES { return -1; }
+        s.bodies.push(Body { tree: tree as usize, moving: moving != 0, offset: 0.0, bounds: [0.0; 6], matrix: [0.0; 16], inverse: [0.0; 16] });
+        (s.bodies.len() - 1) as i32
+    }
+    pub fn body_set(&mut self, slot: u32) {
+        let v = &mut self.io;
+        let s = &mut self.state;
+        let b = &mut s.bodies[slot as usize];
+        b.bounds.copy_from_slice(&v[20..26]);
+        if b.moving {
+            b.matrix.copy_from_slice(&v[26..42]);
+            b.inverse.copy_from_slice(&v[42..58]);
+        } else {
+            s.fixed_version += 1;
+        }
+    }
+    pub fn world_new(&mut self, tree: u32, terrain: i32, grid: i32) -> u32 {
+        let s = &mut self.state;
+        s.worlds.push(World { tree: tree as usize, terrain: (terrain >= 0).then_some(terrain as usize), grid: (grid >= 0).then_some(grid as usize), order: Vec::new(), prepared: Vec::new(), version: 0, statics: None, broad: Default::default() });
+        (s.worlds.len() - 1) as u32
+    }
+    pub fn world_order(&mut self, id: u32, count: u32) -> *mut u32 {
+        let w = &mut self.state.worlds[id as usize];
+        w.order.clear();
+        w.order.resize(count as usize, 0);
+        w.version += 1;
+        w.order.as_mut_ptr()
+    }
+    pub fn world_candidates(&mut self, id: u32, ignore: i32, static_only: u32, moving_only: u32) -> u32 {
+        broad::world_candidates_near_into(&mut self.state, id as usize, &read_ray(&self.io), self.io[6], ignore as i64, static_only != 0, moving_only != 0, &mut self.candidates) as u32
+    }
+    pub fn world_cast(&mut self, id: u32, count: u32) -> i32 {
+        let ray = read_ray(&self.io);
+        let (far, hypot) = (self.io[6], self.io[7]);
+        let (code, hit) = world_cast_ray_in(&mut self.state, id as usize, &ray, far, hypot, &self.candidates[..(count as usize).min(MAX_BODIES)], &self.enabled[..(count as usize).min(MAX_BODIES)]);
+        if code != MISS { write_hit(&mut self.io, &hit); }
+        code
+    }
+    pub fn world_cast_moving(&mut self, id: u32, count: u32) -> i32 {
+        let ray = read_ray(&self.io);
+        let (code, hit) = world_cast_moving_ray_in(&self.state, id as usize, &ray, self.io[6], &self.candidates[..(count as usize).min(MAX_BODIES)], &self.enabled[..(count as usize).min(MAX_BODIES)]);
+        if code != MISS { write_hit(&mut self.io, &hit); }
+        code
+    }
+    pub fn grid_ray(&mut self, id: u32) -> u32 {
+        let ray = read_ray(&self.io);
+        match grid_raycast(&mut self.state, id as usize, &ray, self.io[6]) {
+            Some(hit) => { write_hit(&mut self.io, &hit); 1 }
+            None => 0,
+        }
+    }
+    pub fn tree_ray(&mut self, id: u32) -> u32 {
+        let ray = read_ray(&self.io);
+        let v = &mut self.io;
+        match tree_raycast(&mut self.state, id as usize, &ray, v[8], v[6]) {
+            Some(hit) => { write_hit(&mut self.io, &hit); 1 }
+            None => 0,
+        }
     }
 }

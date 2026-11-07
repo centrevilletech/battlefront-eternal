@@ -9,7 +9,6 @@ use crate::collision::spheres::{self, GatherCache, Gathered};
 use crate::collision::{self, broad, candidate, MISS, TERRAIN};
 use crate::pose::{self, Clip};
 use crate::store::word_u32;
-use std::ptr::addr_of_mut;
 use std::rc::Rc;
 use three::Vector3;
 
@@ -115,7 +114,7 @@ pub fn cast_static(world: usize, origin: &Vector3, direction: &Vector3, far: f64
     let ray = collision::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
     let count = broad::world_candidates_near(s, world, &ray, far, -1, static_only, false);
     let flags = flags(s.worlds[world].order.len());
-    let enabled = unsafe { &mut *addr_of_mut!(collision::ENABLED) };
+    let enabled = collision::enabled();
     for (i, flag) in enabled.iter_mut().enumerate().take(count) {
         *flag = flags[candidate(i)];
     }
@@ -135,7 +134,7 @@ pub fn ordnance_cast(world: usize, origin: [f64; 3], direction: [f64; 3], far: f
     let ray = collision::Ray { ox: origin[0], oy: origin[1], oz: origin[2], dx: direction[0], dy: direction[1], dz: direction[2] };
     let count = broad::world_candidates_near(s, world, &ray, far, ignored, static_only, moving);
     let flags = flags(s.worlds[world].order.len());
-    let enabled = unsafe { &mut *addr_of_mut!(collision::ENABLED) };
+    let enabled = collision::enabled();
     for (i, flag) in enabled.iter_mut().enumerate().take(count) { *flag = flags[candidate(i)]; }
     // CollisionWorld.castMoving excludes terrain and fixed meshes as well as
     // fixed body candidates. Bolts already retained their static impact at

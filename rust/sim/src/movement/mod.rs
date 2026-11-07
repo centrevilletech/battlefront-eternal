@@ -59,10 +59,6 @@ pub const JET_DIRECTION: usize = 40;
 pub const CLASS: usize = 50;
 pub const IO_LEN: usize = 80;
 
-static mut IO: [f64; IO_LEN] = [0.0; IO_LEN];
-/// Each body's `enabled`, by its place in the world's order, written by
-/// JavaScript before each tick.
-static mut FLAGS: [u8; MAX_BODIES] = [0; MAX_BODIES];
 
 #[derive(Default)]
 struct Movers {
@@ -72,19 +68,26 @@ struct Movers {
     ground: GroundCache,
 }
 
-static mut MOVERS: Option<Movers> = None;
-
-fn movers() -> &'static mut Movers {
-    unsafe { (*addr_of_mut!(MOVERS)).get_or_insert_with(Movers::default) }
+/// Soldier.tick's movers and scratch share a lifetime, while every call
+/// receives collision explicitly. The retained banks preserve cache stamps
+/// and lastGround between the same sequential movement operations.
+pub struct MovementOwner {
+    movers: Option<Movers>,
+    io: [f64; IO_LEN],
+    /// Body eligibility follows collision-world order, as in movement-kernel.js.
+    flags: [u8; MAX_BODIES],
 }
-
-fn io() -> &'static mut [f64; IO_LEN] {
-    unsafe { &mut *addr_of_mut!(IO) }
+impl MovementOwner {
+    pub const fn new() -> Self { Self { movers: None, io: [0.; IO_LEN], flags: [0; MAX_BODIES] } }
+    pub fn io_mut(&mut self) -> &mut [f64; IO_LEN] { &mut self.io }
+    pub fn flags_mut(&mut self) -> &mut [u8; MAX_BODIES] { &mut self.flags }
 }
-
-fn flags(count: usize) -> &'static [u8] {
-    unsafe { std::slice::from_raw_parts(addr_of_mut!(FLAGS) as *const u8, count.min(MAX_BODIES)) }
-}
+impl Default for MovementOwner { fn default() -> Self { Self::new() } }
+// Pointer discovery cannot allocate: the host may already have read the WASM
+// memory buffer before calling either pointer export. Pools initialize only
+// when a mover is constructed, where the host refreshes its views afterward.
+static mut OWNER: MovementOwner = MovementOwner::new();
+fn owner() -> &'static mut MovementOwner { unsafe { &mut *addr_of_mut!(OWNER) } }
 
 fn v3(v: &[f64; IO_LEN], at: usize) -> V3 {
     V3::new(v[at], v[at + 1], v[at + 2])
@@ -164,15 +167,7 @@ pub(crate) fn input(v: &[f64; IO_LEN]) -> Input {
 /// needs them: of the yaw before the tick's turn while it drives, of the
 /// turned yaw from there on (the jump, the jetpack's kick, every body
 /// sphere's place in the collision pass), and a hovering jet's pitch.
-pub fn advance(id: u32, input: &Input, dt: f64) {
-    let ms = movers();
-    let s = state();
-    let m = &mut ms.list[id as usize];
-    let world = m.world;
-    let count = s.worlds[world].order.len();
-    let mut scene = Scene { s, world, flags: flags(count), gathered: &mut ms.gathered, caches: &mut ms.caches[id as usize], ground_cache: &mut ms.ground };
-    advance_in(m, input, dt, &mut scene);
-}
+pub fn advance(id: u32, input: &Input, dt: f64) { owner().advance(state(), id, input, dt); }
 
 /// The same tick using an explicit mover and collision scene.
 pub(crate) fn advance_in(m: &mut Mover, input: &Input, dt: f64, scene: &mut Scene) {
@@ -195,55 +190,45 @@ pub(crate) fn advance_in(m: &mut Mover, input: &Input, dt: f64, scene: &mut Scen
 }
 
 /// A new mover of world `world`, its class's numbers set by `class`; its id.
-pub fn new_mover(world: usize, class: impl FnOnce(&mut Mover)) -> u32 {
-    let ms = movers();
-    let mut m = Mover::new(world);
-    class(&mut m);
-    ms.list.push(m);
-    ms.caches.push(std::array::from_fn(|_| GatherCache::new(0.75)));
-    (ms.list.len() - 1) as u32
-}
+pub fn new_mover(world: usize, class: impl FnOnce(&mut Mover)) -> u32 { owner().new_mover(world, class) }
 
-/// Soldier's collision scratch is shared across sequential movers, while each
-/// mover retains its own candidate caches. This allocates no physics samples
-/// and leaves lastGround and every gather's invalidation stamp untouched.
+/// Reserve movement's physics scratch before Soldier.tick starts.
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn reserve_mover(id: u32, polygons: usize, triangles: usize, candidates: usize) {
-    let ms = movers();
-    ms.gathered.reserve(polygons, triangles);
-    for cache in &mut ms.caches[id as usize] { cache.reserve(candidates, candidates, candidates); }
+    owner().reserve_mover(id, polygons, triangles, candidates);
 }
 
 // Soldier.touchPolygons shares geometry-keyed triangle storage across movers.
 // Body membership is cold; prepare actual polygon sizes before contact.
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn prepare_world_gathers(world: usize) {
-    movers().gathered.prepare_dense(crate::collision::state(),world,16);
+    owner().prepare_world_gathers(crate::collision::state(), world);
 }
 
 /// Mover `id`, whose state a caller loads before `advance` and reads after.
 pub fn mover(id: u32) -> &'static mut Mover {
-    &mut movers().list[id as usize]
+    owner().mover(id)
 }
 
 // The module's exports, for src/movement-kernel.js.
 
 #[no_mangle]
 pub extern "C" fn movement_io_ptr() -> *mut f64 {
-    addr_of_mut!(IO) as *mut f64
+    owner().io.as_mut_ptr()
 }
 
 #[no_mangle]
 pub extern "C" fn movement_flags_ptr() -> *mut u8 {
-    addr_of_mut!(FLAGS) as *mut u8
+    owner().flags.as_mut_ptr()
 }
 
 /// A soldier of world `world` with the class numbers in CLASS; returns its id.
 #[no_mangle]
 pub extern "C" fn mover_new(world: u32) -> u32 {
-    let v = io();
-    let c = &v[CLASS..];
-    new_mover(world as usize, |m| set_class(m, c))
+    let owner = owner();
+    let mut class = [0.; 21];
+    class.copy_from_slice(&owner.io[CLASS..CLASS + 21]);
+    owner.new_mover(world as usize, |m| set_class(m, &class))
 }
 
 /// The class assignments shared by legacy and owned construction.
@@ -267,16 +252,43 @@ pub(crate) fn set_class(m: &mut Mover, c: &[f64]) {
 }
 
 /// Soldier.tick for mover `id`: its state, input and dt in the slots. 0:
-/// done, the state back in the slots; 2: a state the kernel does not know
-/// (the JavaScript runs that tick instead).
+/// done, the state back in the slots; 2: an unknown state code, rejected
+/// before changing the mover or advancing its collision scene.
 #[no_mangle]
-pub extern "C" fn mover_tick(id: u32) -> u32 {
-    let v = io();
-    if !load(mover(id), v) {
-        return 2;
+pub extern "C" fn mover_tick(id: u32) -> u32 { owner().tick(state(), id) }
+
+impl MovementOwner {
+    pub fn advance(&mut self, collision: &mut crate::collision::State, id: u32, input: &Input, dt: f64) {
+        let ms = self.movers.as_mut().expect("initialized movement owner");
+        let m = &mut ms.list[id as usize];
+        let world = m.world;
+        let count = collision.worlds[world].order.len().min(MAX_BODIES);
+        let mut scene = Scene { s: collision, world, flags: &self.flags[..count], gathered: &mut ms.gathered, caches: &mut ms.caches[id as usize], ground_cache: &mut ms.ground };
+        advance_in(m, input, dt, &mut scene);
     }
-    let input = input(v);
-    advance(id, &input, v[DT]);
-    store(mover(id), io());
-    0
+    pub fn new_mover(&mut self, world: usize, class: impl FnOnce(&mut Mover)) -> u32 {
+        let ms = self.movers.get_or_insert_with(Movers::default);
+        let mut m = Mover::new(world);
+        class(&mut m);
+        ms.list.push(m);
+        ms.caches.push(std::array::from_fn(|_| GatherCache::new(0.75)));
+        (ms.list.len() - 1) as u32
+    }
+    pub fn mover(&mut self, id: u32) -> &mut Mover { &mut self.movers.as_mut().expect("initialized movement owner").list[id as usize] }
+    pub fn reserve_mover(&mut self, id: u32, polygons: usize, triangles: usize, candidates: usize) {
+        let ms = self.movers.as_mut().expect("initialized movement owner");
+        ms.gathered.reserve(polygons, triangles);
+        for cache in &mut ms.caches[id as usize] { cache.reserve(candidates, candidates, candidates); }
+    }
+    pub fn prepare_world_gathers(&mut self, collision: &crate::collision::State, world: usize) {
+        self.movers.get_or_insert_with(Movers::default).gathered.prepare_dense(collision, world, 16);
+    }
+    pub fn tick(&mut self, collision: &mut crate::collision::State, id: u32) -> u32 {
+        let ms = self.movers.as_mut().expect("initialized movement owner");
+        if !load(&mut ms.list[id as usize], &self.io) { return 2; }
+        let input = input(&self.io);
+        self.advance(collision, id, &input, self.io[DT]);
+        store(&self.movers.as_ref().expect("initialized movement owner").list[id as usize], &mut self.io);
+        0
+    }
 }

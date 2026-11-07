@@ -5,7 +5,19 @@ import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { loadRayKernel } from '../src/ray-kernel.js';
 import { MovementKernel } from '../src/movement-kernel.js';
+import { loadSim } from '../src/sim/module.js';
 import { Soldier } from '../src/soldier.js';
+
+// Hosts can read memory.buffer before discovering fixed movement addresses.
+// Lazy pool construction belongs to mover creation, never pointer discovery.
+test('movement pointer discovery keeps a captured memory buffer attached', async () => {
+  const { exports: x } = await loadSim();
+  const buffer = x.memory.buffer;
+  const io = x.movement_io_ptr(), flags = x.movement_flags_ptr();
+  assert.equal(x.memory.buffer, buffer);
+  assert.equal(new Float64Array(buffer, io, 80).length, 80);
+  assert.equal(new Uint8Array(buffer, flags, 1 << 16).length, 1 << 16);
+});
 
 // Recorded synthetic movement includes terrain, bodies and every soldier posture.
 let polygonBase = 0;

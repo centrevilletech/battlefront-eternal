@@ -19,8 +19,7 @@
 // seen by a cast's answer) uses the host's min and max (clippy.toml).
 #![allow(clippy::disallowed_methods)]
 
-use crate::collision::{intersects_box, inverse, js_max, js_min, Body, Ray, State, World, CANDIDATES};
-use std::ptr::addr_of_mut;
+use crate::collision::{intersects_box, inverse, js_max, js_min, Body, Ray, State, World};
 
 /// How far a fixed body's bounds and a cast's segment are grown before they
 /// are compared (and what a segment's reach is grown by, relatively): far
@@ -147,7 +146,7 @@ pub fn prepare(s: &mut State, world: usize) {
 }
 
 pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, ignore: i64, static_only: bool, moving_only: bool) -> usize {
-    world_candidates_near_into(s, world, ray, far, ignore, static_only, moving_only, unsafe { &mut *addr_of_mut!(CANDIDATES) })
+    world_candidates_near_into(s, world, ray, far, ignore, static_only, moving_only, unsafe { &mut *std::ptr::addr_of_mut!(super::OWNER.candidates) })
 }
 
 /// The same broad phase with caller-owned candidate storage.
@@ -227,14 +226,14 @@ pub fn world_candidates_near_into(s: &mut State, world: usize, ray: &Ray, far: f
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collision::{Body, World, CANDIDATES};
+    use crate::collision::{Body, World};
 
     fn random(seed: &mut u32) -> f64 {
         *seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
         *seed as f64 / 4294967296.0
     }
 
-    fn list(count: usize) -> Vec<u32> { let all: &[u32] = unsafe { &*std::ptr::addr_of!(CANDIDATES) }; all[..count].to_vec() }
+    fn list(count: usize) -> Vec<u32> { let all: &[u32] = unsafe { &*std::ptr::addr_of!(super::super::OWNER.candidates) }; all[..count].to_vec() }
 
     #[test]
     fn keeps_the_walk_less_bodies_clear_of_the_segment() {

@@ -125,7 +125,7 @@ impl NativeMovement {
         let entry = self.entries[id as usize].as_mut().unwrap();
         entry.flags = flags;
         let world = entry.mover.world;
-        let ground_cache = self.ground.entry(world).or_insert_with(GroundCache::owned);
+        let ground_cache = self.ground.entry(world).or_insert_with(GroundCache::default);
         let mut scene = Scene {
             s,
             world,

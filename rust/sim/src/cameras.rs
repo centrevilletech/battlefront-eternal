@@ -118,8 +118,7 @@ impl cameras::Cast for World {
         };
         let count =
             c::broad::world_candidates_near(s, self.world, &ray, far, -1, static_only, false);
-        let candidates = unsafe { &*std::ptr::addr_of!(c::CANDIDATES) };
-        let enabled = unsafe { &mut *addr_of_mut!(c::ENABLED) };
+        let (candidates, enabled) = c::cast_buffers();
         let flags = unsafe { &*std::ptr::addr_of!(FLAGS) };
         // Flags are paired by body slot, not by this ray's candidate order.
         // Turrets can ignore several collision pieces, hulls one.

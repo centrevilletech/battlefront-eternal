@@ -179,6 +179,11 @@ await new Promise((resolve) => {
 
 // The comparisons, over everything DIR holds for these battles.
 const against = opt('against', null);
+// An ownership gate must compare a frozen run or a second variant. Recording
+// reference files remains useful, but cannot count as comparison evidence.
+if (argv.includes('--require-comparison') && !against && variants.length < 2) {
+  throw Error('--require-comparison needs --against or at least two variants');
+}
 const [againstDir, againstVariant = null] = against ? against.split(':') : [null];
 const anyV8 = argv.includes('--any-v8');
 const rows = [];

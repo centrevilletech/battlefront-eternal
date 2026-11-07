@@ -21,8 +21,8 @@
 //! JavaScript's, the flags of the candidates the query's first call names
 //! (as the casts do).
 
-use crate::collision::{apply_matrix4, dot, f32_at, grid_raycast, io, js_max, js_min, state, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
-use std::ptr::addr_of_mut;
+use crate::collision::{apply_matrix4, dot, f32_at, grid_raycast, js_max, js_min, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
+use super::CollisionOwner;
 
 /// collision.js BLOCKER_POLYGONS: the vehicle-only barriers' polygon numbers
 /// are their own plus this.
@@ -621,9 +621,6 @@ pub fn gather(s: &State, world: usize, center: [f64; 3], radius: f64, blockers: 
 /// The bodies a gather or overlap must try (not left out, bounds meeting
 /// the query's), as places in the world's order, into CANDIDATES for
 /// JavaScript to flag; their count.
-fn candidates_for(s: &State, world: usize, bounds: &Bounds, ignore: i64, list: Option<&[u32]>) -> usize {
-    candidates_into(s, world, bounds, ignore, list, unsafe { &mut *addr_of_mut!(crate::collision::CANDIDATES) })
-}
 
 pub(crate) fn candidates_into(s: &State, world: usize, bounds: &Bounds, ignore: i64, list: Option<&[u32]>, out: &mut [u32]) -> usize {
     let w = &s.worlds[world];
@@ -855,8 +852,24 @@ fn push_out(a: [f64; 3], b: [f64; 3], c: [f64; 3], point: &mut [f64; 3], start: 
 /// gathered about it (through its cache), then out of the terrain's
 /// triangles near it. enabled: each body's flag by its place in the world's
 /// order (the hull's own body off). `out` and `near` are scratch.
+/// Each probe lends its cache only for its own gather. Indexed banks can
+/// therefore reuse a cache without constructing aliased mutable references.
+pub trait ProbeCaches {
+    fn cache(&mut self, probe: usize) -> Option<&mut GatherCache>;
+}
+impl ProbeCaches for [Option<&mut GatherCache>] {
+    fn cache(&mut self, probe: usize) -> Option<&mut GatherCache> { self.get_mut(probe)?.as_deref_mut() }
+}
+struct IndexedCaches<'a> { ids: &'a [i64], all: &'a mut [GatherCache] }
+impl ProbeCaches for IndexedCaches<'_> {
+    fn cache(&mut self, probe: usize) -> Option<&mut GatherCache> {
+        let id = *self.ids.get(probe)?;
+        if id < 0 { None } else { self.all.get_mut(id as usize) }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-pub fn push_walls(s: &mut State, world: usize, p: &Probes, caches: &mut [Option<&mut GatherCache>], blockers: Option<usize>, enabled: &[u8], h: &mut Pushed, out: &mut Gathered, near: &mut Vec<u32>) {
+pub fn push_walls(s: &mut State, world: usize, p: &Probes, caches: &mut (impl ProbeCaches + ?Sized), blockers: Option<usize>, enabled: &[u8], h: &mut Pushed, out: &mut Gathered, near: &mut Vec<u32>) {
     let grid = s.worlds[world].grid;
     let mut start = [0.0; 3];
     for _pass in 0..2 {
@@ -867,7 +880,7 @@ pub fn push_walls(s: &mut State, world: usize, p: &Probes, caches: &mut [Option<
                 let was = apply_quaternion(*probe, own);
                 start = [was[0] + p.previous[0], was[1] + p.previous[1], was[2] + p.previous[2]];
             }
-            gather(s, world, point, p.radius, blockers, caches[i].as_deref_mut(), -1, enabled, out);
+            gather(s, world, point, p.radius, blockers, caches.cache(i), -1, enabled, out);
             for polygon in out.list() {
                 let hull = p.own.is_some() && polygon.moving;
                 for t in &polygon.tris { push_out(t.a, t.b, t.c, &mut point, &start, hull, p.radius, h); }
@@ -888,88 +901,62 @@ pub fn push_walls(s: &mut State, world: usize, p: &Probes, caches: &mut [Option<
 // CANDIDATES; JavaScript writes whether each is enabled in ENABLED; the
 // second does those bodies.
 
-static mut GATHERED: Option<Gathered> = None;
-static mut CACHES: Vec<GatherCache> = Vec::new();
-static mut QUERY: Bounds = EMPTY;
-/// A JavaScript gather's polygons, written out: per polygon its id, 1 if it
-/// is a moving body's (else 0) and its triangle count; per triangle its set
-/// (-1 for a body's) and number, and a body's its nine corners.
-static mut OUT: Vec<f64> = Vec::new();
-static mut NEAR: Vec<u32> = Vec::new();
-/// Inputs too long for IO (push_walls'), and each body's enabled flag by its
-/// place in the world's order, for queries JavaScript runs whole.
-static mut INPUT: Vec<f64> = Vec::new();
-static mut PLACES: [u8; MAX_BODIES] = [0; MAX_BODIES];
-static mut PUSH_OUT: Option<Gathered> = None;
-static mut PUSH_NEAR: Vec<u32> = Vec::new();
-
-fn gathered() -> &'static mut Gathered {
-    unsafe { (*addr_of_mut!(GATHERED)).get_or_insert_with(Gathered::new) }
+/// Retained collision.js gather banks. Caches and the current two-call
+/// query belong to the collision owner, independently of movement's gathers.
+pub(crate) struct Gathers {
+    gathered: Option<Gathered>,
+    pub(crate) caches: Vec<GatherCache>,
+    query: Bounds,
+    out: Vec<f64>, near: Vec<u32>, input: Vec<f64>,
+    push_points: Vec<[f64; 3]>, push_ids: Vec<i64>,
+    places: [u8; MAX_BODIES], push_out: Option<Gathered>, push_near: Vec<u32>,
+}
+impl Gathers {
+    pub const fn new() -> Self {
+        Self { gathered: None, caches: Vec::new(), query: EMPTY, out: Vec::new(), near: Vec::new(), input: Vec::new(), push_points: Vec::new(), push_ids: Vec::new(), places: [0; MAX_BODIES], push_out: None, push_near: Vec::new() }
+    }
 }
 
-/// The gather caches JavaScript made (`cache_new`), by id: the hull phase's
-/// native world queries through the caches its hulls hold.
+// A narrow facade loan for vehicle collision services, never a whole-owner
+// borrow. Native owned callers use their explicit gather bank instead.
 pub(crate) fn caches() -> &'static mut Vec<GatherCache> {
-    unsafe { &mut *addr_of_mut!(CACHES) }
+    unsafe { &mut *std::ptr::addr_of_mut!(super::OWNER.gathers.caches) }
 }
 
 /// A fixed set over tree `tree` of `triangles` triangles, its polygon
 /// numbers offset by `offset`; fill its bounds and polygon numbers at
 /// `set_bounds` and `set_polygons`.
 #[no_mangle]
-pub extern "C" fn set_new(tree: u32, triangles: u32, offset: f64) -> u32 {
-    let s = state();
-    s.sets.push(FixedSet { tree: tree as usize, bounds: vec![0.0; triangles as usize * 6], polygons: vec![0; triangles as usize], offset });
-    (s.sets.len() - 1) as u32
-}
+pub extern "C" fn set_new(tree: u32, triangles: u32, offset: f64) -> u32 { super::owner().set_new(tree, triangles, offset) }
 
 #[no_mangle]
-pub extern "C" fn set_bounds(id: u32) -> *mut f32 { state().sets[id as usize].bounds.as_mut_ptr() }
+pub extern "C" fn set_bounds(id: u32) -> *mut f32 { super::owner().set_bounds(id) }
 
 #[no_mangle]
-pub extern "C" fn set_polygons(id: u32) -> *mut u32 { state().sets[id as usize].polygons.as_mut_ptr() }
+pub extern "C" fn set_polygons(id: u32) -> *mut u32 { super::owner().set_polygons(id) }
 
 /// The world's buildings as fixed set `set`.
 #[no_mangle]
-pub extern "C" fn world_statics(world: u32, set: u32) { state().worlds[world as usize].statics = Some(set as usize); }
+pub extern "C" fn world_statics(world: u32, set: u32) { super::owner().world_statics(world, set) }
 
 /// Room for a tree's `count` polygon numbers (a body's), to fill at the pointer.
 #[no_mangle]
-pub extern "C" fn tree_polygons(id: u32, count: u32) -> *mut u32 {
-    let t = &mut state().trees[id as usize];
-    t.polygons.clear();
-    t.polygons.resize(count as usize, 0);
-    t.polygons.as_mut_ptr()
-}
+pub extern "C" fn tree_polygons(id: u32, count: u32) -> *mut u32 { super::owner().tree_polygons(id, count) }
 
 /// A body's polygon number offset.
 #[no_mangle]
-pub extern "C" fn body_offset(slot: u32, offset: f64) { state().bodies[slot as usize].offset = offset; }
+pub extern "C" fn body_offset(slot: u32, offset: f64) { super::owner().body_offset(slot, offset) }
 
 /// A gather cache for JavaScript; returns its id.
 #[no_mangle]
-pub extern "C" fn cache_new(margin: f64) -> u32 {
-    caches().push(GatherCache::new(margin));
-    (caches().len() - 1) as u32
-}
+pub extern "C" fn cache_new(margin: f64) -> u32 { super::owner().cache_new(margin) }
 
 /// gather's first call, the center in IO 0-2 and the radius in 3: the fixed
 /// parts (through cache `cache`, -1 none; with the barriers of set
 /// `blockers`, -1 none), and the bodies to try (`ignore` a slot or -1) in
 /// CANDIDATES; returns how many.
 #[no_mangle]
-pub extern "C" fn gather_begin(world: u32, cache: i32, blockers: i32, ignore: i32) -> u32 {
-    let v = io();
-    let (center, radius) = ([v[0], v[1], v[2]], v[3]);
-    let s = state();
-    let world = world as usize;
-    let blockers = (blockers >= 0).then_some(blockers as usize);
-    let cache = if cache >= 0 { Some(&mut caches()[cache as usize]) } else { None };
-    let candidates = unsafe { &mut *addr_of_mut!(crate::collision::CANDIDATES) };
-    let (bounds, count) = gather_candidates_into(s, world, center, radius, blockers, cache, ignore as i64, gathered(), candidates);
-    unsafe { *addr_of_mut!(QUERY) = bounds; }
-    count as u32
-}
+pub extern "C" fn gather_begin(world: u32, cache: i32, blockers: i32, ignore: i32) -> u32 { super::owner().gather_begin(world, cache, blockers, ignore) }
 
 /// Fixed gather and candidate selection, with all scratch owned by the caller.
 pub(crate) fn gather_candidates_into(s: &State, world: usize, center: [f64; 3], radius: f64, blockers: Option<usize>, cache: Option<&mut GatherCache>, ignore: i64, out: &mut Gathered, candidates: &mut [u32]) -> (Bounds, usize) {
@@ -989,19 +976,7 @@ pub(crate) fn gather_candidates_into(s: &State, world: usize, center: [f64; 3], 
 /// written: their polygons, and the gather written out (OUT, its address in
 /// IO 58 and length in 59); returns the polygon count.
 #[no_mangle]
-pub extern "C" fn gather_end(world: u32, count: u32) -> u32 {
-    let s = state();
-    let out = gathered();
-    let bounds = unsafe { *addr_of_mut!(QUERY) };
-    let candidates = unsafe { &*std::ptr::addr_of!(crate::collision::CANDIDATES) };
-    let enabled = unsafe { &*std::ptr::addr_of!(crate::collision::ENABLED) };
-    let w = unsafe { &mut *addr_of_mut!(OUT) };
-    let count = gather_complete(s, world as usize, &bounds, &candidates[..count as usize], &enabled[..count as usize], out, w);
-    let v = io();
-    v[58] = w.as_ptr() as usize as f64;
-    v[59] = w.len() as f64;
-    count as u32
-}
+pub extern "C" fn gather_end(world: u32, count: u32) -> u32 { super::owner().gather_end(world, count) }
 
 /// Complete and encode the gather without borrowing any module storage.
 pub(crate) fn gather_complete(s: &State, world: usize, bounds: &Bounds, candidates: &[u32], enabled: &[u8], out: &mut Gathered, w: &mut Vec<f64>) -> usize {
@@ -1032,15 +1007,11 @@ pub(crate) fn gather_complete(s: &State, world: usize, bounds: &Bounds, candidat
 
 /// Room for `count` f64s of input; its address.
 #[no_mangle]
-pub extern "C" fn input_reserve(count: u32) -> *mut f64 {
-    let v = unsafe { &mut *addr_of_mut!(INPUT) };
-    if v.len() < count as usize { v.resize(count as usize, 0.0); }
-    v.as_mut_ptr()
-}
+pub extern "C" fn input_reserve(count: u32) -> *mut f64 { super::owner().input_reserve(count) }
 
 /// Where each body's enabled flag goes, by its place in the world's order.
 #[no_mangle]
-pub extern "C" fn places_ptr() -> *mut u8 { addr_of_mut!(PLACES) as *mut u8 }
+pub extern "C" fn places_ptr() -> *mut u8 { super::owner().places_ptr() }
 
 /// pushWalls for a hull, its input written at input_reserve's address: 0-3
 /// its turn q, 4-7 its turn a step ago and 8 1 if it has one, 9-11 its
@@ -1050,56 +1021,18 @@ pub extern "C" fn places_ptr() -> *mut u8 { addr_of_mut!(PLACES) as *mut u8 }
 /// its cache (-1 none), four each; bodies' flags at places_ptr. Its place
 /// and velocity come back in IO 0-5, and in IO 6 1 if its turn is undone.
 #[no_mangle]
-pub extern "C" fn push_walls_ray(world: u32) {
-    let v = unsafe { &*addr_of_mut!(INPUT) };
-    let s = state();
-    let count = v[21] as usize;
-    let mut points = Vec::with_capacity(count);
-    for i in 0..count { let o = 22 + i * 4; points.push([v[o], v[o + 1], v[o + 2]]); }
-    let p = Probes { points: &points, radius: v[18], q: [v[0], v[1], v[2], v[3]], own: (v[8] != 0.0).then_some([v[4], v[5], v[6], v[7]]),
-        previous: [v[9], v[10], v[11]], terrain: v[19] != 0.0 };
-    let mut h = Pushed { position: [v[12], v[13], v[14]], velocity: [v[15], v[16], v[17]], undo_turn: false };
-    let ids: Vec<i64> = (0..count).map(|i| v[22 + i * 4 + 3] as i64).collect();
-    let all = caches();
-    let mut owned: Vec<Option<&mut GatherCache>> = Vec::with_capacity(count);
-    // Each probe's own cache (distinct per probe, as a hull keeps them).
-    let base = all.as_mut_ptr();
-    for &id in &ids { owned.push(if id >= 0 { Some(unsafe { &mut *base.add(id as usize) }) } else { None }); }
-    let blockers = (v[20] >= 0.0).then_some(v[20] as usize);
-    let n = s.worlds[world as usize].order.len();
-    let places: &[u8; MAX_BODIES] = unsafe { &*addr_of_mut!(PLACES) };
-    let enabled = &places[..n];
-    let out = unsafe { (*addr_of_mut!(PUSH_OUT)).get_or_insert_with(Gathered::new) };
-    let near = unsafe { &mut *addr_of_mut!(PUSH_NEAR) };
-    push_walls(s, world as usize, &p, &mut owned, blockers, enabled, &mut h, out, near);
-    let io = io();
-    io[0] = h.position[0]; io[1] = h.position[1]; io[2] = h.position[2];
-    io[3] = h.velocity[0]; io[4] = h.velocity[1]; io[5] = h.velocity[2];
-    io[6] = if h.undo_turn { 1.0 } else { 0.0 };
-}
+pub extern "C" fn push_walls_ray(world: u32) { super::owner().push_walls_ray(world) }
 
 /// overlapsSphere's first call, the center in IO 0-2 and the radius in 3:
 /// -1 if the buildings or the terrain overlap it, else the bodies to try
 /// (`ignore` a slot or -1) in CANDIDATES and how many.
 #[no_mangle]
-pub extern "C" fn overlap_begin(world: u32, ignore: i32) -> i32 {
-    let v = io();
-    let (center, radius) = ([v[0], v[1], v[2]], v[3]);
-    let s = state();
-    if overlaps_fixed(s, world as usize, center, radius) { return -1; }
-    candidates_for(s, world as usize, &sphere_bounds(center, radius), ignore as i64, None) as i32
-}
+pub extern "C" fn overlap_begin(world: u32, ignore: i32) -> i32 { super::owner().overlap_begin(world, ignore) }
 
 /// overlapsSphere's second call over the first `count` candidates whose
 /// ENABLED is written: 1 if one overlaps, else 0.
 #[no_mangle]
-pub extern "C" fn overlap_end(world: u32, count: u32) -> u32 {
-    let v = io();
-    let (center, radius) = ([v[0], v[1], v[2]], v[3]);
-    let candidates = unsafe { &*std::ptr::addr_of!(crate::collision::CANDIDATES) };
-    let enabled = unsafe { &*std::ptr::addr_of!(crate::collision::ENABLED) };
-    overlaps_candidates(state(), world as usize, center, radius, &candidates[..count as usize], &enabled[..count as usize]) as u32
-}
+pub extern "C" fn overlap_end(world: u32, count: u32) -> u32 { super::owner().overlap_end(world, count) }
 
 pub(crate) fn overlaps_candidates(s: &State, world: usize, center: [f64; 3], radius: f64, candidates: &[u32], enabled: &[u8]) -> bool {
     let order = &s.worlds[world].order;
@@ -1112,14 +1045,7 @@ pub(crate) fn overlaps_candidates(s: &State, world: usize, center: [f64; 3], rad
 /// terrainNear's triangles (the center in IO 0-2, the radius in 3): their
 /// numbers at the address in IO 58; returns how many.
 #[no_mangle]
-pub extern "C" fn terrain_near_ray(grid: u32) -> u32 {
-    let v = io();
-    let (center, radius) = ([v[0], v[1], v[2]], v[3]);
-    let out = unsafe { &mut *addr_of_mut!(NEAR) };
-    terrain_near(state(), grid as usize, center, radius, out);
-    v[58] = out.as_ptr() as usize as f64;
-    out.len() as u32
-}
+pub extern "C" fn terrain_near_ray(grid: u32) -> u32 { super::owner().terrain_near_ray(grid) }
 
 #[cfg(test)]
 mod tests {
@@ -1184,5 +1110,116 @@ mod tests {
             assert_eq!(polygon.tris.as_ptr(),storage);
             assert_eq!(gathered.list().len(),1);
         }
+    }
+}
+
+impl CollisionOwner {
+    pub fn set_new(&mut self, tree: u32, triangles: u32, offset: f64) -> u32 {
+        let s = &mut self.state;
+        s.sets.push(FixedSet { tree: tree as usize, bounds: vec![0.0; triangles as usize * 6], polygons: vec![0; triangles as usize], offset });
+        (s.sets.len() - 1) as u32
+    }
+    pub fn set_bounds(&mut self, id: u32) -> *mut f32 { self.state.sets[id as usize].bounds.as_mut_ptr() }
+    pub fn set_polygons(&mut self, id: u32) -> *mut u32 { self.state.sets[id as usize].polygons.as_mut_ptr() }
+    pub fn world_statics(&mut self, world: u32, set: u32) { self.state.worlds[world as usize].statics = Some(set as usize); }
+    pub fn tree_polygons(&mut self, id: u32, count: u32) -> *mut u32 {
+        let t = &mut self.state.trees[id as usize];
+        t.polygons.clear();
+        t.polygons.resize(count as usize, 0);
+        t.polygons.as_mut_ptr()
+    }
+    pub fn body_offset(&mut self, slot: u32, offset: f64) { self.state.bodies[slot as usize].offset = offset; }
+    pub fn cache_new(&mut self, margin: f64) -> u32 {
+        self.gathers.caches.push(GatherCache::new(margin));
+        (self.gathers.caches.len() - 1) as u32
+    }
+    pub fn gather_begin(&mut self, world: u32, cache: i32, blockers: i32, ignore: i32) -> u32 {
+        let v = &mut self.io;
+        let (center, radius) = ([v[0], v[1], v[2]], v[3]);
+        let s = &mut self.state;
+        let world = world as usize;
+        let blockers = (blockers >= 0).then_some(blockers as usize);
+        let cache = if cache >= 0 { Some(&mut self.gathers.caches[cache as usize]) } else { None };
+        let candidates = &mut self.candidates;
+        let (bounds, count) = gather_candidates_into(s, world, center, radius, blockers, cache, ignore as i64, self.gathers.gathered.get_or_insert_with(Gathered::new), candidates);
+        self.gathers.query = bounds;
+        count as u32
+    }
+    pub fn gather_end(&mut self, world: u32, count: u32) -> u32 {
+        let s = &mut self.state;
+        let out = self.gathers.gathered.get_or_insert_with(Gathered::new);
+        let bounds = self.gathers.query;
+        let candidates = &self.candidates;
+        let enabled = &self.enabled;
+        let w = &mut self.gathers.out;
+        let count = gather_complete(s, world as usize, &bounds, &candidates[..(count as usize).min(MAX_BODIES)], &enabled[..(count as usize).min(MAX_BODIES)], out, w);
+        let v = &mut self.io;
+        v[58] = w.as_ptr() as usize as f64;
+        v[59] = w.len() as f64;
+        count as u32
+    }
+    pub fn input_reserve(&mut self, count: u32) -> *mut f64 {
+        let v = &mut self.gathers.input;
+        if v.len() < count as usize { v.resize(count as usize, 0.0); }
+        // rayPushWalls writes four words per probe after its fixed header.
+        // Reserve the derived banks at the same admission boundary as input.
+        let probes = (count as usize).saturating_sub(22) / 4;
+        let points = &mut self.gathers.push_points;
+        points.reserve(probes.saturating_sub(points.len()));
+        let ids = &mut self.gathers.push_ids;
+        ids.reserve(probes.saturating_sub(ids.len()));
+        v.as_mut_ptr()
+    }
+    pub fn places_ptr(&mut self) -> *mut u8 { self.gathers.places.as_mut_ptr() }
+    pub fn push_walls_ray(&mut self, world: u32) {
+        let v = &self.gathers.input;
+        let s = &mut self.state;
+        if v.len() < 22 { return; }
+        let count = (v[21] as usize).min((v.len() - 22) / 4);
+        let points = &mut self.gathers.push_points;
+        let ids = &mut self.gathers.push_ids;
+        points.clear(); ids.clear();
+        for i in 0..count {
+            let o = 22 + i * 4;
+            points.push([v[o], v[o + 1], v[o + 2]]);
+            ids.push(v[o + 3] as i64);
+        }
+        let p = Probes { points, radius: v[18], q: [v[0], v[1], v[2], v[3]], own: (v[8] != 0.0).then_some([v[4], v[5], v[6], v[7]]),
+            previous: [v[9], v[10], v[11]], terrain: v[19] != 0.0 };
+        let mut h = Pushed { position: [v[12], v[13], v[14]], velocity: [v[15], v[16], v[17]], undo_turn: false };
+        let mut caches = IndexedCaches { ids, all: &mut self.gathers.caches };
+        let blockers = (v[20] >= 0.0).then_some(v[20] as usize);
+        let n = s.worlds[world as usize].order.len();
+        let places: &[u8; MAX_BODIES] = &self.gathers.places;
+        let enabled = &places[..n];
+        let out = self.gathers.push_out.get_or_insert_with(Gathered::new);
+        let near = &mut self.gathers.push_near;
+        push_walls(s, world as usize, &p, &mut caches, blockers, enabled, &mut h, out, near);
+        let io = &mut self.io;
+        io[0] = h.position[0]; io[1] = h.position[1]; io[2] = h.position[2];
+        io[3] = h.velocity[0]; io[4] = h.velocity[1]; io[5] = h.velocity[2];
+        io[6] = if h.undo_turn { 1.0 } else { 0.0 };
+    }
+    pub fn overlap_begin(&mut self, world: u32, ignore: i32) -> i32 {
+        let v = &mut self.io;
+        let (center, radius) = ([v[0], v[1], v[2]], v[3]);
+        let s = &mut self.state;
+        if overlaps_fixed(s, world as usize, center, radius) { return -1; }
+        candidates_into(s, world as usize, &sphere_bounds(center, radius), ignore as i64, None, &mut self.candidates) as i32
+    }
+    pub fn overlap_end(&mut self, world: u32, count: u32) -> u32 {
+        let v = &mut self.io;
+        let (center, radius) = ([v[0], v[1], v[2]], v[3]);
+        let candidates = &self.candidates;
+        let enabled = &self.enabled;
+        overlaps_candidates(&mut self.state, world as usize, center, radius, &candidates[..(count as usize).min(MAX_BODIES)], &enabled[..(count as usize).min(MAX_BODIES)]) as u32
+    }
+    pub fn terrain_near_ray(&mut self, grid: u32) -> u32 {
+        let v = &mut self.io;
+        let (center, radius) = ([v[0], v[1], v[2]], v[3]);
+        let out = &mut self.gathers.near;
+        terrain_near(&mut self.state, grid as usize, center, radius, out);
+        v[58] = out.as_ptr() as usize as f64;
+        out.len() as u32
     }
 }

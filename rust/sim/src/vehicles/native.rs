@@ -25,7 +25,6 @@ use crate::collision::{self, broad, candidate, State, MAX_BODIES, MISS, TERRAIN}
 use bfe_content::regions::BuiltRegion;
 use bfe_content::value::Value;
 use std::collections::HashSet;
-use std::ptr::addr_of_mut;
 use three::{Matrix4, Quaternion, Vector3};
 use v8math::{abs, floor, hypot, max, min};
 
@@ -311,7 +310,7 @@ impl Collision {
         let ray = collision::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
         let count = broad::world_candidates_near(s, self.world, &ray, far, ignore, false, false);
         // The candidates' flags, as rayCandidates writes them.
-        let enabled = unsafe { &mut *addr_of_mut!(collision::ENABLED) };
+        let enabled = collision::enabled();
         for (c, flag) in enabled.iter_mut().enumerate().take(count) {
             *flag = self.flags[candidate(c)];
         }

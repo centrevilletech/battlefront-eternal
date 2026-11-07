@@ -8,9 +8,7 @@
 use super::soldier::{js_hypot2, PART_CACHES, V3};
 use crate::collision::spheres::{closest_point_to_point, gather, ground, overlaps_sphere, GatherCache, Gathered, Polygon, Tri};
 use crate::collision::{triangle_normal, world_candidates_into, world_cast_ray_in, State, MISS, TERRAIN};
-#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 use crate::collision::MAX_BODIES;
-use std::ptr::addr_of_mut;
 
 /// What a contact may hurt him on (collision-damage.js): terrain counts in
 /// full, a building's or prop's upward share only; a moving body not at all.
@@ -35,10 +33,10 @@ pub struct GroundCache {
     z: f64,
     top: f64,
     hit: Option<(f64, V3)>,
-    // Legacy scenes retain the module's candidate/enabled storage. A native
-    // world's scene opts into its own buffers without changing Scene's
-    // construction contract for the existing replay consumers.
-    cast: Option<CastBuffers>,
+    // Cast scratch follows this scene's ground cache. Sharing module scratch
+    // here would make an explicitly borrowed movement owner reach another
+    // collision owner's in-flight query.
+    cast: CastBuffers,
 }
 
 struct CastBuffers {
@@ -48,14 +46,7 @@ struct CastBuffers {
 
 impl Default for GroundCache {
     fn default() -> GroundCache {
-        GroundCache { x: f64::NAN, z: f64::NAN, top: f64::NAN, hit: None, cast: None }
-    }
-}
-
-impl GroundCache {
-    #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
-    pub(crate) fn owned() -> Self {
-        Self { cast: Some(CastBuffers { candidates: vec![0; MAX_BODIES], enabled: vec![0; MAX_BODIES] }), ..Self::default() }
+        GroundCache { x: f64::NAN, z: f64::NAN, top: f64::NAN, hit: None, cast: CastBuffers { candidates: vec![0; MAX_BODIES], enabled: vec![0; MAX_BODIES] } }
     }
 }
 
@@ -90,11 +81,8 @@ impl Scene<'_> {
     /// cast(origin, direction, far, out): the first hit against the
     /// buildings, the enabled bodies and the terrain.
     pub fn cast(&mut self, origin: V3, direction: V3, far: f64) -> Option<CastHit> {
-        let (candidates, enabled): (&mut [u32], &mut [u8]) = if let Some(buffers) = self.ground_cache.cast.as_mut() {
-            (&mut buffers.candidates[..], &mut buffers.enabled[..])
-        } else {
-            unsafe { (&mut *addr_of_mut!(crate::collision::CANDIDATES), &mut *addr_of_mut!(crate::collision::ENABLED)) }
-        };
+        let buffers = &mut self.ground_cache.cast;
+        let (candidates, enabled) = (&mut buffers.candidates[..], &mut buffers.enabled[..]);
         cast_in(self.s, self.world, self.flags, origin, direction, far, candidates, enabled)
     }
 

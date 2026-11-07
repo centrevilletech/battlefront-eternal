@@ -19,7 +19,7 @@ use crate::units::{
     shapes::{Bounds, HitShape},
     world::{CastHit, UnitsWorld},
 };
-use std::{ptr::addr_of_mut, rc::Rc};
+use std::rc::Rc;
 use three::Vector3;
 
 const INVALID: &str = "invalid prediction actor command";
@@ -518,7 +518,7 @@ impl UnitsWorld for ActorWorld<'_> {
         };
         let n =
             broad::world_candidates_near(self.collision, self.world, &ray, far, -1, false, false);
-        let enabled = unsafe { &mut *addr_of_mut!(collision::ENABLED) };
+        let enabled = collision::enabled();
         for i in 0..n {
             enabled[i] = self.flags[candidate(i)];
         }
