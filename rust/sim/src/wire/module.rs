@@ -166,7 +166,7 @@ pub(crate) fn wire_bind_store_in(w: &mut crate::world::owner::World, runtime: us
 }
 /// # Safety
 /// The handle names a wire runtime in this module instance.
-pub(crate) unsafe fn wire_drop_in(w: &mut crate::world::owner::World, runtime: usize) {
+pub(crate) fn wire_drop_in(w: &mut crate::world::owner::World, runtime: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.runtimes.get(runtime as usize).is_none() {return;}
 
@@ -177,7 +177,7 @@ if owner.runtimes.get(runtime as usize).is_none() {return;}
 }
 /// # Safety
 /// The handle belongs to this module instance for the call.
-pub(crate) unsafe fn wire_capture_in(w: &mut crate::world::owner::World, runtime: usize) -> Option<&[f64]> {
+pub(crate) fn wire_capture_in(w: &mut crate::world::owner::World, runtime: usize) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.runtimes.get(runtime as usize).is_none() {return None;}
 
@@ -193,7 +193,7 @@ if owner.runtimes.get(runtime as usize).is_none() {return None;}
 }
 /// # Safety
 /// The handle belongs to this module instance for the call.
-pub(crate) unsafe fn wire_held_in(w: &mut crate::world::owner::World, runtime: usize,
+pub(crate) fn wire_held_in(w: &mut crate::world::owner::World, runtime: usize,
     tick: f64,
     epoch: f64,
     baseline: f64,
@@ -216,13 +216,13 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn wire_create() -> *mut Runtime { wire_create_in(crate::abi::facade::world()) as *mut Runtime }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_bind_store(runtime: *mut Runtime, source: *const super::super::store_source::Source) -> u32 { let w = crate::abi::facade::world(); let capacity = w.wire.as_deref().and_then(|owner| owner.sources.get(source as usize)).map(|source| source.capture.seat_capacity()); wire_bind_store_in(w, runtime as usize, capacity) }
+    pub extern "C" fn wire_bind_store(runtime: *mut Runtime, source: *const super::super::store_source::Source) -> u32 { let w = crate::abi::facade::world(); let capacity = w.wire.as_deref().and_then(|owner| owner.sources.get(source as usize)).map(|source| source.capture.seat_capacity()); wire_bind_store_in(w, runtime as usize, capacity) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_drop(runtime: *mut Runtime) { wire_drop_in(crate::abi::facade::world(), runtime as usize) }
+    pub extern "C" fn wire_drop(runtime: *mut Runtime) { wire_drop_in(crate::abi::facade::world(), runtime as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_capture(runtime: *mut Runtime) -> *const f64 { wire_capture_in(crate::abi::facade::world(), runtime as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub extern "C" fn wire_capture(runtime: *mut Runtime) -> *const f64 { wire_capture_in(crate::abi::facade::world(), runtime as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_held(runtime: *mut Runtime,
+    pub extern "C" fn wire_held(runtime: *mut Runtime,
         tick: f64,
         epoch: f64,
         baseline: f64,

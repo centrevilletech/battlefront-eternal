@@ -355,7 +355,7 @@ pub(crate) fn wire_combat_create_in(w: &mut crate::world::owner::World) -> usize
 /// serializing a complete queue result for each half of a postfix increment.
 /// # Safety
 /// The handle belongs to this module instance and remains live for the call.
-pub(crate) unsafe fn wire_combat_next_id_in(w: &mut crate::world::owner::World, handle: usize) -> f64 {
+pub(crate) fn wire_combat_next_id_in(w: &mut crate::world::owner::World, handle: usize) -> f64 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.combat.get(handle as usize).is_none() {return f64::NAN;}
 
@@ -365,7 +365,7 @@ if owner.combat.get(handle as usize).is_none() {return f64::NAN;}
 /// # Safety
 /// The live handle is exclusive for this operation. Keep the supplied IEEE
 /// value: validation still belongs to the subsequent record encoder.
-pub(crate) unsafe fn wire_combat_set_next_id_in(w: &mut crate::world::owner::World, handle: usize, id: f64) {
+pub(crate) fn wire_combat_set_next_id_in(w: &mut crate::world::owner::World, handle: usize, id: f64) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.combat.get(handle as usize).is_none() {return;}
 
@@ -374,7 +374,7 @@ if owner.combat.get(handle as usize).is_none() {return;}
 }
 /// # Safety
 /// The handle belongs to this module instance and is released once.
-pub(crate) unsafe fn wire_combat_drop_in(w: &mut crate::world::owner::World, handle: usize) {
+pub(crate) fn wire_combat_drop_in(w: &mut crate::world::owner::World, handle: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.combat.get(handle as usize).is_none() {return;}
 
@@ -386,7 +386,7 @@ if owner.combat.get(handle as usize).is_none() {return;}
 /// # Safety
 /// The live handle is exclusive for this operation. Inputs are owned and
 /// no simulation callback runs until the operation has returned.
-pub(crate) unsafe fn wire_combat_run_in(w: &mut crate::world::owner::World, handle: usize) -> Option<&[f64]> {
+pub(crate) fn wire_combat_run_in(w: &mut crate::world::owner::World, handle: usize) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.combat.get(handle as usize).is_none() {return None;}
 
@@ -522,13 +522,13 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn wire_combat_create() -> *mut Capture { wire_combat_create_in(crate::abi::facade::world()) as *mut Capture }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_combat_next_id(handle: *const Capture) -> f64 { wire_combat_next_id_in(crate::abi::facade::world(), handle as usize) }
+    pub extern "C" fn wire_combat_next_id(handle: *const Capture) -> f64 { wire_combat_next_id_in(crate::abi::facade::world(), handle as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_combat_set_next_id(handle: *mut Capture, id: f64) { wire_combat_set_next_id_in(crate::abi::facade::world(), handle as usize, id) }
+    pub extern "C" fn wire_combat_set_next_id(handle: *mut Capture, id: f64) { wire_combat_set_next_id_in(crate::abi::facade::world(), handle as usize, id) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_combat_drop(handle: *mut Capture) { wire_combat_drop_in(crate::abi::facade::world(), handle as usize) }
+    pub extern "C" fn wire_combat_drop(handle: *mut Capture) { wire_combat_drop_in(crate::abi::facade::world(), handle as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_combat_run(handle: *mut Capture) -> *const f64 { wire_combat_run_in(crate::abi::facade::world(), handle as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub extern "C" fn wire_combat_run(handle: *mut Capture) -> *const f64 { wire_combat_run_in(crate::abi::facade::world(), handle as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
     pub extern "C" fn wire_combat_commit(handle:usize) ->u32 { wire_combat_commit_in(crate::abi::facade::world(), handle) }
     #[no_mangle]

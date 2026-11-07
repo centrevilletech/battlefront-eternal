@@ -714,9 +714,13 @@ impl VehicleWorld for JsWorld<'_, '_> {
     }
 
     fn push_walls(&mut self, hull: usize, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> bool { let world_ctx = &mut *self.world_ctx;
-            world_ctx.fleet.collision.as_mut().expect("the vehicle collision world")
-                .push_walls_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), world_ctx.sim.store.vehicle.get(world_ctx.sim.store.vehicles.vehicles[hull]).unwrap().body.slot, probes, radius, q, own, previous, position, velocity, terrain)
-                .expect("a hull collider")
+        // VehiclesWorld.pushWalls can outlive a retired hull's registration.
+        let Some(&reference) = world_ctx.sim.store.vehicles.vehicles.get(hull) else { return false };
+        let Some(vehicle) = world_ctx.sim.store.vehicle.get(reference) else { return false };
+        let Some(collision) = world_ctx.fleet.collision.as_mut() else { return false };
+        let Some(undo) = collision.push_walls_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), vehicle.body.slot,
+            probes, radius, q, own, previous, position, velocity, terrain) else { return false };
+        undo
     }
 
     fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<Ground> { let world_ctx = &mut *self.world_ctx;
@@ -724,24 +728,29 @@ impl VehicleWorld for JsWorld<'_, '_> {
     }
 
     fn spring_polygons<'a>(&'a mut self, hull: usize, index: usize, center: &Vector3, radius: f64, _out: &'a mut Vec<Polygon>) -> super::SpringPolygons<'a> { let world_ctx = &mut *self.world_ctx;
-            let _allocation = f2::allocation::nested(f2::allocation::Stage::Polygons);
-            super::SpringPolygons::Native(world_ctx.fleet.collision.as_mut().expect("the vehicle collision world")
-                .spring_polygons_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), world_ctx.sim.store.vehicle.get(world_ctx.sim.store.vehicles.vehicles[hull]).unwrap().body.slot, index, center, radius).expect("a hull spring"))
+        let _allocation = f2::allocation::nested(f2::allocation::Stage::Polygons);
+        let Some(&reference) = world_ctx.sim.store.vehicles.vehicles.get(hull) else { return super::SpringPolygons::Native(&[]) };
+        let Some(vehicle) = world_ctx.sim.store.vehicle.get(reference) else { return super::SpringPolygons::Native(&[]) };
+        let Some(collision) = world_ctx.fleet.collision.as_mut() else { return super::SpringPolygons::Native(&[]) };
+        let Some(polygons) = collision.spring_polygons_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), vehicle.body.slot,
+            index, center, radius) else { return super::SpringPolygons::Native(&[]) };
+        super::SpringPolygons::Native(polygons)
     }
 
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4) { let world_ctx = &mut *self.world_ctx;
-            world_ctx.fleet.collision.as_mut().expect("the vehicle collision world")
-                .move_body(&mut world_ctx.collision.state, body, matrix).expect("a hull body");
+        let Some(collision) = world_ctx.fleet.collision.as_mut() else { return };
+        let Some(()) = collision.move_body(&mut world_ctx.collision.state, body, matrix) else { return };
     }
 
     fn enable_body(&mut self, body: BodyId, enabled: bool) { let world_ctx = &mut *self.world_ctx;
-            world_ctx.fleet.collision.as_mut().expect("the vehicle collision world")
-                .enable_body_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), body, enabled).expect("a hull body");
+        let Some(collision) = world_ctx.fleet.collision.as_mut() else { return };
+        let Some(()) = collision.enable_body_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), body, enabled) else { return };
     }
 
     fn body_enabled(&mut self, body: BodyId) -> bool { let world_ctx = &mut *self.world_ctx;
-            world_ctx.fleet.collision.as_mut().expect("the vehicle collision world")
-                .body_enabled_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), body).expect("a hull body")
+        let Some(collision) = world_ctx.fleet.collision.as_mut() else { return false };
+        let Some(enabled) = collision.body_enabled_in(&mut world_ctx.collision.state, world_ctx.movement.flags_mut(), body) else { return false };
+        enabled
     }
 
     fn water_over(&mut self, x: f64, z: f64) -> bool { let world_ctx = &mut *self.world_ctx;
@@ -1208,3 +1217,28 @@ mod exports {
 }
 #[cfg(target_arch = "wasm32")]
 pub use exports::{veh_class, veh_map, veh_collision, veh_flags, veh_input, veh_bodies, veh_collider, veh_changes, veh_bytes, veh_pack, veh_pull, veh_flight_env, veh_flight_tune, veh_members, veh_relations, veh_flight_inputs, veh_flight_acc, veh_locks, veh_ground};
+
+#[cfg(test)]
+mod robustness_tests {
+    use super::*;
+
+    #[test]
+    fn hull_queries_skip_retired_and_refused_bodies() {
+        let mut owner = crate::world::owner::World::new();
+        owner.fleet.collision = Some(Collision::new(0, None));
+        // The list may still name a retired hull until the enclosing tick ends.
+        owner.sim.store.vehicles.vehicles.push(Ref::new(0, 1));
+        let mut world = JsWorld::new_in(&mut owner, 0);
+        let mut position = Vector3::new(1.0, 2.0, 3.0);
+        let mut velocity = Vector3::new(4.0, 5.0, 6.0);
+        assert!(!world.push_walls(0, &[], 1.0, &Quaternion::default(), None,
+            &Vector3::default(), &mut position, &mut velocity, false));
+        assert_eq!(position, Vector3::new(1.0, 2.0, 3.0));
+        assert_eq!(velocity, Vector3::new(4.0, 5.0, 6.0));
+        assert!(matches!(world.spring_polygons(0, 0, &position, 1.0, &mut Vec::new()), super::super::SpringPolygons::Native(p) if p.is_empty()));
+        world.move_body(u32::MAX, &Matrix4::default());
+        world.enable_body(u32::MAX, true);
+        assert!(!world.body_enabled(u32::MAX));
+        assert!(world.cast(&position, &velocity, 1.0, Some(u32::MAX)).is_none());
+    }
+}

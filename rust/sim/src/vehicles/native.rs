@@ -98,6 +98,37 @@ pub struct Collision {
 const TOGGLED: u8 = 1;
 const PLACED: u8 = 2;
 
+// CollisionWorld's page cache keys must stay inside the admitted bank.
+// Keep the bound independent of the WASM facade for native fixture readers.
+fn retained_cache(caches: &mut [GatherCache], id: i64) -> Option<&mut GatherCache> {
+    caches.get_mut(usize::try_from(id).ok()?)
+}
+
+// rayPushWalls borrows each probe's own cache. Sort only the stack-held keys
+// so split_at_mut can prove their disjointness while preserving probe order.
+fn wall_caches<'a>(mut bank: &'a mut [GatherCache], walls: &[i64]) -> Option<[Option<&'a mut GatherCache>; 256]> {
+    let mut keys = [(0usize, 0usize); 256];
+    if walls.len() > keys.len() { return None; }
+    let mut count = 0;
+    for (i, &id) in walls.iter().enumerate() {
+        if id < 0 { continue; }
+        keys[count] = (usize::try_from(id).ok()?, i);
+        count += 1;
+    }
+    keys[..count].sort_unstable_by_key(|&(id, _)| id);
+    let mut caches = [const { None }; 256];
+    let mut start = 0;
+    for &(id, probe) in &keys[..count] {
+        let offset = id.checked_sub(start)?;
+        let (_, tail) = bank.split_at_mut_checked(offset)?;
+        let (cache, tail) = tail.split_first_mut()?;
+        caches[probe] = Some(cache);
+        bank = tail;
+        start = id.checked_add(1)?;
+    }
+    Some(caches)
+}
+
 impl Collision {
     /// predictionCollision shares immutable collider/cache handles, but owns
     /// enabled flags and query scratch. A private hull never publishes changes.
@@ -241,7 +272,11 @@ impl Collision {
         for c in self.colliders.iter().flatten() {
             self.points.reserve(c.walls.len().saturating_sub(self.points.len()));
             for &id in c.walls.iter().chain(&c.springs) {
-                if id >= 0 { spheres::caches()[id as usize].reserve(statics,blockers,w.order.len() + w.prepared.len()); }
+                if id >= 0 {
+                    if let Some(cache) = retained_cache(spheres::caches(), id) {
+                        cache.reserve(statics,blockers,w.order.len() + w.prepared.len());
+                    }
+                }
             }
         }
     }
@@ -371,17 +406,13 @@ impl Collision {
         if walls.len() < probes.len() {
             return None;
         }
-        // Uncached probes need only this query's scratch. Acquire the facade
-        // cache bank only when a collider actually names a retained cache.
-        let mut base: *mut GatherCache = std::ptr::null_mut();
-        // Each probe's own cache (distinct per probe, as a hull keeps them).
-        let mut caches: [Option<&mut GatherCache>; 256] = [const { None }; 256];
-        for (i, &id) in walls.iter().take(probes.len()).enumerate() {
-            if id >= 0 {
-                if base.is_null() { base = spheres::caches().as_mut_ptr(); }
-                caches[i] = Some(unsafe { &mut *base.add(id as usize) });
-            }
-        }
+        let walls = walls.get(..probes.len())?;
+        if walls.len() > 256 { return None; }
+        // Uncached probes need only this query's scratch. Retained keys must
+        // be both bounded and distinct before lending several mutable caches.
+        let mut caches = if walls.iter().any(|&id| id >= 0) {
+            wall_caches(spheres::caches(), walls)?
+        } else { [const { None }; 256] };
         self.points.clear();
         self.points.extend(probes.iter().map(|p| [p.x, p.y, p.z]));
         let p = Probes { points: &self.points, radius, q: [q.x, q.y, q.z, q.w], own: own.map(|o| [o.x, o.y, o.z, o.w]), previous: [previous.x, previous.y, previous.z], terrain };
@@ -412,7 +443,7 @@ impl Collision {
     /// `out`. None: the hull's body is not one this knows.
     pub fn spring_polygons_in(&mut self, s: &mut State, flags: &[u8], body: BodyId, index: usize, center: &Vector3, radius: f64) -> Option<&[spheres::Polygon]> {
         let id = *self.collider(body)?.springs.get(index).unwrap_or(&-1);
-        let cache = if id >= 0 { Some(unsafe { &mut *spheres::caches().as_mut_ptr().add(id as usize) }) } else { None };
+        let cache = if id >= 0 { Some(retained_cache(spheres::caches(), id)?) } else { None };
         let n = s.worlds[self.world].order.len();
         spheres::gather(s, self.world, [center.x, center.y, center.z], radius, self.blockers, cache, -1, &flags[..n], &mut self.gathered);
         // CollisionWorld.gather already retains every triangle. A second
@@ -647,6 +678,30 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn retained_cache_refuses_out_of_bounds_keys() {
+        let mut caches = vec![GatherCache::new(0.75)];
+        assert!(retained_cache(&mut caches, 0).is_some());
+        assert!(retained_cache(&mut caches, 1).is_none());
+        assert!(retained_cache(&mut caches, i64::MAX).is_none());
+        assert!(retained_cache(&mut caches, -1).is_none());
+    }
+
+    #[test]
+    fn wall_queries_refuse_excess_and_repeated_caches() {
+        let mut caches = vec![GatherCache::new(0.75), GatherCache::new(0.75)];
+        let first = &mut caches[0] as *mut GatherCache;
+        let second = &mut caches[1] as *mut GatherCache;
+        let ordered = wall_caches(&mut caches, &[1, -1, 0]).unwrap();
+        assert_eq!(ordered[0].as_deref().unwrap() as *const GatherCache, second.cast_const());
+        assert!(ordered[1].is_none());
+        assert_eq!(ordered[2].as_deref().unwrap() as *const GatherCache, first.cast_const());
+        assert!(wall_caches(&mut caches, &[0, 0]).is_none());
+        assert!(wall_caches(&mut caches, &[2]).is_none());
+        assert!(wall_caches(&mut caches, &[i64::MAX]).is_none());
+        assert!(wall_caches(&mut caches, &[-1; 257]).is_none());
+    }
 
     fn rules(json: &str, kill_y: f64) -> MapRules {
         MapRules::from_json(&bfe_content::json::parse(json).unwrap(), kill_y)

@@ -1040,7 +1040,7 @@ pub(crate) fn wire_semantic_create_in(w: &mut crate::world::owner::World) -> usi
     owner.semantic.insert(Semantic::default()).unwrap_or(0)
 
 }
-pub(crate) unsafe fn wire_semantic_drop_in(w: &mut crate::world::owner::World, p: usize) {
+pub(crate) fn wire_semantic_drop_in(w: &mut crate::world::owner::World, p: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return;}
 
@@ -1049,7 +1049,7 @@ if owner.semantic.get(p as usize).is_none() {return;}
     }
 
 }
-pub(crate) unsafe fn wire_semantic_room_in(w: &mut crate::world::owner::World, p: usize, n: u32) -> Option<&mut [f64]> {
+pub(crate) fn wire_semantic_room_in(w: &mut crate::world::owner::World, p: usize, n: u32) -> Option<&mut [f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return None;}
 
@@ -1059,7 +1059,7 @@ if owner.semantic.get(p as usize).is_none() {return None;}
     Some(&mut p.input[..])
 
 }
-pub(crate) unsafe fn wire_semantic_run_in(w: &mut crate::world::owner::World, p: usize, op: u32) -> u32 {
+pub(crate) fn wire_semantic_run_in(w: &mut crate::world::owner::World, p: usize, op: u32) -> u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return 0;}
 
@@ -1081,14 +1081,14 @@ if owner.semantic.get(p as usize).is_none() {return 0;}
     }
 
 }
-pub(crate) unsafe fn wire_semantic_ptr_in(w: &mut crate::world::owner::World, p: usize) -> Option<&[u8]> {
+pub(crate) fn wire_semantic_ptr_in(w: &mut crate::world::owner::World, p: usize) -> Option<&[u8]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return None;}
 
     Some(&owner.semantic.get_mut(p as usize).unwrap().output[..])
 
 }
-pub(crate) unsafe fn wire_semantic_len_in(w: &mut crate::world::owner::World, p: usize) -> u32 {
+pub(crate) fn wire_semantic_len_in(w: &mut crate::world::owner::World, p: usize) -> u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return 0;}
 
@@ -1155,15 +1155,15 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn wire_semantic_create() -> *mut Semantic { wire_semantic_create_in(crate::abi::facade::world()) as *mut Semantic }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_semantic_drop(p: *mut Semantic) { wire_semantic_drop_in(crate::abi::facade::world(), p as usize) }
+    pub extern "C" fn wire_semantic_drop(p: *mut Semantic) { wire_semantic_drop_in(crate::abi::facade::world(), p as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_semantic_room(p: *mut Semantic, n: u32) -> *mut f64 { wire_semantic_room_in(crate::abi::facade::world(), p as usize, n).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    pub extern "C" fn wire_semantic_room(p: *mut Semantic, n: u32) -> *mut f64 { wire_semantic_room_in(crate::abi::facade::world(), p as usize, n).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_semantic_run(p: *mut Semantic, op: u32) -> u32 { wire_semantic_run_in(crate::abi::facade::world(), p as usize, op) }
+    pub extern "C" fn wire_semantic_run(p: *mut Semantic, op: u32) -> u32 { wire_semantic_run_in(crate::abi::facade::world(), p as usize, op) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_semantic_ptr(p: *mut Semantic) -> *const u8 { wire_semantic_ptr_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub extern "C" fn wire_semantic_ptr(p: *mut Semantic) -> *const u8 { wire_semantic_ptr_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_semantic_len(p: *mut Semantic) -> u32 { wire_semantic_len_in(crate::abi::facade::world(), p as usize) }
+    pub extern "C" fn wire_semantic_len(p: *mut Semantic) -> u32 { wire_semantic_len_in(crate::abi::facade::world(), p as usize) }
 }
 #[cfg(target_arch = "wasm32")]
 pub use exports::{wire_semantic_create, wire_semantic_drop, wire_semantic_room, wire_semantic_run, wire_semantic_ptr, wire_semantic_len};

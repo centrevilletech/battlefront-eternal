@@ -369,7 +369,7 @@ pub(crate) fn wire_host_create_in(w: &mut crate::world::owner::World, local: u32
     owner.hosts.insert(Host::new(local != 0, budget, stale, epoch)).unwrap_or(0)
 
 }
-pub(crate) unsafe fn wire_host_drop_in(w: &mut crate::world::owner::World, p: usize) {
+pub(crate) fn wire_host_drop_in(w: &mut crate::world::owner::World, p: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.hosts.get(p as usize).is_none() {return;}
 
@@ -397,7 +397,7 @@ pub(crate) fn wire_baselines_in(w: &mut crate::world::owner::World) -> Option<&[
         a.max,
     ))
 }
-pub(crate) unsafe fn wire_host_get_in(w: &mut crate::world::owner::World, p: usize, id: u32, field: u32) -> f64 {
+pub(crate) fn wire_host_get_in(w: &mut crate::world::owner::World, p: usize, id: u32, field: u32) -> f64 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.hosts.get(p as usize).is_none() {return f64::NAN;}
 
@@ -422,7 +422,7 @@ if owner.hosts.get(p as usize).is_none() {return f64::NAN;}
     }
 
 }
-pub(crate) unsafe fn wire_host_set_in(w: &mut crate::world::owner::World, p: usize, id: u32, field: u32, value: f64) {
+pub(crate) fn wire_host_set_in(w: &mut crate::world::owner::World, p: usize, id: u32, field: u32, value: f64) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.hosts.get(p as usize).is_none() {return;}
 
@@ -444,7 +444,7 @@ if owner.hosts.get(p as usize).is_none() {return;}
     }
 
 }
-pub(crate) unsafe fn wire_host_op_in(w: &mut crate::world::owner::World, p: usize, op: u32, id: u32, a: f64, b: f64) -> f64 {
+pub(crate) fn wire_host_op_in(w: &mut crate::world::owner::World, p: usize, op: u32, id: u32, a: f64, b: f64) -> f64 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.hosts.get(p as usize).is_none() {return f64::NAN;}
 
@@ -479,21 +479,21 @@ if owner.hosts.get(p as usize).is_none() {return f64::NAN;}
     }
 
 }
-pub(crate) unsafe fn wire_host_held_in(w: &mut crate::world::owner::World, p: usize, id: u32, tick: f64) -> Option<&[f64]> {
+pub(crate) fn wire_host_held_in(w: &mut crate::world::owner::World, p: usize, id: u32, tick: f64) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.hosts.get(p as usize).is_none() {return None;}
 
     list(&mut w.sim, (owner.hosts.get_mut(p as usize).unwrap()).held(id, tick))
 
 }
-pub(crate) unsafe fn wire_host_stale_in(w: &mut crate::world::owner::World, p: usize, at: f64, seconds: f64) -> Option<&[f64]> {
+pub(crate) fn wire_host_stale_in(w: &mut crate::world::owner::World, p: usize, at: f64, seconds: f64) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.hosts.get(p as usize).is_none() {return None;}
 
     list(&mut w.sim, (owner.hosts.get(p as usize).unwrap()).stale(at, seconds))
 
 }
-pub(crate) unsafe fn wire_host_own_in(w: &mut crate::world::owner::World, p: usize, id: u32) -> Option<&[f64]> {
+pub(crate) fn wire_host_own_in(w: &mut crate::world::owner::World, p: usize, id: u32) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.hosts.get(p as usize).is_none() {return None;}
 
@@ -514,7 +514,7 @@ pub(crate) fn wire_budget_create_in(w: &mut crate::world::owner::World, rate: f6
     }
 
 }
-pub(crate) unsafe fn wire_budget_drop_in(w: &mut crate::world::owner::World, p: usize) {
+pub(crate) fn wire_budget_drop_in(w: &mut crate::world::owner::World, p: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.budgets.get(p as usize).is_none() {return;}
 
@@ -523,7 +523,7 @@ if owner.budgets.get(p as usize).is_none() {return;}
     }
 
 }
-pub(crate) unsafe fn wire_budget_get_in(w: &mut crate::world::owner::World, p: usize, field: u32) -> f64 {
+pub(crate) fn wire_budget_get_in(w: &mut crate::world::owner::World, p: usize, field: u32) -> f64 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.budgets.get(p as usize).is_none() {return f64::NAN;}
 
@@ -539,7 +539,7 @@ if owner.budgets.get(p as usize).is_none() {return f64::NAN;}
     }
 
 }
-pub(crate) unsafe fn wire_budget_set_in(w: &mut crate::world::owner::World, p: usize, field: u32, value: f64) {
+pub(crate) fn wire_budget_set_in(w: &mut crate::world::owner::World, p: usize, field: u32, value: f64) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.budgets.get(p as usize).is_none() {return;}
 
@@ -555,7 +555,7 @@ if owner.budgets.get(p as usize).is_none() {return;}
     }
 
 }
-pub(crate) unsafe fn wire_budget_run_in(w: &mut crate::world::owner::World, p: usize,
+pub(crate) fn wire_budget_run_in(w: &mut crate::world::owner::World, p: usize,
     op: u32,
     bytes: f64,
     at: f64,) -> f64 {
@@ -679,31 +679,31 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn wire_host_create(local: u32, budget: f64, stale: f64, epoch: f64) -> *mut Host { wire_host_create_in(crate::abi::facade::world(), local, budget, stale, epoch) as *mut Host }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_host_drop(p: *mut Host) { wire_host_drop_in(crate::abi::facade::world(), p as usize) }
+    pub extern "C" fn wire_host_drop(p: *mut Host) { wire_host_drop_in(crate::abi::facade::world(), p as usize) }
     #[no_mangle]
     pub extern "C" fn wire_baselines() -> *const f64 { wire_baselines_in(crate::abi::facade::world()).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_host_get(p: *const Host, id: u32, field: u32) -> f64 { wire_host_get_in(crate::abi::facade::world(), p as usize, id, field) }
+    pub extern "C" fn wire_host_get(p: *const Host, id: u32, field: u32) -> f64 { wire_host_get_in(crate::abi::facade::world(), p as usize, id, field) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_host_set(p: *mut Host, id: u32, field: u32, value: f64) { wire_host_set_in(crate::abi::facade::world(), p as usize, id, field, value) }
+    pub extern "C" fn wire_host_set(p: *mut Host, id: u32, field: u32, value: f64) { wire_host_set_in(crate::abi::facade::world(), p as usize, id, field, value) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_host_op(p: *mut Host, op: u32, id: u32, a: f64, b: f64) -> f64 { wire_host_op_in(crate::abi::facade::world(), p as usize, op, id, a, b) }
+    pub extern "C" fn wire_host_op(p: *mut Host, op: u32, id: u32, a: f64, b: f64) -> f64 { wire_host_op_in(crate::abi::facade::world(), p as usize, op, id, a, b) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_host_held(p: *mut Host, id: u32, tick: f64) -> *const f64 { wire_host_held_in(crate::abi::facade::world(), p as usize, id, tick).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub extern "C" fn wire_host_held(p: *mut Host, id: u32, tick: f64) -> *const f64 { wire_host_held_in(crate::abi::facade::world(), p as usize, id, tick).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_host_stale(p: *const Host, at: f64, seconds: f64) -> *const f64 { wire_host_stale_in(crate::abi::facade::world(), p as usize, at, seconds).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub extern "C" fn wire_host_stale(p: *const Host, at: f64, seconds: f64) -> *const f64 { wire_host_stale_in(crate::abi::facade::world(), p as usize, at, seconds).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_host_own(p: *mut Host, id: u32) -> *const f64 { wire_host_own_in(crate::abi::facade::world(), p as usize, id).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub extern "C" fn wire_host_own(p: *mut Host, id: u32) -> *const f64 { wire_host_own_in(crate::abi::facade::world(), p as usize, id).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
     pub extern "C" fn wire_budget_create(rate: f64, burst: f64, at: f64) -> *mut EntityBudget { wire_budget_create_in(crate::abi::facade::world(), rate, burst, at) as *mut EntityBudget }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_budget_drop(p: *mut EntityBudget) { wire_budget_drop_in(crate::abi::facade::world(), p as usize) }
+    pub extern "C" fn wire_budget_drop(p: *mut EntityBudget) { wire_budget_drop_in(crate::abi::facade::world(), p as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_budget_get(p: *const EntityBudget, field: u32) -> f64 { wire_budget_get_in(crate::abi::facade::world(), p as usize, field) }
+    pub extern "C" fn wire_budget_get(p: *const EntityBudget, field: u32) -> f64 { wire_budget_get_in(crate::abi::facade::world(), p as usize, field) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_budget_set(p: *mut EntityBudget, field: u32, value: f64) { wire_budget_set_in(crate::abi::facade::world(), p as usize, field, value) }
+    pub extern "C" fn wire_budget_set(p: *mut EntityBudget, field: u32, value: f64) { wire_budget_set_in(crate::abi::facade::world(), p as usize, field, value) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_budget_run(p: *mut EntityBudget,
+    pub extern "C" fn wire_budget_run(p: *mut EntityBudget,
         op: u32,
         bytes: f64,
         at: f64,) -> f64 { wire_budget_run_in(crate::abi::facade::world(), p as usize, op, bytes, at) }

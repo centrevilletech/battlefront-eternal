@@ -159,7 +159,8 @@ impl<M:Math> cameras::Cast for CastWorld<'_, M> {
 // Resource decoding and Vec allocation are confined to this cold path.
 // The raw sim module shares memory with collision, avoiding duplicate meshes.
 // The optional web feature belongs to the separate presentation web package.
-pub(crate) fn camera_init_in(w: &mut crate::world::owner::World, bytes: &[u8]) -> u32 {
+pub(crate) fn camera_init_in(w: &mut crate::world::owner::World, ptr: *const u8, len: usize) -> u32 {
+    let Some(bytes) = w.sim.scratch_bytes(ptr, len) else { return 0 };
     let Ok(content) = serde_json::from_slice::<cameras::Content>(bytes) else {
         return 0;
     };
@@ -177,7 +178,8 @@ pub(crate) fn camera_init_in(w: &mut crate::world::owner::World, bytes: &[u8]) -
 // This cannot fail a running frame or evict a class still held by a soldier.
 // Serialization, decoding and content allocation are confined to the cold edge.
 // The steady frame sees no class strings, JSON values or dynamic lookup table.
-pub(crate) fn camera_add_definition_in(w: &mut crate::world::owner::World, id: u32, bytes: &[u8]) -> i32 {
+pub(crate) fn camera_add_definition_in(w: &mut crate::world::owner::World, id: u32, ptr: *const u8, len: usize) -> i32 {
+    let Some(bytes) = w.sim.scratch_bytes(ptr, len) else { return 0 };
     let Ok(def) = serde_json::from_slice(bytes) else {
         return -1;
     };
@@ -287,9 +289,9 @@ pub(crate) fn camera_director_best_in(w: &mut crate::world::owner::World, id: u3
 mod exports {
     use super::*;
     #[no_mangle]
-    pub extern "C" fn camera_init(ptr: *const u8, len: usize) -> u32 { camera_init_in(crate::abi::facade::cold(), unsafe { std::slice::from_raw_parts(ptr, len) }) }
+    pub extern "C" fn camera_init(ptr: *const u8, len: usize) -> u32 { camera_init_in(crate::abi::facade::cold(), ptr, len) }
     #[no_mangle]
-    pub extern "C" fn camera_add_definition(id: u32, ptr: *const u8, len: usize) -> i32 { camera_add_definition_in(crate::abi::facade::cold(), id, unsafe { std::slice::from_raw_parts(ptr, len) }) }
+    pub extern "C" fn camera_add_definition(id: u32, ptr: *const u8, len: usize) -> i32 { camera_add_definition_in(crate::abi::facade::cold(), id, ptr, len) }
     #[no_mangle]
     pub extern "C" fn camera_input_ptr(id: u32) -> *mut f64 { camera_input_ptr_in(crate::abi::facade::cold(), id).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
     #[no_mangle]
@@ -308,4 +310,32 @@ mod exports {
     pub extern "C" fn camera_director_follow(id: u32, x: f64, y: f64, z: f64) -> i32 { camera_director_follow_in::<HostMath>(crate::abi::facade::cold(), id, x, y, z) }
     #[no_mangle]
     pub extern "C" fn camera_director_best(id: u32, x: f64, y: f64, z: f64) -> i32 { camera_director_best_in(crate::abi::facade::cold(), id, x, y, z) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn camera_admission_refuses_foreign_and_overlong_scratch_spans() {
+        let mut w = crate::world::owner::World::new();
+        let scratch = w.sim.scratch_room(2);
+        scratch.copy_from_slice(b"{}");
+        let ptr = scratch.as_ptr();
+        for (ptr, len) in [(std::ptr::null(), 2), (ptr, 3), (ptr, usize::MAX), (ptr.wrapping_add(3), 0)] {
+            assert_eq!(camera_init_in(&mut w, ptr, len), 0);
+            assert_eq!(camera_add_definition_in(&mut w, 1, ptr, len), 0);
+            assert!(w.cameras.phases.iter().all(Option::is_none));
+        }
+        // An in-bounds parse error keeps the original definition error code.
+        assert_eq!(camera_add_definition_in(&mut w, 1, ptr, 2), -1);
+        let content = br#"{"definitions":[],"motions":[]}"#;
+        let scratch = w.sim.scratch_room(content.len());
+        scratch.copy_from_slice(content);
+        let ptr = scratch.as_ptr();
+        assert_eq!(camera_init_in(&mut w, ptr, content.len()), 1);
+        let output = camera_output_ptr_in(&mut w, 1).unwrap().as_ptr();
+        assert_eq!(camera_add_definition_in(&mut w, 1, ptr, content.len() + 1), 0);
+        assert_eq!(camera_output_ptr_in(&mut w, 1).unwrap().as_ptr(), output);
+    }
 }

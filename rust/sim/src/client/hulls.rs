@@ -451,21 +451,23 @@ struct World<'a> {
 }
 impl VehicleWorld for World<'_> {
     fn damage_allowed(&self) -> bool { false }
-    fn cast(&mut self, o: &Vector3, d: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> { self.collision.cast(self.state, o, d, far, ignore).expect("named prediction body") }
+    fn cast(&mut self, o: &Vector3, d: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> { self.collision.cast(self.state, o, d, far, ignore)? }
     fn push_walls(&mut self, _: usize, p: &[Vector3], r: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> bool {
-        self.collision.push_walls(self.state, self.body, p, r, q, own, previous, position, velocity, terrain).expect("prediction collider")
+        let Some(undo) = self.collision.push_walls(self.state, self.body, p, r, q, own, previous, position, velocity, terrain) else { return false };
+        undo
     }
     fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<Ground> { self.collision.ground(self.state, x, z, top) }
     // hoverContacts borrows the collision gather until its next query, just
     // as the authority does. Prediction keeps that scratch in its own view.
     fn spring_polygons<'a>(&'a mut self, _: usize, index: usize, center: &Vector3, radius: f64, _out: &'a mut Vec<Polygon>) -> SpringPolygons<'a> {
-        SpringPolygons::Native(self.collision.spring_polygons(self.state, self.body, index, center, radius).expect("prediction spring"))
+        let Some(polygons) = self.collision.spring_polygons(self.state, self.body, index, center, radius) else { return SpringPolygons::Native(&[]) };
+        SpringPolygons::Native(polygons)
     }
     // syncBody updates the private hull matrix for its own equations. Its
     // collider must stay at authority for other actors and later page frames.
     fn move_body(&mut self, _: BodyId, _: &Matrix4) {}
-    fn enable_body(&mut self, body: BodyId, enabled: bool) { self.collision.enable_body(self.state, body, enabled).expect("prediction body"); }
-    fn body_enabled(&mut self, body: BodyId) -> bool { self.collision.body_enabled(self.state, body).expect("prediction body") }
+    fn enable_body(&mut self, body: BodyId, enabled: bool) { let Some(()) = self.collision.enable_body(self.state, body, enabled) else { return }; }
+    fn body_enabled(&mut self, body: BodyId) -> bool { let Some(enabled) = self.collision.body_enabled(self.state, body) else { return false }; enabled }
     fn water_over(&mut self, x: f64, z: f64) -> bool { self.map.water.as_ref().is_some_and(|w| w.over(x, z)) }
     fn water_level(&mut self) -> f64 { self.map.level }
     fn has_water(&mut self) -> bool { self.map.water.is_some() }
@@ -497,4 +499,29 @@ impl FlightWorld for World<'_> {
     fn aim_point(&mut self, i: usize) -> Vector3 { self.members[i].point }
     fn body_is_hull(&mut self, body: BodyId) -> bool { self.members.iter().any(|m| m.body == Some(body)) }
     fn system_death_region(&mut self, p: &Vector3) -> bool { self.in_death_region(p) }
+}
+
+#[cfg(test)]
+mod robustness_tests {
+    use super::*;
+
+    #[test]
+    fn prediction_queries_skip_refused_bodies() {
+        let mut collision = Collision::new(0, None);
+        let mut state = State::default();
+        let map = MapRules::from_json(&bfe_content::json::parse("{}").unwrap(), -100.0);
+        let environment = Environment::default();
+        let mut world = World { collision: &mut collision, state: &mut state, map: &map,
+            environment: &environment, tunings: Tunings::default(), members: &[], teams: &[], relations: &[], body: u32::MAX };
+        let mut position = Vector3::new(1.0, 2.0, 3.0);
+        let mut velocity = Vector3::new(4.0, 5.0, 6.0);
+        assert!(world.cast(&position, &velocity, 1.0, Some(u32::MAX)).is_none());
+        assert!(!world.push_walls(0, &[], 1.0, &Quaternion::default(), None,
+            &Vector3::default(), &mut position, &mut velocity, false));
+        assert_eq!(position, Vector3::new(1.0, 2.0, 3.0));
+        assert_eq!(velocity, Vector3::new(4.0, 5.0, 6.0));
+        assert!(matches!(world.spring_polygons(0, 0, &position, 1.0, &mut Vec::new()), SpringPolygons::Native(p) if p.is_empty()));
+        world.enable_body(u32::MAX, true);
+        assert!(!world.body_enabled(u32::MAX));
+    }
 }

@@ -298,7 +298,7 @@ pub(crate) fn wire_store_source_create_in(w: &mut crate::world::owner::World) ->
 }
 /// # Safety
 /// This source belongs to this instance and is disposed exactly once.
-pub(crate) unsafe fn wire_store_source_drop_in(w: &mut crate::world::owner::World, source: usize) {
+pub(crate) fn wire_store_source_drop_in(w: &mut crate::world::owner::World, source: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.sources.get(source as usize).is_none() {return;}
  if source != 0 { owner.sources.remove(source as usize); }
@@ -309,7 +309,7 @@ if owner.sources.get(source as usize).is_none() {return;}
 /// client admissions. It never replaces captured lives or protocol identities.
 /// # Safety
 /// The source is a live allocation belonging to this instance.
-pub(crate) unsafe fn wire_store_source_configure_in(w: &mut crate::world::owner::World, source: usize) -> u32 {
+pub(crate) fn wire_store_source_configure_in(w: &mut crate::world::owner::World, source: usize) -> u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.sources.get(source as usize).is_none() {return 0;}
 
@@ -331,7 +331,7 @@ if owner.sources.get(source as usize).is_none() {return 0;}
 /// records natively; it never materializes these generated record objects.
 /// # Safety
 /// Both pointers are live, distinct allocations belonging to this instance.
-pub(crate) unsafe fn wire_store_source_probe_in(w: &mut crate::world::owner::World, source: usize, shots: usize) -> Option<&[f64]> {
+pub(crate) fn wire_store_source_probe_in(w: &mut crate::world::owner::World, source: usize, shots: usize) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.sources.get(source as usize).is_none() {return None;}
 if owner.shots.get(shots as usize).is_none() {return None;}
@@ -402,7 +402,7 @@ fn facts<'a>(row: &[f64], heap: &'a [f64]) -> Option<(f64, &'a [f64])> {
 /// Reserved generated input remains owned by this source through memory growth.
 /// # Safety
 /// The source is live in this instance until wire_store_source_drop.
-pub(crate) unsafe fn wire_store_world_input_in(w: &mut crate::world::owner::World, source: usize) -> Option<&mut [f64]> {
+pub(crate) fn wire_store_world_input_in(w: &mut crate::world::owner::World, source: usize) -> Option<&mut [f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.sources.get(source as usize).is_none() {return None;}
  Some(&mut owner.sources.get_mut(source as usize).unwrap().input[..])
@@ -540,11 +540,11 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn wire_store_source_create() -> *mut Source { wire_store_source_create_in(crate::abi::facade::world()) as *mut Source }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_store_source_drop(source: *mut Source) { wire_store_source_drop_in(crate::abi::facade::world(), source as usize) }
+    pub extern "C" fn wire_store_source_drop(source: *mut Source) { wire_store_source_drop_in(crate::abi::facade::world(), source as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_store_source_configure(source: *mut Source) -> u32 { wire_store_source_configure_in(crate::abi::facade::world(), source as usize) }
+    pub extern "C" fn wire_store_source_configure(source: *mut Source) -> u32 { wire_store_source_configure_in(crate::abi::facade::world(), source as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_store_source_probe(source: *mut Source, shots: *const Counters) -> *const f64 { wire_store_source_probe_in(crate::abi::facade::world(), source as usize, shots as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub extern "C" fn wire_store_source_probe(source: *mut Source, shots: *const Counters) -> *const f64 { wire_store_source_probe_in(crate::abi::facade::world(), source as usize, shots as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_store_world_input(source: *mut Source) -> *mut f64 { wire_store_world_input_in(crate::abi::facade::world(), source as usize).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
+    pub extern "C" fn wire_store_world_input(source: *mut Source) -> *mut f64 { wire_store_world_input_in(crate::abi::facade::world(), source as usize).map_or(std::ptr::null_mut(), |b| b.as_mut_ptr()) }
 }

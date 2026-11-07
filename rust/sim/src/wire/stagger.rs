@@ -277,7 +277,7 @@ pub(crate) fn wire_stagger_create_in(w: &mut crate::world::owner::World) -> usiz
     owner.staggers.insert(Stagger::new()).unwrap_or(0)
 
 }
-pub(crate) unsafe fn wire_stagger_drop_in(w: &mut crate::world::owner::World, p: usize) {
+pub(crate) fn wire_stagger_drop_in(w: &mut crate::world::owner::World, p: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.staggers.get(p as usize).is_none() {return;}
 
@@ -295,7 +295,7 @@ pub fn wire_stagger_words(op: u32) -> u32 {
     }
 }
 
-pub(crate) unsafe fn wire_stagger_take_in(w: &mut crate::world::owner::World, p: usize) -> Option<&[f64]> {
+pub(crate) fn wire_stagger_take_in(w: &mut crate::world::owner::World, p: usize) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.staggers.get(p as usize).is_none() {return None;}
 
@@ -308,7 +308,7 @@ if owner.staggers.get(p as usize).is_none() {return None;}
     list(&mut w.sim, s.tokens())
 
 }
-pub(crate) unsafe fn wire_stagger_cadence_in(w: &mut crate::world::owner::World, p: usize) {
+pub(crate) fn wire_stagger_cadence_in(w: &mut crate::world::owner::World, p: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.staggers.get(p as usize).is_none() {return;}
 
@@ -319,7 +319,7 @@ if owner.staggers.get(p as usize).is_none() {return;}
     (owner.staggers.get_mut(p as usize).unwrap()).cadence = a.values.into_iter().map(|v| (v.schema, v.ticks)).collect();
 
 }
-pub(crate) unsafe fn wire_stagger_held_in(w: &mut crate::world::owner::World, p: usize,
+pub(crate) fn wire_stagger_held_in(w: &mut crate::world::owner::World, p: usize,
     tick: f64,
     schema: f64,
     id: f64,
@@ -335,7 +335,7 @@ if owner.staggers.get(p as usize).is_none() {return f64::NAN;}
     (owner.staggers.get(p as usize).unwrap()).held(tick, schema, id, state)
 
 }
-pub(crate) unsafe fn wire_stagger_due_in(w: &mut crate::world::owner::World, p: usize,
+pub(crate) fn wire_stagger_due_in(w: &mut crate::world::owner::World, p: usize,
     tick: f64,
     schema: f64,
     id: f64,) -> u32 {
@@ -345,7 +345,7 @@ if owner.staggers.get(p as usize).is_none() {return 0;}
     (owner.staggers.get(p as usize).unwrap()).due(tick, schema, id) as u32
 
 }
-pub(crate) unsafe fn wire_stagger_schemas_in(w: &mut crate::world::owner::World, p: usize, tick: f64, any: u32) -> u32 {
+pub(crate) fn wire_stagger_schemas_in(w: &mut crate::world::owner::World, p: usize, tick: f64, any: u32) -> u32 {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.staggers.get(p as usize).is_none() {return 0;}
 
@@ -370,24 +370,24 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn wire_stagger_create() -> *mut Stagger { wire_stagger_create_in(crate::abi::facade::world()) as *mut Stagger }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_stagger_drop(p: *mut Stagger) { wire_stagger_drop_in(crate::abi::facade::world(), p as usize) }
+    pub extern "C" fn wire_stagger_drop(p: *mut Stagger) { wire_stagger_drop_in(crate::abi::facade::world(), p as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_stagger_take(p: *mut Stagger) -> *const f64 { wire_stagger_take_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub extern "C" fn wire_stagger_take(p: *mut Stagger) -> *const f64 { wire_stagger_take_in(crate::abi::facade::world(), p as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_stagger_cadence(p: *mut Stagger) { wire_stagger_cadence_in(crate::abi::facade::world(), p as usize) }
+    pub extern "C" fn wire_stagger_cadence(p: *mut Stagger) { wire_stagger_cadence_in(crate::abi::facade::world(), p as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_stagger_held(p: *const Stagger,
+    pub extern "C" fn wire_stagger_held(p: *const Stagger,
         tick: f64,
         schema: f64,
         id: f64,
         state: i32,) -> f64 { wire_stagger_held_in(crate::abi::facade::world(), p as usize, tick, schema, id, state) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_stagger_due(p: *const Stagger,
+    pub extern "C" fn wire_stagger_due(p: *const Stagger,
         tick: f64,
         schema: f64,
         id: f64,) -> u32 { wire_stagger_due_in(crate::abi::facade::world(), p as usize, tick, schema, id) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_stagger_schemas(p: *const Stagger, tick: f64, any: u32) -> u32 { wire_stagger_schemas_in(crate::abi::facade::world(), p as usize, tick, any) }
+    pub extern "C" fn wire_stagger_schemas(p: *const Stagger, tick: f64, any: u32) -> u32 { wire_stagger_schemas_in(crate::abi::facade::world(), p as usize, tick, any) }
 }
 #[cfg(target_arch = "wasm32")]
 pub use exports::{wire_stagger_create, wire_stagger_drop, wire_stagger_take, wire_stagger_cadence, wire_stagger_held, wire_stagger_due, wire_stagger_schemas};

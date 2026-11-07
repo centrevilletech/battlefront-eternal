@@ -179,7 +179,7 @@ pub(crate) fn wire_edges_create_in(w: &mut crate::world::owner::World) -> usize 
 }
 /// # Safety
 /// `host` belongs to this instance and has not been released.
-pub(crate) unsafe fn wire_edges_drop_in(w: &mut crate::world::owner::World, host: usize) {
+pub(crate) fn wire_edges_drop_in(w: &mut crate::world::owner::World, host: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.edges.get(host as usize).is_none() {return;}
  if host != 0 { owner.edges.remove(host as usize); }
@@ -187,7 +187,7 @@ if owner.edges.get(host as usize).is_none() {return;}
 }
 /// # Safety
 /// `host` remains live for this call. No import or callback runs here.
-pub(crate) unsafe fn wire_edges_run_in(w: &mut crate::world::owner::World, host: usize) -> Option<&[f64]> {
+pub(crate) fn wire_edges_run_in(w: &mut crate::world::owner::World, host: usize) -> Option<&[f64]> {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.edges.get(host as usize).is_none() {return None;}
 
@@ -250,9 +250,9 @@ mod exports {
     #[no_mangle]
     pub extern "C" fn wire_edges_create() -> *mut Host { wire_edges_create_in(crate::abi::facade::world()) as *mut Host }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_edges_drop(host: *mut Host) { wire_edges_drop_in(crate::abi::facade::world(), host as usize) }
+    pub extern "C" fn wire_edges_drop(host: *mut Host) { wire_edges_drop_in(crate::abi::facade::world(), host as usize) }
     #[no_mangle]
-    pub unsafe extern "C" fn wire_edges_run(host: *mut Host) -> *const f64 { wire_edges_run_in(crate::abi::facade::world(), host as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
+    pub extern "C" fn wire_edges_run(host: *mut Host) -> *const f64 { wire_edges_run_in(crate::abi::facade::world(), host as usize).map_or(std::ptr::null(), |b| b.as_ptr()) }
 }
 #[cfg(target_arch = "wasm32")]
 pub use exports::{wire_edges_create, wire_edges_drop, wire_edges_run};
