@@ -520,7 +520,7 @@ How the port runs it:
   phase and its start tick as world schema 10 (identity 500000 + index,
   `src/runtime/entity-world-state.js`), taken at once when it changes. A page
   draws the clip of its phase at the world's time for the tick it draws
-  (`LiveObjects.presentAnimated`).
+  (the native prop phase, `src/presentation/props.js`).
 - Not done: the logs' collision (capsules on the swinging bones; the trap
   has none, so rounds pass through and only blasts at the pad hurt it, the
   pad's sphere standing in for the built trap's collision sphere, which is

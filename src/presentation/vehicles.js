@@ -1,0 +1,328 @@
+// The page's hulls in one native phase (rust/bfe-presentation vehicles.rs),
+// which replaces Vehicle.present's pose (the root between ticks or at its
+// record's sample, poseCrew, the gear, seats, barrels, wheels and a dying
+// walker). Vehicle.present queues a hull; flush() runs the batch: the roots,
+// then the leg rays this page's collision answers, then every pose. Each
+// hull's tree is the phase's from its first frame: its nodes' matrices (and
+// its meshes' bind inverses) are copied from records, three never walks it.
+// Back come only the fields other JS reads (root, age, walk, legs, aims).
+import * as THREE from "three";
+import { shownGear } from "../flight/gear.js";
+import { VERSION, VehicleFrame as F, VehicleEntry as E, VehicleSeatInput as S, VehicleWheelInput as WI, VehicleEntryOutput as O,
+  VehicleAimerOutput as AO, VehicleNode as N, VehicleHeader as H, VehicleMode as M, VehicleRoot as R } from "./layout.js";
+
+// feelLegs' ray direction; the walk pose's gear root; the clips by the roles
+// the kernel takes them in (vehicles.rs IDLE..TAKEOFF).
+const DOWN = new THREE.Vector3(0, -1, 0);
+const DUMMY_ROOT = /^dummyroot$/i;
+const clipNames = ["idle", "walk_leftfoot_rightfoot", "walk_rightfoot_leftfoot", "leftfoot_up", "rightfoot_up", "death01", "takeoff"];
+const clipKeys = ["idle", "left", "right", "liftLeft", "liftRight", "death", "takeoff"];
+const xyz = (v) => [v.x, v.y, v.z];
+const xyzw = (q) => [q.x, q.y, q.z, q.w];
+// A published tree's root: the scene's update stops here (the phase wrote it).
+function published() {}
+// JSON with -0 kept (JSON.stringify writes it as 0; the kernel reads -0.0).
+const NEGATIVE_ZERO = "~negative zero~";
+const exact = (value) => JSON.stringify(value, (_, x) => (Object.is(x, -0) ? NEGATIVE_ZERO : x)).replaceAll(`"${NEGATIVE_ZERO}"`, "-0.0");
+
+export class PageVehicles {
+  // loaded: the bfe-presentation module and its memory (loadPresentation).
+  constructor(loaded) {
+    this.loaded = loaded;
+    this.kernel = new loaded.module.PageVehicles();
+    // Rigs by their hull's root (a predicted view shares its source's),
+    // clip handles by clip.
+    this.rigs = new WeakMap();
+    this.handles = new Map();
+    // The hulls queued this frame, in order, and their rigs and slots.
+    this.queue = [];
+    this.from = new THREE.Vector3();
+    this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
+    this.mismatched = 0;
+    this.reported = false;
+    // The correction his own predicted hull is drawn with (game.js sets it
+    // around that hull's batch): x, y, z added to its root.
+    this.offset = null;
+    this.refresh();
+  }
+  // The record views, made again when the memory grew (any phase's
+  // registration) or this one's records moved (force: a rig registered).
+  refresh(force = false) {
+    const k = this.kernel,
+      b = this.loaded.memory.buffer;
+    if (this.buffer === b && !force) return;
+    this.buffer = b;
+    this.input = new Float64Array(b, k.input_ptr(), k.input_len());
+    this.streamIn = new Float64Array(b, k.stream_in_ptr(), k.stream_in_len());
+    this.streamOut = new Float64Array(b, k.stream_out_ptr(), k.stream_out_len());
+    this.header = new Float64Array(b, k.header_ptr(), H.STRIDE);
+  }
+  // A clip's handle and duration, loading it once (null without one).
+  clip(clip) {
+    if (!clip) return null;
+    let handle = this.handles.get(clip);
+    if (handle === undefined) {
+      handle = this.kernel.load_clip(clip.frames, clip.fps, clip.rootMotion, Int32Array.from(clip.tracks), Float32Array.from(clip.data));
+      this.handles.set(clip, handle);
+    }
+    return { handle, duration: clip.duration };
+  }
+  // A hull's rig, registered at its first frame from the hull itself (a
+  // predicted view draws its source's rig).
+  rig(hull) {
+    const v = hull.predictionSource || hull;
+    let rig = this.rigs.get(v.root);
+    if (rig) return rig;
+    // A node's bone index (-1: none, or not a bone).
+    const index = (node) => (node ? v.bones.indexOf(node) : -1);
+    const legs = v.def.fx?.legs;
+    // Each seat as poseSeat reads it, its weapons' aimers, and the muzzles
+    // recoilBarrels kicks (those with a barrel and a rest).
+    const seats = v.seats.map((seat) => ({
+      turret: index(seat.view.turret), up: xyz(seat.view.up), yawFactor: seat.view.yawFactor, pitchFactor: seat.view.pitchFactor,
+      weapons: seat.weapons.map((w) => w.aimers.map((a) => ({
+        bone: index(a.bone), owner: a.owner, yawRate: a.yawRate, pitchRate: a.pitchRate,
+        yawLimits: a.yawLimits, pitchLimits: a.pitchLimits, wrapYaw: a.wrapYaw, yaw: a.yaw, pitch: a.pitch,
+      }))),
+      muzzles: seat.weapons.flatMap((w) => w.muzzles.filter((m) => m.barrel && m.rest)
+        .map((m) => ({ barrel: index(m.barrel), rest: xyz(m.rest), recoil: Number(m.recoil) || 0 }))),
+    }));
+    // Its tree: the root, the bones, then the rest in traverse order.
+    const nodes = [v.root, ...v.bones];
+    v.root.traverse((o) => { if (o !== v.root && !v.bones.includes(o)) nodes.push(o); });
+    const skinned = nodes.filter((o) => o.isSkinnedMesh);
+    // The bones as they stand now, their bind, and what the frame poses.
+    const descriptor = {
+      bones: v.bones.map((bone, i) => ({
+        parent: index(bone.parent), position: xyz(bone.position), quaternion: xyzw(bone.quaternion), scale: xyz(bone.scale),
+        bind: [...xyzw(v.bindQuaternions[i]), ...xyz(v.bindPositions[i])],
+      })),
+      yxz: v.root.rotation.order === "YXZ", hasPose: Boolean(v.pose), poseRoot: v.pose ? v.pose.root : -1,
+      flying: Boolean(v.flying), creature: Boolean(v.creature),
+      gearRoot: v.flying ? v.bones.findIndex((bone) => DUMMY_ROOT.test(bone.name)) : -1,
+      // liftLegs' legBones: the bones under each pair's two leg bones.
+      legs: legs ? {
+        rayLength: legs.rayLength, at: legs.pairs.map((pair) => [pair.left.at, pair.right.at]),
+        bones: legs.pairs.map((pair) => {
+          const under = new Set();
+          for (const which of ["left", "right"]) v.byName[pair[which].leg]?.traverse((b) => under.add(b));
+          return v.bones.map((b, i) => (under.has(b) ? i : -1)).filter((i) => i >= 0);
+        }),
+      } : null,
+      seats, wheels: v.wheels.map((w) => [index(w.bone), xyz(w.axis)]).filter(([i]) => i >= 0),
+      nodes: nodes.slice(1 + v.bones.length).map((o) => ({ parent: nodes.indexOf(o.parent), position: xyz(o.position), quaternion: xyzw(o.quaternion), scale: xyz(o.scale), skinned: Boolean(o.isSkinnedMesh) })),
+      deathSpan: v.def.fx?.dying?.span || 0,
+    };
+    clipNames.forEach((name, i) => (descriptor[clipKeys[i]] = this.clip(v.clips?.get(name))));
+    const id = this.kernel.add_rig(exact(descriptor));
+    this.refresh(true);
+    // What its records were sized to (a hull whose seats or wheels no
+    // longer match is not drawn); its aimers and kicking muzzles, shared by
+    // the hull and its predicted view; its nodes, now the phase's.
+    const pairs = legs ? legs.pairs.length : 0;
+    const aimers = v.seats.flatMap((seat) => seat.weapons.flatMap((w) => w.aimers));
+    const muzzles = v.seats.flatMap((seat) => seat.weapons.flatMap((w) => w.muzzles.filter((m) => m.barrel && m.rest)));
+    for (const o of nodes) o.matrixAutoUpdate = o.matrixWorldAutoUpdate = false;
+    v.root.updateMatrixWorld = published;
+    rig = { id, pairs, aimers, muzzles, nodes, skinned, seats: seats.length, wheels: descriptor.wheels.length,
+      slots: [0, 1].map((slot) => [this.kernel.slot_input(id, slot), this.kernel.slot_output(id, slot)]) };
+    // Record offsets within a slot (vehicles.rs Rig::in_* and out_*).
+    rig.inRays = pairs; rig.inSeats = pairs * 3; rig.inKicks = rig.inSeats + rig.seats * S.STRIDE; rig.inWheels = rig.inKicks + muzzles.length;
+    rig.outSides = O.STRIDE; rig.outRays = O.STRIDE + pairs; rig.outAimers = rig.outRays + pairs * 6;
+    rig.outNodes = rig.outAimers + aimers.length * AO.STRIDE; rig.outSkins = rig.outNodes + nodes.length * N.STRIDE;
+    this.rigs.set(v.root, rig);
+    return rig;
+  }
+  // An entry's record, or -1 past the records (degrades: not drawn this
+  // frame, counted once).
+  entry(hull, mode) {
+    const rig = this.rig(hull);
+    // Another phase may have grown the memory since: views made again.
+    this.refresh();
+    const at = this.queue.length / 3;
+    if (at >= this.kernel.entries_capacity()) {
+      this.mismatched++;
+      return -1;
+    }
+    // Slot 0: the hull as the world draws it; 1: his predicted view of it.
+    const slot = hull.predictionSource ? 1 : 0;
+    this.queue.push(hull, rig, slot);
+    // The entry names its rig and its slot's own record words; the kernel
+    // poses nothing for any other words.
+    const e = F.STRIDE + at * E.STRIDE, input = this.input;
+    input[e + E.RIG] = rig.id;
+    input[e + E.MODE] = mode;
+    input[e + E.INPUT] = rig.slots[slot][0];
+    input[e + E.OUTPUT] = rig.slots[slot][1];
+    return e;
+  }
+  // Vehicle.present for a hull alive: its state as this frame draws it.
+  alive(v, alpha, dt) {
+    return this.write(v, M.ALIVE, alpha, dt, false);
+  }
+  // A spawn's pose (Vehicle.render(1, 0) at the tick: no time, every seat
+  // it holds at rest), drawn at once: spawns arrive between frames.
+  spawned(v) {
+    const batch = this.queue.length > 0;
+    const drawn = this.write(v, M.RENDER, 1, 0, true);
+    if (!batch) this.flush();
+    return drawn;
+  }
+  write(v, mode, alpha, dt, render) {
+    const e = this.entry(v, mode);
+    if (e < 0) return false;
+    const x = this.input, rig = this.queue[this.queue.length - 2], slot = this.queue[this.queue.length - 1];
+    const net = render ? null : v.networkPose, p = net ? net.position : null, q = net ? net.quaternion : null;
+    // present()'s clocks: a record's sample at its own time (alpha 1, the
+    // aimers turned by its dt); otherwise between ticks by alpha.
+    x[e + E.ALPHA] = net ? 1 : alpha; x[e + E.DT] = net ? net.dt || 0 : dt; x[e + E.FRAME_DT] = dt; x[e + E.NETWORK] = net ? 1 : 0;
+    x[e + E.POSITION] = p ? p[0] : v.position.x; x[e + E.POSITION + 1] = p ? p[1] : v.position.y; x[e + E.POSITION + 2] = p ? p[2] : v.position.z;
+    const r = v.quaternion;
+    x[e + E.QUATERNION] = q ? q[0] : r.x; x[e + E.QUATERNION + 1] = q ? q[1] : r.y; x[e + E.QUATERNION + 2] = q ? q[2] : r.z; x[e + E.QUATERNION + 3] = q ? q[3] : r.w;
+    // Where its last two ticks began (render(): the previous tick's state;
+    // a record's sample has none: zeros, unread). A craft's turn there is
+    // `flightTickQ || quaternion`, its missing roll its own.
+    const from = render ? v.previous : v.tickFrom, tq = (render ? v.flightPreviousQ : v.flightTickQ) || r;
+    x[e + E.TICK_FROM] = from ? from.x : 0; x[e + E.TICK_FROM + 1] = from ? from.y : 0; x[e + E.TICK_FROM + 2] = from ? from.z : 0;
+    x[e + E.TICK_QUATERNION] = tq.x; x[e + E.TICK_QUATERNION + 1] = tq.y; x[e + E.TICK_QUATERNION + 2] = tq.z; x[e + E.TICK_QUATERNION + 3] = tq.w;
+    const tickRoll = render ? v.previousRoll : v.tickFromRoll;
+    x[e + E.TICK_YAW] = render ? +v.previousYaw : +v.tickFromYaw; x[e + E.YAW] = v.yaw;
+    x[e + E.TICK_TILT] = render ? +v.previousTilt : +v.tickFromTilt; x[e + E.TILT] = v.tilt;
+    x[e + E.TICK_ROLL] = v.flying ? tickRoll ?? v.roll : +tickRoll; x[e + E.ROLL] = v.roll;
+    // A repulsor's bob, the hull's own clock, the walk cycle and where its
+    // last tick began (his own hull), the gear as drawn (shownGear keeps its
+    // own clock), the clock barrels kick back on, and his own hull's
+    // correction still being smoothed away.
+    x[e + E.HOVER] = v.repulsor && !v.flying ? 1 : 0; x[e + E.HOVER_PHASE] = v.hoverPhase; x[e + E.AGE] = v.age;
+    x[e + E.WALK_PHASE] = v.walkPhase; x[e + E.WALK_BLEND] = v.walkBlend;
+    x[e + E.WALK_FROM_PHASE] = render || v.walkFromPhase === undefined ? NaN : +v.walkFromPhase; x[e + E.WALK_FROM_BLEND] = +v.walkFromBlend;
+    x[e + E.GEAR] = v.flying && v.clips?.get("takeoff") ? shownGear(v, dt) : NaN;
+    x[e + E.LEG_SIDES] = v.legSide ? 1 : 0; x[e + E.NOW] = v.system.world.clock();
+    const offset = slot === 1 ? this.offset : null;
+    x[e + E.OFFSET] = offset ? offset.x : 0; x[e + E.OFFSET + 1] = offset ? offset.y : 0; x[e + E.OFFSET + 2] = offset ? offset.z : 0;
+    // The slot's records: leg sides, seats, kicks and wheels.
+    const s = this.streamIn, at = rig.slots[slot][0];
+    if (v.legSide) for (let i = 0; i < rig.pairs; i++) s[at + i] = v.legSide[i];
+    for (let i = 0; i < rig.seats && i < v.seats.length; i++) {
+      const seat = v.seats[i], o = at + rig.inSeats + i * S.STRIDE, t = seat.target, held = v.held(i);
+      // present() poses the seats someone holds; render() the player's seat
+      // and each one a bot crews.
+      s[o + S.HELD] = held ? 1 : 0; s[o + S.POSE] = (render ? i === v.seatIndex || v.crewed(i) : held) ? 1 : 0;
+      s[o + S.AIM_YAW] = seat.aimYaw; s[o + S.PITCH] = seat.pitch; s[o + S.TARGET] = t ? 1 : 0;
+      if (t) { s[o + S.TARGET_POINT] = t.x; s[o + S.TARGET_POINT + 1] = t.y; s[o + S.TARGET_POINT + 2] = t.z; }
+    }
+    // When each barrel last fired (undefined: never); each wheel's turn.
+    for (let i = 0; i < rig.muzzles.length; i++) s[at + rig.inKicks + i] = rig.muzzles[i].kickAt === undefined ? NaN : +rig.muzzles[i].kickAt;
+    for (let i = 0; i < rig.wheels && i < v.wheels.length; i++) {
+      const wheel = v.wheels[i], o = at + rig.inWheels + i * WI.STRIDE;
+      s[o + WI.PHASE] = wheel.phase; s[o + WI.TICK_FROM] = render ? wheel.previous : wheel.tickFrom ?? wheel.phase;
+    }
+    // A hull whose seats or wheels no longer match its rig poses nothing
+    // (never a throw); counted and reported once.
+    if (v.seats.length !== rig.seats || v.wheels.length < rig.wheels) {
+      x[e + E.MODE] = M.SKIP;
+      this.mismatched++;
+      return false;
+    }
+    return true;
+  }
+  // presentDying: where it was destroyed, in its death clip.
+  dying(v) {
+    const e = this.entry(v, M.DYING);
+    if (e < 0) return false;
+    // presentDying shows the root again; the rest is the kernel's.
+    v.root.visible = true;
+    const x = this.input;
+    x[e + E.POSITION] = v.position.x; x[e + E.POSITION + 1] = v.position.y; x[e + E.POSITION + 2] = v.position.z;
+    x[e + E.TILT] = v.tilt; x[e + E.YAW] = v.yaw; x[e + E.ROLL] = v.roll; x[e + E.DYING] = v.dying;
+    x[e + E.OFFSET] = x[e + E.OFFSET + 1] = x[e + E.OFFSET + 2] = 0;
+    return true;
+  }
+  // The batch: roots, the leg rays (each hull's own body out of them, as
+  // feelLegs casts), the poses, then each hull's records written back.
+  flush() {
+    // Entries in the queue: hull, rig and slot each.
+    const n = this.queue.length / 3;
+    if (!n) return;
+    const k = this.kernel;
+    this.input[F.VERSION] = VERSION;
+    this.input[F.ENTRIES] = n;
+    k.place_hulls();
+    this.refresh();
+    // A build whose layout disagrees draws no hull (never a throw).
+    if (this.header[H.STATUS] !== 0) {
+      this.queue.length = 0;
+      return;
+    }
+    // feelLegs' casts: each ray the kernel placed from the drawn root, the
+    // height L - distance (or -L for nothing within 2L).
+    const s = this.streamIn, out = this.streamOut;
+    if (this.header[H.RAYS] > 0) {
+      for (let q = 0; q < n; q++) {
+        const v = this.queue[q * 3], rig = this.queue[q * 3 + 1], [at, o] = rig.slots[this.queue[q * 3 + 2]];
+        if (!(out[o + O.RAYS] > 0)) continue;
+        const w = v.system.world, L = v.def.fx.legs.rayLength, enabled = w.bodyEnabled(v.body);
+        w.enableBody(v.body, false);
+        try {
+          for (let r = 0, b = o + rig.outRays; r < out[o + O.RAYS]; r++, b += 3) {
+            const hit = w.cast(this.from.set(out[b], out[b + 1], out[b + 2]), DOWN, 2 * L, this.hit);
+            s[at + rig.inRays + r] = hit ? L - hit.distance : -L;
+          }
+        } finally {
+          w.enableBody(v.body, enabled);
+        }
+      }
+    }
+    k.pose_hulls();
+    for (let q = 0; q < n; q++) {
+      const v = this.queue[q * 3], rig = this.queue[q * 3 + 1], o = rig.slots[this.queue[q * 3 + 2]][1];
+      const mode = this.input[F.STRIDE + q * E.STRIDE + E.MODE];
+      // A hull skipped for a mismatch keeps last frame's pose.
+      if (mode !== M.SKIP) this.writeBack(v, rig, o, mode);
+    }
+    this.queue.length = 0;
+    // Hulls past the records or with a mismatched rig, reported once.
+    if (this.mismatched && !this.reported) {
+      this.reported = true;
+      console.warn(`vehicle presentation: ${this.mismatched} hull frames not drawn (records or rig mismatch)`);
+    }
+  }
+  // An entry's records into three and the hull: the root's own transform
+  // (a ground hull's Euler angles as present() set them; a craft's turn and
+  // the frame its chase camera follows), every node's matrices and each
+  // mesh's bind inverse; alive, its age, where it is drawn, the walk cycle
+  // as drawn (on the hull itself: its feet stomp by it), its leg sides and
+  // what each posed seat's aimers shoot by (shotDirection).
+  writeBack(v, rig, o, mode) {
+    const out = this.streamOut, root = v.root;
+    root.position.set(out[o + O.POSITION], out[o + O.POSITION + 1], out[o + O.POSITION + 2]);
+    if (out[o + O.ROOT_MODE] === R.EULER) root.rotation.set(out[o + O.ROTATION], out[o + O.ROTATION + 1], out[o + O.ROTATION + 2], "YXZ");
+    else if (out[o + O.ROOT_MODE] === R.QUATERNION) {
+      root.quaternion.set(out[o + O.QUATERNION], out[o + O.QUATERNION + 1], out[o + O.QUATERNION + 2], out[o + O.QUATERNION + 3]);
+      (v.flightFrameQ ||= new THREE.Quaternion()).set(out[o + O.FRAME], out[o + O.FRAME + 1], out[o + O.FRAME + 2], out[o + O.FRAME + 3]);
+    }
+    for (let i = 0, b = o + rig.outNodes; i < rig.nodes.length; i++, b += N.STRIDE) {
+      const m = rig.nodes[i].matrix.elements, w = rig.nodes[i].matrixWorld.elements;
+      for (let j = 0; j < 16; j++) { m[j] = out[b + j]; w[j] = out[b + N.WORLD + j]; }
+    }
+    for (let i = 0, b = o + rig.outSkins; i < rig.skinned.length; i++, b += 16) {
+      const m = rig.skinned[i].bindMatrixInverse.elements;
+      for (let j = 0; j < 16; j++) m[j] = out[b + j];
+    }
+    if (mode === M.DYING) return;
+    v.age = out[o + O.AGE];
+    v.visual.set(out[o + O.VISUAL], out[o + O.VISUAL + 1], out[o + O.VISUAL + 2]);
+    if (mode === M.ALIVE) { const shown = v.predictionSource || v; shown.shownWalkPhase = out[o + O.SHOWN_PHASE]; shown.shownWalkBlend = out[o + O.SHOWN_BLEND]; }
+    if (out[o + O.LEG_SIDES]) {
+      const sides = (v.legSide ||= new Array(rig.pairs).fill(0));
+      for (let i = 0; i < rig.pairs; i++) sides[i] = out[o + rig.outSides + i];
+    }
+    for (let i = 0, at = o + rig.outAimers; i < rig.aimers.length; i++, at += AO.STRIDE) {
+      if (!out[at + AO.WRITTEN]) continue;
+      const a = rig.aimers[i];
+      a.onTarget = out[at + AO.ON_TARGET] === 1;
+      if (!Number.isNaN(out[at + AO.FACING])) a.facing.set(out[at + AO.FACING], out[at + AO.FACING + 1], out[at + AO.FACING + 2]);
+      if (out[at + AO.POSED] >= 0) a.posed = out[at + AO.POSED] === 1;
+    }
+  }
+}

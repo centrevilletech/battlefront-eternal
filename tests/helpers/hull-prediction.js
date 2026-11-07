@@ -65,7 +65,7 @@ export function stepPrediction(system, dt, v = system.vehicles[0], input = {}) {
   intent.turn = input.turn || 0; intent.pitch = input.pitch || 0; intent.brake = Boolean(input.brake);
   intent.flight = input;
   system.update(dt);
-  v.render(1, 0);
+  v.seedPose();
 }
 
 // Test/tool frames enter the same required session as the page. This helper

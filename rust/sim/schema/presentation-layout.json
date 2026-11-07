@@ -35,6 +35,28 @@
       "presentationReset",
       "fidget",
       "endFidget"
+    ],
+    "PropAdopted": [
+      "none",
+      "first",
+      "following"
+    ],
+    "TrapPhase": [
+      "down",
+      "reset",
+      "armed",
+      "swing"
+    ],
+    "VehicleMode": [
+      "skip",
+      "alive",
+      "dying",
+      "render"
+    ],
+    "VehicleRoot": [
+      "position",
+      "euler",
+      "quaternion"
     ]
   },
   "records": {
@@ -299,6 +321,128 @@
       "checksum": 1,
       "prePlaces": 1,
       "postPlaces": 1
+    },
+    "PropFrame": {
+      "version": 1,
+      "dt": 1,
+      "tick": 1,
+      "feet": 1,
+      "bodies": 1
+    },
+    "PropFoot": {
+      "position": 3
+    },
+    "PropBody": {
+      "position": 3,
+      "onFoot": 1
+    },
+    "PropInput": {
+      "adopted": 1,
+      "slot": 1,
+      "started": 1,
+      "startTime": 1
+    },
+    "PropOutput": {
+      "posed": 1,
+      "slot": 1,
+      "started": 1,
+      "startTime": 1,
+      "bodyEnabled": 1
+    },
+    "TrapInput": {
+      "phase": 1,
+      "started": 1
+    },
+    "TrapOutput": {
+      "posed": 1
+    },
+    "PropBone": {
+      "quaternion": 4,
+      "position": 3
+    },
+    "PropEvent": {
+      "prop": 1,
+      "trigger": 1
+    },
+    "PropHeader": {
+      "status": 1,
+      "events": 1
+    },
+    "VehicleFrame": {
+      "version": 1,
+      "entries": 1
+    },
+    "VehicleEntry": {
+      "rig": 1,
+      "mode": 1,
+      "alpha": 1,
+      "dt": 1,
+      "frameDt": 1,
+      "network": 1,
+      "position": 3,
+      "quaternion": 4,
+      "tickFrom": 3,
+      "tickQuaternion": 4,
+      "tickYaw": 1,
+      "yaw": 1,
+      "tickTilt": 1,
+      "tilt": 1,
+      "tickRoll": 1,
+      "roll": 1,
+      "hover": 1,
+      "hoverPhase": 1,
+      "age": 1,
+      "walkPhase": 1,
+      "walkBlend": 1,
+      "walkFromPhase": 1,
+      "walkFromBlend": 1,
+      "gear": 1,
+      "legSides": 1,
+      "now": 1,
+      "dying": 1,
+      "offset": 3,
+      "input": 1,
+      "output": 1
+    },
+    "VehicleSeatInput": {
+      "held": 1,
+      "pose": 1,
+      "aimYaw": 1,
+      "pitch": 1,
+      "target": 1,
+      "targetPoint": 3
+    },
+    "VehicleWheelInput": {
+      "phase": 1,
+      "tickFrom": 1
+    },
+    "VehicleEntryOutput": {
+      "rootMode": 1,
+      "position": 3,
+      "rotation": 3,
+      "quaternion": 4,
+      "frame": 4,
+      "visual": 3,
+      "age": 1,
+      "shownPhase": 1,
+      "shownBlend": 1,
+      "legSides": 1,
+      "rays": 1
+    },
+    "VehicleAimerOutput": {
+      "written": 1,
+      "onTarget": 1,
+      "facing": 3,
+      "posed": 1
+    },
+    "VehicleHeader": {
+      "status": 1,
+      "rays": 1,
+      "skipped": 1
+    },
+    "VehicleNode": {
+      "matrix": 16,
+      "world": 16
     }
   },
   "version": 4,
@@ -308,6 +452,13 @@
       "nodes": 131072,
       "commands": 16384,
       "weapons": 256
+    },
+    "PropLimits": {
+      "feet": 1024,
+      "bodies": 1024
+    },
+    "VehicleLimits": {
+      "slots": 2
     }
   }
 }

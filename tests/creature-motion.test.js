@@ -18,7 +18,7 @@ const available = Boolean(pack);
 // gait step and makes a planted foot appear to slide above 120 Hz.
 function advance(system, dt, v, input = {}) {
   stepPrediction(system, dt, v, input);
-  v.render(Math.max(0, system.acc * 120), 0);
+  v.seedPose(Math.max(0, system.acc * 120));
 }
 const binary = name => { const b = fs.readFileSync(new URL(name, dir)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 function fixture(slopeX = 0, slopeZ = 0) {

@@ -21,6 +21,7 @@ import { captureEntityVehicle, captureEntityMount } from '../src/runtime/network
 import { FIXTURE_SPEEDS, FIXTURE_HANDLING, FIXTURE_CAMERA } from './flight-fixture.js';
 import { createSnapshotSender } from './snapshot-send.js';
 import { PredictedShots } from '../src/runtime/predicted-shots.js';
+import { attachPage, local } from './helpers/page-presentation.js';
 
 const X = new THREE.Vector3(1, 0, 0), Z = new THREE.Vector3(0, 0, 1);
 const turn = (axis, angle) => new THREE.Quaternion().setFromAxisAngle(axis, angle).toArray();
@@ -87,12 +88,12 @@ function craft({ clip = true, parts = [], rig = RIG, tracks = TRACKS, collisionB
     animations: clip ? { ship: meta } : {},
     spawns: [{ name: 'pad', matrix: new THREE.Matrix4().toArray(), team: 1, post: 'cp', respawnTime: 2, classes: { 1: 'ship' } }] };
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer: model.buffer, indexBuffer: model.indexBuffer, animationBuffer: floats.buffer, collision, texture: () => null,
-    camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } } });
+    camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } } }); attachPage(system);
   registerHullFixture(system, { data, buffer: model.buffer, indexBuffer: model.indexBuffer, animationBuffer: floats.buffer });
   return { system, v: system.vehicles[0] };
 }
 const bone = (v, name) => v.bones[v.bones.findIndex((b) => b.name === name)];
-const angleOf = (b, q) => b.quaternion.angleTo(new THREE.Quaternion().fromArray(q));
+const angleOf = (b, q) => local(b).quaternion.angleTo(new THREE.Quaternion().fromArray(q));
 const run = (f, n, input = {}) => { for (let i = 0; i < n; i++) stepPrediction(f.system, 1 / 60, f.v, input); };
 
 test('a flyer is drawn in its takeoff clip at its gear: down landed, stowed flying, DummyRoot left where the hull is seated', () => {
@@ -102,7 +103,7 @@ test('a flyer is drawn in its takeoff clip at its gear: down landed, stowed flyi
   const gear = bone(v, 'bone_gear'), door = bone(v, 'bone_door'), root = bone(v, 'DummyRoot');
   for (const [state, value, u] of [['Landed', 1, 0], ['Flying', 0, 1], ['TakingOff', .5, .5], ['Landing', .25, .75]]) {
     v.flightState = state; v.gear = value;
-    v.render(1, 0);
+    v.seedPose();
     assert.ok(angleOf(gear, slerp(ID, turn(X, Math.PI / 2), u)) < 1e-3, `${state}: the leg at ${u} of the clip`);
     assert.ok(angleOf(door, slerp(turn(Z, 1.75), ID, u)) < 1e-3, `${state}: the door at ${u} of the clip`);
     assert.deepEqual(root.position.toArray(), [0, 0, 0], 'the clip\'s constant lift is left out');

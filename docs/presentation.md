@@ -27,7 +27,14 @@ aliases, bones and banks once. Unit display and simulation share `bfe-pose`'s
 clip sampler and rigs.
 
 Frame, content epoch, authority tick, input clock, playout tick and visual dt are
-separate values. Each effect birth carries its generation and 32-bit local seed.
+separate values. Each effect birth carries its generation and 32-bit local seed
+(one draw of the page's `Math.random` at birth, or the caller's). Every random
+choice for that effect's particles (how many a burst makes, each one's size,
+lifetime, speed, spin and colour within its ranges) comes from that seed's own
+stream, by the same formulas the JavaScript particles used: a frozen JavaScript
+reference fed the same per-effect streams draws the same pixels. Only the dice
+changed: builds before the Rust phase drew every particle from the page's one
+shared stream, so their frames differ wherever effects are alive.
 Commands precede advancement. Effects step in birth order, emitters in definition
 order and particles in birth order. Children join the tail and step that frame.
 Burst births precede expiry checks. Killing a parent kills its children; ordinary

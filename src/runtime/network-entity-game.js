@@ -66,7 +66,7 @@ function recordsByKind(records) {
 // the shared SeatLease the SeatReader installs; a turret is the shared Turret
 // building. Nothing here duplicates boarding, exit, destruction or aim rules;
 // it installs what the server decided and lets the existing presentation
-// (Vehicle.present/poseCrew, TurretSeats.pose, poseTurret) draw it.
+// (the page's hull phase, TurretSeats.pose, poseTurret) draw it.
 export class EntityGameState {
   constructor(game, registry, { beforeApply = () => {}, onCorrection = () => {}, onApplied = () => {} } = {}) {
     Object.assign(this, { game, registry, beforeApply, onCorrection, onApplied });
@@ -343,7 +343,7 @@ export class EntityGameState {
     if (mount?.generation === record.generation) this.mount(mount);
   }
   // The crew pose beside the hull: lean, walk cycle and every seat's aim, for
-  // Vehicle.present/poseCrew and the riders. Own seats included: the driver's
+  // the page's hull phase and the riders. Own seats included: the driver's
   // preview adds the look the server has not seen yet on top.
   // A hull's lean, walk cycle and seat aims. They are drawn with its
   // position, which the playout clock samples a few ticks behind the newest

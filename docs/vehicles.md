@@ -974,9 +974,10 @@ never fall 0.1 m in 1/60 s (they come within 6%), so only its other two
 stomp as it walks (all four as it sets off). At lower frame rates the
 original stomps them too.
 
-The walk cycle is drawn on the page by `Vehicle.present` for every hull
-(`poseCrew`: the walk cycle, the manned seats, the gear), the one he drives
-included: nothing on the page runs `aimTick`, and no record poses his own
+The walk cycle is drawn on the page by the native hull phase
+(`src/presentation/vehicles.js`, `rust/bfe-presentation/src/vehicles.rs`),
+which `Vehicle.present` queues every hull for (the walk cycle, the manned
+seats, the gear), the one he drives included: nothing on the page runs `aimTick`, and no record poses his own
 hull. His hull's prediction (`src/runtime/vehicle-prediction.js`) advances
 its walk cycle with its ticks, as the world's `aimTick` does, and is drawn
 between its last two ticks, legs and hull alike. The page also keeps the

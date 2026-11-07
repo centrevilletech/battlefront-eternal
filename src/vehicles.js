@@ -27,12 +27,10 @@ const NOSE = new THREE.Vector3(0, 0, 1);
 const DOWN = new THREE.Vector3(0, -1, 0);
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
 const DEG = Math.PI / 180;
-const DEATH_BLEND = 0.3; // s at most a dying walker takes from its last pose into its death clip (the port's)
 const num = (v, fallback = 0) => Number.isFinite(parseFloat(v)) ? parseFloat(v) : fallback;
 const clockSeconds = () => (globalThis.performance?.now?.() ?? Date.now()) / 1000;
 const vector = (v, fallback) => v ? String(v).split(/\s+/).map(Number) : fallback;
 const angle = (v) => Math.atan2(Math.sin(v), Math.cos(v));
-const approach = (v, target, delta) => v + THREE.MathUtils.clamp(target - v, -delta, delta);
 const idle = Object.freeze({ forward: 0, right: 0, turn: 0, brake: false });
 const ZERO = Object.freeze(new THREE.Vector3());
 const vec3 = (v, fallback = null) => {
@@ -55,11 +53,10 @@ const RAYS = Object.freeze([0, 0, 1, 1, 1, -1, -1, 1, -1, -1]); // the centre ra
 const CAMERA_SKIN = .08; // m: keeps the near plane off what the rays hit
 const RETURN_RATE = 6; // 1/s: a camera pulled in by a wall eases back out
 const FOV_RATE = 25; // 1/s
-const TO_LOCAL = new THREE.Matrix4(), DECOMPOSED_AT = new THREE.Vector3(), DECOMPOSED_SCALE = new THREE.Vector3();
+const AIMED = DEG; // rad: a barrel this close to its target fires at it exactly
 // m a wall probe's or spring's cached triangles reach past its sphere: a
 // hull at 30 m/s moves 0.25 m a 120 Hz step.
 const WALL_CACHE_MARGIN = 1.5;
-const AIMED = DEG; // rad: a barrel this close to its target fires at it exactly
 const TURRET_PITCH = 1.5; // rad: the port's bound on a turret's pitch when its section sets none
 
 const CHASE_CAMERA = Object.freeze({
@@ -594,9 +591,8 @@ export class Vehicle {
     this.frameScratch = { q: new THREE.Quaternion(), q2: new THREE.Quaternion(), v: new THREE.Vector3(), m: new THREE.Matrix4(), frame: new THREE.Matrix4(), up: new THREE.Vector3() };
     this.beamFrom = new THREE.Vector3();
     this.aimQ = new THREE.Quaternion(); this.aimQ2 = new THREE.Quaternion();
-    this.from = new THREE.Vector3();
-    this.legEuler = new THREE.Euler(0, 0, 0, "YXZ");
     this.recoilAxis = new THREE.Vector3();
+    this.from = new THREE.Vector3();
     this.recoilPoint = new THREE.Vector3();
     this.hit = makeHit();
     this.q = new THREE.Quaternion();
@@ -821,7 +817,10 @@ export class Vehicle {
     this.previous.copy(this.position);
     this.visual.copy(this.position);
     this.syncBody();
-    this.render(1, 0);
+    // A page draws it at once in its native hull phase; a world seeds the
+    // pose its native import reads.
+    if (this.system.page) this.system.page.spawned(this);
+    else this.seedPose();
     return true;
   }
 
@@ -857,134 +856,33 @@ export class Vehicle {
     for (const wheel of this.wheels) wheel.tickFrom = wheel.phase;
   }
 
-  // Every frame: the hull and wheels between the last two world ticks
-  // (render() poses them only at a tick, so they moved in 60 Hz steps on
-  // any faster display), or where its record's sample puts it, and every
-  // bone as drawn (poseCrew). Nothing on a page runs aimTick, so this is
-  // also how the hull he drives is posed: its walk cycle, its manned seats
-  // and its gear. dt, the frame's, advances its age, the clock of what is
-  // only drawn (the idle clip, the repulsor's bob, a rider's clip), which no
-  // record carries. Gameplay reads the tick pose; see restoreTickPose.
+  // Every frame: the hull queued for the page's native hull phase
+  // (src/presentation/vehicles.js, rust/bfe-presentation vehicles.rs),
+  // which draws it between the last two world ticks, or where its record's
+  // sample puts it, every bone as drawn: its walk cycle, manned seats, gear,
+  // barrels and wheels, or a dying walker's death clip. Nothing on a page
+  // runs aimTick, so this is also how the hull he drives is posed (its
+  // predicted view, queued after). dt, the frame's, advances its age, the
+  // clock of what is only drawn. Whether it is drawn this frame.
   present(alpha, dt = 0) {
-    if (!this.alive) return this.dying > 0 && this.presentDying();
-    if (this.deathFrom) this.deathFrom.taken = false;
-    const networkPose = this.networkPose;
-    if (!networkPose && (!this.tickFrom || this.sleeping)) return false;
-    this.age += dt;
-    if (networkPose) this.visual.fromArray(networkPose.position);
-    else this.visual.lerpVectors(this.tickFrom, this.position, alpha);
-    this.root.position.copy(this.visual);
-    const hover = this.repulsor && !this.flying;
-    const phase = this.age * 1.7 + this.hoverPhase;
-    if (hover) this.root.position.y += Math.sin(phase) * .07 + Math.sin(phase * .61) * .025;
-    if (networkPose && this.flying) this.drawFlyer(this.q.fromArray(networkPose.quaternion), this.roll);
-    else if (networkPose) {
-      // A replicated ground hull's quaternion is its heading alone (syncBody);
-      // its lean arrives as tilt and roll with the crew pose.
-      const q = this.q.fromArray(networkPose.quaternion);
-      this.root.rotation.set(-this.tilt, Math.atan2(2 * (q.x * q.z + q.w * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)), this.roll + (hover ? Math.sin(phase * .73) * .006 : 0), 'YXZ');
-    }
-    else if (this.flying) this.drawFlyer(this.q.slerpQuaternions(this.flightTickQ || this.quaternion, this.quaternion, alpha), THREE.MathUtils.lerp(this.tickFromRoll ?? this.roll, this.roll, alpha));
-    else this.root.rotation.set(-THREE.MathUtils.lerp(this.tickFromTilt, this.tilt, alpha),
-      this.tickFromYaw + angle(this.yaw - this.tickFromYaw) * alpha,
-      this.tickFromRoll + angle(this.roll - this.tickFromRoll) * alpha + (hover ? Math.sin(phase * .73) * .006 : 0), 'YXZ');
-    // From the bind pose (poseCrew starts there), so the wheels after it.
-    this.poseCrew(networkPose ? networkPose.dt || 0 : dt, networkPose ? 1 : alpha, dt);
-    if (this.wheels.length) {
-      for (const wheel of this.wheels) {
-        wheel.bone.quaternion.copy(this.bind.get(wheel.bone)).multiply(this.q.setFromAxisAngle(wheel.axis, networkPose ? wheel.phase : THREE.MathUtils.lerp(wheel.tickFrom ?? wheel.phase, wheel.phase, alpha)));
-      }
-      this.root.updateMatrixWorld(true);
-    }
-    return true;
+    const page = this.system.page;
+    if (!this.alive) return this.dying > 0 && page.dying(this);
+    if (!this.networkPose && (!this.tickFrom || this.sleeping)) return false;
+    return page.alive(this, alpha, dt);
   }
 
-  // A dying walker as drawn: where it was destroyed, its bones in its death
-  // animation at the time it has been dying (at its AnimationSpeed, holding
-  // the last frame). Every host that draws calls it every frame from the
-  // replicated dying clock.
-  presentDying() {
-    this.root.visible = true;
-    this.root.position.copy(this.position);
-    if (!this.flying) this.root.rotation.set(-this.tilt, this.yaw, this.roll, 'YXZ');
-    if (this.pose) {
-      // The pose it was last drawn in alive (mid-stride, its guns aimed),
-      // which the clip takes over from below.
-      const from = this.deathFrom ||= { taken: false, q: this.bones.map(() => new THREE.Quaternion()), t: this.bones.map(() => new THREE.Vector3()) };
-      if (!from.taken) {
-        from.taken = true;
-        for (let i = 0; i < this.bones.length; i++) { from.q[i].copy(this.bones[i].quaternion); from.t[i].copy(this.bones[i].position); }
-      }
-      for (let i = 0; i < this.bones.length; i++) {
-        this.bones[i].quaternion.copy(this.bindQuaternions[i]);
-        this.bones[i].position.copy(this.bindPositions[i]);
-      }
-      const clip = this.clips.get('death01');
-      const span = this.def.fx?.dying?.span || 0;
-      if (clip && span > 0) {
-        this.pose.clear();
-        this.pose.add(clip, (span - this.dying) * (clip.frames / clip.fps / span), 1, false);
-        this.pose.apply(this.bones);
-      }
-      // Over its first DEATH_BLEND s (an eighth of a shorter clip) the clip
-      // takes over from that pose, so a walker destroyed mid-stride does not
-      // snap its legs into the clip's first frame (the AT-TE's hind feet
-      // jumped 0.6 m). Timed by the dying clock; one first seen dying later
-      // (a late joiner) is past it.
-      const blend = span > 0 ? Math.min(Math.max((span - this.dying) / Math.min(DEATH_BLEND, span / 8), 0), 1) : 1;
-      if (blend < 1) {
-        const w = blend * blend * (3 - 2 * blend);
-        for (let i = 0; i < this.bones.length; i++) {
-          const bone = this.bones[i];
-          bone.quaternion.copy(this.q.copy(from.q[i]).slerp(bone.quaternion, w));
-          bone.position.lerpVectors(from.t[i], bone.position, w);
-        }
-      }
-    }
-    this.root.updateMatrixWorld(true);
-    return true;
-  }
-
-  // The drawn pose of a hull whose root present() placed: every bone from
-  // the walk cycle (replicated, or his own hull's predicted one), the manned
-  // seats' turret nodes from their aims, and their aimers turning toward
-  // that aim at their own rates (presentation only; the authoritative aimers
-  // live in the simulation host). The equivalent of render() without
-  // placeRoot(). His own predicted hull is drawn between its last two ticks
-  // (alpha), and so are its legs: the replay keeps the cycle as it was
-  // before its last tick (walkFromPhase, the native prediction session),
-  // so a planted foot stays where it is while the hull moves over it.
-  // frameDt, the frame's: a craft drawn from its records moves its gear by
-  // it (src/flight/gear.js).
-  poseCrew(dt, alpha = 1, frameDt = dt) {
-    if (!this.alive) return;
-    for (let i = 0; i < this.bones.length; i++) this.bones[i].quaternion.copy(this.bindQuaternions[i]);
-    if (this.pose) for (let i = 0; i < this.bones.length; i++) this.bones[i].position.copy(this.bindPositions[i]);
-    let phase = this.walkPhase, blend = this.walkBlend;
-    const length = this.walkLength;
-    if (this.walkFromPhase !== undefined && alpha < 1 && length > 0) {
-      const step = angle((phase - this.walkFromPhase) / length * 2 * Math.PI) / (2 * Math.PI) * length;
-      phase = ((this.walkFromPhase + step * alpha) % length + length) % length;
-      blend = THREE.MathUtils.lerp(this.walkFromBlend, blend, alpha);
-    }
-    // The cycle as drawn, on the hull itself (not a prediction copy): its
-    // feet come down by it (src/vehicle-feet.js).
-    const shown = this.predictionSource || this;
-    shown.shownWalkPhase = phase; shown.shownWalkBlend = blend;
-    this.feelLegs(dt);
-    this.applyPose(phase, blend);
-    poseFlightGear(this, frameDt);
-    for (let i = 0; i < this.seats.length; i++) if (this.held(i)) this.poseSeat(i, dt);
+  // A world's pose of a hull it spawns (render(1, 0) of the drawn pose: at
+  // the tick, or between its last two at alpha; no bob time, no turn): the
+  // seed its native import reads, the aimers' facing above all. A page draws a spawn in its native hull phase
+  // instead (src/presentation/vehicles.js); these helpers are the world's.
+  seedPose(alpha = 1) {
+    this.placeRoot(alpha);
+    this.applyPose();
+    poseFlightGear(this);
+    this.poseSeat(this.seatIndex);
+    for (let i = 0; i < this.seats.length; i++) if (i !== this.seatIndex && this.crewed(i)) this.poseSeat(i);
     this.recoilBarrels();
     this.root.updateMatrixWorld(true);
-  }
-
-  // A craft is drawn leaned into its turn, its bank (the roll field) about
-  // its nose, over the frame it flies by (flightFrameQ), which its chase
-  // camera follows; as the 2004 game draws a flyer.
-  drawFlyer(frame, bank) {
-    (this.flightFrameQ ||= new THREE.Quaternion()).copy(frame);
-    this.root.quaternion.copy(frame).multiply((this.flightLeanQ ||= new THREE.Quaternion()).setFromAxisAngle(NOSE, bank || 0));
   }
 
   // The hull at a pose between the last two ticks (alpha), with the
@@ -1007,19 +905,19 @@ export class Vehicle {
     }
   }
 
-  // The walk cycle advanced by a tick (walkPhase, walkBlend: plain, so a
-  // page showing a worker's battle poses from them).
-  // The walk cycle's length in seconds (both steps), 0 without one.
-  get walkLength() {
-    const left = this.clips?.get('walk_leftfoot_rightfoot'), right = this.clips?.get('walk_rightfoot_leftfoot');
-    return left && right ? left.duration + right.duration : 0;
+  // A craft is drawn leaned into its turn, its bank (the roll field) about
+  // its nose, over the frame it flies by (flightFrameQ), which its chase
+  // camera follows; as the 2004 game draws a flyer.
+  drawFlyer(frame, bank) {
+    (this.flightFrameQ ||= new THREE.Quaternion()).copy(frame);
+    this.root.quaternion.copy(frame).multiply((this.flightLeanQ ||= new THREE.Quaternion()).setFromAxisAngle(NOSE, bank || 0));
   }
 
   // The bones from the walk cycle: the idle clip at the hull's age under
-  // the walk clips at walkPhase, by walkBlend (or at a phase and blend as
-  // drawn between ticks, poseCrew).
-  applyPose(phase = this.walkPhase, blend = this.walkBlend) {
+  // the walk clips at walkPhase, by walkBlend.
+  applyPose() {
     if (!this.pose) return;
+    const phase = this.walkPhase, blend = this.walkBlend;
     const left = this.clips.get('walk_leftfoot_rightfoot'), right = this.clips.get('walk_rightfoot_leftfoot');
     const length = (left?.duration || 0) + (right?.duration || 0);
     this.pose.clear();
@@ -1063,27 +961,68 @@ export class Vehicle {
     });
   }
 
-  // Each leg pair's ground under its feet, for a page drawing a hull it
-  // does not simulate: legSide from the drawn root, as standOnLegs keeps it.
-  feelLegs(dt) {
-    const legs = this.def.fx?.legs;
-    if (!legs || this.creature || !(dt > 0)) return;
-    const w = this.system.world, L = legs.rayLength;
-    const q = this.frameScratch.q.setFromEuler(this.legEuler.set(this.root.rotation.x, this.root.rotation.y, this.root.rotation.z, 'YXZ'));
-    this.legSide ||= legs.pairs.map(() => 0);
-    const enabled = w.bodyEnabled(this.body);
-    w.enableBody(this.body, false);
-    try {
-      legs.pairs.forEach((pair, i) => {
-        const h = ['left', 'right'].map((which) => {
-          this.from.fromArray(pair[which].at).applyQuaternion(q).add(this.root.position);
-          this.from.y += L;
-          const hit = w.cast(this.from, DOWN, 2 * L, this.hit);
-          return hit ? L - hit.distance : -L;
-        });
-        this.legSide[i] += (THREE.MathUtils.clamp(-.6 * (h[0] - h[1]), -1, 1) - this.legSide[i]) * Math.min(1, .4 * dt * 60);
-      });
-    } finally { w.enableBody(this.body, enabled); }
+  // A seat's turret and guns at their angles (no time: nothing turns). The
+  // turret node swings to the seat's aim (by its YawTurnFactor and
+  // PitchTurnFactor), keeping its own up; then each aimer's node takes its
+  // yaw and pitch from its rest pose. A barrel is on target once its aimer
+  // points at the target from its pivot.
+  poseSeat(i) {
+    const seat = this.seats[i], view = seat.view, s = this.frameScratch;
+    if (view.turret) {
+      lookBasis(aimVector(view.yawFactor * angle(seat.aimYaw - this.root.rotation.y), view.pitchFactor * seat.pitch, s.v), view.up, s.q2);
+      view.turret.quaternion.copy(view.turret.parent.getWorldQuaternion(s.q).invert()).multiply(this.root.quaternion).multiply(s.q2);
+      view.turret.updateMatrixWorld(true);
+    }
+    const target = seat.target;
+    for (const w of seat.weapons) {
+      for (const a of w.aimers) {
+        const bone = a.bone;
+        if (!bone) continue;
+        if (bone === view.turret) { a.facing.set(0, 0, 1).transformDirection(bone.matrixWorld); continue; }
+        const rest = this.bind.get(bone);
+        // The parent's world matrix, from the root down.
+        bone.parent.updateWorldMatrix(true, false);
+        // Yaw about the node's up, then pitch about its side (up positive).
+        const turn = this.aimQ.copy(rest).multiply(s.q.setFromAxisAngle(UP, a.yaw)).multiply(this.aimQ2.setFromAxisAngle(RIGHT, -a.pitch));
+        a.facing.set(0, 0, 1).applyQuaternion(turn).transformDirection(bone.parent.matrixWorld);
+        // A node another seat turns as its turret is that seat's while
+        // someone holds it, else this aimer's (the port's choice: which of
+        // the two the original game draws isn't traced). Either way the aimer
+        // keeps its own aim, and its rounds follow that, not the node: the
+        // original game fires along an aimer's own direction.
+        a.posed = a.owner < 0 || !this.held(a.owner);
+        if (a.posed) {
+          bone.quaternion.copy(turn);
+          bone.updateMatrixWorld(true);
+        }
+      }
+      for (const a of w.aimers) {
+        a.onTarget = false;
+        if (!target || !a.bone) continue;
+        a.bone.getWorldPosition(s.v).sub(target).negate();
+        const span = s.v.length();
+        a.onTarget = span > 1e-3 && s.v.dot(a.facing) > span * Math.cos(AIMED);
+      }
+    }
+  }
+
+  // Barrels kick back as they fire: BarrelRecoil along the
+  // barrel's own z, times a kick that is 1 as it fires and decays at 4 a
+  // second (on the clock of whoever poses it: Vehicles.clock).
+  recoilBarrels() {
+    const now = this.system.world.clock();
+    for (const seat of this.seats) for (const w of seat.weapons) for (const m of w.muzzles) {
+      if (!m.barrel || !m.rest) continue;
+      const kick = m.kickAt === undefined ? 0 : Math.max(0, 1 - 4 * (now - m.kickAt));
+      m.barrel.position.copy(m.rest);
+      if (kick > 0 && m.recoil) m.barrel.position.addScaledVector(this.recoilAxis.set(0, 0, 1).applyQuaternion(m.barrel.quaternion), -m.recoil * kick);
+    }
+  }
+
+  // The walk cycle's length in seconds (both steps), 0 without one.
+  get walkLength() {
+    const left = this.clips?.get('walk_leftfoot_rightfoot'), right = this.clips?.get('walk_rightfoot_leftfoot');
+    return left && right ? left.duration + right.duration : 0;
   }
 
   // Whether a seat's turret node, an aimer, a fire point or a rider's node
@@ -1111,31 +1050,6 @@ export class Vehicle {
     return result;
   }
 
-  // The drawn pose (the page's; also the simulation host's after aimTick):
-  // the hull between ticks, every bone from the walk cycle, the manned
-  // seats' turret nodes and aimer bones from their angles (no integration:
-  // dt is 0 on a page showing a worker's battle). Its effects and sounds
-  // are the page's, from the hull's state (src/vehicle-effects.js,
-  // rust/audio-control/src/vehicles.rs).
-  //
-  // ticked: aimTick has just posed the hull at this alpha (Vehicles.update).
-  // A craft in flight whose flight this host steps, with no walk pose and
-  // no legs, is then drawn as aimTick posed it: its root has no bob, its
-  // gear is posed at its own, its seats from the same angles, and nothing
-  // else of it moves; only its barrels' kick, on the clock, is read again.
-  render(alpha, dt) {
-    if (!this.alive) return;
-    if (dt > 0 && this.sleeping && !this.repulsor && !this.occupied && !this.pose && this.health >= this.maxHealth * .35) return;
-    this.placeRoot(alpha);
-    this.feelLegs(dt);
-    this.applyPose();
-    poseFlightGear(this);
-    this.poseSeat(this.seatIndex, 0);
-    for (let i = 0; i < this.seats.length; i++) if (i !== this.seatIndex && this.crewed(i)) this.poseSeat(i, 0);
-    this.recoilBarrels();
-    this.root.updateMatrixWorld(true);
-  }
-
   // The chase camera's turn for a seat: along the seat's aim, its up the
   // seat frame's, pitched down by TiltValue (a camera looks along its -Z).
   cameraTurn(i, frame, out) {
@@ -1151,93 +1065,6 @@ export class Vehicle {
     const view = this.seats[i].view;
     this.cameraTurn(i, frame, this.frameScratch.q2);
     return out.copy(view.offset).applyQuaternion(this.frameScratch.q2).add(this.frameScratch.v.copy(view.center).applyMatrix4(frame));
-  }
-
-  // A seat's turret and guns. The turret node swings to the seat's aim (by
-  // its YawTurnFactor and PitchTurnFactor), keeping its own up; then each
-  // aimer turns toward the seat's target from its rest pose, within its
-  // limits and at its rates, a chain's nodes in order. A barrel is on
-  // target once its aimer points at the target from its pivot.
-  poseSeat(i, dt) {
-    const seat = this.seats[i], view = seat.view, s = this.frameScratch;
-    if (view.turret) {
-      lookBasis(aimVector(view.yawFactor * angle(seat.aimYaw - this.root.rotation.y), view.pitchFactor * seat.pitch, s.v), view.up, s.q2);
-      view.turret.quaternion.copy(view.turret.parent.getWorldQuaternion(s.q).invert()).multiply(this.root.quaternion).multiply(s.q2);
-      view.turret.updateMatrixWorld(true);
-    }
-    const target = seat.target;
-    for (const w of seat.weapons) {
-      for (const a of w.aimers) {
-        const bone = a.bone;
-        if (!bone) continue;
-        if (bone === view.turret) { a.facing.set(0, 0, 1).transformDirection(bone.matrixWorld); continue; }
-        const rest = this.bind.get(bone);
-        // The parent's world matrix, from the root down; read as three's
-        // worldToLocal and getWorldQuaternion read it, without each walking
-        // the same chain to the same matrix again.
-        bone.parent.updateWorldMatrix(true, false);
-        const parentWorld = bone.parent.matrixWorld;
-        if (dt > 0) {
-          // Where to turn, in the node's rest frame: the target (only a
-          // turn reads it; a pose with no time, dt 0, keeps the angles).
-          if (target) s.v.copy(target).applyMatrix4(TO_LOCAL.copy(parentWorld).invert()).sub(bone.position).applyQuaternion(s.q.copy(rest).invert());
-          // Nothing to aim at: along the seat's aim.
-          else {
-            parentWorld.decompose(DECOMPOSED_AT, s.q, DECOMPOSED_SCALE);
-            aimVector(seat.aimYaw, seat.pitch, s.v).applyQuaternion(s.q.multiply(rest).invert());
-          }
-          // As the 2004 game's aimer turns: the
-          // shorter way round toward the target at its rate, then held
-          // inside its limits (0..2pi for an arc round the back), so a
-          // full-circle mount (the spider walker's guns, -360..360) crosses
-          // behind instead of unwinding. A step that had to be held back on
-          // an axis puts the aimer outside its limits, where a weapon
-          // without FireOutsideLimits fires nothing; an axis whose
-          // limits are equal (the AT-TE's main cannon, -0 0) is pinned and
-          // never counts against it.
-          const step = a.yawRate * dt;
-          let yaw = a.yaw + THREE.MathUtils.clamp(angle(Math.atan2(s.v.x, s.v.z) - a.yaw), -step, step);
-          if (a.wrapYaw && yaw < 0) yaw += 2 * Math.PI;
-          const pitch = approach(a.pitch, Math.atan2(s.v.y, Math.hypot(s.v.x, s.v.z)), a.pitchRate * dt);
-          const [y0, y1] = a.yawLimits, [p0, p1] = a.pitchLimits;
-          a.inLimits = (y0 === y1 || (yaw >= y0 && yaw <= y1)) && (p0 === p1 || (pitch >= p0 && pitch <= p1));
-          a.yaw = THREE.MathUtils.clamp(yaw, y0, y1);
-          a.pitch = THREE.MathUtils.clamp(pitch, p0, p1);
-        }
-        // Yaw about the node's up, then pitch about its side (up positive).
-        const turn = this.aimQ.copy(rest).multiply(s.q.setFromAxisAngle(UP, a.yaw)).multiply(this.aimQ2.setFromAxisAngle(RIGHT, -a.pitch));
-        a.facing.set(0, 0, 1).applyQuaternion(turn).transformDirection(bone.parent.matrixWorld);
-        // A node another seat turns as its turret is that seat's while
-        // someone holds it, else this aimer's (the port's choice: which of
-        // the two the original game draws isn't traced). Either way the aimer
-        // keeps its own aim, and its rounds follow that, not the node: the
-        // original game fires along an aimer's own direction.
-        a.posed = a.owner < 0 || !this.held(a.owner);
-        if (a.posed) {
-          bone.quaternion.copy(turn);
-          bone.updateMatrixWorld(true);
-        }
-      }
-      for (const a of w.aimers) {
-        a.onTarget = false;
-        if (!target || !a.bone) continue;
-        a.bone.getWorldPosition(s.v).sub(target).negate();
-        const span = s.v.length();
-        a.onTarget = span > 1e-3 && s.v.dot(a.facing) > span * Math.cos(AIMED);
-      }
-    }
-  }
-  // Barrels kick back as they fire: BarrelRecoil along the
-  // barrel's own z, times a kick that is 1 as it fires and decays at 4 a
-  // second (on the clock of whoever poses it: Vehicles.clock).
-  recoilBarrels() {
-    const now = this.system.world.clock();
-    for (const seat of this.seats) for (const w of seat.weapons) for (const m of w.muzzles) {
-      if (!m.barrel || !m.rest) continue;
-      const kick = m.kickAt === undefined ? 0 : Math.max(0, 1 - 4 * (now - m.kickAt));
-      m.barrel.position.copy(m.rest);
-      if (kick > 0 && m.recoil) m.barrel.position.addScaledVector(this.recoilAxis.set(0, 0, 1).applyQuaternion(m.barrel.quaternion), -m.recoil * kick);
-    }
   }
 
   // A shot another host fired (a network record's muzzle point): the barrel
@@ -1297,7 +1124,10 @@ export class Vehicles {
   // onFired(vehicle, seat, shot, owner, muzzle, direction),
   // onDamaged(vehicle, amount, attacker). units: the registry (src/registry.js)
   // to enter every hull in as a target (or call attachUnits later).
-  constructor({ scene, data, buffer, indexBuffer, animationBuffer = new ArrayBuffer(0), collision, water, audio, maxFlyHeight = 200, texture, caster, uncaster, camera, ordnance, effects, posts, inDeathRegion, onDestroyed, units = null, onBoard = null, onUnboard = null, onFired = null, onDamaged = null, flightEnvironment = {} }) {
+  constructor({ scene, data, buffer, indexBuffer, animationBuffer = new ArrayBuffer(0), collision, water, audio, maxFlyHeight = 200, texture, caster, uncaster, camera, ordnance, effects, posts, inDeathRegion, onDestroyed, units = null, onBoard = null, onUnboard = null, onFired = null, onDamaged = null, flightEnvironment = {}, page = null }) {
+    // The page's native hull phase (src/presentation/vehicles.js); a world
+    // has none.
+    this.page = page;
     Object.assign(this, { scene, data, collision, water, audio, maxFlyHeight, camera, caster, uncaster, ordnance, effects, posts, inDeathRegion, onDestroyed, onBoard, onUnboard, onFired, onDamaged });
     // Everything the hulls ask of the rest of the battle (src/vehicles-world.js),
     // and what their seats ask (src/seats-world.js).
@@ -1408,19 +1238,11 @@ export class Vehicles {
     return v;
   }
 
-  // Every frame, the vehicles drawn between the last two world ticks; dt
-  // is the frame's (Vehicle.present).
+  // Every frame, the vehicles drawn between the last two world ticks,
+  // queued for the page's hull phase; dt is the frame's (Vehicle.present).
+  // The tethers follow once that phase has posed them (game.js).
   present(alpha, dt = 0) {
-    for (const v of this.vehicles) if (v.present(alpha, dt)) this.presented = true;
-    this.drawTethers(true);
-  }
-
-  // Before a world tick: the exact pose gameplay read at the last tick, so
-  // drawing between ticks never changes what the next tick sees.
-  restoreTickPose() {
-    if (!this.presented) return;
-    for (const v of this.vehicles) if (v.alive && v.tickFrom) v.render(this.tickAlpha ?? 1, 0);
-    this.presented = false;
+    for (const v of this.vehicles) v.present(alpha, dt);
   }
 
   // Vehicles.update delegates the complete authoritative phase to Rust.

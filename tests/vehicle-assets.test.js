@@ -54,7 +54,7 @@ test('extracted vehicle rigs, collision and private prediction initialize togeth
      pending.push({ tick: i + 1, sequence: i + 1, generation: 1, down: ['KeyW'], actions: v.flying && i === 0 ? ['takeoff'] : [], look: [], mouseScale: 1 });
      v = replay.predict(pending, 0);
     }
-    v.render(1, 0);
+    v.seedPose();
    assert.ok(v.position.distanceTo(start)>.05,`${name}: motion`);
    assert.ok(v.position.toArray().every(Number.isFinite),`${name}: finite physics`);
    v.wheels.forEach((w,i)=>{

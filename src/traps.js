@@ -35,7 +35,6 @@ import { Building } from "./props.js";
 // began), its built/unbuilt state, health and team arriving as any
 // building's (schema 7).
 
-const TICK = 1 / 60;
 const FPS = 30; // the original game's clip length: frames at 30 a second
 export const TRAP_PHASES = ["down", "reset", "armed", "swing"];
 const length = (clip) => (clip ? clip.frames / FPS : 0);
@@ -147,34 +146,6 @@ export class Trap extends Building {
     this.sprung = Boolean(sprung);
     this.adopted = true;
     return true;
-  }
-
-  // A page's frame: the clip of its phase at the world's time for `tick`
-  // (the tick drawn, fractional). Unbuilt it rests at the swing's end;
-  // cocked, at its start.
-  present(tick) {
-    if (!this.pose) return;
-    let clip = this.triggerClip;
-    let time = 0;
-    const elapsed = Math.max(0, (tick - (this.started ?? tick) + 1) * TICK);
-    if (this.phase === "down") time = length(clip);
-    else if (this.phase === "reset") { clip = this.buildClip || clip; time = this.buildClip ? elapsed : length(clip); }
-    else if (this.phase === "swing") time = elapsed;
-    this.posed(clip, time);
-  }
-
-  posed(clip, time) {
-    if (!clip) return;
-    const pose = this.pose;
-    pose.clear();
-    pose.add(clip, time, 1, false);
-    const bones = this.rig.bones;
-    for (let i = 0; i < bones.length; i++) {
-      const w = pose.w[i];
-      if (w <= 1e-6) continue;
-      bones[i].quaternion.fromArray(pose.q, i * 4).normalize();
-      bones[i].position.set(pose.t[i * 3] / w, pose.t[i * 3 + 1] / w, pose.t[i * 3 + 2] / w);
-    }
   }
 }
 

@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { Trap, sideOfTeams, TRAP_PHASES } from '../src/traps.js';
 import { LiveObjects } from '../src/props.js';
 import { loadClips } from '../src/anim.js';
+import { pageProps } from './helpers/page-presentation.js';
 
 const BONES = ['dummyroot', 'bone_r_tree', 'bone_l_tree', 'hp_active'];
 const SETTINGS = {
@@ -66,9 +67,10 @@ test('a trap starts unbuilt, its pad and hologram out, and belongs to its ResetT
 test('a page poses the published armed and down phases without ticking the trap', () => {
   const t = trap();
   t.show('built');
-  t.adopt([2, 17, 0]);t.present(22);
+  const phase=pageProps({traps:[t]});
+  t.adopt([2, 17, 0]);phase.present(0,22);
   assert.ok(Math.abs(t.rig.bones[1].position.x - 23) < 1e-4);
-  t.adopt([0, 45, 0]);t.present(45);
+  t.adopt([0, 45, 0]);phase.present(0,45);
   assert.ok(Math.abs(t.rig.bones[1].position.x - 11) < 1e-4);
 });
 

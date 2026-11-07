@@ -10,6 +10,7 @@ import { EntityPresentation } from '../src/runtime/network-entity-presentation.j
 import { EntityTimeline } from '../src/runtime/network-entity-timeline.js';
 import { EntityReceiver } from '../src/runtime/network-entity-stream.js';
 import { encodeEntityPacket } from '../src/runtime/network-entity-codec.js';
+import { attachPage } from './helpers/page-presentation.js';
 
 function stream(options) {
   const receiver = new EntityReceiver(), timeline = new EntityTimeline(options); let packetId = 0;
@@ -71,7 +72,7 @@ function vehicle() {
   const data = { models: { tank: { bones: [], parts: [] } }, collision: { tank: hull }, classes: { tank: definition },
     spawns: [{ name: 'pad', matrix: new THREE.Matrix4().toArray(), team: 1, post: 'cp', respawnTime: 2, classes: { 1: 'tank', 2: 'tank' } }] };
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0), collision,
-    texture: () => null, camera: new THREE.PerspectiveCamera(), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() {} } });
+    texture: () => null, camera: new THREE.PerspectiveCamera(), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() {} } }); attachPage(system);
   return system.vehicles[0];
 }
 

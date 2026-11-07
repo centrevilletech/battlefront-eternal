@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
+import { attachPage } from './helpers/page-presentation.js';
 const box = (x, y, z, w, h, d) => {
   const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z);
   return { positions: g.attributes.position.array, indices: g.index.array, polygons: new Uint32Array(g.index.count / 3) };
@@ -21,7 +22,7 @@ export function fixture(settings = { ...FIXTURE_SPEEDS, ...FIXTURE_HANDLING }, n
   const data = { models: { ship: { bones: [], parts: [] } }, collision: { ship: hull }, classes: { [name]: d },
     spawns: [{ name: 'pad', matrix: new THREE.Matrix4().toArray(), team: 1, post: 'cp', respawnTime: 2, classes: { 1: name } }] };
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0), collision: c, texture: () => null,
-    camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } }, flightEnvironment: environment });
+    camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } }, flightEnvironment: environment }); attachPage(system);
   const v = system.vehicles[0];
   v.driver = {}; v.seatIndex = 0; // the player at the stick
   // His mouse: counts through VehicleDriver.look, as the page sends them.

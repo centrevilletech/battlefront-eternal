@@ -944,6 +944,10 @@ export class ObjectivePost extends Building {
   }
 }
 
+// A body in the soldier list, as triggers see it: a soldier (not a
+// droideka) on foot, living or lying dead, not seated or held.
+export const onFoot = (unit) => Boolean(unit?.soldier && !unit.walker && !unit.removed && (unit.alive || unit.dead) && !unit.seat && !unit.held);
+
 const heldScratch = { points: { ...makeRiderPoints(), root: new THREE.Vector3(), rootTurn: new THREE.Quaternion() },
   sample: { clip: null, pitch: 0, turn: 0, time: null }, frame: new THREE.Matrix4(), root: new THREE.Matrix4() };
 const SCALE_ONE = new THREE.Vector3(1, 1, 1);
@@ -1145,24 +1149,6 @@ export class AnimatedProp {
     return !victimId || Boolean(held);
   }
 
-  // A frame of a page following the world (adopt()): the clip at the
-  // world's time for `tick` (fractional, the tick drawn), eased as the
-  // world eases it, and whom it holds where it holds him.
-  follow(dt, tick) {
-    if (!this.pose || this.slot < 0) return;
-    // The world's step on the tick it started stepped the clock once.
-    const elapsed = Math.max(0, (tick - this.started + 1) * TICK);
-    const wanted = this.loop ? this.startTime + elapsed : elapsed;
-    const span = length(this.slots[0]);
-    this.time = this.loop && span > 0 ? wanted % span : wanted;
-    // The weight the world's step for this tick eased by (it rises after
-    // each step); the first state a page has (it joined the battle) stands
-    // at once.
-    const weight = this.adopted === "first" ? 1 : Math.min(1, (this.slot === 0 ? 0.2 : 1) * Math.max(0, tick - this.started) * TICK);
-    this.adopted = false;
-    if (dt > 0 || weight >= 1) this.stand(weight, dt);
-  }
-
   // Where a page draws whom it holds: his body in his clip, his root on
   // the node (heldFrame), at `time` seconds into the hold.
   presentHeld(tick) {
@@ -1310,7 +1296,7 @@ export class LiveObjects {
   // their angles, and the build holograms. viewer: { camera, canRepair }
   // (the holograms show to a soldier with a repair weapon). A page showing
   // a worker's battle calls this alone; the state arrives as plain fields.
-  // The animated props are presentAnimated()'s, earlier in the frame.
+  // The animated props are src/presentation/props.js's, earlier in the frame.
   present(dt, viewer = null) {
     this.time += dt;
     for (const station of this.stations) if (station.alive) station.pose(dt);
@@ -1319,25 +1305,6 @@ export class LiveObjects {
     if (viewer) for (const hologram of this.holograms) hologram.update(dt, this.time, viewer.canRepair, viewer.camera);
   }
 
-  // A page's frame of the animated props, before the bodies are drawn: a
-  // creature that seizes follows the world's state at `tick` (the world
-  // tick drawn, fractional) and places whom it holds; the rest step here
-  // from the soldiers this page has.
-  presentAnimated(dt, tick = 0) {
-    for (const trap of this.traps || []) trap.present(tick);
-    if (!(this.animated || []).length) return;
-    const positions = this.soldiers?.() || [];
-    const bodies = this.bodies?.() || [];
-    for (const prop of this.animated) {
-      // Until the world's state arrives a creature idles here, setting
-      // nothing off.
-      if (prop.grabs.length && prop.adopted !== undefined) {
-        prop.follow(dt, tick);
-        prop.presentHeld(tick);
-      } else if (prop.grabs.length) prop.presentStep(dt, positions, [], Math.floor(tick));
-      else prop.presentStep(dt, positions, bodies, Math.floor(tick));
-    }
-  }
 
   // The animated prop holding a unit, or null.
   holding(unit) {

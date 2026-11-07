@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleCamera, VehicleDriver } from '../src/vehicles.js';
 import { packWith, vehiclePacks } from '../tools/vehicle-packs.mjs';
+import { attachPage } from './helpers/page-presentation.js';
 
 const DEG = Math.PI / 180;
 const maps = contentURL('maps/');
@@ -125,16 +126,24 @@ test('a turret seat without a node takes its pivot from its section; walker gunn
 
 
 test('a full-circle aimer crosses behind the shorter way', { skip: !has('geo1') }, () => {
-  const { cis_walk_spider: v } = hulls('geo1', ['cis_walk_spider']);
+  const { system, cis_walk_spider: v } = hulls('geo1', ['cis_walk_spider']);
   const a = v.seats[0].weapons[0].aimers[0];
   assert.equal(a.node, 'turret_y_2');
+  // Held, drawn by the page's hull phase at the tick, its aimers turning by
+  // each frame's time; with no walk pose, so the aimer's frame stays put.
+  attachPage(system);
+  v.pose = null; v.driver = {}; v.seatIndex = 0; v.sleeping = false; v.resetPresentationHistory();
+  v.present(1, 0);
   const pivot = a.bone.getWorldPosition(new THREE.Vector3());
   const aimAt = (deg) => { v.seats[0].target = pivot.clone().add(new THREE.Vector3(Math.sin(deg * DEG) * 50, 0, Math.cos(deg * DEG) * 50)); };
-  const run = (n) => { for (let i = 0; i < n; i++) { v.root.updateMatrixWorld(true); v.poseSeat(0, 1 / 60); } };
+  const run = (n) => { for (let i = 0; i < n; i++) v.present(1, 1 / 60); };
+  // Its angles are the phase's; where it points is the hull's (a.facing).
   aimAt(170); run(300);
-  near(a.yaw, 170 * DEG, 1e-6, 'on a target behind-left');
+  near(Math.atan2(a.facing.x, a.facing.z), 170 * DEG, 1e-6, 'on a target behind-left');
+  // Twenty degrees on across the back in the time that turn takes (the
+  // long way round would take nine times as long).
   aimAt(-170); run(30);
-  near(a.yaw, 190 * DEG, 1e-6, 'twenty degrees on, across the back');
+  near(Math.atan2(a.facing.x, a.facing.z), -170 * DEG, 1e-6, 'across the back');
   const facing = new THREE.Vector3(0, 0, 1).transformDirection(a.bone.matrixWorld);
   near(Math.atan2(facing.x, facing.z), -170 * DEG, 1e-6, 'pointing at it');
 });
@@ -168,7 +177,7 @@ test('the seat camera hangs from the seat: chase at TrackCenter and TrackOffset,
   v.driver = {}; v.seatIndex = 1; v.aimYaw = v.yaw + .5; v.pitch = .1;
   nativeVehicles(system, pack);
   system.update(1 / 60);
-  v.render(1, 0);
+  v.seedPose();
   view.update(v, 1 / 60, false);
   const frame = v.seatFrame(1, new THREE.Matrix4());
   const rest = v.cameraRest(1, frame, new THREE.Vector3());

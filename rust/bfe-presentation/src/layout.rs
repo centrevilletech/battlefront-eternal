@@ -276,6 +276,146 @@ pub mod unit_capture_frame {
     pub const POST_PLACES: usize = 8;
     pub const STRIDE: usize = 9;
 }
+pub mod prop_frame {
+    pub const VERSION: usize = 0;
+    pub const DT: usize = 1;
+    pub const TICK: usize = 2;
+    pub const FEET: usize = 3;
+    pub const BODIES: usize = 4;
+    pub const STRIDE: usize = 5;
+}
+pub mod prop_foot {
+    pub const POSITION: usize = 0;
+    pub const STRIDE: usize = 3;
+}
+pub mod prop_body {
+    pub const POSITION: usize = 0;
+    pub const ON_FOOT: usize = 3;
+    pub const STRIDE: usize = 4;
+}
+pub mod prop_input {
+    pub const ADOPTED: usize = 0;
+    pub const SLOT: usize = 1;
+    pub const STARTED: usize = 2;
+    pub const START_TIME: usize = 3;
+    pub const STRIDE: usize = 4;
+}
+pub mod prop_output {
+    pub const POSED: usize = 0;
+    pub const SLOT: usize = 1;
+    pub const STARTED: usize = 2;
+    pub const START_TIME: usize = 3;
+    pub const BODY_ENABLED: usize = 4;
+    pub const STRIDE: usize = 5;
+}
+pub mod trap_input {
+    pub const PHASE: usize = 0;
+    pub const STARTED: usize = 1;
+    pub const STRIDE: usize = 2;
+}
+pub mod trap_output {
+    pub const POSED: usize = 0;
+    pub const STRIDE: usize = 1;
+}
+pub mod prop_bone {
+    pub const QUATERNION: usize = 0;
+    pub const POSITION: usize = 4;
+    pub const STRIDE: usize = 7;
+}
+pub mod prop_event {
+    pub const PROP: usize = 0;
+    pub const TRIGGER: usize = 1;
+    pub const STRIDE: usize = 2;
+}
+pub mod prop_header {
+    pub const STATUS: usize = 0;
+    pub const EVENTS: usize = 1;
+    pub const STRIDE: usize = 2;
+}
+pub mod vehicle_frame {
+    pub const VERSION: usize = 0;
+    pub const ENTRIES: usize = 1;
+    pub const STRIDE: usize = 2;
+}
+pub mod vehicle_entry {
+    pub const RIG: usize = 0;
+    pub const MODE: usize = 1;
+    pub const ALPHA: usize = 2;
+    pub const DT: usize = 3;
+    pub const FRAME_DT: usize = 4;
+    pub const NETWORK: usize = 5;
+    pub const POSITION: usize = 6;
+    pub const QUATERNION: usize = 9;
+    pub const TICK_FROM: usize = 13;
+    pub const TICK_QUATERNION: usize = 16;
+    pub const TICK_YAW: usize = 20;
+    pub const YAW: usize = 21;
+    pub const TICK_TILT: usize = 22;
+    pub const TILT: usize = 23;
+    pub const TICK_ROLL: usize = 24;
+    pub const ROLL: usize = 25;
+    pub const HOVER: usize = 26;
+    pub const HOVER_PHASE: usize = 27;
+    pub const AGE: usize = 28;
+    pub const WALK_PHASE: usize = 29;
+    pub const WALK_BLEND: usize = 30;
+    pub const WALK_FROM_PHASE: usize = 31;
+    pub const WALK_FROM_BLEND: usize = 32;
+    pub const GEAR: usize = 33;
+    pub const LEG_SIDES: usize = 34;
+    pub const NOW: usize = 35;
+    pub const DYING: usize = 36;
+    pub const OFFSET: usize = 37;
+    pub const INPUT: usize = 40;
+    pub const OUTPUT: usize = 41;
+    pub const STRIDE: usize = 42;
+}
+pub mod vehicle_seat_input {
+    pub const HELD: usize = 0;
+    pub const POSE: usize = 1;
+    pub const AIM_YAW: usize = 2;
+    pub const PITCH: usize = 3;
+    pub const TARGET: usize = 4;
+    pub const TARGET_POINT: usize = 5;
+    pub const STRIDE: usize = 8;
+}
+pub mod vehicle_wheel_input {
+    pub const PHASE: usize = 0;
+    pub const TICK_FROM: usize = 1;
+    pub const STRIDE: usize = 2;
+}
+pub mod vehicle_entry_output {
+    pub const ROOT_MODE: usize = 0;
+    pub const POSITION: usize = 1;
+    pub const ROTATION: usize = 4;
+    pub const QUATERNION: usize = 7;
+    pub const FRAME: usize = 11;
+    pub const VISUAL: usize = 15;
+    pub const AGE: usize = 18;
+    pub const SHOWN_PHASE: usize = 19;
+    pub const SHOWN_BLEND: usize = 20;
+    pub const LEG_SIDES: usize = 21;
+    pub const RAYS: usize = 22;
+    pub const STRIDE: usize = 23;
+}
+pub mod vehicle_aimer_output {
+    pub const WRITTEN: usize = 0;
+    pub const ON_TARGET: usize = 1;
+    pub const FACING: usize = 2;
+    pub const POSED: usize = 5;
+    pub const STRIDE: usize = 6;
+}
+pub mod vehicle_header {
+    pub const STATUS: usize = 0;
+    pub const RAYS: usize = 1;
+    pub const SKIPPED: usize = 2;
+    pub const STRIDE: usize = 3;
+}
+pub mod vehicle_node {
+    pub const MATRIX: usize = 0;
+    pub const WORLD: usize = 16;
+    pub const STRIDE: usize = 32;
+}
 pub mod command_kind {
     pub const SPAWN: u32 = 0;
     pub const SYNC: u32 = 1;
@@ -312,9 +452,38 @@ pub mod unit_command_kind {
     pub const FIDGET: u32 = 11;
     pub const END_FIDGET: u32 = 12;
 }
+pub mod prop_adopted {
+    pub const NONE: u32 = 0;
+    pub const FIRST: u32 = 1;
+    pub const FOLLOWING: u32 = 2;
+}
+pub mod trap_phase {
+    pub const DOWN: u32 = 0;
+    pub const RESET: u32 = 1;
+    pub const ARMED: u32 = 2;
+    pub const SWING: u32 = 3;
+}
+pub mod vehicle_mode {
+    pub const SKIP: u32 = 0;
+    pub const ALIVE: u32 = 1;
+    pub const DYING: u32 = 2;
+    pub const RENDER: u32 = 3;
+}
+pub mod vehicle_root {
+    pub const POSITION: u32 = 0;
+    pub const EULER: u32 = 1;
+    pub const QUATERNION: u32 = 2;
+}
 pub mod unit_limits {
     pub const ACTORS: usize = 1024;
     pub const NODES: usize = 131072;
     pub const COMMANDS: usize = 16384;
     pub const WEAPONS: usize = 256;
+}
+pub mod prop_limits {
+    pub const FEET: usize = 1024;
+    pub const BODIES: usize = 1024;
+}
+pub mod vehicle_limits {
+    pub const SLOTS: usize = 2;
 }

@@ -170,3 +170,131 @@ impl PageUnits {
         self.inner.refresh_actor(id);
     }
 }
+
+/// The page's animated props and log traps: registration at load, then one
+/// frame call over fixed records (src/presentation/props.js).
+#[wasm_bindgen]
+pub struct PageProps {
+    inner: crate::props::Props,
+}
+#[wasm_bindgen]
+impl PageProps {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> PageProps {
+        Self {
+            inner: crate::props::Props::new(),
+        }
+    }
+    pub fn load_clip(&mut self, frames: usize, fps: f64, root_motion: bool, tracks: Vec<i32>, data: Vec<f32>) -> u32 {
+        self.inner.load_clip(frames, fps, root_motion, tracks, data)
+    }
+    pub fn add_prop(&mut self, data: &str) -> Result<usize, JsValue> {
+        let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(self.inner.add_prop(input))
+    }
+    pub fn add_trap(&mut self, data: &str) -> Result<usize, JsValue> {
+        let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(self.inner.add_trap(input))
+    }
+    pub fn bone_start(&self, trap: bool, index: usize) -> usize {
+        self.inner.bone_start(trap, index)
+    }
+    pub fn feet_at(&self) -> usize {
+        crate::props::Props::feet_at()
+    }
+    pub fn bodies_at(&self) -> usize {
+        crate::props::Props::bodies_at()
+    }
+    pub fn input_ptr(&self) -> *const f64 {
+        self.inner.input.as_ptr()
+    }
+    pub fn input_len(&self) -> usize {
+        self.inner.input.len()
+    }
+    pub fn prop_input_ptr(&self) -> *const f64 {
+        self.inner.prop_input.as_ptr()
+    }
+    pub fn prop_output_ptr(&self) -> *const f64 {
+        self.inner.prop_output.as_ptr()
+    }
+    pub fn trap_input_ptr(&self) -> *const f64 {
+        self.inner.trap_input.as_ptr()
+    }
+    pub fn trap_output_ptr(&self) -> *const f64 {
+        self.inner.trap_output.as_ptr()
+    }
+    pub fn bones_ptr(&self) -> *const f64 {
+        self.inner.bones.as_ptr()
+    }
+    pub fn bones_len(&self) -> usize {
+        self.inner.bones.len()
+    }
+    pub fn events_ptr(&self) -> *const f64 {
+        self.inner.events.as_ptr()
+    }
+    pub fn header_ptr(&self) -> *const f64 {
+        self.inner.header.as_ptr()
+    }
+    pub fn present_props(&mut self) {
+        self.inner.frame();
+    }
+}
+
+/// The page's hulls: rigs registered once, then two calls a frame over
+/// fixed records (src/presentation/vehicles.js).
+#[wasm_bindgen]
+pub struct PageVehicles {
+    inner: crate::vehicles::Vehicles,
+}
+#[wasm_bindgen]
+impl PageVehicles {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> PageVehicles {
+        Self {
+            inner: crate::vehicles::Vehicles::new(),
+        }
+    }
+    pub fn load_clip(&mut self, frames: usize, fps: f64, root_motion: bool, tracks: Vec<i32>, data: Vec<f32>) -> u32 {
+        self.inner.load_clip(frames, fps, root_motion, tracks, data)
+    }
+    pub fn add_rig(&mut self, data: &str) -> Result<usize, JsValue> {
+        let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(self.inner.add_rig(input))
+    }
+    pub fn slot_input(&self, rig: usize, slot: usize) -> usize {
+        self.inner.slot_input(rig, slot)
+    }
+    pub fn slot_output(&self, rig: usize, slot: usize) -> usize {
+        self.inner.slot_output(rig, slot)
+    }
+    pub fn entries_capacity(&self) -> usize {
+        self.inner.entries_capacity()
+    }
+    pub fn input_ptr(&self) -> *const f64 {
+        self.inner.input.as_ptr()
+    }
+    pub fn input_len(&self) -> usize {
+        self.inner.input.len()
+    }
+    pub fn stream_in_ptr(&self) -> *const f64 {
+        self.inner.stream_in.as_ptr()
+    }
+    pub fn stream_in_len(&self) -> usize {
+        self.inner.stream_in.len()
+    }
+    pub fn stream_out_ptr(&self) -> *const f64 {
+        self.inner.stream_out.as_ptr()
+    }
+    pub fn stream_out_len(&self) -> usize {
+        self.inner.stream_out.len()
+    }
+    pub fn header_ptr(&self) -> *const f64 {
+        self.inner.header.as_ptr()
+    }
+    pub fn place_hulls(&mut self) {
+        self.inner.place();
+    }
+    pub fn pose_hulls(&mut self) {
+        self.inner.pose();
+    }
+}

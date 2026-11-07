@@ -47,6 +47,8 @@ import { CommandPosts } from "./commandposts.js";
 import {HeadlessEffects} from "./effects.js";
 import {PageEffects,loadPresentation} from "./presentation/effects.js";
 import {PageUnits} from "./presentation/units.js";
+import {PageProps} from "./presentation/props.js";
+import {PageVehicles} from "./presentation/vehicles.js";
 import { Gunner } from "./gunner.js";
 import { LiveObjects } from "./props.js";
 import { registerObjectives } from "./objectives.js";
@@ -1221,9 +1223,22 @@ async function start() {
         },
       })
     : null;
+  // The page draws the animated props and traps natively, from the feet
+  // and units LiveObjects' own providers name (src/presentation/props.js).
+  const pageProps = live && !headless
+    ? new PageProps(presentationLoaded, live, {
+        feet: (put) => {
+          if (!combat.dead) put(soldier.position);
+          for (const unit of factory?.built || []) if (unit.alive && unit.soldier) put(unit.soldier.position);
+        },
+        bodies: () => units.all(),
+      })
+    : null;
   if (vehicleDef) {
     vehicles = new Vehicles({ scene, data: vehicleDef, flightEnvironment: world.flight || { ceiling: world.mission?.maxFlyHeight ?? 200 }, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf,
       collision, water, audio, maxFlyHeight: world.mission?.maxFlyHeight ?? 200, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0), texture: vehicleTexture, caster: object => graphics.caster(object, { far: 110 }), uncaster: object => graphics.casters.delete(object), camera: simulationCamera, ordnance, effects, posts, inDeathRegion,
+      // The page draws its hulls in one native phase (src/presentation/vehicles.js).
+      page: headless ? null : new PageVehicles(presentationLoaded),
       // He dies with the hull, credited to whoever destroyed it, as the bots
       // aboard are (the original kills the occupant with the hull's damage
       // record).
@@ -2605,7 +2620,7 @@ async function start() {
     // The animated props at the tick drawn, and whom the creatures among
     // them hold, before any body is drawn (src/props.js). Held, his own
     // body is the creature's: in his clip, his root on its node.
-    live?.presentAnimated(frozen ? 0 : dt, client?.clock ?? worldClock.tick);
+    pageProps?.present(frozen ? 0 : dt, client?.clock ?? worldClock.tick);
     const unitsStart = runtimeProfile?.start();
     const held = playerUnit.held?.frame ? playerUnit.held : null;
     if (held) visual.setFromMatrixPosition(held.frame);
@@ -2626,11 +2641,14 @@ async function start() {
     // after the native body pose is available to the death camera.
     if(!frozen)view.motion.update(dt,renderedSoldier,ownEyes);
     pageUnits.begin(frozen?0:dt,unitView.frame,unitView);
-    if(!frozen)vehicles?.present?.(presentAlpha,dt);
+    // The hulls in the native phase, the tethers from them, then his own
+    // predicted hull over its source (a second batch: the tethers read the
+    // hulls as the world draws them).
+    if(!frozen&&vehicles){vehicles.present(presentAlpha,dt);vehicles.page.flush();vehicles.drawTethers(true);}
+    // His hull carries the correction still being smoothed away (reconcile.js).
     if(!frozen&&client?.vehiclePrediction&&driver?.vehicle){
-      client.vehiclePrediction.present(client.inputClock.alpha);
-      const smoothing=client.vehicleSmoother;driver.vehicle.root.position.x+=smoothing.x;driver.vehicle.root.position.y+=smoothing.y;driver.vehicle.root.position.z+=smoothing.z;
-      driver.vehicle.root.updateMatrixWorld(true);driver.vehicle.visual.copy(driver.vehicle.root.position);
+      vehicles.page.offset=client.vehicleSmoother;client.vehiclePrediction.present(client.inputClock.alpha);vehicles.page.flush();vehicles.page.offset=null;
+      driver.vehicle.visual.copy(driver.vehicle.root.position);
     }
     if(driver?.active)driver.presentRider(frozen?0:dt);vehicles?.presentRiders(frozen?0:dt);
     const ownRow=pageUnits.byActor.get(actor);pageUnits.write(ownRow,playerUnit,playerAlpha,true);

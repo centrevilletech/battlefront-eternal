@@ -25,7 +25,7 @@ import { classSetting } from "./vehicle-motion.js";
 // AnimationSpeed). The port reads them once per class at 60 updates a
 // second over the walk clips (gait()), as the phases of the cycle at which
 // each foot comes down and lifts, the fall measured over any 1/60 s. A
-// frame's walk phase as drawn (Vehicle.poseCrew: his own hull's predicted
+// frame's walk phase as drawn (the page's hull phase: his own hull's predicted
 // cycle, any other's replicated one) passing one of those phases is the
 // step, whatever the frame rate or the records' rate; the place is the
 // foot as drawn. The stomp effect (src/vehicle-effects.js) and the

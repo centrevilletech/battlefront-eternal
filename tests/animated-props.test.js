@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { AnimatedProp } from '../src/props.js';
 import { loadClips } from '../src/anim.js';
+import { pageProps } from './helpers/page-presentation.js';
 
 const DT = 1 / 60;
 
@@ -82,9 +83,10 @@ function victim(x, y = 0, z = 0) {
 test('a page draws a held creature and soldier from published clip and hold records', () => {
   const {p:page}=creature(),man=victim(0,0,0.5),units={byId:id=>id===man.id?man:null};
   assert.equal(page.adopt([1,30,0,man.id,man.generation,0,30],units),true);
-  page.follow(DT,90);page.presentHeld(90);
+  const phase=pageProps({animated:[page]});
+  phase.present(DT,90);
   assert.equal(page.victim.unit,man);assert.ok(man.held.frame);
-  const at=t=>{page.follow(DT/2,t);page.presentHeld(t);return new THREE.Vector3().setFromMatrixPosition(man.held.frame);};
+  const at=t=>{phase.present(DT/2,t);return new THREE.Vector3().setFromMatrixPosition(man.held.frame);};
   const before=at(90),between=at(90.5),after=at(91);
   assert.ok(between.distanceTo(before.clone().lerp(after,.5))<.01);
   assert.ok(between.distanceTo(before)>0 && between.distanceTo(after)>0);

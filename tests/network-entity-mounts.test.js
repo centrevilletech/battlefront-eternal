@@ -14,6 +14,7 @@ import { EntityWorldCapture, captureEntityVehicle, captureEntityMount, captureEn
 import { encodeEntityPacket, decodeEntityPacket, encodeEntityRecord } from '../src/runtime/network-entity-codec.js';
 import { mountFixture } from './mount-fixture.js';
 import { createSnapshotSender } from './snapshot-send.js';
+import { local } from './helpers/page-presentation.js';
 
 // Real Soldier, PlayerCombat, Unit and SeatLease objects; real Vehicle hulls
 // from the shared Vehicles system (tests/mount-fixture.js). No stubs stand in
@@ -146,7 +147,7 @@ test('client: hull creation, seat ownership for both humans, replicated aim and 
   assert.ok(Math.abs(c.v.root.rotation.x + .1) <= ANGLE + 1e-6, 'ground lean is drawn from tilt');
   assert.ok(Math.abs(c.v.root.rotation.y - .4) < 1e-3);
   const bind = c.v.bind.get(c.v.seats[1].view.turret);
-  assert.ok(bind && c.v.seats[1].view.turret.quaternion.angleTo(bind) > .1, 'the gunner turret node swings to the replicated aim');
+  assert.ok(bind && local(c.v.seats[1].view.turret).quaternion.angleTo(bind) > .1, 'the gunner turret node swings to the replicated aim');
   // 2. The local player takes the pilot seat; its life fields arrive as a soldier record, no correction.
   c.own.combat.health = 100;
   const ownState = soldier(c.own, 20); ownState.health = 77;

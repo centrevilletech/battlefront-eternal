@@ -6,6 +6,7 @@ import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles } from '../src/vehicles.js';
 import {captureEntityVehicle} from '../src/runtime/network-entity-capture.js';
 import {EntityGameState} from '../src/runtime/network-entity-game.js';
+import { attachPage, local } from './helpers/page-presentation.js';
 
 // A destroyed walker plays out its death animation before it is gone
 // (docs/vehicles.md, "Dying"): the simulation keeps the clock (Vehicle.dying,
@@ -44,7 +45,7 @@ function walker({ respawnTime = 30, fx = {}, yaw = 0 } = {}) {
   };
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0), animationBuffer: new Float32Array(floats).buffer,
     collision, texture: () => null, camera: new THREE.PerspectiveCamera(), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] },
-    ordnance: { explosion: (def, at, owner) => blasts.push({ class: def.class, at: at.clone(), owner }) }, effects: { play() { return null; } } });
+    ordnance: { explosion: (def, at, owner) => blasts.push({ class: def.class, at: at.clone(), owner }) }, effects: { play() { return null; } } }); attachPage(system);
   const v = system.vehicles[0];
   v.yaw = yaw; v.syncBody();
   nativeVehicles(system, { data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0), animationBuffer: new Float32Array(floats).buffer });
@@ -52,7 +53,7 @@ function walker({ respawnTime = 30, fx = {}, yaw = 0 } = {}) {
 }
 // The world's ticks (Vehicles.update takes at most 0.1 s at a time).
 const run = (system, seconds) => { for (let n = Math.round(seconds * 600); n > 0; n--) system.update(1 / 600); };
-const tilt = (v) => 2 * Math.atan2(Math.hypot(v.byName.bone_body.quaternion.x, v.byName.bone_body.quaternion.z), v.byName.bone_body.quaternion.w);
+const tilt = (v) => { const q = local(v.byName.bone_body).quaternion; return 2 * Math.atan2(Math.hypot(q.x, q.z), q.w); };
 
 test('a destroyed walker dies over its death animation, then its FinalExplosion goes off at its offset and it is gone', () => {
   const { system, v, blasts } = walker({ yaw: Math.PI / 2 });

@@ -171,7 +171,12 @@ function scenarios() {
   return frames;
 }
 
+// CI runs these four checks in the Rust job: tests/unit_oracle.rs builds the
+// replay executable and names it here. Named, it must exist (a wrong path
+// must fail, not skip); unnamed, a local release build is used if present.
 const native = process.env.BFE_UNIT_REPLAY || new URL("../rust/target/release/unit-replay", import.meta.url).pathname;
+if (process.env.BFE_UNIT_REPLAY && !fs.existsSync(native)) throw Error(`unit-replay missing: ${native}`);
+const noNative = !fs.existsSync(native);
 function replay(input, name) {
   const p = spawnSync(native, [], { input: JSON.stringify(input), encoding: "utf8", maxBuffer: 24 * 1024 * 1024 });
   assert.equal(p.status, 0, p.stderr);
@@ -184,7 +189,7 @@ function replay(input, name) {
   assert.equal(hash, g.sha256, name + " synthetic output golden");
   return rows;
 }
-test("native body phase matches synthetic animation goldens", { skip: !fs.existsSync(native) }, () => {
+test("native body phase matches synthetic animation goldens", { skip: noNative }, () => {
   const { animator: a, content } = fixture(),
     frames = scenarios(),
     ids = content.ids,
@@ -212,7 +217,7 @@ test("native body phase matches synthetic animation goldens", { skip: !fs.exists
 for (const forced of [false, true])
   test(
     `native first-person phase matches synthetic goldens (${forced ? "droideka" : "soldier"})`,
-    { skip: !fs.existsSync(native) },
+    { skip: noNative },
     () => {
       const { actor, animator } = fixture(),
         clips = new Map();
@@ -274,7 +279,7 @@ function pack(out, at, layout, fields) {
 }
 test(
   "complete native and WASM unit batches match frozen synthetic records",
-  { skip: !fs.existsSync(native) },
+  { skip: noNative },
   async () => {
     const { actor, content } = fixture();
     actor.root.updateMatrixWorld(true);

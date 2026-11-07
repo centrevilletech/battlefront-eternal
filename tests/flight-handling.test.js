@@ -18,6 +18,7 @@ import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles, VehicleCamera } from '../src/vehicles.js';
 import { setting } from '../src/seats.js';
 import { vehiclePacks } from '../tools/vehicle-packs.mjs';
+import { attachPage } from './helpers/page-presentation.js';
 
 const DT = 1 / 60;
 const run = (f, ticks, input = {}) => { for (let i = 0; i < ticks; i++) stepPrediction(f.system, DT, f.v, input); };
@@ -223,7 +224,7 @@ test('every imported flyer turns flat at its own TurnRate and is seen at its own
     const dir = new URL('./', file);
     const system = new Vehicles({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), collision, data: { ...data, spawns, blockers: null },
       buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)),
-      texture: () => null, effects: { play: () => null }, ordnance: { explosion() {} }, flightEnvironment: { bounds: null, ceiling: 1e4 } });
+      texture: () => null, effects: { play: () => null }, ordnance: { explosion() {} }, flightEnvironment: { bounds: null, ceiling: 1e4 } }); attachPage(system);
     // The native fleet needs the imported model and clip buffers this world was built from.
     registerHullFixture(system, { data: system.data, buffer: binary(new URL('models.bin', dir)), indexBuffer: binary(new URL('models_index.bin', dir)), animationBuffer: binary(new URL('animations.bin', dir)) });
     system.cosmetic = false;

@@ -14,6 +14,7 @@ import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { Footfalls, footSchedule, gait } from '../src/vehicle-feet.js';
 import { packWith } from '../tools/vehicle-packs.mjs';
+import { attachPage } from './helpers/page-presentation.js';
 
 const RULES = { detection: 0, threshold: .15, hydraulic: 1 };
 // A 2 s cycle at 30 keys a second: planted for the first half, then a bump
@@ -70,7 +71,7 @@ function walker(name, map) {
   const system = new Vehicles({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), collision,
     data: { ...data, blockers: null, spawns: [{ name: 'test', matrix: new THREE.Matrix4().toArray(), team: 1, post: '', classes: { 1: name } }] },
     buffer: bin('models.bin'), indexBuffer: bin('models_index.bin'), animationBuffer: bin('animations.bin'),
-    texture: () => null, effects: { play() { return null; } }, ordnance: { explosion() {} } });
+    texture: () => null, effects: { play() { return null; } }, ordnance: { explosion() {} } }); attachPage(system);
   const v = system.vehicles[0];
   v.driver = {}; v.seatIndex = 0;
   return { system, v };

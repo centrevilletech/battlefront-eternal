@@ -101,6 +101,178 @@ export class PagePresentation {
 if (Symbol.dispose) PagePresentation.prototype[Symbol.dispose] = PagePresentation.prototype.free;
 
 /**
+ * The page's animated props and log traps: registration at load, then one
+ * frame call over fixed records (src/presentation/props.js).
+ */
+export class PageProps {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PagePropsFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pageprops_free(ptr, 0);
+    }
+    /**
+     * @param {string} data
+     * @returns {number}
+     */
+    add_prop(data) {
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageprops_add_prop(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @param {string} data
+     * @returns {number}
+     */
+    add_trap(data) {
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageprops_add_trap(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    bodies_at() {
+        const ret = wasm.pageprops_bodies_at(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {boolean} trap
+     * @param {number} index
+     * @returns {number}
+     */
+    bone_start(trap, index) {
+        const ret = wasm.pageprops_bone_start(this.__wbg_ptr, trap, index);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    bones_len() {
+        const ret = wasm.pageprops_bones_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    bones_ptr() {
+        const ret = wasm.pageprops_bones_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    events_ptr() {
+        const ret = wasm.pageprops_events_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    feet_at() {
+        const ret = wasm.pageprops_feet_at(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    header_ptr() {
+        const ret = wasm.pageprops_header_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_len() {
+        const ret = wasm.pageprops_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_ptr() {
+        const ret = wasm.pageprops_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} frames
+     * @param {number} fps
+     * @param {boolean} root_motion
+     * @param {Int32Array | number[]} tracks
+     * @param {Float32Array | number[]} data
+     * @returns {number}
+     */
+    load_clip(frames, fps, root_motion, tracks, data) {
+        const val3 = +frames;
+        const val4 = +fps;
+        const val5 = +root_motion;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(tracks, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF32ToWasm0(data, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.pageprops_load_clip(this.__wbg_ptr, val3, val4, val5, ptr0, len0, ptr1, len1);
+        return ret >>> 0;
+    }
+    constructor() {
+        const ret = wasm.pageprops_new();
+        this.__wbg_ptr = ret;
+        PagePropsFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    present_props() {
+        wasm.pageprops_present_props(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    prop_input_ptr() {
+        const ret = wasm.pageprops_prop_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    prop_output_ptr() {
+        const ret = wasm.pageprops_prop_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    trap_input_ptr() {
+        const ret = wasm.pageprops_trap_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    trap_output_ptr() {
+        const ret = wasm.pageprops_trap_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) PageProps.prototype[Symbol.dispose] = PageProps.prototype.free;
+
+/**
  * Thin browser binding for the unit phase. Registration owns allocations;
  * two record batches are split by the host camera phase, without re-entry.
  */
@@ -358,6 +530,149 @@ export class PageUnits {
     }
 }
 if (Symbol.dispose) PageUnits.prototype[Symbol.dispose] = PageUnits.prototype.free;
+
+/**
+ * The page's hulls: rigs registered once, then two calls a frame over
+ * fixed records (src/presentation/vehicles.js).
+ */
+export class PageVehicles {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PageVehiclesFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pagevehicles_free(ptr, 0);
+    }
+    /**
+     * @param {string} data
+     * @returns {number}
+     */
+    add_rig(data) {
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pagevehicles_add_rig(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    entries_capacity() {
+        const ret = wasm.pagevehicles_entries_capacity(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    header_ptr() {
+        const ret = wasm.pagevehicles_header_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_len() {
+        const ret = wasm.pagevehicles_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    input_ptr() {
+        const ret = wasm.pagevehicles_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} frames
+     * @param {number} fps
+     * @param {boolean} root_motion
+     * @param {Int32Array | number[]} tracks
+     * @param {Float32Array | number[]} data
+     * @returns {number}
+     */
+    load_clip(frames, fps, root_motion, tracks, data) {
+        const val3 = +frames;
+        const val4 = +fps;
+        const val5 = +root_motion;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(tracks, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF32ToWasm0(data, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.pagevehicles_load_clip(this.__wbg_ptr, val3, val4, val5, ptr0, len0, ptr1, len1);
+        return ret >>> 0;
+    }
+    constructor() {
+        const ret = wasm.pagevehicles_new();
+        this.__wbg_ptr = ret;
+        PageVehiclesFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    place_hulls() {
+        wasm.pagevehicles_place_hulls(this.__wbg_ptr);
+    }
+    pose_hulls() {
+        wasm.pagevehicles_pose_hulls(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} rig
+     * @param {number} slot
+     * @returns {number}
+     */
+    slot_input(rig, slot) {
+        const ret = wasm.pagevehicles_slot_input(this.__wbg_ptr, rig, slot);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} rig
+     * @param {number} slot
+     * @returns {number}
+     */
+    slot_output(rig, slot) {
+        const ret = wasm.pagevehicles_slot_output(this.__wbg_ptr, rig, slot);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    stream_in_len() {
+        const ret = wasm.pagevehicles_stream_in_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    stream_in_ptr() {
+        const ret = wasm.pagevehicles_stream_in_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    stream_out_len() {
+        const ret = wasm.pagevehicles_stream_out_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    stream_out_ptr() {
+        const ret = wasm.pagevehicles_stream_out_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) PageVehicles.prototype[Symbol.dispose] = PageVehicles.prototype.free;
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -387,13 +702,35 @@ function __wbg_get_imports() {
 const PagePresentationFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pagepresentation_free(ptr, 1));
+const PagePropsFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pageprops_free(ptr, 1));
 const PageUnitsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pageunits_free(ptr, 1));
+const PageVehiclesFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pagevehicles_free(ptr, 1));
+
+let cachedFloat32ArrayMemory0 = null;
+function getFloat32ArrayMemory0() {
+    if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
+        cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
+    }
+    return cachedFloat32ArrayMemory0;
+}
 
 function getStringFromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return decodeText(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
 }
 
 let cachedUint8ArrayMemory0 = null;
@@ -402,6 +739,20 @@ function getUint8ArrayMemory0() {
         cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
     }
     return cachedUint8ArrayMemory0;
+}
+
+function passArray32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArrayF32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getFloat32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passStringToWasm0(arg, malloc, realloc) {
@@ -481,6 +832,8 @@ function __wbg_finalize_init(instance, module) {
     wasmInstance = instance;
     wasm = instance.exports;
     wasmModule = module;
+    cachedFloat32ArrayMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();
     return wasm;

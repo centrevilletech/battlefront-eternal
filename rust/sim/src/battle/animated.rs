@@ -5,7 +5,7 @@ use crate::pose::{Clip, Pose};
 use crate::seats::turrets::TurretRig;
 use crate::store::StrId;
 use three::{Matrix4, Quaternion, Vector3};
-use super::props::{max, min};
+use super::props::max;
 
 const TICK: f64 = 1.0 / 60.0;
 #[derive(Clone, Debug)]
@@ -99,10 +99,11 @@ pub trait World {
     /// The soldier's root from its rider clip, before the prop places it.
     fn rider_root(&mut self, prop: &Animated, unit: &Body, clip: StrId, time: f64) -> Option<(Vector3, Quaternion)>;
 }
-fn length(clip: Option<&Clip>) -> f64 { clip.map_or(0.0, |c| c.frames as f64 / c.fps) }
+// The clock, door and easing numerics are shared with the page's prop
+// presentation (bfe_pose::prop), so both hosts draw a prop alike.
+use bfe_pose::prop::length;
 fn within(point: Vector3, reach: f64, feet: Vector3) -> bool {
-    let r = reach + 1.278;
-    (feet.x - point.x).abs() <= r && (feet.y + 1.048 - point.y).abs() <= r && (feet.z - point.z).abs() <= r
+    bfe_pose::prop::within([point.x, point.y, point.z], reach, [feet.x, feet.y, feet.z])
 }
 impl Animated {
     pub fn near(&self, settings: &Settings, positions: &[Vector3]) -> bool {
@@ -119,8 +120,7 @@ impl Animated {
         if self.pose.is_none() { return; }
         if settings.door {
             let near = world.near(self, settings, positions);
-            let span = if settings.door_clip.is_some() { max(settings.door_duration, 1e-3) } else { 1.0 };
-            self.openness = max(0.0, min(1.0, self.openness + (if near { dt } else { -dt }) / span));
+            self.openness = bfe_pose::prop::door_openness(self.openness, near, dt, settings.door_clip.as_ref().map(|_| settings.door_duration));
             let pose = self.pose.as_mut().unwrap(); pose.clear();
             if let Some(clip) = &settings.door_clip { pose.add(clip, self.openness * settings.door_duration, 1.0, false); }
             if self.body_enabled.is_some() { self.body_enabled = Some(self.openness < 0.5); }
@@ -176,36 +176,16 @@ impl Animated {
         if self.victim.is_some() { self.carry(tick, bodies, settings, world); }
     }
     pub fn advance(&mut self, dt: f64, settings: &Settings) {
-        let mut step = dt;
-        if !self.looping { self.time += dt; }
-        else {
-            let span = length(settings.clips.first().and_then(Option::as_ref));
-            if self.time + dt < span { self.time += dt; }
-            else {
-                self.hold += dt;
-                if self.hold > settings.idle_delay { self.hold = 0.0; self.time += dt; } else { step = 0.0; }
-            }
-            if span > 0.0 && self.time > span { self.time -= span; }
-        }
+        let span = length(settings.clips.first().and_then(Option::as_ref));
+        let step = bfe_pose::prop::advance(&mut self.time, &mut self.hold, self.looping, dt, span, settings.idle_delay);
         self.stand(self.weight, step, settings);
         self.weight += (if self.slot == 0 { 0.2 } else { 1.0 }) * step;
     }
     pub fn stand(&mut self, weight: f64, dt: f64, settings: &Settings) {
-        let pose = self.pose.as_mut().expect("animated pose"); pose.clear();
-        if let Some(clip) = settings.clips.get(self.slot as usize).and_then(Option::as_ref) { pose.add(clip, self.time, 1.0, self.looping); }
-        let share = if weight >= 1.0 { 1.0 } else if dt > 0.0 { 1.0 - v8math::pow(1.0 - max(weight, 0.0), dt / TICK) } else { weight };
-        let (q, t) = (&mut self.stand_q, &mut self.stand_t);
-        for i in 0..pose.w.len() {
-            let w = pose.w[i] as f64; if w <= 1e-6 { continue; }
-            let qi = i * 4; let ti = i * 3;
-            let mut target = [pose.q[qi] as f64, pose.q[qi + 1] as f64, pose.q[qi + 2] as f64, pose.q[qi + 3] as f64];
-            if q[qi] as f64 * target[0] + q[qi + 1] as f64 * target[1] + q[qi + 2] as f64 * target[2] + q[qi + 3] as f64 * target[3] < 0.0 { for x in &mut target { *x = -*x; } }
-            for k in 0..4 { q[qi + k] = (q[qi + k] as f64 + (target[k] - q[qi + k] as f64) * share) as f32; }
-            let len = (q[qi] as f64 * q[qi] as f64 + q[qi + 1] as f64 * q[qi + 1] as f64 + q[qi + 2] as f64 * q[qi + 2] as f64 + q[qi + 3] as f64 * q[qi + 3] as f64).sqrt();
-            let len = if len == 0.0 || len.is_nan() { 1.0 } else { len };
-            for k in 0..4 { q[qi + k] = (q[qi + k] as f64 / len) as f32; }
-            for k in 0..3 { t[ti + k] = (t[ti + k] as f64 + (pose.t[ti + k] as f64 / w - t[ti + k] as f64) * share) as f32; }
-        }
+        let pose = self.pose.as_mut().expect("animated pose");
+        let clip = settings.clips.get(self.slot as usize).and_then(Option::as_ref);
+        bfe_pose::prop::stand(&mut self.stand_q, &mut self.stand_t, pose, clip, self.time, self.looping, weight, dt);
+        let (q, t) = (&self.stand_q, &self.stand_t);
         for (i, &bone) in self.rig.bones.iter().enumerate() {
             let node = self.rig.tree.node_mut(bone); let qi = i * 4; let ti = i * 3;
             node.set_quaternion(q[qi] as f64, q[qi + 1] as f64, q[qi + 2] as f64, q[qi + 3] as f64);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles } from '../src/vehicles.js';
+import { attachPage } from './helpers/page-presentation.js';
 // A real ground hull with a pilot seat and a turreted gunner seat, built by the
 // shared Vehicles system from synthetic data (no retail content). Shared by the
 // mount replication tests; flight-fixture.js is the flyer equivalent.
@@ -23,7 +24,7 @@ export function mountFixture({ classes = ['tank'], slots = 1, authority = false,
     classes: Object.fromEntries(classes.map(name => [name, { model: 'tank', label: name, base: 'hover', settings: {}, seats, explosion: null }])),
     spawns: Array.from({ length: slots }, (_, i) => ({ name: `pad${i}`, matrix: new THREE.Matrix4().makeRotationY(yaw).setPosition(position[0] + i * 20, position[1], position[2]).toArray(), team: 1, post: 'cp', respawnTime: 2, classes: { 1: classes[0] } })) };
   const system = new Vehicles({ scene: new THREE.Scene(), data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0), collision, texture: () => null,
-    camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } } });
+    camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), posts: { posts: [{ desc: { name: 'cp' }, team: 1 }] }, ordnance: { explosion() {} }, effects: { play() { return null; } } }); attachPage(system);
   const v = system.variant(system.slots[0], classes[0]);
   v.spawn(1);
   if (authority) {

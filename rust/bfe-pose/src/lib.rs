@@ -286,6 +286,7 @@ mod tests {
     }
 }
 
+pub mod prop;
 pub mod rig;
 
 pub mod display;
