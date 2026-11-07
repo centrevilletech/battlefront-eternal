@@ -223,7 +223,7 @@ pub fn double(sim: &mut crate::abi::Sim, ask: Ask) -> Ask {
 
 #[test]
 fn a_command_takes_its_arguments_and_gives_its_result_through_the_call_block() {
-    let sim = crate::abi::sim();
+    let sim = &mut crate::abi::Sim::new();
     let spot = Spot { at: [1.0, 2.0, 3.0], label: None, kept: vec![Ref::new(3, 1)], ..Default::default() };
     let ask = Ask { n: -0.75, who: Some(Ref::new(4, 0)), things: vec![Ref::new(1, 2), Ref::new(0, 1)], spot: Some(spot.clone()) };
     // Written as JavaScript writes arguments (the same words), then run.

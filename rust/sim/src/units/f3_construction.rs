@@ -24,10 +24,10 @@ pub(super) struct Factory {
 }
 fn factory() -> &'static mut Factory {
     // One battle thread. No table borrow crosses a native lifecycle service.
-    unsafe { (*addr_of_mut!(super::owner::UNITS.factory)).as_mut().expect("prepared unit factory") }
+    unsafe { (*addr_of_mut!(crate::abi::cold().units.factory)).as_mut().expect("prepared unit factory") }
 }
 pub(crate) fn reset() {
-    unsafe { *addr_of_mut!(super::owner::UNITS.factory) = Some(Factory::default()); }
+    unsafe { *addr_of_mut!(crate::abi::cold().units.factory) = Some(Factory::default()); }
 }
 
 /// Each construction cookie admits at most one body. Resident cookies can

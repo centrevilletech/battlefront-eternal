@@ -120,7 +120,7 @@ pub type Reply = Result<Record, Failure>;
 type Handler = dyn Fn(&Context, &Record) -> Reply;
 
 struct Owner {
-    sim: RefCell<Option<Sim>>,
+    world: RefCell<Option<Box<crate::world::owner::World>>>,
     collision: RefCell<Option<collision::NativeCollision>>,
     movement: RefCell<Option<movement::NativeMovement>>,
     exchange: RefCell<ImportExchange>,
@@ -150,7 +150,7 @@ impl Default for Context {
 impl Context {
     pub fn new() -> Self {
         Self(Rc::new(Owner {
-            sim: RefCell::new(Some(Sim::new())),
+            world: RefCell::new(Some(crate::world::owner::World::new())),
             collision: RefCell::new(None),
             movement: RefCell::new(None),
             exchange: RefCell::new(ImportExchange::new()),
@@ -159,7 +159,7 @@ impl Context {
         }))
     }
     fn check(&self) -> Result<(), Error> {
-        if self.0.sim.borrow().is_some() {
+        if self.0.world.borrow().is_some() {
             Ok(())
         } else {
             Err(Error::new(ErrorKind::Disposed, "context disposed"))
@@ -171,11 +171,11 @@ impl Context {
         Ok(Flight(self.clone()))
     }
     fn store<T>(&self, f: impl FnOnce(&mut Sim) -> T) -> Result<T, Error> {
-        let mut owner = self.0.sim.borrow_mut();
-        let sim = owner
+        let mut owner = self.0.world.borrow_mut();
+        let world = owner
             .as_mut()
             .ok_or_else(|| Error::new(ErrorKind::Disposed, "context disposed"))?;
-        Ok(f(sim))
+        Ok(f(&mut world.sim))
     }
     pub fn dispose(&self) -> Result<(), Error> {
         self.check()?;
@@ -185,13 +185,13 @@ impl Context {
                 "context has active invocations",
             ));
         }
-        let sim = self.0.sim.borrow_mut().take();
+        let world = self.0.world.borrow_mut().take();
         let collision = self.0.collision.borrow_mut().take();
         let movement = self.0.movement.borrow_mut().take();
         let handlers = std::mem::take(&mut *self.0.handlers.borrow_mut());
         // Drop user-owned closures only after releasing all owner borrows.
         drop(handlers);
-        drop(sim);
+        drop(world);
         drop(movement);
         drop(collision);
         Ok(())

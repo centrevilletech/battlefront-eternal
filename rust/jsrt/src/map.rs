@@ -181,7 +181,7 @@ where
 
 impl<K: JsKey, V> JsMap<K, V> {
     /// `new Map()`.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         JsMap {
             slots: Vec::new(),
             buckets: Vec::new(),

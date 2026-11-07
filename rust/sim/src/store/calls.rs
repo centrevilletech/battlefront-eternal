@@ -18,6 +18,8 @@ pub struct Calls {
 }
 
 impl Calls {
+    pub const fn new() -> Self { Self { block: Block::new() } }
+
     /// The arguments JavaScript wrote: the record's words and the heap.
     pub fn args(&self) -> (&[f64], &[f64]) { self.block.read(0) }
 
@@ -49,6 +51,10 @@ impl Default for Events {
 }
 
 impl Events {
+    pub const fn cold() -> Self { Self { count: 0, words: Vec::new(), heap: Vec::new(), row: Vec::new() } }
+
+    pub(crate) fn warm(&mut self) { self.words = vec![0.0]; }
+
     /// Reserve a phase's event working set during construction. Payloads keep
     /// their generated layouts and append directly; publication need not rebuild
     /// the events already delivered at an earlier synchronous observation point.
@@ -148,23 +154,11 @@ impl ImportExchange {
     }
 }
 
-// The raw entry facade owns one bank per WASM instance. Native Context owns
-// ImportExchange directly; neither path holds its bank across host dispatch.
-mod facade {
-    use super::ImportExchange;
-    static mut EXCHANGE_BLOCK: ImportExchange = ImportExchange::new();
-
-    fn exchange() -> &'static mut ImportExchange {
-        // WASM facade: one instance, one thread; no borrow spans an import.
-        unsafe { &mut *std::ptr::addr_of_mut!(EXCHANGE_BLOCK) }
-    }
-
-    pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) { exchange().out(words, put); }
-    pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T { exchange().read(take) }
-    pub fn import_args_ptr() -> *const f64 { exchange().ptr() }
-    pub fn import_room(words: usize, heap: usize) -> *mut f64 { exchange().room(words, heap) }
-}
-pub use facade::{import_out, import_in, import_args_ptr, import_room};
+// The import bank is independent of semantic state across host callbacks.
+pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) { crate::abi::exchange().out(words, put); }
+pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T { crate::abi::exchange().read(take) }
+pub fn import_args_ptr() -> *const f64 { crate::abi::exchange().ptr() }
+pub fn import_room(words: usize, heap: usize) -> *mut f64 { crate::abi::exchange().room(words, heap) }
 
 const _: () = assert!(HEADER == 5);
 

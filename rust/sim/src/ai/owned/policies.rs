@@ -21,7 +21,7 @@ pub extern "C" fn ai_weapon_policies()->*const f64 {
 
 #[no_mangle]
 pub extern "C" fn ai_world_weapon_policies()->*const f64 {
-    let Some(battle)=sim().ai.battle() else{return std::ptr::null()};
+    let Some(battle)=crate::abi::world().ai.battle() else{return std::ptr::null()};
     if battle.ready() {return std::ptr::null();}
     let table=battle.combat.shared.weapons.clone();
     // Initial physical owners can precede AI content loading. Complete their

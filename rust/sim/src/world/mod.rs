@@ -1,4 +1,5 @@
 //! World-step state and the remaining phase boundaries.
+pub mod owner;
 pub mod clock;
 pub mod events;
 pub mod local;
@@ -18,6 +19,10 @@ pub struct Tick {
     pub input: [f64; crate::gen::WorldTickInput::WORDS],
     pub output: crate::store::block::Block,
 }
+impl Tick {
+    pub const fn cold() -> Self { Self { running: false, water: None, input: [0.0; crate::gen::WorldTickInput::WORDS], output: crate::store::block::Block::new() } }
+    pub(crate) fn warm(&mut self) { self.output.room(1, crate::gen::WorldTickOutput::WORDS, 0); }
+}
 impl Default for Tick {
     fn default() -> Self {
         let mut output=crate::store::block::Block::default();
@@ -28,7 +33,7 @@ impl Default for Tick {
 
 /// Mirror banks commit only at the outer world return. Canonical stores and
 /// source-point event samples remain available to every intervening phase.
-pub(crate) fn deferred() -> bool {crate::abi::sim().world.running}
+pub(crate) fn deferred() -> bool {crate::abi::world().tick.running}
 
 /// WaterState.step's independent gameplay clock. Presentation can sample the
 /// completed level, but render dt never advances authoritative water.

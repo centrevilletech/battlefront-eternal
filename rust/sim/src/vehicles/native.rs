@@ -393,12 +393,16 @@ impl Collision {
         if walls.len() < probes.len() {
             return None;
         }
-        let all = spheres::caches();
-        let base = all.as_mut_ptr();
+        // Uncached probes need only this query's scratch. Acquire the facade
+        // cache bank only when a collider actually names a retained cache.
+        let mut base: *mut GatherCache = std::ptr::null_mut();
         // Each probe's own cache (distinct per probe, as a hull keeps them).
         let mut caches: [Option<&mut GatherCache>; 256] = [const { None }; 256];
         for (i, &id) in walls.iter().take(probes.len()).enumerate() {
-            if id >= 0 { caches[i] = Some(unsafe { &mut *base.add(id as usize) }); }
+            if id >= 0 {
+                if base.is_null() { base = spheres::caches().as_mut_ptr(); }
+                caches[i] = Some(unsafe { &mut *base.add(id as usize) });
+            }
         }
         self.points.clear();
         self.points.extend(probes.iter().map(|p| [p.x, p.y, p.z]));

@@ -18,14 +18,14 @@ pub(super) struct State {
 }
 fn state() -> &'static mut State {
     unsafe {
-        (*addr_of_mut!(super::owner::BATTLE.tail))
+        (*addr_of_mut!(crate::abi::cold().battle.tail))
             .as_mut()
             .expect("native battle tail initialized")
     }
 }
 pub(crate) fn reset() {
     unsafe {
-        *addr_of_mut!(super::owner::BATTLE.tail) = None;
+        *addr_of_mut!(crate::abi::cold().battle.tail) = None;
     }
 }
 /// captureWorldSummaries reads the same prepared human roster without
@@ -36,7 +36,7 @@ pub(crate) fn wire_roster(team: usize) -> &'static [StrId] {
 // The pre-AI boundary also replaces CommandPosts.all's former JS refresh.
 // State is lent out inside a tail; its World refreshes before its own hooks.
 pub(crate) fn refresh_mobile_views(){
-    let Some(state)=(unsafe{(*addr_of_mut!(super::owner::BATTLE.tail)).as_mut()}) else{return};
+    let Some(state)=(unsafe{(*addr_of_mut!(crate::abi::cold().battle.tail)).as_mut()}) else{return};
     super::fleet_posts::refresh_posts(&mut sim().store,&mut state.owner.prepared.pads);
     super::f4_core::mark_mobile();
 }
@@ -105,7 +105,7 @@ pub extern "C" fn f4_tail_init() -> *const f64 {
     ];
     super::f4_core::configure_tail(cfg.classic, cfg.local);
     unsafe {
-        *addr_of_mut!(super::owner::BATTLE.tail) = Some(State {
+        *addr_of_mut!(crate::abi::cold().battle.tail) = Some(State {
             owner,
             human: super::native_human::Driver {
                 human,
@@ -220,7 +220,7 @@ pub extern "C" fn f4_tail() {
     let input = super::f4_live::tail_input();
     let before = crate::allocations::snapshot();
     let mut state = unsafe {
-        (*addr_of_mut!(super::owner::BATTLE.tail))
+        (*addr_of_mut!(crate::abi::cold().battle.tail))
             .take()
             .expect("battle tail cannot reenter")
     };
@@ -258,7 +258,7 @@ pub extern "C" fn f4_tail() {
         state.shell = Some(shell);
     });
     unsafe {
-        *addr_of_mut!(super::owner::BATTLE.tail) = Some(state);
+        *addr_of_mut!(crate::abi::cold().battle.tail) = Some(state);
     }
     drop(outer);
     super::f4_live::count_tail(input.human_count as usize, before);

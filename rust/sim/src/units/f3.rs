@@ -131,13 +131,13 @@ pub(super) struct State {
 }
 fn state() -> &'static mut State {
     // One module thread. No state borrow is retained across a foreign import.
-    unsafe { (&mut *addr_of_mut!(super::owner::UNITS.state)).as_mut().expect("F3 initialized") }
+    unsafe { (&mut *addr_of_mut!(crate::abi::cold().units.state)).as_mut().expect("F3 initialized") }
 }
 // A battle owns one instance. This identifies ownership, not whether a tick
 // is currently on the stack: supply and damage commands between ticks still
 // use canonical state and the same native collision/ordnance services.
 pub(crate) fn active() -> bool {
-    unsafe { (&*addr_of_mut!(super::owner::UNITS.state)).is_some() }
+    unsafe { (&*addr_of_mut!(crate::abi::cold().units.state)).is_some() }
 }
 
 /// F1 continues stepping ordnance after the unit span. Its native hits use the
@@ -389,7 +389,7 @@ pub extern "C" fn f3_init(world: u32, level: f64, body_serial: u32) -> *const f6
         ..Default::default()
     };
     unsafe {
-        *addr_of_mut!(super::owner::UNITS.state) = Some(State {
+        *addr_of_mut!(crate::abi::cold().units.state) = Some(State {
             owner: Ownership::default(),
             viewpoint: None,
             separation: [0.0; F3Separation::WORDS],

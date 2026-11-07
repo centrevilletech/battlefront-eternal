@@ -29,6 +29,8 @@ pub struct Block {
 }
 
 impl Block {
+    pub const fn new() -> Self { Self { words: Vec::new(), heap: Vec::new() } }
+
     /// Rows for `rows` entities of `stride` words; the heap empty.
     pub fn begin(&mut self, rows: usize, stride: usize) {
         self.words.clear();

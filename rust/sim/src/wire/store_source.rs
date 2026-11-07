@@ -37,7 +37,7 @@ fn valid_setup(row: &[f64], heap: &[f64], strings: usize) -> bool {
     let Some(peers) = heap.get(start..start.saturating_add(count.saturating_mul(P::WORDS))) else { return false };
     for peer in peers.chunks_exact(P::WORDS) {
         if !integer(peer[P::ID], u32::MAX as usize) || !integer(peer[P::MAILBOX], u32::MAX as usize)
-            || sim().input.mailboxes.get(peer[P::MAILBOX] as usize).is_none() { return false; }
+            || crate::abi::world().input.mailboxes.get(peer[P::MAILBOX] as usize).is_none() { return false; }
         if peer[P::CHARACTER] != 0. && peer[P::CHARACTER] != 1. { return false; }
         if peer[P::CHARACTER] == 1. { continue; }
         let h = &peer[P::CHARACTER + 1..][..H::WORDS];
@@ -78,7 +78,7 @@ impl Source {
     // replacement into another player correction.
     fn mailbox(&self,id:u32)->super::codec::Result<&crate::input::owner::Mailbox> {
         let peer=self.peers.iter().find(|p|p.id==id).ok_or("own input prerequisite missing")?;
-        sim().input.mailboxes.get(peer.mailbox as usize).ok_or("own input prerequisite missing")
+        crate::abi::world().input.mailboxes.get(peer.mailbox as usize).ok_or("own input prerequisite missing")
     }
 
     // SnapshotHost.publish supplies clocks before entering the native borrow.

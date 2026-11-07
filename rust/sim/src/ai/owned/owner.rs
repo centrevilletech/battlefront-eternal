@@ -29,6 +29,8 @@ pub struct Battle {
     registry:usize,characters:usize,support_keys:usize,hulls:usize,scopes:usize,
 }
 impl Owner {
+    pub const fn new() -> Self { Self { process: Process::new(), battle: None } }
+
     /// createClassicAI/createEnhancedAI starts after the previous battle's
     /// last callback. Process caches move across that boundary exactly once.
     pub fn begin(&mut self,nav:Nav,input:&AiColdSettings,strings:&mut Strings,teams:TeamTable)->&mut Battle {

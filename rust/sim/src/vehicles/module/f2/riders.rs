@@ -17,7 +17,7 @@ pub(crate) struct Riders { rows: Vec<Option<Rider>>, output: Option<Block> }
 impl Riders {
     pub(in crate::vehicles::module) const fn new() -> Self { Self { rows: Vec::new(), output: None } }
 }
-fn riders() -> &'static mut Riders { unsafe { &mut *addr_of_mut!(FLEET.riders) } }
+fn riders() -> &'static mut Riders { unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.riders) } }
 // UnitFactory prepares complete rider samplers alongside inactive bodies.
 // Slot activation only moves buffers; a native first boarding cannot grow
 // the row table or publication, nor ask the host to resolve an animation.

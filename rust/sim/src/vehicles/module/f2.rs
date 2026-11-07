@@ -19,7 +19,7 @@ const FLAG_ASSISTS: u32 = 1 << F2PhaseFlag::Assists as u32;
 // scratch, while revisions avoid reloading the row just stored by a substep.
 // Spare rows permit synchronous damage hooks without aliasing the outer hull.
 struct HullRow { leg_side: Vec<f64>, revision: u64, pool: Vec<Hull>, flight_class: crate::flight::FlightClass, config: Config, gear: Option<GearClip>, texts: crate::flight::store::FlightTextIds }
-fn scheduler() -> &'static mut Scheduler { unsafe { &mut *addr_of_mut!(FLEET.scheduler) } }
+fn scheduler() -> &'static mut Scheduler { unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.scheduler) } }
 
 pub(crate) struct Scheduler {
     active: bool,
@@ -67,27 +67,27 @@ fn register_hull(r: Ref<Vehicle>) {
         let mut hull = Hull::from_store(r,v,class,0);
         hull.leg_side_scratch.reserve(leg_count);
         hull.support_heights.reserve(leg_count);
-        if v.flying { hull.target_scratch.reserve(if crate::units::f3::active() { s.store.units.list.len() } else { unsafe { (&*addr_of_mut!(FLEET.members)).len() } }); }
+        if v.flying { hull.target_scratch.reserve(if crate::units::f3::active() { s.store.units.list.len() } else { unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.members)).len() } }); }
         pool.push(hull);
     }
     let texts = crate::flight::store::FlightTextIds::new(&mut sim().strings);
-    let rows = unsafe { &mut *addr_of_mut!(FLEET.scheduler.hull_rows) };
+    let rows = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.scheduler.hull_rows) };
     if rows.len() <= r.slot as usize { rows.resize_with(r.slot as usize + 1, || None); }
     rows[r.slot as usize] = Some(HullRow { leg_side:Vec::with_capacity(leg_count), revision: 1, pool, flight_class, config, gear, texts });
-    let inputs = unsafe { &mut *addr_of_mut!(FLEET.flight_inputs) };
+    let inputs = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.flight_inputs) };
     if inputs.len() <= r.slot as usize { inputs.resize(r.slot as usize + 1,None); }
-    reserve_phase(unsafe { &mut *addr_of_mut!(FLEET.scheduler.hull_rows) }.iter().flatten().count());
+    reserve_phase(unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.scheduler.hull_rows) }.iter().flatten().count());
 }
 fn reserve_phase(count: usize) {
     // Vehicles.update keeps these five phase lists between calls. Reserve
     // them at hull construction too; warming a tick would hide their first
     // allocation from ordinary scheduler tests.
     unsafe {
-        let refs = &mut *addr_of_mut!(FLEET.phase_refs); refs.reserve(count.saturating_sub(refs.len()));
-        let mine = &mut *addr_of_mut!(FLEET.phase_mine); mine.reserve(count.saturating_sub(mine.len()));
-        let posed = &mut *addr_of_mut!(FLEET.phase_posed); posed.reserve(count.saturating_sub(posed.len()));
-        let phase_locks = &mut *addr_of_mut!(FLEET.phase_locks); phase_locks.reserve(count.saturating_sub(phase_locks.len()));
-        let locks = &mut *addr_of_mut!(FLEET.locks);
+        let refs = &mut *addr_of_mut!(crate::abi::cold().fleet.phase_refs); refs.reserve(count.saturating_sub(refs.len()));
+        let mine = &mut *addr_of_mut!(crate::abi::cold().fleet.phase_mine); mine.reserve(count.saturating_sub(mine.len()));
+        let posed = &mut *addr_of_mut!(crate::abi::cold().fleet.phase_posed); posed.reserve(count.saturating_sub(posed.len()));
+        let phase_locks = &mut *addr_of_mut!(crate::abi::cold().fleet.phase_locks); phase_locks.reserve(count.saturating_sub(phase_locks.len()));
+        let locks = &mut *addr_of_mut!(crate::abi::cold().fleet.locks);
         locks.reserve((F2LockHeader::WORDS + count * F2Lock::WORDS).saturating_sub(locks.len()));
     }
 }
@@ -96,14 +96,14 @@ fn reserve_phase(count: usize) {
 // during Vehicles.update. Cache entries reset without changing their storage.
 pub(crate) fn reserve_registry(count: usize) {
     if !active() { return; }
-    for row in unsafe { &mut *addr_of_mut!(FLEET.scheduler.hull_rows) }.iter_mut().flatten() {
+    for row in unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.scheduler.hull_rows) }.iter_mut().flatten() {
         for hull in &mut row.pool {
             if hull.flying { hull.target_scratch.reserve(count); }
         }
     }
-    let wanted = unsafe { &mut *addr_of_mut!(FLEET.aim_wanted) };
+    let wanted = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.aim_wanted) };
     wanted.reserve(count.saturating_sub(wanted.len()));
-    let cache = unsafe { &mut *addr_of_mut!(FLEET.aim_cache) };
+    let cache = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.aim_cache) };
     cache.resize(count.max(cache.len()),None);
     live_seats::reserve_riders(count);
 }
@@ -162,27 +162,27 @@ pub(crate) fn prepare_leg_store(hull: &Hull, vehicle: &mut Vehicle) { scheduler(
 pub fn recycle(hull: Hull) { scheduler().recycle(hull) }
 
 
-pub fn active() -> bool { unsafe { *addr_of_mut!(FLEET.scheduler.active) } }
-fn io() -> &'static mut Vec<f64> { unsafe { &mut *addr_of_mut!(FLEET.scheduler.io) } }
+pub fn active() -> bool { unsafe { *addr_of_mut!(crate::abi::cold().fleet.scheduler.active) } }
+fn io() -> &'static mut Vec<f64> { unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.scheduler.io) } }
 /// WaterState.step precedes the native fleet span. The enclosing world sets
 /// this generated scalar after advancing water, before F3 calls F2's entry.
 pub(crate) fn world_level(level:f64) {
     if active() {io()[F2Input::LEVEL]=level;}
 }
 fn publication() -> &'static mut crate::vehicles::f2_publication::Publication {
-    unsafe { (*addr_of_mut!(FLEET.scheduler.publication)).get_or_insert_with(Default::default) }
+    unsafe { (*addr_of_mut!(crate::abi::cold().fleet.scheduler.publication)).get_or_insert_with(Default::default) }
 }
 
 // Seat commands and cable writes can change canonical fields outside physics.
 // Invalidate working copies as well as publication, since the next native
 // substep must see those changes even if a mirror was already published.
-pub fn mark(r: Ref<Vehicle>) { scheduler().mark(unsafe { &mut *addr_of_mut!(FLEET.geometry) }, r) }
+pub fn mark(r: Ref<Vehicle>) { scheduler().mark(unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.geometry) }, r) }
 /// A completed native substep already has the canonical dynamic fields. Keep
 /// that working row current; other spare rows reload only after a real write.
-pub fn stored(hull: &Hull) { scheduler().stored(unsafe { &mut *addr_of_mut!(FLEET.geometry) }, hull) }
+pub fn stored(hull: &Hull) { scheduler().stored(unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.geometry) }, hull) }
 pub fn mark_changed(r: Ref<Vehicle>) { mark(r); }
-pub(crate) fn has_pending()->bool { unsafe { (&*addr_of_mut!(FLEET.scheduler)).has_pending() } }
-pub(crate) fn pending() { unsafe { *addr_of_mut!(FLEET.scheduler.pending) = true; } }
+pub(crate) fn has_pending()->bool { unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.scheduler)).has_pending() } }
+pub(crate) fn pending() { unsafe { *addr_of_mut!(crate::abi::cold().fleet.scheduler.pending) = true; } }
 // VehicleTarget queries reuse the same invalidation stamp as working hulls.
 // Physics stores and seat/damage commands already advance it before readers.
 pub(crate) fn revision(r: Ref<Vehicle>) -> u64 { scheduler().revision(r) }
@@ -209,7 +209,7 @@ pub extern "C" fn f2_register(slot: u32, generation: u32, prepared: u32) {
         .and_then(|p|p.pose.leg_pairs.as_ref()).map_or(0,|legs|legs.at.len());
     publication().register(&s.store, r, legs);
     register_hull(r);
-    let count = unsafe { &mut *addr_of_mut!(FLEET.scheduler.hull_rows) }.iter().flatten().count();
+    let count = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.scheduler.hull_rows) }.iter().flatten().count();
     let fleet = &mut sim().store.vehicles.vehicles;
     fleet.reserve(count.saturating_sub(fleet.len()));
 }
@@ -242,7 +242,7 @@ fn activate(r: Ref<Vehicle>) {
     mark(r);
 }
 
-fn desc() -> &'static mut [f64; F2Phase::WORDS] { unsafe { &mut *addr_of_mut!(FLEET.scheduler.descriptor) } }
+fn desc() -> &'static mut [f64; F2Phase::WORDS] { unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.scheduler.descriptor) } }
 
 /// Allocate once while loading. The stable descriptor points at input and at
 /// each publication; output blocks may move, so their pointers are republished.
@@ -259,11 +259,11 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
         (bfe_content::js::number_to_string(team) == *key && !name.is_empty()).then(|| (team, sim().strings.intern_str(name)))
     }).collect()).collect();
     unsafe {
-        *addr_of_mut!(FLEET.scheduler.pad_classes) = names;
-        *addr_of_mut!(FLEET.scheduler.descs) = ds;
-        *addr_of_mut!(FLEET.scheduler.active) = true;
-        *addr_of_mut!(FLEET.scheduler.time) = time;
-        *addr_of_mut!(FLEET.scheduler.acc) = acc;
+        *addr_of_mut!(crate::abi::cold().fleet.scheduler.pad_classes) = names;
+        *addr_of_mut!(crate::abi::cold().fleet.scheduler.descs) = ds;
+        *addr_of_mut!(crate::abi::cold().fleet.scheduler.active) = true;
+        *addr_of_mut!(crate::abi::cold().fleet.scheduler.time) = time;
+        *addr_of_mut!(crate::abi::cold().fleet.scheduler.acc) = acc;
     }
     io().resize(CAPACITY, 0.0);
     // An empty fleet can still own stationary crews. Its first phase writes
@@ -307,9 +307,9 @@ pub fn publish() {
     desc()[F2Phase::LIVES] = p.lives.ptr() as usize as f64;
     desc()[F2Phase::BODIES] = veh_changes() as usize as f64;
     desc()[F2Phase::POSES] = geometry::publish() as usize as f64;
-    desc()[F2Phase::ACC] = unsafe { *addr_of_mut!(FLEET.scheduler.acc) };
-    desc()[F2Phase::FLIGHT_ACC] = unsafe { *addr_of_mut!(FLEET.flight_acc) };
-    desc()[F2Phase::TIME] = unsafe { *addr_of_mut!(FLEET.scheduler.time) };
+    desc()[F2Phase::ACC] = unsafe { *addr_of_mut!(crate::abi::cold().fleet.scheduler.acc) };
+    desc()[F2Phase::FLIGHT_ACC] = unsafe { *addr_of_mut!(crate::abi::cold().fleet.flight_acc) };
+    desc()[F2Phase::TIME] = unsafe { *addr_of_mut!(crate::abi::cold().fleet.scheduler.time) };
     scheduler().pending=false;scheduler().publication_pending=false;
 }
 
@@ -327,7 +327,7 @@ fn publish_posed() {
 // are observable: keep pad order, first matching class, occupant exclusion and
 // the delayed retry without resetting another hull's pending seat samples.
 fn spawns(dt: f64,mut services:Option<&mut crate::units::f3::WorldServices<'_>>) {
-    let descs = unsafe { &*addr_of_mut!(FLEET.scheduler.descs) };
+    let descs = unsafe { &*addr_of_mut!(crate::abi::cold().fleet.scheduler.descs) };
     let header = F2Input::take(io(), &[]);
     let occupant = if crate::units::f3::active() {
         crate::units::f3::spawn_occupant()
@@ -345,7 +345,7 @@ fn spawns(dt: f64,mut services:Option<&mut crate::units::f3::WorldServices<'_>>)
         let team = if pad_team.has_team { pad_team.team }
             else if d.team.is_some_and(super::super::hull::truthy) { d.team.unwrap() }
             else if d.classes.len() == 1 { bfe_content::js::string_to_number(&d.classes[0].0) } else { 0.0 };
-        let names = unsafe { &(&*addr_of_mut!(FLEET.scheduler.pad_classes))[i] };
+        let names = unsafe { &(&*addr_of_mut!(crate::abi::cold().fleet.scheduler.pad_classes))[i] };
         let Some(&(_, name_id)) = names.iter().find(|(n, _)| *n == team || n.is_nan() && team.is_nan()) else { continue };
         let find = || sim().store.vehicles.slots[i].variants.entries.iter().find(|(n, _)| *n == name_id).map(|(_, r)| *r);
         let r = match find() {
@@ -381,7 +381,7 @@ fn spawns(dt: f64,mut services:Option<&mut crate::units::f3::WorldServices<'_>>)
         let mut hull = if flying { load_flyer(r, index) } else { load(r, index) };
         let mut p = poses()[r.slot as usize].take().expect("F2 retained rig");
         hull.pose = Some(p.pose);
-        let row = unsafe { &mut *addr_of_mut!(FLEET.scheduler.hull_rows) }[r.slot as usize].as_ref().unwrap();
+        let row = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.scheduler.hull_rows) }[r.slot as usize].as_ref().unwrap();
         hull.spawn_prepared(&mut JsWorld::new(u32::MAX),team,&m,row.flight_class,row.config);
         p.generation = hull.target_generation;
         p.pose = hull.pose.take().unwrap();
@@ -417,7 +417,7 @@ pub fn respawn_clock(hull: usize) {
     let r = sim().store.vehicles.vehicles[hull];
     let pad = sim().store.vehicle.get(r).unwrap().slot_index as usize;
     publication().pad(pad);
-    sim().store.vehicles.slots[pad].remaining = unsafe { (&*addr_of_mut!(FLEET.scheduler.descs))[pad].respawn_time };
+    sim().store.vehicles.slots[pad].remaining = unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.scheduler.descs))[pad].respawn_time };
 }
 
 /// Consume only foreign state. Layout is deliberately separate from vehicle
@@ -428,7 +428,7 @@ pub fn respawn_clock(hull: usize) {
 fn foreign() {
     let h = F2Input::take(io(), &[]);
     if !crate::units::f3::active() {
-    let members = unsafe { &mut *addr_of_mut!(FLEET.members) };
+    let members = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.members) };
     members.resize(h.member_length as usize, MemberRow { kind: 0, id: 0.0, generation: None, alive: false, team: None, hull: u32::MAX, point: Vector3::default() });
     for i in 0..h.member_count as usize {
         let a = F2Member::take(&io()[h.members as usize + i * F2Member::WORDS..], &[]);
@@ -437,27 +437,27 @@ fn foreign() {
     }
     // Candidate storage belongs to fleet/registry construction, even when a
     // craft stays empty for many ticks before its first pilot takes control.
-    for row in unsafe { &mut *addr_of_mut!(FLEET.scheduler.hull_rows) }.iter_mut().flatten() {
+    for row in unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.scheduler.hull_rows) }.iter_mut().flatten() {
         for hull in &mut row.pool { if hull.flying { hull.target_scratch.reserve(h.member_length as usize); } }
     }
-    let wanted = unsafe { &mut *addr_of_mut!(FLEET.aim_wanted) };
+    let wanted = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.aim_wanted) };
     if wanted.capacity() < h.member_length as usize { wanted.reserve((h.member_length as usize).saturating_sub(wanted.len())); }
     live_seats::reserve_riders(h.member_length as usize);
     // FlightWorld caches canonical Unit aim points even when the foreign
     // member block is empty. Its capacity was reserved at registry creation.
     let count=if crate::units::f3::active() { sim().store.units.list.len() } else { h.member_length as usize };
-    let cache = unsafe { &mut *addr_of_mut!(FLEET.aim_cache) };
+    let cache = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.aim_cache) };
     // A later native birth can be observed before the next fleet input.
     // Retain the admitted future range as well as the current registry.
     cache.resize(count.max(cache.len()), None); cache.fill(None);
-    let teams = unsafe { &mut *addr_of_mut!(FLEET.teams) }; teams.clear();
+    let teams = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.teams) }; teams.clear();
     for i in 0..h.team_count as usize { let t = F2PadTeam::take(&io()[h.teams as usize + i * F2PadTeam::WORDS..], &[]); teams.push(team(if t.has_team { 1.0 } else { 0.0 }, t.team)); }
-    let rel = unsafe { &mut *addr_of_mut!(FLEET.relations) }; rel.clear();
+    let rel = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.relations) }; rel.clear();
     rel.extend_from_slice(&io()[h.relations as usize..h.relations as usize + teams.len() * teams.len()]);
     } else {
-        unsafe { (&mut *addr_of_mut!(FLEET.aim_cache)).fill(None); }
+        unsafe { (&mut *addr_of_mut!(crate::abi::cold().fleet.aim_cache)).fill(None); }
     }
-    let given = unsafe { &mut *addr_of_mut!(FLEET.flight_inputs) };
+    let given = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.flight_inputs) };
     for i in 0..h.flight_count as usize {
         let a = F2FlightIn::take(&io()[h.flights as usize + i * F2FlightIn::WORDS..], &[]);
         if given.len() <= a.hull as usize { given.resize(a.hull as usize + 1, None); }
@@ -490,7 +490,7 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
 pub(crate) fn step(dt: f64, tick: f64, mut services: Option<crate::units::f3::WorldServices<'_>>) {
     assert!(active(), "F2 must be initialized");
     let dt = three::clamp(dt, 0.0, 0.1);
-    unsafe { *addr_of_mut!(FLEET.scheduler.time) += dt; *addr_of_mut!(FLEET.clock) = Some(io()[F2Input::CLOCK]); }
+    unsafe { *addr_of_mut!(crate::abi::cold().fleet.scheduler.time) += dt; *addr_of_mut!(crate::abi::cold().fleet.clock) = Some(io()[F2Input::CLOCK]); }
     allocation::begin();
     if services.is_none() { sim().events.clear(); }
     live_seats::import_phase_input(services.as_ref().is_some_and(|services|services.ai.is_some()));
@@ -498,11 +498,11 @@ pub(crate) fn step(dt: f64, tick: f64, mut services: Option<crate::units::f3::Wo
     allocation::stage(allocation::Stage::Foreign);
     foreign();
     allocation::stage(allocation::Stage::Latch);
-    live_seats::latch(unsafe { *addr_of_mut!(FLEET.scheduler.time) }, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
+    live_seats::latch(unsafe { *addr_of_mut!(crate::abi::cold().fleet.scheduler.time) }, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
     let flags = io()[F2Input::FLAGS] as u32 & (FLAG_POSES | FLAG_COSMETIC | FLAG_FLIGHT | FLAG_ASSISTS);
     allocation::stage(allocation::Stage::Hulls);
-    let left = ground(dt, unsafe { *addr_of_mut!(FLEET.scheduler.acc) }, unsafe { *addr_of_mut!(FLEET.flight_acc) }, io()[F2Input::LEVEL], io()[F2Input::CLOCK], flags, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
-    unsafe { *addr_of_mut!(FLEET.scheduler.acc) = left; }
+    let left = ground(dt, unsafe { *addr_of_mut!(crate::abi::cold().fleet.scheduler.acc) }, unsafe { *addr_of_mut!(crate::abi::cold().fleet.flight_acc) }, io()[F2Input::LEVEL], io()[F2Input::CLOCK], flags, services.as_mut().map(crate::units::f3::WorldServices::reborrow));
+    unsafe { *addr_of_mut!(crate::abi::cold().fleet.scheduler.acc) = left; }
     desc()[F2Phase::TICK] = tick;
     allocation::stage(allocation::Stage::Publish);
     firing::flight_locks();
@@ -600,7 +600,7 @@ pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 {
     }
     if let Some(p) = poses().get_mut(slot as usize) { *p = None; }
     // The last pose belongs to its retired life and cannot be reused.
-    unsafe { (*addr_of_mut!(FLEET.locks)).clear(); }
+    unsafe { (*addr_of_mut!(crate::abi::cold().fleet.locks)).clear(); }
     publish();
     1
 }
@@ -609,14 +609,14 @@ pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 {
 // observation separate from expensive lazy hit-shape and sight capabilities.
 fn target_count() -> usize {
     if crate::units::f3::active() { crate::units::f3_fleet::count() }
-    else { unsafe { (&*addr_of_mut!(FLEET.members)).len() } }
+    else { unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.members)).len() } }
 }
 fn target_identity(index: usize) -> (f64, f64) {
     if crate::units::f3::active() {
         let key = crate::units::f3_fleet::key(index);
         (crate::units::registry::target_id(key) as f64, crate::units::f3_fleet::life(key))
     } else {
-        let m = unsafe { (&*addr_of_mut!(FLEET.members))[index] };
+        let m = unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.members))[index] };
         (m.id, m.generation.unwrap_or(0.0))
     }
 }

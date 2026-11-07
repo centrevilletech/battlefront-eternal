@@ -186,12 +186,11 @@ impl Default for CollisionOwner { fn default() -> Self { Self::new() } }
 
 // Instance-local WASM entry storage. Field projections keep service loans
 // disjoint: a geometry loan must not also borrow the gather cache bank.
-static mut OWNER: CollisionOwner = CollisionOwner::new();
-fn owner() -> &'static mut CollisionOwner { unsafe { &mut *addr_of_mut!(OWNER) } }
-pub fn state() -> &'static mut State { unsafe { &mut *addr_of_mut!(OWNER.state) } }
+fn owner() -> &'static mut CollisionOwner { unsafe { &mut *addr_of_mut!(crate::abi::cold().collision) } }
+pub fn state() -> &'static mut State { unsafe { &mut *addr_of_mut!(crate::abi::cold().collision.state) } }
 // Narrow WASM service scratch, disjoint from state()'s geometry loan.
 pub(crate) fn cast_buffers() -> (&'static mut [u32; MAX_BODIES], &'static mut [u8; MAX_BODIES]) {
-    unsafe { (&mut *addr_of_mut!(OWNER.candidates), &mut *addr_of_mut!(OWNER.enabled)) }
+    unsafe { (&mut *addr_of_mut!(crate::abi::cold().collision.candidates), &mut *addr_of_mut!(crate::abi::cold().collision.enabled)) }
 }
 
 /// Math.min(a, b): NaN if either is, and -0 below +0.

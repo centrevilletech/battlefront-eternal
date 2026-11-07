@@ -15,6 +15,8 @@ struct Retained {
     run: AttackRun,
 }
 impl Process {
+    pub const fn new() -> Self { Self { retained: None, active: false } }
+
     /// Move the retained authorities into the new battle. There is only one
     /// active battle per simulation instance; previous service scopes must end.
     pub fn begin(&mut self) -> (Shared, VehicleAI) {

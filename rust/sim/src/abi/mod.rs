@@ -11,7 +11,6 @@
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub mod context;
 
-use std::ptr::addr_of_mut;
 
 use crate::gen::{Echo, Fill, Store, KINDS, KIND_HASHES};
 use crate::store::block::Block;
@@ -24,12 +23,6 @@ pub const ABI: u32 = 1;
 
 pub struct Sim {
     pub store: Store,
-    pub world: crate::world::Tick,
-    pub wire: Option<Box<crate::wire::owner::Owner>>,
-    pub page: crate::client::resources::Resources,
-    pub input: crate::input::owner::Owner,
-    /// One native AI owner shares this instance's canonical entity rows.
-    pub ai: crate::ai::owned::owner::Owner,
     pub strings: Strings,
     /// A sync block per kind, by code.
     pub blocks: Vec<Block>,
@@ -41,21 +34,16 @@ pub struct Sim {
 }
 
 impl Sim {
-    pub fn new() -> Self {
-        Sim {
-            store: Store::default(),
-            world: Default::default(),
-            wire: Some(Box::new(crate::wire::owner::Owner::new())),
-            page: Default::default(),
-            input: Default::default(),
-            ai: Default::default(),
-            strings: Strings::default(),
-            blocks: (0..=KINDS).map(|_| Block::default()).collect(),
-            calls: Calls::default(),
-            events: Events::default(),
-            scratch: Vec::new(),
-        }
+    pub const fn cold() -> Self {
+        Self { store: Store::cold(), strings: Strings::new(), blocks: Vec::new(),
+            calls: Calls::new(), events: Events::cold(), scratch: Vec::new() }
     }
+    pub(crate) fn warm(&mut self) {
+        self.blocks = (0..=KINDS).map(|_| Block::default()).collect();
+        self.events.warm();
+    }
+    pub fn new() -> Self { let mut sim = Self::cold(); sim.warm(); sim }
+
 }
 
 impl Default for Sim {
@@ -93,12 +81,29 @@ impl Sim {
     }
 }
 
-static mut SIM: Option<Sim> = None;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod facade;
+#[cfg(target_arch = "wasm32")]
+pub(crate) use facade::{cold, world};
 
-/// The instance's store. One thread: JavaScript calls in one at a time.
-pub fn sim() -> &'static mut Sim {
-    unsafe { (*addr_of_mut!(SIM)).get_or_insert_with(Sim::new) }
+// Native callers use Context and explicit owners. These raw WASM entries
+// cannot acquire a process-global simulation in a native host.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn cold() -> &'static mut crate::world::owner::World {
+    panic!("WASM facade called by native host")
 }
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn world() -> &'static mut crate::world::owner::World { cold() }
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) use facade::exchange;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn exchange() -> &'static mut crate::store::calls::ImportExchange {
+    panic!("WASM import exchange called by native host")
+}
+
+/// The instance's exchange core. One WASM thread calls in at a time.
+pub fn sim() -> &'static mut Sim { &mut world().sim }
 
 #[no_mangle]
 pub extern "C" fn sim_abi() -> u32 { ABI }
@@ -273,6 +278,6 @@ fn memory_pages() -> u32 { 0 }
 /// tests and tools that reuse one).
 #[no_mangle]
 pub extern "C" fn sim_reset() {
-    sim().ai.finish();
+    crate::abi::world().ai.finish();
     sim().store = Store::default();
 }

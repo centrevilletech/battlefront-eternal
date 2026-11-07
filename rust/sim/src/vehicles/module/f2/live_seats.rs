@@ -63,7 +63,7 @@ pub(crate) struct State {
     event_rows: Vec<F2TurretEvent>, event_output: Block, rounds: Vec<Option<crate::ordnance::world::Shot>>,
 }
 fn state() -> &'static mut State {
-    unsafe { (*addr_of_mut!(FLEET.seats)).get_or_insert_with(|| State {
+    unsafe { (*addr_of_mut!(crate::abi::cold().fleet.seats)).get_or_insert_with(|| State {
         owner: Default::default(), prepared: Vec::new(), prepared_seats: 0, depth: 0, command_depth: 0, input: vec![0.0; INPUT_CAPACITY], io: [0.0; F2SeatIo::WORDS],
         lease_cache: Vec::with_capacity(512), unit_cache: Vec::with_capacity(512),
         lease_inputs: Default::default(),
@@ -435,7 +435,7 @@ pub(crate) fn latch(time: f64, services: Option<crate::units::f3::WorldServices<
                 // pilot keys retain their separate sampled row; copying the
                 // old mirrored pressed flags here would replay consumed edges.
                 let a = &l.input;
-                let given = unsafe { &mut *addr_of_mut!(FLEET.flight_inputs) };
+                let given = unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.flight_inputs) };
                 if given.len() <= r.slot as usize { given.resize(r.slot as usize + 1, None); }
                 let keys = given[r.slot as usize].and_then(|(_, keys)| keys);
                 given[r.slot as usize] = Some((FlightInput { forward: a.forward, right: a.right, turn: a.turn, pitch: a.pitch,
@@ -737,7 +737,7 @@ impl SeatWorld for World<'_> {
     }
     fn relation(&mut self, a: f64, b: f64) -> f64 {
             if self.services.is_some() { return crate::units::f3::relation(a,b); }
-            if state().command_depth > 0 || unsafe { (&*addr_of_mut!(FLEET.teams)).is_empty() } {
+            if state().command_depth > 0 || unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.teams)).is_empty() } {
                 if let Some(r) = state().command_relations.iter().find(|r| r.a == a && r.b == b) { return r.value; }
             }
             FlightWorld::relation(&mut super::JsWorld::new(u32::MAX), Some(a), Some(b))
@@ -895,7 +895,7 @@ pub(crate) fn bind_random(unit: Ref<Unit>, lease: Ref<SeatLease>, binding: u32) 
 /// Scalar arguments are decoded before taking native ownership from the instance.
 pub fn command(a: F2SeatCommand) -> F2SeatResult {
     let _external = crate::units::f3::external();
-    inputs(sim().ai.battle().is_some_and(|battle|battle.ready()));
+    inputs(crate::abi::world().ai.battle().is_some_and(|battle|battle.ready()));
     state().command_depth += 1;
     let result = crate::units::f3::with_services(|services| run(a, services));
     state().command_depth -= 1;
@@ -1083,13 +1083,13 @@ pub(crate) fn exposed(lease: &SeatLease) -> bool {
 pub(crate) fn turret_body(r: Ref<Turret>) -> Option<Ref<Body>> { state().turret_body(r) }
 
 pub(crate) fn wire_turret_count() -> usize {
-    unsafe { (&*addr_of_mut!(FLEET.seats)).as_ref().map_or(0, |s| s.owner.crews.turrets.len()) }
+    unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.seats)).as_ref().map_or(0, |s| s.owner.crews.turrets.len()) }
 }
 /// captureMountedControl keeps the stationary gun's aim rates and barrel
 /// beside its canonical weapon. No turret publication or pose work runs here.
 pub(crate) fn wire_own_turret(store: &Store, reference: Ref<Turret>, own: &mut crate::wire::store_own::Capture,
     defs: &crate::combat::defs::WeaponDefs) -> Result<(), &'static str> {
-    let st = unsafe { (&*addr_of_mut!(FLEET.seats)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
+    let st = unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.seats)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
     let t = st.owner.crews.turrets.iter().find(|t| t.turret == reference).ok_or("mounted control lease prerequisite missing")?;
     let (_, member, frame, _) = crate::units::f3_props::wire_turret(reference).ok_or("mounted control lease prerequisite missing")?;
     let aim = [t.yaw, t.pitch, t.yaw_vel, t.pitch_vel, t.gun_yaw, t.gun_pitch];
@@ -1106,7 +1106,7 @@ pub(crate) fn wire_own_turret(store: &Store, reference: Ref<Turret>, own: &mut c
 /// No posed barrel, collision or lazy rider-shape reader runs here.
 pub(crate) fn wire_turret(index: usize, store: &Store, states: [crate::store::StrId; 3])
     -> Option<crate::wire::store_capture::Turret> {
-    let st = unsafe { (&*addr_of_mut!(FLEET.seats)).as_ref()? };
+    let st = unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.seats)).as_ref()? };
     let t = st.owner.crews.turrets.get(index)?;
     let (building, member, frame, team) = crate::units::f3_props::wire_turret(t.turret)?;
     let state = match frame.state {
@@ -1154,7 +1154,7 @@ pub(crate) fn turret_gunner(r: Ref<Turret>) -> Option<Ref<Unit>> {
 /// TurretTarget.team observes the captured lease team, rather than the
 /// current occupant's team after a later team command.
 pub(crate) fn battle_team(s: &Store, r: Ref<Turret>) -> Option<f64> {
-    let st = unsafe { (*addr_of_mut!(FLEET.seats)).as_ref()? };
+    let st = unsafe { (*addr_of_mut!(crate::abi::cold().fleet.seats)).as_ref()? };
     let lease = st.owner.crews.turrets.iter().find(|t| t.turret == r)?.lease?;
     Some(s.seat_lease.get(lease).expect("current turret lease").team)
 }
@@ -1474,7 +1474,7 @@ pub extern "C" fn f2_turrets_idle(dt: f64) {
 // The live owner joins the surrounding publication barrier. Empty maps do
 // not construct a fleet merely to discover that it has no idle turrets.
 pub(crate) fn idle_turrets(dt: f64) {
-    if unsafe { (*addr_of_mut!(FLEET.seats)).is_none() } { return; }
+    if unsafe { (*addr_of_mut!(crate::abi::cold().fleet.seats)).is_none() } { return; }
     for i in 0..state().owner.crews.turrets.len() {
         let t = &mut state().owner.crews.turrets[i];
         if !t.alive || t.gunner.is_some() { continue; }
@@ -1664,7 +1664,7 @@ impl State {
 /// Turret charge levels retain their own content targeting masks. Loading
 /// policy changes no live crew, timer, weapon state or shared random binding.
 pub(crate) fn refresh_weapon_masks(table:&crate::ai::combat::weapons_ai::WeaponAiTable) {
-    let Some(seats)=(unsafe {(&mut *addr_of_mut!(FLEET.seats)).as_mut()}) else {return};
+    let Some(seats)=crate::abi::world().fleet.seats.as_mut() else {return};
     for weapon in seats.weapons.iter_mut().flatten() {
         let Some(class)=weapon.class.as_ref() else {continue};
         for (lock,level) in weapon.locks.iter_mut().zip(&class.levels) {

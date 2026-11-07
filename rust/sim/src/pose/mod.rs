@@ -1,7 +1,6 @@
 //! Live pose ABI for the simulation module. Sampling and blending are
 //! shared with the presentation host through bfe-pose.
 pub use bfe_pose::{js_max, js_min, Clip, Pose};
-use std::ptr::addr_of_mut;
 const STRIDE: usize = 7;
 #[derive(Default)]
 pub struct State {
@@ -12,11 +11,13 @@ pub struct State {
     pub construction_output: Vec<u8>,
 }
 
-static mut STATE: Option<State> = None;
+impl State {
+    pub const fn new() -> Self { Self { clips: Vec::new(), poses: Vec::new(), construction_input: Vec::new(), construction_output: Vec::new() } }
+}
 
 /// The module's state. One thread: JavaScript calls in one at a time.
 pub fn state() -> &'static mut State {
-    unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(State::default) }
+    &mut crate::abi::cold().pose
 }
 
 #[no_mangle]

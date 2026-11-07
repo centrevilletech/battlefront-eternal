@@ -37,6 +37,6 @@ impl Owner {
 /// readers borrow sibling simulation fields. Publication cannot call JS or
 /// recurse into the bank; every inner operation receives explicit borrows.
 pub(crate) fn with<R>(run:impl FnOnce(&mut Owner)->R)->R {
-    let mut owner=crate::abi::sim().wire.take().expect("wire operation is not reentrant");
-    let result=run(&mut owner);crate::abi::sim().wire=Some(owner);result
+    let mut owner=crate::abi::world().wire.take().expect("wire operation is not reentrant");
+    let result=run(&mut owner);crate::abi::world().wire=Some(owner);result
 }

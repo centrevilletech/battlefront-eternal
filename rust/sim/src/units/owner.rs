@@ -17,6 +17,3 @@ impl Units {
             body_poses: live_pose::BodyPoses::new(), muzzles: muzzles::MuzzleRigs::new() }
     }
 }
-// The WASM instance owns this one facade root until its World is constructed.
-// No semantic current-world pointer or whole-owner mutable loan is required.
-pub(super) static mut UNITS: Units = Units::new();

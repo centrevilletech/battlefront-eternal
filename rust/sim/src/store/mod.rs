@@ -231,7 +231,7 @@ impl<V> Default for IntObj<V> {
 }
 
 impl<V> IntObj<V> {
-    pub fn new() -> Self { Self::default() }
+    pub const fn new() -> Self { Self { entries: Vec::new() } }
 
     fn find(&self, key: f64) -> Result<usize, usize> {
         match array_index(key) {

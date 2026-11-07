@@ -37,6 +37,14 @@ pub struct Store {
 }
 
 impl Store {
+    /// Empty canonical rows for const instance storage.
+    pub const fn cold() -> Self {
+        Self {
+            shelf: Shelf { things: Vec::new(), by_name: StrMap { entries: Vec::new() }, weights: StrMap { entries: Vec::new() }, spots: StrMap { entries: Vec::new() }, owners: StrMap { entries: Vec::new() }, names: None, by_team: IntObj::new(), rules: IntObj::new(), labels: IntObj::new(), counts: crate::store::OrdMap(crate::store::JsMap::new()), spots_at: crate::store::OrdMap(crate::store::JsMap::new()), tally: crate::store::OrdMap(crate::store::JsMap::new()), queues: crate::store::OrdMap(crate::store::JsMap::new()), times: TypedArray([0.0; 5]), slots: TypedArray([0; 4]), ring: Vec::new() },
+            thing: Slab::new(),
+        }
+    }
+
     /// A kind's export block: a row for each entity (in its home list's order, or
     /// its slots'). `mode` 0: its mirrored fields, after the rows of the entities
     /// retired since the last such export (handed over: the slab forgets them);

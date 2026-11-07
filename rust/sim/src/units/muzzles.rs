@@ -21,7 +21,7 @@ pub(super) struct MuzzleRigs { rows: Vec<Option<Muzzles>> }
 impl MuzzleRigs {
     pub(super) const fn new() -> Self { Self { rows: Vec::new() } }
 }
-fn rigs() -> &'static mut MuzzleRigs { unsafe { &mut *addr_of_mut!(super::owner::UNITS.muzzles) } }
+fn rigs() -> &'static mut MuzzleRigs { unsafe { &mut *addr_of_mut!(crate::abi::cold().units.muzzles) } }
 
 struct Read<'a> { words: &'a [f64], at: usize }
 impl Read<'_> {

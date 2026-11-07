@@ -205,6 +205,37 @@ pub struct Store {
 }
 
 impl Store {
+    /// Empty canonical rows for const instance storage.
+    pub const fn cold() -> Self {
+        Self {
+            battle: Battle { own: 0.0, foe: 0.0, teams: IntObj::new(), reinforcements: IntObj::new(), start: IntObj::new(), team_ids: Vec::new(), no_post: IntObj::new(), bleed: IntObj::new(), victory_clock: Nullable::Undefined, countdown: Nullable::Undefined, losing: false, over: false, loser: None, over_time: 0.0, game_over: false, finished: false, stats: BattleStats { time: 0.0, ring: KillRing { killers: Vec::new(), times: TypedArray([0.0; 100]), slots: TypedArray([0; 100]), head: 0.0, tail: 0.0 } }, bleed_rules: IntObj::new(), bleed_clock: IntObj::new(), characters: Vec::new() },
+            beam: Slab::new(),
+            bolt: Slab::new(),
+            character: Slab::new(),
+            command_posts: CommandPosts { posts: Vec::new(), time: 0.0, events: Vec::new() },
+            grenade: Slab::new(),
+            human_spawn: HumanSpawn { auto: None, class_name: StrId(0), post: None, phase: HumanPhase::Unspawned, can_switch_teams: false, spawned_once: false, dead_time: 0.0, pending: None, ended: false },
+            item: Slab::new(),
+            items: Items { items: Vec::new(), owned: StrMap { entries: Vec::new() } },
+            mobile_post: Slab::new(),
+            mobile_posts: MobilePosts { posts: Vec::new() },
+            ordnance: Ordnance { bolts: Vec::new(), beams: Vec::new(), grenades: Vec::new(), rounds: Vec::new(), start: [0.0; 3] },
+            owner_snapshot: Slab::new(),
+            post: Slab::new(),
+            recon_context: Slab::new(),
+            recon_droid: Slab::new(),
+            round: Slab::new(),
+            seat_lease: Slab::new(),
+            seats: Seats { leases: Vec::new() },
+            spawning: Spawning { heroes: false, demo: false, teams: Vec::new(), a: 0.0, b: 0.0, q: 0.0, wave_countdown: 0.0, wave: 0.0, stagger: 0.0, released: 0.0, locals_cap: 0.0, characters: Vec::new(), queues: crate::store::OrdMap(crate::store::JsMap::new()), started: false },
+            turret_seats: TurretSeats { leases: Vec::new(), time: 0.0, ticks: 0.0 },
+            unit: Slab::new(),
+            units: Units { list: Vec::new(), next_id: 0.0, alliances: StrMap { entries: Vec::new() } },
+            vehicle: Slab::new(),
+            vehicles: Vehicles { vehicles: Vec::new(), slots: Vec::new(), spawn_occupant: None },
+        }
+    }
+
     /// A kind's export block: a row for each entity (in its home list's order, or
     /// its slots'). `mode` 0: its mirrored fields, after the rows of the entities
     /// retired since the last such export (handed over: the slab forgets them);

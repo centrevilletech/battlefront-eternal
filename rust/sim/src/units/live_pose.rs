@@ -16,7 +16,7 @@ pub(super) struct BodyPoses { rows: Vec<Option<Body>> }
 impl BodyPoses {
     pub(super) const fn new() -> Self { Self { rows: Vec::new() } }
 }
-fn body_poses() -> &'static mut BodyPoses { unsafe { &mut *addr_of_mut!(super::owner::UNITS.body_poses) } }
+fn body_poses() -> &'static mut BodyPoses { unsafe { &mut *addr_of_mut!(crate::abi::cold().units.body_poses) } }
 
 /// UnitFactory.build's already decomposed bind transforms, loaded once.
 #[no_mangle]

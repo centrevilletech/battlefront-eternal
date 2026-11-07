@@ -19,6 +19,22 @@ test('movement pointer discovery keeps a captured memory buffer attached', async
   assert.equal(new Uint8Array(buffer, flags, 1 << 16).length, 1 << 16);
 });
 
+// Discovery can precede SimBridge construction. All inline owner addresses
+// must remain valid while the exchange core is admitted by its first export.
+test('cold world pointer discovery preserves memory and later warm addresses', async () => {
+  const { exports: x } = await loadSim();
+  const buffer = x.memory.buffer;
+  const discover = () => [x.movement_io_ptr(), x.movement_flags_ptr(),
+    x.io_ptr(), x.enabled_ptr(), x.candidates_ptr(), x.camera_flags_ptr(),
+    x.sim_import_args()];
+  const before = discover();
+  assert.equal(x.memory.buffer, buffer);
+  assert.ok(before.every(Number.isInteger));
+  assert.equal(x.f2_allocations(), 0);
+  x.sim_str_count();
+  assert.deepEqual(discover(), before);
+});
+
 // Recorded synthetic movement includes terrain, bodies and every soldier posture.
 let polygonBase = 0;
 function box(x, y, z, width, height, depth, turn = null) {

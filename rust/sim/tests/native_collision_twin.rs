@@ -7,7 +7,7 @@ use bfe_content::{
 };
 use bfe_sim::{
     abi::context::{CollisionQuery, CollisionResult, Context},
-    collision::{self, spheres, Body, Corners, Ray},
+    collision::{self, Body, Corners, Ray},
 };
 use std::{
     fs::{self, File},
@@ -132,114 +132,111 @@ fn query(v: &Value, ids: Installed) -> CollisionQuery {
         _ => panic!("unknown query"),
     }
 }
-// Only the isolated legacy child calls these exports. Each child has exactly
-// one legacy scene, with no other tests or native context using its globals.
-fn legacy_io() -> &'static mut [f64; 64] {
-    unsafe { &mut *collision::io_ptr().cast() }
-}
+// The isolated exchange replay owns the same leaf banks as the WASM facade.
+// Explicit loans keep it independent from each Context's validated entry path.
 fn copy<T: Copy>(pointer: *const T, n: usize) -> Vec<T> {
     unsafe { std::slice::from_raw_parts(pointer, n).to_vec() }
 }
-fn order(world: u32, values: &[u32]) {
+fn order(owner: &mut collision::CollisionOwner, world: u32, values: &[u32]) {
     unsafe {
         std::slice::from_raw_parts_mut(
-            collision::world_order(world, values.len() as u32),
+            owner.world_order(world, values.len() as u32),
             values.len(),
         )
         .copy_from_slice(values);
     }
 }
-fn legacy_shape(p: Corners, index: &[u32], polygons: &[u32]) -> u32 {
+fn legacy_shape(owner: &mut collision::CollisionOwner, p: Corners, index: &[u32], polygons: &[u32]) -> u32 {
     let id = match p {
         Corners::F32(p) => {
-            let id = collision::positions_new(p.len() as u32, 0);
+            let id = owner.positions_new(p.len() as u32, 0);
             unsafe {
-                std::slice::from_raw_parts_mut(collision::positions_at(id).cast::<f32>(), p.len())
+                std::slice::from_raw_parts_mut(owner.positions_at(id).cast::<f32>(), p.len())
                     .copy_from_slice(&p)
             };
             id
         }
         Corners::F64(p) => {
-            let id = collision::positions_new(p.len() as u32, 1);
+            let id = owner.positions_new(p.len() as u32, 1);
             unsafe {
-                std::slice::from_raw_parts_mut(collision::positions_at(id).cast::<f64>(), p.len())
+                std::slice::from_raw_parts_mut(owner.positions_at(id).cast::<f64>(), p.len())
                     .copy_from_slice(&p)
             };
             id
         }
     };
-    let tree = collision::tree_new(id, index.len() as u32, 0);
+    let tree = owner.tree_new(id, index.len() as u32, 0);
     unsafe {
-        std::slice::from_raw_parts_mut(collision::tree_index(tree), index.len())
+        std::slice::from_raw_parts_mut(owner.tree_index(tree), index.len())
             .copy_from_slice(index);
     }
-    collision::build::tree_build(tree);
+    owner.state.build_tree(tree);
     unsafe {
         std::slice::from_raw_parts_mut(
-            spheres::tree_polygons(tree, polygons.len() as u32),
+            owner.tree_polygons(tree, polygons.len() as u32),
             polygons.len(),
         )
         .copy_from_slice(polygons);
     }
     tree
 }
-fn legacy_query(v: &Value, ids: Installed, flags: &[u8]) -> CollisionResult {
+fn legacy_query(owner: &mut collision::CollisionOwner, v: &Value, ids: Installed, flags: &[u8]) -> CollisionResult {
     let values = floats(get(v, "v"));
-    legacy_io()[..values.len()].copy_from_slice(&values);
+    owner.io_mut()[..values.len()].copy_from_slice(&values);
     let mut count = 0;
-    let enabled = |n: usize| {
-        let candidates = copy(collision::candidates_ptr(), n);
+    let enabled = |owner: &mut collision::CollisionOwner, n: usize| {
+        let candidates = copy(owner.candidates_ptr(), n);
         for (c, &place) in candidates.iter().enumerate() {
-            unsafe { *collision::enabled_ptr().add(c) = flags[place as usize] }
+            unsafe { *owner.enabled_ptr().add(c) = flags[place as usize] }
         }
     };
     let name = get(v, "name").as_str().unwrap();
     let code = match name {
         "cast" => {
-            count = collision::world_candidates(
+            count = owner.world_candidates(
                 ids.world,
                 num(v, "ignore") as i32,
                 yes(v, "staticOnly") as u32,
                 yes(v, "movingOnly") as u32,
             ) as usize;
-            enabled(count);
+            enabled(owner, count);
             if yes(v, "movingOnly") {
-                collision::world_cast_moving(ids.world, count as u32)
+                owner.world_cast_moving(ids.world, count as u32)
             } else {
-                collision::world_cast(ids.world, count as u32)
+                owner.world_cast(ids.world, count as u32)
             }
         }
         "gather" => {
-            count = spheres::gather_begin(
+            count = owner.gather_begin(
                 ids.world,
                 num(v, "cache") as i32,
                 num(v, "blockers") as i32,
                 num(v, "ignore") as i32,
             ) as usize;
-            enabled(count);
-            spheres::gather_end(ids.world, count as u32) as i32
+            enabled(owner, count);
+            owner.gather_end(ids.world, count as u32) as i32
         }
         "overlap" => {
-            let n = spheres::overlap_begin(ids.world, num(v, "ignore") as i32);
+            let n = owner.overlap_begin(ids.world, num(v, "ignore") as i32);
             if n < 0 {
                 1
             } else {
                 count = n as usize;
-                enabled(count);
-                spheres::overlap_end(ids.world, count as u32) as i32
+                enabled(owner, count);
+                owner.overlap_end(ids.world, count as u32) as i32
             }
         }
-        "tree" => collision::tree_ray(ids.buildings) as i32,
-        "grid" => collision::grid_ray(ids.grid as u32) as i32,
-        "near" => spheres::terrain_near_ray(ids.grid as u32) as i32,
+        "tree" => owner.tree_ray(ids.buildings) as i32,
+        "grid" => owner.grid_ray(ids.grid as u32) as i32,
+        "near" => owner.terrain_near_ray(ids.grid as u32) as i32,
         _ => panic!("unknown legacy query"),
     };
-    let io = *legacy_io();
+    let io = *owner.io_mut();
     CollisionResult {
         code,
         io,
-        candidates: copy(collision::candidates_ptr(), count),
-        enabled: copy(collision::enabled_ptr(), count),
+        candidates: copy(owner.candidates_ptr(), count),
+        enabled: copy(owner.enabled_ptr(), count),
         words: if name == "gather" {
             copy(io[58] as usize as *const f64, io[59] as usize)
         } else {
@@ -254,6 +251,7 @@ fn legacy_query(v: &Value, ids: Installed, flags: &[u8]) -> CollisionResult {
 }
 struct Lane {
     context: Context,
+    exchange: Box<collision::CollisionOwner>,
     ids: Option<Installed>,
     order: Vec<u32>,
     retained: Option<CollisionResult>,
@@ -262,6 +260,7 @@ impl Lane {
     fn new() -> Self {
         Self {
             context: Context::new(),
+            exchange: Box::new(collision::CollisionOwner::new()),
             ids: None,
             order: vec![],
             retained: None,
@@ -297,7 +296,7 @@ fn replay(path: &Path, legacy: Option<usize>) {
                 let b = build(Positions::F32(&c.positions), &c.indices);
                 let t = build(Positions::F32(&c.terrain_positions), &c.terrain_indices);
                 let ids = if is_legacy {
-                    install(&mut collision::install::Kernel, &c, &b, Some(&t)).unwrap()
+                    install(&mut *lane.exchange, &c, &b, Some(&t)).unwrap()
                 } else {
                     lane.context.collision_install(&c, &b, Some(&t)).unwrap()
                 };
@@ -313,7 +312,7 @@ fn replay(path: &Path, legacy: Option<usize>) {
                     array(get(&v, "ids"))
                 );
                 let cache = if is_legacy {
-                    spheres::cache_new(1.5)
+                    lane.exchange.cache_new(1.5)
                 } else {
                     lane.context.collision_cache(ids.world, 1.5).unwrap()
                 };
@@ -325,7 +324,7 @@ fn replay(path: &Path, legacy: Option<usize>) {
                 let i = array(get(&v, "i"));
                 let polygons = array(get(&v, "polygons"));
                 let tree = if is_legacy {
-                    legacy_shape(p, &i, &polygons)
+                    legacy_shape(&mut lane.exchange, p, &i, &polygons)
                 } else {
                     lane.context.collision_shape(p, i, polygons).unwrap()
                 };
@@ -337,11 +336,11 @@ fn replay(path: &Path, legacy: Option<usize>) {
                 let polys = array(get(&v, "polygons"));
                 let offset = num(&v, "offset");
                 let id = if is_legacy {
-                    let id = spheres::set_new(tree, (bounds.len() / 6) as u32, offset);
+                    let id = lane.exchange.set_new(tree, (bounds.len() / 6) as u32, offset);
                     unsafe {
-                        std::slice::from_raw_parts_mut(spheres::set_bounds(id), bounds.len())
+                        std::slice::from_raw_parts_mut(lane.exchange.set_bounds(id), bounds.len())
                             .copy_from_slice(&bounds);
-                        std::slice::from_raw_parts_mut(spheres::set_polygons(id), polys.len())
+                        std::slice::from_raw_parts_mut(lane.exchange.set_polygons(id), polys.len())
                             .copy_from_slice(&polys)
                     };
                     id
@@ -364,11 +363,11 @@ fn replay(path: &Path, legacy: Option<usize>) {
                 };
                 let world = lane.ids.unwrap().world;
                 let id = if is_legacy {
-                    let id = collision::body_new(body.tree as u32, body.moving as u32);
+                    let id = lane.exchange.body_new(body.tree as u32, body.moving as u32);
                     assert!(id >= 0);
-                    spheres::body_offset(id as u32, body.offset);
-                    legacy_io()[20..58].copy_from_slice(&values);
-                    collision::body_set(id as u32);
+                    lane.exchange.body_offset(id as u32, body.offset);
+                    lane.exchange.io_mut()[20..58].copy_from_slice(&values);
+                    lane.exchange.body_set(id as u32);
                     id as u32
                 } else {
                     lane.context.collision_body(world, body).unwrap()
@@ -376,15 +375,15 @@ fn replay(path: &Path, legacy: Option<usize>) {
                 assert_eq!(id, num(&v, "id") as u32);
                 lane.order.push(id);
                 if is_legacy {
-                    order(world, &lane.order)
+                    order(&mut lane.exchange, world, &lane.order)
                 }
             }
             "place" => {
                 let values = floats(get(&v, "v"));
                 let id = num(&v, "id") as u32;
                 if is_legacy {
-                    legacy_io()[20..58].copy_from_slice(&values);
-                    collision::body_set(id)
+                    lane.exchange.io_mut()[20..58].copy_from_slice(&values);
+                    lane.exchange.body_set(id)
                 } else {
                     lane.context
                         .collision_place(
@@ -401,7 +400,7 @@ fn replay(path: &Path, legacy: Option<usize>) {
                 let at = lane.order.iter().position(|&n| n == id).unwrap();
                 lane.order.remove(at);
                 if is_legacy {
-                    order(lane.ids.unwrap().world, &lane.order)
+                    order(&mut lane.exchange, lane.ids.unwrap().world, &lane.order)
                 } else {
                     assert!(lane
                         .context
@@ -412,7 +411,7 @@ fn replay(path: &Path, legacy: Option<usize>) {
             "order" => {
                 lane.order = array(get(&v, "order"));
                 if is_legacy {
-                    order(lane.ids.unwrap().world, &lane.order)
+                    order(&mut lane.exchange, lane.ids.unwrap().world, &lane.order)
                 } else {
                     lane.context
                         .collision_order(lane.ids.unwrap().world, &lane.order)
@@ -429,7 +428,7 @@ fn replay(path: &Path, legacy: Option<usize>) {
             "query" => {
                 let flags: Vec<u8> = array(get(&v, "flags")).iter().map(|&n| n as u8).collect();
                 let actual = if is_legacy {
-                    legacy_query(&v, lane.ids.unwrap(), &flags)
+                    legacy_query(&mut lane.exchange, &v, lane.ids.unwrap(), &flags)
                 } else {
                     lane.context
                         .collision_query(query(&v, lane.ids.unwrap()), &flags)

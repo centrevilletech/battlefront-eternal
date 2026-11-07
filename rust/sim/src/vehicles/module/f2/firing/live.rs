@@ -12,7 +12,7 @@ use crate::store::block::Block;
 use crate::store::calls::Calls;
 use crate::vehicles::{Hull, VehicleWorld};
 use crate::vehicles::firing::{spread, WeaponGeometry};
-use crate::vehicles::module::{poses, JsWorld, FLEET, MemberRow, v3, vec};
+use crate::vehicles::module::{poses, JsWorld, MemberRow, v3, vec};
 use std::ptr::addr_of_mut;
 
 // Vehicle.createSeats resolves geometry and definitions once per weapon life.
@@ -61,14 +61,14 @@ pub(crate) struct State {
     phase: [f64; FfPhase::WORDS], supply_result: Calls, output: Block, cable_output: Block, published: Vec<FfHullOut>, locked: StrId, attached: StrId, snapped: StrId, retow: StrId, tripped: StrId, empty: StrId, class_names: [StrId; 4],
 }
 fn state() -> &'static mut State {
-    unsafe { (*addr_of_mut!(FLEET.firing)).get_or_insert_with(|| State { emitters: Vec::with_capacity(1024), weapons: Slab::with_capacity(512), crafts: Vec::with_capacity(128),
+    unsafe { (*addr_of_mut!(crate::abi::cold().fleet.firing)).get_or_insert_with(|| State { emitters: Vec::with_capacity(1024), weapons: Slab::with_capacity(512), crafts: Vec::with_capacity(128),
         cables: Vec::with_capacity(128), phase: [0.0; FfPhase::WORDS], supply_result: Calls::default(), output: Block::default(), cable_output: Block::default(), published: Vec::with_capacity(128), locked: sim().strings.intern_str("Locked"), attached: sim().strings.intern_str("attached"), snapped: sim().strings.intern_str("snapped"), retow: sim().strings.intern_str("retow"), tripped: sim().strings.intern_str("tripped"), empty: sim().strings.intern_str(""), class_names: FlightClass::NAMES.map(|n| sim().strings.intern_str(n)) }) }
 }
 /// captureMountedControl reads both exact weapon clocks and their next
 /// barrels. The pose owns barrel rotation; the firing slab owns Weapon state.
 pub(crate) fn wire_weapons<T>(hull: Ref<Vehicle>, life: f64, seat: usize,
     capture: impl FnOnce(&[(&Weapon, f64)]) -> Result<T, &'static str>) -> Result<T, &'static str> {
-    let st = unsafe { (&*addr_of_mut!(FLEET.firing)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
+    let st = unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.firing)).as_ref() }.ok_or("mounted control lease prerequisite missing")?;
     let craft = st.crafts.get(hull.slot as usize).and_then(Option::as_ref)
         .filter(|c| c.id == hull && c.life == life).ok_or("mounted control lease prerequisite missing")?;
     let refs = craft.seats.get(seat).ok_or("mounted control lease prerequisite missing")?;
@@ -336,7 +336,7 @@ fn member(i: usize) -> MemberRow {
             id: facts.id, generation: facts.generation, alive: facts.alive, team: facts.team,
             hull: hull.map_or(u32::MAX, |r| r.slot), point: facts.point };
     }
-    unsafe { (&*addr_of_mut!(FLEET.members))[i] }
+    unsafe { (&*addr_of_mut!(crate::abi::cold().fleet.members))[i] }
 }
 fn target_key(i: usize, alive: bool) -> LockTarget { let m = member(i); LockTarget { id: m.id, generation: m.generation.unwrap_or(0.0), alive } }
 fn target_facts(r: Ref<Vehicle>, i: usize, shapes: bool, aim: bool) -> FfTargetFacts {
@@ -1045,7 +1045,7 @@ impl State {
 /// Mounted lock acquisition shares the cooked bot masks after cold loading.
 /// Updating policy must not respawn mounted rows or replace spread streams.
 pub(crate) fn refresh_weapon_masks(table:&crate::ai::combat::weapons_ai::WeaponAiTable) {
-    let Some(firing)=(unsafe {(&mut *addr_of_mut!(FLEET.firing)).as_mut()}) else {return};
+    let Some(firing)=crate::abi::world().fleet.firing.as_mut() else {return};
     for slot in 0..firing.weapons.slots() {
         let Some((_,weapon))=firing.weapons.at_mut(slot) else {continue};
         let Some(class)=weapon.class.as_ref() else {continue};

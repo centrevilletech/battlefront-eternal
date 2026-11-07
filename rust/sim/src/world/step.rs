@@ -9,10 +9,10 @@ use crate::{abi::sim, gen::{WorldTickInput, WorldTickOutput, WorldTickSetup}};
 #[no_mangle]
 pub extern "C" fn world_step_init() -> *mut f64 {
     let setup={let(row,heap)=sim().calls.args();WorldTickSetup::take(row,heap)};
-    sim().world.water=setup.water.then_some(super::Water {
+    crate::abi::world().tick.water=setup.water.then_some(super::Water {
         time:setup.water_time,height:setup.water_height,bobbing:setup.water_bob,wave:0.0,
     });
-    sim().world.input.as_mut_ptr()
+    crate::abi::world().tick.input.as_mut_ptr()
 }
 
 /// The input is copied before any phase can reuse the shared command block.
@@ -20,15 +20,15 @@ pub extern "C" fn world_step_init() -> *mut f64 {
 /// numeric substeps and publication banks without a host phase dispatcher.
 #[no_mangle]
 pub extern "C" fn world_step_run() -> *const f64 {
-    let input = WorldTickInput::take(&sim().world.input,&[]);
+    let input = WorldTickInput::take(&crate::abi::world().tick.input,&[]);
     let mut output = WorldTickOutput {clock:input.clock.clone(),..Default::default()};
     let before=crate::allocations::snapshot();
-    if input.dt.is_finite() && input.dt >= 0.0 && input.tick.is_finite() && !sim().world.running
+    if input.dt.is_finite() && input.dt >= 0.0 && input.tick.is_finite() && !crate::abi::world().tick.running
         && crate::units::f3::registered_viewpoint().is_some_and(|r|sim().store.unit.get(r).is_some())
         && input.tick==input.clock.tick+1.0
         && super::clock::advance(&mut output.clock,input.dt,false,&mut CompletedClock)==Ok(1.0) {
-        sim().world.running=true;
-        let water=sim().world.water.as_mut();
+        crate::abi::world().tick.running=true;
+        let water=crate::abi::world().tick.water.as_mut();
         let level=if let Some(water)=water {
             let level=water.step(input.dt);output.water_time=water.time;output.wave=water.wave;level
         }else{f64::NAN};
@@ -62,14 +62,14 @@ pub extern "C" fn world_step_run() -> *const f64 {
             if input.ai { crate::ai::owned::entry::ai_world_dangers(); }
             output.accepted = targets.is_some();
         }
-        sim().world.running=false;
+        crate::abi::world().tick.running=false;
         // Each producer kept dirty rows and retired leases until this point.
         // Commit their encoded baselines once, against what the host consumed.
         crate::units::f3::publish_changed();
     }
     let used=crate::allocations::snapshot().since(before);
     output.allocations=used.calls as u32;output.reallocations=used.reallocs as u32;output.allocation_bytes=used.bytes as u32;
-    let result=&mut sim().world.output;
+    let result=&mut crate::abi::world().tick.output;
     result.begin(1,WorldTickOutput::WORDS);
     let (row,heap)=result.row(0);output.put(row,heap);result.finish();
     result.ptr()

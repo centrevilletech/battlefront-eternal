@@ -924,7 +924,7 @@ impl Gathers {
 // A narrow facade loan for vehicle collision services, never a whole-owner
 // borrow. Native owned callers use their explicit gather bank instead.
 pub(crate) fn caches() -> &'static mut Vec<GatherCache> {
-    unsafe { &mut *std::ptr::addr_of_mut!(super::OWNER.gathers.caches) }
+    unsafe { &mut *std::ptr::addr_of_mut!(crate::abi::cold().collision.gathers.caches) }
 }
 
 /// A fixed set over tree `tree` of `triangles` triangles, its polygon

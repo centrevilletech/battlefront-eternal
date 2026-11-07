@@ -5,16 +5,22 @@ use bfe_content::bvh::{build, Positions};
 
 #[no_mangle]
 pub extern "C" fn tree_build(id: u32) {
-    let state = state();
-    let tree = &mut state.trees[id as usize];
-    let positions = match &state.positions[tree.positions] {
-        Corners::F32(values) => Positions::F32(values),
-        Corners::F64(values) => Positions::F64(values),
-    };
-    let result = build(positions, &tree.index);
-    tree.roots = result.roots;
-    tree.indirect = result.indirect;
-    tree.indexed = true;
+    state().build_tree(id);
+}
+
+impl super::State {
+    pub fn build_tree(&mut self, id: u32) {
+        let state = self;
+        let tree = &mut state.trees[id as usize];
+        let positions = match &state.positions[tree.positions] {
+            Corners::F32(values) => Positions::F32(values),
+            Corners::F64(values) => Positions::F64(values),
+        };
+        let result = build(positions, &tree.index);
+        tree.roots = result.roots;
+        tree.indirect = result.indirect;
+        tree.indexed = true;
+    }
 }
 
 #[no_mangle]

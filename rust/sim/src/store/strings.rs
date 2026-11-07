@@ -24,6 +24,8 @@ fn hash_units(units: &[u16]) -> u32 {
 }
 
 impl Strings {
+    pub const fn new() -> Self { Self { list: Vec::new(), table: Vec::new() } }
+
     /// The string's index, made the first time it is asked for.
     pub fn intern(&mut self, units: &[u16]) -> StrId {
         if self.table.len() < (self.list.len() + 1) * 2 {

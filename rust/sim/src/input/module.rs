@@ -39,7 +39,7 @@ pub extern "C" fn input_mailbox_owned_run(handle:u32) -> *const f64 {
     let call=crate::gen::InputMailboxCall::take(row,heap);
     let input=ImInput {op:call.op,entry:call.entry,sequence:call.sequence,epoch_matches:call.epoch_matches,
         tick:call.tick,generation:call.generation,..Default::default()};
-    let Some(owner)=sim.input.mailboxes.get_mut(handle as usize) else {return std::ptr::null()};
+    let Some(owner)=crate::abi::world().input.mailboxes.get_mut(handle as usize) else {return std::ptr::null()};
     let mut result=owner.run(input,&mut sim.strings);
     result.state=std::mem::take(&mut owner.state);
     // Queued commands stay with their owner. Only consumed values and fixed
@@ -104,21 +104,21 @@ pub extern "C" fn input_mailbox_create()->u32 {
     block.heap.reserve(heap.saturating_sub(block.heap.len()));
     let words=crate::store::block::HEADER+ImResult::WORDS+heap;
     block.words.reserve(words.saturating_sub(block.words.len()));
-    sim.input.mailboxes.insert(mailbox).unwrap_or(0) as u32
+    crate::abi::world().input.mailboxes.insert(mailbox).unwrap_or(0) as u32
 }
 
 #[no_mangle]
-pub extern "C" fn input_mailbox_drop(handle:u32) {sim().input.mailboxes.remove(handle as usize);}
+pub extern "C" fn input_mailbox_drop(handle:u32) {crate::abi::world().input.mailboxes.remove(handle as usize);}
 
 #[no_mangle]
 pub extern "C" fn input_mailbox_view(handle:u32) {
     let sim=sim();let (row,heap)=sim.calls.args();let input=crate::gen::InputViewUpdate::take(row,heap);
-    if let Some(mailbox)=sim.input.mailboxes.get_mut(handle as usize) {mailbox.view(input.key as usize,input.present,&input.view);}
+    if let Some(mailbox)=crate::abi::world().input.mailboxes.get_mut(handle as usize) {mailbox.view(input.key as usize,input.present,&input.view);}
 }
 /// Debug views do not run during an ordinary input or publication operation.
 #[no_mangle]
 pub extern "C" fn input_mailbox_inspect(handle:u32)->*const f64 {
-    let sim=sim();let Some(owner)=sim.input.mailboxes.get(handle as usize) else {return std::ptr::null()};
+    let sim=sim();let Some(owner)=crate::abi::world().input.mailboxes.get(handle as usize) else {return std::ptr::null()};
     sim.calls.result(crate::gen::ImState::WORDS,|row,heap|owner.state.put(row,heap));sim.calls.block.ptr()
 }
 
@@ -127,5 +127,5 @@ pub extern "C" fn input_mailbox_inspect(handle:u32)->*const f64 {
 pub extern "C" fn input_mailbox_spawn(handle:u32) {
     let sim=sim();let (row,heap)=sim.calls.args();
     let spawn=crate::gen::WireSpawnFacts::take(row,heap);
-    if let Some(owner)=sim.input.mailboxes.get_mut(handle as usize) {owner.publication.spawn=spawn;}
+    if let Some(owner)=crate::abi::world().input.mailboxes.get_mut(handle as usize) {owner.publication.spawn=spawn;}
 }

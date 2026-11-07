@@ -5,9 +5,9 @@ use crate::{abi::sim, gen::*, store::{Ref, block::HEADER}};
 use std::ptr::addr_of_mut;
 pub(super) struct State {core:Core,handle:Vec<f64>,capacity:usize,battle_capacity:usize,
     tail:Vec<(F4Handle,usize)>,hero_names:Vec<(crate::store::StrId,Option<crate::store::StrId>)>,classic:Option<bool>,local:Option<Ref<Unit>>}
-fn state() -> &'static mut State { unsafe { (*addr_of_mut!(super::owner::BATTLE.core)).as_mut().expect("battle owner initialized") } }
-pub(crate) fn reset() { unsafe { *addr_of_mut!(super::owner::BATTLE.core) = None; } }
-pub(crate) fn active() -> bool { unsafe { (*addr_of_mut!(super::owner::BATTLE.core)).is_some() } }
+fn state() -> &'static mut State { unsafe { (*addr_of_mut!(crate::abi::cold().battle.core)).as_mut().expect("battle owner initialized") } }
+pub(crate) fn reset() { unsafe { *addr_of_mut!(crate::abi::cold().battle.core) = None; } }
+pub(crate) fn active() -> bool { unsafe { (*addr_of_mut!(crate::abi::cold().battle.core)).is_some() } }
 pub(crate) fn publication_ptr() -> u32 {
     if !active() { return 0; } state().core.publication.block.ptr() as u32
 }
@@ -29,7 +29,7 @@ pub extern "C" fn f4_battle_init() {
     for (index,r) in characters.into_iter().enumerate() { sim().store.character.get_mut(r).unwrap().roster_slot=Some(index as f64);core.adopt(&mut sim().store, r); }
     let mut row = vec![0.0; Battle::EXPORT_STRIDE]; let mut heap = Vec::new();
     sim().store.battle.put_export(&mut row, &mut heap);
-    unsafe { *addr_of_mut!(super::owner::BATTLE.core) = Some(State { core, handle: vec![0.0; F4Handle::WORDS], capacity,
+    unsafe { *addr_of_mut!(crate::abi::cold().battle.core) = Some(State { core, handle: vec![0.0; F4Handle::WORDS], capacity,
         battle_capacity: HEADER + Battle::EXPORT_STRIDE + heap.len() + capacity * 2 + sim().store.battle.team_ids.len()*4,tail:Vec::new(),hero_names:Vec::new(),classic:None,local:None }); }
 }
 #[no_mangle]

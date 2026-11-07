@@ -10,7 +10,7 @@ use std::ptr::addr_of_mut;
 use three::{Quaternion, Vector3};
 
 pub(super) struct Io { live: Vec<f64>, tail: Vec<f64>, descriptor: Vec<f64>, handle: Vec<f64>, counters: Vec<f64>, counts: F4Counters, version: u32, pending_publication: bool, dirty_counters: bool }
-fn io() -> &'static mut Io { unsafe { (*addr_of_mut!(super::owner::BATTLE.io)).as_mut().expect("live phase initialized") } }
+fn io() -> &'static mut Io { unsafe { (*addr_of_mut!(crate::abi::cold().battle.io)).as_mut().expect("live phase initialized") } }
 #[derive(Clone, Copy)]
 struct Gain { health: StrId, ammo: StrId }
 struct Animation { handle: F4Handle, original: Ref<Prop>, flag: Option<usize>, index: usize }
@@ -23,13 +23,13 @@ pub(super) struct Metadata {
     animations: Vec<Animation>, gains: Vec<Option<Gain>>, grips: Vec<Vec<Vec<Option<u32>>>>,
     sides: Vec<Option<(Ref<Vehicle>, Option<StrId>, Option<StrId>)>>,
 }
-fn metadata() -> &'static Metadata { unsafe { (*addr_of_mut!(super::owner::BATTLE.metadata)).as_ref().expect("prepared live metadata") } }
+fn metadata() -> &'static Metadata { unsafe { (*addr_of_mut!(crate::abi::cold().battle.metadata)).as_ref().expect("prepared live metadata") } }
 fn metadata_mut() -> &'static mut Metadata {
-    assert!(unsafe { (*addr_of_mut!(super::owner::BATTLE.live_phase)).is_some() }, "prepare content outside the live phase");
-    unsafe { (*addr_of_mut!(super::owner::BATTLE.metadata)).as_mut().expect("prepared live metadata") }
+    assert!(unsafe { (*addr_of_mut!(crate::abi::cold().battle.live_phase)).is_some() }, "prepare content outside the live phase");
+    unsafe { (*addr_of_mut!(crate::abi::cold().battle.metadata)).as_mut().expect("prepared live metadata") }
 }
-fn state() -> &'static mut State { unsafe { (*addr_of_mut!(super::owner::BATTLE.live_phase)).as_mut().expect("idle live owner") } }
-pub(crate) fn reset() { unsafe { *addr_of_mut!(super::owner::BATTLE.live_phase) = None; *addr_of_mut!(super::owner::BATTLE.io) = None; *addr_of_mut!(super::owner::BATTLE.metadata) = None; } }
+fn state() -> &'static mut State { unsafe { (*addr_of_mut!(crate::abi::cold().battle.live_phase)).as_mut().expect("idle live owner") } }
+pub(crate) fn reset() { unsafe { *addr_of_mut!(crate::abi::cold().battle.live_phase) = None; *addr_of_mut!(crate::abi::cold().battle.io) = None; *addr_of_mut!(crate::abi::cold().battle.metadata) = None; } }
 fn args<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T { let (row, heap) = sim().calls.args(); take(row, heap) }
 fn return_handle(handle: F4Handle) -> *const f64 {
     handle.put(&mut io().handle, &mut Vec::new()); io().handle.as_ptr()
@@ -52,11 +52,11 @@ pub extern "C" fn f4_live_init() -> *const f64 {
     let live = vec![0.0; F4LiveInput::WORDS]; let tail = vec![0.0; F4TailInput::WORDS];
     let phase_row = vec![0.0; F4Phase::WORDS]; let handle = vec![0.0; F4Handle::WORDS]; let counters = vec![0.0; F4Counters::WORDS];
     unsafe {
-        *addr_of_mut!(super::owner::BATTLE.io) = Some(Io { live, tail, descriptor: phase_row, handle, counters, counts: F4Counters::default(), version: 0, pending_publication: false, dirty_counters: true });
-        *addr_of_mut!(super::owner::BATTLE.live_phase) = Some(State { shell: Some(Store::default()), local: setup.local, body_revision: f3::unit_revision(), bodies,
+        *addr_of_mut!(crate::abi::cold().battle.io) = Some(Io { live, tail, descriptor: phase_row, handle, counters, counts: F4Counters::default(), version: 0, pending_publication: false, dirty_counters: true });
+        *addr_of_mut!(crate::abi::cold().battle.live_phase) = Some(State { shell: Some(Store::default()), local: setup.local, body_revision: f3::unit_revision(), bodies,
             targets: supply::Targets::new(setup.unit_capacity as usize, setup.hull_capacity as usize), supply: supply::Prepared::default(),
             stations, regenerators, traps, hulls: Vec::with_capacity(setup.hull_capacity as usize) });
-        *addr_of_mut!(super::owner::BATTLE.metadata) = Some(Metadata { animations: Vec::new(), gains: Vec::new(), grips: Vec::new(), sides: Vec::new() });
+        *addr_of_mut!(crate::abi::cold().battle.metadata) = Some(Metadata { animations: Vec::new(), gains: Vec::new(), grips: Vec::new(), sides: Vec::new() });
     }
     descriptor()
 }
@@ -133,7 +133,7 @@ pub(crate) fn descriptor() -> *const f64 {
 /// their rows; an intermediate commit must not overwrite an unread delta.
 pub(crate) fn publish() {
     if crate::world::deferred() {return;}
-    if unsafe { (*addr_of_mut!(super::owner::BATTLE.io)).is_none() } { return; }
+    if unsafe { (*addr_of_mut!(crate::abi::cold().battle.io)).is_none() } { return; }
     let rows = f4::live().flush();
     let words = { let live = f4::live(); live.buildings.publication.words.len() + live.animated.publication.words.len() + live.traps.publication.words.len() };
     record_publication(rows, words - 3 * crate::store::block::HEADER);
@@ -150,13 +150,13 @@ pub(crate) fn publish() {
     descriptor();
 }
 pub(crate) fn record_publication(rows: usize, words: usize) {
-    if unsafe { (*addr_of_mut!(super::owner::BATTLE.io)).is_none() } {return;}
+    if unsafe { (*addr_of_mut!(crate::abi::cold().battle.io)).is_none() } {return;}
     if rows != 0 { io().pending_publication = true; }
     let counts = &mut io().counts; counts.published_rows += rows as f64; counts.output_words += words as f64;
 }
 pub(crate) fn count_command() {count_external(F4Command::WORDS);}
 pub(crate) fn count_external(words:usize) {
-    if unsafe { (*addr_of_mut!(super::owner::BATTLE.io)).is_some() } {io().dirty_counters = true;io().counts.commands += 1.0;io().counts.input_words += words as f64;}
+    if unsafe { (*addr_of_mut!(crate::abi::cold().battle.io)).is_some() } {io().dirty_counters = true;io().counts.commands += 1.0;io().counts.input_words += words as f64;}
 }
 #[no_mangle]
 pub extern "C" fn f4_live_publish() -> *const f64 { super::f4_core::publish(); publish(); descriptor() }
@@ -265,10 +265,10 @@ pub extern "C" fn f4_live() -> *const f64 {
     let outer = f3::external();
     f3::with_services(|services| {
         let services = services.expect("native live services");
-        let mut state = unsafe { (*addr_of_mut!(super::owner::BATTLE.live_phase)).take().expect("nonrecursive live phase") };
+        let mut state = unsafe { (*addr_of_mut!(crate::abi::cold().battle.live_phase)).take().expect("nonrecursive live phase") };
         let mut store = std::mem::replace(&mut sim().store, state.shell.take().expect("retained store shell"));
         state.advance(&mut store, metadata(), &input, services);
-        state.shell = Some(std::mem::replace(&mut sim().store, store)); unsafe { *addr_of_mut!(super::owner::BATTLE.live_phase) = Some(state); }
+        state.shell = Some(std::mem::replace(&mut sim().store, store)); unsafe { *addr_of_mut!(crate::abi::cold().battle.live_phase) = Some(state); }
     });
     { let io = io(); io.counts.live += 1.0; io.counts.input_words += F4LiveInput::WORDS as f64; }
     drop(outer);
@@ -317,7 +317,7 @@ pub(crate) fn hull_label(r: Ref<Vehicle>) -> Option<StrId> {
 /// immutable clip bindings live outside the phase's movable work buffers.
 pub(crate) fn held_clip(r: Ref<Unit>, unit: &Unit) -> Option<u32> {
     let Nullable::Value(held) = &unit.held else { return None };
-    let metadata = unsafe { (*addr_of_mut!(super::owner::BATTLE.metadata)).as_ref()? };
+    let metadata = unsafe { (*addr_of_mut!(crate::abi::cold().battle.metadata)).as_ref()? };
     let binding = metadata.animations.iter().find(|a| a.original == held.prop)?;
     let handle = f4::live().animated.current(&binding.handle)?;
     let grab = if let Some(actor) = f4::live().animated.get(&handle) {
@@ -335,7 +335,7 @@ pub(crate) fn held_clip(r: Ref<Unit>, unit: &Unit) -> Option<u32> {
 
 /// A prepared animation owns held geometry even when a class has no grip clip.
 pub(crate) fn owns_held(prop:Ref<Prop>)->bool {
-    unsafe { (*addr_of_mut!(super::owner::BATTLE.metadata)).as_ref() }.is_some_and(|m|m.animations.iter().any(|a|a.original==prop))
+    unsafe { (*addr_of_mut!(crate::abi::cold().battle.metadata)).as_ref() }.is_some_and(|m|m.animations.iter().any(|a|a.original==prop))
 }
 
 pub(crate) fn tail_input() -> F4TailInput {F4TailInput::take(&io().tail,&[])}
@@ -355,7 +355,7 @@ pub(crate) fn count_hook() {
 /// construction; counting never rebuilds or observes its lazy hit shapes.
 #[no_mangle]
 pub extern "C" fn f4_viewpoint_clock() {
-    if unsafe { (*addr_of_mut!(super::owner::BATTLE.io)).is_some() } { io().dirty_counters = true; io().counts.lifecycle += 1.0; }
+    if unsafe { (*addr_of_mut!(crate::abi::cold().battle.io)).is_some() } { io().dirty_counters = true; io().counts.lifecycle += 1.0; }
     super::f4_tail::refresh_mobile_views();
     let unit=f3::viewpoint();
     let count=sim().store.unit.get(unit).expect("current viewpoint").tick_count+1.0;

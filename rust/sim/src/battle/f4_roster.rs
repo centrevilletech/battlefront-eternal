@@ -25,14 +25,14 @@ pub(super) struct State {
 }
 fn state() -> &'static mut State {
     unsafe {
-        (*addr_of_mut!(super::owner::BATTLE.roster))
+        (*addr_of_mut!(crate::abi::cold().battle.roster))
             .as_mut()
             .expect("native roster initialized")
     }
 }
 pub(crate) fn reset() {
     unsafe {
-        *addr_of_mut!(super::owner::BATTLE.roster) = None;
+        *addr_of_mut!(crate::abi::cold().battle.roster) = None;
     }
 }
 struct Text;
@@ -187,7 +187,7 @@ pub extern "C" fn f4_roster_init() {
     // Native initial Spawning.begin already advanced each private naming
     // generator. Transfer that authority instead of reseeding from facades.
     let native_names=if cfg.classic {
-        sim().ai.battle_mut().and_then(|battle|battle.initial_naming.take()).map(|mut initial| {
+        crate::abi::world().ai.battle_mut().and_then(|battle|battle.initial_naming.take()).map(|mut initial| {
             (0..spawning::TEAM_COUNT).map(|team| {
                 initial.teams.get_mut(team).and_then(Option::take).unwrap_or_else(||
                     BotNames::new(initial.lists.as_ref(),sim().store.spawning.teams[team].faction))
@@ -243,7 +243,7 @@ pub extern "C" fn f4_roster_init() {
         owner.shell = Some(shell);
     });
     unsafe {
-        *addr_of_mut!(super::owner::BATTLE.roster) = Some(owner);
+        *addr_of_mut!(crate::abi::cold().battle.roster) = Some(owner);
     }
     drop(outer);
 }
@@ -253,7 +253,7 @@ pub extern "C" fn f4_roster_command() -> *const f64 {
     let input = F4RosterCommand::take(row, heap);
     super::f4_live::count_external(F4RosterCommand::WORDS);
     let mut owner = unsafe {
-        (*addr_of_mut!(super::owner::BATTLE.roster))
+        (*addr_of_mut!(crate::abi::cold().battle.roster))
             .take()
             .expect("roster command cannot reenter")
     };
@@ -360,7 +360,7 @@ pub extern "C" fn f4_roster_command() -> *const f64 {
         owner.shell = Some(shell);
     });
     unsafe {
-        *addr_of_mut!(super::owner::BATTLE.roster) = Some(owner);
+        *addr_of_mut!(crate::abi::cold().battle.roster) = Some(owner);
     }
     drop(outer);
     let owner = state();

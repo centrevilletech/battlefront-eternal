@@ -65,26 +65,27 @@ pub fn resolve<M:bfe_presentation::cameras::math::Math>(f:&mut BodyPreviewFrame)
     f.shot_pitch=M::asin(v8math::max(-1.0,v8math::min(1.0,dir.y)));
 }
 
+const AIM_ROWS: usize = 2048;
+pub(crate) struct Preview { frame: [f64; BodyPreviewFrame::WORDS], looks: Vec<f64> }
+/// Page previews are admitted only when a page requests its retained banks.
+pub(crate) struct Owner { aims: Option<Vec<f64>>, preview: Option<Preview> }
+impl Owner { pub(crate) const fn new() -> Self { Self { aims: None, preview: None } } }
+
 #[cfg(target_arch = "wasm32")]
 mod module {
     use super::*;
     use crate::{abi::sim, gen::{BodySpawn,BodySpawnOutput}};
-    use std::ptr::addr_of_mut;
     // Fixed pointers survive calls. Only WASM memory growth detaches a host
     // view; another preview does not resize either reserved allocation.
-    struct Preview { frame: [f64; BodyPreviewFrame::WORDS], looks: Vec<f64> }
-    const AIM_ROWS:usize=2048;
-    static mut AIMS:Option<Vec<f64>>=None;
-    static mut PREVIEW: Option<Preview> = None;
     fn owner() -> &'static mut Preview {
         // One thread owns the page preview; no borrow crosses a host import.
-        unsafe { (*addr_of_mut!(PREVIEW)).get_or_insert_with(|| Preview {
-            frame: [0.0; BodyPreviewFrame::WORDS], looks: vec![0.0; LOOKS * BodyLook::WORDS] }) }
+        crate::abi::cold().page_body.preview.get_or_insert_with(|| Preview {
+            frame: [0.0; BodyPreviewFrame::WORDS], looks: vec![0.0; LOOKS * BodyLook::WORDS] })
     }
     fn aims()->&'static mut Vec<f64> {
         // All shot poses in a replay publication share this reserved block.
         // The host answers their rays before one resume resolves every aim.
-        unsafe{(*addr_of_mut!(AIMS)).get_or_insert_with(||vec![0.0;AIM_ROWS*BodyPreviewFrame::WORDS])}
+        crate::abi::cold().page_body.aims.get_or_insert_with(||vec![0.0;AIM_ROWS*BodyPreviewFrame::WORDS])
     }
     #[no_mangle]
     pub extern "C" fn body_aim_ptr()->*mut f64{aims().as_mut_ptr()}

@@ -7,7 +7,8 @@ const INVERT_MOUSE:u16=1;const FIRST_PERSON:u16=2;const FLIGHT:u16=4;const FLIGH
 const GAMEPAD:u16=16;const MOUSE_SCALE:u16=32;const ASPECT:u16=64;const VIEW_TICK:u16=128;
 const SENSITIVITY:u16=256;const CURVE:u16=512;const BINDINGS:u16=1024;
 pub struct Owner {pub mailboxes:Pool<Mailbox>}
-impl Default for Owner {fn default()->Self {Self {mailboxes:Pool::new(15)}}}
+impl Owner {pub const fn new()->Self {Self {mailboxes:Pool::new(15)}}}
+impl Default for Owner {fn default()->Self {Self::new()}}
 pub struct Mailbox {pub state:ImState,pub publication:WireOwnFacts,names:[StrId;7],codes:Vec<StrId>,taken:ImTaken,retired:Vec<f64>}
 impl Mailbox {
     pub fn new(epoch:f64,capacity:f64,codes:Vec<StrId>,strings:&mut Strings)->Option<Self> {

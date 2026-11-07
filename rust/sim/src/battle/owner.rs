@@ -20,4 +20,3 @@ impl BattleOwner {
             tail: None, roster: None, connections: None }
     }
 }
-pub(super) static mut BATTLE: BattleOwner = BattleOwner::new();

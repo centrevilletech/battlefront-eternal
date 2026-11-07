@@ -6,7 +6,7 @@ use bfe_content::{
 };
 use bfe_sim::{
     abi::context::{Context, MovementError},
-    collision::{self, spheres, Body, Corners},
+    collision::{self, Body, Corners},
     movement::{
         self,
         soldier::{Input, V3},
@@ -26,6 +26,8 @@ pub enum Mode {
 }
 pub struct Lane {
     cx: Context,
+    collision: Box<collision::CollisionOwner>,
+    movement: Box<movement::MovementOwner>,
     ids: Option<Installed>,
     order: Vec<u32>,
     pub ticks: usize,
@@ -35,6 +37,8 @@ impl Lane {
     pub fn new() -> Self {
         Self {
             cx: Context::new(),
+            collision: Box::new(collision::CollisionOwner::new()),
+            movement: Box::new(movement::MovementOwner::new()),
             ids: None,
             order: vec![],
             ticks: 0,
@@ -90,7 +94,7 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
             let t = (!c.terrain_indices.is_empty())
                 .then(|| build(Positions::F32(&c.terrain_positions), &c.terrain_indices));
             let ids = if legacy {
-                install(&mut collision::install::Kernel, &c, &b, t.as_ref()).unwrap()
+                install(&mut *lane.collision, &c, &b, t.as_ref()).unwrap()
             } else {
                 lane.cx.collision_install(&c, &b, t.as_ref()).unwrap()
             };
@@ -102,7 +106,7 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
             let index = array(get(v, "i"));
             let polygons = array(get(v, "polygons"));
             let id = if legacy {
-                legacy_shape(p, &index, &polygons)
+                legacy_shape(&mut lane.collision, p, &index, &polygons)
             } else {
                 lane.cx.collision_shape(p, index, polygons).unwrap()
             };
@@ -119,11 +123,11 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
                 inverse: a[22..38].try_into().unwrap(),
             };
             let id = if legacy {
-                let id = collision::body_new(b.tree as u32, b.moving as u32);
+                let id = lane.collision.body_new(b.tree as u32, b.moving as u32);
                 assert!(id >= 0);
-                spheres::body_offset(id as u32, b.offset);
-                legacy_io()[20..58].copy_from_slice(&a);
-                collision::body_set(id as u32);
+                lane.collision.body_offset(id as u32, b.offset);
+                lane.collision.io_mut()[20..58].copy_from_slice(&a);
+                lane.collision.body_set(id as u32);
                 id as u32
             } else {
                 lane.cx.collision_body(0, b).unwrap()
@@ -135,8 +139,8 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
             let a = floats(get(v, "v"));
             let id = num(v, "id") as u32;
             if legacy {
-                legacy_io()[20..58].copy_from_slice(&a);
-                collision::body_set(id)
+                lane.collision.io_mut()[20..58].copy_from_slice(&a);
+                lane.collision.body_set(id)
             } else {
                 lane.cx
                     .collision_place(
@@ -151,7 +155,7 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
         "order" => {
             lane.order = array(get(v, "order"));
             if legacy {
-                order(0, &lane.order)
+                order(&mut lane.collision, 0, &lane.order)
             } else {
                 lane.cx.collision_order(0, &lane.order).unwrap()
             }
@@ -159,8 +163,8 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
         "new" => {
             let class: [f64; 21] = floats(get(v, "class")).try_into().unwrap();
             let id = if legacy {
-                movement_io()[50..71].copy_from_slice(&class);
-                movement::mover_new(0)
+                lane.movement.io_mut()[50..71].copy_from_slice(&class);
+                lane.movement.mover_new(0)
             } else {
                 lane.cx.movement_new(0, class).unwrap()
             };
@@ -176,14 +180,14 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
             assert_eq!(flags.len(), lane.order.len());
             let expected = floats(get(v, "expected"));
             if legacy {
-                *movement_io() = a;
+                *lane.movement.io_mut() = a;
                 unsafe {
-                    std::slice::from_raw_parts_mut(movement::movement_flags_ptr(), flags.len())
+                    std::slice::from_raw_parts_mut(lane.movement.flags_mut().as_mut_ptr(), flags.len())
                         .copy_from_slice(&flags)
                 };
-                assert_eq!(movement::mover_tick(id), num(v, "code") as u32);
+                assert_eq!(lane.movement.tick(&mut lane.collision.state, id), num(v, "code") as u32);
                 assert_eq!(
-                    bits(movement_io()),
+                    bits(lane.movement.io_mut()),
                     bits(&expected),
                     "legacy tick {} mover {id}",
                     lane.ticks
@@ -222,9 +226,6 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
         }
         op => panic!("unknown movement trace operation {op}"),
     }
-}
-fn movement_io() -> &'static mut [f64; 80] {
-    unsafe { &mut *movement::movement_io_ptr().cast() }
 }
 pub fn replay(path: &Path, mode: Mode, only: Option<usize>) -> usize {
     let mut lanes = [Lane::new(), Lane::new()];
@@ -297,27 +298,23 @@ pub fn interleave(a: &Path, b: &Path) -> usize {
     }
     ticks
 }
-pub fn assert_no_legacy_exchange_use(path: &Path, lane: usize) {
-    *movement_io() = [321.5; 80];
-    legacy_io().fill(789.25);
+pub fn assert_no_legacy_exchange_use(path: &Path, index: usize) {
+    let mut lane = Lane::new();
+    *lane.movement.io_mut() = [321.5; 80];
+    lane.collision.io_mut().fill(789.25);
+    lane.movement.flags_mut().fill(73);
     unsafe {
-        std::slice::from_raw_parts_mut(movement::movement_flags_ptr(), 65536).fill(73);
-        std::slice::from_raw_parts_mut(collision::enabled_ptr(), 65536).fill(87);
-        std::slice::from_raw_parts_mut(collision::candidates_ptr(), 65536).fill(9876);
+        std::slice::from_raw_parts_mut(lane.collision.enabled_ptr(), 65536).fill(87);
+        std::slice::from_raw_parts_mut(lane.collision.candidates_ptr(), 65536).fill(9876);
     }
-    replay(path, Mode::Owned, Some(lane));
-    assert_eq!(*movement_io(), [321.5; 80]);
-    assert_eq!(*legacy_io(), [789.25; 64]);
-    assert!(copy(movement::movement_flags_ptr(), 65536)
-        .iter()
-        .all(|&x| x == 73));
-    assert!(copy(collision::enabled_ptr(), 65536)
-        .iter()
-        .all(|&x| x == 87));
-    assert!(copy(collision::candidates_ptr(), 65536)
-        .iter()
-        .all(|&x| x == 9876));
+    replay(path, Mode::Owned, Some(index));
+    assert_eq!(*lane.movement.io_mut(), [321.5; 80]);
+    assert_eq!(*lane.collision.io_mut(), [789.25; 64]);
+    assert!(lane.movement.flags_mut().iter().all(|&x| x == 73));
+    assert!(copy(lane.collision.enabled_ptr(), 65536).iter().all(|&x| x == 87));
+    assert!(copy(lane.collision.candidates_ptr(), 65536).iter().all(|&x| x == 9876));
 }
+
 fn get<'a>(v: &'a Value, name: &str) -> &'a Value {
     v.get(name).unwrap_or_else(|| panic!("missing {name}"))
 }
@@ -363,49 +360,46 @@ fn corners(v: &Value) -> Corners {
         Corners::F32(narrow(get(v, "p")))
     }
 }
-fn legacy_io() -> &'static mut [f64; 64] {
-    unsafe { &mut *collision::io_ptr().cast() }
-}
 fn copy<T: Copy>(pointer: *const T, n: usize) -> Vec<T> {
     unsafe { std::slice::from_raw_parts(pointer, n).to_vec() }
 }
-fn order(world: u32, values: &[u32]) {
+fn order(owner: &mut collision::CollisionOwner, world: u32, values: &[u32]) {
     unsafe {
         std::slice::from_raw_parts_mut(
-            collision::world_order(world, values.len() as u32),
+            owner.world_order(world, values.len() as u32),
             values.len(),
         )
         .copy_from_slice(values);
     }
 }
-fn legacy_shape(p: Corners, index: &[u32], polygons: &[u32]) -> u32 {
+fn legacy_shape(owner: &mut collision::CollisionOwner, p: Corners, index: &[u32], polygons: &[u32]) -> u32 {
     let id = match p {
         Corners::F32(p) => {
-            let id = collision::positions_new(p.len() as u32, 0);
+            let id = owner.positions_new(p.len() as u32, 0);
             unsafe {
-                std::slice::from_raw_parts_mut(collision::positions_at(id).cast::<f32>(), p.len())
+                std::slice::from_raw_parts_mut(owner.positions_at(id).cast::<f32>(), p.len())
                     .copy_from_slice(&p)
             };
             id
         }
         Corners::F64(p) => {
-            let id = collision::positions_new(p.len() as u32, 1);
+            let id = owner.positions_new(p.len() as u32, 1);
             unsafe {
-                std::slice::from_raw_parts_mut(collision::positions_at(id).cast::<f64>(), p.len())
+                std::slice::from_raw_parts_mut(owner.positions_at(id).cast::<f64>(), p.len())
                     .copy_from_slice(&p)
             };
             id
         }
     };
-    let tree = collision::tree_new(id, index.len() as u32, 0);
+    let tree = owner.tree_new(id, index.len() as u32, 0);
     unsafe {
-        std::slice::from_raw_parts_mut(collision::tree_index(tree), index.len())
+        std::slice::from_raw_parts_mut(owner.tree_index(tree), index.len())
             .copy_from_slice(index);
     }
-    collision::build::tree_build(tree);
+    owner.state.build_tree(tree);
     unsafe {
         std::slice::from_raw_parts_mut(
-            spheres::tree_polygons(tree, polygons.len() as u32),
+            owner.tree_polygons(tree, polygons.len() as u32),
             polygons.len(),
         )
         .copy_from_slice(polygons);

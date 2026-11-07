@@ -33,7 +33,7 @@ fn phase() -> &'static mut Phase {
     // SAFETY: one thread; each caller holds it only for a call of its own
     // and never across an import.
     unsafe {
-        (*addr_of_mut!(super::owner::UNITS.phase)).get_or_insert_with(|| Phase {
+        (*addr_of_mut!(crate::abi::cold().units.phase)).get_or_insert_with(|| Phase {
             world: 0,
             scratch: cb::Scratch::default(),
             droideka_classes: Vec::new(),

@@ -50,7 +50,7 @@ impl Counters {
 // Canonical fired notices resolve counters in this battle's owned bank.
 // Registration is cold, bounded, and never retains a sibling allocation.
 pub(crate) fn native_observe(id:f64,generation:f64,live:f64) {
-    crate::abi::sim().wire.as_mut().expect("wire observer outside publication").observe_shot(id,generation,live);
+    crate::abi::world().wire.as_mut().expect("wire observer outside publication").observe_shot(id,generation,live);
 }
 #[no_mangle]
 pub unsafe extern "C" fn wire_shots_attach(counter:*mut Counters)->u32 {

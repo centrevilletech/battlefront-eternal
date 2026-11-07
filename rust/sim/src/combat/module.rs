@@ -30,13 +30,12 @@ pub(crate) struct CombatOwner { content: Option<Content>, taken: Option<u32> }
 impl CombatOwner {
     pub(crate) const fn new() -> Self { Self { content: None, taken: None } }
 }
-static mut COMBAT: CombatOwner = CombatOwner::new();
 
 fn content() -> &'static mut Content {
     // SAFETY: one thread; nothing holds a reference to it across a call
     // out of the module (commands clone the Rc they read).
     unsafe {
-        (*addr_of_mut!(COMBAT.content)).get_or_insert_with(|| Content {
+        (*addr_of_mut!(crate::abi::cold().combat.content)).get_or_insert_with(|| Content {
             defs: Rc::new(CombatDefs::default()),
             explosion_packets: Vec::new(),
         })
@@ -159,15 +158,15 @@ fn answer(r: Ref<Unit>) -> *const f64 {
 /// The slot of the unit out of the store now.
 pub(crate) fn taken() -> Option<u32> {
     // SAFETY: one thread, a copy out.
-    unsafe { *addr_of_mut!(COMBAT.taken) }
+    unsafe { *addr_of_mut!(crate::abi::cold().combat.taken) }
 }
 
 
 
 // Unit.tick and Unit.onMoved own the complete body. Lend its combat in place
 // too; splitting it just to reunite it would construct another empty Combat.
-pub(crate) fn take_body(r: Ref<Unit>) -> Unit { CombatOwner::lend_body(&mut sim().store, unsafe { &mut *addr_of_mut!(COMBAT.taken) }, r) }
-pub(crate) fn put_body(r: Ref<Unit>, unit: Unit) { CombatOwner::restore_body(&mut sim().store, unsafe { &mut *addr_of_mut!(COMBAT.taken) }, r, unit) }
+pub(crate) fn take_body(r: Ref<Unit>) -> Unit { CombatOwner::lend_body(&mut sim().store, unsafe { &mut *addr_of_mut!(crate::abi::cold().combat.taken) }, r) }
+pub(crate) fn put_body(r: Ref<Unit>, unit: Unit) { CombatOwner::restore_body(&mut sim().store, unsafe { &mut *addr_of_mut!(crate::abi::cold().combat.taken) }, r, unit) }
 
 // PlayerCombat methods borrow body and combat separately. Only that call
 // frame needs an empty Combat field; movement and aim handoffs do not.

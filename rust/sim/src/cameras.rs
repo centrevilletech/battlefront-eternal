@@ -9,9 +9,14 @@ use std::ptr::addr_of_mut;
 use three::Vector3;
 // The authority and display clocks each own one state machine. Registering
 // either is cold; frames never allocate or replace the other's storage.
-static mut PHASES: [Option<cameras::Phase>; limit::OWNERS] = [None, None];
+pub(crate) struct Owner {
+    phases: [Option<cameras::Phase>; limit::OWNERS],
+    flags: [u8; crate::collision::MAX_BODIES],
+}
+impl Owner {
+    pub(crate) const fn new() -> Self { Self { phases: [None, None], flags: [0; crate::collision::MAX_BODIES] } }
+}
 const _: () = assert!(limit::BODIES == crate::collision::MAX_BODIES);
-static mut FLAGS: [u8; crate::collision::MAX_BODIES] = [0; crate::collision::MAX_BODIES];
 // Camera ids are one-based cold admissions into the two fixed clock slots.
 // Zero and stale/excess ids cannot become an unchecked array index.
 // The input, command and output allocations stay put for each admitted owner.
@@ -20,7 +25,7 @@ static mut FLAGS: [u8; crate::collision::MAX_BODIES] = [0; crate::collision::MAX
 // The page bridge refreshes its typed views after every cold registration.
 fn phase(id: u32) -> Option<&'static mut cameras::Phase> {
     unsafe {
-        (&mut *addr_of_mut!(PHASES))
+        (&mut *addr_of_mut!(crate::abi::cold().cameras.phases))
             .get_mut(id.wrapping_sub(1) as usize)?
             .as_mut()
     }
@@ -120,7 +125,7 @@ impl<M:Math> cameras::Cast for World<M> {
         let (candidates, enabled) = c::cast_buffers();
         let count =
             c::broad::world_candidates_near_into(s, self.world, &ray, far, -1, static_only, false, candidates);
-        let flags = unsafe { &*std::ptr::addr_of!(FLAGS) };
+        let flags = unsafe { &*std::ptr::addr_of!(crate::abi::cold().cameras.flags) };
         // Flags are paired by body slot, not by this ray's candidate order.
         // Turrets can ignore several collision pieces, hulls one.
         for i in 0..count.min(c::MAX_BODIES) {
@@ -165,7 +170,7 @@ pub extern "C" fn camera_init(ptr: *const u8, len: usize) -> u32 {
     let Ok(content) = serde_json::from_slice::<cameras::Content>(bytes) else {
         return 0;
     };
-    let phases = unsafe { &mut *addr_of_mut!(PHASES) };
+    let phases = unsafe { &mut *addr_of_mut!(crate::abi::cold().cameras.phases) };
     for (i, slot) in phases.iter_mut().enumerate() {
         if slot.is_none() {
             *slot = Some(cameras::Phase::new(content));
@@ -208,7 +213,7 @@ pub extern "C" fn camera_output_ptr(id: u32) -> *const f64 {
 }
 #[no_mangle]
 pub extern "C" fn camera_flags_ptr() -> *mut u8 {
-    addr_of_mut!(FLAGS).cast::<u8>()
+    addr_of_mut!(crate::abi::cold().cameras.flags).cast::<u8>()
 }
 #[no_mangle]
 // The one displayed-frame export. There is no callback per camera or ray.
@@ -248,7 +253,7 @@ pub(crate) fn world_frame(id:u32, offline:bool) {
     let output=&phase.output;
     crate::units::f3::world_camera([output[o::POSITION],output[o::POSITION+1],output[o::POSITION+2]]);
     if offline {
-        if let Some(battle)=crate::abi::sim().ai.battle_mut() {
+        if let Some(battle)=crate::abi::world().ai.battle_mut() {
             if battle.exchange.camera_words.len()>=crate::gen::AiPhaseCamera::WORDS {
                 let camera=crate::gen::AiPhaseCamera {
                     elements:output[o::MATRIX..o::MATRIX+16].try_into().unwrap(),

@@ -86,8 +86,7 @@ impl Default for MovementOwner { fn default() -> Self { Self::new() } }
 // Pointer discovery cannot allocate: the host may already have read the WASM
 // memory buffer before calling either pointer export. Pools initialize only
 // when a mover is constructed, where the host refreshes its views afterward.
-static mut OWNER: MovementOwner = MovementOwner::new();
-fn owner() -> &'static mut MovementOwner { unsafe { &mut *addr_of_mut!(OWNER) } }
+fn owner() -> &'static mut MovementOwner { unsafe { &mut *addr_of_mut!(crate::abi::cold().movement) } }
 
 fn v3(v: &[f64; IO_LEN], at: usize) -> V3 {
     V3::new(v[at], v[at + 1], v[at + 2])
@@ -225,10 +224,7 @@ pub extern "C" fn movement_flags_ptr() -> *mut u8 {
 /// A soldier of world `world` with the class numbers in CLASS; returns its id.
 #[no_mangle]
 pub extern "C" fn mover_new(world: u32) -> u32 {
-    let owner = owner();
-    let mut class = [0.; 21];
-    class.copy_from_slice(&owner.io[CLASS..CLASS + 21]);
-    owner.new_mover(world as usize, |m| set_class(m, &class))
+    owner().mover_new(world)
 }
 
 /// The class assignments shared by legacy and owned construction.
@@ -258,6 +254,11 @@ pub(crate) fn set_class(m: &mut Mover, c: &[f64]) {
 pub extern "C" fn mover_tick(id: u32) -> u32 { owner().tick(state(), id) }
 
 impl MovementOwner {
+    pub fn mover_new(&mut self, world: u32) -> u32 {
+        let mut class = [0.; 21];
+        class.copy_from_slice(&self.io[CLASS..CLASS + 21]);
+        self.new_mover(world as usize, |m| set_class(m, &class))
+    }
     pub fn advance(&mut self, collision: &mut crate::collision::State, id: u32, input: &Input, dt: f64) {
         let ms = self.movers.as_mut().expect("initialized movement owner");
         let m = &mut ms.list[id as usize];

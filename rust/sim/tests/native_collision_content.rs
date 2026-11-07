@@ -71,8 +71,8 @@ fn native_collision_owned_worlds_match_every_content_map() {
             let cx = Context::new();
             let ids = cx.collision_install(&c, &b, t.as_ref()).unwrap();
             assert_eq!(ids.world, 0);
-            let mut owner = CollisionOwner::new();
-            let owned_ids = install(&mut owner, &c, &b, t.as_ref()).unwrap();
+            let mut owner = Box::new(CollisionOwner::new());
+            let owned_ids = install(&mut *owner, &c, &b, t.as_ref()).unwrap();
             assert_eq!(owned_ids.world, ids.world);
             worlds.push((map, cx, ids, casts, owner));
         }

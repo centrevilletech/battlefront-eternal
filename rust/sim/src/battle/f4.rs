@@ -4,9 +4,9 @@ use super::{live_phase::{Building, Live}, prepared, props, traps};
 use crate::gen::*;
 use std::ptr::addr_of_mut;
 pub(crate) fn live() -> &'static mut Live {
-    unsafe { (*addr_of_mut!(super::owner::BATTLE.live)).get_or_insert_with(|| Live::new(0, 0, 0)) }
+    unsafe { (*addr_of_mut!(crate::abi::cold().battle.live)).get_or_insert_with(|| Live::new(0, 0, 0)) }
 }
-pub(crate) fn reset() { super::f4_live::reset(); super::f4_core::reset(); super::f4_tail::reset(); super::f4_roster::reset(); super::f4_connections::reset(); unsafe { *addr_of_mut!(super::owner::BATTLE.live) = Some(Live::new(0, 0, 0)); } }
+pub(crate) fn reset() { super::f4_live::reset(); super::f4_core::reset(); super::f4_tail::reset(); super::f4_roster::reset(); super::f4_connections::reset(); unsafe { *addr_of_mut!(crate::abi::cold().battle.live) = Some(Live::new(0, 0, 0)); } }
 pub(crate) fn adopt(building: F4BuildingBirth, trap: Option<F4TrapBirth>, hulls: usize) -> F4Handle {
     match trap {
         Some(trap) => live().traps.adopt(1.0, prepared::trap(trap, hulls)),

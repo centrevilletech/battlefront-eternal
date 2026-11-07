@@ -12,15 +12,15 @@ impl State {
         self.output.finish();self.output.ptr()
     }
 }
-pub(crate) fn reset(){unsafe{*addr_of_mut!(super::owner::BATTLE.connections)=None;}}
-fn state()->&'static mut State {unsafe{(*addr_of_mut!(super::owner::BATTLE.connections)).as_mut().expect("connection owner prepared")}}
+pub(crate) fn reset(){unsafe{*addr_of_mut!(crate::abi::cold().battle.connections)=None;}}
+fn state()->&'static mut State {unsafe{(*addr_of_mut!(crate::abi::cold().battle.connections)).as_mut().expect("connection owner prepared")}}
 #[no_mangle]
 pub extern "C" fn f4_connections_init(capacity:u32) {
     let outer=f3::external();
     let human=&mut sim().store.human_spawn;human.auto=None;human.pending=None;human.spawned_once=true;
     super::f4_core::mark_tail(&sim().store);
     let mut output=Block::default();output.words.reserve(crate::store::block::HEADER+F4ConnectionView::WORDS);
-    unsafe{*addr_of_mut!(super::owner::BATTLE.connections)=Some(State{rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
+    unsafe{*addr_of_mut!(crate::abi::cold().battle.connections)=Some(State{rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
     drop(outer);
 }
 /// attachedPlayers qualifies the connection, not merely a recycled roster

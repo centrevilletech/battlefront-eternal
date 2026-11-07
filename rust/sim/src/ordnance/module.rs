@@ -35,21 +35,20 @@ pub(crate) struct OrdnanceOwnerState { defs: Option<Defs>, water: [bool; 2] }
 impl OrdnanceOwnerState {
     pub(crate) const fn new() -> Self { Self { defs: None, water: [false; 2] } }
 }
-static mut ORDNANCE: OrdnanceOwnerState = OrdnanceOwnerState::new();
 
 /// Whether the rounds' and the items' battle has water (ordnance.water,
 /// items.water): without, a water crossing is null and nobody is asked.
 
 fn water(which: usize) -> bool {
     // SAFETY: one thread.
-    unsafe { (*addr_of_mut!(ORDNANCE.water))[which] }
+    unsafe { (*addr_of_mut!(crate::abi::cold().ordnance.water))[which] }
 }
 
 /// The rounds' (0) or the items' (1) water, present or not.
 #[no_mangle]
 pub extern "C" fn ord_water(which: u32, present: u32) {
     // SAFETY: one thread.
-    unsafe { (*addr_of_mut!(ORDNANCE.water))[(which & 1) as usize] = present != 0 };
+    unsafe { (*addr_of_mut!(crate::abi::cold().ordnance.water))[(which & 1) as usize] = present != 0 };
 }
 
 /// The battle's definitions as JavaScript registered them (`ord_def`,
@@ -57,7 +56,7 @@ pub extern "C" fn ord_water(which: u32, present: u32) {
 pub(crate) fn defs() -> *mut Defs {
     // SAFETY: one thread; nothing holds a reference to the definitions
     // across a call out of the module (Cx reads them through this pointer).
-    unsafe { (*addr_of_mut!(ORDNANCE.defs)).get_or_insert_with(Defs::default) as *mut Defs }
+    unsafe { (*addr_of_mut!(crate::abi::cold().ordnance.defs)).get_or_insert_with(Defs::default) as *mut Defs }
 }
 
 /// The store and the strings, as pointers (the module's note).

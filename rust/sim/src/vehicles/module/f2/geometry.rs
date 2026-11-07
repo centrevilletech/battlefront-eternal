@@ -9,7 +9,7 @@ impl Geometry {
 }
 // Only this entry projection knows the WASM instance root. Geometry methods
 // borrow their own bank; rig sampling is a separate, explicit capability.
-fn geometry() -> &'static mut Geometry { unsafe { &mut *addr_of_mut!(FLEET.geometry) } }
+fn geometry() -> &'static mut Geometry { unsafe { &mut *addr_of_mut!(crate::abi::cold().fleet.geometry) } }
 pub fn mark(r: Ref<Vehicle>) { geometry().mark(r) }
 pub fn register(r: Ref<Vehicle>) { geometry().register(r, &poses()[r.slot as usize].as_ref().unwrap().pose) }
 /// The published seat frame uses simulation position rather than rendered bob.

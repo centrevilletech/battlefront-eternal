@@ -1,4 +1,4 @@
-//! Native hull queries must not write a WASM instance's boundary scratch.
+//! Native hull queries must not write another owner's boundary scratch.
 //! Empty BVHs keep the fixture independent of authored content while bodies
 //! still exercise candidate order and eligibility in the production cast.
 use bfe_sim::{collision::{self, Body, Corners, State, Tree, World}, vehicles::native::Collision};
@@ -30,11 +30,12 @@ fn cast(scene: &mut (State,Collision)) {
 #[test]
 fn hull_queries_are_isolated_when_interleaved_and_on_separate_threads() {
     let mut a=scene(false); let mut b=scene(true);
-    // SAFETY: only this test accesses the process's facade reservations. All
-    // following casts must use their own buffers, including on worker threads.
+    let mut boundary = Box::new(collision::CollisionOwner::new());
+    // SAFETY: only this test accesses these independent boundary reservations.
+    // All following casts use their own buffers, including on worker threads.
     unsafe {
-        std::slice::from_raw_parts_mut(collision::candidates_ptr(),2).fill(9876);
-        std::slice::from_raw_parts_mut(collision::enabled_ptr(),2).fill(87);
+        std::slice::from_raw_parts_mut(boundary.candidates_ptr(),2).fill(9876);
+        std::slice::from_raw_parts_mut(boundary.enabled_ptr(),2).fill(87);
     }
     for _ in 0..32 {cast(&mut a);cast(&mut b);cast(&mut a);}
     let threads:Vec<_>=(0..4).map(|i|std::thread::spawn(move|| {
@@ -43,9 +44,9 @@ fn hull_queries_are_isolated_when_interleaved_and_on_separate_threads() {
     })).collect();
     for thread in threads {thread.join().unwrap();}
     // SAFETY: threads have joined. These reservations are alive for the test
-    // process and were initialized above, before any native query ran.
+    // owner and were initialized above, before any native query ran.
     unsafe {
-        assert_eq!(std::slice::from_raw_parts(collision::candidates_ptr(),2),[9876,9876]);
-        assert_eq!(std::slice::from_raw_parts(collision::enabled_ptr(),2),[87,87]);
+        assert_eq!(std::slice::from_raw_parts(boundary.candidates_ptr(),2),[9876,9876]);
+        assert_eq!(std::slice::from_raw_parts(boundary.enabled_ptr(),2),[87,87]);
     }
 }

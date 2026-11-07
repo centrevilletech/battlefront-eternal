@@ -23,7 +23,7 @@ pub(super) struct Hulls {
     fact_versions: Vec<Option<u64>>,
 }
 fn hulls() -> &'static mut Hulls {
-    unsafe { (*addr_of_mut!(super::owner::UNITS.hulls)).get_or_insert_with(Hulls::default) }
+    unsafe { (*addr_of_mut!(crate::abi::cold().units.hulls)).get_or_insert_with(Hulls::default) }
 }
 fn binding(hulls: &Hulls, r: Ref<Vehicle>) -> &F3HullSetup {
     hulls.rows[r.slot as usize].as_ref().filter(|row| row.hull == r).expect("prepared hull combat")

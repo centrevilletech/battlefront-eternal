@@ -596,6 +596,36 @@ function rustTakeField(model, t, k) {
   return `if row[${k}] == 0.0 { Some(${inner}) } else { None }`;
 }
 
+// Cold instance storage has exactly the derived Default values, without
+// invoking non-const trait methods or allocating boundary buffers.
+function rustColdDefault(model, t) {
+  if (optional(t)) return t.nullable.null && t.nullable.undefined ? 'Nullable::Undefined' : 'None';
+  switch (t.base) {
+    case 'f64': case 'f32': return '0.0';
+    case 'i32': case 'u32': case 'u8': case 'index': return '0';
+    case 'bool': return 'false';
+    case 'str': return 'StrId(0)';
+    case 'def': return 'DefId(0)';
+    case 'ref': return 'Ref::new(0, 0)';
+    case 'vec3': return '[0.0; 3]';
+    case 'quat': return '[0.0; 4]';
+    case 'mat4': return '[0.0; 16]';
+    case 'f64xN': return `[0.0; ${t.n}]`;
+    case 'typed': return `TypedArray([${['f64', 'f32'].includes(t.elem) ? '0.0' : '0'}; ${t.n}])`;
+    case 'list': return 'Vec::new()';
+    case 'set': return 'RefSet { items: Vec::new() }';
+    case 'map': return !t.key ? 'StrMap { entries: Vec::new() }' : 'crate::store::OrdMap(crate::store::JsMap::new())';
+    case 'obj': return 'IntObj::new()';
+    case 'enum': return `${t.of}::${model.enums.get(t.of).variants[0]}`;
+    case 'rec': return `${t.of} { ${model.records.get(t.of).fields.map(f => `${snake(f.name)}: ${rustColdDefault(model, f.type)}`).join(', ')} }`;
+    case 'union': {
+      const v = model.unions.get(t.of).variants[0];
+      return `${t.of}::${v.rust}${v.tag === 'ref' ? '(Ref::new(0, 0))' : v.tag === 'value' ? `(${rustColdDefault(model, v.type)})` : ''}`;
+    }
+    default: throw Error(`no cold default for ${t.base}`);
+  }
+}
+
 function rustStruct(model, name, fields, doc) {
   const lines = [];
   if (doc) lines.push(`/// ${doc}`);
@@ -779,7 +809,9 @@ function rustIndex(model) {
   lines.push('}', '');
   // A kind's entities in its order: its home list's, or its slots'.
   const order = (k) => (k.home ? `self.${snake(k.homeKind.name)}.${snake(k.homeField.name)}.clone()` : `self.${snake(k.name)}.iter().map(|(r, _)| r).collect::<Vec<_>>()`);
-  lines.push('impl Store {');
+  lines.push('impl Store {', '    /// Empty canonical rows for const instance storage.', '    pub const fn cold() -> Self {', '        Self {');
+  for (const k of held) lines.push(`            ${snake(k.name)}: ${k.singleton ? `${k.rust} { ${k.fields.map(f => `${snake(f.name)}: ${rustColdDefault(model, f.type)}`).join(', ')} }` : 'Slab::new()'},`);
+  lines.push('        }', '    }', '');
   lines.push('    /// A kind\'s export block: a row for each entity (in its home list\'s order, or', '    /// its slots\'). `mode` 0: its mirrored fields, after the rows of the entities', '    /// retired since the last such export (handed over: the slab forgets them);', '    /// 1: every field, live entities only; 2: as 0, leaving the retired where they', '    /// are. False for a kind the store holds no fields of.', '    pub fn export(&mut self, kind: KindCode, block: &mut Block, mode: u32) -> bool {', '        let full = mode == 1;', '        match kind {');
   for (const k of held) {
     if (k.singleton) {
