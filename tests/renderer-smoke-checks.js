@@ -334,7 +334,9 @@ export async function checkRenderer(backend, manifests) {
     // changes do not leave stale enabled state in a retained Rust program.
     const baseline=compare('opaque, far, terrain, transparent, view and composite');
     const terrainShadowPixels=()=>{
-      lighting.shadowStrength.value=0;const unshadowed=capture();lighting.shadowStrength.value=1;const shadowed=capture();
+      // Lighting uniforms are native readbacks. Publish the fixture toggle
+      // through the same owner as battle environment and settings changes.
+      g.setEnvironment({shadowStrength:0});const unshadowed=capture();g.setEnvironment({shadowStrength:1});const shadowed=capture();
       const lo=new THREE.Vector3(1.8,-1.9,.1).project(g.camera),hi=new THREE.Vector3(2.2,-1.75,.1).project(g.camera);
       let pixels=0;
       for(let y=Math.ceil((lo.y+1)*.5*gl.drawingBufferHeight);y<Math.floor((hi.y+1)*.5*gl.drawingBufferHeight);y++)for(let x=Math.ceil((lo.x+1)*.5*gl.drawingBufferWidth);x<Math.floor((hi.x+1)*.5*gl.drawingBufferWidth);x++){
