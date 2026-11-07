@@ -128,7 +128,8 @@ pub fn records_at(&mut self) -> u32 { IN_RECORDS as u32 }
 pub fn record_stride(&mut self) -> u32 { REC_STRIDE as u32 }
 pub fn inst_add_blend(&mut self, blend: &[u32], depth_flags: u32, depth_func: u32, passes: &[u32]) -> u32 { self.r.instances.add_blend(blend, depth_flags, depth_func, passes) }
 pub fn interface_buffer_init(&mut self, geometry: u32, buffer: u32, data: &[u8]) -> u32 { self.r.interface.add_stream(geometry, buffer, data) }
-pub fn interface_upload_frame(&mut self, stream: u32, offset: usize, length: usize)  { let stream = &self.r.interface.streams[stream as usize];
+pub fn interface_upload_frame(&mut self, stream: u32, offset: usize, length: usize)  { if self.r.frames.collecting {self.r.frame_interface_upload(stream as usize,offset,length);return;}
+        let stream = &self.r.interface.streams[stream as usize];
         let end = offset.saturating_add(length).min(stream.data.len());
         if end > offset {
             self.r.core.geometry_buffer_sub_data(stream.geometry, stream.buffer, offset as i32, &stream.data[offset..end]);

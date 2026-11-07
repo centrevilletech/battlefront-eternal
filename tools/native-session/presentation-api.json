@@ -271,6 +271,16 @@
         "result": "Result<usize, String>"
       },
       {
+        "name": "add_rider",
+        "args": [
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize, String>"
+      },
+      {
         "name": "add_turret",
         "args": [
           [
@@ -455,6 +465,12 @@
         "type": "f64",
         "pointer": "header_ptr",
         "length": "header_len"
+      },
+      {
+        "name": "rays",
+        "type": "f64",
+        "pointer": "rays_ptr",
+        "length": "rays_len"
       }
     ]
   },

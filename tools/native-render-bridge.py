@@ -37,10 +37,33 @@ def functions(text):
 
 methods = []
 static_modules = []
+
+# Field type chain for nested renderer banks: the Renderer field's type, then
+# each intermediate field's type, ending at the file declaring the leaf.
+def struct_file(type_name):
+    found = [f for f in sorted((ROOT / 'rust/bfe-render/src').rglob('*.rs'))
+             if re.search(r'pub struct ' + type_name + r'\b', f.read_text())]
+    if len(found) != 1: raise RuntimeError(f'Cannot resolve renderer type {type_name}')
+    return found[0]
+def field_type(text, field):
+    declared = re.search(r'pub\s+' + field + r':\s*(?:crate::)?([\w:]+)', text)
+    if not declared: raise RuntimeError(f'Cannot resolve renderer field {field}')
+    return declared[1].split('::')[-1]
+def nested_owner(path):
+    text = (ROOT / 'rust/bfe-render/src/renderer.rs').read_text()
+    for hop in path[:-1]:
+        owner_file = struct_file(field_type(text, hop))
+        text = owner_file.read_text()
+    return owner_file, path[-1]
+
 banks = []
 imports = set()
 for file in sorted(WEB.glob('*.rs')):
-    if file.stem in ['recovery', 'images']: continue
+    # The browser runs each battle frame through web/frame.rs (one Rust
+    # schedule over the shared GPU resource owner). The native client still
+    # replays recorded per-pass sessions; it takes these exports when it
+    # adopts the Rust frame schedule, which removes this exclusion.
+    if file.stem in ['recovery', 'images', 'frame']: continue
     text = file.read_text()
     text = re.sub(r'\s*self\.remember_\w+\([^\n]*\); // recovery\s*', '\n', text)
     # Local pass constants remain authoritative; the native shim only borrows
@@ -51,10 +74,20 @@ for file in sorted(WEB.glob('*.rs')):
         if name.endswith('_ptr'):
             field = re.search(r'self\.((?:r\.|hud_model\.)[\w.]+)\.as_mut_ptr\(\)', body)
             if field and not args and name != 'transparent_segments_ptr':
-                module, member = field[1].split('.')[1:] if field[1].startswith('r.') else field[1].split('.')
-                module = {'interface':'interface_scene'}.get(module,module)
-                owner_file=ROOT / f'rust/bfe-render/src/{module}.rs'
-                if not owner_file.exists():owner_file=ROOT / f'rust/bfe-render/src/{module}/mod.rs'
+                path = field[1].split('.')[1:] if field[1].startswith('r.') else field[1].split('.')
+                if len(path) == 2:
+                    module, member = path
+                    module = {'interface':'interface_scene'}.get(module,module)
+                    owner_file=ROOT / f'rust/bfe-render/src/{module}.rs'
+                    if not owner_file.exists():owner_file=ROOT / f'rust/bfe-render/src/{module}/mod.rs'
+                    # A pass whose field name is not its file name (frames) is
+                    # resolved through its declared type like a nested bank.
+                    if not owner_file.exists(): owner_file, member = nested_owner(path)
+                else:
+                    # A nested bank (self.r.frames.plan.facts) follows each
+                    # field's declared type to the struct that owns the leaf,
+                    # since leaf names such as `state` repeat across passes.
+                    owner_file, member = nested_owner(path)
                 owner = owner_file.read_text()
                 declared = re.search(r'pub\s+' + member + r':\s*(?:Vec<|\[)([a-z0-9]+)', owner)
                 if not declared: raise RuntimeError(f'Cannot resolve renderer bank {field[1]}')

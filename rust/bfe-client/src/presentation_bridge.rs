@@ -285,6 +285,10 @@ impl PageProps {
         let input = serde_json::from_str(data).map_err(|e| e.to_string())?;
         Ok(self.inner.add_trap(input))
     }
+    pub fn add_rider(&mut self, data: &str) -> Result<usize, String> {
+        let input = serde_json::from_str(data).map_err(|e| e.to_string())?;
+        Ok(self.inner.add_rider(input))
+    }
     pub fn add_turret(&mut self, data: &str) -> Result<usize, String> {
         let input = serde_json::from_str(data).map_err(|e| e.to_string())?;
         Ok(self.inner.add_turret(input))
@@ -365,6 +369,7 @@ pub enum PagePropsCommand {
 load_clip(usize,f64,bool,Vec<i32>,Vec<f32>),
 add_prop(String),
 add_trap(String),
+add_rider(String),
 add_turret(String),
 present_props,
 }
@@ -373,6 +378,7 @@ pub fn decode(name:&str,args:&[serde_json::Value],blobs:&BlobStore)->Result<Self
 "load_clip"=>Self::load_clip(a.usize(0)?,a.f64(1)?,a.bool(2)?,a.i32s(3)?,a.f32s(4)?),
 "add_prop"=>Self::add_prop(a.string(0)?),
 "add_trap"=>Self::add_trap(a.string(0)?),
+"add_rider"=>Self::add_rider(a.string(0)?),
 "add_turret"=>Self::add_turret(a.string(0)?),
 "present_props"=>Self::present_props,
 _=>return Err(format!("unknown presentation command {name}")),})}
@@ -380,6 +386,7 @@ pub fn execute(&self,host:&mut PageProps)->Result<(),String>{match self{
 Self::load_clip(frames,fps,root_motion,tracks,data)=>{let _=host.load_clip(*frames,*fps,*root_motion,tracks.clone(),data.clone());},
 Self::add_prop(data)=>{let _=host.add_prop(data)?;},
 Self::add_trap(data)=>{let _=host.add_trap(data)?;},
+Self::add_rider(data)=>{let _=host.add_rider(data)?;},
 Self::add_turret(data)=>{let _=host.add_turret(data)?;},
 Self::present_props=>{let _=host.present_props();},
 }Ok(())}}
@@ -433,6 +440,13 @@ impl PageVehicles {
     pub fn network_states_ptr(&self)->*const f64{self.inner.network.states_ptr()}
     pub fn network_states_len(&self)->usize{self.inner.network.states_len()}
     pub fn unbind_network(&mut self,rig:usize){self.inner.network.unbind(rig);}
+    /// The frame's CastRay block (VehicleHeader.RAYS records in use).
+    pub fn rays_ptr(&self) -> *const f64 {
+        self.inner.rays.as_ptr()
+    }
+    pub fn rays_len(&self) -> usize {
+        self.inner.rays.len()
+    }
     pub fn place_hulls(&mut self) {
         self.inner.place();
     }
@@ -446,18 +460,21 @@ pub fn bank(&mut self,name:&str)->Result<&mut [u8],String>{match name{
 "stream_in"=>Ok(crate::session::bytes_mut(&mut self.inner.stream_in)),
 "stream_out"=>Ok(crate::session::bytes_mut(&mut self.inner.stream_out)),
 "header"=>Ok(crate::session::bytes_mut(&mut self.inner.header)),
+"rays"=>Ok(crate::session::bytes_mut(&mut self.inner.rays)),
 _=>Err(format!("unknown presentation input bank {name}")),}}
 pub fn read_bank(&self,name:&str)->Result<&[u8],String>{match name{
 "input"=>Ok(crate::session::bytes(&self.inner.input)),
 "stream_in"=>Ok(crate::session::bytes(&self.inner.stream_in)),
 "stream_out"=>Ok(crate::session::bytes(&self.inner.stream_out)),
 "header"=>Ok(crate::session::bytes(&self.inner.header)),
+"rays"=>Ok(crate::session::bytes(&self.inner.rays)),
 _=>Err(format!("unknown presentation bank {name}")),}}
 pub fn bank_lengths(&self)->Vec<(&'static str,usize)>{vec![
 ("input", self.inner.input.len()),
 ("stream_in", self.inner.stream_in.len()),
 ("stream_out", self.inner.stream_out.len()),
 ("header", self.inner.header.len()),
+("rays", self.inner.rays.len()),
 ]}
 }
 pub enum PageVehiclesCommand {
