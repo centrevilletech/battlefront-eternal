@@ -117,18 +117,18 @@ fn defs_of(capture: &Capture, cx: &mut Replay, explosions: &[&str]) -> (Defs, Bo
 
 // ---- The world, served from a frame's log.
 
-struct LogWorld<'f> {
+struct LogWorld<'f, 'c> {
     frame: &'f Frame,
     log: Log<'f>,
-    cx: *mut Replay,
-    book: *const Book,
+    cx: &'c mut Replay,
+    book: &'c Book,
+    defs: &'c Defs,
 }
 
-impl<'f> LogWorld<'f> {
+impl<'f, 'c> LogWorld<'f, 'c> {
     fn cx(&mut self) -> &mut Replay {
-        // SAFETY: the replay context outlives the world, and the port holds
-        // no reference into it across a call to the world.
-        unsafe { &mut *self.cx }
+        // Reborrow only for this operation; callbacks receive the same owner.
+        &mut *self.cx
     }
 
     /// Steps over the frame's own Math.random draws: three.js's ids for the
@@ -208,8 +208,7 @@ impl<'f> LogWorld<'f> {
     }
 
     fn field_arg(&mut self, what: &str, captured: V, f: &Field) {
-        // SAFETY: the book is read only while the frame replays.
-        let book = unsafe { &*self.book };
+            let book = self.book;
         let mine = match f {
             Field::Undefined => Value::Undefined,
             Field::Null => Value::Null,
@@ -316,7 +315,12 @@ impl<'f> LogWorld<'f> {
     }
 }
 
-impl<'f> World for LogWorld<'f> {
+impl<'f, 'c> World for LogWorld<'f, 'c> {
+    fn store(&self) -> &Store { &self.cx.store }
+    fn store_mut(&mut self) -> &mut Store { &mut self.cx.store }
+    fn strings_mut(&mut self) -> &mut bfe_sim::store::Strings { &mut self.cx.strings }
+    fn definitions(&self) -> &Defs { self.defs }
+
     fn cast(&mut self, origin: Vec3, direction: Vec3, far: f64, _out: Out, ignore_body: Nullable<Ref<Body>>, static_only: Option<bool>) -> Option<Hit> {
         let c = self.call("ordnance.world.cast");
         self.vec3("cast origin", c.arg(0), origin);
@@ -679,7 +683,7 @@ impl<'f> World for LogWorld<'f> {
     }
 }
 
-impl<'f> LogWorld<'f> {
+impl<'f, 'c> LogWorld<'f, 'c> {
     fn def_of(&mut self, what: &str, captured: V, def: DefArg) {
         match def {
             DefArg::Ordnance(id) => self.def_arg(what, captured, "ordnance", id),
@@ -701,7 +705,7 @@ fn ordnance_owner(cx: &mut Replay, v: V) -> OrdnanceOwner {
 
 /// Runs `port` on a frame from the state `read` reads, then checks the
 /// calls were all made and the end state is the capture's.
-fn replay<R>(capture: &Capture, frame: &Frame, read: impl FnOnce(&mut Replay), port: impl FnOnce(&mut Cx<LogWorld>, &mut Replay) -> R, check: impl FnOnce(&mut Replay, &LogWorld, R, &Existing)) -> Outcome {
+fn replay<R>(capture: &Capture, frame: &Frame, read: impl FnOnce(&mut Replay), port: impl FnOnce(&mut Cx<LogWorld>) -> R, check: impl FnOnce(&mut LogWorld, R, &Existing)) -> Outcome {
     let run = catch_unwind(AssertUnwindSafe(|| {
         let mut cx = Replay::default();
         read(&mut cx);
@@ -713,19 +717,13 @@ fn replay<R>(capture: &Capture, frame: &Frame, read: impl FnOnce(&mut Replay), p
             defs.pools.push((k.to_string(), field_of(v, &mut book)));
         }
         let existing = Existing::of(&cx.store);
-        let cxp: *mut Replay = &mut cx;
-        let mut world = LogWorld { frame, log: Log::new(frame), cx: cxp, book: &book };
-        // SAFETY: the store, strings and definitions outlive the context,
-        // and only it (and the world, between its calls) reaches them.
-        let result = {
-            let mut ordnance = unsafe { Cx::new(&mut (*cxp).store, &mut (*cxp).strings, &defs, &mut world) };
-            port(&mut ordnance, unsafe { &mut *cxp })
-        };
+        let mut world = LogWorld { frame, log: Log::new(frame), cx: &mut cx, book: &book, defs: &defs };
+        let result = port(&mut Cx::new(&mut world));
         world.skip_ids();
         if let Err(e) = world.log.finish() {
             fail(e.0);
         }
-        check(unsafe { &mut *cxp }, &world, result, &existing);
+        check(&mut world, result, &existing);
     }));
     match run {
         Ok(()) => Outcome::Same,
@@ -807,7 +805,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
             }
             let dt = frame.arg(0).num();
             let dt = if NUDGE.load(Ordering::Relaxed) { f64::from_bits(dt.to_bits() + 1) } else { dt };
-            replay(capture, frame, |cx| cx.read_value(KIND_ORDNANCE, frame.before()).unwrap_or_else(|e| fail(e)), |o, _| o.update(dt), |cx, _, (), e| ordnance_after(cx, frame, e))
+            replay(capture, frame, |cx| cx.read_value(KIND_ORDNANCE, frame.before()).unwrap_or_else(|e| fail(e)), |o| o.update(dt), |world, (), e| ordnance_after(world.cx(), frame, e))
         }
         "ordnance.fireRound" => replay(
             capture,
@@ -816,7 +814,8 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                 cx.read_value(KIND_ORDNANCE, frame.before()).unwrap_or_else(|e| fail(e));
                 cx.def_in("ordnance", frame.arg(0), "def").unwrap_or_else(|e| fail(e));
             },
-            |o, cx| {
+            |o| {
+                let cx = o.w.cx();
                 let a = |i| frame.arg(i);
                 let def = cx.def_in("ordnance", a(0), "def").unwrap();
                 let owner = ordnance_owner(cx, a(3));
@@ -825,8 +824,8 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                 let emitter = if a(6).is_nullish() { BeamSource::Null } else { BeamSource::from_value(a(6), cx, "emitter").unwrap_or_else(|e| fail(e)) };
                 o.fire_round(def, a(1).vec3().unwrap(), a(2).vec3().unwrap(), owner, visual, ignore_body, emitter, a(7).num(), opt_num(a(8)), opt_num(a(9)))
             },
-            |cx, world, made, e| {
-                ordnance_after(cx, frame, e);
+            |world, made, e| {
+                ordnance_after(world.cx(), frame, e);
                 let result = frame.result();
                 match made {
                     None => {
@@ -836,10 +835,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                     }
                     Some(shot) => {
                         let mut a = Arena::default();
-                        let world: &LogWorld = world;
-                        let w = world as *const LogWorld as *mut LogWorld;
-                        // SAFETY: the world is done with its calls; this only builds values.
-                        let mine = unsafe { (*w).shot_value(shot, &mut a) };
+                        let mine = world.shot_value(shot, &mut a);
                         world.same_fields("fireRound's round", result, a.view(&mine));
                     }
                 }
@@ -848,7 +844,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
         "items.update" => {
             let dt = frame.arg(0).num();
             let targets = frame.arg(1).len();
-            replay(capture, frame, |cx| cx.read_value(KIND_ITEMS, frame.before().get("items")).unwrap_or_else(|e| fail(e)), |o, _| o.items_update(dt, targets), |cx, _, (), e| items_after(cx, frame, frame.after().get("items"), e))
+            replay(capture, frame, |cx| cx.read_value(KIND_ITEMS, frame.before().get("items")).unwrap_or_else(|e| fail(e)), |o| o.items_update(dt, targets), |world, (), e| items_after(world.cx(), frame, frame.after().get("items"), e))
         }
         "items.dispense" => replay(
             capture,
@@ -857,14 +853,15 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                 cx.read_value(KIND_ITEMS, frame.before().get("items")).unwrap_or_else(|e| fail(e));
                 cx.def_in("item", frame.arg(2), "def").unwrap_or_else(|e| fail(e));
             },
-            |o, cx| {
+            |o| {
+                let cx = o.w.cx();
                 let a = |i| frame.arg(i);
                 let weapon = a(0).str().unwrap_or_else(|| fail(format!("a dispenser weapon of {}", a(0).show()))).to_string();
                 let def = cx.def_in("item", a(2), "def").unwrap();
                 let owner = ItemOwner::from_value(a(6), cx, "owner").unwrap_or_else(|e| fail(e));
                 o.dispense(&weapon, a(1).num(), def, a(3).vec3().unwrap(), a(4).vec3().unwrap(), a(5).num(), owner, a(7).num())
             },
-            |cx, _, _, e| items_after(cx, frame, frame.after().get("items"), e),
+            |world, _, e| items_after(world.cx(), frame, frame.after().get("items"), e),
         ),
         "items.dropFor" => {
             let drops_v = frame.arg(0);
@@ -881,7 +878,8 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                         }
                     }
                 },
-                |o, cx| {
+                |o| {
+                let cx = o.w.cx();
                     let mut book = Book::default();
                     let drops: Vec<Drop> = drops_v
                         .items()
@@ -892,7 +890,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                         .collect();
                     o.drop_for(&drops, frame.arg(2).vec3().unwrap(), frame.arg(3).vec3().unwrap(), frame.arg(4).num())
                 },
-                |cx, _, _, e| items_after(cx, frame, frame.after().get("items"), e),
+                |world, _, e| items_after(world.cx(), frame, frame.after().get("items"), e),
             )
         }
         "items.blast" => {
@@ -904,12 +902,12 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                 capture,
                 frame,
                 |cx| cx.read_value(KIND_ITEMS, frame.before().get("items")).unwrap_or_else(|e| fail(e)),
-                |o, _| {
+                |o| {
                     // The explosion's place among those the definitions name.
                     let id = book_id(o, &key);
                     o.blast(id, frame.arg(1).vec3().unwrap())
                 },
-                |cx, _, (), e| items_after(cx, frame, frame.after().get("items"), e),
+                |world, (), e| items_after(world.cx(), frame, frame.after().get("items"), e),
             )
         }
         "items.hurt" => replay(
@@ -918,12 +916,13 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
             |cx| {
                 cx.read_value(KIND_ITEMS, frame.before().get("items")).unwrap_or_else(|e| fail(e));
             },
-            |o, cx| {
+            |o| {
+                let cx = o.w.cx();
                 let v = frame.before().get("item");
                 let r = if v.handle().is_some() { Item::ref_in(v, cx, "item") } else { Item::value_in(v, cx, "item") }.unwrap_or_else(|e| fail(e));
                 o.hurt(r, frame.arg(1).num())
             },
-            |cx, _, (), e| items_after(cx, frame, frame.after().get("items"), e),
+            |world, (), e| items_after(world.cx(), frame, frame.after().get("items"), e),
         ),
         other => Outcome::Skipped(format!("no replay of {other}")),
     }
@@ -932,8 +931,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
 /// An explosion definition's index by its capture key, among those the
 /// replay's definitions hold.
 fn book_id(o: &mut Cx<LogWorld>, key: &str) -> DefId {
-    // SAFETY: the book is read only while the frame replays.
-    let book = unsafe { &*o.w.book };
+    let book = o.w.book;
     match book.index.get(key) {
         Some(&id) => DefId(id),
         None => fail(format!("the explosion {key} is no definition's")),

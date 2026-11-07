@@ -4,13 +4,10 @@
 //! rust/sim/schema/ordnance.mjs, which src/ordnance-sim.js serves with the
 //! same OrdnanceWorld (src/ordnance-world.js) the JavaScript rounds call.
 //!
-//! The store is reached through pointers taken from the instance's one
-//! `Sim` (as `Cx` does), never through a reference held across an import:
-//! JavaScript serving one may call back in (a death a round caused firing
-//! another round, a string read), and finds the store as the phase left it.
-//! A command's arguments come in the call block (`sim_call_room`), and its
-//! answer goes out there; an import's go out and come back in the import
-//! block (store::calls), as every import's do.
+//! A physical adapter borrows the battle root. Cx reborrows its canonical
+//! rows, strings and definitions through that adapter; a row loan ends before
+//! a callback can retire it or start another physical operation. Commands and
+//! standalone host imports retain their existing generated boundary blocks.
 //!
 //! A round handed to JavaScript (a projectile made, a bolt launched, a
 //! round's end, a grenade's first touch) crosses with its row as the store
@@ -18,12 +15,10 @@
 //! it is at that moment: the capture's observers read it then, and a sim
 //! event keeps a grenade's position.
 
-use std::ptr::addr_of_mut;
-
 use super::defs::{Defs, ExplosionDef, Field, OrdnanceDef, SCALE_FIELDS};
 use super::world::*;
 use super::Cx;
-use crate::abi::{sim, Sim};
+use crate::abi::Sim;
 use crate::gen::*;
 use crate::store::calls::{import_out, Calls};
 use crate::store::{same_f64, word_u32, DefId, KindCode, Nullable, Ref, RefSet, StrId, Strings, Vec3};
@@ -39,37 +34,28 @@ impl OrdnanceOwnerState {
 /// Whether the rounds' and the items' battle has water (ordnance.water,
 /// items.water): without, a water crossing is null and nobody is asked.
 
-fn water(which: usize) -> bool {
-    // SAFETY: one thread.
-    unsafe { (*addr_of_mut!(crate::abi::cold().ordnance.water))[which] }
+fn water(owner: &OrdnanceOwnerState, which: usize) -> bool {
+    owner.water[which]
 }
 
 /// The rounds' (0) or the items' (1) water, present or not.
 #[no_mangle]
-pub extern "C" fn ord_water(which: u32, present: u32) {
-    // SAFETY: one thread.
-    unsafe { (*addr_of_mut!(crate::abi::cold().ordnance.water))[(which & 1) as usize] = present != 0 };
+pub extern "C" fn ord_water(which: u32, present: u32) { ord_water_in(crate::abi::cold(), which, present) }
+
+pub(crate) fn ord_water_in(w: &mut crate::world::owner::World, which: u32, present: u32) {
+    w.ordnance.water[(which & 1) as usize] = present != 0;
 }
 
 /// The battle's definitions as JavaScript registered them (`ord_def`,
 /// `ord_explosion`).
 pub(crate) fn defs() -> *mut Defs {
-    // SAFETY: one thread; nothing holds a reference to the definitions
-    // across a call out of the module (Cx reads them through this pointer).
-    unsafe { (*addr_of_mut!(crate::abi::cold().ordnance.defs)).get_or_insert_with(Defs::default) as *mut Defs }
+    // Cold registration retains its pointer-shaped projection. Physical
+    // adapters borrow the bank through World::definitions instead.
+    defs_in(&mut crate::abi::cold().ordnance) as *mut Defs
 }
 
-/// The store and the strings, as pointers (the module's note).
-// Native fire and item services borrow the instance's existing store.
-// These pointers do not transfer ownership or construct another battle.
-// Recursive hits restore their current value frame before calling observers.
-// No borrow of a projectile row may survive a world mutation.
-// The single-threaded module boundary supplies this serialization guarantee.
-// Core native tests provide the same world trait over their local Store.
-pub(crate) fn parts() -> (*mut Store, *mut Strings) {
-    let s: *mut Sim = sim();
-    // SAFETY: `s` is the instance's Sim, which lives as long as the instance.
-    unsafe { (addr_of_mut!((*s).store), addr_of_mut!((*s).strings)) }
+pub(crate) fn defs_in(owner: &mut OrdnanceOwnerState) -> &mut Defs {
+    owner.defs.get_or_insert_with(Defs::default)
 }
 
 /// A definition's field from its two words (src/ordnance-sim.js `fieldWords`):
@@ -115,11 +101,13 @@ pub(crate) fn call_fields<const N: usize>(calls: &Calls, strings: &Strings) -> [
 // The definition table keeps JavaScript's absent/null/number field distinctions.
 // Flight and immediate hits read numeric policies prepared by the unit owner.
 // The class import never runs once per live projectile tick.
-pub extern "C" fn ord_def(id: u32) {
-    let s = sim();
+pub extern "C" fn ord_def(id: u32) { ord_def_in(crate::abi::world(), id) }
+
+pub(crate) fn ord_def_in(w: &mut crate::world::owner::World, id: u32) {
+    let s = &mut w.sim;
     let fields: [Field; 16] = call_fields(&s.calls, &s.strings);
     let def = OrdnanceDef::read(|name| fields[OrdnanceDef::FIELDS.iter().position(|f| *f == name).expect("an ordnance field")].clone());
-    OrdnanceOwnerState::install_ordnance(unsafe { &mut *defs() }, id, def);
+    OrdnanceOwnerState::install_ordnance(defs_in(&mut w.ordnance), id, def);
 }
 
 /// Registers explosion `id`: Damage, DamageRadiusInner, DamageRadiusOuter,
@@ -129,8 +117,10 @@ pub extern "C" fn ord_def(id: u32) {
 // A referenced explosion may arrive before the unit owner binds its services.
 // The cold binding pass supplies the corresponding native combat handle.
 // Recursive blasts later use that handle without looking up field names.
-pub extern "C" fn ord_explosion(id: u32) {
-    let s = sim();
+pub extern "C" fn ord_explosion(id: u32) { ord_explosion_in(crate::abi::world(), id) }
+
+pub(crate) fn ord_explosion_in(w: &mut crate::world::owner::World, id: u32) {
+    let s = &mut w.sim;
     let fields: [Field; 8] = call_fields(&s.calls, &s.strings);
     let def = ExplosionDef::read(|name| match name {
         "Damage" => fields[0].clone(),
@@ -138,7 +128,7 @@ pub extern "C" fn ord_explosion(id: u32) {
         "DamageRadiusOuter" => fields[2].clone(),
         _ => fields[3 + SCALE_FIELDS.iter().position(|f| *f == name).expect("an explosion field")].clone(),
     });
-    OrdnanceOwnerState::install_explosion(unsafe { &mut *defs() }, id, def);
+    OrdnanceOwnerState::install_explosion(defs_in(&mut w.ordnance), id, def);
 }
 
 /// The words of a command's record in the call block: 0 FireArgs, 1
@@ -162,13 +152,13 @@ pub extern "C" fn ord_args_words(which: u32) -> u32 {
 // Native unit services share the same collision, history and damage owner.
 // A projectile's immediate hit completes before the next flight entry advances.
 // Mirrors and pure presentation notices are delivered after this entry returns.
-pub extern "C" fn ord_update(dt: f64) -> u32 {
+pub extern "C" fn ord_update(dt: f64) -> u32 { ord_update_in(crate::abi::world(), dt) }
+
+pub(crate) fn ord_update_in(w: &mut crate::world::owner::World, dt: f64) -> u32 {
     let _owned_boundary = crate::units::f3::external();
     crate::units::f3::with_services(|recon| {
-        let (store, strings) = parts();
-        let mut world = JsWorld::with_services(store, strings,recon);
-        // SAFETY: the module's note.
-        let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
+        let mut world = JsWorld::with_services(w, recon);
+        let mut cx = Cx::new(&mut world);
         cx.update(dt);
         let s = cx.s();
         let o = &s.ordnance;
@@ -187,39 +177,39 @@ pub extern "C" fn ord_update(dt: f64) -> u32 {
 // Use the same native world services as the later flight update.
 // Launch identity must be published before any impact references that round.
 // The answer is a retained mirror handle, not a copied JavaScript projectile.
-pub extern "C" fn ord_fire() -> *const f64 {
+pub extern "C" fn ord_fire() -> *const f64 { ord_fire_in(crate::abi::world()) }
+
+pub(crate) fn ord_fire_in(w: &mut crate::world::owner::World) -> *const f64 {
     let _owned_boundary = crate::units::f3::external();
     let a = {
-        let (row, heap) = sim().calls.args();
+        let (row, heap) = w.sim.calls.args();
         FireArgs::take(row, heap)
     };
     let shot = crate::units::f3::with_services(|recon| {
-        let (store, strings) = parts();
-        let mut world = JsWorld::with_services(store, strings,recon);
-        // SAFETY: the module's note.
-        let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
+        let mut world = JsWorld::with_services(w, recon);
+        let mut cx = Cx::new(&mut world);
         cx.fire_round(a.def, a.origin, a.direction, a.owner, a.visual, a.ignore_body, a.emitter, a.channel, a.target_id, a.target_generation)
     });
-    answer(shot)
+    answer(&mut w.sim, shot)
 }
 
 /// ordnance.js flightMissile, its arguments (FlightMissileArgs) in the call
 /// block; the answer as ord_fire's (0: the round is gone).
 #[no_mangle]
-pub extern "C" fn ord_flight_missile() -> *const f64 {
+pub extern "C" fn ord_flight_missile() -> *const f64 { ord_flight_missile_in(crate::abi::world()) }
+
+pub(crate) fn ord_flight_missile_in(w: &mut crate::world::owner::World) -> *const f64 {
     let a = {
-        let (row, heap) = sim().calls.args();
+        let (row, heap) = w.sim.calls.args();
         FlightMissileArgs::take(row, heap)
     };
     let _owned_boundary = crate::units::f3::external();
     let flying = crate::units::f3::with_services(|recon| {
-        let (store, strings) = parts();
-        let mut world = JsWorld::with_services(store, strings,recon);
-        // SAFETY: the module's note.
-        let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
+        let mut world = JsWorld::with_services(w, recon);
+        let mut cx = Cx::new(&mut world);
         cx.flight_missile(a.round, a.flight_class, a.life, a.speed)
     });
-    answer(if flying { Some(Shot::Round(a.round)) } else { None })
+    answer(&mut w.sim, if flying { Some(Shot::Round(a.round)) } else { None })
 }
 
 /// A command's answer: the round's kind and row, into the call block.
@@ -227,8 +217,7 @@ pub extern "C" fn ord_flight_missile() -> *const f64 {
 // Beam and grenade admission can succeed without returning that handle.
 // Publish the row before its answer references are decoded by the caller.
 // A missing shot is distinct from a just-retired projectile's terminal sample.
-fn answer(shot: Option<Shot>) -> *const f64 {
-    let s = sim();
+fn answer(s: &mut Sim, shot: Option<Shot>) -> *const f64 {
     let Sim { store, calls, .. } = s;
     match shot {
         None => calls.result(1, |row, _| row[0] = 0.0),
@@ -282,9 +271,8 @@ extern "C" {
 }
 
 /// The battle as the module's imports give it.
-pub struct JsWorld<'a> {
-        store: *mut Store,
-        strings: *mut Strings,
+pub struct JsWorld<'w, 'a> {
+        w: &'w mut crate::world::owner::World,
         /// The items' targets as last read (None: read them again before the
         /// next use), and their sides toward each team asked about.
         targets: Option<Vec<TargetState>>,
@@ -294,15 +282,15 @@ pub struct JsWorld<'a> {
         recon: Option<crate::units::f3::WorldServices<'a>>,
     }
 
-impl<'a> JsWorld<'a> {
-    /// The world over the store and strings `parts()` gives.
+impl<'w, 'a> JsWorld<'w, 'a> {
+    /// One root borrow supplies every canonical row used by this adapter.
     pub(crate) fn with_services(
-        store: *mut Store, strings: *mut Strings,
+        w: &'w mut crate::world::owner::World,
         recon: Option<crate::units::f3::WorldServices<'a>>,
     ) -> Self {
+        w.ordnance.defs.get_or_insert_with(Defs::default);
         Self {
-            store,
-            strings,
+            w,
             targets: None,
             relations: Vec::new(),
             near: Vec::new(),
@@ -382,12 +370,11 @@ impl<'a> JsWorld<'a> {
 
     fn string(&self, id: StrId) -> String {
         // SAFETY: the module's note.
-        String::from_utf16_lossy(unsafe { &*self.strings }.units(id))
+        String::from_utf16_lossy(&self.w.sim.strings.units(id))
     }
 
     fn store(&self) -> &Store {
-        // SAFETY: the module's note; the borrow ends before the import.
-        unsafe { &*self.store }
+        &self.w.sim.store
     }
 
     /// A damage call's definition: the class, or the beam's copy of it
@@ -420,7 +407,7 @@ impl<'a> JsWorld<'a> {
     }
 }
 
-impl Drop for JsWorld<'_> {
+impl Drop for JsWorld<'_, '_> {
     fn drop(&mut self) {
         if let Some(frame) = self.near_frame {
             crate::units::f3::put_ordnance_query(frame,std::mem::take(&mut self.near));
@@ -436,7 +423,12 @@ fn point_of(a: PointAnswer) -> Option<Vec3> {
     a.found.then_some(a.point)
 }
 
-impl World for JsWorld<'_> {
+impl World for JsWorld<'_, '_> {
+    fn store(&self) -> &Store { &self.w.sim.store }
+    fn store_mut(&mut self) -> &mut Store { &mut self.w.sim.store }
+    fn strings_mut(&mut self) -> &mut Strings { &mut self.w.sim.strings }
+    fn definitions(&self) -> &Defs { self.w.ordnance.defs.as_ref().expect("prepared ordnance definitions") }
+
     fn cast(&mut self, origin: Vec3, direction: Vec3, far: f64, out: Out, ignore_body: Nullable<Ref<Body>>, static_only: Option<bool>) -> Option<Hit> {
         if crate::units::f3::active() {
             let ignore = match ignore_body { Nullable::Value(r) => Some(r), _ => None };
@@ -619,7 +611,7 @@ impl World for JsWorld<'_> {
     }
 
     fn water_crossing(&mut self, from: Vec3, to: Vec3) -> Option<Vec3> {
-        if !water(0) {
+        if !water(&self.w.ordnance, 0) {
             return None;
         }
         if crate::units::f3::active() { return crate::units::f3_sensors::water_crossing(from,to); }
@@ -647,7 +639,7 @@ impl World for JsWorld<'_> {
             return;
         }
         // SAFETY: the module's note.
-        let (def_tag, def) = field_words(def, unsafe { &mut *self.strings });
+        let (def_tag, def) = field_words(def, &mut self.w.sim.strings);
         import_explosion(&BlastArgs { def_tag, def, position, owner });
     }
 
@@ -688,7 +680,7 @@ impl World for JsWorld<'_> {
 
     fn projectile(&mut self, shot: Shot, kind: ShotKind) {
         if crate::units::f3::active() {
-            self.notice(F3OrdnanceEvent::Projectile,shot).emit(&mut sim().events);
+            self.notice(F3OrdnanceEvent::Projectile,shot).emit(&mut self.w.sim.events);
             return;
         }
         let (code, _) = shot_layout(shot);
@@ -699,7 +691,7 @@ impl World for JsWorld<'_> {
     fn launch(&mut self, bolt: Ref<Bolt>, tick: Nullable<f64>) {
         if crate::units::f3::active() {
             let mut notice = self.notice(F3OrdnanceEvent::Launch,Shot::Bolt(bolt));
-            notice.tick = tick; notice.emit(&mut sim().events);
+            notice.tick = tick; notice.emit(&mut self.w.sim.events);
             return;
         }
         let args = LaunchArgs { kind: KIND_BOLT as u32, tick };
@@ -723,7 +715,7 @@ impl World for JsWorld<'_> {
                     notice.point = impact.point; notice.normal = impact.normal; notice.surface = *surface;
                 }
             }
-            notice.emit(&mut sim().events);
+            notice.emit(&mut self.w.sim.events);
             return;
         }
         let (code, _) = shot_layout(shot);
@@ -742,7 +734,7 @@ impl World for JsWorld<'_> {
         let current=self.store().grenade.contains(grenade);
         if current {if let Some(ai)=self.recon.as_mut().and_then(|services|services.ai.as_mut()) {ai.grenade_contact(grenade);}}
         if crate::units::f3::active() {
-            self.notice(F3OrdnanceEvent::GrenadeContact,Shot::Grenade(grenade)).emit(&mut sim().events);
+            self.notice(F3OrdnanceEvent::GrenadeContact,Shot::Grenade(grenade)).emit(&mut self.w.sim.events);
             return;
         }
         let args = ContactArgs { kind: KIND_GRENADE as u32 };
@@ -751,7 +743,7 @@ impl World for JsWorld<'_> {
 
     fn bounce(&mut self, def: DefId, position: Vec3, speed: f64) {
         if crate::units::f3::active() {
-            F3OrdnanceNotice { event:F3OrdnanceEvent::Bounce, def, position, speed, ..Default::default() }.emit(&mut sim().events);
+            F3OrdnanceNotice { event:F3OrdnanceEvent::Bounce, def, position, speed, ..Default::default() }.emit(&mut self.w.sim.events);
             return;
         }
         import_bounce(&BounceArgs { def, position, speed });
@@ -780,7 +772,7 @@ impl World for JsWorld<'_> {
     }
 
     fn item_water_crossing(&mut self, from: Vec3, to: Vec3) -> Option<Vec3> {
-        if !water(1) {
+        if !water(&self.w.ordnance, 1) {
             return None;
         }
         if crate::units::f3::active() { return crate::units::f3_sensors::water_crossing(from,to); }
@@ -843,7 +835,7 @@ impl World for JsWorld<'_> {
             return;
         }
         // SAFETY: the module's note.
-        let (def_tag, def) = field_words(def, unsafe { &mut *self.strings });
+        let (def_tag, def) = field_words(def, &mut self.w.sim.strings);
         import_explode(&ItemBlastArgs { def_tag, def, position, owner });
         // An explosion moves what it reaches: the targets are read again.
         self.targets = None;
@@ -873,7 +865,7 @@ impl World for JsWorld<'_> {
     // Supply observers follow the health/ammunition mutation in source order.
     // A later unit publication cannot restore the target's earlier resources.
     fn pickup(&mut self, def: DefId, position: Vec3) {
-        if crate::units::f3::active() { PickupArgs {def,position}.emit(&mut sim().events); return; }
+        if crate::units::f3::active() { PickupArgs {def,position}.emit(&mut self.w.sim.events); return; }
         import_pickup(&PickupArgs { def, position });
     }
 }

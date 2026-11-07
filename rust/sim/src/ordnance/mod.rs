@@ -7,8 +7,8 @@
 //! in the order the JavaScript calls src/ordnance-world.js.
 //!
 //! The state is the store's (`gen::Store`: the ordnance's lists and the
-//! rounds by slot). A [`Cx`] reaches it through a pointer and never holds a
-//! reference to it across a call to the world, so a world whose calls come
+//! rounds by slot). A [`Cx`] reborrows it through its world and releases each
+//! row loan before a callback, so a world whose calls come
 //! back into the module (an explosion's damage reaching the items, a death
 //! dropping one) finds the store as the phase left it, as the JavaScript
 //! does. A round taken off its list is retired, not dropped: whatever
@@ -90,42 +90,18 @@ fn nullable<T>(x: Option<T>) -> Nullable<T> {
     }
 }
 
-/// A phase's reach: the store, the instance's strings and the battle's
-/// definitions (through pointers: see the module's note), and the world.
-pub struct Cx<'a, W: World + ?Sized> {
-    store: *mut Store,
-    strings: *mut Strings,
-    defs: *const Defs,
-    pub w: &'a mut W,
-}
-
+/// A phase borrows its world. Canonical rows and immutable definitions are
+/// lent only for each operation, so recursive callbacks cannot retain a
+/// sibling raw Store alias.
+pub struct Cx<'a, W: World + ?Sized> { pub w: &'a mut W }
 impl<'a, W: World + ?Sized> Cx<'a, W> {
-    /// # Safety
-    /// The pointers stay valid while the context lives, and nothing reaches
-    /// what they point to meanwhile but this context and those made inside
-    /// its world's calls (one at a time, as JavaScript calls back in).
-    pub unsafe fn new(store: *mut Store, strings: *mut Strings, defs: *const Defs, w: &'a mut W) -> Self {
-        Cx { store, strings, defs, w }
-    }
-
+    pub fn new(w: &'a mut W) -> Self { Self { w } }
     #[inline]
-    pub fn s(&mut self) -> &mut Store {
-        // SAFETY: Cx::new's contract; the borrow ends before any world call
-        // (the world is reached through `self` too).
-        unsafe { &mut *self.store }
-    }
-
+    pub fn s(&mut self) -> &mut Store { self.w.store_mut() }
     #[inline]
-    pub fn strings(&mut self) -> &mut Strings {
-        // SAFETY: as for s().
-        unsafe { &mut *self.strings }
-    }
-
+    pub fn strings(&mut self) -> &mut Strings { self.w.strings_mut() }
     #[inline]
-    pub fn defs(&self) -> &Defs {
-        // SAFETY: as for s(); definitions are only ever added.
-        unsafe { &*self.defs }
-    }
+    pub fn defs(&self) -> &Defs { self.w.definitions() }
 
     #[inline]
     fn ord(&self, id: DefId) -> &OrdnanceDef {

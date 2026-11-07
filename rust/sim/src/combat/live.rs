@@ -50,9 +50,8 @@ pub(crate) fn arc_hit(victim: ArcVictim, amount: f64, from: Vector3, owner: Ref<
         ArcVictim::Item(reference) => {
             // Items.hurt owns finite health and gone checks. Its native world
             // completes the mine's death explosion before this link resumes.
-            let (store,strings) = crate::ordnance::module::parts();
-            let mut world = crate::ordnance::module::JsWorld::with_services(store,strings,recon);
-            let mut cx = unsafe { crate::ordnance::Cx::new(store,strings,crate::ordnance::module::defs(),&mut world) };
+            let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), recon);
+            let mut cx = crate::ordnance::Cx::new(&mut world);
             cx.hurt(reference,amount);
         }
     }
@@ -207,11 +206,8 @@ impl super::impacts::BlastWorld for Blast<'_> {
     fn blast_items(&mut self, _: &super::impacts::BlastPacket, at: &Vector3) {
         // Items.blast marks a mine gone before its own explosion. The same
         // canonical list remains visible throughout that recursive call.
-        let (store, strings) = crate::ordnance::module::parts();
-        let mut world = crate::ordnance::module::JsWorld::with_services(store, strings,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
-        let mut cx = unsafe {
-            crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world)
-        };
+        let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+        let mut cx = crate::ordnance::Cx::new(&mut world);
         cx.blast(self.definition, [at.x, at.y, at.z]);
     }
     fn blast_props(&mut self, packet: &super::impacts::BlastPacket, at: &Vector3, _: Attacker) {

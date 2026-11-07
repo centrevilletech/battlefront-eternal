@@ -507,13 +507,11 @@ fn emit(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, yaw: f64,
 pub(crate) fn fire_round(def: crate::store::DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, body: Option<Ref<Body>>,
     emitter: BeamSource, channel: f64, target: f64, generation: f64, flight: Option<(StrId, f64, f64)>, services: Option<WorldServices<'_>>) -> Option<crate::ordnance::world::Shot> {
     let _scope = crate::vehicles::module::f2::allocation::enter(crate::vehicles::module::f2::allocation::ORDNANCE);
-    let (store, strings) = crate::ordnance::module::parts();
-
-    let mut world = crate::ordnance::module::JsWorld::with_services(store, strings, services);
-    let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
+    let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), services);
+    let mut cx = crate::ordnance::Cx::new(&mut world);
     let round = cx.fire_round(def, origin, direction, owner, None, body, emitter, channel, Some(target), Some(generation));
     if let Some((class, lifetime, speed)) = flight { if let Some(crate::ordnance::world::Shot::Round(r)) = round {
-        if sim().store.round.get(r).is_some_and(|r| r.kind == RoundKind::Missile) { cx.flight_missile(r, Some(class), lifetime, speed); }
+        if cx.s().round.get(r).is_some_and(|r| r.kind == RoundKind::Missile) { cx.flight_missile(r, Some(class), lifetime, speed); }
     } }
     round
 

@@ -225,20 +225,20 @@ impl World for NativeWorld<'_> {
     fn fire(
         &mut self,
         authority: &mut Authority,
-        store: &mut Store,
+        _store: &mut Store,
         def: u32,
         at: Vector3,
         direction: Vector3,
         owner: Ref<OwnerSnapshot>,
     ) {
-        // RemoteDroids.fire uses the ordinary F1 entry, default channel zero.
-        // The explicit Store borrow is released before any immediate damage.
-        let (_, strings) = crate::ordnance::module::parts();
-        let mut world =
-            crate::ordnance::module::JsWorld::with_services(store, strings, Some(f3::WorldServices { ai:self.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),recon: authority, queries: self.queries }));
-        let mut cx = unsafe {
-            crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world)
-        };
+        // Recon's owning entry has already published its canonical Store.
+        // Release that row loan before F1 can complete recursive damage.
+        let mut world = crate::ordnance::module::JsWorld::with_services(
+            crate::abi::world(), Some(f3::WorldServices {
+                ai: self.ai.as_mut().map(|ai| &mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),
+                recon: authority, queries: self.queries,
+            }));
+        let mut cx = crate::ordnance::Cx::new(&mut world);
         cx.fire_round(
             DefId(def),
             a(at),

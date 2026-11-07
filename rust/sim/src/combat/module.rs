@@ -574,11 +574,10 @@ impl CombatWorld for JsWorld<'_> {
         let ShotKind::Round { target_id, target_generation, .. } = shot.kind else { return };
         let (from, direction, owner) = (a3(from), a3(dir), OrdnanceOwner::Unit(self.r));
         self.changing(unit, combat, |recon| {
-            let (store, strings) = crate::ordnance::module::parts();
-            let mut world = crate::ordnance::module::JsWorld::with_services(store, strings, recon);
+            let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), recon);
             // Definitions are immutable during this phase. The shooter is
             // back in the store before F1 can emit instant-hit callbacks.
-            let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
+            let mut cx = crate::ordnance::Cx::new(&mut world);
             unsafe {
                 (*service).fire(&mut cx, from, direction, owner, target_id, target_generation);
             }
@@ -595,9 +594,8 @@ impl CombatWorld for JsWorld<'_> {
         let (origin, velocity, owner) = (a3(origin), a3(velocity), ItemOwner::Unit(self.r));
         let mut made = false;
         self.changing(unit, combat, |recon| {
-            let (store, strings) = crate::ordnance::module::parts();
-            let mut world = crate::ordnance::module::JsWorld::with_services(store, strings, recon);
-            let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
+            let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), recon);
+            let mut cx = crate::ordnance::Cx::new(&mut world);
             made = unsafe { (*service).dispense(&mut cx, frame.key, &mut frame.work, &mut frame.spare, most, origin, velocity, yaw, owner, team) };
         });
         crate::units::f3::items().restore(frame);
@@ -795,9 +793,8 @@ impl CombatWorld for JsWorld<'_> {
         // The retained immutable list has no sidecar borrow across spawn.
         let drops = crate::units::f3::items().drops(class) as *const [crate::items::Drop];
         self.changing(unit, combat, |recon| {
-            let (store, strings) = crate::ordnance::module::parts();
-            let mut world = crate::ordnance::module::JsWorld::with_services(store, strings, recon);
-            let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
+            let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), recon);
+            let mut cx = crate::ordnance::Cx::new(&mut world);
             unsafe {
                 let _allocations = crate::allocations::at(F3AllocationStage::Drop);
                 cx.drop_for(&*drops, position, velocity, yaw);

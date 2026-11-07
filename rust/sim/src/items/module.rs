@@ -1,13 +1,13 @@
 //! The things lying about on the module: the exports JavaScript drives them
 //! through once a world hands them over (src/items-sim.js), on the same
 //! store, definitions and world as the rounds' (rust/sim/src/ordnance/
-//! module.rs, whose note holds here: pointers, never a reference held
-//! across an import, the call block for arguments and answers).
+//! module.rs): one root borrow, short row loans around callbacks, and
+//! generated call blocks for arguments and answers.
 
-use crate::abi::{sim, Sim};
+use crate::abi::Sim;
 use crate::gen::*;
 use crate::ordnance::defs::{Field, ItemDef};
-use crate::ordnance::module::{call_fields, defs, field, parts, JsWorld};
+use crate::ordnance::module::{call_fields, defs_in, field, JsWorld};
 use crate::ordnance::Cx;
 use crate::store::{word_u32, DefId, Ref, StrId};
 
@@ -18,12 +18,13 @@ const ITEM_FIELDS: [&str; 12] = ["base", "Gravity", "Rebound", "Friction", "Life
 /// Registers item class `id` (DefTable order): its 12 fields (ITEM_FIELDS),
 /// two words each, in the call block.
 #[no_mangle]
-pub extern "C" fn items_def(id: u32) {
-    let s = sim();
+pub extern "C" fn items_def(id: u32) { items_def_in(crate::abi::world(), id) }
+
+pub(crate) fn items_def_in(w: &mut crate::world::owner::World, id: u32) {
+    let s = &mut w.sim;
     let fields: [Field; 12] = call_fields(&s.calls, &s.strings);
     let def = ItemDef::read(|name| fields[ITEM_FIELDS.iter().position(|f| *f == name).expect("an item field")].clone());
-    // SAFETY: the ordnance module's note on its definitions.
-    let d = unsafe { &mut *defs() };
+    let d = defs_in(&mut w.ordnance);
     let i = id as usize;
     if d.item.len() <= i {
         d.item.resize(i + 1, def.clone());
@@ -34,8 +35,10 @@ pub extern "C" fn items_def(id: u32) {
 /// The battle's item pools (items.js `pools`): `n` entries in the call
 /// block, each the base's string, then its size as a field (two words).
 #[no_mangle]
-pub extern "C" fn items_pools(n: u32) {
-    let s = sim();
+pub extern "C" fn items_pools(n: u32) { items_pools_in(crate::abi::world(), n) }
+
+pub(crate) fn items_pools_in(w: &mut crate::world::owner::World, n: u32) {
+    let s = &mut w.sim;
     let (row, _) = s.calls.args();
     let pools = (0..n as usize)
         .map(|i| {
@@ -43,8 +46,7 @@ pub extern "C" fn items_pools(n: u32) {
             (name, field(row[3 * i + 1], row[3 * i + 2], &s.strings))
         })
         .collect();
-    // SAFETY: as items_def.
-    unsafe { &mut *defs() }.pools = pools;
+    defs_in(&mut w.ordnance).pools = pools;
 }
 
 /// The words of a command's record in the call block: 0 SpawnArgs, 1
@@ -62,13 +64,11 @@ pub extern "C" fn items_args_words(which: u32) -> u32 {
 }
 
 /// Runs `f` on a context over the instance's store, definitions and world.
-fn with_cx<T>(f: impl FnOnce(&mut Cx<'_, JsWorld<'_>>) -> T) -> T {
+fn with_cx<T>(w: &mut crate::world::owner::World, f: impl FnOnce(&mut Cx<'_, JsWorld<'_, '_>>) -> T) -> T {
     let _owned_boundary = crate::units::f3::external();
     crate::units::f3::with_services(|recon| {
-        let (store, strings) = parts();
-        let mut world = JsWorld::with_services(store, strings,recon);
-        // SAFETY: the ordnance module's note.
-        let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
+        let mut world = JsWorld::with_services(w, recon);
+        let mut cx = Cx::new(&mut world);
         f(&mut cx)
     })
 }
@@ -78,9 +78,11 @@ fn with_cx<T>(f: impl FnOnce(&mut Cx<'_, JsWorld<'_>>) -> T) -> T {
 /// Whether the items' mirrors have anything to sync (1: items lie about or
 /// were retired; 0: none, and the lists are as they were).
 #[no_mangle]
-pub extern "C" fn items_update(dt: f64, targets: u32) -> u32 {
+pub extern "C" fn items_update(dt: f64, targets: u32) -> u32 { items_update_in(crate::abi::world(), dt, targets) }
+
+pub(crate) fn items_update_in(w: &mut crate::world::owner::World, dt: f64, targets: u32) -> u32 {
     if crate::units::f3::active() { crate::units::f3_items::targets(targets); }
-    with_cx(|cx| {
+    with_cx(w, |cx| {
         cx.items_update(dt, targets as usize);
         let s = cx.s();
         u32::from(!s.items.items.is_empty() || !s.item.retired.is_empty() || !s.items.owned.is_empty())
@@ -90,41 +92,47 @@ pub extern "C" fn items_update(dt: f64, targets: u32) -> u32 {
 /// items.js spawn, its arguments (SpawnArgs) in the call block. The answer,
 /// in the call block: KIND_ITEM and the item's row, or 0 for no room.
 #[no_mangle]
-pub extern "C" fn items_spawn() -> *const f64 {
+pub extern "C" fn items_spawn() -> *const f64 { items_spawn_in(crate::abi::world()) }
+
+pub(crate) fn items_spawn_in(w: &mut crate::world::owner::World) -> *const f64 {
     let a = {
-        let (row, heap) = sim().calls.args();
+        let (row, heap) = w.sim.calls.args();
         SpawnArgs::take(row, heap)
     };
-    let made = with_cx(|cx| cx.spawn(a.def, a.position, a.velocity, a.yaw, a.owner, a.team));
-    answer(made)
+    let made = with_cx(w, |cx| cx.spawn(a.def, a.position, a.velocity, a.yaw, a.owner, a.team));
+    answer(&mut w.sim, made)
 }
 
 /// items.js dispense (DispenseArgs); the answer as items_spawn's.
 #[no_mangle]
-pub extern "C" fn items_dispense() -> *const f64 {
+pub extern "C" fn items_dispense() -> *const f64 { items_dispense_in(crate::abi::world()) }
+
+pub(crate) fn items_dispense_in(w: &mut crate::world::owner::World) -> *const f64 {
     let a = {
-        let s = sim();
+        let s = &mut w.sim;
         let (row, heap) = s.calls.args();
         DispenseArgs::take(row, heap)
     };
     if crate::units::f3::active() {
         let ItemOwner::Unit(owner) = a.owner else { panic!("prepared owned dispenser source") };
-        let life = sim().store.unit.get(owner).expect("dispenser owner").generation;
+        let life = w.sim.store.unit.get(owner).expect("dispenser owner").generation;
         let mut frame = crate::units::f3::items().take_name(owner.slot,life,a.weapon);
-        let made = with_cx(|cx| cx.dispense_prepared(frame.key,&mut frame.work,&mut frame.spare,a.max_items,a.def,a.position,a.velocity,a.yaw,a.owner,a.team));
+        let made = with_cx(w, |cx| cx.dispense_prepared(frame.key,&mut frame.work,&mut frame.spare,a.max_items,a.def,a.position,a.velocity,a.yaw,a.owner,a.team));
         crate::units::f3::items().restore(frame);
-        return answer(made);
+        return answer(&mut w.sim, made);
     }
-    let weapon = String::from_utf16_lossy(sim().strings.units(a.weapon));
-    let made = with_cx(|cx| cx.dispense(&weapon, a.max_items, a.def, a.position, a.velocity, a.yaw, a.owner, a.team));
-    answer(made)
+    let weapon = String::from_utf16_lossy(w.sim.strings.units(a.weapon));
+    let made = with_cx(w, |cx| cx.dispense(&weapon, a.max_items, a.def, a.position, a.velocity, a.yaw, a.owner, a.team));
+    answer(&mut w.sim, made)
 }
 
 /// items.js dropFor (DropArgs); the answer as items_spawn's.
 #[no_mangle]
-pub extern "C" fn items_drop_for() -> *const f64 {
+pub extern "C" fn items_drop_for() -> *const f64 { items_drop_for_in(crate::abi::world()) }
+
+pub(crate) fn items_drop_for_in(w: &mut crate::world::owner::World) -> *const f64 {
     let (a, drops) = {
-        let s = sim();
+        let s = &mut w.sim;
         let a = {
             let (row, heap) = s.calls.args();
             DropArgs::take(row, heap)
@@ -132,33 +140,36 @@ pub extern "C" fn items_drop_for() -> *const f64 {
         let drops: Vec<super::Drop> = a.drops.iter().map(|d| super::Drop { def: d.def, probability: field(d.probability_tag as f64, d.probability, &s.strings) }).collect();
         (a, drops)
     };
-    let made = with_cx(|cx| cx.drop_for(&drops, a.position, a.velocity, a.yaw));
-    answer(made)
+    let made = with_cx(w, |cx| cx.drop_for(&drops, a.position, a.velocity, a.yaw));
+    answer(&mut w.sim, made)
 }
 
 /// items.js blast (ItemsBlastArgs: the explosion's index).
 #[no_mangle]
-pub extern "C" fn items_blast() {
+pub extern "C" fn items_blast() { items_blast_in(crate::abi::world()) }
+
+pub(crate) fn items_blast_in(w: &mut crate::world::owner::World) {
     let a = {
-        let (row, heap) = sim().calls.args();
+        let (row, heap) = w.sim.calls.args();
         ItemsBlastArgs::take(row, heap)
     };
-    with_cx(|cx| cx.blast(DefId(a.explosion), a.position));
+    with_cx(w, |cx| cx.blast(DefId(a.explosion), a.position));
 }
 
 /// items.js hurt (HurtArgs).
 #[no_mangle]
-pub extern "C" fn items_hurt() {
+pub extern "C" fn items_hurt() { items_hurt_in(crate::abi::world()) }
+
+pub(crate) fn items_hurt_in(w: &mut crate::world::owner::World) {
     let a = {
-        let (row, heap) = sim().calls.args();
+        let (row, heap) = w.sim.calls.args();
         HurtArgs::take(row, heap)
     };
-    with_cx(|cx| cx.hurt(a.item, a.amount));
+    with_cx(w, |cx| cx.hurt(a.item, a.amount));
 }
 
 /// An item made, or none: its kind and row into the call block.
-fn answer(made: Option<Ref<Item>>) -> *const f64 {
-    let s = sim();
+fn answer(s: &mut Sim, made: Option<Ref<Item>>) -> *const f64 {
     let Sim { store, calls, .. } = s;
     match made {
         None => calls.result(1, |row, _| row[0] = 0.0),

@@ -68,10 +68,10 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         } else {
             let base = self.item_def(def).base.clone();
             let live = {
-                let defs: *const crate::ordnance::defs::Defs = self.defs();
-                let store = self.s();
-                // Definitions remain immutable while the store is scanned.
-                let defs = unsafe { &*defs };
+                // Counting borrows rows and definitions together, read-only;
+                // no sibling pointer or mutable store loan crosses the scan.
+                let defs = self.defs();
+                let store = self.w.store();
                 store.items.items.iter().filter(|&&r| store.item.get(r).is_some_and(|i| defs.item(i.def).base == base)).count()
             };
             if live as f64 >= self.defs().pool(&base) { return None; }

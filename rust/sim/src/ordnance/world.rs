@@ -159,6 +159,11 @@ impl ShotKind {
 
 #[allow(clippy::too_many_arguments)]
 pub trait World {
+    fn store(&self) -> &crate::gen::Store;
+    fn store_mut(&mut self) -> &mut crate::gen::Store;
+    fn strings_mut(&mut self) -> &mut crate::store::Strings;
+    fn definitions(&self) -> &super::defs::Defs;
+
     // The rounds (OrdnanceWorld).
 
     /// collision.cast; `ignore_body` and `static_only` as passed (undefined: not passed).
