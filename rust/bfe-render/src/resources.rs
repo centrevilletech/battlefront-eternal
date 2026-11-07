@@ -102,7 +102,12 @@ fn configure(gl: &Gl, d: &ImageDesc, s: &Sampling, anisotropy: bool, float_linea
             let max=gl.get_parameter(0x84ff)?.as_f64().unwrap_or(1.0) as f32;
             gl.tex_parameterf(d.target,0x84fe,s.anisotropy.max(1.0).min(max));
         }
-        gl.tex_parameteri(d.target,Gl::TEXTURE_COMPARE_MODE,if s.compare.is_some() { Gl::COMPARE_REF_TO_TEXTURE } else { Gl::NONE } as i32);
+        // WebGLTextures only touches the compare mode of depth textures. Writing
+        // NONE onto colour textures (and an explicit MAX_LEVEL at upload) darkened
+        // alpha-to-coverage foliage 6-8% under ANGLE-GL on AMD radeonsi, so
+        // colour textures keep the driver defaults exactly as three leaves them.
+        let depth = d.format == 1026 || d.format == 1027;
+        if s.compare.is_some() || depth { gl.tex_parameteri(d.target,Gl::TEXTURE_COMPARE_MODE,if s.compare.is_some() { Gl::COMPARE_REF_TO_TEXTURE } else { Gl::NONE } as i32); }
         if let Some(compare) = s.compare { gl.tex_parameteri(d.target,Gl::TEXTURE_COMPARE_FUNC,compare as i32); }
     Ok(previous_anisotropy || set_anisotropy)
 }
@@ -568,7 +573,10 @@ impl GpuResources {
                 else if pixels.is_some() { gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_array_buffer_view(target,0,0,0,d.width,d.height,base,ty,pixels.as_ref())?; }
             }
         }
-        if !matches!(source.pixels, Pixels::Blocks(_, _)) { gl.tex_parameteri(d.target,Gl::TEXTURE_MAX_LEVEL,if s.mipmaps { (d.width.max(d.height).max(d.depth) as u32).ilog2() as i32 } else { 0 }); }
+        // A complete chain already is the default MAX_LEVEL range, and three
+        // never sets it (see the compare-mode note in configure). Only a texture
+        // with no chain is clamped to its base level.
+        if !s.mipmaps && !matches!(source.pixels, Pixels::Blocks(_, _)) { gl.tex_parameteri(d.target,Gl::TEXTURE_MAX_LEVEL,0); }
         if s.mipmaps && d.format != 1026 && d.format != 1027 { gl.generate_mipmap(d.target); }
         // WebGL has consumed the initial rows by return from texSubImage. No
         // scene descriptor may retain another live copy until the next GC.
