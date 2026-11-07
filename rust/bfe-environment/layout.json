@@ -119,7 +119,8 @@
     "SkyResult": {
       "solids": 1,
       "fadings": 1,
-      "on": 1
+      "on": 1,
+      "time": 1
     },
     "WeatherFrame": {
       "dt": 1,
@@ -148,12 +149,16 @@
     },
     "EnvironmentFrame": {
       "reach": 1,
-      "enhanced": 1
+      "enhanced": 1,
+      "dt": 1
     },
     "EnvironmentResult": {
       "sources": 1,
       "volumes": 1,
-      "fountains": 1
+      "fountains": 1,
+      "time": 1,
+      "dt": 1,
+      "modeChanged": 1
     },
     "DstFrame": {
       "dt": 1,
@@ -254,6 +259,100 @@
       "count": 1,
       "weapon": 1,
       "explosion": 1
+    },
+    "SurfaceConfig": {
+      "height": 1,
+      "bobbing": 1,
+      "normalCount": 1,
+      "normalFps": 1,
+      "bumpCount": 1,
+      "bumpFps": 1,
+      "maskCount": 1,
+      "maskFps": 1
+    },
+    "SurfaceFrame": {
+      "dt": 1,
+      "eye": 3,
+      "forward": 3,
+      "sun": 3,
+      "level": 1,
+      "commands": 1,
+      "ocean": 1,
+      "shoreQuality": 1,
+      "storm": 1,
+      "commandStart": 1,
+      "commandDropped": 1
+    },
+    "SurfaceCommand": {
+      "kind": 1,
+      "id": 1,
+      "position": 3,
+      "velocity": 3,
+      "life": 1,
+      "radius": 1,
+      "hasVelocity": 1,
+      "depth": 1
+    },
+    "SurfaceResult": {
+      "time": 1,
+      "wave": 1,
+      "normalA": 1,
+      "normalB": 1,
+      "normalMix": 1,
+      "bumpA": 1,
+      "bumpB": 1,
+      "bumpMix": 1,
+      "maskA": 1,
+      "maskB": 1,
+      "maskMix": 1,
+      "sun": 3,
+      "yaw": 1,
+      "quads": 1,
+      "oceanTime": 1,
+      "oceanX": 1,
+      "oceanZ": 1,
+      "foliageTime": 1,
+      "shoreTime": 1,
+      "shoreCount": 1,
+      "shoreDirty": 1,
+      "shoreTiles": 1,
+      "overflow": 1,
+      "waders": 32,
+      "stormFlash": 1,
+      "stormPosition": 3,
+      "stormCount": 1,
+      "stormDirty": 1,
+      "stormStrikes": 1
+    },
+    "ShoreTriangle": {
+      "a": 3,
+      "b": 3,
+      "c": 3
+    },
+    "ShorePoint": {
+      "position": 2,
+      "normal": 2
+    },
+    "WakeFrame": {
+      "dt": 1,
+      "actors": 1,
+      "clear": 1,
+      "add": 1,
+      "position": 3,
+      "velocity": 3,
+      "strength": 1,
+      "setTime": 1,
+      "time": 1
+    },
+    "WakeActor": {
+      "id": 1,
+      "position": 3,
+      "relevant": 1
+    },
+    "WakeResult": {
+      "time": 1,
+      "cursor": 1,
+      "overflow": 1
     }
   },
   "enums": {
@@ -271,6 +370,10 @@
       "hide",
       "siteStart",
       "siteEnd"
+    ],
+    "SurfaceCommandKind": [
+      "ripple",
+      "wader"
     ]
   },
   "limits": {
@@ -310,6 +413,22 @@
     "Fx": {
       "hotAttributes": 4,
       "smokeAttributes": 5
+    },
+    "Surface": {
+      "ripples": 100,
+      "segments": 40,
+      "waders": 1024,
+      "commands": 4096,
+      "shoreTiles": 169,
+      "shorePoints": 2048,
+      "shoreTriangles": 16384,
+      "shorePatches": 384,
+      "stormVertices": 1536
+    },
+    "Wakes": {
+      "count": 8,
+      "actors": 256,
+      "states": 1024
     }
   },
   "blocks": {

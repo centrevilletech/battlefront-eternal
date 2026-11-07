@@ -1,3 +1,5 @@
+import { loadEnvironment } from '../src/environment/module.js';
+await loadEnvironment();
 // Asset construction must register the required Rust foliage classes without
 // keeping a selectable CPU population. The fixture checks retained card and
 // placement inputs rather than comparing against a deleted JS selector.

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { lighting } from './materials.js';
 import { ownedFullScreenPass } from './render-passes.js';
 import { SKY_ORDER } from './world.js';
+import { SurfaceResult as RESULT } from './environment/layout.js';
 
 // A world-oriented panorama means looking around never invalidates the cloud
 // cache. Only the low-resolution volume integration runs at 10 Hz; lightning,
@@ -22,14 +23,16 @@ import { SKY_ORDER } from './world.js';
 
 
 export class StormSky {
- constructor({graphics,uniforms}) {
+ constructor({graphics,uniforms,surfaceHost}) {
    this.graphics=graphics;this.uniforms=uniforms;this.enabled=false;this.lastCloud=-Infinity;
-   this.nextStrike=6;this.strikeStart=-100;this.strikes=0;this.randomState=8217;
+   this.strikes=0;
    this.lastEye=new THREE.Vector3(Infinity,Infinity,Infinity);
    this.lightKeys=['ambient','ambientTop','ambientBottom','characterAmbient'];
    this.lightBase=this.lightKeys.map(key=>lighting[key].value.clone());this.previousFlash=0;
+   let randomState=8217;
+   const random=()=>((randomState=(Math.imul(randomState,1664525)+1013904223)>>>0)/4294967296);
    const bytes=new Uint8Array(64**3);
-   for(let i=0;i<bytes.length;i++)bytes[i]=this.random()*255;
+   for(let i=0;i<bytes.length;i++)bytes[i]=random()*255;
    this.noise=new THREE.Data3DTexture(bytes,64,64,64);
    this.noise.format=THREE.RedFormat;this.noise.minFilter=this.noise.magFilter=THREE.LinearFilter;
    this.noise.wrapS=this.noise.wrapT=this.noise.wrapR=THREE.RepeatWrapping;this.noise.unpackAlignment=1;this.noise.needsUpdate=true;
@@ -44,8 +47,8 @@ export class StormSky {
    this.horizonMaterials=new Map();this.replaced=[];
    this.sky.onBeforeRender=(renderer,scene,camera)=>{uniforms.viewRotation.value.copy(camera.matrixWorld);uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);};
    this.boltGeometry=new THREE.BufferGeometry();
-   this.positions=new Float32Array(1536*3);this.tangents=new Float32Array(1536*3);
-   this.edges=new Float32Array(1536);this.widths=new Float32Array(1536);this.energies=new Float32Array(1536);
+   this.positions=surfaceHost.stormPositions;this.tangents=surfaceHost.stormTangents;
+   this.edges=surfaceHost.stormEdges;this.widths=surfaceHost.stormWidths;this.energies=surfaceHost.stormEnergies;
    for(const [name,array,itemSize] of [['position',this.positions,3],['tangent',this.tangents,3],['edge',this.edges,1],['width',this.widths,1],['energy',this.energies,1]])
      this.boltGeometry.setAttribute(name,new THREE.BufferAttribute(array,itemSize).setUsage(THREE.DynamicDrawUsage));
    this.boltGeometry.setDrawRange(0,0);
@@ -53,7 +56,6 @@ export class StormSky {
    this.bolt.name='storm-lightning';this.bolt.frustumCulled=false;this.bolt.renderOrder=8;
    this.sky.visible=this.bolt.visible=false;graphics.farScene.add(this.sky,this.bolt);
  }
- random(){this.randomState=(Math.imul(this.randomState,1664525)+1013904223)>>>0;return this.randomState/4294967296;}
  setEnabled(enabled) {
    if(this.enabled===enabled)return;
    this.enabled=enabled;this.sky.visible=enabled;this.bolt.visible=false;
@@ -88,39 +90,19 @@ export class StormSky {
    for(let i=0;i<this.lightKeys.length;i++)lighting[this.lightKeys[i]].value.copy(this.lightBase[i]);
    this.previousFlash=0;
  }
- strike(time,camera) {
-   this.strikeStart=time;this.nextStrike=time+7+this.random()*11;this.strikes++;
-   // Distributed around the storm, never locked to the player's reticle.
-   const angle=this.random()*Math.PI*2,distance=430+this.random()*220;
-   const x=camera.position.x+Math.cos(angle)*distance,z=camera.position.z+Math.sin(angle)*distance;
-   const top=new THREE.Vector3(x,300+this.random()*100,z);this.uniforms.lightningPosition.value.copy(top);
-   let count=0;
-   const segment=(a,b,width,energy)=>{
-     for(const layer of [1,4])for(const [end,edge] of [[0,-1],[1,-1],[0,1],[0,1],[1,-1],[1,1]]){
-       const p=end?b:a;this.positions.set([p.x,p.y,p.z],count*3);this.tangents.set([b.x-a.x,b.y-a.y,b.z-a.z],count*3);
-       this.edges[count]=edge;this.widths[count]=width*layer;this.energies[count]=energy*(layer===1?1:.16);count++;
-     }
-   };
-   let a=top.clone();
-   const steps=28,bottom=-8;
-   for(let i=1;i<=steps;i++){
-     const b=new THREE.Vector3(a.x+(this.random()-.5)*22,top.y+(bottom-top.y)*i/steps,a.z+(this.random()-.5)*22);
-     segment(a,b,.7,1);
-     if(i>3&&i<22&&i%5===0){
-       let branch=a.clone();const dx=(this.random()-.5)*30,dz=(this.random()-.5)*30;
-       for(let j=0;j<6;j++){const tip=new THREE.Vector3(branch.x+dx+(this.random()-.5)*10,branch.y-10-this.random()*12,branch.z+dz);segment(branch,tip,.45,(1-j/7)*.65);branch=tip;}
-     }
-     a=b;
-   }
-   this.boltGeometry.setDrawRange(0,count);for(const attr of Object.values(this.boltGeometry.attributes))attr.needsUpdate=true;
- }
- update(time,camera) {
+ // StormSky.strike and pulse animation are native surface records. The
+ // resource host publishes the bounded vertex prefix only after a strike.
+ update(time,camera,result) {
    if(!this.enabled)return;
    this.restoreLight();
-   if(time>=this.nextStrike)this.strike(time,camera);
-   const age=time-this.strikeStart;
-   const pulse=(start,span,power)=>age<start||age>start+span?0:power*Math.sin(Math.PI*(age-start)/span);
-   const flash=pulse(0,.12,1)+pulse(.19,.08,.6)+pulse(.34,.19,.8);
+   this.strikes=result[RESULT.STORM_STRIKES];
+   this.uniforms.lightningPosition.value.fromArray(result,RESULT.STORM_POSITION);
+   if(result[RESULT.STORM_DIRTY]) {
+     this.boltGeometry.setDrawRange(0,result[RESULT.STORM_COUNT]);
+     const attributes=this.boltGeometry.attributes;
+     attributes.position.needsUpdate=attributes.tangent.needsUpdate=attributes.edge.needsUpdate=attributes.width.needsUpdate=attributes.energy.needsUpdate=true;
+   }
+   const flash=result[RESULT.STORM_FLASH];
    this.uniforms.lightningFlash.value=flash;this.bolt.visible=flash>.005;
    if(flash>0){
      for(let i=0;i<this.lightKeys.length;i++){

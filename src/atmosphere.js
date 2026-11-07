@@ -43,6 +43,7 @@ class SquareBatch {
     this.geometry.setAttribute('center', this.center);
     this.geometry.setAttribute('spin', this.spin);
     this.attributes = [this.center, this.spin];
+    for (const attribute of this.attributes) attribute.surfaceRange = { start: 0, count: 0 };
     this.geometry.instanceCount = 0;
     this.material = ownedEffectMaterial('effects/square', {
       uniforms: {
@@ -77,8 +78,8 @@ class SquareBatch {
     if (!n || this.external) return;
     for (let i = 0; i < this.attributes.length; i++) {
       const attribute = this.attributes[i];
-      attribute.clearUpdateRanges();
-      attribute.addUpdateRange(0, n * attribute.itemSize);
+      attribute.surfaceRange.count = n * attribute.itemSize;
+      attribute.updateRanges[0] = attribute.surfaceRange; attribute.updateRanges.length = 1;
       attribute.needsUpdate = true;
     }
   }
@@ -86,7 +87,7 @@ class SquareBatch {
 }
 
 export class Atmosphere {
-  constructor({ data, scene, collision, texture }) {
+  constructor({ data, scene, collision, texture, surfaceOwner = null }) {
     this.batches = [];
     const fog = data?.fogCloud;
     const fogMap = fog && texture(fog.texture);
@@ -104,7 +105,7 @@ export class Atmosphere {
     // by the phase the first time it needs it.
     const ground = makeGround();
     this.host = new AtmosphereHost(loaded(), classes.length, classes.reduce((n, c) => n + c.instances.length, 0), Boolean(fogMap),
-      (x, z) => { const hit = collision?.ground(x, z, 100000, ground); return hit ? hit.height : NaN; });
+      (x, z) => { const hit = collision?.ground(x, z, 100000, ground); return hit ? hit.height : NaN; }, surfaceOwner);
     const config = this.host.config;
     if (fogMap) {
       config[ATMOSPHERE.HAS_FOG] = 1;
@@ -146,8 +147,7 @@ export class Atmosphere {
   }
   // The frame: the camera and the time go to the phase, which steps the
   // clouds and leaves each texture's squares in view, far to near.
-  update(dt, camera) {
-    camera.updateMatrixWorld();
+  prepareFrame(dt, camera) {
     const view = this.host.view;
     view[VIEW.DT] = dt;
     view.set(camera.matrixWorld.elements, VIEW.CAMERA);
@@ -155,13 +155,19 @@ export class Atmosphere {
     view.set(camera.projectionMatrix.elements, VIEW.PROJECTION);
     view[VIEW.FOV] = camera.fov ?? NaN;
     view[VIEW.ASPECT] = camera.aspect ?? NaN;
-    this.host.update();
+  }
+  publishFrame() {
     const r = this.host.result;
     this.stats.fog = r[STATS.FOG]; this.stats.dust = r[STATS.DUST]; this.stats.objects = r[STATS.OBJECTS];
     for (let k = 0; k < this.batches.length; k++) {
       const at = STATS.STRIDE + k * SQUARE.STRIDE;
       this.batches[k].synced(r[at + SQUARE.COUNT], r, at);
     }
+  }
+  // Standalone resource fixtures use the identical native state owner.
+  update(dt, camera) {
+    camera.updateMatrixWorld();
+    this.prepareFrame(dt, camera); this.host.update(); this.publishFrame();
   }
   dispose() { for (const batch of this.batches) batch.dispose(); this.batches.length = 0; }
 }

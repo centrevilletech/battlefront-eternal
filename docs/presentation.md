@@ -224,3 +224,38 @@ body/head facts, visibility publication, DOM, pointer lock and raw input remain
 host responsibilities. Frozen synthetic records cover motion, lenses, shake,
 both death styles, a style transition and a distant death handoff without
 requiring game files.
+
+
+## World surfaces
+
+`bfe-environment` advances water, shore, ocean lightning, foliage clocks,
+weather, snow, atmosphere, sky flyers and placed-source state through one
+`surface_frame` call. The page writes fixed numeric facts, then publishes
+borrowed outputs at the existing resource boundaries. Foliage placement and
+wind deformation already belong to the Rust renderer; only its native clock
+is published here. Dedicated-server water physics remains a separate clock.
+
+`Water.update`, `updateWaders`, `updateRings`, `WaterShore.update` and its
+sampling helpers, `EnvironmentWakes.update` and `StormSky.strike` have no
+JavaScript state implementation. The page retains geometry/material/texture
+shells, particle-resource birth and kill application, collision queries and
+mirror/probe/cloud draw hooks. This state phase does not schedule renderer
+passes. Separate native owners still advance destruction and particles.
+
+Surface births use a 4,096-row circular command block. A paused overflow drops
+its oldest commands and reports the count; the water retains its original
+newest 100 rings. Contacts use stable ids in 1,024 rows. Shore keeps at most
+169 tiles, 2,048 unique points per tile, 16,384 collision triangles per sampled
+tile and 384 visible patches (192 at High). Excess collision/point rows are
+counted and skipped. Each frame samples at most two tiles, in the original
+stable order. Wake storage retains 1,024 actor identities, 256 actor facts and
+eight trail points, replacing the least recently seen identity at capacity.
+Every frame reuses its native storage; resource views retain the shared heap.
+
+The generated environment layout declares these records and limits.
+`tools/surface-replay.mjs` records synthetic phase input, collision replies and
+output bits; native `surface-replay` validates every result and draw attribute.
+Synthetic tests cover long pauses, oversized births, actor identity churn,
+cache movement and allocation-free native advancement. Electron supplies the
+standard scalar sine, cosine, atan2 and two-argument norm used by the replaced
+pixel-visible water and lightning math, following the camera import pattern.

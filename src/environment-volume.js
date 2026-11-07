@@ -2,36 +2,55 @@ import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { particleDepth } from './particle-depth.js';
 
-export const WAKE_COUNT = 8;
-// Fixed storage shared by water and fog. Sampling actor motion never allocates
-// in the render loop, and stationary actors do not continuously excavate fog.
+import { VisibilityHost, loaded } from './environment/module.js';
+import { Wakes as LIMITS, WakeFrame as FRAME, WakeActor as ACTOR, WakeResult as RESULT } from './environment/layout.js';
+
+export const WAKE_COUNT = LIMITS.COUNT;
+// EnvironmentWakes is now only a uniform shell around native wake records.
+// The placed-effects phase owns advancement; isolated resource fixtures use
+// the same owner through update, without a second motion implementation.
 export class EnvironmentWakes {
-  constructor() {
-    this.points = Array.from({length: WAKE_COUNT}, () => new THREE.Vector4(0, 0, 0, -100));
+  constructor(host = null) {
+    this.host = host || new VisibilityHost(loaded(), 0);
+    if (!host) this.host.start();
+    this.points = Array.from({length: WAKE_COUNT}, () => new THREE.Vector4());
     this.motion = Array.from({length: WAKE_COUNT}, () => new THREE.Vector4());
-    this.states = new WeakMap(); this.cursor = 0; this.time = 0;
+    this.ids = new WeakMap(); this.nextId = 0;
+    this.synced();
   }
-  add(position, velocity, strength = 1) {
-    const i = this.cursor++ % WAKE_COUNT;
-    this.points[i].set(position.x, position.y, position.z, this.time);
-    this.motion[i].set(velocity.x, velocity.y, velocity.z, strength);
+  get time() { return this.host.wakeResult[RESULT.TIME]; }
+  set time(value) { const f=this.host.wakeFrame;f[FRAME.SET_TIME]=1;f[FRAME.TIME]=value;this.host.x.vis_wake_apply();this.synced(); }
+  get cursor() { return this.host.wakeResult[RESULT.CURSOR]; }
+  prepare(actors) {
+    const rows=this.host.wakeActors;
+    let count=0;
+    for(let i=0;i<actors.length&&count<LIMITS.ACTORS;i++) {
+      const actor=actors[i];if(!actor?.position)continue;
+      let id=this.ids.get(actor);if(!id){id=++this.nextId;this.ids.set(actor,id);}
+      const at=count++*ACTOR.STRIDE,p=actor.position;
+      rows[at+ACTOR.RELEVANT]=1;rows[at+ACTOR.ID]=id;rows[at+ACTOR.POSITION]=p.x;rows[at+ACTOR.POSITION+1]=p.y;rows[at+ACTOR.POSITION+2]=p.z;
+    }
+    this.host.wakeFrame[FRAME.ACTORS]=count;
   }
-  update(dt, actors, relevant) {
-    this.time += dt;
-    for (const actor of actors) {
-      if (!actor?.position) continue;
-      let s = this.states.get(actor);
-      if (!s) { s = {position: actor.position.clone(), velocity: new THREE.Vector3(), gap: 0}; this.states.set(actor, s); }
-      s.velocity.copy(actor.position).sub(s.position).divideScalar(Math.max(dt, 1e-5));
-      const speed = s.velocity.length();
-      s.gap += dt;
-      if (dt > 0 && s.gap >= .10 && speed > .3 && speed < 60 && relevant(actor.position)) {
-        this.add(actor.position, s.velocity, Math.min(1.6, .4 + speed * .1)); s.gap = 0;
-      }
-      s.position.copy(actor.position);
+  synced() {
+    for(let i=0;i<WAKE_COUNT;i++) {
+      this.points[i].fromArray(this.host.wakePoints,i*4);this.motion[i].fromArray(this.host.wakeMotion,i*4);
     }
   }
-  clear() { for (const p of this.points) p.w = -100; this.states = new WeakMap(); }
+  add(position,velocity,strength=1) {
+    const f=this.host.wakeFrame;f[FRAME.ADD]=1;f[FRAME.STRENGTH]=strength;
+    f[FRAME.POSITION]=position.x;f[FRAME.POSITION+1]=position.y;f[FRAME.POSITION+2]=position.z;
+    f[FRAME.VELOCITY]=velocity.x;f[FRAME.VELOCITY+1]=velocity.y;f[FRAME.VELOCITY+2]=velocity.z;
+    this.host.x.vis_wake_apply();this.synced();
+  }
+  update(dt,actors,relevant) {
+    this.prepare(actors);this.host.wakeFrame[FRAME.DT]=dt;
+    // Standalone resource callers supply relevance as a collision/visibility
+    // fact. The live phase computes it natively from placed source positions.
+    for(let i=0;i<actors.length&&i<LIMITS.ACTORS;i++)this.host.wakeActors[i*ACTOR.STRIDE+ACTOR.RELEVANT]=relevant(actors[i].position)?1:0;
+    this.host.x.vis_wake_update();this.synced();
+  }
+  clear() { this.host.wakeFrame[FRAME.CLEAR]=1;this.host.x.vis_wake_apply();this.synced(); }
 }
 
 // Periodic, correlated fractal density. White noise averaged along a ray
@@ -72,6 +91,7 @@ export class EnvironmentVolume {
     geometry.index = box.index; geometry.attributes.position = box.attributes.position;
     for (const [key, size] of Object.entries({origin:3,direction:3,extent:3,kind:1}))
       geometry.setAttribute(key, new THREE.InstancedBufferAttribute(new Float32Array(capacity * size), size).setUsage(THREE.DynamicDrawUsage));
+    this.instanceAttributes = Object.values(geometry.attributes).filter(attribute => attribute.isInstancedBufferAttribute);
     this.noise = noiseTexture();
     this.target = new THREE.WebGLRenderTarget(1,1,{depthBuffer:false,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter});
     this.resolution={value:new THREE.Vector2(1,1)};
@@ -116,7 +136,7 @@ export class EnvironmentVolume {
       v.direction.toArray(attributes.direction.array,i*3);v.extent.toArray(attributes.extent.array,i*3);
       attributes.kind.array[i]=v.kind;
     }
-    if(volumes.length)for(const a of Object.values(attributes))if(a.isInstancedBufferAttribute)a.needsUpdate=true;
+    if(volumes.length)for(let i=0;i<this.instanceAttributes.length;i++)this.instanceAttributes[i].needsUpdate=true;
   }
   dispose(){
     this.mesh.removeFromParent();this.mesh.geometry.dispose();this.mesh.material.dispose();

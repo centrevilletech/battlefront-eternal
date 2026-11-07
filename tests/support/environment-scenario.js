@@ -39,9 +39,9 @@ export function runEnvironment(EnvironmentEffects, presentationLoaded) {
     camera.position.set(Math.sin(t * 0.2) * 70 + (frame % 120 === 119 ? 500 : 0), 4 + Math.sin(t), 30 + t * 2);
     camera.rotation.set(0, Math.sin(t * 0.3) * 1.5, 0, 'YXZ');
     e.update(dt, camera, []);
-    const index = (list, key) => list.map((v) => e.instances.findIndex((i) => i[key] === v));
+    const index = (list, key) => Array.from({length:list.length},(_,i)=>list[i]).map((v) => e.instances.findIndex((i) => i[key] === v));
     rows.push([e.stats.activeSources, e.stats.volumes, e.visibleFountains.length,
-      ...index(e.visibleVolumes, 'volume'), -1, ...e.visibleFountains.map((f) => e.instances.indexOf(f)), -1,
+      ...index(e.visibleVolumes, 'volume'), -1, ...Array.from({length:e.visibleFountains.length},(_,i)=>e.instances.indexOf(e.visibleFountains[i])), -1,
       ...e.instances.map((i) => (i.handle ? 1 : 0))]);
   }
   if (e.host && e.host.x.memory.buffer !== memory) throw new Error('the module\'s memory moved');

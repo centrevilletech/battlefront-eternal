@@ -418,7 +418,8 @@ export class FountainJets {
   // its pools (the tier's, and the outer one's if it has one).
   update(time, fountains) {
     let shown = 0;
-    for (const f of fountains) if (f.slot < FOUNTAINS) {
+    for (let i = 0; i < fountains.length; i++) {
+      const f = fountains[i]; if (f.slot >= FOUNTAINS) continue;
       this.visible[shown++] = f.slot;
       this.levels[f.slot] = f.level;
       this.lows[f.slot] = f.low ?? f.level;

@@ -19,7 +19,7 @@ function geometry(count,seeds){
 // weather.rs); the page keeps the meshes, materials and uniforms, and answers
 // the phase's two queries of its collision world.
 export class Weather {
-  constructor({data, scene, collision, water, settings}) {
+  constructor({data, scene, collision, water, settings, surfaceOwner = null}) {
     // The rain's authored numbers: its range (drops fall within this of the eye) and
     // how many drops the classic rain has; the Enhanced rain uses up to 32 times
     // as many (the geometry's capacity), within 8192.
@@ -50,7 +50,7 @@ export class Weather {
     };
     // The rain's clock, camera motion, cover cache and splashes are Rust's; this
     // keeps the meshes, materials and uniforms the shaders read.
-    this.host=new WeatherHost(loaded(),this.capacity,enhanced,this.rangeFor(enhanced),enhanced?32:16,height,impact,normal);
+    this.host=new WeatherHost(loaded(),this.capacity,enhanced,this.rangeFor(enhanced),enhanced?32:16,height,impact,normal,surfaceOwner);
     // The shader's values: where the eye is, how it moves, the wind, the drops'
     // look, and the cover texture its drops are clipped against.
     const c=p.Color||[216,220,228];
@@ -102,10 +102,11 @@ export class Weather {
   // The frame: the camera's place and the time go to the phase, which advances
   // the clock, the camera's motion, the cover cache and the splashes; what it
   // left goes to the uniforms and the draws' visibility.
-  update(dt,camera){
+  prepareFrame(dt,camera){
     const frame=this.host.frame;frame[WEATHER_FRAME.DT]=dt;
     frame[WEATHER_FRAME.POSITION]=camera.position.x;frame[WEATHER_FRAME.POSITION+1]=camera.position.y;frame[WEATHER_FRAME.POSITION+2]=camera.position.z;
-    this.host.update();
+  }
+  publishFrame() {
     const r=this.host.result,u=this.material.uniforms;
     u.rainTime.value=r[RESULT.RAIN_TIME];u.eye.value.fromArray(r,RESULT.EYE);u.cameraMotion.value.fromArray(r,RESULT.CAMERA_MOTION);
     if(r[RESULT.CHANGED])this.cover.texture.needsUpdate=true;this.cover.queries=r[RESULT.COVER_QUERIES];
@@ -113,6 +114,11 @@ export class Weather {
     this.mist.visible=r[RESULT.MIST_VISIBLE]===1;
     this.sheets.mesh.visible=r[RESULT.SHEETS_VISIBLE]===1;
     this.impacts.synced(r[RESULT.IMPACT_TIME],r[RESULT.IMPACTS_SHOWN]===1,r[RESULT.IMPACTS_CHANGED]===1,r[RESULT.IMPACTS_NEXT],r[RESULT.IMPACTS_QUERIES]);
+  }
+  // Standalone resource fixtures use the identical native state owner.
+  update(dt, camera) {
+    camera.updateMatrixWorld();
+    this.prepareFrame(dt, camera); this.host.update(); this.publishFrame();
   }
   dispose(){this.unsubscribe?.();for(const mesh of [this.mesh,this.mist]){mesh.removeFromParent();mesh.geometry.dispose();mesh.material.dispose();}this.impacts.dispose();this.sheets.dispose();this.cover.texture.dispose();}
 }

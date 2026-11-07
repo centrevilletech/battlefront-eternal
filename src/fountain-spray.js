@@ -24,6 +24,6 @@ export class FountainSpray {
   // Each fountain keeps its slot, so one leaving view doesn't reseed another.
   update(time,fountains){this.mesh.material.uniforms.sprayTime.value=time;this.mesh.visible=fountains.length>0;
     for(const s of this.sources)s.w=0;
-    for(const f of fountains)this.sources[f.slot]?.set(f.position.x,f.position.y,f.position.z,1);}
+    for(let i=0;i<fountains.length;i++){const f=fountains[i];this.sources[f.slot]?.set(f.position.x,f.position.y,f.position.z,1);}}
   dispose(){this.mesh.removeFromParent();this.mesh.geometry.dispose();this.mesh.material.dispose();}
 }

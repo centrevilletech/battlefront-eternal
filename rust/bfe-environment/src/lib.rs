@@ -17,6 +17,11 @@ pub mod sky;
 pub mod solver;
 pub mod weather;
 pub mod snow;
+pub mod surfaces;
+pub mod shore;
+pub mod surface_math;
+pub mod wakes;
+pub mod storm;
 
 pub use destruction::Destruction;
 pub use fx::Fx;
@@ -103,6 +108,7 @@ impl Default for SnowPhase {
 /// The sky's flyers phase and the blocks it shares with the page.
 // The sky's flyers phase and its blocks.
 pub struct SkyPhase {
+    time: f64,
     pub config: Vec<f64>,
     pub frame: Vec<f64>,
     pub result: Vec<f64>,
@@ -112,6 +118,7 @@ pub struct SkyPhase {
 impl SkyPhase {
     pub fn new(classes: usize) -> SkyPhase {
         SkyPhase {
+            time: 0.0,
             config: vec![0.0; layout::sky_config::STRIDE + classes * layout::sky_class::STRIDE],
             frame: vec![0.0; layout::sky_frame::STRIDE],
             result: vec![0.0; classes * layout::sky_result::STRIDE],
@@ -124,7 +131,9 @@ impl SkyPhase {
     }
 
     pub fn update(&mut self) {
+        if self.frame[layout::sky_frame::DT] > 0.0 { self.time += self.frame[layout::sky_frame::DT]; }
         self.sky.as_mut().expect("start first").update(&self.frame, &mut self.result);
+        for row in self.result.chunks_exact_mut(layout::sky_result::STRIDE) { row[layout::sky_result::TIME] = self.time; }
     }
 }
 
@@ -166,6 +175,10 @@ impl WeatherPhase {
 /// The placed effects' visibility phase and the blocks it shares with the page.
 // The placed effects' visibility phase and its blocks.
 pub struct EnvironmentPhase {
+    pub wakes: wakes::Wakes,
+    time: f64,
+    mode: Option<bool>,
+    pub handles: Vec<f64>,
     pub config: Vec<f64>,
     pub view: Vec<f64>,
     pub frame: Vec<f64>,
@@ -178,10 +191,11 @@ pub struct EnvironmentPhase {
 impl EnvironmentPhase {
     pub fn new(count: usize) -> EnvironmentPhase {
         EnvironmentPhase {
+            wakes: wakes::Wakes::new(), time: 0.0, mode: None, handles: vec![0.0; count],
             config: vec![0.0; count * layout::environment_instance::STRIDE],
             view: vec![0.0; layout::view::STRIDE],
             frame: vec![0.0; layout::environment_frame::STRIDE],
-            result: vec![0.0; layout::environment_result::STRIDE + count * 3],
+            result: vec![0.0; layout::environment_result::STRIDE + count * 4],
             camera: common::Camera::new(),
             visibility: None,
             count,
@@ -194,8 +208,34 @@ impl EnvironmentPhase {
 
     pub fn update(&mut self) {
         self.camera.read(&self.view);
+        let dt = self.frame[layout::environment_frame::DT].max(0.0).min(0.1);
+        self.time += dt;
         let (reach, enhanced) = (self.frame[layout::environment_frame::REACH], self.frame[layout::environment_frame::ENHANCED] != 0.0);
         self.visibility.as_ref().expect("start first").update(&self.camera, reach, enhanced, &mut self.result);
+        let changed = self.mode != Some(enhanced);
+        if changed { self.wakes.clear(); }
+        let visibility = self.visibility.as_ref().expect("start first");
+        self.wakes.frame[layout::wake_frame::DT] = dt;
+        if !enhanced { self.wakes.frame[layout::wake_frame::ACTORS] = 0.0; }
+        self.wakes.update(|p| visibility.positions.iter().any(|v| {
+            let (x,y,z) = (v[0]-p[0],v[1]-p[1],v[2]-p[2]); x*x+y*y+z*z < 144.0
+        }));
+        self.mode = Some(enhanced);
+        // EnvironmentEffects.update's play/kill decisions are records. The page
+        // applies them to required particle resources in authored source order.
+        for i in 0..self.count {
+            let classic = self.config[i*layout::environment_instance::STRIDE + layout::environment_instance::CLASSIC] != 0.0;
+            let reset = changed && !classic;
+            let playing = self.handles[i] != 0.0 && !reset;
+            let eligible = !enhanced || classic;
+            let visible = self.result[layout::environment_result::STRIDE+i] != 0.0;
+            self.result[layout::environment_result::STRIDE+3*self.count+i] =
+                if eligible && visible && !playing { if reset { 2.0 } else { 1.0 } }
+                else if (eligible && !visible && playing) || (reset && self.handles[i] != 0.0) { -1.0 } else { 0.0 };
+        }
+        self.result[layout::environment_result::TIME] = self.time;
+        self.result[layout::environment_result::DT] = dt;
+        self.result[layout::environment_result::MODE_CHANGED] = f64::from(changed);
     }
 }
 
@@ -210,6 +250,93 @@ mod exports {
 
     // One static a piece of state: a WebAssembly instance is single-threaded and
     // the page never re-enters a call.
+    static mut SURFACES: Option<surfaces::Phase> = None;
+    static mut SHORE_INPUT: Vec<f64> = Vec::new();
+
+    #[link(wasm_import_module = "env")]
+    extern "C" {
+        fn host_shore_tile(x: f64, z: f64, height: f64) -> u32;
+        fn host_shore_exposed(x: f64, z: f64, height: f64) -> u32;
+    }
+    struct ShoreQueries;
+    impl shore::Queries for ShoreQueries {
+        fn triangles(&mut self, x: f64, z: f64, height: f64, output: &mut [f64]) -> usize {
+            // SAFETY: the callback writes only SHORE_INPUT, a disjoint input
+            // block. No phase state is borrowed by or exposed to the host.
+            let count = unsafe { host_shore_tile(x, z, height) } as usize;
+            let n = count.min(layout::surface::SHORE_TRIANGLES) * layout::shore_triangle::STRIDE;
+            unsafe { output[..n].copy_from_slice(&(&*addr_of_mut!(SHORE_INPUT))[..n]); }
+            count
+        }
+        fn exposed(&mut self, x: f64, z: f64, height: f64) -> bool {
+            // SAFETY: a scalar collision query with no phase re-entry.
+            unsafe { host_shore_exposed(x, z, height) != 0 }
+        }
+    }
+    fn surfaces() -> &'static mut surfaces::Phase {
+        // SAFETY: one single-threaded environment owner per module instance.
+        unsafe { (*addr_of_mut!(SURFACES)).as_mut().expect("surface_new first") }
+    }
+    #[no_mangle]
+    pub extern "C" fn surface_reserve() {
+        // Reserve the shared owner's heap before any resource takes a view.
+        // Dropping this cold reservation leaves dlmalloc reusable space; frame
+        // paths never grow memory or detach the renderer's borrowed arrays.
+        let mut reserve = vec![0u8; 48 * 1024 * 1024];
+        std::hint::black_box(&mut reserve);
+    }
+    #[no_mangle]
+    pub extern "C" fn surface_new() {
+        // SAFETY: called once during owner construction, before publication.
+        unsafe { let mut phase = surfaces::Phase::new(); phase.prepare_math::<surface_math::Page>();
+            *addr_of_mut!(SURFACES) = Some(phase);
+            *addr_of_mut!(SHORE_INPUT) = vec![0.0; layout::surface::SHORE_TRIANGLES * layout::shore_triangle::STRIDE]; }
+    }
+    #[no_mangle]
+    pub extern "C" fn surface_config_ptr() -> *mut f64 { surfaces().config.as_mut_ptr() }
+    #[no_mangle]
+    pub extern "C" fn surface_frame_ptr() -> *mut f64 { surfaces().frame.as_mut_ptr() }
+    #[no_mangle]
+    pub extern "C" fn surface_commands_ptr() -> *mut f64 { surfaces().commands.as_mut_ptr() }
+    #[no_mangle]
+    pub extern "C" fn surface_result_ptr() -> *const f64 { surfaces().result.as_ptr() }
+    #[no_mangle]
+    pub extern "C" fn surface_ring_ptr(kind: u32) -> *const f32 {
+        let s = surfaces(); match kind { 0 => s.positions.as_ptr(), 1 => s.uvs.as_ptr(), _ => s.alpha.as_ptr() }
+    }
+    #[no_mangle]
+    pub extern "C" fn surface_storm_ptr(kind: u32) -> *const f32 {
+        let storm = &surfaces().storm;
+        match kind { 0 => storm.positions.as_ptr(), 1 => storm.tangents.as_ptr(), 2 => storm.edges.as_ptr(), 3 => storm.widths.as_ptr(), _ => storm.energies.as_ptr() }
+    }
+    #[no_mangle]
+    pub extern "C" fn surface_shore_ptr(kind: u32) -> *const f32 {
+        if kind == 0 { surfaces().shore.points.as_ptr() } else { surfaces().shore.phases.as_ptr() }
+    }
+    #[no_mangle]
+    pub extern "C" fn surface_triangles_ptr() -> *mut f64 {
+        // SAFETY: this separate block is written only during host_shore_tile.
+        unsafe { (&mut *addr_of_mut!(SHORE_INPUT)).as_mut_ptr() }
+    }
+    #[no_mangle]
+    pub extern "C" fn surface_update() { surfaces().update::<surface_math::Page, _>(&mut ShoreQueries); }
+
+    /// The complete world-surface state phase, independent of renderer passes.
+    /// All installed owners consume their already written blocks in page order.
+    #[no_mangle]
+    pub extern "C" fn surface_frame() {
+        surface_update();
+        // SAFETY: the host is single-threaded; these tests borrow no owner
+        // across the next call. Missing map systems simply have no instance.
+        unsafe {
+            if (*addr_of_mut!(WEATHER)).is_some() { weather_update(); }
+            if (*addr_of_mut!(SNOW)).is_some() { snow_update(); }
+            if (*addr_of_mut!(ATMOSPHERE)).is_some() { atm_update(); }
+            if (*addr_of_mut!(SKY)).is_some() { sky_update(); }
+            if (*addr_of_mut!(ENVIRONMENT)).is_some() { vis_update(); }
+        }
+    }
+
     static mut STATE: Option<Destruction> = None;
 
     fn state() -> &'static mut Destruction {
@@ -529,6 +656,22 @@ mod exports {
     pub extern "C" fn vis_result_ptr() -> *const f64 { placed().result.as_ptr() }
     #[no_mangle]
     pub extern "C" fn vis_result_len() -> u32 { placed().result.len() as u32 }
+    #[no_mangle]
+    pub extern "C" fn vis_handles_ptr() -> *mut f64 { placed().handles.as_mut_ptr() }
+    #[no_mangle]
+    pub extern "C" fn vis_wake_frame_ptr() -> *mut f64 { placed().wakes.frame.as_mut_ptr() }
+    #[no_mangle]
+    pub extern "C" fn vis_wake_actors_ptr() -> *mut f64 { placed().wakes.actors.as_mut_ptr() }
+    #[no_mangle]
+    pub extern "C" fn vis_wake_result_ptr() -> *const f64 { placed().wakes.result.as_ptr() }
+    #[no_mangle]
+    pub extern "C" fn vis_wake_points_ptr() -> *const f64 { placed().wakes.points.as_ptr() }
+    #[no_mangle]
+    pub extern "C" fn vis_wake_motion_ptr() -> *const f64 { placed().wakes.motion.as_ptr() }
+    #[no_mangle]
+    pub extern "C" fn vis_wake_apply() { placed().wakes.apply(); }
+    #[no_mangle]
+    pub extern "C" fn vis_wake_update() { placed().wakes.update(|_| true); }
     #[no_mangle]
     pub extern "C" fn vis_start() { placed().start() }
     #[no_mangle]

@@ -2,6 +2,8 @@ import { ownedEffectMaterial } from './rust-render/effect-material.js';
 import * as THREE from 'three';
 import { lighting } from './materials.js';
 import { EnhancedOcean } from './ocean-storm.js';
+import { SurfaceHost } from './environment/surfaces.js';
+import { SurfaceFrame as FRAME, SurfaceResult as RESULT } from './environment/layout.js';
 
 // Whether the Enhanced ocean storms: when the map's weather rains (any
 // Precipitation but Type("Quads"), Hoth's snow, as game.js reads it). Kamino
@@ -32,7 +34,8 @@ export function oceanGeometry(reach = 4096) {
 
 
 export class OceanSurface {
-  constructor({data,texture,graphics,weather=null}) {
+  constructor({data,texture,graphics,weather=null,surfaceHost=null}) {
+    this.host=surfaceHost||new SurfaceHost();
     this.graphics=graphics;this.height=data.height;this.time=0;this.look=data.look||{};this.stormy=storms(weather);
     const look=data.look;
     const cells=new Uint8Array(data.grid*data.grid);
@@ -58,7 +61,7 @@ export class OceanSurface {
   applyMode() {
     this.enhanced=this.graphics.settings?.get('oceanEffects')==='enhanced';
     if(this.enhanced&&!this.waves){
-      this.waves=new EnhancedOcean(this.classicMaterial.uniforms,this.graphics,{storm:this.stormy,look:this.look});
+      this.waves=new EnhancedOcean(this.classicMaterial.uniforms,this.graphics,{storm:this.stormy,look:this.look,surfaceHost:this.host});
       this.near.add(this.waves.spray);if(this.waves.haze)this.far.add(this.waves.haze);
     }
     this.geometry=this.enhanced?this.waves.geometry:this.classicGeometry;
@@ -66,11 +69,19 @@ export class OceanSurface {
     for(const mesh of [this.near,this.far]){mesh.geometry=this.geometry;mesh.material=this.material;}
     this.waves?.setEnabled(this.enhanced);
   }
+  // OceanSurface.update's clock and grid snap come from the surface phase.
+  // The sky probe and storm draws retain their renderer-side resource hooks.
+  publishFrame(result,camera) {
+    this.time=result[RESULT.OCEAN_TIME];this.material.uniforms.time.value=this.time;
+    this.near.position.set(result[RESULT.OCEAN_X],this.height,result[RESULT.OCEAN_Z]);
+    this.far.position.copy(this.near.position);
+    if(this.enhanced)this.waves.update(camera,this.height,result);
+  }
+  // Isolated ocean resource callers use the same native clock and snap.
   update(dt,camera) {
-    this.time+=dt;this.material.uniforms.time.value=this.time;
-    const x=Math.floor(camera.position.x/8)*8,z=Math.floor(camera.position.z/8)*8;
-    for(const mesh of [this.near,this.far])mesh.position.set(x,this.height,z);
-    if(this.enhanced)this.waves.update(camera,this.height);
+    camera.updateMatrixWorld();this.host.prepare(dt,camera);
+    this.host.frame[FRAME.OCEAN]=1;this.host.frame[FRAME.STORM]=this.enhanced&&this.waves.storm?.enabled?1:0;
+    this.host.update();this.publishFrame(this.host.result,camera);
   }
   dispose(){this.near.removeFromParent();this.far.removeFromParent();this.unsubscribe?.();this.waves?.dispose();this.classicGeometry.dispose();this.classicMaterial.dispose();this.mask.dispose();}
 }

@@ -6,6 +6,8 @@ import { lighting } from "./materials.js";
 import { particleDepth } from "./particle-depth.js";
 import { WATER_QUALITIES } from "./settings.js";
 import { OceanSurface } from "./ocean-surface.js";
+import { SurfaceHost } from "./environment/surfaces.js";
+import { Surface as LIMITS, SurfaceConfig as CONFIG, SurfaceFrame as FRAME, SurfaceResult as RESULT } from "./environment/layout.js";
 
 // Terrain water, as the 2004 game draws it on PC: a flat surface over the
 // map's water cells (32 m squares on Theed) at the layer's height, bobbing
@@ -28,28 +30,12 @@ import { OceanSurface } from "./ocean-surface.js";
 // in over the first 15% of their life and out over the rest), and under the
 // surface the screen takes UnderwaterColor.
 
-const BOB = 0.06; // m
-const BOB_RATE = 0.3; // Hz
-const DISTORT = 0.03; // share of the screen the bump frames jitter the reflection
-const RIPPLE_MAX = 100;
-const RIPPLE_SEGMENTS = 40;
-const RIPPLE_BAND = 0.35; // m either side of the ring's radius
-const RIPPLE_LIFT = 0.01; // m above the surface
-const RIPPLE_GROWTH = 1.5; // m/s
-const RIPPLE_RANGE = 120; // m from the camera past which rings are dropped
+const RIPPLE_MAX = LIMITS.RIPPLES;
+const RIPPLE_SEGMENTS = LIMITS.SEGMENTS;
+const DISTORT = 0.03;
 const REFLECTION_SIZE = [512, 256];
 // The layer the mirror draws the sky's models on, alone (reflect()).
 const MIRROR_SKY_LAYER = 5;
-// A soldier in the water: wakes come every 1 / (0.3 v^2 + 4) s, a fall
-// faster than 5 m/s splashes (at most once a second), and with his head under
-// for 3 s he drowns at 30 health a second.
-const WAKE_LIFE = 2;
-const WAKE_RADIUS = 0.25;
-const SPLASH_SPEED = 5; // m/s down
-const SPLASH_GAP = 1; // s
-const DROWN_AFTER = 3; // s
-const DROWN_DAMAGE = 30; // per second
-
 const rgba = (c, fallback = [255, 255, 255, 255]) => {
   const [r, g, b, a = 255] = c || fallback;
   return [r / 255, g / 255, b / 255, a / 255];
@@ -100,11 +86,14 @@ export class Water extends WaterState {
   // data: the map's water (tools/zero_water.py); texture(name) gives a map
   // texture; graphics draws the scene; weather is the map's (an Enhanced
   // ocean storms only where it rains, ocean-surface.js).
-  constructor({ data, texture, graphics, weather = null }) {
+  constructor({ data, texture, graphics, weather = null, surfaceOwner = null }) {
     super(data);
     this.data = data;
     this.graphics = graphics;
     const look = data.look;
+    this.host = surfaceOwner ? new SurfaceHost(surfaceOwner) : new SurfaceHost();
+    this.host.config[CONFIG.HEIGHT] = data.height;
+    this.host.config[CONFIG.BOBBING] = (look.OscillationEnable?.[0] ?? 1) > 0 ? 1 : 0;
     // The original draws an ocean where the look asks (OceanEnable). A sea
     // the look leaves flat (Kashyyyk's: water out to every edge of its
     // grid) takes the Enhanced ocean too, while Enhanced ocean effects are
@@ -131,6 +120,10 @@ export class Water extends WaterState {
     this.normals = this.frames("NormalMapTextures");
     this.bumps = this.frames("BumpMapTextures");
     this.masks = this.frames("SpecularMaskTextures");
+    const config = this.host.config;
+    config[CONFIG.NORMAL_COUNT] = this.normals?.textures.length || 0; config[CONFIG.NORMAL_FPS] = this.normals?.fps || 0;
+    config[CONFIG.BUMP_COUNT] = this.bumps?.textures.length || 0; config[CONFIG.BUMP_FPS] = this.bumps?.fps || 0;
+    config[CONFIG.MASK_COUNT] = this.masks?.textures.length || 0; config[CONFIG.MASK_FPS] = this.masks?.fps || 0;
 
     // The surface: a grid of PatchDivisions x scale quads per cell, and the
     // patched cells' own triangles, in world space at the layer's height.
@@ -278,7 +271,6 @@ export class Water extends WaterState {
       new THREE.Vector3((i + 1) * data.cell - data.offset[0], data.height + 1, (j + 1) * data.cell - data.offset[1])));
 
     // Rings.
-    this.ripples = [];
     this.rings = this.ringMesh(texture("FXrippl1"));
     graphics.scene.add(this.rings);
 
@@ -337,9 +329,7 @@ export class Water extends WaterState {
     this.reflectedLevel = NaN;
     this.reflectFrames = 0;
     this.tintPass.onBeforeRender = (renderer, scene, camera) => this.captureSurface(renderer, camera);
-    this.waders = new Map();
-    this.waderList = [];
-    this.oceanSurface = ocean ? new OceanSurface({ data, texture, graphics, weather }) : null;
+    this.oceanSurface = ocean ? new OceanSurface({ data, texture, graphics, weather, surfaceHost: this.host }) : null;
     this.oceanAlways = oceanLook;
     this.applyQuality();
     graphics.settings.onChange((key) => { if (key === "waterQuality" || key === "oceanEffects") this.applyQuality(); });
@@ -520,12 +510,15 @@ export class Water extends WaterState {
   ringMesh(map) {
     const quads = RIPPLE_MAX * RIPPLE_SEGMENTS;
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(quads * 4 * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(quads * 4 * 2), 2).setUsage(THREE.DynamicDrawUsage));
-    geometry.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(quads * 4), 1).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute("position", new THREE.BufferAttribute(this.host.positions, 3).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(this.host.uvs, 2).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute("alpha", new THREE.BufferAttribute(this.host.alpha, 1).setUsage(THREE.DynamicDrawUsage));
     const index = new Uint32Array(quads * 6);
     for (let q = 0; q < quads; q++) index.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4 + 2, q * 4 + 1, q * 4 + 3], q * 6);
     geometry.setIndex(new THREE.BufferAttribute(index, 1));
+    // Retain update-range objects too: BufferAttribute.addUpdateRange creates
+    // a fresh object on every frame, although these prefixes have one range.
+    for (const attribute of Object.values(geometry.attributes)) attribute.surfaceRange = { start: 0, count: 0 };
     geometry.setDrawRange(0, 0);
     const mesh = new THREE.Mesh(
       geometry,
@@ -546,133 +539,61 @@ export class Water extends WaterState {
   // wet ones for the surface's contact foam and ripples (High/Ultra).
   soldierStep(dt, contact, feet, head, gun, velocity, splash) {
     const damage = super.soldierStep(dt, contact, feet, head, gun, velocity, splash);
-    if (this.level > feet.y && this.over(feet.x, feet.z)) {
-      let wader = this.waders.get(contact);
-      if (!wader) this.waders.set(contact, (wader = { position: new THREE.Vector3(), speed: 0, seen: 0, depth: 0 }));
-      wader.position.copy(feet);
-      wader.speed = Math.hypot(velocity.x, velocity.z);
-      wader.depth = this.level - feet.y;
-      wader.seen = this.time;
-    }
+    if (this.level > feet.y && this.over(feet.x, feet.z)) this.host.wader(contact, feet, velocity, this.level - feet.y);
     return damage;
   }
 
-  // The nearest wading soldiers, for the shaders.
-  updateWaders(camera) {
-    const list = this.waderList;
-    list.length = 0;
-    for (const [contact, wader] of this.waders) {
-      if (this.time - wader.seen > 0.25) this.waders.delete(contact);
-      else list.push(wader);
-    }
-    if (list.length > WADERS) list.sort((a, b) => a.position.distanceToSquared(camera.position) - b.position.distanceToSquared(camera.position));
-    const uniform = this.tintPass.material.uniforms.waders.value;
-    for (let i = 0; i < WADERS; i++) {
-      const wader = list[i];
-      if (wader) uniform[i].set(wader.position.x, wader.position.z, wader.depth, Math.min(1, 0.55 + wader.speed * 0.12));
-      else uniform[i].w = 0;
-    }
-  }
-
-  // A ring spreading from `position`, starting at `radius`, for `life` s.
-  // velocity (a wading soldier's) shapes it into a wake.
+  // Water.ripple's birth is a scalar command; the phase owns its lifetime,
+  // oldest-ring replacement, wake shape and all ring vertex construction.
   ripple(position, life, radius, velocity = null) {
-    if (!this.over(position.x, position.z)) return;
-    if (this.ripples.length >= RIPPLE_MAX) this.ripples.shift();
-    this.ripples.push({ x: position.x, z: position.z, age: 0, life, radius, velocity: velocity ? velocity.clone() : null });
+    if (this.over(position.x, position.z)) this.host.ripple(position, life, radius, velocity);
   }
 
-  update(dt, camera) {
-    this.ocean?.update(dt, camera);
-    this.time += dt;
-    this.wave = this.bobbing ? BOB * Math.sin(2 * Math.PI * BOB_RATE * this.time) : 0;
+  prepareFrame(dt, camera) {
+    this.host.prepare(dt, camera);
+    const f = this.host.frame, sun = lighting.sunDirection.value;
+    f[FRAME.LEVEL] = this.level;
+    f[FRAME.SUN] = sun.x; f[FRAME.SUN + 1] = sun.y; f[FRAME.SUN + 2] = sun.z;
+    f[FRAME.OCEAN] = this.ocean ? 1 : 0;
+    f[FRAME.STORM] = this.ocean?.enhanced && this.ocean.waves.storm?.enabled ? 1 : 0;
+  }
+
+  // Only resource publication remains from Water.update and updateRings.
+  // Texture indices, mixing, sun/yaw, contacts and vertices are native outputs.
+  publishFrame(camera) {
+    const r = this.host.result;
+    this.time = r[RESULT.TIME]; this.wave = r[RESULT.WAVE];
     this.group.position.y = this.farGroup.position.y = this.wave;
-    const pick = (frames, uniformA, uniformB, uniformMix, pass = this.mirrorPass) => {
-      if (!frames) return;
-      const n = frames.textures.length;
-      const f = frames.fps * this.time;
-      const k = Math.floor(f);
-      const u = pass.material.uniforms;
-      u[uniformA].value = frames.textures[k % n];
-      u[uniformB].value = frames.textures[(k + 1) % n];
-      u[uniformMix].value = f - k;
-    };
-    pick(this.normals, "normalA", "normalB", "normalMix");
-    pick(this.bumps, "bumpA", "bumpB", "bumpMix");
-    if (this.lowPass) pick(this.masks, "maskA", "maskB", "maskMix", this.lowPass);
+    this.publishFrames(this.normals, this.mirrorPass.material.uniforms, 'normalA', 'normalB', 'normalMix', RESULT.NORMAL_A);
+    this.publishFrames(this.bumps, this.mirrorPass.material.uniforms, 'bumpA', 'bumpB', 'bumpMix', RESULT.BUMP_A);
+    if (this.lowPass) this.publishFrames(this.masks, this.lowPass.material.uniforms, 'maskA', 'maskB', 'maskMix', RESULT.MASK_A);
     const u = this.mirrorPass.material.uniforms;
-    u.time.value = this.time;
-    this.tintPass.material.uniforms.time.value = this.time;
-    u.toSun.value.copy(lighting.sunDirection.value).negate().normalize();
-    this.updateWaders(camera);
-    camera.getWorldDirection(this.forward);
-    u.viewYaw.value = Math.atan2(this.forward.x, this.forward.z) - Math.PI / 2;
-
-    // Rings: grown and faded, dropped when spent or far from the camera.
-    this.ripples = this.ripples.filter((r) => {
-      r.age += dt;
-      return r.age < r.life && Math.hypot(r.x - camera.position.x, r.z - camera.position.z) < RIPPLE_RANGE;
-    });
-    this.updateRings();
+    u.time.value = this.time; this.tintPass.material.uniforms.time.value = this.time;
+    u.toSun.value.fromArray(r, RESULT.SUN); u.viewYaw.value = r[RESULT.YAW];
+    const waders = this.tintPass.material.uniforms.waders.value;
+    for (let i = 0; i < WADERS; i++) waders[i].fromArray(r, RESULT.WADERS + i * 4);
+    const geometry = this.rings.geometry, quads = r[RESULT.QUADS];
+    if (quads) {
+      this.publishRingAttribute(geometry.attributes.position, quads);
+      this.publishRingAttribute(geometry.attributes.uv, quads);
+      this.publishRingAttribute(geometry.attributes.alpha, quads);
+    }
+    geometry.setDrawRange(0, quads * 6);
+    if (this.ocean) this.ocean.publishFrame(r, camera);
   }
-
-  updateRings() {
-    const geometry = this.rings.geometry;
-    const pos = geometry.getAttribute("position");
-    const uv = geometry.getAttribute("uv");
-    const alpha = geometry.getAttribute("alpha");
-    const y = this.level + RIPPLE_LIFT;
-    let q = 0;
-    for (const r of this.ripples) {
-      const f = r.age / r.life;
-      const k = f < 0.15 ? f / 0.15 : (1 - f) / 0.85;
-      const a = Math.min(0.75, 0.25 * r.life * k);
-      const radius = r.radius + RIPPLE_GROWTH * r.age;
-      // A wake is a V: brighter ahead, shaped by how fast the wader moves.
-      let shape = null;
-      if (r.velocity) {
-        const v = r.velocity;
-        const speed = v.length();
-        let base = a * (speed < 1.5 ? speed / 1.5 : 1);
-        const m = Math.hypot(v.x, v.z) / 1.5;
-        const g = 4 * (m - 1) ** 2 + 0.4;
-        base *= g / (g + 1);
-        const heading = Math.atan2(v.z, v.x);
-        shape = { base, m, heading };
-      }
-      for (let s = 0; s < RIPPLE_SEGMENTS; s++) {
-        const a0 = (s / RIPPLE_SEGMENTS) * 2 * Math.PI;
-        const a1 = ((s + 1) / RIPPLE_SEGMENTS) * 2 * Math.PI;
-        let segAlpha = a;
-        if (shape) {
-          const c = Math.cos((a0 + a1) / 2 - shape.heading);
-          const w = shape.m <= 1 ? (1 - ((1 - c) * shape.m) ** 2) * (2 - shape.m) : 1 - (1 - c * shape.m) ** 2 / shape.m;
-          segAlpha = shape.base * Math.max(w, 0);
-        }
-        if (segAlpha <= 1 / 255) continue;
-        const o = q * 4;
-        const outer = radius + RIPPLE_BAND;
-        const inner = Math.max(radius - RIPPLE_BAND, 0);
-        pos.setXYZ(o, r.x + Math.cos(a0) * outer, y, r.z + Math.sin(a0) * outer);
-        pos.setXYZ(o + 1, r.x + Math.cos(a0) * inner, y, r.z + Math.sin(a0) * inner);
-        pos.setXYZ(o + 2, r.x + Math.cos(a1) * outer, y, r.z + Math.sin(a1) * outer);
-        pos.setXYZ(o + 3, r.x + Math.cos(a1) * inner, y, r.z + Math.sin(a1) * inner);
-        uv.setXY(o, s * 0.25, 0);
-        uv.setXY(o + 1, s * 0.25, 1);
-        uv.setXY(o + 2, (s + 1) * 0.25, 0);
-        uv.setXY(o + 3, (s + 1) * 0.25, 1);
-        for (let v = 0; v < 4; v++) alpha.setX(o + v, segAlpha);
-        q++;
-      }
-    }
-    // Only the quads drawn go up, and none when there are none: the buffers
-    // have room for many more and were sent whole every frame.
-    if (q) for (const attribute of [pos, uv, alpha]) {
-      attribute.clearUpdateRanges();
-      attribute.addUpdateRange(0, q * 4 * attribute.itemSize);
-      attribute.needsUpdate = true;
-    }
-    geometry.setDrawRange(0, q * 6);
+  publishFrames(frames, uniforms, a, b, mix, at) {
+    if (!frames) return;
+    const r = this.host.result;
+    uniforms[a].value = frames.textures[r[at]]; uniforms[b].value = frames.textures[r[at + 1]];
+    uniforms[mix].value = r[at + 2];
+  }
+  publishRingAttribute(attribute, quads) {
+    attribute.surfaceRange.count = quads * 4 * attribute.itemSize;
+    attribute.updateRanges[0] = attribute.surfaceRange; attribute.updateRanges.length = 1; attribute.needsUpdate = true;
+  }
+  update(dt, camera) {
+    camera.updateMatrixWorld();
+    this.prepareFrame(dt, camera); this.host.update(); this.publishFrame(camera);
   }
 
   // Render the mirror image into the reflection target: the far scene from

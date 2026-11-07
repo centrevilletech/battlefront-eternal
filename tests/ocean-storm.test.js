@@ -1,3 +1,5 @@
+import { loadEnvironment } from '../src/environment/module.js';
+await loadEnvironment();
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';

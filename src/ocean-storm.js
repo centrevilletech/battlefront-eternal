@@ -51,12 +51,12 @@ export function stormGeometry() {
 // A sea under a dry sky (Kashyyyk: Islands) keeps the map's own sky, which it
 // reflects and fades into (sky-probe.js), in its look's colours and its sun.
 export class EnhancedOcean {
- constructor(shared,graphics,{storm=false,look={}}={}) {
+ constructor(shared,graphics,{storm=false,look={},surfaceHost}={}) {
    this.uniforms={...shared,stormStrength:{value:Math.min(1,Math.max(.15,shared.amplitude.value/1.25))},rainRipples:{value:storm?1:0},
      hazeColor:{value:new THREE.Color(.065,.085,.11)},eye:{value:new THREE.Vector2()},seaLevel:{value:0},
      sceneDepth:particleDepth.map,softParticles:particleDepth.enabled,depthResolution:particleDepth.resolution,cameraRange:particleDepth.cameraRange};
    const defines=storm?{STORM:''}:{};
-   this.storm=storm?new StormSky({graphics,uniforms:this.uniforms}):null;
+   this.storm=storm?new StormSky({graphics,uniforms:this.uniforms,surfaceHost}):null;
    this.probe=storm?null:new SkyProbe(graphics);
    if(this.probe){
      const [r,g,b]=look.RefractionColor||[45,53,74],reflect=look.ReflectionColor?.[3]??255;
@@ -83,9 +83,9 @@ export class EnhancedOcean {
    this.spray.visible=enabled;if(this.haze)this.haze.visible=enabled;
    this.storm?.setEnabled(enabled);if(this.probe)this.probe.enabled=enabled;
  }
- update(camera,height){
+ update(camera,height,result){
    this.uniforms.eye.value.set(camera.position.x,camera.position.z);this.uniforms.seaLevel.value=height;
-   this.storm?.update(this.uniforms.time.value,camera);this.probe?.update(this.uniforms.time.value,camera);
+   this.storm?.update(this.uniforms.time.value,camera,result);this.probe?.update(this.uniforms.time.value,camera);
  }
  dispose(){
    this.storm?.dispose();this.probe?.dispose();

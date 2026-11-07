@@ -41,7 +41,7 @@ const floatTexture = (data, width, height) => {
 };
 
 export class Snow {
-  constructor({ data, scene, collision, water, texture }) {
+  constructor({ data, scene, collision, water, texture, surfaceOwner = null }) {
     const p = data.precipitation;
     const get = (key, fallback) => p[key]?.[0] ?? fallback;
     // The flakes of one box: how many, and how they fall and ease.
@@ -58,7 +58,7 @@ export class Snow {
       if (water?.over(x, z)) height = Math.max(height, water.level);
       return height;
     };
-    this.host = new SnowHost(loaded(), cover);
+    this.host = new SnowHost(loaded(), cover, surfaceOwner);
     const config = this.host.config;
     config[CONFIG.COUNT] = count;
     config[CONFIG.FALL] = get('Velocity', 10); config[CONFIG.WANDER] = get('VelocityRange', 1);
@@ -110,8 +110,7 @@ export class Snow {
   // The frame: the camera and the time go to the phase, which moves the
   // flakes and the wind, refreshes the cover cache and picks the boxes in
   // view; what it changed is marked for upload.
-  update(dt, camera) {
-    camera.updateMatrixWorld();
+  prepareFrame(dt, camera) {
     const view = this.host.view;
     view[VIEW.DT] = dt;
     view.set(camera.matrixWorld.elements, VIEW.CAMERA);
@@ -120,7 +119,8 @@ export class Snow {
     view[VIEW.FOV] = camera.fov ?? NaN;
     view[VIEW.ASPECT] = camera.aspect ?? NaN;
     view[VIEW.POSITION] = camera.position.x; view[VIEW.POSITION + 1] = camera.position.y; view[VIEW.POSITION + 2] = camera.position.z;
-    this.host.update();
+  }
+  publishFrame() {
     const r = this.host.result, u = this.material.uniforms;
     u.cameraRight.value.fromArray(r, RESULT.CAMERA_RIGHT);
     u.cameraUp.value.fromArray(r, RESULT.CAMERA_UP);
@@ -132,6 +132,11 @@ export class Snow {
     this.geometry.instanceCount = r[RESULT.INSTANCES];
     this.mesh.visible = r[RESULT.COVERED] === 1 && boxes > 0;
     this.stats.boxes = boxes; this.stats.flakes = r[RESULT.INSTANCES];
+  }
+  // Standalone resource fixtures use the identical native state owner.
+  update(dt, camera) {
+    camera.updateMatrixWorld();
+    this.prepareFrame(dt, camera); this.host.update(); this.publishFrame();
   }
   dispose() {
     this.mesh.removeFromParent(); this.geometry.dispose(); this.material.dispose();

@@ -13,7 +13,7 @@ use three::Vector3;
 pub struct Visibility {
     count: usize,
     spheres: Vec<[f64; 4]>,
-    positions: Vec<[f64; 3]>,
+    pub positions: Vec<[f64; 3]>,
     classic: Vec<bool>,
     jet: Vec<bool>,
 }

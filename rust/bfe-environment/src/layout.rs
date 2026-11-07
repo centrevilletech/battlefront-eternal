@@ -130,7 +130,8 @@ pub mod sky_result {
     pub const SOLIDS: usize = 0;
     pub const FADINGS: usize = 1;
     pub const ON: usize = 2;
-    pub const STRIDE: usize = 3;
+    pub const TIME: usize = 3;
+    pub const STRIDE: usize = 4;
 }
 pub mod weather_frame {
     pub const DT: usize = 0;
@@ -163,13 +164,17 @@ pub mod environment_instance {
 pub mod environment_frame {
     pub const REACH: usize = 0;
     pub const ENHANCED: usize = 1;
-    pub const STRIDE: usize = 2;
+    pub const DT: usize = 2;
+    pub const STRIDE: usize = 3;
 }
 pub mod environment_result {
     pub const SOURCES: usize = 0;
     pub const VOLUMES: usize = 1;
     pub const FOUNTAINS: usize = 2;
-    pub const STRIDE: usize = 3;
+    pub const TIME: usize = 3;
+    pub const DT: usize = 4;
+    pub const MODE_CHANGED: usize = 5;
+    pub const STRIDE: usize = 6;
 }
 pub mod dst_frame {
     pub const DT: usize = 0;
@@ -283,6 +288,109 @@ pub mod dst_burst {
     pub const EXPLOSION: usize = 6;
     pub const STRIDE: usize = 7;
 }
+pub mod surface_config {
+    pub const HEIGHT: usize = 0;
+    pub const BOBBING: usize = 1;
+    pub const NORMAL_COUNT: usize = 2;
+    pub const NORMAL_FPS: usize = 3;
+    pub const BUMP_COUNT: usize = 4;
+    pub const BUMP_FPS: usize = 5;
+    pub const MASK_COUNT: usize = 6;
+    pub const MASK_FPS: usize = 7;
+    pub const STRIDE: usize = 8;
+}
+pub mod surface_frame {
+    pub const DT: usize = 0;
+    pub const EYE: usize = 1;
+    pub const FORWARD: usize = 4;
+    pub const SUN: usize = 7;
+    pub const LEVEL: usize = 10;
+    pub const COMMANDS: usize = 11;
+    pub const OCEAN: usize = 12;
+    pub const SHORE_QUALITY: usize = 13;
+    pub const STORM: usize = 14;
+    pub const COMMAND_START: usize = 15;
+    pub const COMMAND_DROPPED: usize = 16;
+    pub const STRIDE: usize = 17;
+}
+pub mod surface_command {
+    pub const KIND: usize = 0;
+    pub const ID: usize = 1;
+    pub const POSITION: usize = 2;
+    pub const VELOCITY: usize = 5;
+    pub const LIFE: usize = 8;
+    pub const RADIUS: usize = 9;
+    pub const HAS_VELOCITY: usize = 10;
+    pub const DEPTH: usize = 11;
+    pub const STRIDE: usize = 12;
+}
+pub mod surface_result {
+    pub const TIME: usize = 0;
+    pub const WAVE: usize = 1;
+    pub const NORMAL_A: usize = 2;
+    pub const NORMAL_B: usize = 3;
+    pub const NORMAL_MIX: usize = 4;
+    pub const BUMP_A: usize = 5;
+    pub const BUMP_B: usize = 6;
+    pub const BUMP_MIX: usize = 7;
+    pub const MASK_A: usize = 8;
+    pub const MASK_B: usize = 9;
+    pub const MASK_MIX: usize = 10;
+    pub const SUN: usize = 11;
+    pub const YAW: usize = 14;
+    pub const QUADS: usize = 15;
+    pub const OCEAN_TIME: usize = 16;
+    pub const OCEAN_X: usize = 17;
+    pub const OCEAN_Z: usize = 18;
+    pub const FOLIAGE_TIME: usize = 19;
+    pub const SHORE_TIME: usize = 20;
+    pub const SHORE_COUNT: usize = 21;
+    pub const SHORE_DIRTY: usize = 22;
+    pub const SHORE_TILES: usize = 23;
+    pub const OVERFLOW: usize = 24;
+    pub const WADERS: usize = 25;
+    pub const STORM_FLASH: usize = 57;
+    pub const STORM_POSITION: usize = 58;
+    pub const STORM_COUNT: usize = 61;
+    pub const STORM_DIRTY: usize = 62;
+    pub const STORM_STRIKES: usize = 63;
+    pub const STRIDE: usize = 64;
+}
+pub mod shore_triangle {
+    pub const A: usize = 0;
+    pub const B: usize = 3;
+    pub const C: usize = 6;
+    pub const STRIDE: usize = 9;
+}
+pub mod shore_point {
+    pub const POSITION: usize = 0;
+    pub const NORMAL: usize = 2;
+    pub const STRIDE: usize = 4;
+}
+pub mod wake_frame {
+    pub const DT: usize = 0;
+    pub const ACTORS: usize = 1;
+    pub const CLEAR: usize = 2;
+    pub const ADD: usize = 3;
+    pub const POSITION: usize = 4;
+    pub const VELOCITY: usize = 7;
+    pub const STRENGTH: usize = 10;
+    pub const SET_TIME: usize = 11;
+    pub const TIME: usize = 12;
+    pub const STRIDE: usize = 13;
+}
+pub mod wake_actor {
+    pub const ID: usize = 0;
+    pub const POSITION: usize = 1;
+    pub const RELEVANT: usize = 4;
+    pub const STRIDE: usize = 5;
+}
+pub mod wake_result {
+    pub const TIME: usize = 0;
+    pub const CURSOR: usize = 1;
+    pub const OVERFLOW: usize = 2;
+    pub const STRIDE: usize = 3;
+}
 pub mod dst_command_kind {
     pub const BLOW_APART: f64 = 0.0;
     pub const DIED: f64 = 1.0;
@@ -297,6 +405,10 @@ pub mod dst_event_kind {
     pub const HIDE: f64 = 3.0;
     pub const SITE_START: f64 = 4.0;
     pub const SITE_END: f64 = 5.0;
+}
+pub mod surface_command_kind {
+    pub const RIPPLE: f64 = 0.0;
+    pub const WADER: f64 = 1.0;
 }
 pub mod squares {
     pub const CAPACITY: usize = 4096;
@@ -334,6 +446,22 @@ pub mod dst {
 pub mod fx {
     pub const HOT_ATTRIBUTES: usize = 4;
     pub const SMOKE_ATTRIBUTES: usize = 5;
+}
+pub mod surface {
+    pub const RIPPLES: usize = 100;
+    pub const SEGMENTS: usize = 40;
+    pub const WADERS: usize = 1024;
+    pub const COMMANDS: usize = 4096;
+    pub const SHORE_TILES: usize = 169;
+    pub const SHORE_POINTS: usize = 2048;
+    pub const SHORE_TRIANGLES: usize = 16384;
+    pub const SHORE_PATCHES: usize = 384;
+    pub const STORM_VERTICES: usize = 1536;
+}
+pub mod wakes {
+    pub const COUNT: usize = 8;
+    pub const ACTORS: usize = 256;
+    pub const STATES: usize = 1024;
 }
 pub mod dst_result_at {
     pub const REFS: usize = 8;

@@ -1,3 +1,5 @@
+import { SurfaceOwner } from './environment/module.js';
+import { SurfaceFrame } from './environment/frame.js';
 import { ownedBasicEffect } from './rust-render/effect-material.js';
 import { observePresentation } from "./presentation-profile.js";
 import { InputLatencyTrace } from './runtime/input-latency-trace.js';
@@ -451,10 +453,11 @@ async function start() {
   onProgress?.("world");
   // Scene updates require the Rust foliage selector before their first frame.
   if (!headless) await graphics.rustReady;
+  const surfaceOwner = headless ? null : new SurfaceOwner();
   // Theed's flower beds and creepers.
-  const foliage = !headless && world.foliage ? new Foliage(scene, world.foliage, { texture: mapTexture, nearEnd: () => lighting.fade.value.y, drawer: graphics.rust.byName.foliage }) : null;
+  const foliage = !headless && world.foliage ? new Foliage(scene, world.foliage, { texture: mapTexture, nearEnd: () => lighting.fade.value.y, drawer: graphics.rust.byName.foliage, surfaceOwner }) : null;
   // The terrain's water, where the map has some.
-  const water = world.water ? (headless ? new WaterState(world.water) : new Water({ data: world.water, texture: mapTexture, graphics, weather: world.weather })) : null;
+  const water = world.water ? (headless ? new WaterState(world.water) : new Water({ data: world.water, texture: mapTexture, graphics, weather: world.weather, surfaceOwner })) : null;
   const groundPositions = new Float32Array(groundBuf);
   const wantAiSim = headless && (params.get("aiSim") ?? globalThis.process?.env?.BFE_AI_SIM) === "rust";
   // The kernels and the store on the battle's one instance of the module.
@@ -478,10 +481,10 @@ async function start() {
   const waterShore = !headless && water ? new WaterShore({ water, collision, graphics }) : null;
   // Precipitation: rain (Type Streaks) or, as on Hoth, snow (Type Quads).
   const snowing = world.weather?.precipitation?.Type?.[0]?.toLowerCase() === "quads";
-  const weather = !headless && world.weather?.precipitation && !snowing ? new Weather({data: world.weather, scene, collision, water, settings}) : null;
-  const snow = !headless && snowing ? new Snow({ data: world.weather, scene, collision, water, texture: mapTexture }) : null;
+  const weather = !headless && world.weather?.precipitation && !snowing ? new Weather({data: world.weather, scene, collision, water, settings, surfaceOwner}) : null;
+  const snow = !headless && snowing ? new Snow({ data: world.weather, scene, collision, water, texture: mapTexture, surfaceOwner }) : null;
   // The map's haze: FogCloud and its placed dust and mist (atmosphere.js).
-  const atmosphere = !headless && world.atmosphere ? new Atmosphere({ data: world.atmosphere, scene, collision, texture: mapTexture }) : null;
+  const atmosphere = !headless && world.atmosphere ? new Atmosphere({ data: world.atmosphere, scene, collision, texture: mapTexture, surfaceOwner }) : null;
   // The ships crossing the sky (SkyObject): in the far scene, after the dome
   // and the far terrain, as the original flies them or, with Ocean and sky
   // Enhanced, every class of the battle's era, at any view distance. Each
@@ -489,6 +492,7 @@ async function start() {
   const skyFlyers = skyFlying && skyFlyersBuf && skyFlyersIndexBuf ? new SkyFlyers({
     data: skyFlyersDef, mission: world.mission.name, buffer: skyFlyersBuf, indexBuffer: skyFlyersIndexBuf,
     texture: resolver(`${mapDir}/sky`, skyFlyersDef.textures || {}), scene: graphics.farScene, graphics,
+    surfaceOwner,
     seed: params.has("seed") ? SEED : (Math.random() * 0x100000000) >>> 0,
   }) : null;
   graphics.localLights.collision = collision;
@@ -700,7 +704,8 @@ async function start() {
   const unitsLoaded=presentationLoaded;
   const pageUnits=headless?null:new PageUnits(unitsLoaded);
   if(pageUnits)graphics.placeUnits=(root)=>pageUnits.placeShown(root);
-  const environment = headless ? null : await EnvironmentEffects.load({ map: MAP, graphics, settings, loadTexture, presentationLoaded });
+  const environment = headless ? null : await EnvironmentEffects.load({ map: MAP, graphics, settings, loadTexture, presentationLoaded, surfaceOwner });
+  const surfaces = headless ? null : new SurfaceFrame(surfaceOwner, foliage, water, waterShore, weather, snow, atmosphere, skyFlyers, environment);
   const lights = headless ? { add() {}, flash() {}, update() {} } : new LightPool(scene, 8);
   const weaponModels = modelPack(weaponsDef.models, weaponBuf, weaponIndexBuf);
   for (const other of Object.values(otherSides)) {
@@ -2731,19 +2736,14 @@ async function start() {
       destruction?.update(dt, camera);
       bubble?.update(dt, soldier, { position: visual });
       droidekaTrail?.update(dt, soldier, { position: visual, dead: combat.dead });
-      foliage?.update(dt, camera);
+      surfaces?.update(dt, camera, !combat.dead && !driver?.active && !gunner.active ? soldier : null);
       lightning.update(dt, camera);
-      water?.update(dt, camera);
-      waterShore?.update(dt, camera);
+      surfaces?.publishWater(camera);
       posts.present(dt, camera);
       // The droids posed from the tick's state (a worker's arrives as plain
       // fields), and the build holograms for a soldier with a repair weapon.
       live?.present(dt, { camera, canRepair: !combat.dead && combat.arsenal.weapons.some((w) => w.repair) });
-      weather?.update(dt, camera);
-      snow?.update(dt, camera);
-      atmosphere?.update(dt, camera);
-      skyFlyers?.update(dt, camera);
-      environment?.update(dt, camera, !combat.dead && !driver?.active && !gunner.active ? [soldier] : []);
+      surfaces?.publishEnvironment();
       effects.tick=worldClock.tick;effects.inputClock=client?.inputClock.tick??0;
       effects.playoutTick=client?.clock??worldClock.tick;effects.epoch=commandHistory.epoch;
       const effectsStart = runtimeProfile?.start();

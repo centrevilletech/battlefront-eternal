@@ -2,7 +2,7 @@
 // required: compiled once while the battle loads and instantiated for each
 // owner. A failure is reported to the player; nothing stands in for it.
 import { ENVIRONMENT_WASM } from "../environment-wasm.js";
-import { Dst, DstBurst, DstChunk, DstChunkAt, DstCommand, DstFrame, DstMatrixAt, DstSlotState, DstSlotStatic, DstStation, DstStationState, EnvironmentFrame, SkyFrame, Sky, WeatherFrame, WeatherResult, SnowConfig, SnowResult, Squares, View } from "./layout.js";
+import { Dst, DstBurst, DstChunk, DstChunkAt, DstCommand, DstFrame, DstMatrixAt, DstSlotState, DstSlotStatic, DstStation, DstStationState, EnvironmentFrame, SkyFrame, Sky, WeatherFrame, WeatherResult, SnowConfig, SnowResult, Squares, View, WakeFrame, WakeActor, WakeResult, Wakes } from "./layout.js";
 
 let compiling = null;
 let compiled = null;
@@ -26,7 +26,7 @@ export function loaded() {
 
 // The host functions the module imports (what it asks of the page's
 // collision world); an owner that does not use one is given the empty answer.
-const imports = (host = {}) => ({ env: { host_cast: () => 0, host_cast_out: () => 0, host_ground: () => NaN, host_cover: () => -100000, host_impact: () => -Infinity, host_impact_normal: () => 0, ...host } });
+const imports = (host = {}) => ({ surface_math: { surface_sin: Math.sin, surface_cos: Math.cos, surface_atan2: Math.atan2, surface_hypot: Math.hypot }, env: { host_shore_tile: () => 0, host_shore_exposed: () => 0, host_cast: () => 0, host_cast_out: () => 0, host_ground: () => NaN, host_cover: () => -100000, host_impact: () => -Infinity, host_impact_normal: () => 0, ...host } });
 
 // An instance for the destruction effects (rust/bfe-environment destruction.rs
 // and fx.rs): the pools of hot and smoke particles, the arcs, the pieces of
@@ -89,8 +89,8 @@ export class DestructionHost {
 // the batches of squares it leaves. `ground(x, z)` answers the terrain's
 // height under a point (NaN for none).
 export class AtmosphereHost {
-  constructor(module, classes, instances, fog, ground) {
-    const { exports: x } = new WebAssembly.Instance(module, imports({ host_ground: ground }));
+  constructor(module, classes, instances, fog, ground, owner = null) {
+    const x = owner ? owner.attach({ host_ground: ground }) : new WebAssembly.Instance(module, imports({ host_ground: ground })).exports;
     this.x = x;
     x.atm_new(classes, instances, fog ? 1 : 0);
     const buffer = x.memory.buffer;
@@ -127,8 +127,8 @@ export class AtmosphereHost {
 // answers a cover cell (the height of the first roof or floor below the
 // point, or of open water over it).
 export class SnowHost {
-  constructor(module, cast) {
-    const { exports: x } = new WebAssembly.Instance(module, imports({ host_cover: cast }));
+  constructor(module, cast, owner = null) {
+    const x = owner ? owner.attach({ host_cover: cast }) : new WebAssembly.Instance(module, imports({ host_cover: cast })).exports;
     this.x = x;
     x.snow_new();
     this.config = new Float64Array(x.memory.buffer, x.snow_config_ptr(), SnowConfig.STRIDE);
@@ -156,8 +156,8 @@ export class SnowHost {
 // An instance for the sky's flyers (rust/bfe-environment sky.rs): the
 // configuration is written, then `start` builds the ships.
 export class SkyHost {
-  constructor(module, classes) {
-    const { exports: x } = new WebAssembly.Instance(module, imports());
+  constructor(module, classes, owner = null) {
+    const x = owner ? owner.x : new WebAssembly.Instance(module, imports()).exports;
     this.x = x;
     x.sky_new(classes);
     this.classes = classes;
@@ -188,10 +188,9 @@ export class SkyHost {
 // splash's cast, returning the height it ends at and leaving its normal and
 // whether it is water in `normal` (x, y, z, water).
 export class WeatherHost {
-  constructor(module, capacity, enhanced, range, size, cover, impact, normal) {
-    const { exports: x } = new WebAssembly.Instance(module, imports({
-      host_cover: cover, host_impact: impact, host_impact_normal: (i) => normal[i],
-    }));
+  constructor(module, capacity, enhanced, range, size, cover, impact, normal, owner = null) {
+    const callbacks = { host_cover: cover, host_impact: impact, host_impact_normal: (i) => normal[i] };
+    const x = owner ? owner.attach(callbacks) : new WebAssembly.Instance(module, imports(callbacks)).exports;
     this.x = x;
     x.weather_new(capacity, enhanced ? 1 : 0, range, size);
     const buffer = x.memory.buffer;
@@ -225,10 +224,11 @@ export class WeatherHost {
 // then `start`; each frame the camera, the reach and the mode go in and the
 // instances in view come out.
 export class VisibilityHost {
-  constructor(module, count) {
-    const { exports: x } = new WebAssembly.Instance(module, imports());
+  constructor(module, count, owner = null) {
+    const x = owner ? owner.x : new WebAssembly.Instance(module, imports()).exports;
     this.x = x;
     x.vis_new(count);
+    this.count = count;
     this.config = new Float64Array(x.memory.buffer, x.vis_config_ptr(), x.vis_config_len());
   }
 
@@ -239,9 +239,37 @@ export class VisibilityHost {
     this.view = new Float64Array(buffer, x.vis_view_ptr(), View.STRIDE);
     this.frame = new Float64Array(buffer, x.vis_frame_ptr(), EnvironmentFrame.STRIDE);
     this.result = new Float64Array(buffer, x.vis_result_ptr(), x.vis_result_len());
+    this.handles = new Float64Array(buffer, x.vis_handles_ptr(), this.count);
+    this.wakeFrame = new Float64Array(buffer, x.vis_wake_frame_ptr(), WakeFrame.STRIDE);
+    this.wakeActors = new Float64Array(buffer, x.vis_wake_actors_ptr(), Wakes.ACTORS * WakeActor.STRIDE);
+    this.wakeResult = new Float64Array(buffer, x.vis_wake_result_ptr(), WakeResult.STRIDE);
+    this.wakePoints = new Float64Array(buffer, x.vis_wake_points_ptr(), Wakes.COUNT * 4);
+    this.wakeMotion = new Float64Array(buffer, x.vis_wake_motion_ptr(), Wakes.COUNT * 4);
   }
 
   update() {
     this.x.vis_update();
   }
+}
+
+// All surface owners on a battle share this module and its fixed heap. Their
+// constructors install collision queries before any frame can run. A shared
+// owner advances every installed native system with one surface_frame call.
+export class SurfaceOwner {
+  constructor(module = loaded()) {
+    this.callbacks = Object.create(null);
+    const env = {
+      host_ground: (x, z) => this.callbacks.host_ground(x, z),
+      host_cover: (x, y, z) => this.callbacks.host_cover(x, y, z),
+      host_impact: (x, y, z) => this.callbacks.host_impact(x, y, z),
+      host_impact_normal: i => this.callbacks.host_impact_normal(i),
+      host_shore_tile: (x, z, height) => this.callbacks.host_shore_tile(x, z, height),
+      host_shore_exposed: (x, z, height) => this.callbacks.host_shore_exposed(x, z, height),
+    };
+    this.x = new WebAssembly.Instance(module, imports(env)).exports;
+    this.x.surface_reserve();
+    this.x.surface_new();
+  }
+  attach(callbacks) { Object.assign(this.callbacks, callbacks); return this.x; }
+  update() { this.x.surface_frame(); }
 }

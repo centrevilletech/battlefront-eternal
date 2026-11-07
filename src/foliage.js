@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { lighting } from "./materials.js";
 import { FoliageGpuBatch } from "./foliage-gpu.js";
+import { SurfaceHost } from "./environment/surfaces.js";
+import { SurfaceResult as RESULT } from "./environment/layout.js";
 
 // Placed foliage, drawn the way the 2004 renderer draws it: grasspatch (a bed
 // of cards, Theed's flowers) and leafpatch (leaves around a point or along a
@@ -185,8 +187,9 @@ function buildLeaves(def) {
 export class Foliage {
   // data: map.json's foliage; texture(name) a texture; nearEnd() the near
   // scene's far end (leaves are drawn that far).
-  constructor(scene, data, { texture, nearEnd, drawer }) {
+  constructor(scene, data, { texture, nearEnd, drawer, surfaceOwner = null }) {
     this.nearEnd = nearEnd;
+    this.surfaceHost = surfaceOwner ? new SurfaceHost(surfaceOwner) : new SurfaceHost();
     this.kinds = new Map();
     this.time = 0;
     for (const [name, def] of Object.entries(data.classes || {})) {
@@ -237,12 +240,16 @@ export class Foliage {
     scene.userData.foliage = this;
   }
 
-  update(dt, camera) {
-    this.time += dt;
-    camera.updateMatrixWorld();
-    // The near phase installs the Rust drawer during loading preparation.
-    // Until then there are no foliage draws or browser selection uploads.
+  // Foliage.update's wind clock is native. Placement selection was already
+  // Rust-owned in the retained renderer; its resource input still reads time.
+  publishFrame(result, camera) {
+    this.time = result[RESULT.FOLIAGE_TIME];
     this.drawer.select(this, camera);
+  }
+  update(dt, camera) {
+    camera.updateMatrixWorld();
+    this.surfaceHost.prepare(dt, camera); this.surfaceHost.update();
+    this.publishFrame(this.surfaceHost.result, camera);
   }
 
 }

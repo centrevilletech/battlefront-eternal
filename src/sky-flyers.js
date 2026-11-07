@@ -138,7 +138,7 @@ export class SkyFlyers {
   // and settings; seed: the ships' random draws (the engine's generator,
   // src/atmosphere.js); motion: the temporal upscaler's motion pass.
   constructor({ data, mission, buffer, indexBuffer, texture = () => null, scene = null, seed = 1,
-    graphics = null, settings = graphics?.settings ?? null, motion = motionVectors }) {
+    graphics = null, settings = graphics?.settings ?? null, motion = motionVectors, surfaceOwner = null }) {
     this.graphics = graphics;
     this.settings = settings;
     this.motion = motion;
@@ -161,7 +161,7 @@ export class SkyFlyers {
       kept.push({ def, parts, modes: { classic: classic.has(def), enhanced: enhanced.has(def) } });
     }
     // Rust keeps the ships; the page's draws are built over its records.
-    this.host = new SkyHost(loaded(), kept.length);
+    this.host = new SkyHost(loaded(), kept.length, surfaceOwner);
     const config = this.host.config;
     config[SKY_CONFIG.SEED] = seed;
     config[SKY_CONFIG.CLASSES] = kept.length;
@@ -260,29 +260,31 @@ export class SkyFlyers {
 
   // A frame of flight, then the draws: far to near from the eye.
   update(dt, camera = null) {
-    if (dt > 0) {
-      this.time += dt;
-      this.stepped = true;
+    this.prepareFrame(dt, camera); this.host.x.sky_update(); this.publishFrame();
+  }
+  prepareFrame(dt, camera = null) {
+    if (dt > 0) this.stepped = true;
+    this.frameCamera = camera;
+    if (this.enhanced && camera) this.prepareProbe();
+    this.writeFrame(camera?.position || null, dt);
+  }
+  prepareProbe() {
+    if (!this.graphics?.renderer || !this.classes.length || this.probe) return;
+    this.probe = new SkyProbe(this.graphics, 64); this.probe.enabled = true;
+    for (const kind of this.classes) {
+      for (const m of kind.draws) m.material.uniforms.skyProbe.value = this.probe.texture;
+      for (const m of kind.fades) m.material.uniforms.skyProbe.value = this.probe.texture;
     }
-    if (this.enhanced && camera) this.sky(camera);
-    this.place(camera?.position || null, dt);
   }
 
   // Enhanced: the sky behind the ships (sky-probe.js), for their haze.
-  sky(camera) {
-    const renderer = this.graphics?.renderer;
-    if (!renderer || !this.classes.length) return;
-    if (!this.probe) {
-      this.probe = new SkyProbe(this.graphics, 64);
-      this.probe.enabled = true;
-      for (const kind of this.classes) for (const m of [...kind.draws, ...kind.fades]) m.material.uniforms.skyProbe.value = this.probe.texture;
-    }
-    this.probe.update(this.time, camera);
-  }
-
   // The phase's frame (flight over dt, then the layout of the draws from
   // the eye, none without one), and the meshes set from what it left.
   place(eye, dt = 0) {
+    this.frameCamera = null;
+    this.writeFrame(eye, dt); this.host.x.sky_update(); this.publishFrame();
+  }
+  writeFrame(eye, dt = 0) {
     const frame = this.host.frame;
     frame[SKY_FRAME.DT] = dt;
     frame[SKY_FRAME.HAS_EYE] = eye ? 1 : 0;
@@ -291,8 +293,12 @@ export class SkyFlyers {
     frame[SKY_FRAME.FAR] = far;
     frame[SKY_FRAME.VISIBLE] = this.group.visible ? 1 : 0;
     frame[SKY_FRAME.MISTY] = this.probe ? 1 : 0;
-    this.host.x.sky_update();
+  }
+  publishFrame() {
     const r = this.host.result;
+    this.time = r[SKY_RESULT.TIME] || 0;
+    if (this.enhanced && this.frameCamera && this.probe) this.probe.update(this.time, this.frameCamera);
+    const far = this.graphics?.farCamera?.far || 0;
     for (const kind of this.classes) {
       const at = kind.index * SKY_RESULT.STRIDE;
       if (!r[at + SKY_RESULT.ON]) {
