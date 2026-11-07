@@ -150,7 +150,10 @@ fn set(view: &mut View, name: &str, values: &[f64]) {
 
 pub struct Scene {
     bridge: Bridge,
-    _resources: Resources,
+    resources: Resources,
+    far_target: u32,
+    image_step: [f64; bfe_render::post::STEP],
+    image_state: [f64; bfe_render::post::STATE],
     pub canvas: Canvas,
     pub admitted: usize,
     pub deferred: usize,
@@ -541,6 +544,32 @@ impl Scene {
             }
             admitted += 1;
         }
+        // Graphics.farTarget and NearPass.writeImage retain separate images:
+        // the shared schedule clears near depth/color before the far image's
+        // depth-tested composite. A canvas alias cannot preserve that order.
+        let source=resources.source(&serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string())?;
+        let far_sample=resources.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+        let far_target=resources.target(&serde_json::json!({"width":size[0],"height":size[1],"color":far_sample,"depth":null,"depthBuffer":true,"stencil":false,"samples":0,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string())?;
+        let far_texture = bridge.r.core.add_texture(resources.texture(far_sample)?);
+        bridge.set_far_map(far_texture);
+        let image_program = bridge.add_owned_program("effects/far-image")?;
+        use bfe_render::post;
+        let mut image_step = [0.; post::STEP];
+        image_step[post::STEP_PROGRAM] = image_program as f64;
+        image_step[post::STEP_TARGET] = post::TARGET_BOUND;
+        image_step[post::STEP_WIDTH] = size[0] as f64;
+        image_step[post::STEP_HEIGHT] = size[1] as f64;
+        image_step[post::STEP_UNIFORMS] = 1.;
+        image_step[post::STEP_FIRST + 1] = post::TYPE_SAMPLER as f64;
+        image_step[post::STEP_FIRST + 2] = far_texture as f64;
+        let mut image_state = [0.; post::STATE];
+        image_state[post::STATE_FLAGS] = post::STATE_DEPTH_TEST as f64;
+        image_state[post::STATE_DEPTH_FUNC] = glow::LEQUAL as f64;
+        // Inspection has not admitted post-processing programs. Missing ids
+        // must stay outside the live program bank, never alias world shader 0.
+        use bfe_render::post_chain::layout::{facts as pf, program as pp};
+        bridge.r.post_chain.input[pf::PROGRAMS..pf::PROGRAMS + pp::COUNT].fill(u32::MAX as f64);
+        bridge.frame_reserve_frame();
         // WorldPass.prepareNative seals the opaque draw order after admission.
         // Adding descriptors alone leaves the retained submission list empty.
         bridge.r.world.sort(false);
@@ -576,7 +605,10 @@ impl Scene {
         Ok((
             Self {
                 bridge,
-                _resources: resources,
+                resources,
+                far_target,
+                image_step,
+                image_state,
                 canvas,
                 admitted,
                 deferred,
@@ -590,49 +622,85 @@ impl Scene {
         ))
     }
     pub fn draw(&mut self, view: &View) -> Result<(), String> {
-        self.render(view, "all")
-    }
-    /// Isolate an admitted pass for browser/native first-frame qualification.
-    /// This borrows the same descriptors and banks as interactive drawing.
-    pub fn draw_component(&mut self, view: &View, component: &str) -> Result<(), String> {
-        if !["props", "foliage", "water", "sky"].contains(&component) {
-            return Err("unknown static component".into());
-        }
-        self.render(view, component)
-    }
-    fn render(&mut self, view: &View, component: &str) -> Result<(), String> {
-        let gl = &self.bridge.r.core.gl;
-        unsafe {
-            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.canvas.framebuffer));
-            gl.disable(glow::SCISSOR_TEST);
-            gl.viewport(0, 0, self.size[0], self.size[1]);
-            gl.color_mask(true, true, true, true);
-            gl.depth_mask(true);
-            gl.clear_color(0.04, 0.06, 0.09, 1.0);
-            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+        use bfe_render::frame_plan::layout::{
+            binding as b, facts as f, kind as k, meta as m, role as r, stats as t,
+        };
+        self.bridge.frame_begin_frame();
+        self.bridge.r.frames.plan.facts.fill(0.);
+        self.bridge.r.frames.plan.facts[f::MAIN] = 1.;
+        // Target rows are numeric facts, not a host-selected draw sequence.
+        // Renderer::battle_frame owns binds, clears, composites and the tail.
+        for role in [r::FAR, r::NEAR, r::IMAGE, r::TRANSPARENT] {
+            let row = &mut self.bridge.r.frames.bindings[role * b::LEN..(role + 1) * b::LEN];
+            row.fill(0.);
+            row[b::TARGET] = if role == r::FAR {
+                self.far_target as f64
+            } else {
+                -1.
+            };
+            row[b::SAMPLE] = -1.;
+            row[b::WIDTH] = self.size[0] as f64;
+            row[b::HEIGHT] = self.size[1] as f64;
+            row[b::SCISSOR + 2] = self.size[0] as f64;
+            row[b::SCISSOR + 3] = self.size[1] as f64;
+            row[b::CLEAR..b::CLEAR + 4].copy_from_slice(&[0.04, 0.06, 0.09, 1.]);
+            self.bridge.r.frames.meta[role * m::LEN + m::BOUND] = 1.;
         }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
-        if component == "all" {
-            self.bridge.r.core.input[..16].copy_from_slice(&self.far_projection);
-        }
+        self.bridge.r.core.input[..16].copy_from_slice(&self.far_projection);
         for slot in &self.far_world_slots {
-            self.bridge.r.far.input[*slot] = if component == "all" { 1. } else { 0. };
+            self.bridge.r.far.input[*slot] = 1.;
         }
+        self.bridge.r.far.input[bfe_render::far::FAR_CLEAR..bfe_render::far::FAR_CLEAR + 4]
+            .copy_from_slice(&[0.04, 0.06, 0.09, 1.]);
         self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
-        self.bridge.r.far.input[bfe_render::far::FAR_KEEP] = 1.;
-        let far = if component == "all" || component == "sky" {
-            self.bridge.far_frame()?
-        } else {
-            core::Stats::default()
-        };
+        self.publish(r::FAR, k::FAR, 0, 0, 0);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
-        unsafe {
-            self.bridge.r.core.gl.depth_mask(true);
-            self.bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
-        }
-        self.bridge.r.core.state.reset();
         let records = self.static_content.select(&mut self.bridge);
+        self.prepare_foliage(view);
+        let bones = self.bridge.r.core.input[bfe_render::instances::IN_RECORDS..]
+            .chunks_exact(bfe_render::instances::REC_STRIDE)
+            .take(records)
+            .map(|row| {
+                (row[bfe_render::instances::REC_BONE_AT] + row[bfe_render::instances::REC_BONES])
+                    as usize
+            })
+            .max()
+            .unwrap_or(0);
+        self.publish(r::NEAR, k::SCENE, records, bones, 0);
+        self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);
+        self.bridge.r.post.states[..bfe_render::post::STATE].copy_from_slice(&self.image_state);
+        self.publish(r::IMAGE, k::SCREEN, 0, 0, 1);
+        self.publish(r::TRANSPARENT, k::TRANSPARENT, records, bones, 0);
+        if !self.bridge.battle_frame(&mut self.resources) {
+            return Err(self
+                .bridge
+                .frame_error_frame()
+                .unwrap_or("native map frame failed".into()));
+        }
+        self.draws += self
+            .bridge
+            .r
+            .frames
+            .stats
+            .chunks_exact(t::LEN)
+            .map(|row| row[t::PASS_DRAWS..].iter().sum::<f64>() as u64)
+            .sum::<u64>();
+        Ok(())
+    }
+    fn publish(&mut self, role: usize, kind: usize, records: usize, bones: usize, steps: usize) {
+        use bfe_render::frame_plan::layout::meta as m;
+        let row = &mut self.bridge.r.frames.meta[role * m::LEN..(role + 1) * m::LEN];
+        row[m::KIND] = kind as f64;
+        row[m::RECORDS] = records as f64;
+        row[m::BONES] = bones as f64;
+        row[m::STEPS] = steps as f64;
+        // FrameBank clips a full packet and retains its fault marker, just
+        // as the browser producer does. Capacity never terminates the window.
+        self.bridge.frame_publish_frame(role as u32);
+    }
+    fn prepare_foliage(&mut self, view: &View) {
         let input = &mut self.bridge.r.foliage.input;
         input[bfe_render::foliage::IN_PROJECTION..bfe_render::foliage::IN_PROJECTION + 16]
             .copy_from_slice(&view.values[..16]);
@@ -648,9 +716,47 @@ impl Scene {
         input[bfe_render::foliage::IN_END] = 20000.;
         input[bfe_render::foliage::IN_TIME] = view.values[35];
         self.bridge.foliage_frame();
-        let stats = if component == "all" {
-            self.bridge.frame(records as u32)?
+    }
+    /// Isolate an admitted pass for browser/native first-frame qualification.
+    /// This borrows the same descriptors and banks as interactive drawing.
+    pub fn draw_component(&mut self, view: &View, component: &str) -> Result<(), String> {
+        if !["props", "foliage", "water", "sky"].contains(&component) {
+            return Err("unknown static component".into());
+        }
+        self.render_component(view, component)
+    }
+    fn render_component(&mut self, view: &View, component: &str) -> Result<(), String> {
+        let gl = &self.bridge.r.core.gl;
+        unsafe {
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.canvas.framebuffer));
+            gl.disable(glow::SCISSOR_TEST);
+            gl.viewport(0, 0, self.size[0], self.size[1]);
+            gl.color_mask(true, true, true, true);
+            gl.depth_mask(true);
+            gl.clear_color(0.04, 0.06, 0.09, 1.0);
+            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+        }
+        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
+        for slot in &self.far_world_slots {
+            self.bridge.r.far.input[*slot] = 0.;
+        }
+        self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
+        self.bridge.r.far.input[bfe_render::far::FAR_KEEP] = 1.;
+        let far = if component == "sky" {
+            self.bridge.far_frame()?
         } else {
+            core::Stats::default()
+        };
+        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        unsafe {
+            self.bridge.r.core.gl.depth_mask(true);
+            self.bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
+        }
+        self.bridge.r.core.state.reset();
+        let records = self.static_content.select(&mut self.bridge);
+        self.prepare_foliage(view);
+        let stats = {
             let r = &mut self.bridge.r;
             r.core.begin_phase();
             r.core.upload_frame(core::VIEW_NEAR);
@@ -673,7 +779,7 @@ impl Scene {
         if component == "props" {
             self.bridge.r.water.input[bfe_render::water::S_SHOWN] = 0.;
         }
-        let transparent = if ["all", "water", "props"].contains(&component) {
+        let transparent = if ["water", "props"].contains(&component) {
             self.bridge.transparent_frame(0, 0)?
         } else {
             core::Stats::default()

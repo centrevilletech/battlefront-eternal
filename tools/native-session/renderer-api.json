@@ -841,6 +841,114 @@
       "result": "u32"
     },
     {
+      "name": "frame_lines_publish_frame",
+      "args": [
+        [
+          "view",
+          "u32"
+        ],
+        [
+          "count",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "frame_reserve_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "frame_shadow_reserve_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "frame_ui_slot_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "frame_overflow_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "frame_begin_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "frame_select_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "frame_plan_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "frame_publish_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "frame_admit_interface_frame",
+      "args": [
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "battle_frame",
+      "args": [
+        [
+          "resources",
+          "&mut GpuResources"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "frame_aux_frame",
+      "args": [
+        [
+          "resources",
+          "&mut GpuResources"
+        ],
+        [
+          "role",
+          "u32"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "frame_error_frame",
+      "args": [],
+      "result": "Option<String>"
+    },
+    {
+      "name": "frame_cancel_frame",
+      "args": [],
+      "result": ""
+    },
+    {
       "name": "hud_init",
       "args": [
         [
@@ -2243,6 +2351,48 @@
       "type": "f64",
       "pointer": "foliage_input_ptr",
       "length": "foliage_input_len"
+    },
+    {
+      "name": "frame_facts",
+      "type": "f64",
+      "pointer": "frame_facts_ptr",
+      "length": "frame_facts_len"
+    },
+    {
+      "name": "frame_state",
+      "type": "f64",
+      "pointer": "frame_state_ptr",
+      "length": "frame_state_len"
+    },
+    {
+      "name": "frame_trace",
+      "type": "f64",
+      "pointer": "frame_trace_ptr",
+      "length": "frame_trace_len"
+    },
+    {
+      "name": "frame_bindings",
+      "type": "f64",
+      "pointer": "frame_bindings_ptr",
+      "length": "frame_bindings_len"
+    },
+    {
+      "name": "frame_meta",
+      "type": "f64",
+      "pointer": "frame_meta_ptr",
+      "length": "frame_meta_len"
+    },
+    {
+      "name": "frame_lines",
+      "type": "f64",
+      "pointer": "frame_lines_ptr",
+      "length": "frame_lines_len"
+    },
+    {
+      "name": "frame_stats",
+      "type": "f64",
+      "pointer": "frame_stats_ptr",
+      "length": "frame_stats_len"
     },
     {
       "name": "hud_input",

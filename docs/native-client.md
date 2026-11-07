@@ -41,6 +41,9 @@ native presentation outputs during playback. The window submits world, far,
 terrain, foliage, water, effects, actors, postprocessing and HUD through their
 existing Rust passes.
 
+New archives use version 2 and require the shared `battle_frame` schedule.
+Per-pass submissions are accepted only in version 1 archives; their API digest
+must still match the numeric layouts. No runtime option selects that path.
 The archive stores a versioned API digest, stable owner ids, typed blob spans,
 phase calls, changed input ranges, output digests and a separate reference image.
 Matching geometry and image arguments resolve to the native loader's assets by
@@ -68,7 +71,10 @@ includes opaque near/far world and terrain, sky layers following the camera,
 initial built/unbuilt prop rigs and grounded trap pads, placed foliage, and Low water
 or Classic ocean surfaces. Map lighting and fog come from prepared metadata. Prop vertex packing,
 skeleton binding, foliage packing/selection and drawing use the existing Rust
-owners. The frame loop retains its geometry, skeleton and input banks.
+owners. The frame loop retains its geometry, skeleton and input banks, publishes far,
+near, image and transparent packets, and calls `battle_frame`. GPU image and
+target lifetime belongs to `bfe_render::resources::GpuResources`; the client
+borrows that owner instead of maintaining a parallel bank.
 
 Inspection uses a deterministic cold random stream for grass and leaf tint.
 Recorded comparisons can supply the browser's cold draws to the same loader.

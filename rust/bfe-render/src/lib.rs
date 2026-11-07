@@ -34,6 +34,10 @@ pub mod water;
 pub mod web;
 #[cfg(target_arch = "wasm32")]
 pub mod resources;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "native_resources.rs"]
+pub mod resources;
+mod resource_policy;
 pub mod world;
 
 pub mod interface;

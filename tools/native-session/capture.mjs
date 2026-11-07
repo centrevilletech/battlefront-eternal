@@ -40,5 +40,5 @@ summary.settings=appliedSettings;summary.nativeAssets=nativeAssets;summary.nativ
 delete summary.blobLengths;
 summary.apiHash=apiHash;summary.blobs=spans;summary.map=test.query.match(/map=([^&]+)/)?.[1];summary.query=test.query;summary.case=test.id;
 fs.writeFileSync(out+'/session.json',JSON.stringify(summary));
-console.log(JSON.stringify({case:summary.case,calls:summary.calls.length,owners:summary.owners.length,bytes:offset,context:summary.context,externalDraws:summary.externalDraws,errors:summary.errors,settings:summary.settings,passDraws:summary.passDraws[summary.renderer]}));
+console.log(JSON.stringify({version:summary.version,battleFrames:summary.calls.filter(c=>c.kind==="call"&&c.owner===summary.renderer&&c.name==="battle_frame").length,case:summary.case,calls:summary.calls.length,owners:summary.owners.length,bytes:offset,context:summary.context,externalDraws:summary.externalDraws,errors:summary.errors,settings:summary.settings,passDraws:summary.passDraws[summary.renderer]}));
 c.close();

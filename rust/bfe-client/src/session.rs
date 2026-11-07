@@ -495,9 +495,7 @@ impl Session {
             &std::fs::read(dir.join("session.json")).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-        if meta["version"] != 1 {
-            return Err("unsupported native session version".into());
-        }
+        crate::session_format::Version::admit(&meta)?;
         if !meta["errors"]
             .as_array()
             .ok_or("missing capture coverage")?

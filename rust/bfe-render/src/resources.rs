@@ -5,16 +5,9 @@
 use std::collections::HashMap;
 use wasm_bindgen::{prelude::*, JsCast};
 use web_sys::{WebGl2RenderingContext as Gl, WebGlTexture, WebGlFramebuffer, WebGlRenderbuffer, WebGlSync};
-use serde::{Deserialize,Serialize};
+use serde::Deserialize;
+use crate::resource_policy::*;
 
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ImageDesc { width: i32, height: i32, depth: i32, target: u32, format: u32, data_type: u32, internal: Option<String>, srgb: bool, #[serde(default)] render_target: bool }
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Sampling { wrap_s: u32, wrap_t: u32, wrap_r: u32, min: u32, mag: u32, anisotropy: f32, flip: bool, premultiply: bool, alignment: i32, mipmaps: bool, compare: Option<u32> }
-#[derive(Clone, Deserialize)]
-struct Mip { width: i32, height: i32, offset: usize, length: usize }
 // Encoded PNGs survive restoration without retaining another full RGBA image.
 // Dynamic presentation arrays remain borrowed JS views, avoiding a per-frame
 // copy into WASM. Compressed payloads retain their exact authored mip bytes.
@@ -22,9 +15,7 @@ enum Pixels { Empty, Owned(Vec<u8>), Png(Vec<u8>, Option<js_sys::Object>), Forei
 struct Source { desc: ImageDesc, pixels: Pixels, version: u32, host_released: bool }
 struct Physical { source: u32, sampling: Sampling, handle: Option<WebGlTexture>, seen: u32, users: u32, allocated: Option<(i32,i32,i32,u32,bool)>, mip_levels: u32, anisotropy_set: bool }
 struct Sample { physical: usize, alive: bool, owned: bool }
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TargetDesc { width: i32, height: i32, color: u32, depth: Option<u32>, depth_buffer: bool, stencil: bool, samples: i32, resolve_depth: bool, resolve_stencil: bool, cube: bool }
+
 struct Target { gl: Gl, desc: TargetDesc, faces: Vec<WebGlFramebuffer>, multisample: Option<WebGlFramebuffer>, buffers: Vec<WebGlRenderbuffer> }
 
 #[wasm_bindgen]
@@ -54,37 +45,6 @@ fn validate_image(d:&ImageDesc)->Result<(),JsValue>{
     if d.width<1 || d.height<1 || d.depth<1{return Err(error("Invalid texture dimensions"));}
     if ![Gl::TEXTURE_2D,Gl::TEXTURE_CUBE_MAP,Gl::TEXTURE_3D,Gl::TEXTURE_2D_ARRAY].contains(&d.target){return Err(error("Unsupported texture target"));}
     format(d)?;Ok(())
-}
-fn wrap(value: u32) -> i32 { (match value { 1000 => Gl::REPEAT, 1002 => Gl::MIRRORED_REPEAT, _ => Gl::CLAMP_TO_EDGE }) as i32 }
-fn filter(value: u32) -> i32 { (match value { 1003 => Gl::NEAREST, 1004 => Gl::NEAREST_MIPMAP_NEAREST, 1005 => Gl::NEAREST_MIPMAP_LINEAR, 1007 => Gl::LINEAR_MIPMAP_NEAREST, 1008 => Gl::LINEAR_MIPMAP_LINEAR, _ => Gl::LINEAR }) as i32 }
-// Port of getInternalDepthFormat. An MSAA renderbuffer follows the target's
-// stencil flag and the depth scalar type, not the depth texture's format.
-fn depth_format(stencil:bool,data_type:Option<u32>)->u32 {
-    match (stencil,data_type) {
-        (true,Some(1015))=>Gl::DEPTH32F_STENCIL8,(true,_)=>Gl::DEPTH24_STENCIL8,
-        (false,Some(1015))=>Gl::DEPTH_COMPONENT32F,(false,Some(1012))=>Gl::DEPTH_COMPONENT16,
-        _=>Gl::DEPTH_COMPONENT24,
-    }
-}
-// These numeric descriptor enums are Three's public constants. Format and type
-// translation live here, including packed depth and float attachment storage.
-fn format(d: &ImageDesc) -> Result<(u32,u32,u32), JsValue> {
-    let ty = if d.format==1027 && d.data_type==1015 {Gl::FLOAT_32_UNSIGNED_INT_24_8_REV} else {match d.data_type { 1009 => Gl::UNSIGNED_BYTE, 1010 => Gl::BYTE, 1011 => Gl::SHORT, 1012 => Gl::UNSIGNED_SHORT, 1013 => Gl::INT, 1014 => Gl::UNSIGNED_INT, 1015 => Gl::FLOAT, 1016 => Gl::HALF_FLOAT, 1017 => Gl::UNSIGNED_SHORT_4_4_4_4, 1018 => Gl::UNSIGNED_SHORT_5_5_5_1, 1019 => Gl::UNSIGNED_SHORT_5_6_5, 1020 => Gl::UNSIGNED_INT_24_8, _ => return Err(error("Unsupported texture scalar type")) }};
-    let (base, mut sized) = match (d.format, ty) {
-        (1023,Gl::FLOAT) => (Gl::RGBA,Gl::RGBA32F), (1023,Gl::HALF_FLOAT) => (Gl::RGBA,Gl::RGBA16F),
-        (1023,Gl::UNSIGNED_SHORT_4_4_4_4) => (Gl::RGBA,Gl::RGBA4), (1023,Gl::UNSIGNED_SHORT_5_5_5_1) => (Gl::RGBA,Gl::RGB5_A1),
-        (1023,_) => (Gl::RGBA,if d.srgb { Gl::SRGB8_ALPHA8 } else { Gl::RGBA8 }),
-        (1022,Gl::FLOAT) => (Gl::RGB,Gl::RGB32F), (1022,Gl::HALF_FLOAT) => (Gl::RGB,Gl::RGB16F), (1022,Gl::UNSIGNED_SHORT_5_6_5) => (Gl::RGB,Gl::RGB565),
-        (1022,_) => (Gl::RGB,if d.srgb { Gl::SRGB8 } else { Gl::RGB8 }),
-        (1028,Gl::FLOAT) => (Gl::RED,Gl::R32F), (1028,Gl::HALF_FLOAT) => (Gl::RED,Gl::R16F), (1028,_) => (Gl::RED,Gl::R8),
-        (1030,Gl::FLOAT) => (Gl::RG,Gl::RG32F), (1030,Gl::HALF_FLOAT) => (Gl::RG,Gl::RG16F), (1030,_) => (Gl::RG,Gl::RG8),
-        (1026,_) => (Gl::DEPTH_COMPONENT,depth_format(false,Some(d.data_type))),
-        (1027,_) => (Gl::DEPTH_STENCIL,depth_format(true,Some(d.data_type))),
-        (compressed,_) if compressed > 30000 => (compressed,compressed),
-        _ => return Err(error("Unsupported texture channel format")),
-    };
-    if let Some(name) = &d.internal { sized = match name.as_str() { "RGBA8" => Gl::RGBA8, "RGBA16F" => Gl::RGBA16F, "RGBA32F" => Gl::RGBA32F, "R8" => Gl::R8, "R16F" => Gl::R16F, "R32F" => Gl::R32F, "RG16F" => Gl::RG16F, "RG32F" => Gl::RG32F, "DEPTH_COMPONENT24" => Gl::DEPTH_COMPONENT24, "DEPTH_COMPONENT32F" => Gl::DEPTH_COMPONENT32F, _ => return Err(error(format!("Unsupported texture internal format {name}"))) }; }
-    Ok((base,ty,sized))
 }
 
 // Sampler updates do not redefine render-target storage or erase its pixels.

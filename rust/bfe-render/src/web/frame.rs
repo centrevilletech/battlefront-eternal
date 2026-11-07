@@ -51,7 +51,7 @@ impl BfeRenderer {
     pub fn frame_reserve_frame(&mut self) {self.r.frame_reserve();}
     pub fn frame_shadow_reserve_frame(&mut self) {self.r.frame_shadow_reserve();}
     pub fn frame_ui_slot_frame(&mut self,role:u32) {self.r.frames.ui_role=role as usize;}
-    pub fn frame_overflow_frame(&mut self) {self.r.frames.clipped=true;}
+    pub fn frame_overflow_frame(&mut self) {self.r.frames.mark_overflow();}
     pub fn frame_begin_frame(&mut self) {self.r.frame_begin();}
     // Selection reports which semantic inputs are needed before preparation.
     // It neither invokes a draw nor advances the successful-frame cadence.
