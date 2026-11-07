@@ -94,7 +94,7 @@ function pageHelpers() {
       const look = a.body.userData.heated;
       return {
         tick: b.worldClock.tick, visible: a.root.visible, removed: u.removed, dead: u.dead,
-        mode: s.mode, time: +s.time.toFixed(3), shown: u.presentation.networkPose?.mode ?? null,
+        mode: s.mode, time: +s.time.toFixed(3), shown: u.presentation.nativeNetwork ? u.presentation.state.mode : null,
         head: +(head.y - u.presentation.position.y).toFixed(3), dissolve: look ? +look.dissolve.toFixed(3) : 0,
         classic: b.debris.pieces.length, pieces: b.destruction?.pieces.count ?? 0, gone: Boolean(u.gone),
       };

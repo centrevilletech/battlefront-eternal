@@ -1,7 +1,8 @@
+import { dequantizeVelocity } from './snapshot-codec-reference.js';
 // Frozen protocol entry/stagger helpers from engine 4ffa3a3. Their algorithms
 // are unchanged; obsolete authoritative world walks have been removed.
 // Canonical production now has recorded byte and native-store fixtures.
-import { SNAPSHOT_SLOT_COUNT, DEFAULT_SNAPSHOT_BOUNDS, emptySnapshot, worldFieldKey, quantizePosition, quantizeVelocity, dequantizeVelocity,
+import { SNAPSHOT_SLOT_COUNT, DEFAULT_SNAPSHOT_BOUNDS, emptySnapshot, worldFieldKey, quantizePosition, quantizeVelocity,
   quantizeYaw, quantizePitch, quantizeQuaternion } from '../../src/runtime/snapshot-codec.js';
 import { TURRET_STATES, ENTITY_POSTURES, ENTITY_SOLDIER_STATES, encodeEntityRecord } from '../../src/runtime/network-entity-codec.js';
 import { ENTITY_VEHICLE_STATES } from '../../src/runtime/network-entity-capture.js';

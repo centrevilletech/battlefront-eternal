@@ -48,3 +48,16 @@ test('rotation and pagehide dispose the owner without cancelling the next battle
   lifecycle.dispatchEvent(new Event('pagehide'));
   assert.equal(rotation.cancelled, true); assert.equal(cancelled, 1); assert.equal(released, 1);
 });
+
+// A paused page can receive more parts than its bounded queue holds. It
+// discards the oldest replaceable state and accepts the final repair packet.
+test('long receive pauses retain the newest repair window without closing',async()=>{
+ const delivered=[],session=new NetworkSession({lifecycle:null,onEntities:bytes=>delivered.push(new DataView(bytes.buffer,bytes.byteOffset).getUint32(6,true))});
+ session.entityMode=true;
+ for(let tick=1;tick<=10000;tick++){
+  const bytes=new ArrayBuffer(20),v=new DataView(bytes);v.setUint32(0,0x31534e42,true);v.setUint32(6,tick,true);
+  await session.receive('state',bytes);
+ }
+ assert.equal(session.closed,false);assert.ok(session.entityQueue.length<=4096);assert.ok(session.droppedEntityPackets>0);
+ session.drainEntities();assert.equal(delivered.at(-1),10000);assert.equal(session.entityQueue.length,0);session.dispose();
+});

@@ -14,14 +14,8 @@ import {
   DrawKind as DK,
 } from "./layout.js";
 
-let binding;
-export async function loadPresentation() {
-  binding ||= import("../presentation-pkg/bfe_presentation.js").then(async (module) => {
-    const wasm = await module.default();
-    return { module, memory: wasm.memory };
-  });
-  return binding;
-}
+import {presentationModule} from './module.js';
+export async function loadPresentation() { return presentationModule(); }
 // Only mutable host commands remain on this handle. No particle or emitter
 // clock is mirrored on the page. Generation belongs to the birth record.
 export class EffectHandle {

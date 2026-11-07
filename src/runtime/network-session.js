@@ -2,6 +2,7 @@ import { EntityInputSender } from './network-entity-sender.js';
 import { encodeSnapshotAckKeepalive } from './network-entity-input.js';
 import { contentHash } from './content-hash.js';
 import { battleParams } from './battle-query.js';
+const MAX_ENTITY_BACKLOG=4096,INITIAL_ENTITY_BACKLOG=128;
 
 // Where a page loads the server's battle: its query (the battle's own keys
 // only, src/runtime/battle-query.js), with this page's connection (the
@@ -33,7 +34,7 @@ export class NetworkSession {
     Object.assign(this, {transport,onError,onChat,onDispose,onEntityRegistry,onEntities,onGameplayEvents,onEntityDiagnostics,onInputAck,onFire,getAim,lifecycle,rotationPollMs});
     this.playerName=String(playerName || '').replace(/[\x00-\x1f\x7f]/g,'').trim().slice(0,32);
     this.channels=new Map();this.pending=new Map();this.request=0;this.stateSequence=0;
-    this.entityQueue=[];this.snapshotAck=null;this.entityWaiters=[];this.closed=false;this.authenticated=false;
+    this.entityQueue=[];this.droppedEntityPackets=0;this.snapshotAck=null;this.entityWaiters=[];this.closed=false;this.authenticated=false;
     this.onPageHide=()=>this.dispose();this.lifecycle?.addEventListener('pagehide',this.onPageHide);
   }
   get path() { return this.transport?.path; }
@@ -58,10 +59,14 @@ export class NetworkSession {
     if (raw instanceof ArrayBuffer) {
       const magic=raw.byteLength>=4?new DataView(raw).getUint32(0,true):0;
       if (label!=='state'||raw.byteLength<20||raw.byteLength>1100||(magic!==0x31534e42&&magic!==0x314f4e42)) throw Error('Invalid entity packet');
+      const limit=this.entityMode?MAX_ENTITY_BACKLOG:INITIAL_ENTITY_BACKLOG;
+      if(this.entityQueue.length>=limit){
+        // Incomplete snapshots remain unacknowledged; the host can repair
+        // replaceable state after a long pause without stopping the page.
+        const dropped=Math.max(1,limit>>2);this.entityQueue.copyWithin(0,dropped);this.entityQueue.length-=dropped;this.droppedEntityPackets+=dropped;
+      }
       this.entityQueue.push({bytes:new Uint8Array(raw),at:(Number.isFinite(at)?at:performance.now())/1000,sentAt:Number.isFinite(sentAt)?sentAt/1000:undefined});
       for(const waiter of this.entityWaiters.splice(0)){clearTimeout(waiter.timer);waiter.resolve();}
-      // Local delivery is reliable: never silently discard a paused world's final tick.
-      if(this.entityQueue.length>(this.entityMode?4096:128))throw Error('Entity receive backlog exceeded');
       return;
     }
     if (typeof raw!=='string'||raw.length>262144) throw Error('Invalid server message');
@@ -183,7 +188,7 @@ export class NetworkSession {
     const now=performance.now();
     if(!this.entityMode||!this.snapshotAck||now-(this.lastEntityAckAt??-Infinity)<100||now-(this.lastInputSentAt??-Infinity)<100)return false;
     const channel=this.channels.get('state');if(this.closed||!this.authenticated||channel?.readyState!=='open'||channel.bufferedAmount>32768)return false;
-    channel.send(encodeSnapshotAckKeepalive(this.snapshotAck,this.entityRegistry));this.lastEntityAckAt=performance.now();return true;
+    channel.send(encodeSnapshotAckKeepalive(this.snapshotAck,this.entityRegistry,true));this.lastEntityAckAt=performance.now();return true;
   }
   call(method, args = {}) { if (method === 'suspend' || method === 'lockstep') { this.entityInput?.clearPending(); } if (this.closed || this.pending.size >= 32) return Promise.reject(Error('Network host unavailable')); const id = ++this.request; return new Promise((resolve, reject) => { const timer = setTimeout(() => { this.pending.delete(id); reject(Error(`Server request timed out: ${method}`)); }, 10000); this.pending.set(id, { resolve, reject, timer }); if (!this.send({ type: 'call', id, method, args })) { clearTimeout(timer); this.pending.delete(id); reject(Error('Server is not connected')); } }); }
   chat(message) { return this.send({ type: 'chat', text: String(message.text || '').slice(0, 240), team: message.channel === 'team' }); }
@@ -251,7 +256,7 @@ export class NetworkSession {
     let failure, failed = false;
     try {
       clearTimeout(this.timeout);clearInterval(this.ackTimer);
-      this.statusElement?.remove();this.statusElement=null;this.rejectReady?.(error);this.transport?.dispose();
+      this.statusElement?.remove();this.statusElement=null;this.rejectReady?.(error);this.transport?.dispose();this.entityInput?.dispose();
       for(const waiter of this.entityWaiters.splice(0)){clearTimeout(waiter.timer);waiter.reject(error);}
       for(const job of this.pending.values()){clearTimeout(job.timer);job.reject(error);}this.pending.clear();this.entityQueue=[];
     } catch (caught) { failure = caught; failed = true; }

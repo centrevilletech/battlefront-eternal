@@ -11,11 +11,11 @@
 // arrives exactly as the absolute form would carry it.
 import {
   SNAPSHOT_OWN_MAGIC, SNAPSHOT_HEADER_BYTES, SNAPSHOT_MAX_DATAGRAM,
-  SnapshotWriter as Writer, SnapshotReader as Reader, writeSnapshotHeader,
-  readSnapshotHeader, encodeWorldSection, decodeWorldSection, encodeWordDelta, decodeWordDelta,
+  SnapshotWriter as Writer, writeSnapshotHeader,
+  encodeWorldSection, encodeWordDelta,
 } from './snapshot-codec.js';
 
-export { encodeWordDelta as encodeOwnDelta, decodeWordDelta as decodeOwnDelta } from './snapshot-codec.js';
+export { encodeWordDelta as encodeOwnDelta } from './snapshot-codec.js';
 
 const SECTION_CORRECTION = 1, SECTION_SUMMARIES = 2, SECTION_COSMETICS = 4, SECTION_SECOND = 8;
 // The datagram and its correction section are written into scratch
@@ -51,20 +51,4 @@ export function ownDatagramBudget({ correction = null, baselinePayload = null, s
   if (correction) used += 2 + 10 + encodeWordDelta(correction.payload, baselinePayload).length;
   if (summaries) used += 2 + encodeWorldSection(summaries, baselineSummaries).length;
   return Math.max(0, SNAPSHOT_MAX_DATAGRAM - used - 2);
-}
-export function decodeOwnDatagram(bytes, baselinePayload = null, baselineSummaries = null) {
-  const header = readSnapshotHeader(bytes);
-  if (header.magic !== SNAPSHOT_OWN_MAGIC) throw Error('not an own datagram');
-  const r = new Reader(bytes); r.at = SNAPSHOT_HEADER_BYTES;
-  const flags = r.u8(), out = { header, second: !!(flags & SECTION_SECOND), correction: null, summaries: [], cosmeticBytes: null };
-  const section = () => r.raw(r.u16());
-  if (flags & SECTION_CORRECTION) {
-    const body = new Reader(section());
-    const id = body.u32(), generation = body.u32(), schema = body.u16();
-    try { out.correction = { kind: 'correction', id, generation, tick: header.tick, schema, payload: decodeWordDelta(body.bytes.subarray(body.at), baselinePayload) }; } catch { throw Error('own baseline not held'); }
-  }
-  if (flags & SECTION_SUMMARIES) out.summaries = decodeWorldSection(section(), baselineSummaries);
-  if (flags & SECTION_COSMETICS) out.cosmeticBytes = section();
-  if (r.at !== bytes.length) throw Error('own datagram trailing bytes');
-  return out;
 }

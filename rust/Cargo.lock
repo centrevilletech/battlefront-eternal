@@ -188,6 +188,7 @@ version = "0.1.0"
 dependencies = [
  "audio-control",
  "bfe-pose",
+ "jsrt",
  "serde",
  "serde_json",
  "three",

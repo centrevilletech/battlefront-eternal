@@ -6,14 +6,12 @@
 // by those, not by slot.
 import {
   SNAPSHOT_SLOT_COUNT, DEFAULT_SNAPSHOT_BOUNDS, emptySnapshot, worldFieldKey,
-  dequantizePosition, dequantizeVelocity,
-  quantizeYaw, dequantizeYaw, quantizePitch, dequantizePitch,
-  quantizeQuaternion, dequantizeQuaternion,
+  quantizeYaw, quantizePitch,
+  quantizeQuaternion,
 } from './snapshot-codec.js';
 import { TURRET_STATES } from './network-entity-codec.js';
 
 const angleCode = value => Math.max(-32767, Math.min(32767, Math.round(value * 32767 / Math.PI)));
-const angleValue = code => code * Math.PI / 32767;
 export class SnapshotSlotTable {
   constructor() { this.byKey = new Map(); this.byUnitId = new Map(); this.free = []; this.next = 0; }
   assign(key, unitId = null) {
@@ -200,35 +198,6 @@ function buildEntry(record, bounds, mount, seatSlot, seatIndex, previous, spare 
 export function entryFromRecord(record, { bounds = DEFAULT_SNAPSHOT_BOUNDS, mount = null, seatSlot = -1, seatIndex = 0, previous = null } = {}) {
   const entry = buildEntry(record, bounds, mount, seatSlot, seatIndex, previous);
   return entry === previous ? { ...previous } : entry;
-}
-export function recordFromEntry(entry, tick, bounds = DEFAULT_SNAPSHOT_BOUNDS) {
-  const base = { kind: entry.cls, id: entry.entityId, generation: entry.generation, tick, classId: entry.classId, team: entry.team };
-  if (entry.cls === 'turret') { delete base.classId; return { ...base, building: entry.classId, state: TURRET_STATES[entry.state],
-    yaw: angleValue(entry.yaw), pitch: angleValue(entry.pitch), gunYaw: angleValue(entry.gunYaw), gunPitch: angleValue(entry.gunPitch), health: entry.health }; }
-  base.position = dequantizePosition(entry.pos, bounds); base.velocity = dequantizeVelocity(entry.vel);
-  if (entry.cls === 'soldier' || entry.cls === 'droideka') {
-    Object.assign(base, { yaw: dequantizeYaw(entry.yaw), pitch: dequantizePitch(entry.pitch), health: entry.health,
-      posture: entry.posture, charge: entry.charge, state: entry.state, weapon: entry.weapon, fireCounter: entry.fireCounter });
-    if (entry.cls === 'droideka') Object.assign(base, { mode: entry.mode, reverse: entry.reverse, dead: entry.dead, shieldOn: entry.shieldOn,
-      time: entry.anim[0], roll: entry.anim[1], lean: entry.anim[2], legs: entry.anim[3], shield: entry.anim[4] });
-  } else if (entry.cls === 'vehicle') {
-    Object.assign(base, { quaternion: dequantizeQuaternion(entry.quat), health: entry.health, state: entry.state, power: entry.power });
-  } else if (entry.cls === 'item') {
-    Object.assign(base, { active: entry.active });
-    if (entry.active) Object.assign(base, { definitionId: entry.definitionId, yaw: dequantizeYaw(entry.yaw), up: entry.up.map(x => x / 32767) });
-    else { delete base.position; delete base.velocity; }
-  } else if (entry.cls === 'remote') {
-    Object.assign(base, { active: entry.active });
-    if (entry.active) Object.assign(base, { definitionId: entry.definitionId, yaw: dequantizeYaw(entry.yaw), pitch: dequantizePitch(entry.pitch), health: entry.health });
-    else { delete base.position; delete base.velocity; }
-  }
-  return base;
-}
-export function mountRecordFromEntry(entry, tick) {
-  const m = entry.mount;
-  return { kind: 'mount', id: entry.entityId, generation: entry.generation, tick, slot: m.slot,
-    tilt: angleValue(m.tilt), roll: angleValue(m.roll), walkPhase: m.walkPhase / 1000, walkBlend: m.walkBlend / 255,
-    seats: m.seats.map(([yaw, pitch]) => ({ yaw: angleValue(yaw), pitch: angleValue(pitch) })) };
 }
 // Assemble one snapshot from a publication's capture records. Mount records
 // merge into their vehicle entry; seat records become the rider's seat

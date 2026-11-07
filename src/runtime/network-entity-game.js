@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { attachWireInputBridge } from './wire-input.js';
 import {presentEntityEvent} from './entity-presentation-events.js';
 import {applyUnitState,UNIT_STATE_SCHEMA} from './entity-unit-state.js';
 import {applyWorldPresentation} from './entity-world-state.js';
@@ -11,7 +10,7 @@ import { createCombatRegistry } from './network-combat-registry.js';
 import { presentFeedback } from './network-combat-feedback.js';
 import { emitSound } from '../audio/events.js';
 import { SnapshotClient } from './snapshot-client.js';
-import { SnapshotTimeline, SnapshotPresentation } from './snapshot-timeline.js';
+import {SnapshotPresentation} from './snapshot-timeline.js';
 import { applyOwnPlayer, decodeOwnPlayer } from './network-entity-player.js';
 import { ENTITY_POSTURES, ENTITY_SOLDIER_STATES, ENTITY_VEHICLE_STATES } from './network-entity-capture.js';
 import { assignUnitId } from './entity-identity.js';
@@ -70,9 +69,8 @@ function recordsByKind(records) {
 export class EntityGameState {
   constructor(game, registry, { beforeApply = () => {}, onCorrection = () => {}, onApplied = () => {} } = {}) {
     Object.assign(this, { game, registry, beforeApply, onCorrection, onApplied });
-    if (game.simBridge) attachWireInputBridge(registry, game.simBridge);
-    this.receiver = new SnapshotClient();
-    this.timeline = new SnapshotTimeline(); this.presentation = new SnapshotPresentation(this.timeline);
+    this.receiver=new SnapshotClient();
+    this.timeline=this.receiver.network;this.presentation=new SnapshotPresentation(this.timeline,{display:!!game.presentationLoaded});
     const combatRegistry=registry.combat ?? createCombatRegistry(game.data);
     this.combat=new CombatPresentation({ordnance:game.ordnance,definition:id=>combatRegistry.definitions.get(id),predictedShots:game.predictedShots,onFeedback:event=>presentFeedback(game,event),
       muzzle:(event,def)=>{const unit=game.units.byId(event.ownerId);if(!unit||unit.generation!==event.ownerGeneration||unit.removed||unit.seat||!unit.combat?.arsenal)return null;const weapon=unit.combat.arsenal.weapons.find(weapon=>weapon.def?.ordnance===def);if(!weapon)return null;const held=unit.combat.firePoint(weapon)?.position?.clone()??null;if(held)return held;const out=new THREE.Vector3();return unit.soldier?.nextVisualGun?.(out)?out:null;},
@@ -115,21 +113,26 @@ export class EntityGameState {
     if (!this.ready) throw Error('Entity state arrived before world baseline application');
     const packet = this.receiver.receive(bytes); if (!packet) return;
     this.beforeApply();
-    if (packet.epochChanged) { this.timeline.reset(packet.epoch); this.presentation.reset(); this.items?.reset(packet.epoch); this.remotes?.reset(packet.epoch); this.previous = null; this.pendingCorrection = null; this.pendingEligibility = null; this.slots.clear(); this.pendingSeats.clear(); this.mounts.clear(); }
+    if (packet.epochChanged) { this.presentation.reset(); this.items?.reset(packet.epoch); this.remotes?.reset(packet.epoch); this.previous = null; this.pendingCorrection = null; this.pendingEligibility = null; this.slots.clear(); this.pendingSeats.clear(); this.mounts.clear(); }
     // The datagram's records by kind, in their order, in one pass (over a
     // hundred datagrams a second): each kind is applied in turn below.
     const by = recordsByKind(packet.records);
     const corrected = by.correction.length > 0;
     for (const record of by.correction) this.prepareOwn(record);
     for (const record of by.mount) if (record.slot !== null) this.slots.set(record.id, { index: record.slot, generation: record.generation });
-    for (const record of by.vehicle) this.vehicle(record);
+    for (const record of by.vehicle) {
+      // The changed packet already owns this mount row. Reusing it avoids
+      // another native lookup and semantic copy for every ordinary hull part.
+      let mount;
+      for(const candidate of by.mount)if(candidate.id===record.id&&candidate.generation===record.generation){mount=candidate;break;}
+      this.vehicle(record,mount);
+    }
     // An unordered vehicle packet may have arrived before its slot metadata.
     // Reuse the receiver's bounded latest state once that prerequisite exists;
     // a stored tombstone or another generation must never create a stale hull.
-    for (const record of by.mount) if (record.slot !== null) {
+    for (const record of by.mount) if (record.slot !== null && !by.vehicle.some(value => value.id === record.id)) {
       const latest = this.receiver.get('vehicle', record.id);
-      if (latest?.kind === 'vehicle' && latest.generation === record.generation &&
-          !by.vehicle.some(value => value.id === record.id)) this.vehicle(latest);
+      if (latest?.kind === 'vehicle' && latest.generation === record.generation) this.vehicle(latest,record);
     }
     for (const record of by.turret) this.turret(record);
     for (const record of by.droideka) this.droideka(record);
@@ -157,7 +160,6 @@ export class EntityGameState {
     for(const record of by.remote){if(!this.remotes)throw Error('missing remote presentation');this.remotes.receive(record,packet.ack.epoch);}
     for(const record of by.item){if(!this.items)throw Error('missing item presentation');this.items.receive(record,packet.ack.epoch);}
     for(const record of by.combat)this.combat.receive(record,{epoch:packet.ack.epoch,tick:packet.tick});
-    if (packet.sample) this.timeline.addSnapshot(packet.sample.tick, packet.sample.poses, packet.sample.epoch);
     this.onApplied(packet);
   }
   applyEligibility() {
@@ -308,7 +310,7 @@ export class EntityGameState {
     assignUnitId(g.units, vehicle.aiTarget, record.id);
     return vehicle;
   }
-  vehicle(record) {
+  vehicle(record,currentMount) {
     const vehicle = this.hull(record); if (!vehicle) return;
     if (this.registry.classes.get(record.classId) !== vehicle.name) throw Error('Missing semantic vehicle lifecycle prerequisite');
     const state = ENTITY_VEHICLE_STATES[record.state]; if (!state) throw Error('Unsupported entity vehicle state');
@@ -340,7 +342,7 @@ export class EntityGameState {
     vehicle.syncBody(); this.presentation.bindVehicle(record.id, record.generation, vehicle);
     // A mount can be acknowledged before its hull exists. Reuse its retained
     // exact-life pose when the hull arrives; unchanged heartbeats may be deduped.
-    const mount = this.receiver.get('mount', record.id);
+    const mount = currentMount || this.receiver.get('mount', record.id);
     if (mount?.generation === record.generation) this.mount(mount);
   }
   // The crew pose beside the hull: lean, walk cycle and every seat's aim, for

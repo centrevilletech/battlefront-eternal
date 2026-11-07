@@ -1,3 +1,4 @@
+import { pageNetworkFor } from './page-network.js';
 import { NetworkInputs } from './network-inputs.js';
 import { EntityEdgeSender } from './network-entity-edges.js';
 import { encodeEntityInput } from './network-entity-input.js';
@@ -12,9 +13,13 @@ export class EntityInputSender {
     if(![1,2].includes(stateIntervalTicks))throw Error('Invalid input state interval');
     Object.assign(this,{registry,sendPacket:send,getAim,onFire,snapshotAck,serverTick,stateIntervalTicks});
     this.edges=new EntityEdgeSender();this.outcomes=new Map();this.resultAcks=[];this.id=0;this.droppedOutcomes=0;
-    this.input=new NetworkInputs({state:m=>this.publish(m.commands),events:m=>this.actions(m),fire:c=>this.fire(c)});
+    this.network=pageNetworkFor(registry);
+    this.input=new NetworkInputs({kernel:this.network,state:m=>this.publish(m.commands),events:m=>this.actions(m),fire:c=>this.fire(c)});
     this.life=null;this.trigger=new FireEdges();this.appliedTick=-1;this.lastSentState=null;
   }
+  // The registry's packet encoder can outlive one connection's sender.
+  // Release only this sender's control handle, leaving the shared owner live.
+  dispose(){this.input.dispose();}
   get history(){return this.input.history;}
   ack(sequence){this.input.ack(sequence);}
   clearPending(){this.input.clearPending();this.trigger.reset();this.lastSentState=null;}
@@ -81,7 +86,7 @@ export class EntityInputSender {
     // omit later edges to stay below the fixed datagram bound; none are retired.
     let bytes,chosen=edges;
     for(;;){
-      try{bytes=encodeEntityInput({epoch:latest.epoch,generation:latest.generation,commands,edges:chosen,snapshotAck},this.registry);break;}
+      try{bytes=encodeEntityInput({epoch:latest.epoch,generation:latest.generation,commands,edges:chosen,snapshotAck},this.registry,true);break;}
       catch(error){if(!String(error.message).includes('exceeds bounds'))throw error;if(commands.length>1){commands=[latest];continue;}if(!chosen.length)throw error;chosen=chosen.slice(0,-1);}
     }
     const sent=this.sendPacket(bytes);

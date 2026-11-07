@@ -143,7 +143,7 @@ test('client: hull creation, seat ownership for both humans, replicated aim and 
   assert.equal(c.remote.combat.mounted, true);
   // Presentation: the sampled pose places the root with its lean and poses the crew.
   c.adapter.present(10); c.system.present(1);
-  assert.ok(c.v.networkPose, 'the hull draws from its replicated sample');
+  assert.ok(c.v.nativeNetwork, 'the hull draws from its replicated sample');
   assert.ok(Math.abs(c.v.root.rotation.x + .1) <= ANGLE + 1e-6, 'ground lean is drawn from tilt');
   assert.ok(Math.abs(c.v.root.rotation.y - .4) < 1e-3);
   const bind = c.v.bind.get(c.v.seats[1].view.turret);

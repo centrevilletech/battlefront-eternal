@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptySnapshot, encodeEntities, decodeEntities, applyEntities, cloneSnapshot } from '../src/runtime/snapshot-codec.js';
+import {emptySnapshot, encodeEntities, cloneSnapshot} from '../src/runtime/snapshot-codec.js';
+import {decodeEntities, applyEntities} from '../tools/network-inspect.mjs';
 import { snapshotFromRecords, SnapshotSlotTable } from '../src/runtime/snapshot-records.js';
 import { cosmeticPriority } from '../src/runtime/snapshot-cosmetics.js';
 

@@ -1,6 +1,9 @@
+import {createPageNetwork} from '../src/runtime/page-network.js';
+import {SnapshotPresentation} from '../src/runtime/snapshot-timeline.js';
+import {pushTimeline} from './helpers/network-capture.js';
 import './fixtures/native-anim.js';
 import { contentURL } from './helpers/content.js';
-import {presentUnit} from './helpers/presentation.js';
+import {presentUnit,unitHost} from './helpers/presentation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync,readFileSync} from 'node:fs';
@@ -127,21 +130,22 @@ test('crossing forward/backward gait selection produces a bounded visual pivot',
  assert.equal(s.aimYaw,0,'aim input stays immediate and independent of the visual pivot');
 });
 
-test('a replicated firing counter restores the strafing rifle direction after lost shot events',{skip:!available},()=>{
+test('a replicated firing counter restores the strafing rifle direction after lost shot events',{skip:!available},(t)=>{
  const {animator,soldier}=fixture();soldier.position=new THREE.Vector3();
  const reference=fixture();reference.soldier.velocity.set(4,0,0);
  const presentation=new SoldierPresentation(soldier);
  const unit=new Unit({def:{},actor:animator.actor,soldier,animator,presentation});
- unit.removed=false;unit.alive=true;
+ unit.id=1;unit.generation=1;unit.removed=false;unit.alive=true;
  const pose={kind:'soldier',generation:1,fromTick:10,fireCounter:0,position:[0,0,0],velocity:[4,0,0],yaw:0,pitch:0,posture:0,state:0};
- presentation.networkPose=pose;
+ unitHost(unit);const network=createPageNetwork(),binding=new SnapshotPresentation(network);t.after(()=>network.dispose());pose.id=unit.id;pose.health=100;
+ const publish=()=>{pushTimeline(network,pose.fromTick,new Map([[unit.id,pose]]));binding.bindSoldier(unit.id,unit.generation,presentation);binding.update(pose.fromTick);};publish();
  const q=new THREE.Quaternion(),forward=new THREE.Vector3();
  const yawError=()=>{animator.byName.hp_weapons.getWorldQuaternion(q);forward.set(0,0,1).applyQuaternion(q);return Math.abs(Math.atan2(forward.x,forward.z));};
  for(let i=0;i<60;i++){presentUnit(unit,1/60,1);reference.animator.update(1/60,reference.soldier);}
  const relaxed=yawError();
  // No shot event, flash or projectile callback runs: only its authoritative
  // counter eventually reaches the body sample being rendered.
- pose.fromTick=20;pose.fireCounter=1;
+ pose.fromTick=20;pose.fireCounter=1;publish();
  reference.animator.fire();
  for(let i=0;i<60;i++){presentUnit(unit,1/60,1);reference.animator.update(1/60,reference.soldier);}
  const firing=yawError();

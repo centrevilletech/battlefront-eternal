@@ -65,6 +65,7 @@ struct View {
 /// Fixed exchange storage. Resource registration may allocate; frame() never
 /// grows a collection, including when all actors change pose in one frame.
 pub struct Units {
+    pub network:crate::network::Bindings,
     pub input: Vec<f64>,
     pub commands: Vec<f64>,
     pub output: Vec<f64>,
@@ -99,6 +100,7 @@ impl Units {
     }
     fn with_capacity(actors: usize, nodes: usize, commands: usize, weapons: usize) -> Self {
         Self {
+            network:Default::default(),
             input: vec![0.0; f::STRIDE + actors * i::STRIDE],
             commands: vec![0.0; commands * c::STRIDE],
             output: vec![0.0; actors * o::STRIDE],
@@ -270,6 +272,7 @@ impl Units {
     /// batch before its camera phase; a native replay already has both sets
     /// of inputs and calls frame() to execute the same two phases together.
     pub fn pose_frame(&mut self) {
+        self.network.units(&mut self.input);
         self.header.fill(0.0);
         self.header[h::VERSION] = VERSION as f64;
         // A mismatched host is a build error. Counts beyond the stores are

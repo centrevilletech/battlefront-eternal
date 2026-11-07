@@ -55,6 +55,7 @@ export class PageVehicles {
     if (this.buffer === b && !force) return;
     this.buffer = b;
     this.input = new Float64Array(b, k.input_ptr(), k.input_len());
+    this.networkStates=new Float64Array(b,k.network_states_ptr(),k.network_states_len());
     this.streamIn = new Float64Array(b, k.stream_in_ptr(), k.stream_in_len());
     this.streamOut = new Float64Array(b, k.stream_out_ptr(), k.stream_out_len());
     this.header = new Float64Array(b, k.header_ptr(), H.STRIDE);
@@ -138,6 +139,7 @@ export class PageVehicles {
     rig.outSides = O.STRIDE; rig.outRays = O.STRIDE + pairs; rig.outAimers = rig.outRays + pairs * 6;
     rig.outNodes = rig.outAimers + aimers.length * AO.STRIDE; rig.outSkins = rig.outNodes + nodes.length * N.STRIDE;
     this.rigs.set(v.root, rig);
+    v.nativeDisplay={owner:this,rig};
     return rig;
   }
   // An entry's record, or -1 past the records (degrades: not drawn this
@@ -180,13 +182,11 @@ export class PageVehicles {
     const e = this.entry(v, mode);
     if (e < 0) return false;
     const x = this.input, rig = this.queue[(this.count - 1) * 3 + 1], slot = this.queue[(this.count - 1) * 3 + 2];
-    const net = render ? null : v.networkPose, p = net ? net.position : null, q = net ? net.quaternion : null;
-    // present()'s clocks: a record's sample at its own time (alpha 1, the
-    // aimers turned by its dt); otherwise between ticks by alpha.
-    x[e + E.ALPHA] = net ? 1 : alpha; x[e + E.DT] = net ? net.dt || 0 : dt; x[e + E.FRAME_DT] = dt; x[e + E.NETWORK] = net ? 1 : 0;
-    x[e + E.POSITION] = p ? p[0] : v.position.x; x[e + E.POSITION + 1] = p ? p[1] : v.position.y; x[e + E.POSITION + 2] = p ? p[2] : v.position.z;
-    const r = v.quaternion;
-    x[e + E.QUATERNION] = q ? q[0] : r.x; x[e + E.QUATERNION + 1] = q ? q[1] : r.y; x[e + E.QUATERNION + 2] = q ? q[2] : r.z; x[e + E.QUATERNION + 3] = q ? q[3] : r.w;
+    // The native network link replaces these current source facts only when
+    // a historical hull sample exists. Predicted/render slots stay local.
+    x[e+E.ALPHA]=alpha;x[e+E.DT]=dt;x[e+E.FRAME_DT]=dt;x[e+E.NETWORK]=0;x[e+E.LOCAL_PRESENT]=v.tickFrom&&!v.sleeping?1:0;x[e+E.DEFERRED]=0;
+    x[e+E.POSITION]=v.position.x;x[e+E.POSITION+1]=v.position.y;x[e+E.POSITION+2]=v.position.z;
+    const r=v.quaternion;x[e+E.QUATERNION]=r.x;x[e+E.QUATERNION+1]=r.y;x[e+E.QUATERNION+2]=r.z;x[e+E.QUATERNION+3]=r.w;
     // Where its last two ticks began (render(): the previous tick's state;
     // a record's sample has none: zeros, unread). A craft's turn there is
     // `flightTickQ || quaternion`, its missing roll its own.
@@ -286,7 +286,7 @@ export class PageVehicles {
       const v = this.queue[q * 3], rig = this.queue[q * 3 + 1], o = rig.slots[this.queue[q * 3 + 2]][1];
       const mode = this.input[F.STRIDE + q * E.STRIDE + E.MODE];
       // A hull skipped for a mismatch keeps last frame's pose.
-      if (mode !== M.SKIP) this.writeBack(v, rig, o, mode);
+      if (mode !== M.SKIP && !this.input[F.STRIDE+q*E.STRIDE+E.DEFERRED]) this.writeBack(v, rig, o, mode);
     }
     this.count = 0;
     // Hulls past the records or with a mismatched rig, reported once.

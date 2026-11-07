@@ -8,7 +8,6 @@ pub struct State {
     pub clips: Vec<Clip>,
     pub poses: Vec<Pose>,
     /// Cold rig construction exchange; never resized by a frame or tick.
-    pub timelines: Vec<bfe_pose::timeline::Timeline>,
     pub construction_input: Vec<u8>,
     pub construction_output: Vec<u8>,
 }
@@ -112,24 +111,6 @@ pub extern "C" fn pose_construction_output() -> *const u8 { state().pose_constru
 #[no_mangle]
 pub extern "C" fn pose_construction_length() -> usize { state().pose_construction_length() }
 
-/// Snapshot rings are born with the page, not with authoritative worlds.
-#[no_mangle]
-pub extern "C" fn timeline_new() -> usize { state().timeline_new() }
-// A stale constructor handle can accompany memory-view rebinding during a
-// frame. Pointer queries return null instead of indexing outside the store.
-#[no_mangle]
-pub extern "C" fn timeline_input(id:usize) -> *mut f64 { state().timeline_input(id) }
-#[no_mangle]
-pub extern "C" fn timeline_output(id:usize) -> *const f64 { state().timeline_output(id) }
-#[no_mangle]
-pub extern "C" fn timeline_push(id:usize) { state().timeline_push(id) }
-#[no_mangle]
-pub extern "C" fn timeline_present(id:usize) { state().timeline_present(id) }
-#[no_mangle]
-pub extern "C" fn timeline_reset(id:usize, epoch:f64) { state().timeline_reset(id, epoch) }
-#[no_mangle]
-pub extern "C" fn timeline_remove(id:usize, entity:f64) { state().timeline_remove(id, entity) }
-
 impl State {
     pub fn pose_construction_input(&mut self, length: usize) -> *mut u8 {
         let s = self;
@@ -152,17 +133,4 @@ impl State {
     }
     pub fn pose_construction_output(&mut self) -> *const u8 { self.construction_output.as_ptr() }
     pub fn pose_construction_length(&mut self) -> usize { self.construction_output.len() }
-    pub fn timeline_new(&mut self) -> usize {
-        let s=self;s.timelines.push(bfe_pose::timeline::Timeline::new());s.timelines.len()-1
-    }
-    pub fn timeline_input(&mut self, id:usize) -> *mut f64 {
-        self.timelines.get_mut(id).map_or(std::ptr::null_mut(),|t|t.input.as_mut_ptr())
-    }
-    pub fn timeline_output(&mut self, id:usize) -> *const f64 {
-        self.timelines.get(id).map_or(std::ptr::null(),|t|t.output.as_ptr())
-    }
-    pub fn timeline_push(&mut self, id:usize) { if let Some(t)=self.timelines.get_mut(id) {t.push();} }
-    pub fn timeline_present(&mut self, id:usize) { if let Some(t)=self.timelines.get_mut(id) {t.present();} }
-    pub fn timeline_reset(&mut self, id:usize, epoch:f64) { if let Some(t)=self.timelines.get_mut(id) {t.reset(epoch);} }
-    pub fn timeline_remove(&mut self, id:usize, entity:f64) { if let Some(t)=self.timelines.get_mut(id) {t.remove(entity);} }
 }

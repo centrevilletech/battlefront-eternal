@@ -14,7 +14,7 @@ test('snapshot host and client converge through acks and datagram loss', { skip:
   const { headlessGame } = await import('../tools/headless-world.mjs');
   const { createMultiplayerWorld } = await import('../src/runtime/multiplayer-world.js');
   const { createSnapshotHost, publicationBuffersFor } = await import('../src/runtime/snapshot-host.js');
-  const { SnapshotClient } = await import('../src/runtime/snapshot-client.js');
+  const { SnapshotClient } = await import('./helpers/network-capture.js');
   const { encodeEntityInput } = await import('../src/runtime/network-entity-input.js');
   const { decodeOwnPlayer } = await import('../src/runtime/network-entity-player.js');
 
@@ -112,9 +112,23 @@ test('publication shares one copy of the entity parts across clients on the same
 test('reliable gameplay records before the first snapshot acknowledge nothing', async () => {
   // The events lane can beat the first state datagram; epoch 0 is not a
   // baseline and a session rejects it as an acknowledgement.
-  const { SnapshotClient } = await import('../src/runtime/snapshot-client.js');
+  const { SnapshotClient } = await import('./helpers/network-capture.js');
   const client = new SnapshotClient();
   const early = client.gameplayRecords([], 120);
   assert.equal(early.snapshotAck, null);
   assert.equal(early.epoch, 0);
+});
+
+// The receive boundary masks every own decoder fault as missing baseline,
+// while cosmetic event unpacking remains an ordinary malformed-event fault.
+test('own decoder framing faults request repair without partially applying a packet',async()=>{
+ const {SnapshotClient}=await import('../src/runtime/snapshot-client.js');const repairs=[],client=new SnapshotClient({onMissingBaseline:head=>repairs.push(head.tick)});
+ for(const tail of [[],[0,1],[4],[4,1],[1],[2]]){
+  const bytes=new Uint8Array(20+tail.length),v=new DataView(bytes.buffer);v.setUint32(0,0x314f4e42,true);v.setUint16(4,1,true);v.setUint32(6,5,true);bytes[10]=2;bytes[15]=1;bytes.set(tail,20);
+  assert.equal(client.receive(bytes),null);
+ }
+ assert.equal(client.missingBaselines,6);assert.deepEqual(repairs,[5,5,5,5,5,5]);
+ const next=new Uint8Array(21),v=new DataView(next.buffer);v.setUint32(0,0x314f4e42,true);v.setUint16(4,2,true);v.setUint32(6,6,true);next[10]=2;next[15]=1;
+ assert.ok(client.receive(next));assert.equal(client.missingBaselines,0,'a new epoch clears loss accounting');
+ v.setUint32(6,7,true);assert.equal(client.receive(next.slice(0,20)),null);assert.equal(client.missingBaselines,1);assert.equal(repairs.at(-1),7);client.dispose();
 });

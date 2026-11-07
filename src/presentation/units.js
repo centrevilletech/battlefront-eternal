@@ -246,6 +246,7 @@ export class PageUnits {
     if (this.buffer === b) return;
     this.buffer = b;
     this.input = new Float64Array(b, k.input_ptr(), k.input_len());
+    this.networkStates=new Float64Array(b,k.network_states_ptr(),k.network_states_len());
     this.commands = new Float64Array(b, k.commands_ptr(), k.commands_len());
     this.output = new Float64Array(b, k.output_ptr(), k.output_len());
     this.nodes = new Float64Array(b, k.nodes_ptr(), k.nodes_len());
@@ -393,6 +394,7 @@ export class PageUnits {
       riderLease: null, riderVehicle: null, publishedLease: null, unit: null,
       bubblePosition: { position: presentation.position },
     };
+    presentation.nativeDisplay=row;
     row.handle = new AnimatorHandle(this, row, source);
     if (source.pending) {
       for (const event of source.pending) row.handle[event.kind](...event.args);
@@ -609,8 +611,7 @@ export class PageUnits {
     const input = this.input,
       at = F.STRIDE + this.count++ * I.STRIDE,
       s = unit.soldier,
-      p = unit.presentation,
-      network = p.networkPose;
+      p = unit.presentation;
     input.fill(0, at, at + I.STRIDE);
     input[at + I.ACTOR] = row.id;
     input[at + I.ID] = unit.id;
@@ -625,20 +626,9 @@ export class PageUnits {
     }
     input[at + I.ALPHA] = alpha;
     vector(input, at + I.AUTHORITATIVE_POSITION, s.position);
-    // Historical records supply these fields directly. Do not first pack
-    // a current collision snapshot only to overwrite it with the history.
-    if (!network) {
-      vector(input, at + I.POSITION, s.position);
-      vector(input, at + I.VELOCITY, s.velocity);
-      input[at + I.YAW] = s.aimYaw;
-      input[at + I.PITCH] = s.aimPitch;
-    }
-    if (!network || network.kind !== "soldier") {
-      input[at + I.POSTURE] = POSTURES.indexOf(s.posture);
-      input[at + I.AIR] = AIR.indexOf(s.air ?? null);
-      input[at + I.DIVE] = s.dive || 0;
-      input[at + I.DEAD] = s.dead ? 1 : 0;
-    }
+    vector(input,at+I.POSITION,s.position);vector(input,at+I.VELOCITY,s.velocity);
+    input[at+I.YAW]=s.aimYaw;input[at+I.PITCH]=s.aimPitch;
+    input[at+I.POSTURE]=POSTURES.indexOf(s.posture);input[at+I.AIR]=AIR.indexOf(s.air??null);input[at+I.DIVE]=s.dive||0;input[at+I.DEAD]=s.dead?1:0;
     input[at + I.DIVE_TIME] = s.diveTime || 0;
     vector(input, at + I.PREVIOUS_POSITION, p.previousPosition);
     vector(input, at + I.PREVIOUS_VELOCITY, p.previousVelocity);
@@ -662,37 +652,6 @@ export class PageUnits {
       input[at + I.PREVIOUS_WALKER_POSE + 1] = p.previousPose.lean;
       input[at + I.PREVIOUS_WALKER_POSE + 2] = p.previousPose.legs;
       input[at + I.PREVIOUS_WALKER_POSE + 3] = p.previousPose.time;
-    }
-    if (network) {
-      input[at + I.NETWORK] = 1;
-      for (let k = 0; k < 3; k++) {
-        input[at + I.POSITION + k] = network.position[k];
-        input[at + I.VELOCITY + k] = network.velocity[k];
-      }
-      input[at + I.YAW] = network.yaw;
-      input[at + I.PITCH] = network.pitch;
-      input[at + I.NETWORK_EPOCH] = network.epoch ?? 0;
-      input[at + I.NETWORK_GENERATION] = network.generation;
-      input[at + I.NETWORK_TICK] = network.fromTick ?? -1;
-      input[at + I.FIRE_COUNTER] = network.fireCounter ?? 0;
-      if (network.kind === "droideka") {
-        input[at + I.WALKER_MODE] = network.mode;
-        input[at + I.WALKER_TIME] = network.time;
-        input[at + I.WALKER_LEGS] = network.legs;
-        input[at + I.WALKER_ROLL] = network.roll;
-        input[at + I.WALKER_LEAN] = network.lean;
-        input[at + I.WALKER_REVERSE] = network.reverse ? 1 : 0;
-        input[at + I.DEAD] = network.dead ? 1 : 0;
-      }
-      if (network.kind === "soldier") {
-        input[at + I.POSTURE] = network.posture;
-        // Codec state indices are stable generated protocol values. Convert
-        // the displayed historical mode here, never the collision snapshot.
-        const mode = network.state;
-        input[at + I.AIR] = mode === 1 ? 1 : mode === 2 ? 2 : mode === 3 || mode === 8 ? 3 : mode === 4 ? 4 : 0;
-        input[at + I.DIVE] = mode === 5 ? 1 : mode === 6 ? -1 : 0;
-        input[at + I.DEAD] = mode === 7 || mode === 8 ? 1 : 0;
-      }
     }
     const held = unit.held?.frame ? unit.held : null;
     if (held) {
@@ -940,7 +899,7 @@ export class PageUnits {
           // The native reset already resolved the pose fields. Deleting and
           // recreating inherited state properties here would allocate boxed
           // numbers on every remote-gunner frame.
-          p.networkPose=null;p.networkFire=null;p.networkFired=false;p.deathPending=false;
+          p.networkFire=null;p.networkFired=false;p.deathPending=false;
           p.position.copy(s.position);p.velocity.copy(s.velocity);
           p.previousPosition.copy(s.position);p.previousVelocity.copy(s.velocity);
           p.previousYaw=s.aimYaw;p.tickYaw=0;

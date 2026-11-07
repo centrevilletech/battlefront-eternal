@@ -7,7 +7,8 @@ import { combatRecord, decodeCombat } from '../src/runtime/network-entity-combat
 import { projectileRecord } from '../src/runtime/network-combat-projectile.js';
 import { explosionRecord } from '../src/runtime/network-combat-explosion.js';
 import { presentationRecord } from '../src/runtime/entity-presentation-events.js';
-import { encodeCosmeticEvent, unpackCosmeticEvents } from '../src/runtime/snapshot-cosmetics.js';
+import {encodeCosmeticEvent} from '../src/runtime/snapshot-cosmetics.js';
+import {unpackCosmeticEvents} from '../tools/network-inspect.mjs';
 
 // What a client is owed of the cosmetic combat events: launches, first
 // samples, terminals and explosions until a snapshot that carried them is

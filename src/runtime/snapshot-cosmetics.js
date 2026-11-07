@@ -9,11 +9,11 @@
 // position and aim in place of the f64 payload, rebuilt into the existing
 // combat record shape on decode so presentation code is unchanged. Other
 // cosmetic schemas travel as their existing payload bytes.
-import { decodeCombat, combatRecord } from './network-entity-combat.js';
+import { decodeCombat } from './network-entity-combat.js';
 import {
-  DEFAULT_SNAPSHOT_BOUNDS, quantizePosition, dequantizePosition,
-  quantizeYaw, dequantizeYaw, quantizePitch, dequantizePitch,
-  SnapshotWriter as Writer, SnapshotReader as Reader,
+  DEFAULT_SNAPSHOT_BOUNDS, quantizePosition,
+  quantizeYaw, quantizePitch,
+  SnapshotWriter as Writer,
 } from './snapshot-codec.js';
 
 export function isGameplayCombat(record) { return record.kind === 'combat' && (record.schema === 3 || record.schema === 4); }
@@ -40,7 +40,6 @@ export function cosmeticPriority(view, position, ownerId, range = 300) {
 const TAG_RAW = 0, TAG_LAUNCH = 1, TAG_IMPACT = 2;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 function directionAngles([x, y, z]) { return [Math.atan2(x, z), Math.asin(clamp(y, -1, 1))]; }
-function anglesDirection(yaw, pitch) { const c = Math.cos(pitch); return [Math.sin(yaw) * c, Math.sin(pitch), Math.cos(yaw) * c]; }
 // The compact form holds a position only inside the snapshot bounds (the
 // default's height runs from -400 to 300 m) and a drawn offset within 128 m.
 // Anything else travels as its exact payload, which every decoder reads:
@@ -76,24 +75,6 @@ export function encodeCosmeticEvent(record, bounds = DEFAULT_SNAPSHOT_BOUNDS, vi
   }
   return w.finish();
 }
-export function decodeCosmeticEvent(bytes, bounds = DEFAULT_SNAPSHOT_BOUNDS) {
-  const r = new Reader(bytes);
-  const base = { kind: 'combat', id: r.u32(), generation: r.u32(), tick: r.u32(), schema: r.u16() };
-  const tag = r.u8();
-  if (tag === TAG_RAW) {
-    base.payload = r.raw(r.u16());
-    if (r.at !== bytes.length) throw Error('cosmetic event trailing bytes');
-    return base;
-  }
-  if (tag !== TAG_LAUNCH && tag !== TAG_IMPACT) throw Error('cosmetic event tag');
-  const e = { expiryTick: r.u32(), definitionId: r.u32(), ownerId: r.u32(), ownerGeneration: r.u32(), fireId: r.u32(),
-    launchTick: r.u32() / 64, executionTick: r.u32(), channel: r.u8(), surface: r.u8() };
-  e.position = dequantizePosition([r.u16(), r.u16(), r.u16()], bounds);
-  e.direction = anglesDirection(dequantizeYaw(r.u16()), dequantizePitch(r.i16()));
-  if (tag === TAG_LAUNCH) { e.offset = [r.i16() / 256, r.i16() / 256, r.i16() / 256]; e.speed = r.f32(); e.life = r.f32(); e.merge = r.f32(); }
-  if (r.at !== bytes.length) throw Error('cosmetic event trailing bytes');
-  return combatRecord({ ...base, ...e, offset: e.offset ?? [0, 0, 0] });
-}
 // Pack pre-sorted cosmetic records (nearest first; the tail is what drops)
 // into at most budgetBytes. Returns the packed bytes and the split.
 export function packCosmeticEvents(records, budgetBytes, bounds = DEFAULT_SNAPSHOT_BOUNDS) {
@@ -107,10 +88,4 @@ export function packEncodedCosmeticEvents(encoded, budgetBytes) {
     else dropped.push(record);
   }
   return { bytes: w.finish(), packed, dropped };
-}
-export function unpackCosmeticEvents(bytes, bounds = DEFAULT_SNAPSHOT_BOUNDS) {
-  if (!bytes) return [];
-  const r = new Reader(bytes), records = [];
-  while (r.at < bytes.length) records.push(decodeCosmeticEvent(r.raw(r.u16()), bounds));
-  return records;
 }

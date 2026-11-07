@@ -139,12 +139,32 @@ The active snapshot timeline also samples in one native batch. A bounded
 ring retains 64 snapshots and 1,024 identities; sparse ids, partial packets,
 generations and discontinuities remain explicit. Hulls use normalized slerp;
 body yaw takes the shortest arc. Missing brackets coast for six ticks and
-then hold. Network pose publication reuses binding-owned arrays, and own
-predicted bodies and hulls bypass remote drawing without changing history.
+then hold. The receive owner and the body/hull phases share the same native memory.
+One frame call samples the ring; native resource links then supply historical
+inputs directly to those phases. No sampled pose crosses through a JS object. Native bindings retire a sampled
+life/class mismatch at that same boundary. Cold admission reads one generated
+liveness flag to admit the same resource again on a later semantic packet.
+Own predicted bodies and hulls bypass remote drawing without changing history.
 A full ring reuses its oldest snapshot, and departed identities release their
 slots. Closing a battle returns its native ring for reuse; stale callbacks
 cannot read or overwrite the next battle's samples. Additional simultaneous identities or views are
 refused and reported once rather than growing or failing a display frame.
+
+SnapshotClient's multipart assembly and immutable ACK baselines also live in
+that owner. A packet copies bytes into one reserved input span and returns only
+changed gameplay records, seat changes and opaque owned payloads. Baseline
+entries remain native. Cold diagnostic captures can inspect them for replay;
+the live page never reconstructs them. Outbound cumulative look, held backups,
+ACK accounting and binary input encoding use the same required module. Server
+snapshot publication remains in its authoritative owner.
+
+Receive storage bounds 512 protocol slots, 128 acknowledged baselines and
+32 unfinished snapshots. Field payloads use reference-counted native handles;
+complete versions share unchanged bytes. A paused receive queue discards its
+oldest replaceable quarter when full, leaving incomplete snapshots unacknowledged
+so the host repairs them. Ring and packet stores reserve once and return to a
+cold pool at battle disposal. Neither packet assembly nor sampling allocates
+native storage after setup.
 
 ## Storage and replay
 

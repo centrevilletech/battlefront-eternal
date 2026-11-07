@@ -6,8 +6,9 @@ import {SoldierPresentation} from '../src/soldier-presentation.js';
 import {unitHost,presentUnit} from './helpers/presentation.js';
 import {UnitOutput as O} from '../src/presentation/layout.js';
 const ANIM={alertOn:2.5,alertHold:2};
-import {EntityTimeline} from '../src/runtime/network-entity-timeline.js';
-import {EntityPresentation} from '../src/runtime/network-entity-presentation.js';
+import {createPageNetwork} from '../src/runtime/page-network.js';
+import {SnapshotPresentation} from '../src/runtime/snapshot-timeline.js';
+import {pushTimeline,sampledCounter} from './helpers/network-capture.js';
 import {ENTITY_SOLDIER_STATES} from '../src/runtime/network-entity-codec.js';
 
 const record=(tick,fireCounter,extra={})=>({kind:'soldier',id:1,generation:1,tick,position:[0,0,0],velocity:[0,0,0],yaw:.7,pitch:.2,health:100,posture:0,state:0,fireCounter,...extra});
@@ -16,14 +17,14 @@ function fixture() {
   const presentation=new SoldierPresentation(soldier);
   const forbidden=()=>assert.fail('counter recovery must not replay shot cosmetics or weapon simulation');
   const combat={presentProjectileShot:forbidden,update:forbidden,flash:forbidden};
-  const unit=new Unit({def:{},actor:{root:new Group()},soldier,presentation,animator:{},combat});unit.removed=false;unit.alive=true;
+  const unit=new Unit({def:{},actor:{root:new Group()},soldier,presentation,animator:{},combat});unit.id=1;unit.generation=1;unit.removed=false;unit.alive=true;
   const host=unitHost(unit),animator=unit.animator;
   Object.defineProperty(animator,'alert',{get(){return host.owner.output[host.row.id*O.STRIDE+O.ANIMATOR+6];}});
   Object.defineProperty(animator,'drawnAim',{get(){return [presentation.state.aimYaw,presentation.state.aimPitch];}});
-  const timeline=new EntityTimeline(),view=new EntityPresentation(timeline);
-  const push=(...records)=>timeline.push({epoch:1,records});
-  const draw=(tick,dt=0)=>{view.bindSoldier(1,timeline.entities.get(1).generation,presentation);view.update(tick);presentUnit(unit,dt,1);};
-  return {unit,soldier,presentation,animator,push,draw};
+  const timeline=createPageNetwork(),view=new SnapshotPresentation(timeline);let generation=1;
+  const push=(...records)=>{for(const r of records){generation=r.generation;unit.generation=generation;pushTimeline(timeline,r.tick,new Map([[r.id,r]]),1);}};
+  const draw=(tick,dt=0,counter)=>{view.bindSoldier(1,generation,presentation);view.update(tick);if(counter!==undefined)sampledCounter(timeline,1,counter);presentUnit(unit,dt,1);};
+  return {unit,soldier,presentation,animator,push,draw,view};
 }
 
 test('lost shot events recover remote aim stance only when the rendered sample reaches the shot counter',()=>{
@@ -63,10 +64,10 @@ test('new lives, presentation resets and dead sampled bodies do not recover hist
 
 test('rewound or decreasing sampled counters cannot trigger or lower the firing high-water mark',()=>{
   const f=fixture();
-  const draw=pose=>{f.presentation.networkPose={...pose,fromTick:pose.tick};presentUnit(f.unit,0,1);};
+  const draw=pose=>{f.push(pose);f.draw(pose.tick,0,pose.fireCounter);};
   draw(record(20,10));draw(record(10,11));draw(record(30,9));draw(record(40,10));
   assert.equal(f.animator.alert,-1);
   draw(record(50,11));assert.equal(f.animator.alert,ANIM.alertOn);
-  f.animator.reset(f.soldier.aimYaw);f.presentation.networkPose=null;presentUnit(f.unit,0,1);
+  f.animator.reset(f.soldier.aimYaw);f.view.unbind(1);presentUnit(f.unit,0,1);
   draw(record(60,20));assert.equal(f.animator.alert,-1,'leaving and returning to replica presentation establishes a baseline');
 });

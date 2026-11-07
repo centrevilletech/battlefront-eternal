@@ -371,6 +371,7 @@ impl Rig {
 /// The page's hull phase: loaded clips, registered rigs, and the records
 /// the host writes and reads each frame.
 pub struct Vehicles {
+    pub network:crate::network::Bindings,
     clips: Vec<Clip>,
     rigs: Vec<Rig>,
     /// VehicleFrame, then up to `entries_capacity` VehicleEntry records.
@@ -390,6 +391,7 @@ impl Default for Vehicles {
 impl Vehicles {
     pub fn new() -> Vehicles {
         Vehicles {
+            network:Default::default(),
             clips: Vec::new(),
             rigs: Vec::new(),
             input: vec![0.0; vf::STRIDE],
@@ -571,6 +573,7 @@ impl Vehicles {
     /// First call: every root placed, the bones back at bind, and the leg
     /// rays each walker asks for (Vehicle.present up to feelLegs' casts).
     pub fn place(&mut self) {
+        self.network.vehicles(&mut self.input);
         if self.input[vf::VERSION] != crate::layout::VERSION as f64 {
             self.header[vh::STATUS] = status::VERSION_MISMATCH as f64;
             return;
@@ -589,6 +592,7 @@ impl Vehicles {
             let r = &mut self.rigs[rig];
             let out = &mut self.stream_out[o..o + r.output_len];
             out[eo::RAYS] = 0.0;
+            if x[ve::DEFERRED]!=0. {continue;}
             let m = x[ve::MODE];
             if m == mode::ALIVE as f64 || m == mode::RENDER as f64 {
                 rays += place_alive(r, slot, x, out);
@@ -612,6 +616,7 @@ impl Vehicles {
             let r = &mut self.rigs[rig];
             let out = &mut self.stream_out[o..o + r.output_len];
             let sin = &self.stream_in[i..i + r.input_len];
+            if x[ve::DEFERRED]!=0. {continue;}
             let m = x[ve::MODE];
             if m == mode::ALIVE as f64 || m == mode::RENDER as f64 {
                 pose_alive(r, &self.clips, x, sin, out);

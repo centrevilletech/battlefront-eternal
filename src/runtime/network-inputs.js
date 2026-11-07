@@ -1,3 +1,5 @@
+import {pageNetworkFor} from './page-network.js';
+import {NetOutbound as O,NetAckResult as A,NetSentResult as S} from './network-layout.js';
 import { INPUT_ACTIONS } from './network-entity-input.js';
 
 // Only what the wire registry can name goes down the action lane. Held
@@ -18,56 +20,49 @@ export const discreteActions = command => (command.actions || []).filter(action 
 // command's tick (InputMailbox.take). The page's replay does the same
 // (reconcile.js replayTicks); look that has not gone yet is only shown.
 export class NetworkInputs {
-  constructor({state,events,fire,transitionBackups=true}) {this.transitionBackups=transitionBackups;this.state=state;this.events=events;this.fire=fire;this.reset();}
-  reset(){this.history=[];this.life=null;this.look=[0,0];this.sentLook=[0,0];this.sentSequence=0;this.unsent=[];this.transition=null;this.held=null;this.acked=0;}
-  clearPending(){this.history=[];this.transition=null;this.held=null;this.unsent=[];}
-  ack(sequence){
-    if(!Number.isSafeInteger(sequence)||sequence<=this.acked)return;
-    this.acked=sequence;
-    if(this.transition?.sequence<=sequence)this.transition=null;
+  constructor({state,events,fire,transitionBackups=true,kernel=pageNetworkFor(null)}) {
+    this.kernel=kernel;this.handle=kernel.createOutbound();this.transitionBackups=transitionBackups;this.state=state;this.events=events;this.fire=fire;this.reset();
   }
-  send(commands) {
-    for(const command of commands) {
-      const life=`${command.epoch}:${command.generation}`;
-      if(life!==this.life){this.reset();this.life=life;}
-      for(const [x,y] of command.look || []){this.look[0]+=x;this.look[1]+=y;}
-      command.sent=false;command.worldLook=[];command.lookSent=false;this.unsent.push(command);
-      const state={...command,actions:[],look:[],lookTotal:[...this.look]};for(const key of ['human','flightTuning','sent','worldLook','lookSent'])delete state[key];
-      const held=JSON.stringify([...state.down].sort());
-      if(this.held!==null&&held!==this.held)this.transition=state;
-      this.held=held;
-      if(this.transition&&(this.transition.sequence<=this.acked||this.transition.tick<state.tick-24))this.transition=null;
-      this.history=[state];
+  resetLocal(){this.history=[];this.life=null;this.look=[0,0];this.sentLook=[0,0];this.sentSequence=0;this.unsent=[];this.transition=null;this.held=null;this.acked=0;}
+  reset(){const k=this.kernel;k.begin();k.run('outboundReset',this.handle);this.resetLocal();}
+  clearPending(){const k=this.kernel;k.begin();k.run('outboundClear',this.handle);this.history=[];this.transition=null;this.held=null;this.unsent=[];}
+  ack(sequence){const k=this.kernel;k.begin();k.put(typeof sequence==='number'?sequence:NaN);k.run('outboundAck',this.handle);this.acked=k.numbers[A.ACKED];const transition=k.numbers[A.TRANSITION];if(!transition)this.transition=null;}
+  send(commands){
+    const k=this.kernel;
+    for(const command of commands){
+      // Held names still belong to the page registry. Their canonical source
+      // string crosses as UTF-16; Rust compares it without allocating a key.
+      const held=JSON.stringify([...command.down].sort()),look=command.look||[];
+      k.begin();k.put(command.epoch);k.put(command.generation);k.put(command.sequence);k.put(command.tick);k.put(held.length);for(let i=0;i<held.length;i++)k.put(held.charCodeAt(i));k.put(look.length);for(const point of look){k.put(point[0]);k.put(point[1]);}k.run('outboundCommand',this.handle);
+      const reset=k.numbers[O.RESET],changed=k.numbers[O.CHANGED],transition=k.numbers[O.TRANSITION],x=k.numbers[O.LOOK_X],y=k.numbers[O.LOOK_Y];
+      if(reset)this.resetLocal();this.life=`${command.epoch}:${command.generation}`;this.look[0]=x;this.look[1]=y;
+      command.sent=false;command.worldLook=[];command.lookSent=false;
+      // A paused transport cannot retain an unbounded chain of page commands.
+      // Its newest cumulative look repairs every dropped replaceable sample.
+      if(this.unsent.length===4096)this.unsent.shift();this.unsent.push(command);
+      const state={...command,actions:[],look:[],lookTotal:[x,y]};for(const key of ['human','flightTuning','sent','worldLook','lookSent'])delete state[key];
+      this.held=held;if(changed)this.transition=state;if(!transition)this.transition=null;this.history=[state];
       const actions=discreteActions(command);
-      if(actions.length || command.human?.length) {
-        if(!this.events({type:'actions',id:command.sequence,tick:command.tick,generation:command.generation,epoch:command.epoch,actions,...(command.human?.length?{human:command.human}:{})}))return false;
-      }
+      if(actions.length||command.human?.length)if(!this.events({type:'actions',id:command.sequence,tick:command.tick,generation:command.generation,epoch:command.epoch,actions,...(command.human?.length?{human:command.human}:{})}))return false;
       if(!this.fire(command))return false;
     }
     if(!commands.length)return false;
     const latest=this.history[0],backup=this.transition;
     const message={type:'inputs',commands:this.transitionBackups&&backup&&backup.sequence<latest.sequence?[backup,latest]:[latest]};
-    // Leave room for the transport sequence envelope in a 1200-byte payload.
-    // Large gamepad/custom bindings retain latest-only delivery instead of
-    // introducing SCTP fragmentation merely for optional redundancy.
     if(message.commands.length>1&&new TextEncoder().encode(JSON.stringify(message)).length>1152)message.commands=[latest];
-    const sent=this.state(message);
-    if(sent)this.sent(message.commands,commands);
-    return sent;
+    const sent=this.state(message);if(sent)this.sent(message.commands,commands);return sent;
   }
-  // The commands just sent: each newer than the last takes the change in the
-  // running total since that one (the one before it carried none of its own),
-  // and every command up to it has had its look go.
   sent(states,commands){
+    const k=this.kernel;
     for(const state of states){
-      if(state.sequence<=this.sentSequence)continue;
-      const dx=state.lookTotal[0]-this.sentLook[0],dy=state.lookTotal[1]-this.sentLook[1];
-      const command=commands.find(c=>c.sequence===state.sequence);
-      if(command){command.sent=true;command.worldLook=dx||dy?[[dx,dy]]:[];}
+      k.begin();k.put(state.sequence);k.put(state.lookTotal[0]);k.put(state.lookTotal[1]);k.run('outboundSent',this.handle);const accepted=k.numbers[S.ACCEPTED],dx=k.numbers[S.DX],dy=k.numbers[S.DY];
+      if(!accepted)continue;
+      for(const command of commands)if(command.sequence===state.sequence){command.sent=true;command.worldLook=dx||dy?[[dx,dy]]:[];break;}
       this.sentLook=state.lookTotal;this.sentSequence=state.sequence;
     }
-    this.unsent=this.unsent.filter(command=>{if(command.sequence>this.sentSequence)return true;command.lookSent=true;return false;});
+    let retained=0;for(const command of this.unsent){if(command.sequence>this.sentSequence)this.unsent[retained++]=command;else command.lookSent=true;}this.unsent.length=retained;
   }
+  dispose(){if(this.handle){this.kernel.dropOutbound(this.handle);this.handle=0;}}
 }
 
 // A movement acknowledgement must not erase a reliable action still in flight.

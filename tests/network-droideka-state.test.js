@@ -1,5 +1,5 @@
 import './fixtures/native-anim.js';
-import {presentUnit,presentGone} from './helpers/presentation.js';
+import {presentUnit,presentGone,unitHost} from './helpers/presentation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -65,6 +65,7 @@ function remoteFixture() {
   const d=fixture(), combat={health:100,dead:false,arsenal:{current:()=>null,weapons:[]},updateHeld(){}};
   const unit=new Unit({className:'droideka',def:{},soldier:d,combat,presentation:new SoldierPresentation(d),actor:d.actor,animator:d.animator,walker:true});
   Object.assign(unit,{id:2,generation:1,team:2,removed:false,alive:true});
+  unitHost(unit);
   const registry={classes:new Map([[1,'droideka']]),weapons:new Map()}, map=new Map([[2,unit]]);
   const game={playerUnit:{id:1},units:{all:()=>map.values(),byId:id=>map.get(id),byIdMap:map},vehicles:{vehicles:[]},ordnance:{clearProjectilePresentation(){},draw:{netHost:null}},client:{seats:{}},factory:{build(){throw Error('unexpected build');}}};
   return {d,unit,game,registry};

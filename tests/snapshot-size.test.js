@@ -5,10 +5,11 @@ import { existsSync } from 'node:fs';
 import { headlessGame } from '../tools/headless-world.mjs';
 import { createMultiplayerWorld } from '../src/runtime/multiplayer-world.js';
 import { createSnapshotHost, publicationBuffersFor } from '../src/runtime/snapshot-host.js';
-import { SnapshotClient } from '../src/runtime/snapshot-client.js';
+import { SnapshotClient } from './helpers/network-capture.js';
 import { encodeSnapshotAckKeepalive } from '../src/runtime/network-entity-input.js';
-import { encodeEntities, readSnapshotHeader } from '../src/runtime/snapshot-codec.js';
-import { decodeOwnDatagram } from '../src/runtime/snapshot-own.js';
+import {encodeEntities} from '../src/runtime/snapshot-codec.js';
+import {readSnapshotHeader} from '../tools/network-inspect.mjs';
+import {decodeOwnDatagram} from '../tools/network-inspect.mjs';
 import { packCosmeticEvents } from '../src/runtime/snapshot-cosmetics.js';
 import { combatRecord } from '../src/runtime/network-entity-combat.js';
 

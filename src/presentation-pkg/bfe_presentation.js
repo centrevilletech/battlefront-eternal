@@ -310,6 +310,242 @@ export class PageLights {
 if (Symbol.dispose) PageLights.prototype[Symbol.dispose] = PageLights.prototype.free;
 
 /**
+ * Packet bytes and outbound input share the display module's memory. The
+ * expensive receive/ring reservation is lazy: an encode-only host needs none.
+ */
+export class PageNetwork {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PageNetworkFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pagenetwork_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    bytes_ptr() {
+        const ret = wasm.pagenetwork_bytes_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} tick
+     * @returns {string}
+     */
+    capture(tick) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.pagenetwork_capture(this.__wbg_ptr, tick);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    close() {
+        wasm.pagenetwork_close(this.__wbg_ptr);
+    }
+    /**
+     * @param {number} op
+     * @param {number} length
+     * @returns {number}
+     */
+    encode(op, length) {
+        const ret = wasm.pagenetwork_encode(this.__wbg_ptr, op, length);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    encoded_ptr() {
+        const ret = wasm.pagenetwork_encoded_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    header_ptr() {
+        const ret = wasm.pagenetwork_header_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} op
+     * @param {number} length
+     * @returns {number}
+     */
+    inspect(op, length) {
+        const ret = wasm.pagenetwork_inspect(this.__wbg_ptr, op, length);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * Cold fixture inspection uses the same numeric readers. Its result
+     * stream is absent from live receive and display publication.
+     * @returns {number}
+     */
+    inspection_ptr() {
+        const ret = wasm.pagenetwork_inspection_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} kind
+     * @param {number} id
+     * @returns {boolean}
+     */
+    lookup(kind, id) {
+        const ret = wasm.pagenetwork_lookup(this.__wbg_ptr, kind, id);
+        return ret !== 0;
+    }
+    constructor() {
+        const ret = wasm.pagenetwork_new();
+        this.__wbg_ptr = ret;
+        PageNetworkFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @returns {number}
+     */
+    numbers_ptr() {
+        const ret = wasm.pagenetwork_numbers_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     */
+    outbound_drop(id) {
+        wasm.pagenetwork_outbound_drop(this.__wbg_ptr, id);
+    }
+    /**
+     * @returns {number}
+     */
+    outbound_new() {
+        const ret = wasm.pagenetwork_outbound_new(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} op
+     * @param {number} length
+     */
+    outbound_run(id, op, length) {
+        const ret = wasm.pagenetwork_outbound_run(this.__wbg_ptr, id, op, length);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    payloads_ptr() {
+        const ret = wasm.pagenetwork_payloads_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} tick
+     * @param {number} player
+     * @param {number} vehicle
+     */
+    present(tick, player, vehicle) {
+        wasm.pagenetwork_present(this.__wbg_ptr, tick, player, vehicle);
+    }
+    /**
+     * @param {number} length
+     */
+    receive(length) {
+        const ret = wasm.pagenetwork_receive(this.__wbg_ptr, length);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    receive_setup() {
+        wasm.pagenetwork_receive_setup(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    records_ptr() {
+        const ret = wasm.pagenetwork_records_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} id
+     */
+    remove(id) {
+        wasm.pagenetwork_remove(this.__wbg_ptr, id);
+    }
+    /**
+     * @param {number} epoch
+     */
+    reset(epoch) {
+        wasm.pagenetwork_reset(this.__wbg_ptr, epoch);
+    }
+    /**
+     * @returns {number}
+     */
+    seats_ptr() {
+        const ret = wasm.pagenetwork_seats_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} x
+     * @param {number} dx
+     * @param {number} z
+     * @param {number} dz
+     * @param {number} y
+     * @param {number} dy
+     */
+    set_bounds(x, dx, z, dz, y, dy) {
+        wasm.pagenetwork_set_bounds(this.__wbg_ptr, x, dx, z, dz, y, dy);
+    }
+    /**
+     * @returns {number}
+     */
+    timeline_input_ptr() {
+        const ret = wasm.pagenetwork_timeline_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} maximum
+     * @param {number} hz
+     * @param {number} extrapolate
+     */
+    timeline_options(maximum, hz, extrapolate) {
+        wasm.pagenetwork_timeline_options(this.__wbg_ptr, maximum, hz, extrapolate);
+    }
+    /**
+     * @returns {number}
+     */
+    timeline_output_ptr() {
+        const ret = wasm.pagenetwork_timeline_output_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    timeline_push() {
+        wasm.pagenetwork_timeline_push(this.__wbg_ptr);
+    }
+    timeline_setup() {
+        wasm.pagenetwork_timeline_setup(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    words_ptr() {
+        const ret = wasm.pagenetwork_words_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) PageNetwork.prototype[Symbol.dispose] = PageNetwork.prototype.free;
+
+/**
  * Thin browser binding for the ordnance phase: fixed buffers the page
  * fills and reads, one `present` per frame.
  */
@@ -855,6 +1091,17 @@ export class PageUnits {
         return ret[0] >>> 0;
     }
     /**
+     * @param {PageNetwork} network
+     * @param {number} actor
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} kind
+     */
+    bind_network(network, actor, id, generation, kind) {
+        _assertClass(network, PageNetwork);
+        wasm.pageunits_bind_network(this.__wbg_ptr, network.__wbg_ptr, actor, id, generation, kind);
+    }
+    /**
      * @returns {number}
      */
     changed_len() {
@@ -915,6 +1162,20 @@ export class PageUnits {
             throw takeFromExternrefTable0(ret[1]);
         }
         return ret[0] >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    network_states_len() {
+        const ret = wasm.pageunits_network_states_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    network_states_ptr() {
+        const ret = wasm.pageunits_network_states_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     constructor() {
         const ret = wasm.pageunits_new();
@@ -1004,6 +1265,12 @@ export class PageUnits {
         return ret >>> 0;
     }
     /**
+     * @param {number} actor
+     */
+    unbind_network(actor) {
+        wasm.pageunits_unbind_network(this.__wbg_ptr, actor);
+    }
+    /**
      * @param {number} id
      * @returns {number}
      */
@@ -1057,6 +1324,17 @@ export class PageVehicles {
         return ret[0] >>> 0;
     }
     /**
+     * @param {PageNetwork} network
+     * @param {number} rig
+     * @param {number} id
+     * @param {number} generation
+     * @param {number} kind
+     */
+    bind_network(network, rig, id, generation, kind) {
+        _assertClass(network, PageNetwork);
+        wasm.pagevehicles_bind_network(this.__wbg_ptr, network.__wbg_ptr, rig, id, generation, kind);
+    }
+    /**
      * @returns {number}
      */
     entries_capacity() {
@@ -1108,6 +1386,20 @@ export class PageVehicles {
             throw e;
         }
         const ret = wasm.pagevehicles_load_clip(this.__wbg_ptr, val3, val4, val5, ptr0, len0, ptr1, len1);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    network_states_len() {
+        const ret = wasm.pagevehicles_network_states_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    network_states_ptr() {
+        const ret = wasm.pagevehicles_network_states_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
     constructor() {
@@ -1167,6 +1459,12 @@ export class PageVehicles {
     stream_out_ptr() {
         const ret = wasm.pagevehicles_stream_out_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} rig
+     */
+    unbind_network(rig) {
+        wasm.pagevehicles_unbind_network(this.__wbg_ptr, rig);
     }
 }
 if (Symbol.dispose) PageVehicles.prototype[Symbol.dispose] = PageVehicles.prototype.free;
@@ -1235,6 +1533,9 @@ const PageItemsFinalization = (typeof FinalizationRegistry === 'undefined')
 const PageLightsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pagelights_free(ptr, 1));
+const PageNetworkFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pagenetwork_free(ptr, 1));
 const PageOrdnanceFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pageordnance_free(ptr, 1));
@@ -1256,6 +1557,12 @@ const PageVehiclesFinalization = (typeof FinalizationRegistry === 'undefined')
 const PageWarningFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pagewarning_free(ptr, 1));
+
+function _assertClass(instance, klass) {
+    if (!(instance instanceof klass)) {
+        throw new Error(`expected instance of ${klass.name}`);
+    }
+}
 
 let cachedFloat32ArrayMemory0 = null;
 function getFloat32ArrayMemory0() {

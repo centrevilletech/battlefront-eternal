@@ -95,6 +95,8 @@ impl Timeline {
             }
         }
     }
+    /// Resource binding resolves this stable slot once, without a page lookup.
+    pub fn slot(&self,id:f64)->Option<usize>{self.entities.iter().position(|e|e.id==id)}
     /// SnapshotTimeline.sample for the entire retained population. Output
     /// rows carry their id so host bindings can reject stale or foreign rows.
     pub fn present(&mut self) {

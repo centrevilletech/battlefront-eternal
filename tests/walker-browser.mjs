@@ -40,7 +40,7 @@ const watch = async (page, index, frames, step) => page.evaluate(async ([index, 
   const yaw = v.root.rotation.y + Math.PI / 2, at = v.root.position, far = v.size.y * 1.6;
   b.camera.position.set(at.x + Math.sin(yaw) * far, at.y + far * .3, at.z + Math.cos(yaw) * far);
   b.camera.lookAt(at.x, at.y + v.size.y * .4, at.z); b.camera.updateMatrixWorld(); b.graphics.render(0);
-  return { name: v.name, poses: poses.size, stomps, moved: start.distanceTo(v.root.position), networkPose: Boolean(v.networkPose),
+  return { name: v.name, poses: poses.size, stomps, moved: start.distanceTo(v.root.position), networkPose: Boolean(v.nativeNetwork&&!v.predicted),
     predicted: Boolean(b.client.vehiclePrediction), image: b.renderer.domElement.toDataURL() };
 }, [index, frames, step]);
 

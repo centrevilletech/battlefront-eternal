@@ -74,7 +74,7 @@ async function battle(ids, options = {}) {
 }
 
 test('snapshot clients decode every publication; no client is sent a baseline it did not acknowledge', owned, async () => {
-  const { SnapshotClient } = await import('../src/runtime/snapshot-client.js');
+  const { SnapshotClient } = await import('./helpers/network-capture.js');
   const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
   const { publicationBuffersFor } = await import('../src/runtime/snapshot-host.js');
   const ids = ['a', 'b', 'c', 'd', 'e', 'f'];

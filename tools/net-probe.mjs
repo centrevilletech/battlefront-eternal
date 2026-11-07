@@ -60,9 +60,11 @@ const engineModule=name=>import(pathToFileURL(join(engine,'src/runtime',name)));
 const netModule=name=>import(pathToFileURL(join(engine,'src/net',name)));
 const [{UdpPeer},{GameSession},{loadIdentity},{validateNetworkContract,wireCompatibility}]=await Promise.all(['udp-peer.js','game-session.js','identity.js','network-contract.js'].map(serverModule));
 const [{UdpEndpoint,CLOSE_CODE},{identityKeys}]=await Promise.all(['endpoint.js','crypto.js'].map(netModule));
-const [{SnapshotClient},{decodeOwnPlayer},{decodeWorldSummary},{decodeCombat},{SnapshotTimeline,SnapshotPresentation}]=await Promise.all(['snapshot-client.js','network-entity-player.js','network-entity-summary.js','network-entity-combat.js','snapshot-timeline.js'].map(engineModule));
+const [{SnapshotClient},{decodeOwnPlayer},{decodeWorldSummary},{decodeCombat}]=await Promise.all(['snapshot-client.js','network-entity-player.js','network-entity-summary.js','network-entity-combat.js'].map(engineModule));
 const {PlayoutClock}=await engineModule('playout.js');
-const {readSnapshotHeader,SNAPSHOT_ENTITIES_MAGIC}=await engineModule('snapshot-codec.js');
+const {SNAPSHOT_ENTITIES_MAGIC}=await engineModule('snapshot-codec.js');
+const {readSnapshotHeader}=await import(pathToFileURL(join(engine,'tools/network-inspect.mjs')));
+const {sampleTimeline}=await import(pathToFileURL(join(engine,'tests/helpers/network-capture.js')));
 const {restoreCompactSoldier,COMPACT_SOLDIER_SCHEMA}=await engineModule('network-entity-soldier-compact.js');
 const {Vector3}=await import('three');
 const [{NetworkSession},{EntityInputSender}]=await Promise.all(['network-session.js','network-entity-sender.js'].map(engineModule));
@@ -191,7 +193,7 @@ class ProbeClient {
     this.ownBody=Object.fromEntries(['position','velocity','normal','previous','settled','contactMean'].map(key=>[key,new Vector3()]));this.hasOwnPosition=false;
     this.registry=null;this.spawn=null;this.lastSpawnEdgeAt=0;this.look=0;this.fireAt=0;this.firing=false;this.welcome=null;this.inspection=null;
     // The real client's remote presentation path, driven at 60 Hz below.
-    this.timeline=new SnapshotTimeline();this.view=new SnapshotPresentation(this.timeline);this.targets=new Map();this.latestTick=0;this.frameTick=null;
+    this.timeline=this.receiver.network;this.targets=new Map();this.latestTick=0;this.frameTick=null;
     this.keys=loadIdentity(join(directory,`client-${index}.json`));this.id=identityKeys(this.keys).id;this.contract=contract;this.content=content;
     this.peer=new UdpProbePeer(this.keys);
     this.session=new NetworkSession({lifecycle:null});this.session.authenticated=this.session.entityMode=true;
@@ -218,12 +220,12 @@ class ProbeClient {
     if(!this.latestTick)return;
     const dt=this.lastFrameAt===null?1/60:Math.max(0,(now-this.lastFrameAt)/1000);this.lastFrameAt=now;
     const tick=this.playout.advance(dt);this.frameTick=tick;
-    this.view.update(tick,{playerId:this.ownId});
+    this.timeline.present(tick,this.ownId);
     for(const [id,target] of this.targets){
-      const pose=target.networkPose;if(!pose){target.last=null;continue;}
+      const pose=sampleTimeline(this.timeline,id,tick,target.pose);if(!pose){target.last=null;continue;}
       if(this.hasOwnPosition&&pose.health>0&&Math.hypot(...pose.velocity)>.5&&Math.hypot(pose.position[0]-this.ownBody.position.x,pose.position[1]-this.ownBody.position.y,pose.position[2]-this.ownBody.position.z)<35){
         this.stats.nearFrames++;if(pose.fromTick===pose.toTick)this.stats.nearHeld++;
-        if(pose.extrapolatedTicks>=this.timeline.extrapolateTicks)this.stats.nearCapped++;
+        if(pose.extrapolatedTicks>=6)this.stats.nearCapped++;
       }
       if(target.last&&dt>0){
         let moved=0,expected=0;
@@ -268,13 +270,12 @@ class ProbeClient {
     this.deliveryLag.push(Math.max(0,this.serverTick()-packet.tick)*1000/60);
     if(packet.tick>this.latestTick){this.latestTick=packet.tick;this.playout.arrive(packet.tick,now/1000,packet.interval);}
     const beforePoses=new Map();
-    for(const record of packet.records)if(['soldier','vehicle','droideka'].includes(record.kind)){const pose=this.timeline.sample(record.id,this.playout.clock);if(pose)beforePoses.set(record.id,pose);}
-    if(packet.sample)this.timeline.addSnapshot(packet.sample.tick,packet.sample.poses,packet.sample.epoch);
+    for(const record of packet.records)if(['soldier','vehicle','droideka'].includes(record.kind)){const pose=sampleTimeline(this.timeline,record.id,this.playout.clock);if(pose)beforePoses.set(record.id,pose);}
     for(const record of packet.records){
-      if(record.kind==='tombstone'){const target=this.targets.get(record.id);if(target){this.view.unbind(record.id);this.targets.delete(record.id);}continue;}
+      if(record.kind==='tombstone'){const target=this.targets.get(record.id);if(target){this.timeline.remove(record.id);this.targets.delete(record.id);}continue;}
       if(record.kind!=='soldier'&&record.kind!=='vehicle'&&record.kind!=='droideka'||record.id===this.ownId)continue;
       const target=this.targets.get(record.id);
-      if(!target||target.generation!==record.generation){const fresh={networkPose:null,generation:record.generation};this.targets.set(record.id,fresh);this.view.bind(record.id,record.generation,record.kind==='vehicle'?'vehicle':record.kind,fresh);}
+      if(!target||target.generation!==record.generation){const fresh={pose:{},generation:record.generation};this.targets.set(record.id,fresh);}
     }
     if(packet.snapshotAck?.tick)this.session.setSnapshotAck(packet.snapshotAck);
     this.entityAck=packet.snapshotAck;
@@ -306,7 +307,7 @@ class ProbeClient {
         if(this.hasOwnPosition&&record.health>0&&Math.hypot(...record.velocity)>.5&&Math.hypot(...record.position.map((value,i)=>value-this.ownBody.position.getComponent(i)))<35){s.nearGaps.push(record.tick-previous.tick);s.nearWallGaps.push(now-previous.at);}
         // Compare actual timeline samples, including its bounded braking and
         // discontinuity guards. Frame excess below includes presentation smoothing.
-        const before=beforePoses.get(record.id),after=this.timeline.sample(record.id,clock);
+        const before=beforePoses.get(record.id),after=sampleTimeline(this.timeline,record.id,clock);
         if(before&&after&&before.generation===after.generation)s.jumps.push(Math.hypot(...after.position.map((value,i)=>value-before.position[i])));
       }
       this.samples.set(record.id,{tick:record.tick,generation:record.generation,position:record.position,velocity:record.velocity,at:now});

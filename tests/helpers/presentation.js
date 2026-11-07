@@ -222,6 +222,7 @@ export function unitHost(unit) {
     owner = unit.animator.owner;
     row = unit.animator.row;
     row.presentation = unit.presentation;
+    unit.presentation.nativeDisplay = row;
     row.bubblePosition.position = unit.presentation.position;
     const reset = unit.presentation.reset.bind(unit.presentation);
     unit.presentation.reset = () => {

@@ -1,14 +1,16 @@
-import { SnapshotClient } from '../src/runtime/snapshot-client.js';
+import { SnapshotClient } from './helpers/network-capture.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  emptySnapshot, encodeEntities, decodeEntities, applyEntities, cloneSnapshot, worldFieldKey, readSnapshotHeader,
-} from '../src/runtime/snapshot-codec.js';
+import {emptySnapshot, encodeEntities, cloneSnapshot, worldFieldKey} from '../src/runtime/snapshot-codec.js';
+import {decodeEntities, applyEntities, readSnapshotHeader} from '../tools/network-inspect.mjs';
 import { SnapshotRing } from '../src/runtime/snapshot-ring.js';
-import { encodeOwnDelta, decodeOwnDelta, encodeOwnDatagram, decodeOwnDatagram } from '../src/runtime/snapshot-own.js';
-import { encodeCosmeticEvent, decodeCosmeticEvent, packCosmeticEvents, unpackCosmeticEvents, isGameplayCombat } from '../src/runtime/snapshot-cosmetics.js';
+import {encodeOwnDelta, encodeOwnDatagram} from '../src/runtime/snapshot-own.js';
+import {decodeOwnDelta, decodeOwnDatagram} from '../tools/network-inspect.mjs';
+import {encodeCosmeticEvent, packCosmeticEvents, isGameplayCombat} from '../src/runtime/snapshot-cosmetics.js';
+import {decodeCosmeticEvent, unpackCosmeticEvents} from '../tools/network-inspect.mjs';
 import { combatRecord, decodeCombat } from '../src/runtime/network-entity-combat.js';
-import { entryFromRecord, recordFromEntry, mountRecordFromEntry, snapshotFromRecords, SnapshotSlotTable, WorldFieldStagger } from '../src/runtime/snapshot-records.js';
+import {entryFromRecord, snapshotFromRecords, SnapshotSlotTable, WorldFieldStagger} from '../src/runtime/snapshot-records.js';
+import {recordFromEntry, mountRecordFromEntry} from '../tools/network-inspect.mjs';
 
 function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const ri = (r, lo, hi) => lo + Math.floor(r() * (hi - lo + 1));

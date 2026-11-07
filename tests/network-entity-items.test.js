@@ -12,7 +12,8 @@ import {EntityScheduler,EntityReceiver} from '../src/runtime/network-entity-stre
 import {SnapshotClient} from '../src/runtime/snapshot-client.js';
 import {PlayoutClock} from '../src/runtime/playout.js';
 import {createSnapshotSender} from './snapshot-send.js';
-import {entryFromRecord,recordFromEntry} from '../src/runtime/snapshot-records.js';
+import {entryFromRecord} from '../src/runtime/snapshot-records.js';
+import {recordFromEntry} from '../tools/network-inspect.mjs';
 const mine={base:'mine',GeometryName:'mine',TriggerRadius:2,SuppressRadius:1,ExplosionTrigger:{Damage:100},LightRadius:1},pickup={base:'powerupitem',GeometryName:'pickup',LifeSpan:30};
 // A pilot's dispenser health: Gravity 1, Rebound 0, Friction 1.
 const health={base:'powerupitem',class:'com_item_powerup_dual',GeometryName:'dual',Gravity:1,Rebound:0,Friction:1,LifeSpan:30};

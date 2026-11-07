@@ -460,7 +460,9 @@
       "dying": 1,
       "offset": 3,
       "input": 1,
-      "output": 1
+      "output": 1,
+      "localPresent": 1,
+      "deferred": 1
     },
     "VehicleSeatInput": {
       "held": 1,
@@ -742,7 +744,7 @@
       "gunPitch": 1
     }
   },
-  "version": 10,
+  "version": 11,
   "limits": {
     "UnitLimits": {
       "actors": 1024,

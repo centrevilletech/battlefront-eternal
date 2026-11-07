@@ -63,7 +63,6 @@ export class SoldierPresentation {
 
   reset() {
     const s = this.soldier;
-    this.networkPose = null;
     this.networkFire = null;
     this.networkFired = false;
     this.deathPending = false;

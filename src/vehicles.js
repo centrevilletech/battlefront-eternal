@@ -603,7 +603,7 @@ export class Vehicle {
   present(alpha, dt = 0) {
     const page = this.system.page;
     if (!this.alive) return this.dying > 0 && page.dying(this);
-    if (!this.networkPose && (!this.tickFrom || this.sleeping)) return false;
+    if (!this.nativeNetwork && (!this.tickFrom || this.sleeping)) return false;
     return page.alive(this, alpha, dt);
   }
 

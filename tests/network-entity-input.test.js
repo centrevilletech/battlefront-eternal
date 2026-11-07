@@ -1,5 +1,6 @@
+import {EntityInputSender} from '../src/runtime/network-entity-sender.js';
 import test from 'node:test';import assert from 'node:assert/strict';
-import {INPUT_CODES,encodeEntityInput,decodeEntityInput} from '../src/runtime/network-entity-input.js';
+import {INPUT_CODES,DEFAULT_BINDING_PROFILES,encodeEntityInput,decodeEntityInput} from '../src/runtime/network-entity-input.js';
 import {EntityEdgeSender,EntityEdgeReceiver} from '../src/runtime/network-entity-edges.js';
 const command=(sequence=1)=>({sequence,tick:sequence+5,down:['KeyW','Mouse0'],lookTotal:[100.5,-55],mouseScale:1,aspect:16/9,flightSettings:{sensitivity:1,curve:1.35,invert:false,bindings:{}},gamepad:{axes:[.1,.2,.3,.4],buttons:[{pressed:true}]}});
 test('fractional view ticks survive input and reliable fire encoding without changing the ABI header',async()=>{
@@ -58,4 +59,12 @@ test('decoded custom binding arrays remain independent of each other and the aut
  assert.equal(decoded.commands[1].gamepad.buttons[0].pressed,true);
  assert.deepEqual(bindings.throttle,['KeyW','ShiftLeft']);
  assert.deepEqual(decodeEntityInput(bytes,registry).commands[0].flightSettings.bindings,bindings);
+});
+
+// Packet storage belongs to the registry, while each sender owns its control
+// handle. Closing one connection must not poison another client or encoder.
+test('disposing a sender releases only its own native control handle',()=>{
+ const registry={inputCodes:INPUT_CODES,bindingProfiles:DEFAULT_BINDING_PROFILES},a=new EntityInputSender({registry,send:()=>true}),b=new EntityInputSender({registry,send:()=>true});
+ const command=sequence=>({epoch:1,generation:1,sequence,tick:sequence,down:[],look:[],actions:[]});
+ a.send([command(1)]);a.dispose();assert.equal(b.send([command(2)]),true);b.dispose();
 });

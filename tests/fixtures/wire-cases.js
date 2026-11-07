@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { emptySnapshot, encodeEntities, encodeWordDelta, encodeWorldSection, decodeEntities, cloneSnapshot, applyEntities } from '../../src/runtime/snapshot-codec.js';
+import {emptySnapshot, encodeEntities, encodeWordDelta, encodeWorldSection, cloneSnapshot} from '../../src/runtime/snapshot-codec.js';
+import {decodeEntities, applyEntities} from '../../tools/network-inspect.mjs';
 import { encodeOwnDatagram } from '../../src/runtime/snapshot-own.js';
 import { entryFromRecord } from '../../src/runtime/snapshot-records.js';
 

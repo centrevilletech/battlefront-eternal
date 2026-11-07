@@ -157,6 +157,10 @@ impl PageUnits {
     pub fn view_node_start(&self, id: usize) -> usize {
         self.inner.view_node_start(id)
     }
+    pub fn bind_network(&mut self,network:&PageNetwork,actor:usize,id:f64,generation:f64,kind:f64){if let Some(owner)=&network.inner{self.inner.network.bind(actor,id,generation,kind,owner);}}
+    pub fn network_states_ptr(&self)->*const f64{self.inner.network.states_ptr()}
+    pub fn network_states_len(&self)->usize{self.inner.network.states_len()}
+    pub fn unbind_network(&mut self,actor:usize){self.inner.network.unbind(actor);}
     pub fn present_units(&mut self) {
         self.inner.pose_frame();
     }
@@ -289,6 +293,10 @@ impl PageVehicles {
     pub fn header_ptr(&self) -> *const f64 {
         self.inner.header.as_ptr()
     }
+    pub fn bind_network(&mut self,network:&PageNetwork,rig:usize,id:f64,generation:f64,kind:f64){if let Some(owner)=&network.inner{self.inner.network.bind(rig,id,generation,kind,owner);}}
+    pub fn network_states_ptr(&self)->*const f64{self.inner.network.states_ptr()}
+    pub fn network_states_len(&self)->usize{self.inner.network.states_len()}
+    pub fn unbind_network(&mut self,rig:usize){self.inner.network.unbind(rig);}
     pub fn place_hulls(&mut self) {
         self.inner.place();
     }
@@ -448,6 +456,55 @@ impl PageOrdnance {
     pub fn present_ordnance(&mut self) {
         self.inner.present();
     }
+}
+
+/// Packet bytes and outbound input share the display module's memory. The
+/// expensive receive/ring reservation is lazy: an encode-only host needs none.
+#[wasm_bindgen]
+pub struct PageNetwork {
+    inner: Option<crate::network::Shared>,
+    bytes: Vec<u8>,
+    words: Vec<f64>,
+    numbers: Vec<f64>,
+    encoded: Vec<u8>,
+    inspection:Vec<f64>,
+    outbound: Vec<Option<crate::network::outbound::Outbound>>,
+    bounds: [f64;6],
+}
+#[wasm_bindgen]
+impl PageNetwork {
+    #[wasm_bindgen(constructor)]
+    pub fn new()->PageNetwork {Self{inner:None,bytes:vec![0;crate::network_layout::net_limits::PAYLOAD],words:vec![0.;crate::network_layout::net_limits::EXCHANGE],numbers:vec![0.;8],encoded:vec![0;1100],inspection:Vec::new(),outbound:Vec::new(),bounds:[0.,1.,0.,1.,0.,1.]}}
+    pub fn close(&mut self){for row in &mut self.outbound{*row=None;}if let Some(s)=&self.inner{s.borrow_mut().reset(0.);}}
+    pub fn timeline_input_ptr(&self)->*const f64{self.inner.as_ref().map_or(std::ptr::null(),|s|s.borrow().timeline.input.as_ptr())}
+    pub fn timeline_output_ptr(&self)->*const f64{self.inner.as_ref().map_or(std::ptr::null(),|s|s.borrow().timeline.output.as_ptr())}
+    pub fn timeline_push(&mut self){if let Some(s)=&self.inner{s.borrow_mut().timeline.push();}}
+    pub fn timeline_options(&mut self,maximum:usize,hz:f64,extrapolate:f64){if let Some(s)=&self.inner{let mut s=s.borrow_mut();s.maximum=maximum.clamp(1,bfe_pose::timeline_layout::timeline_limits::SNAPSHOTS);s.hz=hz;s.extrapolate=extrapolate;}}
+    pub fn timeline_setup(&mut self){if self.inner.is_none(){self.inner=Some(std::rc::Rc::new(std::cell::RefCell::new(crate::network::Session::new())));}}
+    pub fn receive_setup(&mut self){self.timeline_setup();if let Some(s)=&self.inner{s.borrow_mut().reserve_receive();}}
+    pub fn lookup(&mut self,kind:u32,id:f64)->bool{self.inner.as_ref().is_some_and(|s|s.borrow_mut().lookup(kind,id,&self.bounds))}
+    pub fn capture(&self,tick:f64)->String{self.inner.as_ref().map_or_else(||"null".into(),|s|s.borrow().capture(tick).to_string())}
+    pub fn set_bounds(&mut self,x:f64,dx:f64,z:f64,dz:f64,y:f64,dy:f64){self.bounds=[x,dx,z,dz,y,dy];}
+    pub fn bytes_ptr(&self)->*const u8{self.bytes.as_ptr()}
+    pub fn words_ptr(&self)->*const f64{self.words.as_ptr()}
+    pub fn numbers_ptr(&self)->*const f64{self.numbers.as_ptr()}
+    pub fn encoded_ptr(&self)->*const u8{self.encoded.as_ptr()}
+    pub fn header_ptr(&self)->*const f64{self.inner.as_ref().map_or(std::ptr::null(),|s|s.borrow().header.as_ptr())}
+    pub fn records_ptr(&self)->*const f64{self.inner.as_ref().map_or(std::ptr::null(),|s|s.borrow().records.as_ptr())}
+    pub fn seats_ptr(&self)->*const f64{self.inner.as_ref().map_or(std::ptr::null(),|s|s.borrow().seat_output.as_ptr())}
+    pub fn payloads_ptr(&self)->*const u8{self.inner.as_ref().map_or(std::ptr::null(),|s|s.borrow().payloads.as_ptr())}
+    pub fn receive(&mut self,length:usize)->Result<(),JsValue>{let bytes=self.bytes.get(..length).ok_or_else(||JsValue::from_str("invalid snapshot datagram"))?;let Some(s)=&self.inner else{return Err(JsValue::from_str("page receive is not initialized"));};s.borrow_mut().receive(bytes,&self.bounds).map_err(JsValue::from_str)}
+    pub fn reset(&mut self,epoch:f64){if let Some(s)=&self.inner{s.borrow_mut().reset(epoch);}}
+    pub fn remove(&mut self,id:f64){if let Some(s)=&self.inner{s.borrow_mut().timeline.remove(id);}}
+    pub fn present(&mut self,tick:f64,player:f64,vehicle:f64){if let Some(s)=&self.inner{s.borrow_mut().present(tick,player,vehicle);}}
+    /// Cold fixture inspection uses the same numeric readers. Its result
+    /// stream is absent from live receive and display publication.
+    pub fn inspection_ptr(&self)->*const f64{self.inspection.as_ptr()}
+    pub fn inspect(&mut self,op:u32,length:usize)->Result<usize,JsValue>{if self.inspection.is_empty(){self.inspection=vec![0.;crate::network_layout::net_limits::EXCHANGE];}let words=self.words.get(..length).ok_or_else(||JsValue::from_str("invalid page networking exchange"))?;let mut input=crate::network::Words::new(words);let mut output=crate::network::Output{values:&mut self.inspection,at:0};crate::network::read::run(op,&mut input,&mut output).map_err(JsValue::from_str)?;Ok(output.at)}
+    pub fn outbound_new(&mut self)->usize{if let Some(i)=self.outbound.iter().position(Option::is_none){self.outbound[i]=Some(Default::default());i+1}else{self.outbound.push(Some(Default::default()));self.outbound.len()}}
+    pub fn outbound_drop(&mut self,id:usize){if let Some(s)=self.outbound.get_mut(id.wrapping_sub(1)){*s=None;}}
+    pub fn outbound_run(&mut self,id:usize,op:u32,length:usize)->Result<(),JsValue>{let words=self.words.get(..length).ok_or_else(||JsValue::from_str("invalid page networking exchange"))?;let mut input=crate::network::Words::new(words);let mut output=crate::network::Output{values:&mut self.numbers,at:0};self.outbound.get_mut(id.wrapping_sub(1)).and_then(Option::as_mut).ok_or_else(||JsValue::from_str("invalid outbound handle"))?.run(op,&mut input,&mut output).map_err(JsValue::from_str)}
+    pub fn encode(&mut self,op:u32,length:usize)->Result<usize,JsValue>{let words=self.words.get(..length).ok_or_else(||JsValue::from_str("invalid page networking exchange"))?;crate::network::input::encode(op,&mut crate::network::Words::new(words),&mut self.encoded).map_err(JsValue::from_str)}
 }
 
 // LeavingWarning has one fixed row and one frame call. The host borrows

@@ -1100,6 +1100,8 @@ pub mod ordnance_layout;
 pub mod scene;
 pub mod turrets;
 
+pub mod network;
+pub mod network_layout;
 pub mod leaving_warning;
 pub mod page_layout;
 pub mod lights;

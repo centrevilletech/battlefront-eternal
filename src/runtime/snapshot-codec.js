@@ -30,20 +30,14 @@ export function quantizePosition([x, y, z], b = DEFAULT_SNAPSHOT_BOUNDS) {
           clamp(Math.round((y - b.yMin) / b.yExtent * 65535), 0, 65535),
           clamp(Math.round((z - b.zMin) / b.zExtent * 65535), 0, 65535)];
 }
-export function dequantizePosition([cx, cy, cz], b = DEFAULT_SNAPSHOT_BOUNDS) {
-  return [b.xMin + cx / 65535 * b.xExtent, b.yMin + cy / 65535 * b.yExtent, b.zMin + cz / 65535 * b.zExtent];
-}
 // `wide` asks for the 1/32 m/s form whatever the speed; the reader takes
 // either form for any class.
 export function quantizeVelocity(v, wide = false) {
   if (!wide && v.every(x => Number.isFinite(x) && Math.abs(x) <= 31.75)) return { wide: false, v: v.map(x => clamp(Math.round(x / 0.25), -127, 127)) };
   return { wide: true, v: v.map(x => clamp(Math.round(x * 32), -32767, 32767)) };
 }
-export function dequantizeVelocity({ wide, v }) { return wide ? v.map(x => x / 32) : v.map(x => x * 0.25); }
 export function quantizeYaw(yaw) { const wrapped = ((yaw % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI); return Math.round(wrapped * ANGLE) & 0xffff; }
-export function dequantizeYaw(code) { return code / ANGLE; }
 export function quantizePitch(pitch) { return clamp(Math.round(pitch * ANGLE), -32768, 32767); }
-export function dequantizePitch(code) { return code / ANGLE; }
 // Smallest-three quaternion: index of the dropped (largest) component plus
 // the other three in 15 bits each over [-1/sqrt(2), 1/sqrt(2)].
 const QUAT_RANGE = Math.SQRT1_2;
@@ -53,13 +47,6 @@ export function quantizeQuaternion(q) {
   for (let i = 0; i < 4; i++) if (i !== index) v.push(clamp(Math.round((q[i] * sign / QUAT_RANGE * 0.5 + 0.5) * 32767), 0, 32767));
   return { index, v };
 }
-export function dequantizeQuaternion({ index, v }) {
-  const out = [0, 0, 0, 0]; let sum = 0, n = 0;
-  for (let i = 0; i < 4; i++) if (i !== index) { out[i] = (v[n++] / 32767 - 0.5) * 2 * QUAT_RANGE; sum += out[i] * out[i]; }
-  out[index] = Math.sqrt(Math.max(0, 1 - sum));
-  const length = Math.hypot(...out) || 1; return out.map(x => x / length);
-}
-
 class Writer {
   constructor(capacity = 256) { this.buffer = new Uint8Array(capacity); this._view = null; this.length = 0; }
   get view() { return this._view ??= new DataView(this.buffer.buffer); }
@@ -81,18 +68,6 @@ class Writer {
   finish() { return this.buffer.slice(0, this.length); }
   reset() { this.length = 0; return this; }
 }
-class Reader {
-  constructor(bytes) { this.bytes = bytes; this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength); this.at = 0; }
-  need(n) { if (this.at + n > this.bytes.length) throw Error('truncated snapshot datagram'); }
-  u8() { this.need(1); return this.view.getUint8(this.at++); }
-  i8() { this.need(1); return this.view.getInt8(this.at++); }
-  u16() { this.need(2); const v = this.view.getUint16(this.at, true); this.at += 2; return v; }
-  i16() { this.need(2); const v = this.view.getInt16(this.at, true); this.at += 2; return v; }
-  u32() { this.need(4); const v = this.view.getUint32(this.at, true); this.at += 4; return v; }
-  f32() { this.need(4); const v = this.view.getFloat32(this.at, true); this.at += 4; if (!Number.isFinite(v)) throw Error('snapshot nonfinite f32'); return v; }
-  varint() { let v = 0, shift = 0; for (;;) { const byte = this.u8(); v += (byte & 0x7f) * 2 ** shift; if (!(byte & 0x80)) return v; shift += 7; if (shift > 28) throw Error('snapshot varint too long'); } }
-  raw(n) { this.need(n); const out = this.bytes.slice(this.at, this.at + n); this.at += n; return out; }
-}
 function validateParts(magic, partIndex, partCount) {
   const max = magic === SNAPSHOT_ENTITIES_MAGIC ? SNAPSHOT_MAX_PARTS : 2;
   if (!Number.isInteger(partCount) || partCount < 1 || partCount > max || !Number.isInteger(partIndex) || partIndex < 0 || partIndex >= partCount) throw Error('invalid snapshot parts');
@@ -105,24 +80,9 @@ function writeHeader(w, { magic, epoch, tick, interval, baselineTick, partIndex,
   w.u8(partCount > 15 ? 0 : (partIndex << 4) | partCount); w.u32(ackInput);
   if (partCount > 15) { w.u16(partIndex); w.u16(partCount); }
 }
-export function readSnapshotHeader(bytes) {
-  if (!(bytes instanceof Uint8Array) || bytes.length < SNAPSHOT_HEADER_BYTES || bytes.length > SNAPSHOT_MAX_DATAGRAM) throw Error('invalid snapshot datagram');
-  const r = new Reader(bytes), magic = r.u32();
-  if (magic !== SNAPSHOT_ENTITIES_MAGIC && magic !== SNAPSHOT_OWN_MAGIC) throw Error('snapshot magic mismatch');
-  const header = { magic, epoch: r.u16(), tick: r.u32(), interval: r.u8(), baselineTick: r.u32() };
-  const part = r.u8(); header.partIndex = part >> 4; header.partCount = part & 0xf; header.ackInput = r.u32();
-  if (part === 0 && magic === SNAPSHOT_ENTITIES_MAGIC) {
-    header.partIndex = r.u16(); header.partCount = r.u16();
-    if (header.partCount <= 15) throw Error('invalid extended snapshot parts');
-  }
-  validateParts(magic, header.partIndex, header.partCount);
-  header.headerBytes = r.at;
-  return header;
-}
-
 // Field groups per class, in wire order. Each group knows how to write
-// itself (against the baseline entry, or null for a `new` record), read
-// itself back onto a working entry, and whether two entries agree on it.
+// itself (against the baseline entry, or null for a `new` record) and
+// whether two entries agree. Rust owns the corresponding readers.
 const posGroup = {
   write(w, e, base) {
     const small = base && e.pos.every((code, i) => Math.abs(code - base.pos[i]) <= 127);
@@ -130,86 +90,66 @@ const posGroup = {
     if (small) for (let i = 0; i < 3; i++) w.i8(e.pos[i] - base.pos[i]);
     else for (const code of e.pos) w.u16(code);
   },
-  read(r, e, base) {
-    const mode = r.u8(); e.disc = !!(mode & 0x80);
-    if (mode & 1) e.pos = [r.u16(), r.u16(), r.u16()];
-    else { if (!base) throw Error('snapshot small delta without baseline'); e.pos = base.pos.map(code => code + r.i8()); }
-  },
   equal: (a, b) => !a.disc && (a.pos === b.pos || a.pos.every((code, i) => code === b.pos[i])),
 };
 const velGroup = {
   write(w, e) { w.u8(e.vel.wide ? 1 : 0); for (const x of e.vel.v) e.vel.wide ? w.i16(x) : w.i8(x); },
-  read(r, e) { const wide = r.u8() !== 0; e.vel = { wide, v: [0, 1, 2].map(() => wide ? r.i16() : r.i8()) }; },
   equal: (a, b) => a.vel === b.vel || (a.vel.wide === b.vel.wide && a.vel.v.every((x, i) => x === b.vel.v[i])),
 };
 const aimGroup = {
   write(w, e) { w.u16(e.yaw); w.i16(e.pitch); },
-  read(r, e) { e.yaw = r.u16(); e.pitch = r.i16(); },
   equal: (a, b) => a.yaw === b.yaw && a.pitch === b.pitch,
 };
 const fireGroup = {
   write(w, e) { w.u8(e.fireCounter & 0xff); },
-  read(r, e) { e.fireCounter = r.u8(); },
   equal: (a, b) => (a.fireCounter & 0xff) === (b.fireCounter & 0xff),
 };
 const soldierVitals = {
   write(w, e) { w.u16(e.health); },
-  read(r, e) { e.health = r.u16(); },
   equal: (a, b) => a.health === b.health,
 };
 const soldierStatus = {
   write(w, e) { w.u8(e.posture | (e.charge << 2)); w.u8(e.state); w.u16(e.weapon); w.u16(e.seatSlot < 0 ? 0xffff : e.seatSlot); w.u8(e.seatIndex); },
-  read(r, e) { const p = r.u8(); e.posture = p & 3; e.charge = p >> 2; e.state = r.u8(); e.weapon = r.u16(); const seat = r.u16(); e.seatSlot = seat === 0xffff ? -1 : seat; e.seatIndex = r.u8(); },
   equal: (a, b) => a.posture === b.posture && a.charge === b.charge && a.state === b.state && a.weapon === b.weapon && a.seatSlot === b.seatSlot && a.seatIndex === b.seatIndex,
 };
 const droidekaVitalsStatus = {
   write(w, e) { w.u16(e.health); w.u8(e.posture); w.u8(e.state); w.u16(e.weapon); w.u16(e.seatSlot < 0 ? 0xffff : e.seatSlot); w.u8(e.seatIndex); },
-  read(r, e) { e.health = r.u16(); e.posture = r.u8(); e.state = r.u8(); e.weapon = r.u16(); const seat = r.u16(); e.seatSlot = seat === 0xffff ? -1 : seat; e.seatIndex = r.u8(); },
   equal: (a, b) => a.health === b.health && a.posture === b.posture && a.state === b.state && a.weapon === b.weapon && a.seatSlot === b.seatSlot && a.seatIndex === b.seatIndex,
 };
 const droidekaGroup = {
   write(w, e) { w.u8(e.mode); w.u8((e.reverse ? 1 : 0) | (e.dead ? 2 : 0) | (e.shieldOn ? 4 : 0)); for (const x of e.anim) w.f32(x); },
-  read(r, e) { e.mode = r.u8(); const f = r.u8(); e.reverse = !!(f & 1); e.dead = !!(f & 2); e.shieldOn = !!(f & 4); e.anim = [r.f32(), r.f32(), r.f32(), r.f32(), r.f32()]; },
   equal: (a, b) => a.mode === b.mode && a.reverse === b.reverse && a.dead === b.dead && a.shieldOn === b.shieldOn && (a.anim === b.anim || a.anim.every((x, i) => Object.is(Math.fround(x), Math.fround(b.anim[i])))),
 };
 const orientationGroup = {
   write(w, e) { let n = e.quat.index + e.quat.v[0] * 4 + e.quat.v[1] * 2 ** 17 + e.quat.v[2] * 2 ** 32; for (let i = 0; i < 6; i++) { w.u8(n % 256); n = Math.floor(n / 256); } },
-  read(r, e) { let n = 0; for (let i = 5; i >= 0; i--) n = n * 256 + r.bytes[r.at + i]; r.at += 6; e.quat = { index: n % 4, v: [Math.floor(n / 4) % 32768, Math.floor(n / 2 ** 17) % 32768, Math.floor(n / 2 ** 32) % 32768] }; },
   equal: (a, b) => a.quat === b.quat || (a.quat.index === b.quat.index && a.quat.v.every((x, i) => x === b.quat.v[i])),
 };
 const vehicleVitals = {
   write(w, e) { w.u16(e.health); w.u8(e.state); w.u16(e.power); },
-  read(r, e) { e.health = r.u16(); e.state = r.u8(); e.power = r.u16(); },
   equal: (a, b) => a.health === b.health && a.state === b.state && a.power === b.power,
 };
 const mountGroup = {
   write(w, e) { const m = e.mount; w.u8(m.slot ?? 255); w.i16(m.tilt); w.i16(m.roll); w.u16(m.walkPhase); w.u8(m.walkBlend); w.u8(m.seats.length); for (const [yaw, pitch] of m.seats) { w.i16(yaw); w.i16(pitch); } },
-  read(r, e) { const slot = r.u8(), m = { slot: slot === 255 ? null : slot, tilt: r.i16(), roll: r.i16(), walkPhase: r.u16(), walkBlend: r.u8(), seats: [] }; const count = r.u8(); if (count > 16) throw Error('snapshot mount seats'); for (let i = 0; i < count; i++) m.seats.push([r.i16(), r.i16()]); e.mount = m; },
   equal: (a, b) => a.mount === b.mount || (a.mount.slot === b.mount.slot && a.mount.tilt === b.mount.tilt && a.mount.roll === b.mount.roll && a.mount.walkPhase === b.mount.walkPhase && a.mount.walkBlend === b.mount.walkBlend && a.mount.seats.length === b.mount.seats.length && a.mount.seats.every((seat, i) => seat[0] === b.mount.seats[i][0] && seat[1] === b.mount.seats[i][1])),
 };
 const turretAim = {
   write(w, e) { for (const k of ['yaw', 'pitch', 'gunYaw', 'gunPitch']) w.i16(e[k]); },
-  read(r, e) { for (const k of ['yaw', 'pitch', 'gunYaw', 'gunPitch']) e[k] = r.i16(); },
   equal: (a, b) => ['yaw', 'pitch', 'gunYaw', 'gunPitch'].every(k => a[k] === b[k]),
 };
 const turretVitals = {
   write(w, e) { w.u16(e.health); w.u8(e.state); w.u8(e.team); },
-  read(r, e) { e.health = r.u16(); e.state = r.u8(); e.team = r.u8(); },
   equal: (a, b) => a.health === b.health && a.state === b.state && a.team === b.team,
 };
 const yawOnlyGroup = {
   write(w, e) { w.u16(e.yaw); },
-  read(r, e) { e.yaw = r.u16(); },
   equal: (a, b) => a.yaw === b.yaw,
 };
 const itemVitals = {
   write(w, e) { w.u8(e.active ? 1 : 0); if (e.active) { w.u16(e.definitionId); for (const x of e.up) w.i16(x); } },
-  read(r, e) { e.active = r.u8() !== 0; if (e.active) { e.definitionId = r.u16(); e.up = [r.i16(), r.i16(), r.i16()]; } else { e.definitionId = 0; e.up = [0, 32767, 0]; } },
   equal: (a, b) => a.active === b.active && (!a.active || (a.definitionId === b.definitionId && (a.up === b.up || a.up.every((x, i) => x === b.up[i])))),
 };
 const remoteVitals = {
   write(w, e) { w.u8(e.active ? 1 : 0); if (e.active) { w.u16(e.definitionId); w.u8(e.team); w.u16(e.health); } },
-  read(r, e) { e.active = r.u8() !== 0; if (e.active) { e.definitionId = r.u16(); e.team = r.u8(); e.health = r.u16(); } else { e.definitionId = 0; e.health = 0; } },
   equal: (a, b) => a.active === b.active && (!a.active || (a.definitionId === b.definitionId && a.team === b.team && a.health === b.health)),
 };
 export const SNAPSHOT_GROUPS = Object.freeze({
@@ -296,18 +236,6 @@ function writeWordDelta(w, current, baseline) {
   return w;
 }
 export function encodeWordDelta(current, baseline) { return writeWordDelta(wordWriter.reset(), current, baseline).finish(); }
-export function decodeWordDelta(bytes, baseline) {
-  const r = new Reader(bytes), mode = r.u8();
-  if (mode === WORD_DELTA_ABSOLUTE) { const out = r.raw(r.u16()); if (r.at !== bytes.length) throw Error('word delta trailing bytes'); return out; }
-  if (mode !== WORD_DELTA_CHANGED) throw Error('word delta mode');
-  if (!baseline) throw Error('word delta baseline not held');
-  const length = r.u16(), words = r.u16();
-  if (baseline.length !== length || words !== Math.ceil(length / 8)) throw Error('word delta shape');
-  const bitmap = r.raw(Math.ceil(words / 8)), out = baseline.slice();
-  for (let i = 0; i < words; i++) if (bitmap[i >> 3] & (1 << (i & 7))) out.set(r.raw(8).subarray(0, Math.min(8, length - i * 8)), i * 8);
-  if (r.at !== bytes.length) throw Error('word delta trailing bytes');
-  return out;
-}
 // The world section: typed fields (the existing summary payloads), sent
 // when their bytes differ from the baseline's, removed when they vanish.
 export function worldFieldKey(field) { return `${field.schema}:${field.id}`; }
@@ -346,19 +274,6 @@ function writeWorld(current, baseline, scratch, w) {
   return w;
 }
 function encodeWorld(current, baseline) { return writeWorld(current, baseline, arena, partWriter).finish(); }
-function decodeWorld(r, baselineWorld = null) {
-  const count = r.varint(); if (count > 4096) throw Error('snapshot world field count');
-  const fields = [];
-  for (let i = 0; i < count; i++) {
-    const field = { id: r.u32(), schema: r.u16(), generation: r.u32() }, mode = r.u8();
-    if (mode > 2) throw Error('snapshot world field flag');
-    field.removed = mode === 1;
-    if (mode === 0) field.payload = r.raw(r.u16());
-    else if (mode === 2) field.payload = decodeWordDelta(r.raw(r.u16()), baselineWorld?.get(worldFieldKey(field))?.payload ?? null);
-    fields.push(field);
-  }
-  return fields;
-}
 // Encode a snapshot against a baseline (null = empty baseline) into one or
 // more independent `entities` datagrams of at most 1100 bytes. A vehicle,
 // its riders' records and its mount group always share a part; world fields
@@ -438,52 +353,8 @@ export function encodeEntities(current, baseline, { interval = 2 } = {}) {
 // empty snapshot for baselineTick 0). Returns the header, the full entries
 // to set, the slots to remove, and the world fields. Throws when the
 // baseline does not match what the datagram names.
-export function decodeEntities(bytes, baseline) {
-  const header = readSnapshotHeader(bytes);
-  if (header.magic !== SNAPSHOT_ENTITIES_MAGIC) throw Error('not an entities datagram');
-  if (header.baselineTick === 0) baseline = emptySnapshot(0, header.epoch);
-  if (!baseline || baseline.tick !== header.baselineTick || baseline.epoch !== header.epoch) throw Error('snapshot baseline not held');
-  const r = new Reader(bytes); r.at = header.headerBytes;
-  const worldLength = r.u16(), worldAt = r.at;
-  const world = decodeWorld(r, baseline.world);
-  if (r.at - worldAt !== worldLength) throw Error('snapshot world section size');
-  const count = r.varint(); if (count > SNAPSHOT_SLOT_COUNT) throw Error('snapshot record count');
-  const set = new Map(), removed = [];
-  let slot = -1;
-  for (let i = 0; i < count; i++) {
-    slot = i === 0 ? r.u16() : slot + r.varint();
-    if (slot >= SNAPSHOT_SLOT_COUNT) throw Error('snapshot slot out of range');
-    const opByte = r.u8(), op = opByte & 3, mask = opByte >> 2, base = baseline.slots.get(slot);
-    if (op === OP_REMOVED) { removed.push(slot); continue; }
-    if (op === OP_NEW) {
-      const cls = SNAPSHOT_CLASSES[r.u8()]; if (!cls) throw Error('snapshot class');
-      const entry = { cls, generation: r.u32(), entityId: r.u32(), classId: r.u16(), team: r.u8(), disc: true };
-      const groups = SNAPSHOT_GROUPS[cls];
-      if (mask !== (1 << groups.length) - 1) throw Error('snapshot new record mask');
-      for (const group of groups) group.read(r, entry, null);
-      set.set(slot, entry);
-    } else if (op === OP_UPDATE) {
-      if (!base) throw Error('snapshot update without baseline entry');
-      const entry = cloneEntry(base);
-      SNAPSHOT_GROUPS[entry.cls].forEach((group, gi) => { if (mask & (1 << gi)) group.read(r, entry, base); });
-      set.set(slot, entry);
-    } else throw Error('snapshot op');
-  }
-  if (r.at !== bytes.length) throw Error('snapshot trailing bytes');
-  return { header, set, removed, world };
-}
 // Apply a decoded part to a working snapshot (mutates and returns it).
-export function applyEntities(snapshot, decoded) {
-  for (const slot of decoded.removed) snapshot.slots.delete(slot);
-  for (const [slot, entry] of decoded.set) snapshot.slots.set(slot, entry);
-  for (const field of decoded.world) {
-    if (field.removed) snapshot.world.delete(worldFieldKey(field));
-    else snapshot.world.set(worldFieldKey(field), { id: field.id, schema: field.schema, generation: field.generation, payload: field.payload });
-  }
-  snapshot.tick = decoded.header.tick; snapshot.epoch = decoded.header.epoch;
-  return snapshot;
-}
-export { Writer as SnapshotWriter, Reader as SnapshotReader, writeHeader as writeSnapshotHeader };
+export { Writer as SnapshotWriter, writeHeader as writeSnapshotHeader };
 // The world-field section on its own, for the per-client summaries that
 // ride in the `own` datagram with the same delta rule.
 export function encodeWorldSection(currentWorld, baselineWorld) {
@@ -496,9 +367,4 @@ const deltaView = new Writer(2048), sectionArena = new Writer(1 << 12), sectionV
 export function encodeWordDeltaView(current, baseline) { return writeWordDelta(deltaView.reset(), current, baseline).bytes; }
 export function encodeWorldSectionView(currentWorld, baselineWorld) {
   return writeWorld({ world: currentWorld }, baselineWorld ? { world: baselineWorld } : null, sectionArena, sectionView).bytes;
-}
-export function decodeWorldSection(bytes, baselineWorld = null) {
-  const r = new Reader(bytes), fields = decodeWorld(r, baselineWorld);
-  if (r.at !== bytes.length) throw Error('snapshot world section trailing bytes');
-  return fields;
 }

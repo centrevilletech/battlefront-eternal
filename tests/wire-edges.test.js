@@ -1,10 +1,10 @@
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { loadSim } from '../src/sim/module.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { EntityEdges } from '../src/runtime/network-entity-edge-host.js';
-import { attachWireInputBridge } from '../src/runtime/wire-input.js';
-import { INPUT_CODES, INPUT_ACTIONS, encodeEntityInput, encodeEntityInputJs, encodeSnapshotAckKeepalive } from '../src/runtime/network-entity-input.js';
+import { INPUT_CODES, INPUT_ACTIONS, encodeEntityInput, encodeSnapshotAckKeepalive } from '../src/runtime/network-entity-input.js';
 
 function fixture(bridge = null, callback = null) {
   const mailbox = () => ({ received: 0, outcomes: [], enableOutcomes() {}, drainOutcomes() { return this.outcomes.splice(0); } });
@@ -66,10 +66,9 @@ test('native reliable edges match reordered receipt, delivery and outcome traces
 test('native edge delivery tolerates shared-bridge calls and memory growth inside callbacks', async () => {
   const instance = await loadSim(), bridge = bridgeFor(instance);
   const registry = { inputCodes: INPUT_CODES, bindingProfiles: new Map([[0, {}]]) };
-  attachWireInputBridge(registry, bridge);
   let entered = false;
   const native = fixture(bridge, () => {
-    assert.deepEqual(encodeEntityInput({ epoch: 1, generation: 1 }, registry), encodeEntityInputJs({ epoch: 1, generation: 1 }, registry));
+    assert.equal(Buffer.from(encodeEntityInput({ epoch: 1, generation: 1 }, registry)).toString('hex'), '424e4931010000000100000000000000');
     if (!entered) { entered = true; instance.exports.memory.grow(1); }
   }), js = fixture();
   for (const f of [native, js]) {
@@ -79,15 +78,15 @@ test('native edge delivery tolerates shared-bridge calls and memory growth insid
   same(native, js, 'reentrant'); native.edges.dispose();
 });
 
+const inputGolden = JSON.parse(readFileSync(new URL('./fixtures/input-encode-golden.json', import.meta.url)));
+let inputCase = 0;
 function compareEncode(packet, registry) {
-  let expected, error;
-  try { expected = encodeEntityInputJs(packet, registry); } catch (e) { error = e; }
-  if (error) assert.throws(() => encodeEntityInput(packet, registry), e => e.message === error.message, error.message);
-  else assert.deepEqual(encodeEntityInput(packet, registry), expected);
+  const expected = inputGolden[inputCase++];
+  if (expected.error) assert.throws(() => encodeEntityInput(packet, registry), e => e.message === expected.error, expected.error);
+  else assert.equal(Buffer.from(encodeEntityInput(packet, registry)).toString('hex'), expected.hex);
 }
 test('native input bytes and validation match contexts, profiles, held bits and every edge', async () => {
   const registry = { inputCodes: INPUT_CODES, bindingProfiles: new Map([[0, {}], [3, { brake: ['KeyS'], throttle: ['KeyW'] }]]) };
-  attachWireInputBridge(registry, bridgeFor(await loadSim()));
   for (let i = 1; i <= 480; i++) {
     const commands = Array.from({ length: i % 9 }, (_, j) => ({ sequence: j + i, tick: 10 + i, down: [INPUT_CODES[(i + j) % INPUT_CODES.length], 'KeyW'],
       lookTotal: [i / 39, -j / 71], mouseScale: i % 3 ? 1 : undefined, aspect: 16 / 9, viewTick: i + j / 5,
@@ -108,6 +107,7 @@ test('native input bytes and validation match contexts, profiles, held bits and 
   compareEncode({ ...base, commands: [{ ...base.commands[0], down: ['unknown'] }] }, registry);
   compareEncode({ ...base, commands: [{ ...base.commands[0], epoch: 9 }] }, registry);
   compareEncode({ ...base, edges: [{ id: 0, tick: 5, kind: 'cancel' }] }, registry);
+  assert.equal(inputCase, inputGolden.length);
   for (const ack of [{ epoch: 1, tick: 0 }, { epoch: 65535, tick: 0xffffffff }]) {
     assert.deepEqual(encodeSnapshotAckKeepalive(ack, registry), encodeSnapshotAckKeepalive(ack));
   }

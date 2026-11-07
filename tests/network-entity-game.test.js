@@ -1,3 +1,4 @@
+import {pushTimeline,sampleTimeline} from './helpers/network-capture.js';
 import {Clip} from '../src/anim.js';
 import './fixtures/native-anim.js';
 import test from 'node:test';
@@ -25,7 +26,7 @@ function body(id) {
   const combat=Object.create(PlayerCombat.prototype);
   Object.assign(combat,{soldier,arsenal:new Arsenal([{class:'rifle',channel:0,RoundsPerClip:30,ammo:3,base:'cannon'}]),health:100,dead:false,deathTime:0,zoomStep:0,firstPerson:true,kick:{rate:0,hold:0,offset:0},updateHeld(){}});
   const unit=new Unit({className:'trooper',def:{},soldier,combat,presentation:new SoldierPresentation(soldier),actor:{root:new Object3D(),byName:{}},animator:{reset(){},update(){}}});
-  Object.assign(unit,{id,generation:1,team:1,removed:false,alive:true});return unit;
+  Object.assign(unit,{id,generation:1,team:1,removed:false,alive:true});unitHost(unit);return unit;
 }
 function fixture() {
   const own=body(1),remote=body(2),map=new Map([[1,own],[2,remote]]),applied=[],corrections=[];
@@ -50,7 +51,7 @@ test('semantic own correction applies immediately while real remote bodies use t
   packet(f,authority,110,2,[{...remoteRecord(110,26),velocity:[36,0,0]}]);
   f.adapter.present(105);
   assert.equal(f.own.soldier.position.x,30,'own authority is never delayed to the remote render clock');
-  assert.equal(f.own.presentation.networkPose,null);
+  assert.notEqual(f.own.presentation.nativeNetwork,true);
   assert.ok(Math.abs(presentUnit(f.remote,0,0).position.x-23)<0.05);
   assert.ok(Math.abs(f.remote.soldier.position.x-26)<0.05,'remote collision state remains latest authority');
   assert.deepEqual(f.corrections.map(c=>c.tick),[100,110]);
@@ -149,7 +150,7 @@ test('own class switches preserve ID classes, generations and a bounded detached
   client:{seats:{setLease(a,v,b,set){set(null);heavy.seat=null;released++;},setDriver(){}}}};
  const adapter=new EntityGameState(game,reg);
  adapter.presentation.bindSoldier(heavyId,7,heavy.presentation);
- adapter.timeline.addSnapshot(10,new Map([[heavyId,{...remoteRecord(10,0),id:heavyId,generation:7}]]));
+ pushTimeline(adapter.timeline,10,new Map([[heavyId,{...remoteRecord(10,0),id:heavyId,generation:7}]]));
  const correction=(id,name,generation)=>{
   const authority=body(id);authority.className=name;authority.generation=generation;
   return captureOwnPlayer({unit:authority,tick:10,epoch:1,registry:reg,classId:name==='heavy'?2:1});
@@ -160,7 +161,7 @@ test('own class switches preserve ID classes, generations and a bounded detached
  assert.equal(released,1);assert.equal(vehicle.seats[0].lease,null);
  assert.equal(stopped,1);assert.equal(heavy.jetFlame,null);assert.equal(heavy.character,null);assert.equal(character.unit,null);
  assert.equal(heavy.actor.root.visible,false);assert.equal(units.list.includes(heavy),false);
- assert.equal(adapter.presentation.bindings.has(heavyId),false);assert.equal(adapter.timeline.sample(heavyId,10),null);
+ assert.equal(adapter.presentation.bindings.has(heavyId),false);assert.equal(sampleTimeline(adapter.timeline,heavyId,10),null);
  adapter.soldier({...remoteRecord(11,5),id:oldId});
  assert.equal(units.byId(oldId).className,'trooper');
  for(let i=0;i<40;i++) {
