@@ -907,9 +907,9 @@ pub(crate) struct Gathers {
     gathered: Option<Gathered>,
     pub(crate) caches: Vec<GatherCache>,
     query: Bounds,
-    out: Vec<f64>, near: Vec<u32>, input: Vec<f64>,
+    out: Vec<f64>, near: Vec<u32>, pub(crate) input: Vec<f64>,
     push_points: Vec<[f64; 3]>, push_ids: Vec<i64>,
-    places: [u8; MAX_BODIES], push_out: Option<Gathered>, push_near: Vec<u32>,
+    pub(crate) places: [u8; MAX_BODIES], push_out: Option<Gathered>, push_near: Vec<u32>,
 }
 impl Gathers {
     pub const fn new() -> Self {

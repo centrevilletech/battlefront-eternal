@@ -2,21 +2,23 @@
 // which replaces Vehicle.present's pose (the root between ticks or at its
 // record's sample, poseCrew, the gear, seats, barrels, wheels and a dying
 // walker). Vehicle.present queues a hull; flush() runs the batch: the roots,
-// then the leg rays this page's collision answers, then every pose. Each
+// then the block of rays (walkers' feet, a lifting craft's ground) this
+// page's collision answers in one call, then every pose. Each
 // hull's tree is the phase's from its first frame: its nodes' matrices (and
 // its meshes' bind inverses) are copied from records, three never walks it.
 // Back come only the fields other JS reads (root, age, walk, legs, aims).
 import * as THREE from "three";
-import { shownGear } from "../flight/gear.js";
+import { gearFollow } from "../flight/gear.js";
 import { VERSION, VehicleFrame as F, VehicleEntry as E, VehicleSeatInput as S, VehicleWheelInput as WI, VehicleEntryOutput as O,
-  VehicleAimerOutput as AO, VehicleNode as N, VehicleHeader as H, VehicleMode as M, VehicleRoot as R } from "./layout.js";
+  VehicleAimerOutput as AO, VehicleNode as N, VehicleHeader as H, VehicleMode as M, VehicleRoot as R, VehicleFlightState as FS } from "./layout.js";
 
-// feelLegs' ray direction; the walk pose's gear root; the clips by the roles
-// the kernel takes them in (vehicles.rs IDLE..TAKEOFF).
-const DOWN = new THREE.Vector3(0, -1, 0);
+// The walk pose's gear root; the clips by the roles the kernel takes them
+// in (vehicles.rs IDLE..TAKEOFF).
 const DUMMY_ROOT = /^dummyroot$/i;
 const clipNames = ["idle", "walk_leftfoot_rightfoot", "walk_rightfoot_leftfoot", "leftfoot_up", "rightfoot_up", "death01", "takeoff"];
 const clipKeys = ["idle", "left", "right", "liftLeft", "liftRight", "death", "takeoff"];
+// A craft's flight state as its gear clock reads it.
+const FLIGHT_STATES = Object.freeze({ Landed: FS.LANDED, TakingOff: FS.TAKING_OFF, Flying: FS.FLYING, Landing: FS.LANDING });
 const xyz = (v) => [v.x, v.y, v.z];
 const xyzw = (q) => [q.x, q.y, q.z, q.w];
 // A published tree's root: the scene's update stops here (the phase wrote it).
@@ -38,8 +40,6 @@ export class PageVehicles {
     this.capacity = this.kernel.entries_capacity();
     this.queue = new Array(this.capacity * 3);
     this.count = 0;
-    this.from = new THREE.Vector3();
-    this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
     this.mismatched = 0;
     this.reported = false;
     // The correction his own predicted hull is drawn with (game.js sets it
@@ -59,6 +59,7 @@ export class PageVehicles {
     this.streamIn = new Float64Array(b, k.stream_in_ptr(), k.stream_in_len());
     this.streamOut = new Float64Array(b, k.stream_out_ptr(), k.stream_out_len());
     this.header = new Float64Array(b, k.header_ptr(), H.STRIDE);
+    this.rays = new Float64Array(b, k.rays_ptr(), k.rays_len());
   }
   // A clip's handle and duration, loading it once (null without one).
   clip(clip) {
@@ -103,6 +104,9 @@ export class PageVehicles {
       yxz: v.root.rotation.order === "YXZ", hasPose: Boolean(v.pose), poseRoot: v.pose ? v.pose.root : -1,
       flying: Boolean(v.flying), creature: Boolean(v.creature),
       gearRoot: v.flying ? v.bones.findIndex((bone) => DUMMY_ROOT.test(bone.name)) : -1,
+      // The rules its drawn gear follows a replicated flight state by.
+      flight: v.flying && v.flightConfig ? { takeoffTime: v.flightConfig.takeoffTime, landingTime: v.flightConfig.landingTime,
+        takeoffHeight: v.flightConfig.takeoffHeight, landedHeight: v.flightConfig.landedHeight, gearFoot: v.gearFoot ?? null } : null,
       // liftLegs' legBones: the bones under each pair's two leg bones.
       legs: legs ? {
         rayLength: legs.rayLength, at: legs.pairs.map((pair) => [pair.left.at, pair.right.at]),
@@ -135,8 +139,8 @@ export class PageVehicles {
       frames: [new THREE.Quaternion(), new THREE.Quaternion()], sides: [new Array(pairs).fill(0), new Array(pairs).fill(0)],
       slots: [0, 1].map((slot) => [this.kernel.slot_input(id, slot), this.kernel.slot_output(id, slot)]) };
     // Record offsets within a slot (vehicles.rs Rig::in_* and out_*).
-    rig.inRays = pairs; rig.inSeats = pairs * 3; rig.inKicks = rig.inSeats + rig.seats * S.STRIDE; rig.inWheels = rig.inKicks + muzzles.length;
-    rig.outSides = O.STRIDE; rig.outRays = O.STRIDE + pairs; rig.outAimers = rig.outRays + pairs * 6;
+    rig.inSeats = pairs * 3; rig.inKicks = rig.inSeats + rig.seats * S.STRIDE; rig.inWheels = rig.inKicks + muzzles.length;
+    rig.outSides = O.STRIDE; rig.outAimers = O.STRIDE + pairs;
     rig.outNodes = rig.outAimers + aimers.length * AO.STRIDE; rig.outSkins = rig.outNodes + nodes.length * N.STRIDE;
     this.rigs.set(v.root, rig);
     v.nativeDisplay={owner:this,rig};
@@ -198,13 +202,18 @@ export class PageVehicles {
     x[e + E.TICK_TILT] = render ? +v.previousTilt : +v.tickFromTilt; x[e + E.TILT] = v.tilt;
     x[e + E.TICK_ROLL] = v.flying ? tickRoll ?? v.roll : +tickRoll; x[e + E.ROLL] = v.roll;
     // A repulsor's bob, the hull's own clock, the walk cycle and where its
-    // last tick began (his own hull), the gear as drawn (shownGear keeps its
-    // own clock), the clock barrels kick back on, and his own hull's
-    // correction still being smoothed away.
+    // last tick began (his own hull), the clock barrels kick back on, and
+    // his own hull's correction still being smoothed away.
     x[e + E.HOVER] = v.repulsor && !v.flying ? 1 : 0; x[e + E.HOVER_PHASE] = v.hoverPhase; x[e + E.AGE] = v.age;
     x[e + E.WALK_PHASE] = v.walkPhase; x[e + E.WALK_BLEND] = v.walkBlend;
     x[e + E.WALK_FROM_PHASE] = render || v.walkFromPhase === undefined ? NaN : +v.walkFromPhase; x[e + E.WALK_FROM_BLEND] = +v.walkFromBlend;
-    x[e + E.GEAR] = v.flying && v.clips?.get("takeoff") ? shownGear(v, dt) : NaN;
+    // A craft's gear: its own, whose records it follows, and the flight
+    // state its gear clock reads. Where it is (the ground cast under a
+    // lifting craft starts there) and its own body, which casts leave out.
+    x[e + E.GEAR] = v.gear ?? NaN; x[e + E.GEAR_FOLLOW] = v.flying ? gearFollow(v) : -1; x[e + E.GEAR_GENERATION] = v.aiTarget?.generation ?? 0;
+    x[e + E.FLIGHT_STATE] = FLIGHT_STATES[v.flightState] ?? FS.OTHER;
+    x[e + E.GROUND_FROM] = v.position.x; x[e + E.GROUND_FROM + 1] = v.position.y; x[e + E.GROUND_FROM + 2] = v.position.z;
+    x[e + E.BODY] = v.body?.raySlot ?? -1;
     x[e + E.LEG_SIDES] = v.legSide ? 1 : 0; x[e + E.NOW] = v.system.world.clock();
     const offset = slot === 1 ? this.offset : null;
     x[e + E.OFFSET] = offset ? offset.x : 0; x[e + E.OFFSET + 1] = offset ? offset.y : 0; x[e + E.OFFSET + 2] = offset ? offset.z : 0;
@@ -246,8 +255,9 @@ export class PageVehicles {
     x[e + E.OFFSET] = x[e + E.OFFSET + 1] = x[e + E.OFFSET + 2] = 0;
     return true;
   }
-  // The batch: roots, the leg rays (each hull's own body out of them, as
-  // feelLegs casts), the poses, then each hull's records written back.
+  // The batch: roots, the frame's rays (each hull's own body out of them,
+  // as feelLegs and heightAbove cast), the poses, then each hull's records
+  // written back.
   flush() {
     // Entries in the queue: hull, rig and slot each.
     const n = this.count;
@@ -262,25 +272,9 @@ export class PageVehicles {
       this.count = 0;
       return;
     }
-    // feelLegs' casts: each ray the kernel placed from the drawn root, the
-    // height L - distance (or -L for nothing within 2L).
-    const s = this.streamIn, out = this.streamOut;
-    if (this.header[H.RAYS] > 0) {
-      for (let q = 0; q < n; q++) {
-        const v = this.queue[q * 3], rig = this.queue[q * 3 + 1], pair = rig.slots[this.queue[q * 3 + 2]], at = pair[0], o = pair[1];
-        if (!(out[o + O.RAYS] > 0)) continue;
-        const w = v.system.world, L = v.def.fx.legs.rayLength, enabled = w.bodyEnabled(v.body);
-        w.enableBody(v.body, false);
-        try {
-          for (let r = 0, b = o + rig.outRays; r < out[o + O.RAYS]; r++, b += 3) {
-            const hit = w.cast(this.from.set(out[b], out[b + 1], out[b + 2]), DOWN, 2 * L, this.hit);
-            s[at + rig.inRays + r] = hit ? L - hit.distance : -L;
-          }
-        } finally {
-          w.enableBody(v.body, enabled);
-        }
-      }
-    }
+    // Every ray the kernel asked for, cast in one call on this page's
+    // collision; the kernel reads the hits itself.
+    if (this.header[H.RAYS] > 0) this.queue[0].system.world.castRays(this.rays, this.header[H.RAYS]);
     k.pose_hulls();
     for (let q = 0; q < n; q++) {
       const v = this.queue[q * 3], rig = this.queue[q * 3 + 1], o = rig.slots[this.queue[q * 3 + 2]][1];

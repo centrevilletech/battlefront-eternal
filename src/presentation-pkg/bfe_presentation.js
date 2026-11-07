@@ -816,6 +816,19 @@ export class PageProps {
      * @param {string} data
      * @returns {number}
      */
+    add_rider(data) {
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.pageprops_add_rider(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
+     * @param {string} data
+     * @returns {number}
+     */
     add_trap(data) {
         const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
@@ -1413,6 +1426,21 @@ export class PageVehicles {
     }
     pose_hulls() {
         wasm.pagevehicles_pose_hulls(this.__wbg_ptr);
+    }
+    /**
+     * @returns {number}
+     */
+    rays_len() {
+        const ret = wasm.pagevehicles_rays_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * The frame's CastRay block (VehicleHeader.RAYS records in use).
+     * @returns {number}
+     */
+    rays_ptr() {
+        const ret = wasm.pagevehicles_rays_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @param {number} rig

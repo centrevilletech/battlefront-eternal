@@ -34,7 +34,7 @@ export class ClientHullContent extends VehicleContent {
     v.simSlot = pool.slotOf(v); v.simGen = pool.gens[v.simSlot];
     const pose = pullPose(v), at = this.input(pose.length);
     b.f.set(pose, at);
-    if (!this.x.veh_pull(v.simSlot, v.aiTarget.generation, pose.length)) throw Error('prediction could not retain the hull rig');
+    if (!this.x.veh_pull(v.simSlot, v.aiTarget.generation, pose.length, 0)) throw Error('prediction could not retain the hull rig');
     this.adopted.add(v);
   }
 }

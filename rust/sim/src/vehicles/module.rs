@@ -304,9 +304,12 @@ fn new_pose(name: &str) -> Option<(HullPose, Vec<f64>)> { Fleet::new_pose(unsafe
 /// A hull's whole pose state from JavaScript (posing::pull), `count`
 /// numbers in the input, for the hull in store slot `slot` on life
 /// `generation`: its pose is the module's from now until its next life.
-/// Returns 1 on adoption; 0 rejects a missing pack or mismatched node count.
+/// `seed`: the world spawned this hull before its pose was the module's (a
+/// world's fleet at load), so the module seeds its spawn pose itself
+/// (Hull::seed) over the pulled state. Returns 1 on adoption; 0 rejects a
+/// missing pack or mismatched node count.
 #[no_mangle]
-pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32) -> u32 {
+pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32, seed: u32) -> u32 {
     let s = sim();
     // Vehicle construction may prepare a private pad variant before it
     // joins fleet order. The slab already owns its generation-qualified row.
@@ -323,9 +326,29 @@ pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32) -> u32 {
     };
     let Some((mut pose, turn_rates)) = made else { return 0 };
     let ok = posing::pull(&mut pose, &input()[..count as usize]);
+    let mut pose = if ok && seed != 0 { seed_pose(r, pose) } else { pose };
     if f2::active() { pose.rig.tree.update_matrix_world(pose.rig.root, true); }
     all[slot as usize] = Some(Posed { generation: if ok { generation } else { f64::NAN }, pose, turn_rates });
     ok as u32
+}
+
+/// A spawned hull's seed pose (Hull::seed) over its pulled pose: the hull as
+/// the store holds it after its spawn, its class's and, for a craft, its
+/// flight's keys. No barrel has fired before a hull's first life. A class
+/// the phase was not given keeps the pulled pose.
+fn seed_pose(r: Ref<Vehicle>, pose: HullPose) -> HullPose {
+    let s = sim();
+    let v = s.store.vehicle.get(r).expect("a hull the store holds");
+    let name = String::from_utf16_lossy(s.strings.units(v.name));
+    let Some(class) = classes().get(&name) else { return pose };
+    let index = s.store.vehicles.vehicles.iter().position(|&h| h == r).unwrap_or(0);
+    let mut hull = Hull::from_store(r, v, class, index);
+    if hull.flying {
+        read_flight(&mut hull);
+    }
+    hull.pose = Some(pose);
+    hull.seed(0.0);
+    hull.pose.take().expect("the seeded pose")
 }
 
 fn opt(flag: f64, x: f64) -> Option<f64> {

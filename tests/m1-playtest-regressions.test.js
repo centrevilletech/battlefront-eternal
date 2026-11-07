@@ -12,8 +12,6 @@ import { discreteActions } from "../src/runtime/network-inputs.js";
 import { encodeEntityInput } from "../src/runtime/network-entity-input.js";
 import { TurretTarget } from "../src/seats.js";
 import { captureMountedControl } from "../src/runtime/network-mounted-control.js";
-import { poseFlightGear } from "../src/flight/gear.js";
-import { loadClips } from "../src/anim.js";
 
 const gun = { class: "rifle", base: "cannon", channel: 0, AnimationBank: "rifle", RoundsPerClip: 10, ReloadTime: 1, ordnance: { base: "bolt" } };
 
@@ -70,59 +68,3 @@ test("a first-life start-built turret (Bespin AAA) satisfies the mounted lease",
   assert.doesNotThrow(() => captureMountedControl({ seat: { turret } }), "seating at a start-built turret must not fail the world worker");
 });
 
-// The X-wing's takeoff clip as the retail bank has it, in outline: the
-// gear down and the S-foils shut at its first frame (landed), the gear
-// folded and each foil turned 15 degrees about its own fore/aft axis at its
-// last (flying), and DummyRoot lifted throughout.
-function foilShip() {
-  const root = new THREE.Group();
-  const mk = (name, pos, parent = root) => { const b = new THREE.Bone(); b.name = name; b.position.copy(pos); parent.add(b); return b; };
-  const dummy = mk("dummyroot", new THREE.Vector3());
-  const bones = [
-    dummy,
-    mk("xwing_b_gear1", new THREE.Vector3(0, -0.44, -1.24), dummy),
-    mk("xwing_bl_hatch3", new THREE.Vector3(0.59, 0.3, -1.75), dummy),
-    mk("xwing_bl_hatch4", new THREE.Vector3(0.59, -0.25, -1.75), dummy),
-    mk("xwing_br_hatch3", new THREE.Vector3(-0.59, 0.3, -1.75), dummy),
-    mk("xwing_br_hatch4", new THREE.Vector3(-0.59, -0.25, -1.75), dummy),
-  ];
-  const Z = new THREE.Vector3(0, 0, 1), X = new THREE.Vector3(1, 0, 0), open = THREE.MathUtils.degToRad(15);
-  const ends = [
-    [[0, 0, 0, 1, 0, 1.79, 0], [0, 0, 0, 1, 0, 1.79, 0]],
-    [[0, 0, 0, 1, 0, -0.44, -1.24], [...new THREE.Quaternion().setFromAxisAngle(X, 1.55).toArray(), 0, -0.44, -1.24]],
-    ...[[2, 1], [3, -1], [4, -1], [5, 1]].map(([i, sign]) => [[0, 0, 0, 1, ...bones[i].position.toArray()],
-      [...new THREE.Quaternion().setFromAxisAngle(Z, sign * open).toArray(), ...bones[i].position.toArray()]]),
-  ];
-  const floats = new Float32Array(ends.flat(2));
-  const names = bones.map((b) => b.name);
-  const clips = loadClips({ fps: 30, bones: names, clips: { takeoff: { frames: 2, flags: 0, offset: 0, tracks: names.map((_, i) => i), travel: [0, 0, 0] } } }, floats.buffer, names);
-  return {
-    flying: true, gear: 1, root, bones, clips,
-    bindPositions: bones.map((b) => b.position.clone()),
-    bindQuaternions: bones.map((b) => b.quaternion.clone()),
-    byName: Object.fromEntries(bones.map((b) => [b.name.toLowerCase(), b])),
-  };
-}
-
-test("landing gear stows in flight and X-foils open, both from the takeoff clip at the gear state", () => {
-  const v = foilShip();
-  const tip = (bone) => new THREE.Vector3(Math.sign(bone.position.x) * 4.5, 0, 0).applyQuaternion(bone.quaternion).add(bone.position);
-  const foils = () => v.bones.slice(2).map(tip);
-  poseFlightGear(v); // gear = 1: landed
-  const landedGear = v.bones[1].quaternion.clone();
-  const landedTips = foils();
-  v.gear = 0; // flying
-  poseFlightGear(v);
-  assert.ok(v.bones[1].quaternion.angleTo(landedGear) > 1.5, "the gear leg folds up when flying");
-  assert.ok(v.bones[1].position.distanceTo(new THREE.Vector3(0, -0.44, -1.24)) < 1e-6, "about its own joint: it never slides through the hull");
-  assert.deepEqual(v.bones[0].position.toArray(), [0, 0, 0], "the clip's lift of DummyRoot is left out");
-  const flyingTips = foils();
-  assert.ok(flyingTips[0].y > landedTips[0].y + 0.3, "upper left foil rises");
-  assert.ok(flyingTips[1].y < landedTips[1].y - 0.3, "lower left foil drops");
-  assert.ok(flyingTips[2].y > landedTips[2].y + 0.3, "upper right foil rises");
-  assert.ok(flyingTips[3].y < landedTips[3].y - 0.3, "lower right foil drops");
-  v.gear = 1;
-  poseFlightGear(v);
-  assert.ok(v.bones[1].quaternion.angleTo(landedGear) < 1e-6, "gear comes down on landing");
-  assert.ok(Math.abs(tip(v.bones[2]).y - landedTips[0].y) < 1e-6, "foils close on landing");
-});

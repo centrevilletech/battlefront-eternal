@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { CollisionWorld, nativeVehicles } from './helpers/native-vehicles.js';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
 import { packWith, vehiclePacks } from '../tools/vehicle-packs.mjs';
-import { attachPage } from './helpers/page-presentation.js';
+import { attachPage, drawHull } from './helpers/page-presentation.js';
 
 const DEG = Math.PI / 180;
 const maps = contentURL('maps/');
@@ -164,6 +164,7 @@ test('the player\'s own body stays out of sight in an enclosed cockpit (Bespin: 
     const v = hull[name], root = new THREE.Group();
     const driver = new VehicleDriver({ vehicles: system, camera: system.camera, collision, actor: { root, byName: {} } });
     driver.vehicle = v; v.seatIndex = 0;
+    drawHull(v);
     // An own correction from the world (EntityGameState.correct) shows the
     // body; the frame's presentation decides what is drawn.
     root.visible = true;
@@ -184,7 +185,7 @@ test('the seat camera hangs from the seat: chase at TrackCenter and TrackOffset,
   v.driver = {}; v.seatIndex = 1; v.aimYaw = v.yaw + .5; v.pitch = .1;
   nativeVehicles(system, pack);
   system.update(1 / 60);
-  v.seedPose();
+  drawHull(v);
   view.update(v, 1 / 60, false);
   const frame = v.seatFrame(1, new THREE.Matrix4());
   // TrackCenter (0, 1, -1) in the aim frame and TrackOffset (0, 0, 2) behind.

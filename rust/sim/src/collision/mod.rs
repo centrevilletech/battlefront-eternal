@@ -788,6 +788,13 @@ pub extern "C" fn world_cast(id: u32, count: u32) -> i32 { owner().world_cast(id
 #[no_mangle]
 pub extern "C" fn world_cast_moving(id: u32, count: u32) -> i32 { owner().world_cast_moving(id, count) }
 
+/// A block of `count` independent casts (the page's walker legs and a
+/// lifting craft's ground, one block a frame): CastRay records at
+/// input_reserve's address, the bodies' enabled flags by place at
+/// places_ptr, written once for the block. Returns the records cast.
+#[no_mangle]
+pub extern "C" fn world_cast_rays(id: u32, count: u32) -> u32 { owner().world_cast_rays(id, count) }
+
 /// TriangleGrid.raycastFirst(ray, far) with the ray and far in IO: 1 and the
 /// hit in IO, or 0.
 #[no_mangle]
@@ -909,6 +916,34 @@ impl CollisionOwner {
         let (code, hit) = world_cast_moving_ray_in(&self.state, id as usize, &ray, self.io[6], &self.candidates[..(count as usize).min(MAX_BODIES)], &self.enabled[..(count as usize).min(MAX_BODIES)]);
         if code != MISS { write_hit(&mut self.io, &hit); }
         code
+    }
+    /// cast(origin, direction, far, out, ignoreBody) for each CastRay record
+    /// in turn, as the host's loop of casts made them: each ray's candidate
+    /// bodies (its ignored body left out), enabled as PLACES says, then the
+    /// world's first hit. HIT and DISTANCE are written back; a world that
+    /// does not exist, or records past the reserved input, cast nothing.
+    pub fn world_cast_rays(&mut self, id: u32, count: u32) -> u32 {
+        use bfe_presentation::layout::cast_ray as cr;
+        let world = id as usize;
+        if world >= self.state.worlds.len() {
+            return 0;
+        }
+        let count = (count as usize).min(self.gathers.input.len() / cr::STRIDE);
+        for r in 0..count {
+            let x = &self.gathers.input[r * cr::STRIDE..(r + 1) * cr::STRIDE];
+            let ray = Ray { ox: x[cr::ORIGIN], oy: x[cr::ORIGIN + 1], oz: x[cr::ORIGIN + 2], dx: x[cr::DIRECTION], dy: x[cr::DIRECTION + 1], dz: x[cr::DIRECTION + 2] };
+            let (far, hypot, ignore) = (x[cr::FAR], x[cr::HYPOT], x[cr::IGNORE]);
+            let ignore = if ignore >= 0.0 && ignore < MAX_BODIES as f64 { ignore as i64 } else { -1 };
+            let n = broad::world_candidates_near_into(&mut self.state, world, &ray, far, ignore, false, false, &mut self.candidates).min(MAX_BODIES);
+            for c in 0..n {
+                self.enabled[c] = self.gathers.places[self.candidates[c] as usize];
+            }
+            let (code, hit) = world_cast_ray_in(&mut self.state, world, &ray, far, hypot, &self.candidates[..n], &self.enabled[..n]);
+            let x = &mut self.gathers.input[r * cr::STRIDE..(r + 1) * cr::STRIDE];
+            x[cr::HIT] = (code != MISS) as u8 as f64;
+            x[cr::DISTANCE] = if code != MISS { hit.distance } else { 0.0 };
+        }
+        count as u32
     }
     pub fn grid_ray(&mut self, id: u32) -> u32 {
         let ray = read_ray(&self.io);

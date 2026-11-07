@@ -8,13 +8,14 @@
 //!
 //! The host keeps the hull's own fields (its age, leg sides and aimers
 //! arrive and leave as records), so the own predicted hull is one more
-//! entry over the same rig. A walker's legs feel the page's collision
-//! between the two calls: `place` puts every root and asks for the rays,
-//! the host casts them, and `pose` finishes the frame.
+//! entry over the same rig. A walker's legs (and a lifting craft's gear
+//! clock) feel the page's collision between the two calls: `place` puts
+//! every root and writes one block of CastRay records, the host casts the
+//! whole block in one call, and `pose` finishes the frame.
 use crate::layout::{
-    vehicle_aimer_output as ao, vehicle_node as vn, vehicle_entry as ve,
+    cast_ray as cr, vehicle_aimer_output as ao, vehicle_node as vn, vehicle_entry as ve,
     vehicle_entry_output as eo, vehicle_frame as vf, vehicle_header as vh, vehicle_limits as lim,
-    vehicle_mode as mode, vehicle_root as vr, vehicle_seat_input as si, vehicle_wheel_input as wi,
+    vehicle_flight_state as fs, vehicle_mode as mode, vehicle_root as vr, vehicle_seat_input as si, vehicle_wheel_input as wi,
     status,
 };
 use bfe_pose::rig::math;
@@ -155,6 +156,30 @@ pub struct LegsInput {
     /// Each pair's leg bones (liftLegs' legBones), in bone order.
     pub bones: Vec<Vec<usize>>,
 }
+/// The flight rules a craft's drawn gear follows its flight state by
+/// (`flightConfig`: TakeoffTime, LandingTime, TakeoffHeight and the height
+/// it rests at landed).
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct FlightInput {
+    pub takeoff_time: f64,
+    pub landing_time: f64,
+    pub takeoff_height: f64,
+    pub landed_height: f64,
+    /// How far below its origin it stands on its gear (gearFoot), if known.
+    #[serde(default)]
+    pub gear_foot: Option<f64>,
+}
+impl FlightInput {
+    /// heightAbove's lift: a craft whose foot is near or above its origin
+    /// casts from 0.1 m over that foot.
+    fn lift(&self) -> f64 {
+        match self.gear_foot {
+            Some(f) if f < 0.1 => 0.1 - f,
+            _ => 0.0,
+        }
+    }
+}
 /// A clip handle and the JS clip's `duration`.
 #[derive(Deserialize, Clone, Copy)]
 pub struct ClipRef {
@@ -211,6 +236,9 @@ pub struct RigInput {
     pub takeoff: Option<ClipRef>,
     /// The bone /^dummyroot$/i gear posing puts back, or -1.
     pub gear_root: i32,
+    /// A craft's flight rules (None: its gear holds where it was).
+    #[serde(default)]
+    pub flight: Option<FlightInput>,
     /// `def.fx.legs`, None without.
     pub legs: Option<LegsInput>,
     /// Every seat, in order.
@@ -263,6 +291,18 @@ struct Muzzle {
     recoil: f64,
 }
 
+/// The gear a hull drawn from its records shows (gear.js shownGear's view):
+/// the life it belongs to, whether it follows the flight state, the state
+/// last seen and how far down it has the gear (1 down, 0 stowed).
+#[derive(Clone, Copy, Default)]
+struct GearClock {
+    valid: bool,
+    generation: f64,
+    follows: bool,
+    state: f64,
+    value: f64,
+}
+
 /// One hull's rig and what its frame keeps: the tree, its bind, its clips
 /// and samplers, and the pose it was last drawn in alive (presentDying).
 struct Rig {
@@ -287,6 +327,9 @@ struct Rig {
     clips: [Option<ClipRef>; 7],
     /// DummyRoot for gear posing.
     gear_root: Option<usize>,
+    /// A craft's flight rules, and each slot's gear clock.
+    flight: Option<FlightInput>,
+    gear_clock: [GearClock; lim::SLOTS],
     /// Leg pairs, a walker's.
     legs: Option<LegsInput>,
     /// The seats, then every aimer and kicking muzzle in order.
@@ -328,7 +371,8 @@ impl Rig {
     fn pairs(&self) -> usize {
         self.legs.as_ref().map_or(0, |l| l.at.len())
     }
-    // Input: leg sides, ray results, seats, kicks, wheels.
+    // Input: leg sides, the casts' heights (the phase's own, from the ray
+    // block), seats, kicks, wheels.
     fn in_rays(&self) -> usize {
         self.pairs()
     }
@@ -344,16 +388,13 @@ impl Rig {
     fn in_wheels(&self) -> usize {
         self.in_kicks() + self.muzzles.len()
     }
-    // Output: the entry record, leg sides, ray origins, aimers, every
+    // Output: the entry record, leg sides, aimers, every
     // node's matrices, the skinned meshes' bind inverses.
     fn out_sides(&self) -> usize {
         eo::STRIDE
     }
-    fn out_rays(&self) -> usize {
-        self.out_sides() + self.pairs()
-    }
     fn out_aimers(&self) -> usize {
-        self.out_rays() + self.pairs() * 6
+        self.out_sides() + self.pairs()
     }
     fn out_nodes(&self) -> usize {
         self.out_aimers() + self.aimers.len() * ao::STRIDE
@@ -380,6 +421,46 @@ pub struct Vehicles {
     pub stream_in: Vec<f64>,
     pub stream_out: Vec<f64>,
     pub header: Vec<f64>,
+    /// The frame's CastRay block, and each ray's entry and what it feels
+    /// (a foot's index, or GROUND); sized at registration for every entry.
+    pub rays: Vec<f64>,
+    route: Vec<(u32, u32)>,
+    /// Each entry's ground height under a lifting craft (NaN: none cast).
+    heights: Vec<f64>,
+    /// The most rays one entry asks for.
+    per_entry: usize,
+}
+/// A ray's route: a lifting craft's ground (heightAbove), not a foot.
+const GROUND: u32 = u32::MAX;
+/// heightAbove's reach and its answer for no ground within it.
+const GROUND_REACH: f64 = 1024.0;
+
+/// The frame's ray block as `place` fills it.
+struct RayBlock<'a> {
+    data: &'a mut [f64],
+    route: &'a mut [(u32, u32)],
+    count: usize,
+}
+impl RayBlock<'_> {
+    /// One cast straight down from `from` over `far`, past `ignore` (the
+    /// hull's own body slot, -1 none); false when the block is full.
+    fn down(&mut self, from: &Vector3, far: f64, ignore: f64, entry: usize, index: u32) -> bool {
+        if self.count >= self.route.len() {
+            return false;
+        }
+        let x = &mut self.data[self.count * cr::STRIDE..(self.count + 1) * cr::STRIDE];
+        x[cr::ORIGIN..cr::ORIGIN + 3].copy_from_slice(&[from.x, from.y, from.z]);
+        // Math.hypot(0, 0) of the down direction picks the terrain grid.
+        x[cr::DIRECTION..cr::DIRECTION + 3].copy_from_slice(&[0.0, -1.0, 0.0]);
+        x[cr::FAR] = far;
+        x[cr::HYPOT] = 0.0;
+        x[cr::IGNORE] = ignore;
+        x[cr::HIT] = 0.0;
+        x[cr::DISTANCE] = 0.0;
+        self.route[self.count] = (entry as u32, index);
+        self.count += 1;
+        true
+    }
 }
 
 impl Default for Vehicles {
@@ -398,6 +479,10 @@ impl Vehicles {
             stream_in: Vec::new(),
             stream_out: Vec::new(),
             header: vec![0.0; vh::STRIDE],
+            rays: Vec::new(),
+            route: Vec::new(),
+            heights: Vec::new(),
+            per_entry: 1,
         }
     }
     /// Every rig twice (the hull and its predicted view).
@@ -511,6 +596,8 @@ impl Vehicles {
             creature: d.creature,
             clips: [d.idle, d.left, d.right, d.lift_left, d.lift_right, d.death, d.takeoff],
             gear_root: (d.gear_root >= 0 && (d.gear_root as usize) < count).then_some(d.gear_root as usize),
+            flight: d.flight,
+            gear_clock: [GearClock::default(); lim::SLOTS],
             legs,
             seats,
             aimers,
@@ -535,8 +622,14 @@ impl Vehicles {
             self.stream_in.resize(self.stream_in.len() + rig.input_len, 0.0);
             self.stream_out.resize(self.stream_out.len() + rig.output_len, 0.0);
         }
+        // Each entry asks for at most its feet's rays and one ground ray.
+        self.per_entry = self.per_entry.max(rig.pairs() * 2 + 1);
         self.rigs.push(rig);
         self.input.resize(vf::STRIDE + self.entries_capacity() * ve::STRIDE, 0.0);
+        let rays = self.entries_capacity() * self.per_entry;
+        self.rays.resize(rays * cr::STRIDE, 0.0);
+        self.route.resize(rays, (0, 0));
+        self.heights.resize(self.entries_capacity(), f64::NAN);
         self.rigs.len() - 1
     }
     /// A rig's slot's first input and output words (0 for no such rig).
@@ -557,21 +650,13 @@ impl Vehicles {
         (n as usize).min(self.entries_capacity())
     }
     fn entry(&self, e: usize) -> Option<(usize, usize, usize, usize)> {
-        let at = vf::STRIDE + e * ve::STRIDE;
-        let x = &self.input[at..at + ve::STRIDE];
-        let rig = x[ve::RIG];
-        if !(rig >= 0.0) || rig as usize >= self.rigs.len() {
-            return None;
-        }
-        let r = &self.rigs[rig as usize];
-        let (i, o) = (x[ve::INPUT], x[ve::OUTPUT]);
-        // Only a slot's own words: a stale or forged offset poses nothing.
-        let slot = r.slots.iter().position(|&(si, so)| si as f64 == i && so as f64 == o)?;
-        Some((rig as usize, slot, i as usize, o as usize))
+        entry_of(&self.input, &self.rigs, e)
     }
 
-    /// First call: every root placed, the bones back at bind, and the leg
-    /// rays each walker asks for (Vehicle.present up to feelLegs' casts).
+    /// First call: every root placed, the bones back at bind, and the block
+    /// of rays the frame asks for: each walker's feet (Vehicle.present up to
+    /// feelLegs' casts) and the ground under each lifting craft whose gear
+    /// follows its records (heightAbove).
     pub fn place(&mut self) {
         self.network.vehicles(&mut self.input);
         if self.input[vf::VERSION] != crate::layout::VERSION as f64 {
@@ -579,9 +664,11 @@ impl Vehicles {
             return;
         }
         self.header[vh::STATUS] = status::OK as f64;
-        let (mut rays, mut skipped) = (0, 0);
-        for e in 0..self.entries() {
-            let Some((rig, slot, _, o)) = self.entry(e) else {
+        let mut skipped = 0;
+        let entries = self.entries();
+        let mut block = RayBlock { data: &mut self.rays, route: &mut self.route, count: 0 };
+        for e in 0..entries {
+            let Some((rig, slot, _, o)) = entry_of(&self.input, &self.rigs, e) else {
                 skipped += 1;
                 continue;
             };
@@ -595,10 +682,17 @@ impl Vehicles {
             if x[ve::DEFERRED]!=0. {continue;}
             let m = x[ve::MODE];
             if m == mode::ALIVE as f64 || m == mode::RENDER as f64 {
-                rays += place_alive(r, slot, x, out);
+                place_alive(r, slot, x, out, &mut block, e);
+                // heightAbove for the gear clock: from where the craft is (its
+                // tick position) lifted over its foot, its own body left out.
+                if let (Some(f), true) = (r.flight, wants_ground(r, x)) {
+                    let lift = f.lift();
+                    let from = Vector3::new(x[ve::GROUND_FROM], x[ve::GROUND_FROM + 1] + lift, x[ve::GROUND_FROM + 2]);
+                    block.down(&from, GROUND_REACH + lift, x[ve::BODY], e, GROUND);
+                }
             }
         }
-        self.header[vh::RAYS] = rays as f64;
+        self.header[vh::RAYS] = block.count as f64;
         self.header[vh::SKIPPED] = skipped as f64;
     }
 
@@ -609,7 +703,30 @@ impl Vehicles {
         if self.header[vh::STATUS] != status::OK as f64 {
             return;
         }
-        for e in 0..self.entries() {
+        // The host's casts: each foot's height L - distance (or -L for
+        // nothing within 2L), into its slot's input; each lifting craft's
+        // ground height, distance - lift (or 1024 for none).
+        let entries = self.entries();
+        self.heights[..entries].fill(f64::NAN);
+        let rays = (self.header[vh::RAYS] as usize).min(self.route.len());
+        for k in 0..rays {
+            let (e, index) = self.route[k];
+            let Some((rig, _, i, _)) = self.entry(e as usize) else { continue };
+            let x = &self.rays[k * cr::STRIDE..(k + 1) * cr::STRIDE];
+            let (hit, distance) = (x[cr::HIT] != 0.0, x[cr::DISTANCE]);
+            let r = &self.rigs[rig];
+            if index == GROUND {
+                let lift = r.flight.map_or(0.0, |f| f.lift());
+                self.heights[e as usize] = if hit { distance - lift } else { GROUND_REACH };
+            } else if let Some(legs) = r.legs.as_ref() {
+                let l = legs.ray_length;
+                let at = i + r.in_rays() + index as usize;
+                if at < i + r.input_len {
+                    self.stream_in[at] = if hit { l - distance } else { -l };
+                }
+            }
+        }
+        for e in 0..entries {
             let Some((rig, slot, i, o)) = self.entry(e) else { continue };
             let at = vf::STRIDE + e * ve::STRIDE;
             let x: &[f64] = &self.input[at..at + ve::STRIDE];
@@ -619,7 +736,7 @@ impl Vehicles {
             if x[ve::DEFERRED]!=0. {continue;}
             let m = x[ve::MODE];
             if m == mode::ALIVE as f64 || m == mode::RENDER as f64 {
-                pose_alive(r, &self.clips, x, sin, out);
+                pose_alive(r, slot, &self.clips, x, sin, self.heights[e], out);
             } else if m == mode::DYING as f64 {
                 pose_dying(r, slot, &self.clips, x, out);
             } else {
@@ -638,6 +755,23 @@ impl Vehicles {
     }
 }
 
+
+/// An entry's rig, slot and its slot's input and output words, or None for
+/// one whose rig or offsets are not a registered slot's.
+fn entry_of(input: &[f64], rigs: &[Rig], e: usize) -> Option<(usize, usize, usize, usize)> {
+    let at = vf::STRIDE + e * ve::STRIDE;
+    let x = &input[at..at + ve::STRIDE];
+    let rig = x[ve::RIG];
+    if !(rig >= 0.0) || rig as usize >= rigs.len() {
+        return None;
+    }
+    let r = &rigs[rig as usize];
+    let (i, o) = (x[ve::INPUT], x[ve::OUTPUT]);
+    // Only a slot's own words: a stale or forged offset poses nothing.
+    let slot = r.slots.iter().position(|&(si, so)| si as f64 == i && so as f64 == o)?;
+    Some((rig as usize, slot, i as usize, o as usize))
+}
+
 /// A Vector3 or Quaternion from a record's words.
 fn v3(x: &[f64]) -> Vector3 {
     Vector3::new(x[0], x[1], x[2])
@@ -646,10 +780,16 @@ fn q4(x: &[f64]) -> Quaternion {
     Quaternion::new(x[0], x[1], x[2], x[3])
 }
 
+/// Whether an entry's gear clock reads the ground this frame: a craft with
+/// its takeoff clip whose gear follows its records, lifting off, with time.
+fn wants_ground(r: &Rig, x: &[f64]) -> bool {
+    r.flying && r.clips[TAKEOFF].is_some() && x[ve::GEAR_FOLLOW] > 0.0 && x[ve::FRAME_DT] > 0.0 && x[ve::FLIGHT_STATE] == fs::TAKING_OFF as f64
+}
+
 /// Vehicle.present to feelLegs' casts (or render(1, 0)'s placeRoot, for a
-/// spawn: the previous tick's state in the tick fields, no time). Returns
-/// the rays asked for.
-fn place_alive(r: &mut Rig, slot: usize, x: &[f64], out: &mut [f64]) -> usize {
+/// spawn: the previous tick's state in the tick fields, no time), its feet's
+/// rays added to the block.
+fn place_alive(r: &mut Rig, slot: usize, x: &[f64], out: &mut [f64], block: &mut RayBlock, entry: usize) {
     // render() (a spawn's pose) leaves presentDying's pose alone.
     if x[ve::MODE] == mode::ALIVE as f64 && r.death_taken[slot].is_some() {
         r.death_taken[slot] = Some(false);
@@ -746,28 +886,33 @@ fn place_alive(r: &mut Rig, slot: usize, x: &[f64], out: &mut [f64]) -> usize {
     out[eo::SHOWN_BLEND] = blend;
     // feelLegs: each foot's ray from the drawn root, for the host to cast.
     let dt = x[ve::DT];
-    let Some(legs) = r.legs.as_ref() else { return 0 };
+    let Some(legs) = r.legs.as_ref() else { return };
     if r.creature || !(dt > 0.0) {
-        return 0;
+        return;
     }
     // The root's turn from its Euler angles (legEuler), as feelLegs takes it.
     let e = r.tree.node_mut(root).rotation();
     let mut q = Quaternion::default();
     q.set_from_euler(&three::Euler::new(e.x, e.y, e.z, EulerOrder::YXZ));
     let at = r.tree.node(root).position;
-    // Each foot's ray starts L above it and runs 2L down; the host casts it
-    // with the hull's own body out of the world.
-    let o = r.out_rays();
+    // Each foot's ray starts L above it and runs 2L down, cast with the
+    // hull's own body out of the world. A full block feels no feet this
+    // frame (the legs keep their sides).
+    let mut cast = 0;
     for (i, pair) in legs.at.iter().enumerate() {
         for (j, foot) in pair.iter().enumerate() {
             let mut from = Vector3::new(foot[0], foot[1], foot[2]);
             from.apply_quaternion(&q).add(&at);
             from.y += legs.ray_length;
-            out[o + (i * 2 + j) * 3..][..3].copy_from_slice(&[from.x, from.y, from.z]);
+            cast += block.down(&from, 2.0 * legs.ray_length, x[ve::BODY], entry, (i * 2 + j) as u32) as usize;
         }
     }
-    out[eo::RAYS] = (legs.at.len() * 2) as f64;
-    legs.at.len() * 2
+    if cast == legs.at.len() * 2 {
+        out[eo::RAYS] = cast as f64;
+    } else {
+        // Drop a partial set: the routes past the block's count are unread.
+        block.count -= cast;
+    }
 }
 
 /// The walk cycle's length (both steps), 0 without one.
@@ -802,7 +947,7 @@ fn apply(pose: &mut Pose, tree: &mut TransformTree, bones: &[NodeId]) {
 
 /// Vehicle.present (or render) from feelLegs on: the legs, the walk pose, the gear,
 /// the held seats, the barrels and the wheels.
-fn pose_alive(r: &mut Rig, clips: &[Clip], x: &[f64], sin: &[f64], out: &mut [f64]) {
+fn pose_alive(r: &mut Rig, slot: usize, clips: &[Clip], x: &[f64], sin: &[f64], ground: f64, out: &mut [f64]) {
     let dt = x[ve::DT];
     let pairs = r.pairs();
     // feelLegs' sides, from the host's casts (L - distance, or -L).
@@ -845,9 +990,10 @@ fn pose_alive(r: &mut Rig, clips: &[Clip], x: &[f64], sin: &[f64], out: &mut [f6
     // poseFlightGear: the takeoff clip at the drawn gear.
     if r.flying {
         if let Some((c, duration)) = r.clip(clips, TAKEOFF) {
-            // The gear the host's flight clock shows (shownGear): 1 down, 0
-            // stowed; DummyRoot's lift is put back to bind.
-            let gear = v8math::min(1.0, v8math::max(0.0, x[ve::GEAR]));
+            // The gear as drawn (shownGear): 1 down, 0 stowed; DummyRoot's
+            // lift is put back to bind.
+            let gear = shown_gear(r, slot, x, ground);
+            out[eo::GEAR] = gear;
             r.gear.clear();
             r.gear.add(c, (1.0 - gear) * duration, 1.0, false);
             apply(&mut r.gear, &mut r.tree, &r.bones);
@@ -906,6 +1052,68 @@ fn pose_alive(r: &mut Rig, clips: &[Clip], x: &[f64], sin: &[f64], out: &mut [f6
             b.copy(&bind).multiply(&q);
         });
     }
+}
+
+/// gear.js `clamp01`.
+fn clamp01(x: f64) -> f64 {
+    v8math::min(1.0, v8math::max(0.0, x))
+}
+/// The gear a flight state rests at (gear.js `resting`): down on the ground
+/// and through the lift, stowed in flight (a landing brings it down).
+fn resting(state: f64) -> f64 {
+    if state == fs::FLYING as f64 || state == fs::LANDING as f64 { 0.0 } else { 1.0 }
+}
+
+/// gear.js shownGear with followFlightState's view: how far down the gear is
+/// drawn. The hull's own gear where this page steps or corrects its flight
+/// (GEAR_FOLLOW -1, or 0 for his own craft); else its replicated flight
+/// state's, advanced by the frame's dt: held down through the lift, stowed
+/// over TakeoffTime once the craft is TakeoffHeight above where it rests,
+/// down over LandingTime from the start of a landing (`ground`: this
+/// frame's cast under a lifting craft). The host says which
+/// life its records follow (GEAR_GENERATION); a new one starts from its
+/// state, a handover from a replay from where the replay left the gear.
+fn shown_gear(r: &mut Rig, slot: usize, x: &[f64], ground: f64) -> f64 {
+    // `v.gear ?? 1` (the host writes NaN for none).
+    let own = x[ve::GEAR];
+    let own_or = |fallback: f64| if own.is_nan() { fallback } else { own };
+    let follow = x[ve::GEAR_FOLLOW];
+    if !(follow >= 0.0) {
+        return clamp01(own_or(1.0));
+    }
+    let (generation, state, follows) = (x[ve::GEAR_GENERATION], x[ve::FLIGHT_STATE], follow > 0.0);
+    let c = &mut r.gear_clock[slot];
+    // followFlightState: a new life's view, or the switch to the records.
+    if !c.valid || c.generation != generation {
+        let value = if follows { resting(state) } else { clamp01(own_or(1.0)) };
+        *c = GearClock { valid: true, generation, follows, state, value };
+    } else {
+        if follows && !c.follows {
+            c.state = state;
+            c.value = clamp01(own_or(c.value));
+        }
+        c.follows = follows;
+    }
+    if !c.follows {
+        return clamp01(own_or(1.0));
+    }
+    let Some(f) = r.flight else { return c.value };
+    c.state = state;
+    let dt = x[ve::FRAME_DT];
+    let stow = dt / v8math::max(f.takeoff_time, 1e-3);
+    let lower = dt / v8math::max(f.landing_time, 1e-3);
+    if state == fs::LANDED as f64 || state == fs::LANDING as f64 {
+        c.value = v8math::min(1.0, c.value + lower);
+    } else if state == fs::TAKING_OFF as f64 {
+        // The ground height under the craft (heightAbove, this frame's
+        // cast), read only once the lift has time.
+        if dt > 0.0 && ground > f.takeoff_height + f.landed_height {
+            c.value = v8math::max(0.0, c.value - stow);
+        }
+    } else if state == fs::FLYING as f64 {
+        c.value = v8math::max(0.0, c.value - stow);
+    }
+    c.value
 }
 
 /// The root as the host writes it back.

@@ -20,7 +20,7 @@ export function presentationHull(source, bridge = null) {
   const view = createClientHullStateView(bridge ?? source.system.f2?.bridge ?? source.system.predictionContent?.bridge ?? bridgeFor(source.system.collision.fixtureInstance), source);
   // Solver scalars stay in generated typed storage. Renderer-only scratch
   // remains independently owned, while immutable resources retain identity.
-  for (const key of ['visual', 'q', 'from', 'legEuler', 'beamFrom', 'aimQ', 'aimQ2', 'recoilAxis', 'recoilPoint', 'flightFrameQ', 'flightLeanQ']) if (source[key]) view[key] = copy(source[key]);
+  for (const key of ['visual', 'q', 'from', 'legEuler', 'beamFrom', 'recoilPoint', 'flightFrameQ', 'flightLeanQ']) if (source[key]) view[key] = copy(source[key]);
   // Gait endpoints remain in the generated hull header. The renderer reads
   // these cells while native replay retains the actual continuation state.
   const gait = new Float64Array(CLIENT_HULL_WORDS);

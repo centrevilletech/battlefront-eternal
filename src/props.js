@@ -848,7 +848,6 @@ const ONE = new THREE.Vector3(1, 1, 1);
 // state (src/runtime/entity-world-state.js) and draws whom it holds from
 // its own pose, so he moves with the tentacle frame by frame. Trigger,
 // collision and held-body decisions belong to the native live phase.
-const TICK = 1 / 60;
 // The original game's length of a clip: its frames at 30 a second (one frame
 // past the port's duration, which ends on the last frame).
 const length = (clip) => (clip ? clip.frames / clip.fps : 0);
@@ -932,9 +931,7 @@ export class ObjectivePost extends Building {
 // droideka) on foot, living or lying dead, not seated or held.
 export const onFoot = (unit) => Boolean(unit?.soldier && !unit.walker && !unit.removed && (unit.alive || unit.dead) && !unit.seat && !unit.held);
 
-const heldScratch = { points: { ...makeRiderPoints(), root: new THREE.Vector3(), rootTurn: new THREE.Quaternion() },
-  sample: { clip: null, pitch: 0, turn: 0, time: null }, frame: new THREE.Matrix4(), root: new THREE.Matrix4() };
-const SCALE_ONE = new THREE.Vector3(1, 1, 1);
+const heldScratch = { points: makeRiderPoints(), sample: { clip: null, pitch: 0, turn: 0, time: null } };
 
 // Stable construction offset gives each placed idle its authored phase.
 const phase = (index) => (((index + 1) * 2654435761) >>> 0) / 4294967296;
@@ -984,104 +981,9 @@ export class AnimatedProp {
     this.hold = 0; // seconds held at the idle's end (IdleDelay)
     this.started = 0; // the world tick the clip started at
     this.startTime = this.time; // and the time into it then
-    this.victim = null; // { unit, generation, grab, since }: whom it holds
+    this.victim = null; // { unit, generation, grab, index, since, rider, clip }: whom it holds
+    this.world = null; // a page's latest world state (adopt)
     this.openness = 0; // a door's, 0 shut to 1 open
-  }
-
-  // Page prediction only: until retained prop presentation moves native,
-  // doors pose from the soldiers the page draws. Authority never calls this
-  // method, and creatures with a published hold use follow/presentHeld.
-  presentStep(dt,positions,bodies=[],tick=0) {
-    if(!this.pose)return;
-    if(this.door) {
-      const trigger=this.trigger;
-      let near=false;
-      if(trigger)for(const p of positions)if(p.distanceToSquared(trigger.point)<=trigger.radius*trigger.radius){near=true;break;}
-      const clip=this.doorClip,span=clip?Math.max(clip.duration,1e-3):1;
-      this.openness=THREE.MathUtils.clamp(this.openness+(near?dt:-dt)/span,0,1);
-      this.pose.clear();if(clip)this.pose.add(clip,this.openness*clip.duration,1,false);
-      if(this.body)this.body.enabled=this.openness<.5;
-      for(const [bone,at]of this.rig.bind){bone.quaternion.copy(at.q);bone.position.copy(at.p);}
-      this.pose.apply(this.rig.bones);return;
-    }
-    if(this.slot<0)this.presentClip(0,true,tick);
-    if(!this.loop && this.time>length(this.slots[this.slot])) {
-      this.time=0;this.weight=0;this.presentClip(0,true,tick);
-    }
-    if(this.loop && this.weight>=.5)for(const trigger of this.triggers) {
-      if(trigger.slot<0 || trigger.slot===this.slot)continue;
-      let near=false;
-      for(const unit of bodies) {
-        if(unit.soldier && !unit.walker && !unit.removed && (unit.alive||unit.dead) && !unit.seat && !unit.held &&
-          unit.position.distanceToSquared(trigger.point)<=trigger.radius*trigger.radius){near=true;break;}
-      }
-      if(!near)continue;
-      this.time=0;this.weight=0;this.presentClip(trigger.slot,false,tick);
-      if(trigger.sound)emitSound('sound',trigger.sound,trigger.point);break;
-    }
-    let step=dt;
-    if(!this.loop)this.time+=dt;
-    else {
-      const span=length(this.slots[0]);
-      if(this.time+dt<span)this.time+=dt;
-      else {this.hold+=dt;if(this.hold>this.idleDelay){this.hold=0;this.time+=dt;}else step=0;}
-      if(span>0 && this.time>span)this.time-=span;
-    }
-    this.stand(this.weight,step);this.weight+=(this.slot===0?.2:1)*step;
-  }
-  // This changes a shown clip only; gameplay play is a qualified command.
-  presentClip(slot,loop,tick) {
-    if(slot===this.slot)return;
-    this.slot=slot;this.loop=loop;this.started=tick;this.startTime=this.time;
-    if(this.body && !this.door && this.triggers.some(t=>t.action==='open'))this.body.enabled=!(!loop && this.names[slot]==='open');
-  }
-
-  // The pose eased toward the clip's at this time: at 60 steps a second the
-  // weight of the way each step (a frame of `dt` takes the share as many
-  // 60 Hz steps would), all of it once the weight is 1.
-  stand(weight, dt) {
-    const clip = this.slots[this.slot];
-    const pose = this.pose;
-    pose.clear();
-    if (clip) pose.add(clip, this.time, 1, this.loop);
-    const share = weight >= 1 ? 1 : dt > 0 ? 1 - Math.pow(1 - Math.max(weight, 0), dt / TICK) : weight;
-    const q = this.standQ, t = this.standT;
-    for (let i = 0; i < pose.count; i++) {
-      const w = pose.w[i];
-      if (w <= 1e-6) continue;
-      const qi = i * 4, ti = i * 3;
-      let x = pose.q[qi], y = pose.q[qi + 1], z = pose.q[qi + 2], s = pose.q[qi + 3];
-      if (q[qi] * x + q[qi + 1] * y + q[qi + 2] * z + q[qi + 3] * s < 0) { x = -x; y = -y; z = -z; s = -s; }
-      q[qi] += (x - q[qi]) * share;
-      q[qi + 1] += (y - q[qi + 1]) * share;
-      q[qi + 2] += (z - q[qi + 2]) * share;
-      q[qi + 3] += (s - q[qi + 3]) * share;
-      const len = Math.sqrt(q[qi] * q[qi] + q[qi + 1] * q[qi + 1] + q[qi + 2] * q[qi + 2] + q[qi + 3] * q[qi + 3]) || 1;
-      q[qi] /= len; q[qi + 1] /= len; q[qi + 2] /= len; q[qi + 3] /= len;
-      for (let k = 0; k < 3; k++) t[ti + k] += (pose.t[ti + k] / w - t[ti + k]) * share;
-    }
-    const bones = this.rig.bones;
-    for (let i = 0; i < bones.length; i++) {
-      bones[i].quaternion.fromArray(q, i * 4);
-      bones[i].position.fromArray(t, i * 3);
-    }
-  }
-
-  // The frame a held soldier is drawn in (his actor's root) at `time`
-  // seconds into his hold: his root bone (bone_root, as his clip poses it)
-  // on the grab's node, turned with it (the 2004 game's inverse root
-  // times the node). Null without his clip or the node.
-  heldFrame(unit, time, out) {
-    const grab = unit.held?.grab;
-    const animator = unit.animator;
-    const clip = animator?.clips?.get(grab?.clip);
-    if (!grab?.node || !clip) return null;
-    const sample = heldScratch.sample;
-    sample.clip = clip; sample.time = Math.max(time, 0);
-    if (!riderPoints(animator, sample, heldScratch.points)) return null;
-    this.rig.root.updateMatrixWorld(true);
-    heldScratch.root.compose(heldScratch.points.root, heldScratch.points.rootTurn, SCALE_ONE).invert();
-    return out.multiplyMatrices(grab.node.matrixWorld, heldScratch.root);
   }
 
   // A held soldier's hit shapes (Unit.updateSpheres): his posed body in
@@ -1105,17 +1007,14 @@ export class AnimatedProp {
     return [this.slot, this.started, +this.startTime.toFixed(4), v ? v.unit.id : 0, v ? v.generation : 0, v ? this.grabs.indexOf(v.grab) : -1, v ? v.since : 0];
   }
 
-  // A page: the world's state (state()), then follow() each frame. False
+  // A page: the world's latest state of a creature (its clip, the tick
+  // and time it started at), and whom it holds, since when. The page's
+  // native prop phase follows the clip and hangs him from its node
+  // (src/presentation/props.js); this keeps who he is on this page. False
   // while whom it holds isn't on this page yet.
   adopt([slot, started, startTime, victimId, victimGeneration, grab, since], units) {
-    if (slot !== this.slot || started !== this.started) {
-      // The first state a page has stands at once; later ones ease in.
-      this.adopted = this.adopted === undefined ? "first" : true;
-      this.slot = slot;
-      this.loop = slot === 0;
-      this.started = started;
-      this.startTime = startTime;
-    }
+    const world = (this.world ||= { slot: 0, started: 0, startTime: 0 });
+    world.slot = slot; world.started = started; world.startTime = startTime;
     const unit = victimId ? units?.byId?.(victimId) : null;
     const held = unit && unit.generation === victimGeneration ? unit : null;
     if (this.victim && this.victim.unit !== held) {
@@ -1126,30 +1025,11 @@ export class AnimatedProp {
       if (!held && slot === 0 && this.killSound) emitSound("sound", this.killSound, this.position);
     }
     if (held && !this.victim && this.grabs[grab]) {
-      this.victim = { unit: held, generation: victimGeneration, grab: this.grabs[grab], since };
+      this.victim = { unit: held, generation: victimGeneration, grab: this.grabs[grab], index: grab, since, rider: -1, clip: -1 };
       held.held = { prop: this, grab: this.grabs[grab], since };
       if (held.combat) held.combat.mounted = true;
     }
     return !victimId || Boolean(held);
-  }
-
-  // Where a page draws whom it holds: his body in his clip, his root on
-  // the node (heldFrame), at `time` seconds into the hold.
-  presentHeld(tick) {
-    const victim = this.victim;
-    if (!victim) return null;
-    const unit = victim.unit;
-    if (unit.generation !== victim.generation || unit.removed || unit.held?.prop !== this) return null;
-    // Before the tick it took him (the page draws a little behind the
-    // world), he is drawn where his own record has him.
-    const held = unit.held;
-    if (tick < victim.since) {
-      held.frame = null;
-      return null;
-    }
-    held.time = (tick - victim.since) * TICK;
-    held.frame = this.heldFrame(unit, held.time, held.matrix ||= new THREE.Matrix4());
-    return held.frame;
   }
 }
 

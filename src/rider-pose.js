@@ -134,8 +134,8 @@ export function riderPoints(animator, sample, out) {
       out.hands[i].copy(HAND_MIDDLE).applyQuaternion(world.q[hand]).add(world.p[hand]);
     });
   }
-  // His root bone's place and turn, where `out` asks for them (a creature
-  // hangs him by it: src/props.js AnimatedProp.heldFrame).
+  // His root bone's place and turn, where `out` asks for them (the rig
+  // capture records them; a page's prop phase hangs a held soldier by them).
   if (out.root) at("bone_root", out.root);
   if (out.rootTurn) out.rootTurn.copy(world.q[skeleton.byName.bone_root]);
   return out;

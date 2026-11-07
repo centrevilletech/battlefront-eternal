@@ -10,6 +10,7 @@ import { Vehicles } from '../src/vehicles.js';
 import { createHullReplay, registerHullFixture } from './helpers/hull-prediction.js';
 import { classSetting } from '../src/vehicle-motion.js';
 import { vehiclePacks } from '../tools/vehicle-packs.mjs';
+import { drawHull } from './helpers/page-presentation.js';
 const maps = contentURL('maps/');
 const binary = file => { const b=fs.readFileSync(file);return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength); };
 const manifests = vehiclePacks(maps);
@@ -55,7 +56,7 @@ test('extracted vehicle rigs, collision and private prediction initialize togeth
      pending.push({ tick: i + 1, sequence: i + 1, generation: 1, down: ['KeyW'], actions: v.flying && i === 0 ? ['takeoff'] : [], look: [], mouseScale: 1 });
      v = replay.predict(pending, 0);
     }
-    v.seedPose();
+    drawHull(v);
    assert.ok(v.position.distanceTo(start)>.05,`${name}: motion`);
    assert.ok(v.position.toArray().every(Number.isFinite),`${name}: finite physics`);
    v.wheels.forEach((w,i)=>{

@@ -1,13 +1,13 @@
 //! The page's prop frame: doors, triggers, a creature following adopted
-//! world state and a log trap, the record counts at and past their limits,
+//! world state and hanging whom it holds from its node, a log trap, the record counts at and past their limits,
 //! and no allocation once registered.
 use bfe_presentation::{
     layout::{
-        self, prop_adopted as pa, prop_body as pb, prop_bone as bo, prop_event as pe,
+        self, prop_body as pb, prop_held as hs, prop_bone as bo, prop_event as pe,
         prop_frame as fr, prop_header as ph, prop_input as pi, prop_limits as lim,
         prop_output as po, trap_input as ti, trap_output as to, trap_phase as tp,
     },
-    props::{Props, PropInput, TrapDesc, TriggerInput},
+    props::{Props, PropInput, RiderInput, TrapDesc, TriggerInput},
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -72,6 +72,7 @@ fn prop(door: bool, clip: u32, triggers: Vec<TriggerInput>, grabs: bool) -> Prop
         body: true,
         idle_delay: 0.0,
         grabs,
+        grab_nodes: vec![0],
         time: 0.25,
     }
 }
@@ -142,7 +143,7 @@ fn a_creature_idles_until_adopted_then_follows_the_world() {
     assert_eq!(p.header[ph::EVENTS], 0.0);
     assert_eq!((p.prop_output[po::SLOT], p.prop_output[po::STARTED]), (0.0, 5.0));
     // Adopted: the action from tick 10, stood at once on the first state.
-    p.prop_input[pi::ADOPTED] = pa::FIRST as f64;
+    p.prop_input[pi::WORLD] = 1.0;
     p.prop_input[pi::SLOT] = 1.0;
     p.prop_input[pi::STARTED] = 10.0;
     p.prop_input[pi::START_TIME] = 0.0;
@@ -151,7 +152,6 @@ fn a_creature_idles_until_adopted_then_follows_the_world() {
     let a = (16.0 / 60.0) * std::f64::consts::FRAC_PI_4;
     assert!((p.bones[bo::STRIDE + bo::QUATERNION + 1] - a.sin()).abs() < 1e-6);
     // Following with no time passing poses nothing short of a full weight.
-    p.prop_input[pi::ADOPTED] = pa::FOLLOWING as f64;
     frame(&mut p, 0.0, 10.5, &[], &[]);
     assert_eq!(p.prop_output[po::POSED], 0.0);
 }
@@ -203,7 +203,7 @@ fn records_past_their_limits_clamp_and_a_stale_layout_poses_nothing() {
     let mut q = Props::new();
     let c = clip(&mut q);
     q.add_prop(prop(false, c, vec![], true));
-    q.prop_input[pi::ADOPTED] = pa::FIRST as f64;
+    q.prop_input[pi::WORLD] = 1.0;
     q.prop_input[pi::SLOT] = 99.0;
     frame(&mut q, 1.0 / 60.0, 1.0, &[], &[]);
     assert_eq!(q.prop_output[po::POSED], 1.0);
@@ -218,11 +218,14 @@ fn frames_do_not_allocate() {
     p.add_prop(prop(false, c, vec![TriggerInput { slot: 1, point, radius: 1.0, sound: true }], false));
     p.add_prop(prop(false, c, vec![], true));
     p.add_trap(TrapDesc { scene: Default::default(), root: 0, initial: bones(), trigger_clip: Some(c), build_clip: Some(c), trigger_length: 1.0 });
+    let (rider, held) = soldier(&mut p);
+    hold(&mut p, 2, rider, held, 100.0);
     let feet = vec![[0.0; 3]; lim::FEET];
     let bodies = vec![[0.0, 0.0, 0.0, 1.0]; lim::BODIES];
     TRACK.with(|t| t.set(true));
     for k in 0..240 {
-        p.prop_input[2 * pi::STRIDE + pi::ADOPTED] = if k < 60 { pa::NONE } else { pa::FOLLOWING } as f64;
+        p.prop_input[2 * pi::STRIDE + pi::WORLD] = if k < 60 { 0.0 } else { 1.0 };
+        p.prop_input[2 * pi::STRIDE + pi::STARTED] = (k / 90 * 90) as f64;
         p.trap_input[ti::PHASE] = (k / 60 % 4) as f64;
         frame(&mut p, 1.0 / 60.0, k as f64, &feet, &bodies);
     }
@@ -245,12 +248,11 @@ fn creature_matrices_publish_the_eased_float_pose_under_its_authored_root() {
     desc.initial.extend_from_slice(&[0.0,0.0,0.0,1.0,4.0,0.0,0.0]);
     desc.bind=desc.initial.clone();
     desc.scene=Input {nodes:vec![root,node(0,true,false),node(1,true,false),node(2,true,false),node(0,true,true)],bones:vec![1,3,2],parent:Some(identity)};
-    p.add_prop(desc);p.prop_input[pi::ADOPTED]=pa::FIRST as f64;
+    p.add_prop(desc);p.prop_input[pi::WORLD]=1.0;
     p.prop_input[pi::SLOT]=0.0;p.prop_input[pi::STARTED]=1.0;
     frame(&mut p,1.0/60.0,25.0,&[],&[]);
     // A newly adopted action eases from the old idle. Publishing its raw
     // target would jump to a different pose, especially on a large creature.
-    p.prop_input[pi::ADOPTED]=pa::FOLLOWING as f64;
     p.prop_input[pi::SLOT]=1.0;p.prop_input[pi::STARTED]=25.0;
     frame(&mut p,1.0/60.0,26.0,&[],&[]);
     let b=&p.bones[bo::STRIDE..];
@@ -284,4 +286,85 @@ fn turret_frames_retain_storage_and_reject_nonfinite_aim() {
     TRACK.with(|v|v.set(false));
     assert_eq!(ALLOCS.with(Cell::get),0);
     assert_eq!(p.nodes[2*n::STRIDE+n::WORLD+12],before);
+}
+
+// A soldier's skeleton as riderPoints reads it (DummyRoot, bone_root and
+// the joints the points hang from, in a chain), and his grab clip: bone_root
+// 1 m up, turned a quarter about y. Returns the rider and clip handles.
+fn soldier(p: &mut Props) -> (f64, f64) {
+    let names = ["DummyRoot", "bone_root", "bone_pelvis", "bone_neck", "bone_head", "bone_l_thigh", "bone_l_calf", "bone_l_foot", "bone_r_thigh", "bone_r_calf", "bone_r_foot"];
+    let rider = p.add_rider(RiderInput {
+        names: names.iter().map(|n| n.to_string()).collect(),
+        parents: (0..names.len() as i32).map(|i| i - 1).collect(),
+        poses: vec![[0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]; names.len()],
+        binds: vec![],
+        root_bind: Some([0.0; 3]),
+    });
+    let (s, c) = (std::f64::consts::FRAC_PI_4.sin() as f32, std::f64::consts::FRAC_PI_4.cos() as f32);
+    let data: Vec<f32> = (0..2).flat_map(|_| [0.0, s, 0.0, c, 0.0, 1.0, 0.0]).collect();
+    let clip = p.load_clip(2, 30.0, false, vec![1], data);
+    (rider as f64, clip as f64)
+}
+// Prop `i` holding that soldier since `since`.
+fn hold(p: &mut Props, i: usize, rider: f64, clip: f64, since: f64) {
+    let x = &mut p.prop_input[i * pi::STRIDE..(i + 1) * pi::STRIDE];
+    x[pi::VICTIM] = 1.0;
+    x[pi::GRAB] = 0.0;
+    x[pi::SINCE] = since;
+    x[pi::RIDER] = rider;
+    x[pi::CLIP] = clip;
+}
+
+#[test]
+fn a_creature_hangs_whom_it_holds_from_its_node() {
+    use bfe_presentation::scene::{Input, Node};
+    use three::{Matrix4, Quaternion, Vector3};
+    let mut p = Props::new();
+    let c = clip(&mut p);
+    let mut desc = prop(false, c, vec![], true);
+    let mut placed = Matrix4::default();
+    placed.make_translation(10.0, 3.0, -7.0);
+    let node = |parent, auto| Node { parent, pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0], matrix: Matrix4::default().elements, auto, skinned: false };
+    let mut root = node(-1, false);
+    root.matrix = placed.elements;
+    desc.scene = Input { nodes: vec![root, node(0, true), node(1, true)], bones: vec![1, 2], parent: None };
+    p.add_prop(desc);
+    let (rider, held) = soldier(&mut p);
+    hold(&mut p, 0, rider, held, 30.0);
+    // Not adopted yet: no hold drawn.
+    frame(&mut p, 1.0 / 60.0, 20.0, &[], &[]);
+    assert_eq!(p.prop_output[po::HELD], hs::NONE as f64);
+    p.prop_input[pi::WORLD] = 1.0;
+    p.prop_input[pi::SLOT] = 1.0;
+    p.prop_input[pi::STARTED] = 30.0;
+    // Before the tick it took him, he is drawn from his own record.
+    frame(&mut p, 1.0 / 60.0, 29.5, &[], &[]);
+    assert_eq!(p.prop_output[po::HELD], hs::WAITING as f64);
+    // Then his root on the node: the node's frame times his inverse root.
+    frame(&mut p, 1.0 / 60.0, 36.0, &[], &[]);
+    assert_eq!(p.prop_output[po::HELD], hs::TIMED as f64);
+    assert!((p.prop_output[po::HELD_TIME] - 0.1).abs() < 1e-12);
+    assert_eq!(p.prop_output[po::HELD_PLACED], 1.0);
+    let mut root = Matrix4::default();
+    let mut turn = Quaternion::new(0.0, std::f64::consts::FRAC_PI_4.sin() as f32 as f64, 0.0, std::f64::consts::FRAC_PI_4.cos() as f32 as f64);
+    turn.normalize();
+    root.compose(&Vector3::new(0.0, 1.0, 0.0), &turn, &Vector3::new(1.0, 1.0, 1.0)).invert();
+    let mut want = Matrix4::default();
+    want.multiply_matrices(&placed, &root);
+    let got = &p.prop_output[po::HELD_FRAME..po::HELD_FRAME + 16];
+    for k in 0..16 {
+        assert!((got[k] - want.elements[k]).abs() < 1e-9, "{k}: {} {}", got[k], want.elements[k]);
+    }
+    // Let go, a stale skeleton or clip, or a grab past its nodes: none or
+    // not placed, never a panic.
+    p.prop_input[pi::RIDER] = 9.0;
+    frame(&mut p, 1.0 / 60.0, 37.0, &[], &[]);
+    assert_eq!(p.prop_output[po::HELD_PLACED], 0.0);
+    p.prop_input[pi::RIDER] = rider;
+    p.prop_input[pi::GRAB] = f64::NAN;
+    frame(&mut p, 1.0 / 60.0, 38.0, &[], &[]);
+    assert_eq!(p.prop_output[po::HELD_PLACED], 0.0);
+    p.prop_input[pi::VICTIM] = 0.0;
+    frame(&mut p, 1.0 / 60.0, 39.0, &[], &[]);
+    assert_eq!(p.prop_output[po::HELD], hs::NONE as f64);
 }

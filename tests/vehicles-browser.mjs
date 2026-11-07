@@ -55,7 +55,7 @@ try {
     const beforeFire=await world.evaluate(seat=>{
      const b=self.__bf,v=self.__vehicle;
      while(v.seatIndex!==seat)b.driver.nextSeat(v);
-     v.aimYaw=v.yaw;v.pitch=.2;v.seedPose();
+     v.aimYaw=v.yaw;v.pitch=.2;
      return self.__fired;
     },seat);
     await page.evaluate(()=>{const b=__bf;b.keys.add('Mouse0');b.keys.add('Mouse2');b.pending.firePrimary=true;b.pending.fireSecondary=true;});

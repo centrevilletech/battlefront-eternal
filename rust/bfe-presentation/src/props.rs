@@ -2,17 +2,21 @@
 //! src/props.js, AnimatedProp.step/follow on the page and Trap.present of
 //! src/traps.js), stepped in one batched frame. Registration owns every
 //! allocation; the frame reads soldiers' feet, bodies and the adopted world
-//! state from fixed records and publishes each posed prop's bones. The
+//! state from fixed records and publishes each posed prop's bones, and
+//! where a creature hangs whom it holds (AnimatedProp.presentHeld). The
 //! world's props are rust/sim battle/animated.rs: both reach the clocks of
 //! bfe_pose::prop, so a page draws a prop as the world steps it.
 use crate::layout::{
-    prop_adopted as pa, prop_body as pb, prop_bone as bo, prop_event as pe, prop_foot as pf,
+    prop_body as pb, prop_held as hs, prop_bone as bo, prop_event as pe, prop_foot as pf,
     prop_frame as fr, prop_header as ph, prop_input as pi, prop_limits as lim, prop_output as po,
     status, trap_input as ti, trap_output as to, trap_phase as tp,
 };
 use bfe_pose::prop::{self, max, min, TICK};
+use bfe_pose::rig::rider::{rider_points, RiderPoints, RiderSample, RiderScratch, RiderSkeleton};
+use bfe_pose::rig::skeleton::Skeleton;
 use bfe_pose::{Clip, Pose};
 use serde::Deserialize;
+use three::{Matrix4, Quaternion, Vector3};
 
 const NONE: u32 = u32::MAX;
 
@@ -62,9 +66,34 @@ pub struct PropInput {
     pub idle_delay: f64,
     /// Whether it seizes (a creature).
     pub grabs: bool,
+    /// Each grab's node, as an index into its scene's nodes (-1: none).
+    #[serde(default)]
+    pub grab_nodes: Vec<i32>,
     /// The constructor's start time into the idle.
     pub time: f64,
 }
+/// A held soldier's skeleton as riderPoints reads it: his bones' names,
+/// parents and transforms (position, quaternion, scale) when first seized,
+/// and his animator's bind lengths and DummyRoot bind (bindsOf, rootBind).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RiderInput {
+    pub names: Vec<String>,
+    pub parents: Vec<i32>,
+    pub poses: Vec<[f64; 10]>,
+    /// Each bind length: its bone and that bone's bind position.
+    pub binds: Vec<(i32, [f64; 3])>,
+    pub root_bind: Option<[f64; 3]>,
+}
+/// A registered held skeleton, with what riderPoints samples into.
+struct Rider {
+    skeleton: RiderSkeleton,
+    /// The joints a clip leaves alone keep these (his bones as registered).
+    q: Vec<Quaternion>,
+    p: Vec<Vector3>,
+    scratch: RiderScratch,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrapDesc {
@@ -100,8 +129,13 @@ struct Prop {
     triggers: Vec<TriggerInput>,
     opens: bool,
     idle_delay: f64,
-    /// A creature: it follows its adopted world state.
+    /// A creature: it follows its adopted world state, and hangs whom it
+    /// holds from its grabs' nodes (scene node indexes).
     grabs: bool,
+    grab_nodes: Vec<i32>,
+    /// AnimatedProp.adopted: none yet, the first state (stood at once), or
+    /// following the world's.
+    adopted: Adopted,
     /// How many bones it has (its bone records).
     bones: usize,
     // AnimatedProp's clock (the constructor's defaults).
@@ -115,6 +149,12 @@ struct Prop {
     openness: f64,
     /// Its collision body's `enabled`, None without a body.
     body: Option<bool>,
+}
+#[derive(Clone, Copy, PartialEq)]
+enum Adopted {
+    None,
+    First,
+    Following,
 }
 struct Trap {
     scene: crate::scene::Scene,
@@ -147,6 +187,8 @@ pub struct Props {
     turrets: Vec<crate::turrets::Turret>,
     pub turret_input: Vec<f64>,
     pub nodes: Vec<f64>,
+    riders: Vec<Rider>,
+    points: RiderPoints,
 }
 
 /// A handle's clip, or None (NONE, or past the loaded ones).
@@ -179,6 +221,8 @@ impl Props {
             turrets: Vec::new(),
             turret_input: Vec::new(),
             nodes: Vec::new(),
+            riders: Vec::new(),
+            points: RiderPoints::default(),
         }
     }
     pub fn feet_at() -> usize {
@@ -229,6 +273,8 @@ impl Props {
             opens: d.opens,
             idle_delay: d.idle_delay,
             grabs: d.grabs,
+            grab_nodes: d.grab_nodes,
+            adopted: Adopted::None,
             bones,
             slot: -1,
             time: d.time,
@@ -250,6 +296,38 @@ impl Props {
         self.prop_output[row+po::NODE_START] = scene.start as f64;
         self.prop_output[row+po::NODE_COUNT] = scene.nodes.len() as f64;
         self.props.len() - 1
+    }
+    /// A held soldier's skeleton (his class's, registered at his first
+    /// seizure). Returns its handle for PropInput.RIDER.
+    pub fn add_rider(&mut self, d: RiderInput) -> usize {
+        let n = d.names.len().min(d.parents.len()).min(d.poses.len());
+        let bind: Vec<_> = d.poses[..n]
+            .iter()
+            .map(|p| (Vector3::new(p[0], p[1], p[2]), Quaternion::new(p[3], p[4], p[5], p[6]), Vector3::new(p[7], p[8], p[9])))
+            .collect();
+        let mut names = d.names;
+        names.truncate(n);
+        let mut parents = d.parents;
+        parents.truncate(n);
+        // Parents outside the skeleton hang from nothing.
+        for up in parents.iter_mut() {
+            if *up >= n as i32 {
+                *up = -1;
+            }
+        }
+        let mut skeleton = RiderSkeleton::new(&Skeleton::from_bind(names, parents, &bind, false));
+        // The animator's own bind lengths and root bind, as riderPoints reads
+        // them (the bones it was built with may stand posed by now).
+        skeleton.binds.iter_mut().for_each(|b| *b = None);
+        for &(i, at) in &d.binds {
+            if i >= 0 && (i as usize) < n {
+                skeleton.binds[i as usize] = Some(Vector3::new(at[0], at[1], at[2]));
+            }
+        }
+        skeleton.root_bind = d.root_bind.map(|at| Vector3::new(at[0], at[1], at[2]));
+        let scratch = RiderScratch::new(&skeleton);
+        self.riders.push(Rider { skeleton, q: bind.iter().map(|b| b.1).collect(), p: bind.iter().map(|b| b.0).collect(), scratch });
+        self.riders.len() - 1
     }
     /// A log trap with a pose (Trap's constructor). Its bones follow every
     /// prop's.
@@ -334,18 +412,27 @@ impl Props {
             let at = i * pi::STRIDE;
             let out = &mut self.bones[bone * bo::STRIDE..(bone + p.bones) * bo::STRIDE];
             bone += p.bones;
-            let adopted = self.prop_input[at + pi::ADOPTED];
+            let x = &self.prop_input[at..at + pi::STRIDE];
+            // AnimatedProp.adopt: the world's latest state of a creature,
+            // taken when its clip or start differs from the one shown. The
+            // first a page has stands at once; later ones ease in.
+            if p.grabs && x[pi::WORLD] != 0.0 && (x[pi::SLOT] != p.slot as f64 || x[pi::STARTED] != p.started) {
+                p.adopted = if p.adopted == Adopted::None { Adopted::First } else { Adopted::Following };
+                p.slot = clamp_slot(x[pi::SLOT]);
+                p.looping = p.slot == 0;
+                p.started = x[pi::STARTED];
+                p.start_time = x[pi::START_TIME];
+            }
             // presentAnimated's three cases: a creature following the world,
             // one idling before its state arrives (no bodies: it seizes no
             // one here), and any other prop stepping on the page's soldiers.
-            let posed = if p.grabs && adopted != pa::NONE as f64 {
-                // A creature that seizes follows the world's adopted state
-                // (AnimatedProp.adopt), whom it holds placed by the host.
-                p.slot = self.prop_input[at + pi::SLOT] as i32;
-                p.looping = p.slot == 0;
-                p.started = self.prop_input[at + pi::STARTED];
-                p.start_time = self.prop_input[at + pi::START_TIME];
-                p.follow(&self.clips, dt, tick, adopted == pa::FIRST as f64, out)
+            let posed = if p.grabs && p.adopted != Adopted::None {
+                let posed = p.follow(&self.clips, dt, tick, p.adopted == Adopted::First, out);
+                // follow() keeps easing once the world's clip is known.
+                if p.slot >= 0 {
+                    p.adopted = Adopted::Following;
+                }
+                posed
             } else {
                 // Until then it idles here, setting nothing off.
                 let bodies = if p.grabs { &bodies[..0] } else { bodies };
@@ -370,9 +457,61 @@ impl Props {
                 None => -1.0,
                 Some(on) => on as u8 as f64,
             };
+            // Whom an adopted creature holds, hung from its posed node.
+            let held = &mut self.prop_output[o + po::HELD..o + po::HELD_FRAME + 16];
+            held[0] = hs::NONE as f64;
+            if p.grabs && p.adopted != Adopted::None {
+                present_held(p, &self.prop_input[at..at + pi::STRIDE], tick, &self.clips, &mut self.riders, &mut self.points, held);
+            }
         }
         self.header[ph::EVENTS] = events as f64;
     }
+}
+
+/// A slot from the host's record (clamped; NaN reads as none).
+fn clamp_slot(x: f64) -> i32 {
+    if x >= 0.0 { x.min(i32::MAX as f64) as i32 } else { -1 }
+}
+
+/// AnimatedProp.presentHeld and heldFrame: where a page draws whom a
+/// creature holds, `time` seconds into his hold. Before the tick it took
+/// him (the page draws a little behind the world) he is drawn where his own
+/// record has him (WAITING). Then his body in his grab clip at that time,
+/// his root bone (bone_root, as the clip poses it) on the grab's node,
+/// turned with it: the 2004 game's inverse root times the node. Not placed
+/// without his clip, his skeleton's joints or the node. The host says
+/// whether he is still held by this creature on its page (VICTIM).
+fn present_held(p: &Prop, x: &[f64], tick: f64, clips: &[Clip], riders: &mut [Rider], points: &mut RiderPoints, out: &mut [f64]) {
+    // `out` starts at the HELD word.
+    let o = po::HELD;
+    if x[pi::VICTIM] == 0.0 {
+        return;
+    }
+    let since = x[pi::SINCE];
+    if tick < since {
+        out[0] = hs::WAITING as f64;
+        return;
+    }
+    let time = (tick - since) * TICK;
+    out[0] = hs::TIMED as f64;
+    out[po::HELD_TIME - o] = time;
+    out[po::HELD_PLACED - o] = 0.0;
+    let grab = x[pi::GRAB];
+    let node = if grab >= 0.0 { p.grab_nodes.get(grab as usize).copied().unwrap_or(-1) } else { -1 };
+    let node = if node >= 0 { p.scene.nodes.get(node as usize).copied() } else { None };
+    let rider = if x[pi::RIDER] >= 0.0 { riders.get_mut(x[pi::RIDER] as usize) } else { None };
+    let clip = if x[pi::CLIP] >= 0.0 { clips.get(x[pi::CLIP] as usize) } else { None };
+    let (Some(node), Some(r), Some(clip)) = (node, rider, clip) else { return };
+    let sample = RiderSample { clip, pitch: 0.0, turn: 0.0, time: Some(max(time, 0.0)) };
+    if !rider_points(&r.skeleton, &r.q, &r.p, &sample, &mut r.scratch, points, true) {
+        return;
+    }
+    let mut root = Matrix4::default();
+    root.compose(&points.root, &points.root_turn, &Vector3::new(1.0, 1.0, 1.0)).invert();
+    let mut frame = Matrix4::default();
+    frame.multiply_matrices(&p.scene.tree.node(node).matrix_world, &root);
+    out[po::HELD_FRAME - o..po::HELD_FRAME - o + 16].copy_from_slice(&frame.elements);
+    out[po::HELD_PLACED - o] = 1.0;
 }
 
 /// Pose.apply's finals into bone records, for bones a clip weighted;

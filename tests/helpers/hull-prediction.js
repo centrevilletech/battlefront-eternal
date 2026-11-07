@@ -7,6 +7,7 @@ import { captureFlightCorrection } from '../../src/runtime/network-entity-flight
 import { presentationHull } from '../../src/runtime/client-hull.js';
 import { createClientPrediction } from '../../src/runtime/client-prediction.js';
 import { pullPose } from '../../src/vehicle-phase-data.js';
+import { drawHull } from './page-presentation.js';
 import { nativeVehicles } from './native-vehicles.js';
 import { KIND_VEHICLE } from '../../src/sim/gen/index.js';
 import { Soldier } from '../../src/soldier.js';
@@ -59,13 +60,13 @@ export function stepPrediction(system, dt, v = system.vehicles[0], input = {}) {
   // Import those explicit setup writes too; play never reimports posed rigs.
   const pose = pullPose(v), at = system.f2.input(pose.length);
   row.bridge.f.set(pose, at);
-  if (!system.f2.x.veh_pull(v.simSlot, v.aiTarget.generation, pose.length)) throw Error('fixture pose import failed');
+  if (!system.f2.x.veh_pull(v.simSlot, v.aiTarget.generation, pose.length, 0)) throw Error('fixture pose import failed');
   const intent = unit.intent;
   intent.forward = input.forward || 0; intent.right = input.right || 0;
   intent.turn = input.turn || 0; intent.pitch = input.pitch || 0; intent.brake = Boolean(input.brake);
   intent.flight = input;
   system.update(dt);
-  v.seedPose();
+  drawHull(v);
 }
 
 // Test/tool frames enter the same required session as the page. This helper

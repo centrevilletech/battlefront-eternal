@@ -2,13 +2,16 @@
 // (rust/bfe-presentation props.rs), which replaces LiveObjects.presentAnimated:
 // AnimatedProp.step and follow as a page ran them, and Trap.present. The host
 // gathers feet and bodies, writes the posed bones and keeps the side effects
-// (a door's collision, a trigger's sound, whom a creature holds).
+// (a door's collision, a trigger's sound). A creature's adopted state and
+// the frame whom it holds hangs in are the kernel's; the host says who he
+// is and copies that frame onto him.
+import * as THREE from "three";
 import { tree, ownTree, publishTree, exact } from "./tree.js";
 import { TurretPresentationInput as TP } from "./layout.js";
 import { emitSound } from "../audio/events.js";
 import { onFoot } from "../props.js";
 import { poseOf } from "./unit-content.js";
-import { VERSION, PropFrame as F, PropFoot as PF, PropBody as PB, PropInput as PI, PropOutput as PO, PropAdopted as PA,
+import { VERSION, PropFrame as F, PropFoot as PF, PropBody as PB, PropInput as PI, PropOutput as PO, PropHeld as PH,
   TrapInput as TI, TrapOutput as TO, TrapPhase, PropEvent as E, PropHeader as H, PropLimits } from "./layout.js";
 
 // Trap.phase names in TrapPhase order (TRAP_PHASES); DummyRoot, as the
@@ -24,7 +27,7 @@ export class PageProps {
   // soldier's while he lives, and each living unit's). bodies(): the units
   // a trigger feels.
   constructor(loaded, live, { feet, bodies }) {
-    Object.assign(this, { loaded, feet, bodies, kernel: new loaded.module.PageProps(), handles: new Map(), overflow: 0, reported: false, feetCount: 0 });
+    Object.assign(this, { loaded, feet, bodies, kernel: new loaded.module.PageProps(), handles: new Map(), riders: new Map(), overflow: 0, reported: false, feetCount: 0 });
     // Props and traps with a pose (one without stands still in the JS too).
     // Feet are gathered only for doors, bodies only for props with triggers
     // that step here; creatures follow their world state.
@@ -53,6 +56,7 @@ export class PageProps {
       slots: prop.slots.map(handle), openSlots: prop.names.map((name) => name === "open"),
       triggers: prop.triggers.map((t) => ({ slot: t.slot, point: [t.point.x, t.point.y, t.point.z], radius: t.radius, sound: Boolean(t.sound) })),
       opens: prop.triggers.some((t) => t.action === "open"), body: Boolean(prop.body), idleDelay: prop.idleDelay, grabs: prop.grabs.length > 0, time: prop.time,
+      grabNodes: prop.grabs.map((g) => (g.node ? this.propTrees[i].objects.indexOf(g.node) : -1)),
       }));
     }
     // Each trap: its swing and haul, and the swing's length at 30 fps.
@@ -83,6 +87,21 @@ export class PageProps {
   clip(clip) {
     let handle = this.handles.get(clip);
     if (handle === undefined) this.handles.set(clip, handle = this.kernel.load_clip(clip.frames, clip.fps, clip.rootMotion, Int32Array.from(clip.tracks), Float32Array.from(clip.data)));
+    return handle;
+  }
+  // A held soldier's skeleton, registered once for his class (riderPoints'
+  // bones, bind lengths and root bind), or -1 for a body without one.
+  rider(unit) {
+    const key = unit.className;
+    let handle = this.riders.get(key);
+    if (handle !== undefined) return handle;
+    const a = unit.animator, bones = a?.bones;
+    handle = bones ? this.kernel.add_rider(exact({
+      names: bones.map((b) => b.name), parents: bones.map((b) => bones.indexOf(b.parent)), poses: bones.map(poseOf),
+      binds: (a.bindLengths || []).map(([bone, p]) => [bones.indexOf(bone), [p.x, p.y, p.z]]),
+      rootBind: a.rootBind ? [a.rootBind.x, a.rootBind.y, a.rootBind.z] : null,
+    })) : -1;
+    this.riders.set(key, handle);
     return handle;
   }
   // The record views, made again when any registration grew the memory.
@@ -119,14 +138,28 @@ export class PageProps {
       input[at] = p.x; input[at + 1] = p.y; input[at + 2] = p.z; input[at + PB.ON_FOOT] = onFoot(unit) ? 1 : 0;
     }
     input[F.BODIES] = bodies;
-    // The world state each creature adopted (AnimatedProp.adopt); each
-    // trap's adopted phase and the tick it began (null: the tick drawn).
+    // The world state each creature last had (AnimatedProp.adopt), and
+    // whom it holds while he is still its own on this page (the hold's own
+    // test): his skeleton and clip handles, made at his first frame held.
     for (let i = 0, at = 0; i < this.props.length; i++, at += PI.STRIDE) {
-      const prop = this.props[i];
+      const prop = this.props[i], world = prop.world, x = this.propInput;
       if (!prop.grabs.length) continue;
-      this.propInput[at + PI.ADOPTED] = prop.adopted === undefined ? PA.NONE : prop.adopted === "first" ? PA.FIRST : PA.FOLLOWING;
-      this.propInput[at + PI.SLOT] = prop.slot; this.propInput[at + PI.STARTED] = prop.started; this.propInput[at + PI.START_TIME] = prop.startTime;
+      x[at + PI.WORLD] = world ? 1 : 0;
+      if (world) { x[at + PI.SLOT] = world.slot; x[at + PI.STARTED] = world.started; x[at + PI.START_TIME] = world.startTime; }
+      const victim = prop.victim, unit = victim?.unit;
+      const holds = Boolean(victim) && unit.generation === victim.generation && !unit.removed && unit.held?.prop === prop;
+      x[at + PI.VICTIM] = holds ? 1 : 0;
+      if (!holds) continue;
+      if (victim.rider < 0) {
+        victim.rider = this.rider(unit);
+        const clip = unit.animator?.clips?.get(victim.grab.clip);
+        victim.clip = clip ? this.clip(clip) : -1;
+        this.refresh();
+      }
+      this.propInput[at + PI.GRAB] = victim.index; this.propInput[at + PI.SINCE] = victim.since;
+      this.propInput[at + PI.RIDER] = victim.rider; this.propInput[at + PI.CLIP] = victim.clip;
     }
+    // Each trap's adopted phase and the tick it began (null: the tick drawn).
     for (let i = 0, at = 0; i < this.traps.length; i++, at += TI.STRIDE) {
       this.trapInput[at + TI.PHASE] = PHASES.indexOf(this.traps[i].phase); this.trapInput[at + TI.STARTED] = this.traps[i].started ?? NaN;
     }
@@ -142,22 +175,20 @@ export class PageProps {
     if (this.header[H.STATUS] !== 0) return;
     for (let i = 0; i < this.turretTrees.length; i++) publishTree(this.turretTrees[i], this.nodes);
     // The bones of what was posed; a door's and an open action's collision
-    // (-1: no body); a creature's idle clip and start before the world's
-    // state (adopt() compares against them), after it whom it holds placed.
+    // (-1: no body); the frame whom a creature holds hangs in this frame.
     for (let i = 0; i < this.trapTrees.length; i++) publishTree(this.trapTrees[i], this.nodes);
     for (let i = 0, o = 0; i < this.props.length; i++, o += PO.STRIDE) {
       const prop = this.props[i], enabled = this.propOutput[o + PO.BODY_ENABLED];
       publishTree(this.propTrees[i], this.nodes);
       if (enabled >= 0 && prop.body && prop.body.enabled !== (enabled === 1)) prop.body.enabled = enabled === 1;
-      if (!prop.grabs.length) continue;
-      if (prop.adopted === undefined) {
-        prop.slot = this.propOutput[o + PO.SLOT]; prop.loop = prop.slot === 0;
-        prop.started = this.propOutput[o + PO.STARTED]; prop.startTime = this.propOutput[o + PO.START_TIME];
-      } else {
-        // follow() clears it once the world's clip is known.
-        if (prop.slot >= 0) prop.adopted = false;
-        prop.presentHeld(tick);
-      }
+      const state = this.propOutput[o + PO.HELD];
+      if (state === PH.NONE) continue;
+      // Before the tick it took him: drawn from his own record. Then his
+      // time into the hold, and the frame (none without his clip or node).
+      const held = prop.victim.unit.held;
+      if (state === PH.WAITING) { held.frame = null; continue; }
+      held.time = this.propOutput[o + PO.HELD_TIME];
+      held.frame = this.propOutput[o + PO.HELD_PLACED] ? (held.matrix ||= new THREE.Matrix4()).fromArray(this.propOutput, o + PO.HELD_FRAME) : null;
     }
     // A trigger's sound where its node is, as step() emitted it.
     for (let n = this.header[H.EVENTS], e = 0; e < n; e++) {

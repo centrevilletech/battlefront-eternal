@@ -7,6 +7,7 @@ import fs from "node:fs";
 import * as THREE from "three";
 import * as module from "../../src/presentation-pkg/bfe_presentation.js";
 import { PageVehicles } from "../../src/presentation/vehicles.js";
+import { VehicleMode } from "../../src/presentation/layout.js";
 import { PageProps } from "../../src/presentation/props.js";
 
 let loaded = null;
@@ -31,6 +32,15 @@ export function attachPage(system) {
   }
   system.page = page;
   return page;
+}
+
+// A world fixture's hull drawn by the page's hull phase in its render pose
+// (between its last two ticks at alpha, no time, the seats render() poses),
+// so a test reads its bones and seat frames. The world's own pose is native.
+export function drawHull(v, alpha = 1) {
+  const page = v.system.page || attachPage(v.system);
+  page.write(v, VehicleMode.RENDER, alpha, 0, true);
+  page.flush();
 }
 
 // The page's prop phase over `animated` props and `traps`, their bones as

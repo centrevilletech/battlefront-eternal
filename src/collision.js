@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { MovementKernel } from "./movement-kernel.js";
+import { CastRay as CR } from "./presentation/layout.js";
 
 
 // Polygon numbers of the vehicle-only barriers, apart from the buildings'
@@ -353,7 +354,7 @@ export class CollisionWorld {
       input[o] = p.x; input[o + 1] = p.y; input[o + 2] = p.z; input[o + 3] = caches[i] ? caches[i].ray : -1;
     }
     const places = rays.places();
-    for (let i = 0; i < bodies.length; i++) places[i] = bodies[i].enabled ? 1 : 0;
+    for (let i = 0, n = Math.min(bodies.length, places.length); i < n; i++) places[i] = bodies[i].enabled ? 1 : 0;
     rays.x.push_walls_ray(this.rayWorld);
     const io = rays.view();
     position.set(io[0], io[1], io[2]);
@@ -500,6 +501,22 @@ export class CollisionWorld {
     out.point.set(hit[11], hit[12], hit[13]);
     out.normal.set(hit[14], hit[15], hit[16]);
     return out;
+  }
+
+  // A block of `count` CastRay records at once (rust/sim collision
+  // world_cast_rays): each ray's first hit, as cast() finds it with the
+  // record's body left out, its hit and distance written back. The bodies'
+  // enabled flags go to the kernel once for the block.
+  castRays(records, count) {
+    this.rayBodies();
+    const rays = this.rays, words = count * CR.STRIDE, bodies = this.bodies;
+    const places = rays.places();
+    for (let i = 0, n = Math.min(bodies.length, places.length); i < n; i++) places[i] = bodies[i].enabled ? 1 : 0;
+    let input = rays.input(words);
+    for (let i = 0; i < words; i++) input[i] = records[i];
+    rays.x.world_cast_rays(this.rayWorld, count);
+    input = rays.input(words);
+    for (let r = 0, at = 0; r < count; r++, at += CR.STRIDE) { records[at + CR.HIT] = input[at + CR.HIT]; records[at + CR.DISTANCE] = input[at + CR.DISTANCE]; }
   }
 
   // castMoving, in the ray kernel.

@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { packWith } from '../tools/vehicle-packs.mjs';
+import { drawHull } from './helpers/page-presentation.js';
 // Hoth's pack with the tauntaun (its battle's own, vehicles/<mission>/).
 const pack = packWith(contentURL('maps/'), ['all_walk_tauntaun'], 'hot1');
 const dir = pack ? new URL('./', pack) : null;
@@ -19,7 +20,7 @@ const available = Boolean(pack);
 // gait step and makes a planted foot appear to slide above 120 Hz.
 function advance(system, dt, v, input = {}) {
   stepPrediction(system, dt, v, input);
-  v.seedPose(Math.max(0, system.acc * 120));
+  drawHull(v, Math.max(0, system.acc * 120));
 }
 const binary = name => { const b = fs.readFileSync(new URL(name, dir)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 function fixture(slopeX = 0, slopeZ = 0) {

@@ -314,6 +314,27 @@ impl Hull {
         p.rig.tree.update_matrix_world(root, true);
     }
 
+    /// The pose a world seeds a hull it spawns with at load (the JavaScript
+    /// world's seedPose: render(1, 0) of the drawn pose): at the tick, the
+    /// walk pose with its legs lifted, a craft at its own gear, the player's
+    /// and each crewed seat posed without time (no aimer turns, no leg
+    /// casts), the barrels at rest or kicked by `now`, every world matrix.
+    pub fn seed(&mut self, now: f64) {
+        self.place_root(1.0);
+        self.apply_pose();
+        self.pose_flight_gear();
+        self.pose_seat(self.seat_index, 0.0);
+        for i in 0..self.seats.len() {
+            if i != self.seat_index && self.crewed(i) {
+                self.pose_seat(i, 0.0);
+            }
+        }
+        self.recoil_barrels_at(now);
+        let p = self.pose_mut();
+        let root = p.rig.root;
+        p.rig.tree.update_matrix_world(root, true);
+    }
+
     /// vehicles.js placeRoot: the hull between its last two substeps, with
     /// the repulsor's bob, every bone back at its bind turn, and its wheels.
     fn place_root(&mut self, alpha: f64) {
@@ -347,9 +368,11 @@ impl Hull {
                 p.rig.tree.node_mut(bone).position = p.rig.bind_p[i];
             }
         }
+        // A wheel the rig has no bone for (a hull whose wheels were given
+        // after its rig was made) turns nothing.
         for (k, wheel) in self.wheels.iter().enumerate() {
-            let (Some(bone), axis) = p.wheel_bones[k] else { continue };
-            let i = p.rig.bone_index(bone).expect("a wheel's bone");
+            let Some(&(Some(bone), axis)) = p.wheel_bones.get(k) else { continue };
+            let Some(i) = p.rig.bone_index(bone) else { continue };
             let bind = p.rig.bind_q[i];
             let mut turn = Quaternion::default();
             turn.set_from_axis_angle(&axis, lerp(wheel.previous, wheel.phase, alpha));
@@ -517,6 +540,11 @@ impl Hull {
     /// vehicles.js recoilBarrels: each barrel back along its z by its kick.
     fn recoil_barrels<W: VehicleWorld>(&mut self, w: &mut W) {
         let now = w.clock();
+        self.recoil_barrels_at(now);
+    }
+
+    /// recoilBarrels on the clock reading `now`.
+    fn recoil_barrels_at(&mut self, now: f64) {
         let p = self.pose.as_mut().unwrap();
         for seat in &p.seats {
             for weapon in &seat.weapons {

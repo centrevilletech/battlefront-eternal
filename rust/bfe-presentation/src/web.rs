@@ -200,6 +200,10 @@ impl PageProps {
         let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(self.inner.add_trap(input))
     }
+    pub fn add_rider(&mut self, data: &str) -> Result<usize, JsValue> {
+        let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(self.inner.add_rider(input))
+    }
     pub fn add_turret(&mut self, data: &str) -> Result<usize, JsValue> {
         let input = serde_json::from_str(data).map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(self.inner.add_turret(input))
@@ -297,6 +301,13 @@ impl PageVehicles {
     pub fn network_states_ptr(&self)->*const f64{self.inner.network.states_ptr()}
     pub fn network_states_len(&self)->usize{self.inner.network.states_len()}
     pub fn unbind_network(&mut self,rig:usize){self.inner.network.unbind(rig);}
+    /// The frame's CastRay block (VehicleHeader.RAYS records in use).
+    pub fn rays_ptr(&self) -> *const f64 {
+        self.inner.rays.as_ptr()
+    }
+    pub fn rays_len(&self) -> usize {
+        self.inner.rays.len()
+    }
     pub fn place_hulls(&mut self) {
         self.inner.place();
     }

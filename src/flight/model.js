@@ -22,23 +22,3 @@ export function initFlight(v) {
 export function standHeight(v) {
   return v.gearFoot != null ? Math.max(v.gearFoot, -v.bounds.min.y) : null;
 }
-
-// followFlightState still needs a read-only ground sample for remote gear.
-// This does not advance flight; presentation ownership removes this reader.
-const DOWN = new THREE.Vector3(0, -1, 0);
-const hit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), body: null, height: 0 };
-const rayFrom = new THREE.Vector3();
-export function heightAbove(v) {
-  return groundBelow(v, hit) ? hit.height : 1024;
-}
-// That ray's hit, written to out { point, normal, body, height }, or null:
-// what a landing sets the craft down on (out.body null for the world's own
-// collision, else the moving body it struck).
-function groundBelow(v, out) {
-  const lift = v.gearFoot != null && v.gearFoot < .1 ? .1 - v.gearFoot : 0;
-  rayFrom.copy(v.position); rayFrom.y += lift;
-  const below = v.system.collision.cast(rayFrom, DOWN, 1024 + lift, out, v.body);
-  if (!below) return null;
-  out.height = below.distance - lift;
-  return out;
-}

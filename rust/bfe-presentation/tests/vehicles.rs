@@ -1,10 +1,11 @@
 //! The page's hull frame: a ground hull, a walker asking for its leg rays,
 //! a dying walker, records at and past their limits, forged offsets, and no
-//! allocation once its rigs are registered.
+//! allocation once its rigs are registered; a craft's gear clock following
+//! its replicated flight state.
 use bfe_presentation::{
     layout::{
-        self, vehicle_aimer_output as ao, vehicle_entry as ve, vehicle_entry_output as eo,
-        vehicle_frame as vf, vehicle_header as vh, vehicle_mode as mode, vehicle_node as vn, vehicle_root as vr,
+        self, cast_ray as cr, vehicle_aimer_output as ao, vehicle_entry as ve, vehicle_entry_output as eo,
+        vehicle_flight_state as fs, vehicle_frame as vf, vehicle_header as vh, vehicle_mode as mode, vehicle_node as vn, vehicle_root as vr,
         vehicle_seat_input as si,
     },
     vehicles::Vehicles,
@@ -103,6 +104,8 @@ fn entry(v: &mut Vehicles, e: usize, rig: usize, m: u32, dt: f64) -> usize {
     x[ve::TICK_YAW] = 0.5;
     x[ve::WALK_FROM_PHASE] = f64::NAN;
     x[ve::GEAR] = f64::NAN;
+    x[ve::GEAR_FOLLOW] = -1.0;
+    x[ve::BODY] = 7.0;
     x[ve::DYING] = 1.0;
     x[ve::INPUT] = input as f64;
     x[ve::OUTPUT] = output as f64;
@@ -161,11 +164,19 @@ fn a_walker_asks_for_its_leg_rays_and_a_dying_one_plays_its_death() {
     v.place();
     assert_eq!(v.header[vh::RAYS], 2.0);
     assert_eq!(v.stream_out[o + eo::RAYS], 2.0);
-    // The host's casts: the left foot 1 m higher.
-    let i = v.slot_input(r, 0);
-    v.stream_in[i + 1] = 1.0;
-    v.stream_in[i + 2] = 0.0;
+    // Each foot's ray from L (4 m) above it, 2L down, past the hull's body.
+    let ray = &v.rays[..cr::STRIDE];
+    assert_eq!(&ray[cr::DIRECTION..cr::DIRECTION + 3], &[0.0, -1.0, 0.0]);
+    assert_eq!((ray[cr::FAR], ray[cr::HYPOT], ray[cr::IGNORE]), (8.0, 0.0, 7.0));
+    assert!((ray[cr::ORIGIN + 1] - 5.0).abs() < 1e-12);
+    // The host's casts: the left foot's ground 1 m higher.
+    for (k, d) in [3.0, 4.0].into_iter().enumerate() {
+        v.rays[k * cr::STRIDE + cr::HIT] = 1.0;
+        v.rays[k * cr::STRIDE + cr::DISTANCE] = d;
+    }
     v.pose();
+    let i = v.slot_input(r, 0);
+    assert_eq!((v.stream_in[i + 1], v.stream_in[i + 2]), (1.0, 0.0), "L - distance");
     assert_eq!(v.stream_out[o + eo::LEG_SIDES], 1.0);
     assert!(v.stream_out[o + eo::STRIDE] < 0.0, "the left foot lifted");
     entry(&mut v, 0, r, mode::DYING, 0.0);
@@ -232,4 +243,91 @@ fn frames_do_not_allocate() {
     }
     TRACK.with(|t| t.set(false));
     assert_eq!(ALLOCS.with(Cell::get), 0);
+}
+
+// A craft with the two-bone clip as its takeoff clip, landing over 2 s and
+// stowing over 1 s once 3 m (2 + 1 landed) up.
+fn craft(v: &mut Vehicles, c: u32) -> usize {
+    let mut d = rig(false, c);
+    d["flying"] = serde_json::json!(true);
+    d["takeoff"] = serde_json::json!({ "handle": c, "duration": 1.0 });
+    d["flight"] = serde_json::json!({ "takeoffTime": 1.0, "landingTime": 2.0, "takeoffHeight": 2.0, "landedHeight": 1.0 });
+    v.add_rig(serde_json::from_value(d).unwrap())
+}
+// One frame of a craft's gear: its own gear, whose records it follows (and
+// their life), its flight state and the ground height under it.
+fn gear(v: &mut Vehicles, r: usize, dt: f64, own: f64, follow: f64, generation: f64, state: u32, height: f64) -> f64 {
+    let o = entry(v, 0, r, mode::ALIVE, dt);
+    let x = &mut v.input[vf::STRIDE..vf::STRIDE + ve::STRIDE];
+    x[ve::GEAR] = own;
+    x[ve::GEAR_FOLLOW] = follow;
+    x[ve::GEAR_GENERATION] = generation;
+    x[ve::FLIGHT_STATE] = state as f64;
+    x[ve::GROUND_FROM..ve::GROUND_FROM + 3].copy_from_slice(&[0.0, 9.0, 0.0]);
+    v.input[vf::VERSION] = layout::VERSION as f64;
+    v.input[vf::ENTRIES] = 1.0;
+    v.place();
+    // The ground under a lifting craft is cast only while its gear follows
+    // its records and the frame has time: from where it is, 1024 m down.
+    let asked = v.header[vh::RAYS];
+    if asked > 0.0 {
+        assert_eq!(asked, 1.0);
+        assert_eq!((v.rays[cr::ORIGIN + 1], v.rays[cr::FAR], v.rays[cr::IGNORE]), (9.0, 1024.0, 7.0));
+        v.rays[cr::HIT] = (!height.is_nan()) as u8 as f64;
+        v.rays[cr::DISTANCE] = height;
+    } else {
+        assert!(height.is_nan() || !(dt > 0.0) || state != fs::TAKING_OFF || follow <= 0.0, "a lifting craft asks for its ground");
+    }
+    v.pose();
+    v.stream_out[o + eo::GEAR]
+}
+
+#[test]
+fn a_craft_drawn_from_its_records_follows_its_flight_state() {
+    let mut v = Vehicles::new();
+    let c = clip(&mut v);
+    let r = craft(&mut v, c);
+    let dt = 1.0 / 60.0;
+    // Without records this life: its own gear (none: down).
+    assert_eq!(gear(&mut v, r, dt, 0.4, -1.0, 1.0, fs::FLYING, f64::NAN), 0.4);
+    assert_eq!(gear(&mut v, r, dt, f64::NAN, -1.0, 1.0, fs::FLYING, f64::NAN), 1.0);
+    // First seen in flight: stowed at once; a landing brings it down over
+    // LandingTime, and it stays down landed.
+    assert_eq!(gear(&mut v, r, dt, 1.0, 1.0, 1.0, fs::FLYING, f64::NAN), 0.0);
+    // Stowed: the takeoff clip's last frame (bone 1 a quarter turn about z),
+    // as the gear's bones are drawn.
+    let bone1 = v.slot_output(r, 0) + eo::STRIDE + ao::STRIDE + 2 * vn::STRIDE;
+    assert!((v.stream_out[bone1 + vn::MATRIX + 1] - 1.0).abs() < 1e-6);
+    let mut g = 0.0;
+    for _ in 0..60 {
+        g = gear(&mut v, r, dt, 1.0, 1.0, 1.0, fs::LANDING, f64::NAN);
+    }
+    assert!((g - 0.5).abs() < 1e-9, "half way down half way through the landing ({g})");
+    for _ in 0..90 {
+        g = gear(&mut v, r, dt, 1.0, 1.0, 1.0, fs::LANDING, f64::NAN);
+    }
+    assert_eq!(g, 1.0);
+    assert!(v.stream_out[bone1 + vn::MATRIX + 1].abs() < 1e-6, "down: the clip's first frame");
+    // The lift: held down under TakeoffHeight, stowing once above it.
+    for _ in 0..30 {
+        g = gear(&mut v, r, dt, 1.0, 1.0, 1.0, fs::TAKING_OFF, 0.5);
+    }
+    assert_eq!(g, 1.0, "held down while the craft is under TakeoffHeight");
+    for _ in 0..30 {
+        g = gear(&mut v, r, dt, 1.0, 1.0, 1.0, fs::TAKING_OFF, 3.5);
+    }
+    assert!((g - (1.0 - 30.0 * dt)).abs() < 1e-9, "stows at 1/TakeoffTime once up ({g})");
+    assert_eq!(gear(&mut v, r, 0.0, 1.0, 1.0, 1.0, fs::TAKING_OFF, f64::NAN), g, "no time, no height read, no change");
+    // No ground within reach reads as 1024 m up.
+    assert!(gear(&mut v, r, dt, 1.0, 1.0, 1.0, fs::TAKING_OFF, f64::NAN) < g);
+    // A new life starts from its state; his own craft draws its replayed
+    // gear; given back to its records it starts where his replay left it.
+    assert_eq!(gear(&mut v, r, dt, 1.0, 1.0, 2.0, fs::LANDED, f64::NAN), 1.0);
+    assert_eq!(gear(&mut v, r, dt, 0.3, 0.0, 2.0, fs::FLYING, f64::NAN), 0.3);
+    assert_eq!(gear(&mut v, r, 0.0, 0.3, 1.0, 2.0, fs::FLYING, f64::NAN), 0.3);
+    assert!(gear(&mut v, r, dt, 0.3, 1.0, 2.0, fs::FLYING, f64::NAN) < 0.3);
+    // Unknown states hold; NaN clocks never panic.
+    let held = gear(&mut v, r, dt, 0.3, 1.0, 2.0, fs::OTHER, f64::NAN);
+    assert_eq!(gear(&mut v, r, dt, 0.3, 1.0, 2.0, fs::OTHER, f64::NAN), held);
+    let _ = gear(&mut v, r, f64::NAN, f64::NAN, 1.0, f64::NAN, 99, f64::NAN);
 }

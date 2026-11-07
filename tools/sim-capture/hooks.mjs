@@ -13,10 +13,6 @@ const around = (name, anchor) => ({anchor,text:`${enter(name)}${anchor}${exit(na
 const span = (name, from, to) => [{ anchor: from, text: `${enter(name)}${from}` }, { anchor: to, text: `${exit(name)}${to}` }];
 
 export const EDITS = {
-  '/src/props.js': [
-    { anchor: 'if (!riderPoints(animator, sample, heldScratch.points)) return null;',
-      text: 'const sampled = riderPoints(animator, sample, heldScratch.points); globalThis.__bfePropsRider?.(unit, grab.clip, sample.time, Boolean(sampled), heldScratch.points.root, heldScratch.points.rootTurn); if (!sampled) return null;' },
-  ],
   '/src/game.js': [
     {anchor:'  function step(dt,tick,recordedCommand=null) {',text:`  function step(dt,tick,recordedCommand=null) {${enter('begin')}`},
     {anchor:'    worldTick.run(dt,tick,Boolean(game.serverWorld),command.human,Boolean(ai),Boolean(live),',

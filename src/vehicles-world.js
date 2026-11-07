@@ -23,6 +23,12 @@ export class VehiclesWorld {
 
   }
 
+  // A block of casts at once (CollisionWorld.castRays): a page's hull
+  // phase's CastRay records, answered in place.
+  castRays(records, count) {
+    this.vehicles.collision.castRays(records, count);
+  }
+
   // The collision world's first hit along a ray (CollisionWorld.cast), into
   // `out`, leaving out ignoreBody; null for none.
   cast(origin, direction, far, out, ignoreBody) {
@@ -60,13 +66,8 @@ export class VehiclesWorld {
     this.vehicles.collision.moveBody(body, matrix);
   }
 
-  // Whether a body takes part in the collision's queries, and setting it
-  // (a hull leaves its own out while it pushes and probes, and when it is
-  // destroyed).
-  bodyEnabled(body) {
-    return body.enabled;
-  }
-
+  // Setting whether a body takes part in the collision's queries (a hull
+  // leaves its own out when it is destroyed).
   enableBody(body, enabled) {
     body.enabled = enabled;
   }

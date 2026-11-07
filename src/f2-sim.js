@@ -160,7 +160,9 @@ class F2 extends VehicleContent {
     b.writeSome(KIND_VEHICLE, [v]);
     const values = pullPose(v), at = this.input(values.length);
     b.f.set(values, at);
-    if (!this.x.veh_pull(slot, v.aiTarget.generation, values.length)) throw Error('F2 could not retain a vehicle rig');
+    // A world's hull spawned at load has its spawn pose seeded natively.
+    const seed = v.alive && !v.system.page ? 1 : 0;
+    if (!this.x.veh_pull(slot, v.aiTarget.generation, values.length, seed)) throw Error('F2 could not retain a vehicle rig');
     // Registration sizes working leg buffers from this retained class rig.
     this.x.f2_register(v.simSlot, v.simGen, v.f2Prepared ? 1 : 0);
     const flightCache = new Float64Array(F2FlightInLayout.words); flightCache.fill(NaN); this.flightCache.set(v, flightCache);

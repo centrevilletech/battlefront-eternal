@@ -504,7 +504,7 @@ original's model on its origin; the port seats a hull by its collision and
 leaves that track out.
 
 - **Hosts.** The world poses the clip too, at the craft's own gear: its aim
-  tick does (`poseGearAt` in `Vehicle.aimTick`) before the aimers turn and
+  tick does (rust/sim `flight/gear.rs`) before the aimers turn and
   the fire points are read, and so does the render pass that `Vehicles.update`
   runs on every host after it. The gear is the craft's flight state there and
   in the pilot's own replay (`rust/sim/src/client/hulls.rs`) and

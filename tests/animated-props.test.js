@@ -103,11 +103,13 @@ test("a creature's published state travels at each action and retains the held f
   const stagger=new WorldFieldStagger(),text=new TextDecoder();let sent=null,changes=0;
   const states=[[0,1,0,0,0,-1,0],[1,10,0,0,0,-1,0],[1,10,0,man.id,man.generation,0,30]];
   for(let i=0;i<states.length;i++){
-    world.adopt(states[i],worldUnits);
+    // The world's own clip fields are its native live phase's (F4Live);
+    // adopt() supplies whom it holds.
+    [world.slot,world.started,world.startTime]=states[i];world.adopt(states[i],worldUnits);
     const records=captureWorldPresentation(worldGame,i+1,1).filter(r=>r.schema===CREATURE_STATE_SCHEMA);
     assert.equal(records.length,1);const [record]=stagger.update(i+1,records),payload=text.decode(record.payload);
     if(payload!==sent){sent=payload;changes++;assert.equal(applyWorldPresentation(pageGame,{...record,kind:'summary'}),true);}
   }
-  assert.equal(changes,3);assert.equal(page.victim.unit,pageMan);assert.equal(page.names[page.slot],'grab');
+  assert.equal(changes,3);assert.equal(page.victim.unit,pageMan);assert.equal(page.names[page.world.slot],'grab');
   assert.throws(()=>applyWorldPresentation(pageGame,{kind:'summary',id:400000,schema:CREATURE_STATE_SCHEMA,generation:1,payload:new TextEncoder().encode('[0,7,1,0,0,0,-1,0]')}),/Invalid creature state/);
 });

@@ -12,8 +12,8 @@ import * as THREE from 'three';
 import { loadClips } from '../src/anim.js';
 import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
-import { poseFlightGear, shownGear, followFlightState, gearFoot } from '../src/flight/gear.js';
-import { heightAbove } from '../src/flight/model.js';
+import { followFlightState, gearFoot } from '../src/flight/gear.js';
+import { VehicleEntryOutput as O } from '../src/presentation/layout.js';
 import { modelPack } from '../src/models.js';
 import { vehicleBatches } from '../src/vehicle-rig.js';
 import { EntitySeats } from '../src/runtime/entity-seats.js';
@@ -22,7 +22,7 @@ import { captureEntityVehicle, captureEntityMount } from '../src/runtime/network
 import { FIXTURE_SPEEDS, FIXTURE_HANDLING, FIXTURE_CAMERA } from './flight-fixture.js';
 import { createSnapshotSender } from './snapshot-send.js';
 import { PredictedShots } from '../src/runtime/predicted-shots.js';
-import { attachPage, local } from './helpers/page-presentation.js';
+import { attachPage, drawHull, local } from './helpers/page-presentation.js';
 
 const X = new THREE.Vector3(1, 0, 0), Z = new THREE.Vector3(0, 0, 1);
 const turn = (axis, angle) => new THREE.Quaternion().setFromAxisAngle(axis, angle).toArray();
@@ -95,6 +95,13 @@ function craft({ clip = true, parts = [], rig = RIG, tracks = TRACKS, collisionB
 }
 const bone = (v, name) => v.bones[v.bones.findIndex((b) => b.name === name)];
 const angleOf = (b, q) => local(b).quaternion.angleTo(new THREE.Quaternion().fromArray(q));
+// The gear the page's hull phase draws a craft with, this frame of dt
+// (rust/bfe-presentation vehicles.rs shown_gear: its clock is the phase's).
+const shownGear = (v, dt) => {
+  const page = v.system.page;
+  page.alive(v, 1, dt);
+  return page.streamOut[page.rigs.get(v.root).slots[0][1] + O.GEAR];
+};
 const run = (f, n, input = {}) => { for (let i = 0; i < n; i++) stepPrediction(f.system, 1 / 60, f.v, input); };
 
 test('a flyer is drawn in its takeoff clip at its gear: down landed, stowed flying, DummyRoot left where the hull is seated', () => {
@@ -104,7 +111,7 @@ test('a flyer is drawn in its takeoff clip at its gear: down landed, stowed flyi
   const gear = bone(v, 'bone_gear'), door = bone(v, 'bone_door'), root = bone(v, 'DummyRoot');
   for (const [state, value, u] of [['Landed', 1, 0], ['Flying', 0, 1], ['TakingOff', .5, .5], ['Landing', .25, .75]]) {
     v.flightState = state; v.gear = value;
-    v.seedPose();
+    drawHull(v);
     assert.ok(angleOf(gear, slerp(ID, turn(X, Math.PI / 2), u)) < 1e-3, `${state}: the leg at ${u} of the clip`);
     assert.ok(angleOf(door, slerp(turn(Z, 1.75), ID, u)) < 1e-3, `${state}: the door at ${u} of the clip`);
     assert.deepEqual(root.position.toArray(), [0, 0, 0], 'the clip\'s constant lift is left out');
@@ -135,11 +142,13 @@ test('a flyer is drawn in its takeoff clip at its gear: down landed, stowed flyi
 
 test('a craft without a takeoff clip keeps its modelled pose in flight (nothing pushed through its hull)', () => {
   const { v } = craft({ clip: false });
-  const before = v.bones.map((b) => [...b.position.toArray(), ...b.quaternion.toArray()]);
+  const drawn = () => v.bones.map((b) => { const l = local(b); return [...l.position.toArray(), ...l.quaternion.toArray()]; });
+  drawHull(v);
+  const before = drawn();
   for (const gear of [1, .5, 0]) {
     v.flightState = gear ? 'TakingOff' : 'Flying'; v.gear = gear;
-    poseFlightGear(v, 1 / 60);
-    assert.deepEqual(v.bones.map((b) => [...b.position.toArray(), ...b.quaternion.toArray()]), before);
+    drawHull(v);
+    assert.deepEqual(drawn(), before);
   }
 });
 
@@ -233,7 +242,7 @@ test('over the entity protocol a craft is drawn landed, stowing and stowed as th
 
 // Where the leg's foot is drawn (its tip under bone_gear), and the lowest
 // corner of the hull, in the world, as the scene graph poses them.
-const legFoot = (v) => { v.root.updateMatrixWorld(true); return new THREE.Vector3(0, -1, 0).applyMatrix4(bone(v, 'bone_gear').matrixWorld); };
+const legFoot = (v) => { drawHull(v); return new THREE.Vector3(0, -1, 0).applyMatrix4(bone(v, 'bone_gear').matrixWorld); };
 
 test('a craft with gear stands on its feet where it spawns and where it lands; one without rests as before', () => {
   const f = craft({ parts: [HULL, LEG] }), v = f.v;
@@ -273,7 +282,6 @@ test('a craft whose gear stands above its origin (the MAF\'s) rests with its ori
   assert.ok(Math.abs(v.gearFoot + .29) < 1e-6, `the foot 0.29 m above the origin (${v.gearFoot})`);
   assert.ok(Math.abs(v.position.y - v.gearFoot) < 1e-9 && v.position.y < -.28, `its origin 0.29 m into the pad (${v.position.y})`);
   assert.ok(Math.abs(legFoot(v).y) < 1e-6, 'its foot on the pad');
-  assert.ok(Math.abs(heightAbove(v) + .29) < 1e-6, `its height found from over its foot (${heightAbove(v)})`);
   v.driver = {}; v.seatIndex = 0;
   run(f, 1, { takeoff: true });
   assert.equal(v.flightState, 'TakingOff');

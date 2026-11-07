@@ -95,6 +95,11 @@ early rather than lost, a slot past the table is skipped, and no frame fails.
 every output bit to match.
 ## Vehicles, mounts and props
 
+A world's hulls spawned at load are seeded natively: their pose import
+(`veh_pull`) poses the spawn the way the hull's render does at a tick
+(walk pose, lifted legs, its own gear, posed seats, barrels at rest) before
+the first phase. The world keeps no JavaScript pose of its own.
+
 Vehicle construction consumes model, class and clip records. Rust builds the
 bind skeleton, muzzle markers, aimers, seat views, wheel axes and tow-leg
 geometry. It also packs rigid and soft-skinned material batches. The host
@@ -102,8 +107,17 @@ instantiates Three resource shells from those results, including the native
 skeleton inverses; it does not rebuild the numeric rig. Collision resources,
 weapon objects and prediction facades remain host resources.
 
-The hull phase places all queued roots, then poses their rigs after the host
-answers the walker's leg rays. Each call covers the whole batch. The own
+A craft drawn from its records keeps its gear clock in the hull phase:
+held down through the lift, stowed over TakeoffTime once up, lowered over
+the landing. The host says only which life its records are followed for.
+
+The hull phase places all queued roots and writes one block of CastRay
+records: each walker's feet and the ground under each lifting craft whose
+gear follows its records. The host casts the whole block in one call into
+the simulation module's collision, with each hull's own body left out and
+every body's enabled flag sent once; the phase then reads the hits and
+poses every rig. The block is sized at rig registration for every entry,
+so a frame never grows it. Each call covers the whole batch. The own
 predicted hull uses a second batch because tethers read the authoritative
 placement first. Cold registration reserves the two slots and updates the
 host's cached capacity; frame entries never query WASM individually.
@@ -129,6 +143,12 @@ Stationary turret drum and gun matrices join the prop phase. Its placed roots
 retain their authored matrices and scene parents. Props publish the eased
 Float32 stand pose, including unweighted bones, rather than the sampler's
 unblended target. Mesh bind inverses follow their own attached-mode frames.
+A creature that seizes takes the world's latest state in the prop phase
+(the first stands at once, later ones ease in) and hangs whom it holds
+from its posed grab node: his grab clip at his time into the hold, his
+root bone on the node. The host resolves who he is on its page, registers
+his class's skeleton once and copies the frame onto him for his body,
+camera and hit shapes.
 Skeleton record order can place a parent after its child (the rancor and Jabba
 use this order). Scene registration traverses parents first and maps every
 bone explicitly; numeric bone ordinals never stand in for scene node handles.
