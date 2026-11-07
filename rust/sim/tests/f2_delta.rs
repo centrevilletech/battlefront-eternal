@@ -73,7 +73,8 @@ fn borrowed_publications_retain_unread_words_and_one_writer_heap() {
     assert!(cache.prepare(3, 1, 2, |row, heap| {
         row[0] = 7.0; row[1] = -0.0; heap.extend([17.0, 19.0]);
     }));
-    assert_eq!(cache.delta.value.source, cache.next.ptr() as u32);
+    assert_eq!(cache.delta.value.source, 0);
+    assert_eq!(cache.next.words[HEADER], 7.0);
     assert_eq!(cache.borrowed_words(), 9);
     assert!(cache.delta.value.values.is_empty());
     cache.commit();

@@ -7,7 +7,7 @@ use bfe_sim::store::block::HEADER;
 fn delta(p: &Publication, i: usize) -> F4Delta { let (row, heap) = p.block.read(i); F4Delta::take(row, heap) }
 fn apply(p: &Publication, d: &F4Delta, into: &mut Vec<f64>) {
     let source = p.encoded(&d.target).expect("retained qualified cache");
-    assert_eq!(d.source, source.as_ptr() as u32); assert!(d.values.is_empty());
+    assert_eq!(d.source, 0); assert!(d.values.is_empty());
     into.resize(d.length as usize, 0.0); let mut value = 0;
     for (i, &mask) in d.mask.iter().enumerate() {
         let mut bits = mask;

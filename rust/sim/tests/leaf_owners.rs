@@ -170,7 +170,7 @@ fn push_wall_scratch_reuses_reserved_probes_and_lends_repeated_caches_sequential
     assert_eq!(owner.cache_new(0.75), 0);
     let probes = 1024;
     unsafe {
-        let input = std::slice::from_raw_parts_mut(owner.input_reserve(22 + probes * 4), 22 + probes as usize * 4);
+        let input = std::slice::from_raw_parts_mut(owner.reserve_input(22 + probes * 4).as_mut_ptr(), 22 + probes as usize * 4);
         input[3] = 1.; input[13] = 10.; input[18] = 0.2; input[20] = -1.;
         // The encoded count can exceed its input span. Missing probes are
         // ignored, and equal cache ids are borrowed one gather at a time.

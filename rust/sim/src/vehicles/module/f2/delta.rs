@@ -17,7 +17,7 @@ impl Delta {
     // The acknowledgement still owns their lifetime; only the extra values
     // vector and its second publication copy are omitted.
     fn encode_from(&mut self, slot: u32, generation: u32, next: &Block, last: &Block, borrowed: bool) -> bool {
-        self.value.source = if borrowed { next.ptr() as u32 } else { 0 };
+        self.value.source = 0;
         let mut changed = next.words.len() != last.words.len();
         self.value.slot = slot; self.value.generation = generation; self.value.length = next.words.len() as u32;
         self.value.mask.clear(); self.value.mask.resize(next.words.len().div_ceil(MASK_BITS), 0);
@@ -47,6 +47,12 @@ impl Delta {
             if !borrowed { self.value.values.push(word); }
         }
         changed
+    }
+    // F2Delta is already a retained typed record. Its WASM source address is
+    // bound only by the boundary wrapper, without another encoding or buffer.
+    #[cfg(target_arch = "wasm32")]
+    fn descriptor(&mut self, source: &Block, borrowed: bool) {
+        self.value.source = if borrowed { source.ptr() as u32 } else { 0 };
     }
 }
 
@@ -110,6 +116,12 @@ impl Cache {
     /// Prepare against the last consumed bits. A shared-memory reader may
     /// acknowledge several publications together after a native callback.
     pub fn prepare(&mut self, slot: u32, generation: u32, width: usize, write: impl FnOnce(&mut [f64], &mut Vec<f64>)) -> bool {
+        let changed = self.prepare_rows(slot, generation, width, write);
+        #[cfg(target_arch = "wasm32")]
+        self.delta.descriptor(&self.next, self.borrowed);
+        changed
+    }
+    pub fn prepare_rows(&mut self, slot: u32, generation: u32, width: usize, write: impl FnOnce(&mut [f64], &mut Vec<f64>)) -> bool {
         if self.identity != Some((slot,generation)) { self.last.words.clear(); self.identity = Some((slot,generation)); }
         self.next.begin(1,width); let (row,heap) = self.next.row(0); write(row,heap); self.next.finish();
         self.delta.encode_from(slot,generation,&self.next,&self.last,self.borrowed)
@@ -118,6 +130,13 @@ impl Cache {
     /// consumed heap and compare just those fields; a cold/rebound row instead
     /// needs the complete encoder. No pending combat delta may take this path.
     pub fn prepare_retained(&mut self, slot:u32, generation:u32, width:usize,
+        ranges:&[std::ops::Range<usize>],write:impl FnOnce(&mut [f64],&mut Vec<f64>)) -> Option<bool> {
+        let changed = self.prepare_retained_rows(slot, generation, width, ranges, write);
+        #[cfg(target_arch = "wasm32")]
+        if changed.is_some() { self.delta.descriptor(&self.next, self.borrowed); }
+        changed
+    }
+    pub fn prepare_retained_rows(&mut self, slot:u32, generation:u32, width:usize,
         ranges:&[std::ops::Range<usize>],write:impl FnOnce(&mut [f64],&mut Vec<f64>)) -> Option<bool> {
         if self.identity!=Some((slot,generation)) || self.last.words.len()<crate::store::block::HEADER+width {return None;}
         // Acknowledgement swaps the two complete buffers. Their last mask
@@ -142,7 +161,7 @@ impl Cache {
         debug_assert!(self.next.heap.is_empty(),"retained fields have no heap spans");
         let value=&mut self.delta.value;
         value.slot=slot;value.generation=generation;value.length=self.next.words.len() as u32;
-        value.source=if self.borrowed {self.next.ptr() as u32} else {0};
+        value.source=0;
         let mut changed=false;
         value.mask.clear();value.mask.resize(self.next.words.len().div_ceil(MASK_BITS),0);value.values.clear();
         for range in ranges {

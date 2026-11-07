@@ -722,6 +722,7 @@ pub extern "C" fn tree_index(id: u32) -> *mut u32 { owner().tree_index(id) }
 pub extern "C" fn tree_indirect(id: u32) -> *mut u32 { owner().tree_indirect(id) }
 
 /// A root's packed node buffer of `words` u32s, to fill at the pointer.
+#[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn tree_root(id: u32, words: u32) -> *mut u32 { owner().tree_root(id, words) }
 
@@ -754,6 +755,7 @@ pub extern "C" fn body_set(slot: u32) { owner().body_set(slot) }
 pub extern "C" fn world_new(tree: u32, terrain: i32, grid: i32) -> u32 { owner().world_new(tree, terrain, grid) }
 
 /// Room for the world's `count` bodies' slots, in order, to fill at the pointer.
+#[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn world_order(id: u32, count: u32) -> *mut u32 { owner().world_order(id, count) }
 
@@ -822,6 +824,21 @@ mod tests {
 }
 
 impl CollisionOwner {
+    /// CollisionWorld.gather exposes retained numeric words to native readers.
+    /// The host descriptor is separate so a native address never enters io.
+    pub fn gather_words(&self) -> &[f64] { &self.gathers.out }
+    pub fn terrain_triangles(&self) -> &[u32] { &self.gathers.near }
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn gather_descriptor(&mut self) -> *const f64 {
+        self.io[58] = self.gathers.out.as_ptr() as usize as f64;
+        self.io[59] = self.gathers.out.len() as f64;
+        self.io.as_ptr()
+    }
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn terrain_descriptor(&mut self) -> *const f64 {
+        self.io[58] = self.gathers.near.as_ptr() as usize as f64;
+        self.io.as_ptr()
+    }
     pub fn io_ptr(&mut self) -> *mut f64 { self.io.as_mut_ptr() }
     pub fn enabled_ptr(&mut self) -> *mut u8 { self.enabled.as_mut_ptr() }
     pub fn candidates_ptr(&mut self) -> *mut u32 { self.candidates.as_mut_ptr() }
@@ -843,10 +860,12 @@ impl CollisionOwner {
     }
     pub fn tree_index(&mut self, id: u32) -> *mut u32 { self.state.trees[id as usize].index.as_mut_ptr() }
     pub fn tree_indirect(&mut self, id: u32) -> *mut u32 { self.state.trees[id as usize].indirect.as_mut_ptr() }
-    pub fn tree_root(&mut self, id: u32, words: u32) -> *mut u32 {
+    #[cfg(target_arch = "wasm32")]
+    pub fn tree_root(&mut self, id: u32, words: u32) -> *mut u32 { self.tree_root_words(id, words).as_mut_ptr() }
+    pub fn tree_root_words(&mut self, id: u32, words: u32) -> &mut [u32] {
         let t = &mut self.state.trees[id as usize];
         t.roots.push(vec![0; words as usize]);
-        t.roots.last_mut().unwrap().as_mut_ptr()
+        t.roots.last_mut().unwrap()
     }
     pub fn grid_new(&mut self, positions: u32, indices: u32, cells: u32, start: u32, triangles: u32) -> u32 {
         let v = self.io;
@@ -881,12 +900,14 @@ impl CollisionOwner {
         s.worlds.push(World { tree: tree as usize, terrain: (terrain >= 0).then_some(terrain as usize), grid: (grid >= 0).then_some(grid as usize), order: Vec::new(), prepared: Vec::new(), version: 0, statics: None, broad: Default::default() });
         (s.worlds.len() - 1) as u32
     }
-    pub fn world_order(&mut self, id: u32, count: u32) -> *mut u32 {
+    #[cfg(target_arch = "wasm32")]
+    pub fn world_order(&mut self, id: u32, count: u32) -> *mut u32 { self.world_order_slots(id, count).as_mut_ptr() }
+    pub fn world_order_slots(&mut self, id: u32, count: u32) -> &mut [u32] {
         let w = &mut self.state.worlds[id as usize];
         w.order.clear();
         w.order.resize(count as usize, 0);
         w.version += 1;
-        w.order.as_mut_ptr()
+        &mut w.order
     }
     pub fn world_candidates(&mut self, id: u32, ignore: i32, static_only: u32, moving_only: u32) -> u32 {
         broad::world_candidates_near_into(&mut self.state, id as usize, &read_ray(&self.io), self.io[6], ignore as i64, static_only != 0, moving_only != 0, &mut self.candidates) as u32

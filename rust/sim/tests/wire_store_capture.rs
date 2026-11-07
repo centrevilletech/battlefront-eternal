@@ -640,6 +640,7 @@ fn complete_native_publication_including_first_capture_and_fault_recovery_does_n
     unsafe { publisher.run(&mut host, &mut runtime, &mut source, 1., 0., 1000., 0.); }
     ACTIVE.with(|flag| flag.set(false)); assert_eq!(ALLOCATIONS.with(Cell::get), 0, "first full publication");
     assert!(publisher.output.faults.is_empty()); assert_eq!(publisher.output.acks.len(), 2);
+    assert_eq!(publisher.output.bytes, 0);
     let status = &publisher.output.edges[0].results[0].status;
     assert_eq!(&publisher.bytes[status.offset as usize..(status.offset + status.length) as usize], &[0xbb, 3, 0x3d, 0xd8, 0x80, 0xde, 0, 0xd8]);
     let span = &publisher.output.own[0].span;

@@ -366,7 +366,7 @@ fn copy<T: Copy>(pointer: *const T, n: usize) -> Vec<T> {
 fn order(owner: &mut collision::CollisionOwner, world: u32, values: &[u32]) {
     unsafe {
         std::slice::from_raw_parts_mut(
-            owner.world_order(world, values.len() as u32),
+            owner.world_order_slots(world, values.len() as u32).as_mut_ptr(),
             values.len(),
         )
         .copy_from_slice(values);
@@ -399,7 +399,7 @@ fn legacy_shape(owner: &mut collision::CollisionOwner, p: Corners, index: &[u32]
     owner.state.build_tree(tree);
     unsafe {
         std::slice::from_raw_parts_mut(
-            owner.tree_polygons(tree, polygons.len() as u32),
+            owner.tree_polygon_ids(tree, polygons.len() as u32).as_mut_ptr(),
             polygons.len(),
         )
         .copy_from_slice(polygons);

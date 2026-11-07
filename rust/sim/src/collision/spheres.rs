@@ -954,6 +954,7 @@ pub extern "C" fn set_polygons(id: u32) -> *mut u32 { super::owner().set_polygon
 pub extern "C" fn world_statics(world: u32, set: u32) { super::owner().world_statics(world, set) }
 
 /// Room for a tree's `count` polygon numbers (a body's), to fill at the pointer.
+#[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn tree_polygons(id: u32, count: u32) -> *mut u32 { super::owner().tree_polygons(id, count) }
 
@@ -989,8 +990,12 @@ pub(crate) fn gather_candidates_into(s: &State, world: usize, center: [f64; 3], 
 /// gather's second call, over the first `count` candidates whose ENABLED is
 /// written: their polygons, and the gather written out (OUT, its address in
 /// IO 58 and length in 59); returns the polygon count.
+#[cfg(target_arch = "wasm32")]
 #[no_mangle]
-pub extern "C" fn gather_end(world: u32, count: u32) -> u32 { super::owner().gather_end(world, count) }
+pub extern "C" fn gather_end(world: u32, count: u32) -> u32 {
+    let owner = super::owner(); let count = owner.gather_end(world, count);
+    owner.gather_descriptor(); count
+}
 
 /// Complete and encode the gather without borrowing any module storage.
 pub(crate) fn gather_complete(s: &State, world: usize, bounds: &Bounds, candidates: &[u32], enabled: &[u8], out: &mut Gathered, w: &mut Vec<f64>) -> usize {
@@ -1020,6 +1025,7 @@ pub(crate) fn gather_complete(s: &State, world: usize, bounds: &Bounds, candidat
 }
 
 /// Room for `count` f64s of input; its address.
+#[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn input_reserve(count: u32) -> *mut f64 { super::owner().input_reserve(count) }
 
@@ -1058,8 +1064,12 @@ pub(crate) fn overlaps_candidates(s: &State, world: usize, center: [f64; 3], rad
 
 /// terrainNear's triangles (the center in IO 0-2, the radius in 3): their
 /// numbers at the address in IO 58; returns how many.
+#[cfg(target_arch = "wasm32")]
 #[no_mangle]
-pub extern "C" fn terrain_near_ray(grid: u32) -> u32 { super::owner().terrain_near_ray(grid) }
+pub extern "C" fn terrain_near_ray(grid: u32) -> u32 {
+    let owner = super::owner(); let count = owner.terrain_near_ray(grid);
+    owner.terrain_descriptor(); count
+}
 
 #[cfg(test)]
 mod tests {
@@ -1139,11 +1149,13 @@ impl CollisionOwner {
     pub fn set_bounds(&mut self, id: u32) -> *mut f32 { self.state.sets[id as usize].bounds.as_mut_ptr() }
     pub fn set_polygons(&mut self, id: u32) -> *mut u32 { self.state.sets[id as usize].polygons.as_mut_ptr() }
     pub fn world_statics(&mut self, world: u32, set: u32) { self.state.worlds[world as usize].statics = Some(set as usize); }
-    pub fn tree_polygons(&mut self, id: u32, count: u32) -> *mut u32 {
+    #[cfg(target_arch = "wasm32")]
+    pub fn tree_polygons(&mut self, id: u32, count: u32) -> *mut u32 { self.tree_polygon_ids(id, count).as_mut_ptr() }
+    pub fn tree_polygon_ids(&mut self, id: u32, count: u32) -> &mut [u32] {
         let t = &mut self.state.trees[id as usize];
         t.polygons.clear();
         t.polygons.resize(count as usize, 0);
-        t.polygons.as_mut_ptr()
+        &mut t.polygons
     }
     pub fn body_offset(&mut self, slot: u32, offset: f64) { self.state.bodies[slot as usize].offset = offset; }
     pub fn cache_new(&mut self, margin: f64) -> u32 {
@@ -1171,11 +1183,13 @@ impl CollisionOwner {
         let w = &mut self.gathers.out;
         let count = gather_complete(s, world as usize, &bounds, &candidates[..(count as usize).min(MAX_BODIES)], &enabled[..(count as usize).min(MAX_BODIES)], out, w);
         let v = &mut self.io;
-        v[58] = w.as_ptr() as usize as f64;
+        v[58] = 0.0;
         v[59] = w.len() as f64;
         count as u32
     }
-    pub fn input_reserve(&mut self, count: u32) -> *mut f64 {
+    #[cfg(target_arch = "wasm32")]
+    pub fn input_reserve(&mut self, count: u32) -> *mut f64 { self.reserve_input(count).as_mut_ptr() }
+    pub fn reserve_input(&mut self, count: u32) -> &mut [f64] {
         let v = &mut self.gathers.input;
         if v.len() < count as usize { v.resize(count as usize, 0.0); }
         // rayPushWalls writes four words per probe after its fixed header.
@@ -1185,7 +1199,7 @@ impl CollisionOwner {
         points.reserve(probes.saturating_sub(points.len()));
         let ids = &mut self.gathers.push_ids;
         ids.reserve(probes.saturating_sub(ids.len()));
-        v.as_mut_ptr()
+        v
     }
     pub fn places_ptr(&mut self) -> *mut u8 { self.gathers.places.as_mut_ptr() }
     pub fn push_walls_ray(&mut self, world: u32) {
@@ -1236,7 +1250,7 @@ impl CollisionOwner {
         let (center, radius) = ([v[0], v[1], v[2]], v[3]);
         let out = &mut self.gathers.near;
         terrain_near(&mut self.state, grid as usize, center, radius, out);
-        v[58] = out.as_ptr() as usize as f64;
+        v[58] = 0.0;
         out.len() as u32
     }
 }

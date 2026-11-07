@@ -338,14 +338,22 @@ impl Publisher {
             if let Err(error) = result { self.fault(c.id, error); }
         }
         self.output.ring_newest = host.ring.newest_tick() as f64; if captured { self.last_encodes = self.group_count as u32; } self.output.encodes = self.last_encodes;
-        self.output.bytes = self.bytes.as_ptr() as usize as u32; self.output.byte_length = self.bytes.len() as u32;
+        self.output.bytes = 0; self.output.byte_length = self.bytes.len() as u32;
         self.serialize();
+    }
+    /// SnapshotHost.publish borrows the byte arena until the next publication.
+    /// Bind its address after all arena growth and numeric serialization finish.
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn descriptor(&mut self) -> *const f64 {
+        self.output.bytes = self.bytes.as_ptr() as usize as u32;
+        self.block.words[crate::store::block::HEADER + WirePublicationOutput::BYTES] = self.output.bytes as f64;
+        self.block.ptr()
     }
     // The generated layout writes descriptors, not one f64 per packet byte.
     // Reserve both halves of Block up front because finish appends the heap
     // after the fixed row. JS copies every span before the next native call.
     fn serialize(&mut self) {
-        self.output.bytes = self.bytes.as_ptr() as usize as u32; self.output.byte_length = self.bytes.len() as u32;
+        self.output.bytes = 0; self.output.byte_length = self.bytes.len() as u32;
         let words = self.output.own.len() * WirePublishedOwn::WORDS + self.output.acks.len() * WirePublishedAck::WORDS +
             self.output.edges.iter().map(|e| WirePublishedEdges::WORDS + e.received.len() + e.results.len() * WirePublishedOutcome::WORDS).sum::<usize>() +
             self.output.created.len() * WireDynamicFact::WORDS + self.output.retired.len() + self.output.records.len() * WirePublishedRecord::WORDS +

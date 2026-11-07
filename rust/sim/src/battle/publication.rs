@@ -60,7 +60,7 @@ impl Entry {
             self.delta.target = self.handle.clone(); self.delta.retired = retired;
             self.delta.length = self.cache.last.words.len() as u32;
             self.delta.mask.clear(); self.delta.mask.extend_from_slice(&self.cache.delta.value.mask);
-            self.delta.source = self.cache.last.ptr() as u32;
+            self.delta.source = 0;
             self.delta.borrowed_words = self.cache.borrowed_words() as u32;
         }
         changed
@@ -136,6 +136,13 @@ impl Publication {
     /// Borrowed caches live until the next foreign barrier. In particular,
     /// retirement must not free a row while its final publication names it.
     pub fn flush(&mut self, s: &Store) -> usize {
+        let count = self.flush_rows(s);
+        #[cfg(target_arch = "wasm32")]
+        self.descriptor();
+        count
+    }
+    /// Fill retained rows without exposing an address in native publications.
+    pub fn flush_rows(&mut self, s: &Store) -> usize {
         self.published_retired.clear(); self.borrowed_words = 0;
         // A soldier observer usually has no score/post changes. Keep its empty
         // handoff independent of the size of the admitted battle roster.
@@ -163,6 +170,21 @@ impl Publication {
         for e in &self.retired { self.budget -= e.budget; }
         std::mem::swap(&mut self.retired, &mut self.published_retired);
         retired + self.selected.len()
+    }
+    /// F4's foreign barrier keeps retired rows alive until the next flush.
+    /// Patch only the source word after those rows reach their final banks.
+    #[cfg(target_arch = "wasm32")]
+    pub fn descriptor(&mut self) -> *const f64 {
+        let rows = self.block.words[crate::gen::BlockHeader::ROWS] as usize;
+        if rows == 0 { return self.block.ptr(); }
+        let retired = self.published_retired.len();
+        let entries = &self.entries;
+        let published = self.published_retired.iter().chain(self.selected.iter().take(rows - retired)
+            .map(|&key| entries.get(key).unwrap()));
+        for (i, entry) in published.enumerate() {
+            self.block.words[HEADER + i * F4Delta::WORDS + F4Delta::SOURCE] = entry.cache.last.ptr() as u32 as f64;
+        }
+        self.block.ptr()
     }
     pub fn borrowed_words(&self) -> usize { self.borrowed_words }
     /// Inspect a qualified encoding without truncating a native pointer to the

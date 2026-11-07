@@ -31,7 +31,7 @@ pub(crate) unsafe fn wire_publish_in(w: &mut crate::world::owner::World, session
     let facts=source.publication_clock();
     let mut world=PublicationWorld {w: super::store_source::Read {sim:&w.sim,input:&w.input},epoch:host.epoch,source,stagger,shots,combat,edges:&owner.edges};
     s.publisher.run(host,runtime,&mut world,facts[F::TICK],facts[F::AT],facts[F::UNIX_MS],facts[F::DROPPED_TICKS]);
-    s.publisher.block.ptr()
+    s.publisher.descriptor()
 
 }
 pub(crate) unsafe fn wire_publish_drop_in(w: &mut crate::world::owner::World, session:*mut Session) {super::owner::with_in(w, |owner|{owner.publications.remove(session as usize);});}

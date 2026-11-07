@@ -140,7 +140,7 @@ fn copy<T: Copy>(pointer: *const T, n: usize) -> Vec<T> {
 fn order(owner: &mut collision::CollisionOwner, world: u32, values: &[u32]) {
     unsafe {
         std::slice::from_raw_parts_mut(
-            owner.world_order(world, values.len() as u32),
+            owner.world_order_slots(world, values.len() as u32).as_mut_ptr(),
             values.len(),
         )
         .copy_from_slice(values);
@@ -173,7 +173,7 @@ fn legacy_shape(owner: &mut collision::CollisionOwner, p: Corners, index: &[u32]
     owner.state.build_tree(tree);
     unsafe {
         std::slice::from_raw_parts_mut(
-            owner.tree_polygons(tree, polygons.len() as u32),
+            owner.tree_polygon_ids(tree, polygons.len() as u32).as_mut_ptr(),
             polygons.len(),
         )
         .copy_from_slice(polygons);
@@ -232,18 +232,19 @@ fn legacy_query(owner: &mut collision::CollisionOwner, v: &Value, ids: Installed
         _ => panic!("unknown legacy query"),
     };
     let io = *owner.io_mut();
+    if name == "gather" || name == "near" { assert_eq!(io[58], 0.0); }
     CollisionResult {
         code,
         io,
         candidates: copy(owner.candidates_ptr(), count),
         enabled: copy(owner.enabled_ptr(), count),
         words: if name == "gather" {
-            copy(io[58] as usize as *const f64, io[59] as usize)
+            owner.gather_words().to_vec()
         } else {
             vec![]
         },
         near: if name == "near" {
-            copy(io[58] as usize as *const u32, code as usize)
+            owner.terrain_triangles().to_vec()
         } else {
             vec![]
         },
