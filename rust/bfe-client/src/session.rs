@@ -359,9 +359,15 @@ impl ResourceCommand {
     }
     fn execute(&self, r: &mut Resources) -> Result<(), String> {
         match self {
-            Self::Retain(id) => { r.retain_sample(*id)?; }
-            Self::WorldFallback(n) => { r.world_fallback(*n)?; }
-            Self::Canopy(w, b) => { r.canopy_state(*w, b)?; }
+            Self::Retain(id) => {
+                r.retain_sample(*id)?;
+            }
+            Self::WorldFallback(n) => {
+                r.world_fallback(*n)?;
+            }
+            Self::Canopy(w, b) => {
+                r.canopy_state(*w, b)?;
+            }
             Self::UpdateCanopy(id, b) => r.update_canopy_state(*id, b)?,
             Self::Source(d) => {
                 r.source(d)?;
@@ -1015,7 +1021,7 @@ impl Session {
                             }
                         }
                     }
-                    if let Some(stats) = c.execute(&mut self.renderer, &self.resources)? {
+                    if let Some(stats) = c.execute(&mut self.renderer, &mut self.resources)? {
                         for (total, count) in self.draws.iter_mut().zip(stats.pass_draws) {
                             *total += count as u64;
                         }

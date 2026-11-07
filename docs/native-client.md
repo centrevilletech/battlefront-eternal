@@ -35,7 +35,8 @@ recorder checks the applied graphics values and stores them in the archive. The 
 WASM exports and host GL state outside the application sources, records the
 snapshot timeline and presentation inputs, and rejects unhandled render calls.
 It records only host writes between phase calls; Rust output banks become the
-next baseline. Recorded bulk transfers and actor matrix/skin bindings consume
+next baseline. Recorded collision answers feed the vehicle owner between placement and pose.
+Recorded bulk transfers and actor matrix/skin bindings consume
 native presentation outputs during playback. The window submits world, far,
 terrain, foliage, water, effects, actors, postprocessing and HUD through their
 existing Rust passes.
@@ -60,3 +61,35 @@ The original near-only capture format remains supported by the headless
 a failed full session never switches to the near renderer. Replay currently
 carries the recorded camera and pass schedule. It does not construct an
 interactive authoritative native battle or a menu/transport service.
+
+`bfe-client --map MAP CONTENT_DIR --seconds 20` admits an inspection scene from
+prepared files. The free camera uses the generated input records. Admission
+includes opaque near/far world and terrain, sky layers following the camera,
+initial built/unbuilt prop rigs and grounded trap pads, placed foliage, and Low water
+or Classic ocean surfaces. Map lighting and fog come from prepared metadata. Prop vertex packing,
+skeleton binding, foliage packing/selection and drawing use the existing Rust
+owners. The frame loop retains its geometry, skeleton and input banks.
+
+Inspection uses a deterministic cold random stream for grass and leaf tint.
+Recorded comparisons can supply the browser's cold draws to the same loader.
+Water retains its first mask frame and time zero; the shared surface owner
+positions the Classic ocean grid from the camera. Animated doors/props,
+flyer motion, world-driven effects, contact
+ripples, reflections and postprocessing require further host admission. Blended
+world buckets remain on the full recorded-session path. Inspection does not
+invent health changes, soldier state or authority ticks.
+
+`tools/native-static-fixture.mjs` compares foliage cards and water construction
+with the browser constructors on public synthetic inputs. Build its probe with
+`cargo build --manifest-path rust/Cargo.toml -p bfe-content-native --example static-fixture`.
+`tools/native-static-frame.mjs` records isolated browser views and invokes the
+`static-frame` binary against natively loaded content. It reports exact pixel
+counts and deltas for props, foliage, water and sky. Its temporary view/image
+files belong outside the repository and are removed after comparison.
+
+Near captures are validated before renderer registration: object ids must name
+earlier allocations, world bounds contain ten finite values, typed spans and
+frame/bone ranges must fit their banks. Malformed files return an admission
+error to both hosts. The hosted Windows renderer job also builds the native
+executables for MSVC and runs their device-independent tests; its WARP renderer
+check remains a separate qualification from opening a native window.

@@ -131,6 +131,7 @@ dependencies = [
  "audio",
  "audio-control",
  "bfe-content-native",
+ "bfe-environment",
  "bfe-native",
  "bfe-pose",
  "bfe-presentation",
@@ -183,6 +184,7 @@ dependencies = [
  "libc",
  "serde_json",
  "sha2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

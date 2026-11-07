@@ -87,6 +87,10 @@ jobs:
         # sim-replay's format test has Node write a made-up capture; the
         # replays of real battles need game data, so they pass empty here.
         run: cargo test --locked -p sim -p sim-replay -p bfe-render -p bfe-presentation -p bfe-pose -p content -p v8math -p jsrt -p three -p audio -p audio-decode -p basis-transcode -p texture-codec -p image-codec -p bfe-environment -p audio-control -p bfe-client -p bfe-content-native -p bfe-native --features sim/replay
+      - name: Native static content construction
+        run: |
+          cargo build --locked --manifest-path rust/Cargo.toml -p bfe-content-native --example static-fixture
+          node tools/native-static-fixture.mjs
       - name: Native transport schema
         run: |
           python3 tools/native-render-bridge.py --check
@@ -124,7 +128,7 @@ jobs:
           - os: ubuntu-latest
             backend: gl
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       BFE_SMOKE_OUTPUT: ${{ github.workspace }}/renderer-smoke.jsonl
     steps:
@@ -138,6 +142,18 @@ jobs:
       - run: npm ci
       - name: Install Electron executable
         run: node node_modules/electron/install.js
+      - name: Pinned Rust toolchain for native Windows hosts
+        if: runner.os == 'Windows'
+        working-directory: rust
+        run: rustup toolchain install
+      - name: Build and test native Windows client and replay tool
+        if: runner.os == 'Windows'
+        working-directory: rust
+        # Unit tests need neither a window nor an audio device. The WARP
+        # check below continues to qualify the separate renderer host.
+        run: |
+          cargo build --locked --target x86_64-pc-windows-msvc -p bfe-client -p bfe-native --bins
+          cargo test --locked --target x86_64-pc-windows-msvc -p bfe-client -p bfe-native -p bfe-content-native --lib --tests
       - name: ANGLE D3D11 software renderer
         if: runner.os == 'Windows'
         run: node tools/renderer-smoke.mjs warp

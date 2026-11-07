@@ -35,7 +35,7 @@ pub struct Frame {
 pub fn load_scene(dir: &Path, gl: glow::Context, multi: Ranges) -> Result<(Renderer<glow::Context, Ranges>, Vec<Frame>), String> {
     let meta: Value = serde_json::from_slice(&std::fs::read(dir.join("calls.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let blob_bytes = std::fs::read(dir.join("blobs.bin")).map_err(|e| e.to_string())?;
-    validate_capture(&meta, blob_bytes.len())?;
+    validate_capture(&meta, &blob_bytes)?;
     let blobs = meta["blobs"].as_array().unwrap();
     // JSON keeps only offsets into one binary file. Checking all spans before
     // constructing slices prevents a truncated transfer reaching GPU upload.
@@ -165,74 +165,5 @@ pub fn draw(renderer: &mut Renderer<glow::Context, Ranges>, frame: &Frame) -> Re
     renderer.frame(frame.records.min(bfe_render::instances::MAX_RECORDS)).map(|_| ())
 }
 
-/// Validate cold file spans before any GPU work. Offsets belong to the capture
-/// file, not native pointers; rejecting a truncated blob avoids partial upload.
-pub fn validate_capture(meta: &Value, bytes: usize) -> Result<(), String> {
-    // The schema is deliberately small: calls, indexed blobs and frames.
-    // It contains no native addresses and never trusts a file offset as a pointer.
-    let fail = || "invalid or truncated renderer capture".to_string();
-    let blobs = meta["blobs"].as_array().ok_or_else(fail)?;
-    for blob in blobs {
-        let at = blob[0].as_u64().ok_or_else(fail)?;
-        let len = blob[1].as_u64().ok_or_else(fail)?;
-        if at.checked_add(len).is_none_or(|end| end > bytes as u64) { return Err(fail()); }
-    }
-    // Alignment here is element width in the serialized blob, not alignment of
-    // the original browser TypedArray. Endian conversion below handles that.
-    let span = |id: &Value, align: u64| -> Result<(), String> {
-        let index = id.as_u64().ok_or_else(fail)?;
-        let blob = blobs.get(index as usize).ok_or_else(fail)?;
-        if blob[1].as_u64().ok_or_else(fail)? % align != 0 { return Err(fail()); }
-        Ok(())
-    };
-    // RGBA8 readback has an exact byte extent. A plausible width/height pair
-    // with a short blob must fail before tex_image_2d can read its source.
-    for texture in meta["textures"].as_array().ok_or_else(fail)? {
-        if texture.is_null() { continue; }
-        let w = texture["width"].as_u64().ok_or_else(fail)?;
-        let h = texture["height"].as_u64().ok_or_else(fail)?;
-        span(&texture["blob"], 4)?;
-        let index = texture["blob"].as_u64().ok_or_else(fail)? as usize;
-        if w == 0 || h == 0 || w > 16384 || h > 16384 || Some(blobs[index][1].as_u64().ok_or_else(fail)?) != w.checked_mul(h).and_then(|n| n.checked_mul(4)) {
-            return Err(fail());
-        }
-    }
-    let frames = meta["frames"].as_array().ok_or_else(fail)?;
-    if frames.is_empty() { return Err("capture has no frames".into()); }
-    for frame in frames {
-        frame["records"].as_u64().ok_or_else(fail)?;
-        span(&frame["input"], 8)?;
-        span(&frame["bones"], 4)?;
-    }
-    for call in meta["calls"].as_array().ok_or_else(fail)? {
-        let name = call[0].as_str().ok_or_else(fail)?;
-        let args = call[1].as_array().ok_or_else(fail)?;
-        // Check the arguments interpreted by this replay, including typed blob
-        // widths. Other recorded registration families are reported as omitted.
-        let pattern = match name {
-            "add_texture" | "add_geometry" => "",
-            "set_far_map" => "n", "add_owned_program" => "s",
-            "add_program" => "nssss", "geometry_buffer" => "nx",
-            "geometry_pointer" => "nnnnnbnn", "geometry_index" => "nxn",
-            "geometry_group" => "nnn", "add_world" => "nnnnd",
-            "world_texture" => "nnn", "world_uniform" => "nsfb",
-            "world_cells" => "nfxn", "sort" => "", _ => "",
-        };
-        for (index, kind) in pattern.chars().enumerate() {
-            let value = args.get(index).ok_or_else(fail)?;
-            match kind {
-                'n' => { value.as_f64().filter(|v| v.is_finite()).ok_or_else(fail)?; },
-                's' => { value.as_str().ok_or_else(fail)?; },
-                'b' => { value.as_bool().ok_or_else(fail)?; },
-                'x' | 'f' | 'd' => span(&value["blob"], if kind == 'd' { 8 } else if kind == 'f' { 4 } else { 1 })?,
-                _ => return Err(fail()),
-            }
-        }
-        if name == "add_program" {
-            for attribute in args[3].as_str().unwrap().split(',').filter(|s| !s.is_empty()) {
-                if attribute.split_once(':').is_none_or(|(_, n)| n.parse::<u32>().is_err()) { return Err(fail()); }
-            }
-        }
-    }
-    Ok(())
-}
+mod capture;
+pub use capture::validate_capture;

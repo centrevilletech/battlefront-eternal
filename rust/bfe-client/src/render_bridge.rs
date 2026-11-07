@@ -130,6 +130,20 @@ pub fn foliage_class(&mut self, texture: u32, grass: bool, shadows: bool, defini
             &locations, rows, bounds, map_matrix, &[1.,1.,1.], 1., 0.25)) }
 pub fn foliage_frame(&mut self) -> u32 { self.r.foliage.select() }
 pub fn foliage_selected(&mut self, class: u32) -> u32 { self.r.foliage.selected(class) }
+pub fn frame_lines_publish_frame(&mut self, view: u32, count: u32)  { if let Some(row)=self.r.frames.line_counts.get_mut(view as usize){*row=(count as usize).min(bfe_render::frame_plan::layout::limit::LINES);} }
+pub fn frame_reserve_frame(&mut self)  { self.r.frame_reserve(); }
+pub fn frame_shadow_reserve_frame(&mut self)  { self.r.frame_shadow_reserve(); }
+pub fn frame_ui_slot_frame(&mut self, role: u32)  { self.r.frames.ui_role=role as usize; }
+pub fn frame_overflow_frame(&mut self)  { self.r.frames.native_mark_clipped(); }
+pub fn frame_begin_frame(&mut self)  { self.r.frame_begin(); }
+pub fn frame_select_frame(&mut self)  { self.r.frames.plan.select(); }
+pub fn frame_plan_frame(&mut self)  { self.r.frames.plan.select();self.r.frames.plan.plan(); }
+pub fn frame_publish_frame(&mut self, role: u32) -> bool { self.r.frame_publish(role as usize) }
+pub fn frame_admit_interface_frame(&mut self, role: u32)  { self.r.frame_admit_interface(role as usize); }
+pub fn battle_frame(&mut self, resources: &mut Resources) -> bool { match self.r.battle_frame(resources) {Ok(())=>true,Err(error)=>{self.r.core.fault=Some(error);false}} }
+pub fn frame_aux_frame(&mut self, resources: &mut Resources, role: u32) -> bool { match self.r.frame_aux(resources,role as usize){Ok(())=>true,Err(error)=>{self.r.core.fault=Some(error);false}} }
+pub fn frame_error_frame(&mut self) -> Option<String> { self.r.core.fault.take() }
+pub fn frame_cancel_frame(&mut self)  { self.r.frames.collecting=false;self.r.post_chain.invalidate(); }
 pub fn hud_init(&mut self, index: &[u32])  { self.r.hud.init(&mut self.r.core, index) }
 pub fn hud_model_text(&mut self, text: &str, uppercase: bool) -> u32 { self.hud_model.add_text(text, uppercase) }
 pub fn hud_model_asset(&mut self, id: u32, texture: i32, width: f64, height: f64, ready: bool)  { if let Some(asset) = self.hud_model.assets.get_mut(id as usize) {
@@ -280,6 +294,13 @@ match name {
 "far_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.far.input)),
 "far_vertices" => Ok(crate::session::bytes_mut::<f32>(&mut self.r.far.vertices)),
 "foliage_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.foliage.input)),
+"frame_facts" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.frames.plan.facts)),
+"frame_state" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.frames.plan.state)),
+"frame_trace" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.frames.plan.trace)),
+"frame_bindings" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.frames.bindings)),
+"frame_meta" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.frames.meta)),
+"frame_lines" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.frames.lines)),
+"frame_stats" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.frames.stats)),
 "hud_input" => Ok(crate::session::bytes_mut::<f64>(&mut self.r.hud.input)),
 "hud_position" => Ok(crate::session::bytes_mut::<f32>(&mut self.r.hud.position)),
 "hud_uv" => Ok(crate::session::bytes_mut::<f32>(&mut self.r.hud.uv)),
@@ -370,6 +391,20 @@ far_probe_frame(u32),
 foliage_class(u32,bool,bool,String,Vec<f64>,Vec<f32>,Vec<f64>,Vec<f32>),
 foliage_frame,
 foliage_selected(u32),
+frame_lines_publish_frame(u32,u32),
+frame_reserve_frame,
+frame_shadow_reserve_frame,
+frame_ui_slot_frame(u32),
+frame_overflow_frame,
+frame_begin_frame,
+frame_select_frame,
+frame_plan_frame,
+frame_publish_frame(u32),
+frame_admit_interface_frame(u32),
+battle_frame(usize),
+frame_aux_frame(usize,u32),
+frame_error_frame,
+frame_cancel_frame,
 hud_init(Vec<u32>),
 hud_model_text(String,bool),
 hud_model_asset(u32,i32,f64,f64,bool),
@@ -514,6 +549,20 @@ Ok(match name {
 "foliage_class" => Self::foliage_class(a.u32(0)?,a.bool(1)?,a.bool(2)?,a.string(3)?,a.f64s(4)?,a.f32s(5)?,a.f64s(6)?,a.f32s(7)?),
 "foliage_frame" => Self::foliage_frame,
 "foliage_selected" => Self::foliage_selected(a.u32(0)?),
+"frame_lines_publish_frame" => Self::frame_lines_publish_frame(a.u32(0)?,a.u32(1)?),
+"frame_reserve_frame" => Self::frame_reserve_frame,
+"frame_shadow_reserve_frame" => Self::frame_shadow_reserve_frame,
+"frame_ui_slot_frame" => Self::frame_ui_slot_frame(a.u32(0)?),
+"frame_overflow_frame" => Self::frame_overflow_frame,
+"frame_begin_frame" => Self::frame_begin_frame,
+"frame_select_frame" => Self::frame_select_frame,
+"frame_plan_frame" => Self::frame_plan_frame,
+"frame_publish_frame" => Self::frame_publish_frame(a.u32(0)?),
+"frame_admit_interface_frame" => Self::frame_admit_interface_frame(a.u32(0)?),
+"battle_frame" => Self::battle_frame(a.owner(0)?),
+"frame_aux_frame" => Self::frame_aux_frame(a.owner(0)?,a.u32(1)?),
+"frame_error_frame" => Self::frame_error_frame,
+"frame_cancel_frame" => Self::frame_cancel_frame,
 "hud_init" => Self::hud_init(a.u32s(0)?),
 "hud_model_text" => Self::hud_model_text(a.string(0)?,a.bool(1)?),
 "hud_model_asset" => Self::hud_model_asset(a.u32(0)?,a.i32(1)?,a.f64(2)?,a.f64(3)?,a.bool(4)?),
@@ -601,7 +650,7 @@ Ok(match name {
 _ => return Err(format!("unknown renderer command {name}")),
 })
 }
-pub fn execute(&mut self, host: &mut Bridge, resource_bank: &[Resources]) -> Result<Option<bfe_render::core::Stats>,String> {
+pub fn execute(&mut self, host: &mut Bridge, resource_bank: &mut [Resources]) -> Result<Option<bfe_render::core::Stats>,String> {
 match self {
 Self::camera_shader_frame(role) => { let _=host.camera_shader_frame(*role); },
 Self::camera_pack_shader_frame(pack) => { let _=host.camera_pack_shader_frame(*pack); },
@@ -658,6 +707,20 @@ Self::far_probe_frame(face) => { return Ok(Some(host.far_probe_frame(*face)?)); 
 Self::foliage_class(texture,grass,shadows,definition,authored,rows,bounds,map_matrix) => { let _=host.foliage_class(*texture,*grass,*shadows,definition,authored,rows,bounds,map_matrix)?; },
 Self::foliage_frame => { let _=host.foliage_frame(); },
 Self::foliage_selected(class) => { let _=host.foliage_selected(*class); },
+Self::frame_lines_publish_frame(view,count) => { let _=host.frame_lines_publish_frame(*view,*count); },
+Self::frame_reserve_frame => { let _=host.frame_reserve_frame(); },
+Self::frame_shadow_reserve_frame => { let _=host.frame_shadow_reserve_frame(); },
+Self::frame_ui_slot_frame(role) => { let _=host.frame_ui_slot_frame(*role); },
+Self::frame_overflow_frame => { let _=host.frame_overflow_frame(); },
+Self::frame_begin_frame => { let _=host.frame_begin_frame(); },
+Self::frame_select_frame => { let _=host.frame_select_frame(); },
+Self::frame_plan_frame => { let _=host.frame_plan_frame(); },
+Self::frame_publish_frame(role) => { let _=host.frame_publish_frame(*role); },
+Self::frame_admit_interface_frame(role) => { let _=host.frame_admit_interface_frame(*role); },
+Self::battle_frame(resources) => { if !host.battle_frame(resource_bank.get_mut(*resources).ok_or("unknown resource owner")?) { return Err(host.frame_error_frame().unwrap_or("battle frame failed".into())); } let mut stats=bfe_render::core::Stats::default(); for values in host.r.frames.stats.chunks_exact(bfe_render::frame_plan::layout::stats::LEN) {stats.world_draws=stats.world_draws.saturating_add(values[bfe_render::frame_plan::layout::stats::WORLD_DRAWS] as u32);stats.instance_draws=stats.instance_draws.saturating_add(values[bfe_render::frame_plan::layout::stats::INSTANCE_DRAWS] as u32);stats.instances=stats.instances.saturating_add(values[bfe_render::frame_plan::layout::stats::INSTANCES] as u32);stats.program_switches=stats.program_switches.saturating_add(values[bfe_render::frame_plan::layout::stats::PROGRAM_SWITCHES] as u32);stats.gl_calls=stats.gl_calls.saturating_add(values[bfe_render::frame_plan::layout::stats::GL_CALLS] as u32); for (out,value) in stats.pass_draws.iter_mut().zip(&values[bfe_render::frame_plan::layout::stats::PASS_DRAWS..]){*out=out.saturating_add(*value as u32);}} return Ok(Some(stats)); },
+Self::frame_aux_frame(resources,role) => { if !host.frame_aux_frame(resource_bank.get_mut(*resources).ok_or("unknown resource owner")?,*role) { return Err(host.frame_error_frame().unwrap_or("battle frame failed".into())); } let mut stats=bfe_render::core::Stats::default(); for values in host.r.frames.stats.chunks_exact(bfe_render::frame_plan::layout::stats::LEN).skip(*role as usize).take(1) {stats.world_draws=stats.world_draws.saturating_add(values[bfe_render::frame_plan::layout::stats::WORLD_DRAWS] as u32);stats.instance_draws=stats.instance_draws.saturating_add(values[bfe_render::frame_plan::layout::stats::INSTANCE_DRAWS] as u32);stats.instances=stats.instances.saturating_add(values[bfe_render::frame_plan::layout::stats::INSTANCES] as u32);stats.program_switches=stats.program_switches.saturating_add(values[bfe_render::frame_plan::layout::stats::PROGRAM_SWITCHES] as u32);stats.gl_calls=stats.gl_calls.saturating_add(values[bfe_render::frame_plan::layout::stats::GL_CALLS] as u32); for (out,value) in stats.pass_draws.iter_mut().zip(&values[bfe_render::frame_plan::layout::stats::PASS_DRAWS..]){*out=out.saturating_add(*value as u32);}} return Ok(Some(stats)); },
+Self::frame_error_frame => { let _=host.frame_error_frame(); },
+Self::frame_cancel_frame => { let _=host.frame_cancel_frame(); },
 Self::hud_init(index) => { let _=host.hud_init(index); },
 Self::hud_model_text(text,uppercase) => { let _=host.hud_model_text(text,*uppercase); },
 Self::hud_model_asset(id,texture,width,height,ready) => { let _=host.hud_model_asset(*id,*texture,*width,*height,*ready); },
@@ -807,6 +870,21 @@ pub fn patch_argument(&mut self,index:usize,source_bytes:&[u8])->Result<(),Strin
 (Self::world_runs(_,_,boxes),2)=>{let dest=crate::session::bytes_mut(boxes);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 (Self::world_lamps(_,values),1)=>{let dest=crate::session::bytes_mut(values);if dest.len()!=source_bytes.len(){return Err("presentation argument extent differs".into());}dest.copy_from_slice(source_bytes);Ok(())},
 _=>Err("argument is not a scalar buffer".into()),}}
+}
+impl bfe_render::frame::FrameTargets for Resources {
+    // Graphics.setRenderTarget supplied these coordinates. The existing owner
+    // validates target generations and restores its own attachment storage.
+    fn bind(&mut self,b:&[f64])->Result<(),String> {
+        self.bind(b[bfe_render::frame_plan::layout::binding::TARGET] as i32,(b[bfe_render::frame_plan::layout::binding::FACE] as u32).min(5),b[bfe_render::frame_plan::layout::binding::LEVEL].max(0.).min(32.) as i32,
+            b[bfe_render::frame_plan::layout::binding::X] as i32,b[bfe_render::frame_plan::layout::binding::Y] as i32,b[bfe_render::frame_plan::layout::binding::WIDTH].max(0.).min(32768.) as i32,b[bfe_render::frame_plan::layout::binding::HEIGHT].max(0.).min(32768.) as i32,
+            b[bfe_render::frame_plan::layout::binding::SCISSOR] as i32,b[bfe_render::frame_plan::layout::binding::SCISSOR+1] as i32,b[bfe_render::frame_plan::layout::binding::SCISSOR+2].max(0.).min(32768.) as i32,b[bfe_render::frame_plan::layout::binding::SCISSOR+3].max(0.).min(32768.) as i32,b[bfe_render::frame_plan::layout::binding::CLIPPED]!=0.)
+    }
+    fn resolve(&mut self,id:i32)->Result<(),String> {if id<0{Ok(())}else{self.resolve(id as u32)}}
+    fn copy(&mut self,from:i32,to:i32,mask:u32)->Result<(),String> {
+        if from<0 || to<0 {return Ok(());}
+        self.copy(from as u32,to as u32,mask)
+    }
+    fn mipmap(&mut self,sample:i32)->Result<(),String> {if sample<0{Ok(())}else{self.mipmap(sample as u32)}}
 }
 struct StaticRecipe {source:u32,far_view:bool,low_res_scale:f64,samplers:Vec<i32>,order:u32,slot:u32,object:u32}
 mod static_world {

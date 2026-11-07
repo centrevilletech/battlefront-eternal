@@ -7,3 +7,9 @@ pub mod loader;
 pub mod textures;
 pub mod units;
 pub use loader::{BattleContent, Loader};
+
+pub mod placed;
+pub mod foliage;
+pub mod water;
+
+mod pad;

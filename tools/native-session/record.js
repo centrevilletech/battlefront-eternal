@@ -8,7 +8,7 @@
   for(const name of ['Float64Array','Float32Array','Uint32Array','Int32Array','Uint16Array','Uint8Array']){
     const Original=window[name];window[name]=new Proxy(Original,{construct(Target,args){const a=Reflect.construct(Target,args);if(args[0] instanceof ArrayBuffer&&args.length>1){let map=arrayViews.get(a.buffer);if(!map)arrayViews.set(a.buffer,map=new Map());map.set(a.byteOffset,Math.max(map.get(a.byteOffset)||0,a.byteLength));}return a;}});Object.defineProperty(Original.prototype,'constructor',{value:window[name],writable:true,configurable:true});
   }
-  const writable={pageunits:['input','header','commands','places','weapons'],pagepresentation:['input'],pageprops:['input','header','prop_input','trap_input','turret_input'],pagevehicles:['input','header','stream_in'],pageitems:['frame','definitions','records','answers','header'],pageordnance:['input','net','style','header'],timeline:['input'],pagenetwork:['bytes','words','timeline_input'],pagewarning:['row'],pagelights:['input','commands','header'],pageshellmusic:['row'],pageinterfacebatch:['frame','commands']};
+  const writable={pageunits:['input','header','commands','places','weapons'],pagepresentation:['input'],pageprops:['input','header','prop_input','trap_input','turret_input'],pagevehicles:['input','header','stream_in','rays'],pageitems:['frame','definitions','records','answers','header'],pageordnance:['input','net','style','header'],timeline:['input'],pagenetwork:['bytes','words','timeline_input'],pagewarning:['row'],pagelights:['input','commands','header'],pageshellmusic:['row'],pageinterfacebatch:['frame','commands']};
   const contextId=gl=>{if(!contexts.has(gl))contexts.set(gl,contexts.size);return contexts.get(gl);};
   const scalar={f64:Float64Array,f32:Float32Array,u32:Uint32Array,i32:Int32Array,u16:Uint16Array,u8:Uint8Array};
   const remember=(m,kind,ptr,context,args,preview=false)=>{
@@ -106,6 +106,7 @@
         const checks=views(row).filter(b=>checkNames.includes(b.name)).map(b=>({bank:b.name,data:blob(b.view)}));
         state.calls.push({kind:'call',owner:row.id,name,args,checks});state.depth++;let out;try{out=fn(...raw);}finally{state.depth--;}
         if(kind==='bferenderer'&&spec.result.includes('core::Stats')&&!out[3]){const stats=new Uint32Array(m.real.memory.buffer,out[0],out[1]);const totals=state.passDraws[row.id]??=defaults.stats.names.map(()=>0);for(let i=0;i<totals.length;i++)totals[i]+=stats[defaults.stats.prefix+i];}
+        if(kind==='bferenderer'&&['battle_frame','frame_aux_frame'].includes(name)&&out){const stats=new Float64Array(m.real.memory.buffer,m.real.bferenderer_frame_stats_ptr(row.ptr),m.real.bferenderer_frame_stats_len(row.ptr));const totals=state.passDraws[row.id]??=defaults.stats.names.map(()=>0);const stride=defaults.stats.prefix+totals.length;for(let at=name==='frame_aux_frame'?args[1]*stride:0,end=name==='frame_aux_frame'?Math.min(stats.length,(args[1]+1)*stride):stats.length;at<end;at+=stride)for(let i=0;i<totals.length;i++)totals[i]+=stats[at+defaults.stats.prefix+i];}
         if(name==='interface_buffer_init'){(row.streams??=[]).push(out);}
         refresh(row);return out;
       };
@@ -147,5 +148,6 @@
   }
   let battle;Object.defineProperty(window,'__bf',{configurable:true,get:()=>battle,set:b=>{battle=b;bindInstanceHooks(b);const original=b.lockstep;b.lockstep=async function(...args){state.calls.push({kind:'frame'});return original.apply(this,args);};}});
 
-  state.export=()=>({version:1,owners:state.owners.map(({id,kind,context})=>({id,kind,context})),calls:state.calls,errors:[...new Set(state.errors)],externalDraws:state.externalDraws,passDraws:state.passDraws,capabilities:state.capabilities,verification:state.owners.filter(r=>r.kind!=='bferenderer'&&r.kind!=='gpuresources').flatMap(row=>spans(row).filter(b=>!writable[row.kind]?.includes(b.name)).map(b=>({owner:row.id,bank:b.name,data:blob(new Uint8Array(row.m.real.memory.buffer,b.ptr,b.length))})))});
+  // Vehicle rays remain checked even though collision answers are host input.
+  state.export=()=>({version:1,owners:state.owners.map(({id,kind,context})=>({id,kind,context})),calls:state.calls,errors:[...new Set(state.errors)],externalDraws:state.externalDraws,passDraws:state.passDraws,capabilities:state.capabilities,verification:state.owners.filter(r=>r.kind!=='bferenderer'&&r.kind!=='gpuresources').flatMap(row=>spans(row).filter(b=>(!writable[row.kind]?.includes(b.name)||row.kind==='pagevehicles'&&b.name==='rays')).map(b=>({owner:row.id,bank:b.name,data:blob(new Uint8Array(row.m.real.memory.buffer,b.ptr,b.length))})))});
 })();

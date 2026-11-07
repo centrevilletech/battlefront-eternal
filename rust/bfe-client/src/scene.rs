@@ -156,14 +156,33 @@ pub struct Scene {
     pub deferred: usize,
     pub draws: u64,
     size: [i32; 2],
+    static_content: crate::static_scene::Admission,
+    far_projection: [f64; 16],
+    far_world_slots: Vec<usize>,
 }
 impl Scene {
     pub fn load(
         root: &Path,
         map: &str,
         size: [i32; 2],
+        load: impl FnMut() -> glow::Context,
+    ) -> Result<(Self, MapCamera), String> {
+        Self::load_with_random(root, map, size, None, load)
+    }
+    /// Recorded random draws are admission facts, shared with a browser view.
+    /// Ordinary inspection uses one deterministic host stream instead.
+    pub fn load_with_random(
+        root: &Path,
+        map: &str,
+        size: [i32; 2],
+        random_values: Option<&[f64]>,
         mut load: impl FnMut() -> glow::Context,
     ) -> Result<(Self, MapCamera), String> {
+        if random_values.is_some_and(|v| {
+            v.len() > 4_194_304 || v.iter().any(|x| !x.is_finite() || !(0.0..1.0).contains(x))
+        }) {
+            return Err("invalid foliage random admission stream".into());
+        }
         let mut loader = Loader::new(root);
         loader.compressed = false;
         let mut content = loader.load(map, &format!("map={map}&seed=1"))?;
@@ -208,6 +227,66 @@ impl Scene {
                 },
             );
         }
+        let mut sun = Vector3::new(0., -1., 0.);
+        if let Ok(v) =
+            serde_json::from_value::<[f64; 3]>(content.map["lighting"]["sunDirection"].clone())
+        {
+            sun.set(v[0], v[1], v[2]).normalize();
+        }
+        let order = content
+            .content
+            .battle
+            .world
+            .get("foliage")
+            .and_then(|v| v.get("classes"))
+            .and_then(|v| v.as_object())
+            .map(|o| o.entries().map(|(n, _)| n.to_owned()).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let mut seeded = bfe_content_native::foliage::Seeded::new(1);
+        let mut random_at = 0;
+        let mut random = || {
+            if let Some(values) = random_values {
+                let value = values.get(random_at).copied().unwrap_or(f64::NAN);
+                random_at += 1;
+                value
+            } else {
+                seeded.next()
+            }
+        };
+        let foliage =
+            bfe_content_native::foliage::admit(&content.map["foliage"], &order, sun, &mut random)?;
+        let mut foliage_images = Vec::new();
+        for class in &foliage {
+            let path = layers
+                .get(&class.texture.to_lowercase())
+                .ok_or_else(|| format!("missing foliage texture {}", class.texture))?;
+            foliage_images.push(content.textures.load(path)?);
+        }
+        let placed = bfe_content_native::placed::admit(&content)?;
+        let mut water_image = |name: &str| -> Result<Option<usize>, String> {
+            layers
+                .get(&name.to_lowercase())
+                .map(|path| content.textures.load(path))
+                .transpose()
+        };
+        let water_main = if let Some(name) = content.map["water"]["look"]["MainTexture"][0].as_str()
+        {
+            water_image(name)?
+        } else {
+            None
+        };
+        let water_mask =
+            if let Some(name) = content.map["water"]["look"]["SpecularMaskTextures"][0].as_str() {
+                water_image(&format!("{name}0"))?
+            } else {
+                None
+            };
+        let water_foam = if let Some(name) = content.map["water"]["look"]["FoamTexture"][0].as_str()
+        {
+            water_image(name)?
+        } else {
+            None
+        };
         // game.js constructs eight ordnance light shells and each visible post hologram.
         // Preserve that cold catalog identity; this neutral inspection frame
         // publishes zero active lights until a native World supplies them.
@@ -233,7 +312,7 @@ impl Scene {
             .world
             .iter()
             .enumerate()
-            .filter(|(_, m)| inspectable(m))
+            .filter(|(_, m)| inspectable(m) || m.material.kind == MaterialKind::Sky)
         {
             for id in mesh
                 .material
@@ -244,6 +323,25 @@ impl Scene {
                 .chain(layer_ids[i].iter().copied())
             {
                 *used.get_mut(id).ok_or("invalid map image id")? = true;
+            }
+        }
+        for id in foliage_images
+            .iter()
+            .copied()
+            .chain(water_main)
+            .chain(water_mask)
+            .chain(water_foam)
+        {
+            used[id] = true;
+        }
+        for part in &placed.parts {
+            let mesh = content
+                .models
+                .iter()
+                .find(|m| m.name == format!("{}/{}", part.model, part.source))
+                .ok_or("missing placed model resource")?;
+            if let Some(id) = mesh.material.texture {
+                used[id] = true;
             }
         }
         let canvas = Canvas::new(load(), size)?;
@@ -287,11 +385,77 @@ impl Scene {
             } else {
                 None
             };
+        let mut ocean_mask = empty;
+        if content.map["water"]["look"]["OceanEnable"][0]
+            .as_f64()
+            .unwrap_or(0.)
+            > 0.
+        {
+            let data = &content.map["water"];
+            let grid = data["grid"]
+                .as_u64()
+                .filter(|n| (1..=4096).contains(n))
+                .ok_or("invalid ocean mask grid")? as usize;
+            let mut pixels = vec![0u8; grid * grid];
+            for cell in data["cells"].as_array().ok_or("missing ocean mask cells")? {
+                let x = cell[0]
+                    .as_u64()
+                    .filter(|v| *v < grid as u64)
+                    .ok_or("invalid ocean mask column")? as usize;
+                let z = cell[1]
+                    .as_u64()
+                    .filter(|v| *v < grid as u64)
+                    .ok_or("invalid ocean mask row")? as usize;
+                pixels[z * grid + x] = 255;
+            }
+            let source=resources.source(&serde_json::json!({"width":grid,"height":grid,"depth":1,"target":glow::TEXTURE_2D,"format":1028,"dataType":1009,"srgb":false}).to_string())?;
+            resources.source_pixels(source, &pixels)?;
+            let sample=resources.sample(source,r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1003,"mag":1003,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
+            resources.upload(sample)?;
+            ocean_mask = bridge.r.core.add_texture(resources.texture(sample)?);
+        }
+        let mut static_content =
+            crate::static_scene::props(&mut bridge, &content, &textures, placed)?;
+        for (class, image) in foliage.iter().zip(foliage_images) {
+            bridge.foliage_class(
+                textures[image],
+                class.grass,
+                false,
+                &class.definition.to_string(),
+                &class.cards,
+                &class.rows,
+                &class.bounds,
+                &[1., 0., 0., 0., 1., 0., 0., 0., 1.],
+            )?;
+            static_content.foliage += 1;
+        }
+        if let Some(main) = water_main {
+            static_content.water = crate::static_scene::water(
+                &mut bridge,
+                &content.map["water"],
+                textures[main],
+                water_mask.map_or(u32::MAX, |i| textures[i]),
+                empty,
+                water_foam.map_or(textures[main], |i| textures[i]),
+                ocean_mask,
+            )?;
+        } else if !content.map["water"].is_null() {
+            static_content.deferred += 1;
+        }
+        let mut far_slot = bfe_render::far::FAR_SLOTS;
+        let mut far_world_slots = Vec::new();
         let mut admitted = 0;
         let mut deferred = 0;
         let mut min = [f64::INFINITY; 3];
         let mut max = [f64::NEG_INFINITY; 3];
         for (mesh_index, (mesh, layer_ids)) in content.world.iter().zip(&layer_ids).enumerate() {
+            if mesh.material.kind == MaterialKind::Sky {
+                let sky = crate::static_scene::sky(&mut bridge, mesh, &textures, far_slot, empty)?;
+                far_slot = crate::static_scene::sky_end(&sky);
+                static_content.skies.push(sky);
+                admitted += 1;
+                continue;
+            }
             if !inspectable(mesh) {
                 deferred += 1;
                 continue;
@@ -309,7 +473,10 @@ impl Scene {
             }
             let record: bfe_render::static_world::Record =
                 serde_json::from_value(authored.clone()).map_err(|e| e.to_string())?;
-            for row in vertices.chunks_exact(record.stride) {
+            for row in vertices
+                .chunks_exact(record.stride)
+                .filter(|_| !mesh.material.far)
+            {
                 for k in 0..3 {
                     min[k] = min[k].min(row[k] as f64);
                     max[k] = max[k].max(row[k] as f64);
@@ -351,14 +518,27 @@ impl Scene {
             }
             bridge.static_world(
                 source,
-                false,
-                1.0,
+                mesh.material.far,
+                if mesh.material.far {
+                    mesh.material.record["lowResScale"].as_f64().unwrap_or(1.)
+                } else {
+                    1.
+                },
                 &samplers,
-                &features,
+                if mesh.material.far {
+                    &[0; L::FEATURES_LENGTH]
+                } else {
+                    &features
+                },
                 admitted as u32,
-                admitted as u32,
+                far_slot as u32,
                 admitted as u32,
             )?;
+            if mesh.material.far {
+                far_world_slots.push(far_slot);
+                bridge.r.far.input[far_slot] = 1.;
+                far_slot += 2;
+            }
             admitted += 1;
         }
         // WorldPass.prepareNative seals the opaque draw order after admission.
@@ -369,7 +549,7 @@ impl Scene {
         }
         let center = std::array::from_fn::<_, 3, _>(|k| (min[k] + max[k]) * 0.5);
         let radius = ((max[0] - min[0]).max(max[2] - min[2])) * 0.5;
-        let camera = MapCamera::new(
+        let mut camera = MapCamera::new(
             [
                 center[0],
                 center[1] + radius * 0.35,
@@ -377,6 +557,22 @@ impl Scene {
             ],
             size,
         )?;
+        environment(&mut camera.view, &content.map);
+        let mut projection = Matrix4::default();
+        let top = 2. * (60.0f64.to_radians() * 0.5).tan();
+        let right = top * size[0] as f64 / size[1] as f64;
+        let reach = content.map["distance"]["farScene"][1]
+            .as_f64()
+            .unwrap_or(3000.);
+        projection.make_perspective(-right, right, top, -top, 2., reach, CoordinateSystem::WebGL);
+        deferred += static_content.deferred;
+        eprintln!(
+            "native static admission: props={}, foliage={}, water={}, sky={}",
+            static_content.props,
+            static_content.foliage,
+            usize::from(static_content.water.is_some()),
+            static_content.skies.len()
+        );
         Ok((
             Self {
                 bridge,
@@ -386,11 +582,25 @@ impl Scene {
                 deferred,
                 draws: 0,
                 size,
+                static_content,
+                far_projection: projection.elements,
+                far_world_slots,
             },
             camera,
         ))
     }
     pub fn draw(&mut self, view: &View) -> Result<(), String> {
+        self.render(view, "all")
+    }
+    /// Isolate an admitted pass for browser/native first-frame qualification.
+    /// This borrows the same descriptors and banks as interactive drawing.
+    pub fn draw_component(&mut self, view: &View, component: &str) -> Result<(), String> {
+        if !["props", "foliage", "water", "sky"].contains(&component) {
+            return Err("unknown static component".into());
+        }
+        self.render(view, component)
+    }
+    fn render(&mut self, view: &View, component: &str) -> Result<(), String> {
         let gl = &self.bridge.r.core.gl;
         unsafe {
             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.canvas.framebuffer));
@@ -402,13 +612,113 @@ impl Scene {
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
         }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
-        let stats = self.bridge.frame(0)?;
+        crate::static_scene::update(&mut self.static_content, &mut self.bridge, &view.values);
+        if component == "all" {
+            self.bridge.r.core.input[..16].copy_from_slice(&self.far_projection);
+        }
+        for slot in &self.far_world_slots {
+            self.bridge.r.far.input[*slot] = if component == "all" { 1. } else { 0. };
+        }
+        self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
+        self.bridge.r.far.input[bfe_render::far::FAR_KEEP] = 1.;
+        let far = if component == "all" || component == "sky" {
+            self.bridge.far_frame()?
+        } else {
+            core::Stats::default()
+        };
+        self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
+        unsafe {
+            self.bridge.r.core.gl.depth_mask(true);
+            self.bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
+        }
+        self.bridge.r.core.state.reset();
+        let records = self.static_content.select(&mut self.bridge);
+        let input = &mut self.bridge.r.foliage.input;
+        input[bfe_render::foliage::IN_PROJECTION..bfe_render::foliage::IN_PROJECTION + 16]
+            .copy_from_slice(&view.values[..16]);
+        input[bfe_render::foliage::IN_VIEW..bfe_render::foliage::IN_VIEW + 16]
+            .copy_from_slice(&view.values[16..32]);
+        let mut world = Matrix4::default();
+        world.elements.copy_from_slice(&view.values[16..32]);
+        world.invert();
+        input[bfe_render::foliage::IN_WORLD..bfe_render::foliage::IN_WORLD + 16]
+            .copy_from_slice(&world.elements);
+        input[bfe_render::foliage::IN_EYE..bfe_render::foliage::IN_EYE + 3]
+            .copy_from_slice(&view.values[32..35]);
+        input[bfe_render::foliage::IN_END] = 20000.;
+        input[bfe_render::foliage::IN_TIME] = view.values[35];
+        self.bridge.foliage_frame();
+        let stats = if component == "all" {
+            self.bridge.frame(records as u32)?
+        } else {
+            let r = &mut self.bridge.r;
+            r.core.begin_phase();
+            r.core.upload_frame(core::VIEW_NEAR);
+            r.core.upload_shadow();
+            r.core.bind_lamps();
+            r.core.opaque();
+            r.core.bind_far_map();
+            let camera = r.core.camera();
+            if component == "props" {
+                r.instances.draw(&mut r.core, &camera, records);
+            } else {
+                r.instances.draw(&mut r.core, &camera, 0);
+            }
+            if component == "foliage" {
+                r.foliage.draw(&mut r.core);
+            }
+            r.core.end_phase()?
+        };
+        let water_shown = self.bridge.r.water.input[bfe_render::water::S_SHOWN];
+        if component == "props" {
+            self.bridge.r.water.input[bfe_render::water::S_SHOWN] = 0.;
+        }
+        let transparent = if ["all", "water", "props"].contains(&component) {
+            self.bridge.transparent_frame(0, 0)?
+        } else {
+            core::Stats::default()
+        };
+        self.bridge.r.water.input[bfe_render::water::S_SHOWN] = water_shown;
+        self.draws += u64::from(
+            far.pass_draws[core::PASS_FAR]
+                + stats.pass_draws[core::PASS_FOLIAGE]
+                + stats.pass_draws[core::PASS_INSTANCES]
+                + transparent.pass_draws[core::PASS_WATER],
+        );
         self.draws +=
             u64::from(stats.pass_draws[core::PASS_WORLD] + stats.pass_draws[core::PASS_TERRAIN]);
         Ok(())
     }
+    /// Cold diagnostics for the isolated-view tool; never read by the frame loop.
+    pub fn bindings(&self) -> serde_json::Value {
+        use bfe_render::{instances as I, water as W};
+        let rigs=self.static_content.records.iter().map(|r|{let start=r[I::REC_BONE_AT] as usize*16;let len=r[I::REC_BONES] as usize*16;serde_json::json!({"world":&r[I::REC_WORLD..I::REC_WORLD+16],"bind":r[I::REC_BIND_INVERSE..I::REC_BIND_INVERSE+16].iter().map(|v|*v as f32 as f64).collect::<Vec<_>>(),"bones":self.static_content.bones[start..start+len].iter().map(|v|*v as f64).collect::<Vec<_>>()})}).collect::<Vec<_>>();
+        let mut uniforms = serde_json::Map::new();
+        if let Some(w) = &self.static_content.water {
+            if let Ok(spec) = bfe_render::programs::spec(w.key) {
+                for (i, (name, ty)) in spec.uniforms.iter().enumerate() {
+                    if *ty >= 32 {
+                        continue;
+                    }
+                    let at = W::S_FIRST + i * bfe_render::post::UNIFORM + 2;
+                    let len = (*ty as usize).min(16);
+                    uniforms.insert(
+                        name.to_string(),
+                        serde_json::json!(self.bridge.r.water.input[at..at + len]
+                            .iter()
+                            .map(|v| *v as f32 as f64)
+                            .collect::<Vec<_>>()),
+                    );
+                }
+            }
+        }
+        serde_json::json!({"rigs":rigs,"uniforms":uniforms})
+    }
     pub fn hash(&self) -> Result<String, String> {
         use sha2::{Digest, Sha256};
+        Ok(format!("{:x}", Sha256::digest(self.pixels()?)))
+    }
+    pub fn pixels(&self) -> Result<Vec<u8>, String> {
         let gl = &self.bridge.r.core.gl;
         let mut bytes = vec![0; self.size[0] as usize * self.size[1] as usize * 4];
         unsafe {
@@ -427,16 +737,50 @@ impl Scene {
                 return Err(format!("native scene GL error {error}"));
             }
         }
-        Ok(format!("{:x}", Sha256::digest(bytes)))
+        Ok(bytes)
     }
 }
 
-// Transparent, sky and far resources retain their full recorded-session path;
-// the inspector admits the opaque static world and authored terrain only.
+// Blended world buckets need their own authored transparent descriptors.
+// Sky, opaque far meshes and the independent static passes are admitted above.
 fn inspectable(mesh: &bfe_content_native::loader::Mesh) -> bool {
     mesh.geometry.vertices != 0
         && !mesh.geometry.indices.is_empty()
         && mesh.material.kind != MaterialKind::Sky
         && mesh.material.blend == Blend::Opaque
-        && !mesh.material.far
+}
+
+// materials.js::setLighting/setFog read only authored map content. The inspector
+// uses these values without fabricating point lights, shadow facts or actors.
+fn environment(view: &mut View, map: &serde_json::Value) {
+    let l = &map["lighting"];
+    for (uniform, key) in [
+        ("ambient", "ambient"),
+        ("ambientTop", "top"),
+        ("ambientBottom", "bottom"),
+        ("characterAmbient", "character"),
+        ("sunColor", "sunColor"),
+    ] {
+        let color = if uniform == "characterAmbient" && l[key].is_null() {
+            &l["ambient"]
+        } else {
+            &l[key]
+        };
+        let values = std::array::from_fn::<_, 3, _>(|i| color[i].as_f64().unwrap_or(128.) / 255.);
+        set(view, uniform, &values);
+    }
+    let mut sun = Vector3::new(0., -1., 0.);
+    if let Ok(v) = serde_json::from_value::<[f64; 3]>(l["sunDirection"].clone()) {
+        sun.set(v[0], v[1], v[2]).normalize();
+    }
+    set(view, "sunDirection", &[sun.x, sun.y, sun.z]);
+    let low = &map["distance"]["lowRes"];
+    if let Ok(fog) = serde_json::from_value::<[f64; 3]>(low["fog"].clone()) {
+        set(view, "fogColor", &fog.map(|v| v / 255.));
+    }
+    let range = serde_json::from_value::<[f64; 2]>(low["fogRange"].clone())
+        .ok()
+        .filter(|r| !low["fog"].is_null() && r[0] >= 0. && r[0] < r[1])
+        .unwrap_or([1e9, 2e9]);
+    set(view, "fogRange", &range);
 }

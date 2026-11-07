@@ -14,18 +14,8 @@ use glutin::context::{ContextApi, ContextAttributesBuilder, Version};
 use glutin::display::GlDisplay;
 use std::time::Instant;
 
-fn thread_cpu() -> f64 {
-    let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
-    t.tv_sec as f64 * 1e3 + t.tv_nsec as f64 / 1e6
-}
-
-fn process_cpu() -> f64 {
-    let mut u: libc::rusage = unsafe { std::mem::zeroed() };
-    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
-    let ms = |t: libc::timeval| t.tv_sec as f64 * 1e3 + t.tv_usec as f64 / 1e3;
-    ms(u.ru_utime) + ms(u.ru_stime)
-}
+mod cpu_time;
+use cpu_time::{thread_cpu,process_cpu};
 
 fn env(name: &str, fallback: f64) -> f64 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(fallback)
@@ -35,7 +25,7 @@ fn main() {
     let dir = std::env::args().nth(1).expect("usage: bfe-native CAPTURE_DIR");
     // A GLES 3.0 context on the first EGL device, current with no surface.
     let device = Device::query_devices().expect("no EGL devices").next().expect("no EGL device");
-    eprintln!("EGL device: {:?}", device.drm_render_device_node_path());
+    eprintln!("EGL device: {:?} / {:?}", device.vendor(), device.name());
     let display = unsafe { Display::with_device(&device, None) }.expect("EGL display");
     let template = ConfigTemplateBuilder::new().with_surface_type(ConfigSurfaceTypes::empty()).build();
     let config = unsafe { display.find_configs(template) }.expect("configs").next().expect("no config");
@@ -53,7 +43,10 @@ fn main() {
     let (w, h, samples) = (env("W", 1600.0) as i32, env("H", 900.0) as i32, env("SAMPLES", 2.0) as i32);
     let target = bfe_native::target::Target::new(&gl, w, h, samples).expect("target");
     target.bind(&gl);
-    let (mut r, frames) = load_scene(std::path::Path::new(&dir), gl, multi).expect("capture");
+    let (mut r, frames) = match load_scene(std::path::Path::new(&dir), gl, multi) {
+        Ok(scene) => scene,
+        Err(error) => { eprintln!("bfe-native: {error}"); std::process::exit(1); }
+    };
     let secs = env("SECS", 20.0);
     // The driver compiles shader variants as new state first shows up:
     // measure only after a warm-up.

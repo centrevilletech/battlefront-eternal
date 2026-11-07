@@ -480,3 +480,10 @@ impl<C:HasContext,Md:MultiDraw> crate::transparent::Source<C,Md> for LineSource<
         for item in run {self.draw_one(core,item.record as usize);}
     }
 }
+
+// A native host may observe its bounded publication store filling before a
+// packet can be sealed. Keep the clipped state inside the frame owner.
+#[cfg(not(target_arch = "wasm32"))]
+impl<C: HasContext> FrameBank<C> {
+    pub fn native_mark_clipped(&mut self){self.clipped=true;}
+}

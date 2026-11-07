@@ -19,3 +19,5 @@ mod canvas;
 
 pub mod sound;
 pub mod scene;
+
+mod static_scene;
