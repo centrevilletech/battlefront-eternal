@@ -1465,7 +1465,7 @@ impl ClientMuzzles {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.barrels.len() as f64; heap.resize(at + self.barrels.len() * 1, 0.0); for (i, e) in self.barrels.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.barrels.len() as f64; heap.reserve(self.barrels.len() * 1); for e in self.barrels.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

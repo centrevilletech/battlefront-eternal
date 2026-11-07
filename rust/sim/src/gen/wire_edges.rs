@@ -153,10 +153,10 @@ impl WeCall {
         row[4] = self.capacity;
         row[5] = self.action_received;
         row[6] = self.fire_received;
-        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.edges.len() as f64; heap.resize(at + self.edges.len() * 23, 0.0); for (i, e) in self.edges.iter().enumerate() { let mut item = [0.0f64; 23]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 23..at + (i + 1) * 23].copy_from_slice(&item); } }
-        { let at = heap.len(); row[9] = at as f64; row[9 + 1] = self.ids.len() as f64; heap.resize(at + self.ids.len() * 1, 0.0); for (i, e) in self.ids.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.edges.len() as f64; heap.reserve(self.edges.len() * 23); for e in self.edges.iter() { let mut item = [0.0f64; 23]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[9] = at as f64; row[9 + 1] = self.ids.len() as f64; heap.extend_from_slice(self.ids.as_slice()); }
         match &self.edge { Some(v) => { row[11] = 0.0; v.put(&mut row[11 + 1..], heap); } None => { row[11] = 1.0; row[11 + 1..11 + 24].fill(0.0); } }
-        { let at = heap.len(); row[35] = at as f64; row[35 + 1] = self.outcomes.len() as f64; heap.resize(at + self.outcomes.len() * 3, 0.0); for (i, e) in self.outcomes.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[35] = at as f64; row[35 + 1] = self.outcomes.len() as f64; heap.reserve(self.outcomes.len() * 3); for e in self.outcomes.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         row[37] = if self.fire { 1.0 } else { 0.0 };
         row[38] = self.id;
         row[39] = self.external_id;
@@ -225,12 +225,12 @@ impl WeResult {
         row[7] = if self.accepted { 1.0 } else { 0.0 };
         row[8] = if self.fire { 1.0 } else { 0.0 };
         row[9] = self.id;
-        { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.received.len() as f64; heap.resize(at + self.received.len() * 1, 0.0); for (i, e) in self.received.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        { let at = heap.len(); row[12] = at as f64; row[12 + 1] = self.results.len() as f64; heap.resize(at + self.results.len() * 3, 0.0); for (i, e) in self.results.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
-        { let at = heap.len(); row[14] = at as f64; row[14 + 1] = self.edges.len() as f64; heap.resize(at + self.edges.len() * 23, 0.0); for (i, e) in self.edges.iter().enumerate() { let mut item = [0.0f64; 23]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 23..at + (i + 1) * 23].copy_from_slice(&item); } }
-        { let at = heap.len(); row[16] = at as f64; row[16 + 1] = self.pending.len() as f64; heap.resize(at + self.pending.len() * 3, 0.0); for (i, e) in self.pending.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.received.len() as f64; heap.extend_from_slice(self.received.as_slice()); }
+        { let at = heap.len(); row[12] = at as f64; row[12 + 1] = self.results.len() as f64; heap.reserve(self.results.len() * 3); for e in self.results.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[14] = at as f64; row[14 + 1] = self.edges.len() as f64; heap.reserve(self.edges.len() * 23); for e in self.edges.iter() { let mut item = [0.0f64; 23]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[16] = at as f64; row[16 + 1] = self.pending.len() as f64; heap.reserve(self.pending.len() * 3); for e in self.pending.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         row[18] = self.highest;
-        { let at = heap.len(); row[19] = at as f64; row[19 + 1] = self.seen.len() as f64; heap.resize(at + self.seen.len() * 1, 0.0); for (i, e) in self.seen.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[19] = at as f64; row[19 + 1] = self.seen.len() as f64; heap.extend_from_slice(self.seen.as_slice()); }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -325,7 +325,7 @@ impl WiCommand {
         row[1] = self.sequence;
         row[2] = self.tick;
         row[3] = self.view;
-        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.codes.len() as f64; heap.resize(at + self.codes.len() * 1, 0.0); for (i, e) in self.codes.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.codes.len() as f64; heap.extend_from_slice(self.codes.as_slice()); }
         row[6..6 + 2].copy_from_slice(&self.look);
     }
 
@@ -447,11 +447,11 @@ impl WiPacket {
         let row: &mut [f64; 13] = (&mut row[..13]).try_into().unwrap();
         row[0] = self.epoch;
         row[1] = self.generation;
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.views.len() as f64; heap.resize(at + self.views.len() * 13, 0.0); for (i, e) in self.views.iter().enumerate() { let mut item = [0.0f64; 13]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 13..at + (i + 1) * 13].copy_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.views.len() as f64; heap.reserve(self.views.len() * 13); for e in self.views.iter() { let mut item = [0.0f64; 13]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.commands.len() as f64; heap.resize(at + self.commands.len() * 8, 0.0); for (i, e) in self.commands.iter().enumerate() { let mut item = [0.0f64; 8]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 8..at + (i + 1) * 8].copy_from_slice(&item); } }
-        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.edges.len() as f64; heap.resize(at + self.edges.len() * 14, 0.0); for (i, e) in self.edges.iter().enumerate() { let mut item = [0.0f64; 14]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 14..at + (i + 1) * 14].copy_from_slice(&item); } }
+        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.edges.len() as f64; heap.reserve(self.edges.len() * 14); for e in self.edges.iter() { let mut item = [0.0f64; 14]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         match &self.ack { Some(v) => { row[8] = 0.0; v.put(&mut row[8 + 1..], heap); } None => { row[8] = 1.0; row[8 + 1..8 + 3].fill(0.0); } }
-        { let at = heap.len(); row[11] = at as f64; row[11 + 1] = self.valid_codes.len() as f64; heap.resize(at + self.valid_codes.len() * 1, 0.0); for (i, e) in self.valid_codes.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[11] = at as f64; row[11 + 1] = self.valid_codes.len() as f64; heap.reserve(self.valid_codes.len() * 1); for e in self.valid_codes.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

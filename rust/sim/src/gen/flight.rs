@@ -258,8 +258,8 @@ impl Vehicle {
         row[144..144 + 3].copy_from_slice(&self.size);
         row[147] = self.bound_radius;
         row[148] = self.probe_radius;
-        { let at = heap.len(); row[149] = at as f64; row[149 + 1] = self.probes.len() as f64; heap.resize(at + self.probes.len() * 3, 0.0); for (i, e) in self.probes.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
-        { let at = heap.len(); row[151] = at as f64; row[151 + 1] = self.support_probes.len() as f64; heap.resize(at + self.support_probes.len() * 3, 0.0); for (i, e) in self.support_probes.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[149] = at as f64; row[149 + 1] = self.probes.len() as f64; heap.extend_from_slice(self.probes.as_flattened()); }
+        { let at = heap.len(); row[151] = at as f64; row[151 + 1] = self.support_probes.len() as f64; heap.extend_from_slice(self.support_probes.as_flattened()); }
         row[153] = self.max_health;
         match &self.water_rule { Some(v) => { row[154] = 0.0; v.put(&mut row[154 + 1..], heap); } None => { row[154] = 1.0; row[154 + 1..154 + 3].fill(0.0); } }
         row[157] = self.water_depth;
@@ -288,13 +288,13 @@ impl Vehicle {
         row[191..191 + 16].copy_from_slice(&self.matrix);
         row[207..207 + 3].copy_from_slice(&self.item_center);
         row[210..210 + 3].copy_from_slice(&self.support_normal);
-        match &self.leg_side { Some(v) => { row[213] = 0.0; { let at = heap.len(); row[213 + 1] = at as f64; row[213 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[213] = 2.0; row[213 + 1..213 + 3].fill(0.0); } }
+        match &self.leg_side { Some(v) => { row[213] = 0.0; { let at = heap.len(); row[213 + 1] = at as f64; row[213 + 1 + 1] = v.len() as f64; heap.extend_from_slice(v.as_slice()); } } None => { row[213] = 2.0; row[213 + 1..213 + 3].fill(0.0); } }
         row[216] = self.seat_index;
         match &self.driver { Some(v) => { row[217] = 0.0; row[217 + 1] = (*v).slot as f64; row[217 + 1 + 1] = (*v).gen as f64; } None => { row[217] = 1.0; row[217 + 1..217 + 3].fill(0.0); } }
-        { let at = heap.len(); row[220] = at as f64; row[220 + 1] = self.wheels.len() as f64; heap.resize(at + self.wheels.len() * 6, 0.0); for (i, e) in self.wheels.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
-        { let at = heap.len(); row[222] = at as f64; row[222 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 9, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
-        { let at = heap.len(); row[224] = at as f64; row[224 + 1] = self.seat_views.len() as f64; heap.resize(at + self.seat_views.len() * 6, 0.0); for (i, e) in self.seat_views.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
-        { let at = heap.len(); row[226] = at as f64; row[226 + 1] = self.seat_leases.len() as f64; heap.resize(at + self.seat_leases.len() * 17, 0.0); for (i, e) in self.seat_leases.iter().enumerate() { let mut item = [0.0f64; 17]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 17..at + (i + 1) * 17].copy_from_slice(&item); } }
+        { let at = heap.len(); row[220] = at as f64; row[220 + 1] = self.wheels.len() as f64; heap.reserve(self.wheels.len() * 6); for e in self.wheels.iter() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[222] = at as f64; row[222 + 1] = self.seats.len() as f64; heap.reserve(self.seats.len() * 9); for e in self.seats.iter() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[224] = at as f64; row[224 + 1] = self.seat_views.len() as f64; heap.reserve(self.seat_views.len() * 6); for e in self.seat_views.iter() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[226] = at as f64; row[226 + 1] = self.seat_leases.len() as f64; heap.reserve(self.seat_leases.len() * 17); for e in self.seat_leases.iter() { let mut item = [0.0f64; 17]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         match &self.tick_from { Some(v) => { row[228] = 0.0; row[228 + 1..228 + 1 + 3].copy_from_slice(&(*v)); } None => { row[228] = 2.0; row[228 + 1..228 + 4].fill(0.0); } }
         match &self.tick_from_yaw { Some(v) => { row[232] = 0.0; row[232 + 1] = (*v); } None => { row[232] = 2.0; row[232 + 1..232 + 2].fill(0.0); } }
         match &self.tick_from_tilt { Some(v) => { row[234] = 0.0; row[234 + 1] = (*v); } None => { row[234] = 2.0; row[234 + 1..234 + 2].fill(0.0); } }
@@ -509,11 +509,11 @@ impl Vehicle {
         row[142..142 + 16].copy_from_slice(&self.matrix);
         row[158..158 + 3].copy_from_slice(&self.item_center);
         row[161..161 + 3].copy_from_slice(&self.support_normal);
-        match &self.leg_side { Some(v) => { row[164] = 0.0; { let at = heap.len(); row[164 + 1] = at as f64; row[164 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[164] = 2.0; row[164 + 1..164 + 3].fill(0.0); } }
+        match &self.leg_side { Some(v) => { row[164] = 0.0; { let at = heap.len(); row[164 + 1] = at as f64; row[164 + 1 + 1] = v.len() as f64; heap.extend_from_slice(v.as_slice()); } } None => { row[164] = 2.0; row[164 + 1..164 + 3].fill(0.0); } }
         row[167] = self.seat_index;
         match &self.driver { Some(v) => { row[168] = 0.0; row[168 + 1] = (*v).slot as f64; row[168 + 1 + 1] = (*v).gen as f64; } None => { row[168] = 1.0; row[168 + 1..168 + 3].fill(0.0); } }
-        { let at = heap.len(); row[171] = at as f64; row[171 + 1] = self.wheels.len() as f64; heap.resize(at + self.wheels.len() * 6, 0.0); for (i, e) in self.wheels.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
-        { let at = heap.len(); row[173] = at as f64; row[173 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 9, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
+        { let at = heap.len(); row[171] = at as f64; row[171 + 1] = self.wheels.len() as f64; heap.reserve(self.wheels.len() * 6); for e in self.wheels.iter() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[173] = at as f64; row[173 + 1] = self.seats.len() as f64; heap.reserve(self.seats.len() * 9); for e in self.seats.iter() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         match &self.tick_from { Some(v) => { row[175] = 0.0; row[175 + 1..175 + 1 + 3].copy_from_slice(&(*v)); } None => { row[175] = 2.0; row[175 + 1..175 + 4].fill(0.0); } }
         match &self.tick_from_yaw { Some(v) => { row[179] = 0.0; row[179 + 1] = (*v); } None => { row[179] = 2.0; row[179 + 1..179 + 2].fill(0.0); } }
         match &self.tick_from_tilt { Some(v) => { row[181] = 0.0; row[181 + 1] = (*v); } None => { row[181] = 2.0; row[181 + 1..181 + 2].fill(0.0); } }

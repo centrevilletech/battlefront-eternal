@@ -69,7 +69,7 @@ impl RoPlayers {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
         row[0] = self.capacity;
-        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.reserved.len() as f64; heap.resize(at + self.reserved.len() * 2, 0.0); for (i, e) in self.reserved.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.reserved.len() as f64; heap.reserve(self.reserved.len() * 2); for e in self.reserved.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -177,7 +177,7 @@ impl RoResult {
         match &self.character { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v).slot as f64; row[3 + 1 + 1] = (*v).gen as f64; } None => { row[3] = 1.0; row[3 + 1..3 + 3].fill(0.0); } }
         row[6] = if self.flag { 1.0 } else { 0.0 };
         row[7] = if self.full { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.counts.len() as f64; heap.resize(at + self.counts.len() * 4, 0.0); for (i, e) in self.counts.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
+        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.counts.len() as f64; heap.reserve(self.counts.len() * 4); for e in self.counts.iter() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

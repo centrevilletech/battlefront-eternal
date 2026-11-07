@@ -855,3 +855,72 @@ fn presentation_callbacks_borrow_fields_and_reuse_output_even_on_oversize() {
     assert_eq!(ALLOCATIONS.with(Cell::get), 0);
     assert_eq!(out.capacity(), 2048);
 }
+
+#[test]
+fn decoded_snapshot_views_follow_replacement_eviction_and_failed_capture() {
+    use bfe_sim::wire::retained::Ring;
+    let strings = Strings::default(); let bounds = records::default_bounds();
+    let body = WireRecord { kind: WireRecordKind::Soldier, id: 0., generation: 1., class_id: Some(1.),
+        team: Some(1.), yaw: Some(0.), pitch: Some(0.), ..Default::default() };
+    let mut ring = Ring::new(0, 1, 8).unwrap(); let mut slots = records::SnapshotSlotTable::default();
+    let capture = |ring: &mut Ring, slots: &mut records::SnapshotSlotTable, tick, health| {
+        ring.capture(tick, 1., &[WireRecord { health: Some(health), ..body.clone() }], [].iter(), slots, &bounds, &strings).unwrap();
+        ring.latest().unwrap().clone()
+    };
+    let check = |ring: &mut Ring, tick, baseline, current: &WireSnapshot, before: &WireSnapshot| {
+        let (actual, base) = ring.pair(tick, 1., Some(baseline)).unwrap();
+        assert_eq!(actual, current); assert_eq!(base, Some(before));
+    };
+    let one = capture(&mut ring, &mut slots, 1., 10.);
+    let two = capture(&mut ring, &mut slots, 2., 20.);
+    // Both directions can borrow existing decoded banks. An older requested
+    // current may replace stage without changing the latest capture.
+    check(&mut ring, 2., 1., &two, &one);
+    check(&mut ring, 1., 2., &one, &two);
+    let three = capture(&mut ring, &mut slots, 3., 30.);
+    check(&mut ring, 3., 1., &three, &one);
+    check(&mut ring, 3., 1., &three, &one);
+    let replacement = capture(&mut ring, &mut slots, 1., 40.);
+    let four = capture(&mut ring, &mut slots, 4., 50.);
+    let five = capture(&mut ring, &mut slots, 5., 60.);
+    // The old baseline's packed place has been recycled for tick four.
+    // Equal ticks and equal packed places alone cannot identify a view.
+    check(&mut ring, 3., 4., &three, &four);
+    check(&mut ring, 5., 1., &five, &replacement);
+    let oversized = [WireField { payload: vec![0; 901], ..Default::default() }];
+    assert!(ring.capture(6., 1., &[], oversized.iter(), &mut slots, &bounds, &strings).is_err());
+    check(&mut ring, 3., 1., &three, &replacement);
+    assert_eq!(ring.latest(), Some(&five));
+    // A cached decoded view never bypasses retention or epoch validation.
+    for tick in 6..=12 { capture(&mut ring, &mut slots, tick as f64, 70.); }
+    assert!(ring.pair(12., 1., Some(1.)).is_err());
+    assert!(ring.pair(12., 2., None).is_err());
+}
+
+#[test]
+fn generated_retained_reader_keeps_banks_and_ieee_words_with_bounded_input() {
+    let expected = WireSlot { slot: 7., entry: WireEntry { cls: WireClass::Vehicle,
+        pos: [f64::from_bits(0x7ff8000000000031), -0., 17.], anim: vec![1., -0., f64::from_bits(1)],
+        mount: WireMount { slot: Some(4.), seats: vec![[0.2, -0.3], [0.4, 0.5]], ..Default::default() },
+        ..Default::default() } };
+    let mut row = [0.; WireSlot::WORDS]; let mut heap = Vec::new(); expected.put(&mut row, &mut heap);
+    let mut pooled = WireSlot { entry: WireEntry { anim: Vec::with_capacity(3),
+        mount: WireMount { seats: Vec::with_capacity(2), ..Default::default() }, ..Default::default() }, ..Default::default() };
+    let anim = pooled.entry.anim.as_ptr(); let seats = pooled.entry.mount.seats.as_ptr();
+    ALLOCATIONS.with(|n| n.set(0)); ACTIVE.with(|flag| flag.set(true));
+    let valid = pooled.take_into(&row, &heap);
+    let short = pooled.take_into(&row[..row.len() - 1], &heap);
+    let truncated = pooled.take_into(&row, &heap[..heap.len() - 1]);
+    let restored = pooled.take_into(&row, &heap);
+    ACTIVE.with(|flag| flag.set(false));
+    assert!(valid && restored); assert!(!short && !truncated);
+    assert_eq!(ALLOCATIONS.with(Cell::get), 0);
+    assert_eq!(pooled.entry.anim.as_ptr(), anim); assert_eq!(pooled.entry.mount.seats.as_ptr(), seats);
+    // Comparing the generated words checks NaN payloads and signed zero too.
+    let mut actual_row = [0.; WireSlot::WORDS]; let mut actual_heap = Vec::new();
+    pooled.put(&mut actual_row, &mut actual_heap);
+    assert!(row.iter().zip(actual_row.iter()).all(|(a, b)| a.to_bits() == b.to_bits()));
+    assert_eq!(heap.iter().map(|n| n.to_bits()).collect::<Vec<_>>(), actual_heap.iter().map(|n| n.to_bits()).collect::<Vec<_>>());
+    let mut unreserved = WireSlot::default();
+    assert!(!unreserved.take_into(&row, &heap));
+}

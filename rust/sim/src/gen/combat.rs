@@ -1520,7 +1520,7 @@ impl F3CombatView {
 
     /// Update one fixed field in a retained encoding; other words stay consumed.
     pub fn put_weapons(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        { let at = heap.len(); row[42] = at as f64; row[42 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 42, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 42..at + (i + 1) * 42].copy_from_slice(&item); } }
+        { let at = heap.len(); row[42] = at as f64; row[42 + 1] = self.weapons.len() as f64; heap.reserve(self.weapons.len() * 42); for e in self.weapons.iter() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
@@ -1544,7 +1544,7 @@ impl F3CombatView {
         row[34..34 + 3].copy_from_slice(&self.up);
         row[37..37 + 3].copy_from_slice(&self.pivot);
         row[40..40 + 2].copy_from_slice(&self.selected);
-        { let at = heap.len(); row[42] = at as f64; row[42 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 42, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 42..at + (i + 1) * 42].copy_from_slice(&item); } }
+        { let at = heap.len(); row[42] = at as f64; row[42 + 1] = self.weapons.len() as f64; heap.reserve(self.weapons.len() * 42); for e in self.weapons.iter() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -1978,12 +1978,12 @@ impl Combat {
         match &self.mounted { Some(v) => { row[28] = 0.0; row[28 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[28] = 2.0; row[28 + 1..28 + 2].fill(0.0); } }
         row[30] = if self.gun_underwater { 1.0 } else { 0.0 };
         row[31] = if self.defer_muzzles { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[32] = at as f64; row[32 + 1] = self.pending_muzzles.len() as f64; heap.resize(at + self.pending_muzzles.len() * 15, 0.0); for (i, e) in self.pending_muzzles.iter().enumerate() { let mut item = [0.0f64; 15]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 15..at + (i + 1) * 15].copy_from_slice(&item); } }
+        { let at = heap.len(); row[32] = at as f64; row[32 + 1] = self.pending_muzzles.len() as f64; heap.reserve(self.pending_muzzles.len() * 15); for e in self.pending_muzzles.iter() { let mut item = [0.0f64; 15]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         row[34] = if self.random { 1.0 } else { 0.0 };
         row[35] = if self.has_remotes { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[36] = at as f64; row[36 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 43, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 43]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 43..at + (i + 1) * 43].copy_from_slice(&item); } }
+        { let at = heap.len(); row[36] = at as f64; row[36 + 1] = self.weapons.len() as f64; heap.reserve(self.weapons.len() * 43); for e in self.weapons.iter() { let mut item = [0.0f64; 43]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         row[38..38 + 2].copy_from_slice(&self.selected);
-        { let at = heap.len(); row[40] = at as f64; row[40 + 1] = self.seen.len() as f64; heap.resize(at + self.seen.len() * 3, 0.0); for (i, e) in self.seen.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[40] = at as f64; row[40 + 1] = self.seen.len() as f64; heap.reserve(self.seen.len() * 3); for e in self.seen.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         row[42..42 + 3].copy_from_slice(&self.origin);
         row[45..45 + 3].copy_from_slice(&self.target);
         row[48..48 + 3].copy_from_slice(&self.aim_dir);

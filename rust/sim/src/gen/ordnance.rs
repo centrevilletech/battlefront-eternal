@@ -712,7 +712,7 @@ impl NearAnswer {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
         row[0] = if self.found { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.units.len() as f64; heap.resize(at + self.units.len() * 2, 0.0); for (i, e) in self.units.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.units.len() as f64; heap.reserve(self.units.len() * 2); for e in self.units.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -1692,10 +1692,10 @@ impl Ordnance {
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 13] = (&mut row[..13]).try_into().unwrap();
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.bolts.len() as f64; heap.resize(at + self.bolts.len() * 2, 0.0); for (i, e) in self.bolts.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.beams.len() as f64; heap.resize(at + self.beams.len() * 2, 0.0); for (i, e) in self.beams.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.grenades.len() as f64; heap.resize(at + self.grenades.len() * 2, 0.0); for (i, e) in self.grenades.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.rounds.len() as f64; heap.resize(at + self.rounds.len() * 2, 0.0); for (i, e) in self.rounds.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.bolts.len() as f64; heap.reserve(self.bolts.len() * 2); for e in self.bolts.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.beams.len() as f64; heap.reserve(self.beams.len() * 2); for e in self.beams.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.grenades.len() as f64; heap.reserve(self.grenades.len() * 2); for e in self.grenades.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.rounds.len() as f64; heap.reserve(self.rounds.len() * 2); for e in self.rounds.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
         row[10..10 + 3].copy_from_slice(&self.start);
     }
 

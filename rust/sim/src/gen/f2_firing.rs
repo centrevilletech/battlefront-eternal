@@ -263,12 +263,12 @@ impl FfWeaponBirth {
         row[50] = self.category_mask as f64;
         row[51] = self.weapon_node;
         row[52] = self.fallback_node;
-        { let at = heap.len(); row[53] = at as f64; row[53 + 1] = self.direction_nodes.len() as f64; heap.resize(at + self.direction_nodes.len() * 1, 0.0); for (i, e) in self.direction_nodes.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        { let at = heap.len(); row[55] = at as f64; row[55 + 1] = self.outside.len() as f64; heap.resize(at + self.outside.len() * 1, 0.0); for (i, e) in self.outside.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[53] = at as f64; row[53 + 1] = self.direction_nodes.len() as f64; heap.extend_from_slice(self.direction_nodes.as_slice()); }
+        { let at = heap.len(); row[55] = at as f64; row[55 + 1] = self.outside.len() as f64; heap.extend_from_slice(self.outside.as_slice()); }
         self.emitter.put(&mut row[57..57 + 3], heap);
         row[60] = self.emitter_node;
         row[61] = self.emitter_aimer;
-        { let at = heap.len(); row[62] = at as f64; row[62 + 1] = self.muzzles.len() as f64; heap.resize(at + self.muzzles.len() * 5, 0.0); for (i, e) in self.muzzles.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } }
+        { let at = heap.len(); row[62] = at as f64; row[62 + 1] = self.muzzles.len() as f64; heap.reserve(self.muzzles.len() * 5); for e in self.muzzles.iter() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -367,7 +367,7 @@ impl FfBirth {
         row[2] = self.life;
         row[3] = if self.command_walker { 1.0 } else { 0.0 };
         row[4] = self.leg_top;
-        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.legs.len() as f64; heap.resize(at + self.legs.len() * 13, 0.0); for (i, e) in self.legs.iter().enumerate() { let mut item = [0.0f64; 13]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 13..at + (i + 1) * 13].copy_from_slice(&item); } }
+        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.legs.len() as f64; heap.reserve(self.legs.len() * 13); for e in self.legs.iter() { let mut item = [0.0f64; 13]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 2, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
     }
 
@@ -401,7 +401,7 @@ impl FfWeaponOut {
         self.state.put(&mut row[0..], heap);
         row[43] = self.random_binding as f64;
         row[44] = self.barrel;
-        { let at = heap.len(); row[45] = at as f64; row[45 + 1] = self.kicks.len() as f64; heap.resize(at + self.kicks.len() * 2, 0.0); for (i, e) in self.kicks.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v); } None => { row[0] = 2.0; row[0 + 1..0 + 2].fill(0.0); } } } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[45] = at as f64; row[45 + 1] = self.kicks.len() as f64; heap.reserve(self.kicks.len() * 2); for e in self.kicks.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v); } None => { row[0] = 2.0; row[0 + 1..0 + 2].fill(0.0); } } } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

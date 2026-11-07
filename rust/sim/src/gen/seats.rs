@@ -112,8 +112,8 @@ impl SeatInput {
         row[6] = self.down;
         row[7..7 + 3].copy_from_slice(&self.aim);
         row[10] = if self.aiming { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[11] = at as f64; row[11 + 1] = self.held.len() as f64; heap.resize(at + self.held.len() * 1, 0.0); for (i, e) in self.held.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.pressed.len() as f64; heap.resize(at + self.pressed.len() * 1, 0.0); for (i, e) in self.pressed.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[11] = at as f64; row[11 + 1] = self.held.len() as f64; heap.reserve(self.held.len() * 1); for e in self.held.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.pressed.len() as f64; heap.reserve(self.pressed.len() * 1); for e in self.pressed.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap.extend_from_slice(&item); } }
         row[15] = if self.reload { 1.0 } else { 0.0 };
         row[16] = if self.exit { 1.0 } else { 0.0 };
         match &self.trick { Some(v) => { row[17] = 0.0; row[17 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[17] = 2.0; row[17 + 1..17 + 2].fill(0.0); } }
@@ -196,8 +196,8 @@ impl SeatHullFacts {
         row[4] = self.attacker_id;
         row[5] = if self.hover { 1.0 } else { 0.0 };
         row[6] = if self.animal { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.turret_nodes.len() as f64; heap.resize(at + self.turret_nodes.len() * 1, 0.0); for (i, e) in self.turret_nodes.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        { let at = heap.len(); row[9] = at as f64; row[9 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 1, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.turret_nodes.len() as f64; heap.reserve(self.turret_nodes.len() * 1); for e in self.turret_nodes.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[9] = at as f64; row[9 + 1] = self.weapons.len() as f64; heap.extend_from_slice(self.weapons.as_slice()); }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -345,7 +345,7 @@ impl SeatPhaseArgs {
         row[0] = self.time;
         row[1] = self.ticks;
         { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.hulls.len() as f64; heap.resize(at + self.hulls.len() * 11, 0.0); for (i, e) in self.hulls.iter().enumerate() { let mut item = [0.0f64; 11]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 11..at + (i + 1) * 11].copy_from_slice(&item); } }
-        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.controls.len() as f64; heap.resize(at + self.controls.len() * 29, 0.0); for (i, e) in self.controls.iter().enumerate() { let mut item = [0.0f64; 29]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 29..at + (i + 1) * 29].copy_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.controls.len() as f64; heap.reserve(self.controls.len() * 29); for e in self.controls.iter() { let mut item = [0.0f64; 29]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -416,8 +416,8 @@ impl SeatPhaseAnswer {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
         row[0] = self.ticks;
-        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.latched.len() as f64; heap.resize(at + self.latched.len() * 2, 0.0); for (i, e) in self.latched.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.effects.len() as f64; heap.resize(at + self.effects.len() * 12, 0.0); for (i, e) in self.effects.iter().enumerate() { let mut item = [0.0f64; 12]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 12..at + (i + 1) * 12].copy_from_slice(&item); } }
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.latched.len() as f64; heap.reserve(self.latched.len() * 2); for e in self.latched.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.effects.len() as f64; heap.reserve(self.effects.len() * 12); for e in self.effects.iter() { let mut item = [0.0f64; 12]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -768,7 +768,7 @@ impl Seats {
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.leases.len() as f64; heap.resize(at + self.leases.len() * 2, 0.0); for (i, e) in self.leases.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.leases.len() as f64; heap.reserve(self.leases.len() * 2); for e in self.leases.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
@@ -807,7 +807,7 @@ impl TurretSeats {
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.leases.len() as f64; heap.resize(at + self.leases.len() * 2, 0.0); for (i, e) in self.leases.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.leases.len() as f64; heap.reserve(self.leases.len() * 2); for e in self.leases.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
         row[4] = self.time;
         row[5] = self.ticks;
     }

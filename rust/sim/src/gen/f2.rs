@@ -393,8 +393,8 @@ impl F2Delta {
         row[0] = self.slot as f64;
         row[1] = self.generation as f64;
         row[2] = self.length as f64;
-        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.mask.len() as f64; heap.resize(at + self.mask.len() * 1, 0.0); for (i, e) in self.mask.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.values.len() as f64; heap.resize(at + self.values.len() * 1, 0.0); for (i, e) in self.values.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.mask.len() as f64; heap.reserve(self.mask.len() * 1); for e in self.mask.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.values.len() as f64; heap.extend_from_slice(self.values.as_slice()); }
         row[7] = self.source as f64;
     }
 
@@ -813,7 +813,7 @@ impl F2PoseSeat {
         row[2] = self.yaw_rate;
         row[3] = if self.has_target { 1.0 } else { 0.0 };
         row[4..4 + 3].copy_from_slice(&self.target);
-        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.aimers.len() as f64; heap.resize(at + self.aimers.len() * 9, 0.0); for (i, e) in self.aimers.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
+        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.aimers.len() as f64; heap.reserve(self.aimers.len() * 9); for e in self.aimers.iter() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         row[9..9 + 3].copy_from_slice(&self.eye);
         row[12..12 + 3].copy_from_slice(&self.forward);
         row[15..15 + 16].copy_from_slice(&self.frame);
@@ -1464,7 +1464,7 @@ impl F2Bodies {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.bodies.len() as f64; heap.resize(at + self.bodies.len() * 3, 0.0); for (i, e) in self.bodies.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.bodies.len() as f64; heap.reserve(self.bodies.len() * 3); for e in self.bodies.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -1625,7 +1625,7 @@ impl F2TurretBirth {
         let row: &mut [f64; 189] = (&mut row[..189]).try_into().unwrap();
         row[0] = self.life;
         row[1] = if self.timed { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.locks.len() as f64; heap.resize(at + self.locks.len() * 5, 0.0); for (i, e) in self.locks.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.locks.len() as f64; heap.reserve(self.locks.len() * 5); for e in self.locks.iter() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         self.settings.put(&mut row[4..], heap);
         self.turret.put(&mut row[92..], heap);
         match &self.weapon { Some(v) => { row[141] = 0.0; v.put(&mut row[141 + 1..], heap); } None => { row[141] = 1.0; row[141 + 1..141 + 44].fill(0.0); } }

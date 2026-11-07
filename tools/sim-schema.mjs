@@ -258,7 +258,7 @@ export function buildModel(files) {
       // tells them apart by it). `$layout` exports its flat row size for
       // phase boundaries; `$publish` lists mutable fields to assign directly
       // from a generated mirror. Every other key is a field.
-      const { $class = null, $layout = false, $publish = [], $refresh = [], $delta = [], $view = false, $parts = [], $observe = [], ...plain } = fields;
+      const { $class = null, $layout = false, $publish = [], $refresh = [], $delta = [], $view = false, $parts = [], $observe = [], $reuse = false, ...plain } = fields;
       if (!Array.isArray($publish) || new Set($publish).size !== $publish.length || $publish.some(name => !(name in plain))) fail(where, '$publish names distinct fields of this record');
       for (const [name, list] of [['$refresh', $refresh], ['$delta', $delta], ['$parts', $parts], ['$observe', $observe]]) {
         if (!Array.isArray(list) || new Set(list).size !== list.length || list.some(key => !(key in plain))) fail(where, `${name} names distinct fields of this record`);
@@ -266,13 +266,14 @@ export function buildModel(files) {
       const parsed = Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`));
       // Publication may copy a vector or assign a scalar. A nested row, table
       // or reference requires ownership rules; silently aliasing it is unsafe.
+      if (typeof $reuse !== 'boolean') fail(where, '$reuse is a boolean');
       if (typeof $view !== 'boolean') fail(where, '$view is a boolean');
       if ($view && parsed.some(f => !['f64', 'f32', 'u32', 'i32', 'u8', 'bool', 'str', 'enum', 'vec3', 'quat', 'mat4'].includes(f.type.base))) fail(where, '$view supports flat scalar and math fields');
       const publishTypes = new Set(['f64', 'f32', 'i32', 'u32', 'u8', 'bool', 'enum', 'vec3']);
       for (const field of parsed) if ($publish.includes(field.name) && (!publishTypes.has(field.type.base) || field.type.base === 'vec3' && optional(field.type))) fail(where, '$publish supports scalar and vec3 fields; vectors cannot be optional');
 
       if ($observe.some(name => {const f=parsed.find(f=>f.name===name);return f.js.length!==1||!['f64','f32','u32','i32','u8','bool','str','enum'].includes(f.type.base);})) fail(where, '$observe supports direct scalar fields');
-      model.records.set(name, { name, file, observe: $observe, layout: $layout, publish: $publish, refresh: $refresh, delta: $delta, view: $view, parts: $parts, classes: [$class ?? []].flat(), fields: parsed });
+      model.records.set(name, { name, file, observe: $observe, layout: $layout, publish: $publish, refresh: $refresh, delta: $delta, view: $view, reuse: $reuse, parts: $parts, classes: [$class ?? []].flat(), fields: parsed });
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {
       const where = `${file} kind ${name}`;
@@ -518,6 +519,13 @@ function rustPut(model, t, x, k) {
       // The items' words in the heap, each `w` long, the lists their records hold after them.
       const w = words(model, t.value), v = t.value;
       const item = itemOf(v);
+      const header = `let at = heap.len(); row[${k}] = at as f64; row[${k} + 1] = ${x}.len() as f64;`;
+      // Flat numeric banks are already contiguous in their final word order.
+      // Fixed records have no child offsets: append each initialized row once
+      // instead of zeroing the whole bank before immediately overwriting it.
+      if (!optional(v) && v.base === 'f64') return `{ ${header} heap.extend_from_slice(${x}.as_slice()); }`;
+      if (!optional(v) && ['vec3', 'quat', 'mat4', 'f64xN'].includes(v.base)) return `{ ${header} heap.extend_from_slice(${x}.as_flattened()); }`;
+      if (!rustOwnsHeap(model, v)) return `{ ${header} heap.reserve(${x}.len() * ${w}); for e in ${x}.iter() { let mut item = [0.0f64; ${w}]; { let row = &mut item; ${rustPutField(model, v, item, 0)} } heap.extend_from_slice(&item); } }`;
       return `{ let at = heap.len(); row[${k}] = at as f64; row[${k} + 1] = ${x}.len() as f64; heap.resize(at + ${x}.len() * ${w}, 0.0); for (i, e) in ${x}.iter().enumerate() { let mut item = [0.0f64; ${w}]; { let row = &mut item; ${rustPutField(model, v, item, 0)} } heap[at + i * ${w}..at + (i + 1) * ${w}].copy_from_slice(&item); } }`;
     }
     case 'set': return `row[${k}] = heap.len() as f64; row[${k} + 1] = ${x}.items.len() as f64; for r in ${x}.items.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }`;
@@ -624,6 +632,36 @@ function rustRows(model, placed, words, putName, takeName, takeSelf) {
 // Two layouts with the same fields share their code.
 const sameLayout = (a, b) => a.stride === b.stride && a.fields.length === b.fields.length && a.fields.every((p, i) => p.field === b.fields[i].field);
 
+// In-place readers retain bounded list banks. Nested owning records must
+// opt in too; silently taking one would replace and drop its retained banks.
+function rustOwnsHeap(model, t) {
+  if (['list', 'set', 'map', 'obj'].includes(t.base)) return true;
+  if (t.base === 'rec') return model.records.get(t.of).fields.some(f => rustOwnsHeap(model, f.type));
+  if (t.base === 'union') return model.unions.get(t.of).variants.some(v => v.tag === 'value' && rustOwnsHeap(model, v.type));
+  return false;
+}
+function rustReuseField(model, t, target, at) {
+  if (!optional(t) && t.base === 'rec' && model.records.get(t.of).reuse) {
+    return `if !${target}.take_into(&row[${at}..], heap) { return false; }`;
+  }
+  if (!optional(t) && t.base === 'list' && !rustOwnsHeap(model, t.value)) {
+    const w = words(model, t.value);
+    const fill = !optional(t.value) && t.value.base === 'f64' ? `${target}.extend_from_slice(&heap[at..at + n]);` : `for i in 0..n { let row = &heap[at + i * ${w}..at + (i + 1) * ${w}]; ${target}.push(${rustTakeField(model, t.value, 0)}); }`;
+    return `{ let (at, n) = (word_u32(row[${at}]) as usize, word_u32(row[${at} + 1]) as usize); if n > ${target}.capacity() || at > heap.len()${w ? ` || n > (heap.len() - at) / ${w}` : ''} { return false; } ${target}.clear(); ${fill} }`;
+  }
+  if (rustOwnsHeap(model, t)) fail(target, '$reuse needs nonoptional reusable records or lists of fixed values');
+  return `${target} = ${rustTakeField(model, t, at)};`;
+}
+function rustReuseRows(model, placed, words) {
+  return ['    /// Decode into reserved list banks without growing or replacing them.',
+    '    /// False leaves a partial scalar update; all list banks remain owned.',
+    '    pub fn take_into(&mut self, row: &[f64], heap: &[f64]) -> bool {',
+    `        if row.len() < ${words} { return false; }`,
+    `        let row: &[f64; ${words}] = row[..${words}].try_into().unwrap();`,
+    ...placed.map(p => `        ${rustReuseField(model, p.field.type, `self.${snake(p.field.name)}`, p.at)}`),
+    '        true', '    }', ''];
+}
+
 function rustRecord(model, rec) {
   let at = 0;
   const placed = rec.fields.map((f) => { const p = { field: f, at }; at += words(model, f.type); return p; });
@@ -631,7 +669,7 @@ function rustRecord(model, rec) {
     '    /// Update one fixed field in a retained encoding; other words stay consumed.',
     `    pub fn put_${snake(p.field.name)}(&self, row: &mut [f64], heap: &mut Vec<f64>) {`,
     `        ${rustPutField(model,p.field.type,`self.${snake(p.field.name)}`,p.at)}`, '    }', '',
-  ]), ...rustRows(model, placed, at, 'put', 'take', false), '}', ''];
+  ]), ...rustRows(model, placed, at, 'put', 'take', false), ...(rec.reuse ? rustReuseRows(model, placed, at) : []), '}', ''];
 }
 
 function rustEnum(e) {

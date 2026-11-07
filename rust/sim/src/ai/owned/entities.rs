@@ -31,31 +31,48 @@ impl Entity {
     }
 }
 
+// This private identity slab uses insert/remove only: its generations start
+// at one and never wrap to zero. Its qualified reference marks presence in
+// three u32 words, without a discriminant or alignment word. The source's
+// independent generation still keeps its full range, including zero.
+#[derive(Clone, Copy, Default)]
+struct Index {
+    object: Ref<Entity>,
+    generation: u32,
+}
+impl Index {
+    fn read(&self) -> Option<(u32, Obj)> {
+        if self.object.gen == 0 { return None; }
+        Some((self.generation, object(self.object)))
+    }
+}
+
 pub struct Entities {
     entries: Slab<Entity>,
-    indices: [Vec<Option<(u32,Obj)>>;17],
+    indices: [Vec<Index>;17],
 }
 impl Entities {
     pub fn new(capacity: usize) -> Self {
-        Self { entries:Slab::with_capacity(capacity), indices:std::array::from_fn(|_|vec![None;capacity]) }
+        Self { entries:Slab::with_capacity(capacity), indices:std::array::from_fn(|_|vec![Index::default();capacity]) }
     }
     /// Construction/lifecycle operation. Hot reads below never insert or grow.
     pub fn register(&mut self, entity: Entity) -> Obj {
         if let Some(obj)=self.find(entity) { return obj; }
         let (kind,slot,generation)=entity.parts();
         let index=&mut self.indices[kind];
-        if index.len()<=slot as usize { index.resize(slot as usize+1,None); }
+        if index.len()<=slot as usize { index.resize(slot as usize+1,Index::default()); }
         // Slot reuse retires its previous identity before the replacement is
         // exposed. A saved token cannot then name the replacement.
-        if let Some((_,old))=index[slot as usize] { self.entries.remove(reference(old)); }
+        if let Some((_,old))=index[slot as usize].read() { self.entries.remove(reference(old)); }
         let r=self.entries.insert(entity);
-        let obj=(u64::from(r.gen)<<32)|u64::from(r.slot);
-        index[slot as usize]=Some((generation,obj)); obj
+        let obj=object(r);
+        index[slot as usize]=Index {generation,object:r}; obj
     }
     pub fn find(&self, entity: Entity) -> Option<Obj> {
         let (kind,slot,generation)=entity.parts();
-        self.indices[kind].get(slot as usize).copied().flatten()
-            .filter(|(g,_)|*g==generation).map(|(_,obj)|obj)
+        let row=self.indices[kind].get(slot as usize)?;
+        if row.object.gen==0 || row.generation!=generation {return None;}
+        Some(object(row.object))
     }
     pub fn get(&self,obj:Obj)->Option<Entity> { self.entries.get(reference(obj)).copied() }
     /// classes.repairService compares the current lock with the wrapper, its
@@ -72,7 +89,7 @@ impl Entities {
     pub fn retire(&mut self,obj:Obj)->bool {
         let Some(entity)=self.entries.remove(reference(obj)) else {return false};
         let (kind,slot,_)=entity.parts();
-        if self.indices[kind][slot as usize].is_some_and(|(_,id)|id==obj) {self.indices[kind][slot as usize]=None;}
+        if self.indices[kind][slot as usize].read().is_some_and(|(_,id)|id==obj) {self.indices[kind][slot as usize]=Index::default();}
         true
     }
     /// Build a command/weak-reference handle at its source observation point.
@@ -86,3 +103,5 @@ impl Entities {
     }
 }
 fn reference(obj:Obj)->Ref<Entity> { Ref::new(obj as u32,(obj>>32) as u32) }
+
+fn object(r:Ref<Entity>)->Obj { (u64::from(r.gen)<<32)|u64::from(r.slot) }

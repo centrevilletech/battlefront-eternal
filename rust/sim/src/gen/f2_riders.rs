@@ -96,8 +96,8 @@ impl F2RiderBirth {
         row[2] = self.life;
         row[3] = self.scale;
         match &self.root_bind { Some(v) => { row[4] = 0.0; row[4 + 1..4 + 1 + 3].copy_from_slice(&(*v)); } None => { row[4] = 1.0; row[4 + 1..4 + 4].fill(0.0); } }
-        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.bones.len() as f64; heap.resize(at + self.bones.len() * 16, 0.0); for (i, e) in self.bones.iter().enumerate() { let mut item = [0.0f64; 16]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 16..at + (i + 1) * 16].copy_from_slice(&item); } }
-        { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.clips.len() as f64; heap.resize(at + self.clips.len() * 11, 0.0); for (i, e) in self.clips.iter().enumerate() { let mut item = [0.0f64; 11]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 11..at + (i + 1) * 11].copy_from_slice(&item); } }
+        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.bones.len() as f64; heap.reserve(self.bones.len() * 16); for e in self.bones.iter() { let mut item = [0.0f64; 16]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.clips.len() as f64; heap.reserve(self.clips.len() * 11); for e in self.clips.iter() { let mut item = [0.0f64; 11]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -174,7 +174,7 @@ impl F2RiderOut {
         row[6] = self.turn;
         match &self.time { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v); } None => { row[7] = 1.0; row[7 + 1..7 + 2].fill(0.0); } }
         match &self.drop { Some(v) => { row[9] = 0.0; row[9 + 1..9 + 1 + 3].copy_from_slice(&(*v)); } None => { row[9] = 1.0; row[9 + 1..9 + 4].fill(0.0); } }
-        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.shapes.len() as f64; heap.resize(at + self.shapes.len() * 9, 0.0); for (i, e) in self.shapes.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
+        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.shapes.len() as f64; heap.reserve(self.shapes.len() * 9); for e in self.shapes.iter() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

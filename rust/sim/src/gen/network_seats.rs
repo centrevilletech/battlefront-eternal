@@ -107,7 +107,7 @@ impl NetworkSeatsQuery {
         let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
         row[0] = self.context as f64;
         row[1] = self.op as u8 as f64;
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.values.len() as f64; heap.resize(at + self.values.len() * 1, 0.0); for (i, e) in self.values.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.values.len() as f64; heap.extend_from_slice(self.values.as_slice()); }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -133,7 +133,7 @@ impl NetworkSeatsReply {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
         row[0] = if self.ok { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.values.len() as f64; heap.resize(at + self.values.len() * 1, 0.0); for (i, e) in self.values.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.values.len() as f64; heap.extend_from_slice(self.values.as_slice()); }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

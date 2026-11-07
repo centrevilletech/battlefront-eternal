@@ -134,8 +134,8 @@ impl VgWeapon {
         row[0] = self.barrel;
         row[1] = self.weapon_node;
         row[2] = self.fallback_node;
-        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.aimers.len() as f64; heap.resize(at + self.aimers.len() * 10, 0.0); for (i, e) in self.aimers.iter().enumerate() { let mut item = [0.0f64; 10]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 10..at + (i + 1) * 10].copy_from_slice(&item); } }
-        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.muzzles.len() as f64; heap.resize(at + self.muzzles.len() * 5, 0.0); for (i, e) in self.muzzles.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.aimers.len() as f64; heap.reserve(self.aimers.len() * 10); for e in self.aimers.iter() { let mut item = [0.0f64; 10]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.muzzles.len() as f64; heap.reserve(self.muzzles.len() * 5); for e in self.muzzles.iter() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -221,7 +221,7 @@ impl VgState {
         row[23..23 + 4].copy_from_slice(&self.quaternion);
         row[27] = self.seat_index as f64;
         { let at = heap.len(); row[28] = at as f64; row[28 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 15, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 15]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 15..at + (i + 1) * 15].copy_from_slice(&item); } }
-        { let at = heap.len(); row[30] = at as f64; row[30 + 1] = self.nodes.len() as f64; heap.resize(at + self.nodes.len() * 45, 0.0); for (i, e) in self.nodes.iter().enumerate() { let mut item = [0.0f64; 45]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 45..at + (i + 1) * 45].copy_from_slice(&item); } }
+        { let at = heap.len(); row[30] = at as f64; row[30 + 1] = self.nodes.len() as f64; heap.reserve(self.nodes.len() * 45); for e in self.nodes.iter() { let mut item = [0.0f64; 45]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

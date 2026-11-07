@@ -145,6 +145,11 @@ pub(crate) fn seat_forward_owned(store:&Store,life:crate::vehicles::f2_seats::Hu
 // reference count; copying this handle allocates no animation or key table.
 // Mutable flight state continues to come from the canonical vehicle row.
 pub fn flight_keys_for(r: Ref<Vehicle>) -> (Config, Option<GearClip>) { scheduler().flight_keys_for(r) }
+// Pilot observations need class handling only, not the retained gear clip or
+// a mutable solver hull. The caller validates the canonical hull generation.
+pub(crate) fn flight_config(r:Ref<Vehicle>)->Option<Config> {
+    Some(scheduler().hull_rows.get(r.slot as usize)?.as_ref()?.config)
+}
 /// Write flight enums through the construction-time text handles.
 pub fn store_flight(hull: &Hull) { scheduler().store_flight(&mut sim().store, hull) }
 // Vehicles.update can revisit a hull several times in one tick. Reload after

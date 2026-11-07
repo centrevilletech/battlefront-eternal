@@ -311,6 +311,9 @@ test('direct publication names only mutable scalar or vector fields', () => {
   const pose = model({ $layout: true, $publish: ['position', 'tick'], position: 'vec3', tick: 'f64', fixed: 'f64' }).records.get('Pose');
   assert.deepEqual(pose.publish, ['position', 'tick']);
   assert.equal(pose.fields.length, 3, 'publication metadata adds no words to the record');
+  const reusable = model({ $reuse: true, position: 'vec3', tick: 'f64', fixed: 'f64' }).records.get('Pose');
+  assert.deepEqual(reusable.fields, pose.fields, 'retained-reader metadata adds no layout fields');
+  assert.throws(() => model({ $reuse: 'yes', tick: 'f64' }), /\$reuse is a boolean/);
   assert.throws(() => model({ $publish: ['missing'], tick: 'f64' }), /distinct fields/);
   assert.throws(() => model({ $publish: ['tick', 'tick'], tick: 'f64' }), /distinct fields/);
   assert.throws(() => model({ $publish: ['history'], history: 'list:f64' }), /scalar and vec3/);

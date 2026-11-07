@@ -8,6 +8,9 @@ use jsrt::{same_value_zero, num_truthy, JsMap};
 const WORKING_SLOTS: usize = 256;
 
 struct Frame {
+    // A decoded view belongs to one retained frame revision, not merely its
+    // tick. Replacement at the same tick must invalidate every older view.
+    held: Option<(usize, u64)>,
     snapshot: WireSnapshot,
     slots: Vec<WireSlot>, fields: Vec<WireField>, by_id: Vec<(f64, f64)>, hints: JsMap<f64, [usize; 2]>,
 }
@@ -19,7 +22,7 @@ impl Frame {
             anim: Vec::with_capacity(5), mount: WireMount { seats: Vec::with_capacity(seats), ..Default::default() },
             ..Default::default() } }).collect();
         let mut hints = JsMap::new(); hints.reserve(WORKING_SLOTS);
-        Self { snapshot: WireSnapshot { slots: Vec::with_capacity(WORKING_SLOTS), world: Vec::with_capacity(fields.min(192)), ..Default::default() },
+        Self { held: None, snapshot: WireSnapshot { slots: Vec::with_capacity(WORKING_SLOTS), world: Vec::with_capacity(fields.min(192)), ..Default::default() },
             slots, fields: (0..fields.min(192)).map(|_| WireField { payload: Vec::with_capacity(900), ..Default::default() }).collect(),
             by_id: Vec::with_capacity(records::SLOT_COUNT), hints }
     }
@@ -29,6 +32,7 @@ impl Frame {
     fn begin(&mut self, tick: f64, epoch: f64) {
         // Draining returns every nested allocation to this same frame. A
         // failed build follows this route too before its next retry.
+        self.held = None;
         self.slots.extend(self.snapshot.slots.drain(..)); self.fields.extend(self.snapshot.world.drain(..));
         self.snapshot.tick = tick; self.snapshot.epoch = epoch; self.by_id.clear();
     }
@@ -108,9 +112,9 @@ impl Frame {
 // SnapshotRing retains compact bytes instead of 129 complete sets of nested
 // Vec banks. The working frames are independent: capture can inspect the last
 // sample while an encoder reads any held baseline. IEEE bits stay unchanged.
-struct Packed { tick: f64, epoch: f64, bytes: Vec<u8> }
+struct Packed { tick: f64, epoch: f64, version: u64, bytes: Vec<u8> }
 impl Packed {
-    fn new() -> Self { Self { tick: 0., epoch: 0., bytes: Vec::with_capacity(32 * 1024) } }
+    fn new() -> Self { Self { tick: 0., epoch: 0., version: 0, bytes: Vec::with_capacity(32 * 1024) } }
     fn write(&mut self, snapshot: &WireSnapshot, heap: &mut Vec<f64>) -> Result<()> {
         let mut row = [0.; WireSlot::WORDS];
         // SnapshotRing writes each generated slot once. Fallible reservation
@@ -130,9 +134,10 @@ impl Packed {
             self.bytes.try_reserve(2 + field.payload.len()).map_err(|_| "retained snapshot capacity exceeded")?;
             self.bytes.extend_from_slice(&(field.payload.len() as u16).to_le_bytes()); self.bytes.extend_from_slice(&field.payload);
         }
+        self.version = self.version.wrapping_add(1);
         Ok(())
     }
-    fn read(&self, frame: &mut Frame, heap: &mut Vec<f64>) -> Result<()> {
+    fn read(&self, at: usize, frame: &mut Frame, heap: &mut Vec<f64>) -> Result<()> {
         frame.begin(self.tick, self.epoch); let mut cursor = self.bytes.as_slice();
         let slots = take_u16(&mut cursor)?; let fields = take_u16(&mut cursor)?;
         let mut row = [0.; WireSlot::WORDS];
@@ -141,24 +146,12 @@ impl Packed {
             if count > heap.capacity() { return Err("snapshot mount capacity exceeded"); }
             for word in &mut row { *word = take_word(&mut cursor)?; }
             heap.clear(); for _ in 0..count { heap.push(take_word(&mut cursor)?); }
-            let mut slot = frame.slots.pop().ok_or("snapshot slot table full")?;
-            let anim = WireSlot::ENTRY + WireEntry::ANIM;
-            let seats = WireSlot::ENTRY + WireEntry::MOUNT + WireMount::SEATS;
-            let (aa, an, sa, sn) = (row[anim] as usize, row[anim + 1] as usize, row[seats] as usize, row[seats + 1] as usize);
-            // Generated take sees empty variable sections. Move the existing
-            // banks into its scalar result, then refill them from retained words.
-            // This preserves generated field layouts without allocating lists.
-            row[anim] = 0.; row[anim + 1] = 0.; row[seats] = 0.; row[seats + 1] = 0.;
-            let mut value = WireSlot::take(&row, &[]);
-            value.entry.anim = std::mem::take(&mut slot.entry.anim);
-            value.entry.mount.seats = std::mem::take(&mut slot.entry.mount.seats);
-            value.entry.anim.clear(); value.entry.mount.seats.clear();
-            if an > value.entry.anim.capacity() || sn > value.entry.mount.seats.capacity() || aa + an > heap.len() || sa + sn * 2 > heap.len() {
-                return Err("invalid retained snapshot");
-            }
-            value.entry.anim.extend_from_slice(&heap[aa..aa + an]);
-            for pair in heap[sa..sa + sn * 2].chunks_exact(2) { value.entry.mount.seats.push([pair[0], pair[1]]); }
-            frame.snapshot.slots.push(value);
+            // Refill the reserved record in place. Replacing its scalar shell
+            // would move both Vec banks and run an empty entry's destructor
+            // for every decoded slot, even when no allocation was released.
+            let slot = frame.slots.last_mut().ok_or("snapshot slot table full")?;
+            if !slot.take_into(&row, heap) { return Err("invalid retained snapshot"); }
+            frame.snapshot.slots.push(frame.slots.pop().unwrap());
         }
         for _ in 0..fields {
             let mut field = frame.fields.pop().ok_or("snapshot world capacity exceeded")?;
@@ -168,7 +161,8 @@ impl Packed {
             field.payload.clear(); field.payload.extend_from_slice(&cursor[..count]); cursor = &cursor[count..];
             frame.snapshot.world.push(field);
         }
-        if !cursor.is_empty() { return Err("invalid retained snapshot"); } Ok(())
+        if !cursor.is_empty() { return Err("invalid retained snapshot"); }
+        frame.held = Some((at, self.version)); Ok(())
     }
 }
 fn take_u16(cursor: &mut &[u8]) -> Result<usize> {
@@ -273,11 +267,24 @@ impl Ring {
     // scratch. Neither operation changes the previous capture's observation.
     pub fn pair(&mut self, tick: f64, epoch: f64, baseline: Option<f64>) -> Result<(&WireSnapshot, Option<&WireSnapshot>)> {
         let at = *self.ring.get(tick as i64, Some(epoch as u32)).ok_or("snapshot not held")?;
-        let current = if self.current.snapshot.tick == tick && self.current.snapshot.epoch == epoch { &self.current.snapshot }
-            else { self.frames[at].read(&mut self.stage, &mut self.heap)?; &self.stage.snapshot };
+        let held = Some((at, self.frames[at].version));
+        let current = if self.current.held == held { &self.current.snapshot }
+            else {
+                if self.stage.held != held { self.frames[at].read(at, &mut self.stage, &mut self.heap)?; }
+                &self.stage.snapshot
+            };
         let base = if let Some(tick) = baseline {
             let at = *self.ring.get(tick as i64, Some(epoch as u32)).ok_or("chosen snapshot baseline not held")?;
-            self.frames[at].read(&mut self.baseline, &mut self.heap)?; Some(&self.baseline.snapshot)
+            let held = Some((at, self.frames[at].version));
+            // The last capture already left its predecessor decoded in stage.
+            // Repeated ACKs can also keep the same baseline for many ticks.
+            // Reuse these three existing banks rather than unpacking again.
+            if self.current.held == held { Some(&self.current.snapshot) }
+            else if self.stage.held == held { Some(&self.stage.snapshot) }
+            else {
+                if self.baseline.held != held { self.frames[at].read(at, &mut self.baseline, &mut self.heap)?; }
+                Some(&self.baseline.snapshot)
+            }
         } else { None };
         Ok((current, base))
     }
@@ -294,6 +301,7 @@ impl Ring {
         let replaced = self.ring.get(tick as i64, None).copied(); let free = &mut self.free;
         self.ring.set_with_eviction(tick as i64, epoch as u32, at, |old, _| free.push(old))?;
         if let Some(old) = replaced { self.free.push(old); }
+        self.stage.held = Some((at, self.frames[at].version));
         std::mem::swap(&mut self.current, &mut self.stage); self.present = true; Ok(())
     }
 }

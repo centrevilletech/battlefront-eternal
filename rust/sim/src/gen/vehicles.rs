@@ -442,7 +442,7 @@ impl VehMembers {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.indices.len() as f64; heap.resize(at + self.indices.len() * 1, 0.0); for (i, e) in self.indices.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.indices.len() as f64; heap.extend_from_slice(self.indices.as_slice()); }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -466,7 +466,7 @@ impl VehPoints {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.points.len() as f64; heap.resize(at + self.points.len() * 3, 0.0); for (i, e) in self.points.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.points.len() as f64; heap.extend_from_slice(self.points.as_flattened()); }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -520,7 +520,7 @@ impl Vehicles {
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.vehicles.len() as f64; heap.resize(at + self.vehicles.len() * 2, 0.0); for (i, e) in self.vehicles.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.vehicles.len() as f64; heap.reserve(self.vehicles.len() * 2); for e in self.vehicles.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
         { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.slots.len() as f64; heap.resize(at + self.slots.len() * 6, 0.0); for (i, e) in self.slots.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
         match &self.spawn_occupant { Some(v) => { row[6] = 0.0; row[6 + 1..6 + 1 + 3].copy_from_slice(&(*v)); } None => { row[6] = 1.0; row[6 + 1..6 + 4].fill(0.0); } }
     }

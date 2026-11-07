@@ -80,7 +80,7 @@ impl BfPolygon {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.edges.len() as f64; heap.resize(at + self.edges.len() * 4, 0.0); for (i, e) in self.edges.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; row[0..0 + 4].copy_from_slice(&(*e)); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.edges.len() as f64; heap.extend_from_slice(self.edges.as_flattened()); }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -167,7 +167,7 @@ impl BfInput {
         row[0] = self.op as u8 as f64;
         row[1] = self.index;
         row[2] = self.dt;
-        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.characters.len() as f64; heap.resize(at + self.characters.len() * 2, 0.0); for (i, e) in self.characters.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.characters.len() as f64; heap.reserve(self.characters.len() * 2); for e in self.characters.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
         row[5] = if self.present { 1.0 } else { 0.0 };
         row[6..6 + 3].copy_from_slice(&self.position);
         match &self.droid { Some(v) => { row[9] = 0.0; row[9 + 1..9 + 1 + 3].copy_from_slice(&(*v)); } None => { row[9] = 1.0; row[9 + 1..9 + 4].fill(0.0); } }
@@ -235,7 +235,7 @@ impl BfResult {
         row[0] = if self.flag { 1.0 } else { 0.0 };
         row[1] = self.alpha;
         match &self.warning { Some(v) => { row[2] = 0.0; v.put(&mut row[2 + 1..], heap); } None => { row[2] = 1.0; row[2 + 1..2 + 5].fill(0.0); } }
-        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.countdowns.len() as f64; heap.resize(at + self.countdowns.len() * 3, 0.0); for (i, e) in self.countdowns.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.countdowns.len() as f64; heap.reserve(self.countdowns.len() * 3); for e in self.countdowns.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -356,7 +356,7 @@ impl BfActionArgs {
         row[0] = self.op as u8 as f64;
         match &self.unit { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).slot as f64; row[1 + 1 + 1] = (*v).gen as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 3].fill(0.0); } }
         match &self.vehicle { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).slot as f64; row[4 + 1 + 1] = (*v).gen as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 3].fill(0.0); } }
-        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.countdowns.len() as f64; heap.resize(at + self.countdowns.len() * 3, 0.0); for (i, e) in self.countdowns.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.countdowns.len() as f64; heap.reserve(self.countdowns.len() * 3); for e in self.countdowns.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -381,7 +381,7 @@ impl BfCharacters {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.characters.len() as f64; heap.resize(at + self.characters.len() * 2, 0.0); for (i, e) in self.characters.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.characters.len() as f64; heap.reserve(self.characters.len() * 2); for e in self.characters.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

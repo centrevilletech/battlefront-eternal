@@ -426,8 +426,8 @@ impl F4RosterNames {
         let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
         row[0] = self.faction;
         match &self.state { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v) as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 2].fill(0.0); } }
-        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.first.len() as f64; heap.resize(at + self.first.len() * 1, 0.0); for (i, e) in self.first.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.last.len() as f64; heap.resize(at + self.last.len() * 1, 0.0); for (i, e) in self.last.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.first.len() as f64; heap.reserve(self.first.len() * 1); for e in self.first.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.last.len() as f64; heap.reserve(self.last.len() * 1); for e in self.last.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap.extend_from_slice(&item); } }
         match &self.local { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v).0 as f64; } None => { row[7] = 1.0; row[7 + 1..7 + 2].fill(0.0); } }
     }
 
@@ -544,7 +544,7 @@ impl F4RosterResult {
         match &self.handle { Some(v) => { row[0] = 0.0; v.put(&mut row[0 + 1..], heap); } None => { row[0] = 1.0; row[0 + 1..0 + 5].fill(0.0); } }
         row[5] = if self.flag { 1.0 } else { 0.0 };
         row[6] = if self.full { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.counts.len() as f64; heap.resize(at + self.counts.len() * 4, 0.0); for (i, e) in self.counts.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
+        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.counts.len() as f64; heap.reserve(self.counts.len() * 4); for e in self.counts.iter() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -571,7 +571,7 @@ impl F4RosterClasses {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.classes.len() as f64; heap.resize(at + self.classes.len() * 1, 0.0); for (i, e) in self.classes.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.classes.len() as f64; heap.reserve(self.classes.len() * 1); for e in self.classes.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -634,12 +634,12 @@ impl F4TailSetup {
         row[10] = self.command_capacity as f64;
         row[11] = self.point_capacity as f64;
         row[12] = self.spawn_index;
-        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.fallback_path.len() as f64; heap.resize(at + self.fallback_path.len() * 4, 0.0); for (i, e) in self.fallback_path.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; row[0..0 + 4].copy_from_slice(&(*e)); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
+        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.fallback_path.len() as f64; heap.extend_from_slice(self.fallback_path.as_flattened()); }
         row[15] = self.random as f64;
         row[16] = self.gameplay as f64;
         self.boundary.put(&mut row[17..], heap);
         { let at = heap.len(); row[19] = at as f64; row[19 + 1] = self.rosters.len() as f64; heap.resize(at + self.rosters.len() * 2, 0.0); for (i, e) in self.rosters.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[21] = at as f64; row[21 + 1] = self.classes.len() as f64; heap.resize(at + self.classes.len() * 1, 0.0); for (i, e) in self.classes.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[21] = at as f64; row[21 + 1] = self.classes.len() as f64; heap.reserve(self.classes.len() * 1); for e in self.classes.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -680,7 +680,7 @@ impl F4PostSetup {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
         row[0] = self.post.slot as f64; row[0 + 1] = self.post.gen as f64;
-        match &self.raw_path { Some(v) => { row[2] = 0.0; { let at = heap.len(); row[2 + 1] = at as f64; row[2 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 4, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; row[0..0 + 4].copy_from_slice(&(*e)); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } } } None => { row[2] = 1.0; row[2 + 1..2 + 3].fill(0.0); } }
+        match &self.raw_path { Some(v) => { row[2] = 0.0; { let at = heap.len(); row[2 + 1] = at as f64; row[2 + 1 + 1] = v.len() as f64; heap.extend_from_slice(v.as_flattened()); } } None => { row[2] = 1.0; row[2 + 1..2 + 3].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -991,10 +991,10 @@ impl F4WeaponClass {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
         row[0] = self.def.0 as f64;
-        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.ammunition.len() as f64; heap.resize(at + self.ammunition.len() * 1, 0.0); for (i, e) in self.ammunition.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.ammunition.len() as f64; heap.extend_from_slice(self.ammunition.as_slice()); }
         row[3] = if self.primary { 1.0 } else { 0.0 };
         match &self.key { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).0 as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 2].fill(0.0); } }
-        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.labels.len() as f64; heap.resize(at + self.labels.len() * 2, 0.0); for (i, e) in self.labels.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).0 as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 2].fill(0.0); } } } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.labels.len() as f64; heap.reserve(self.labels.len() * 2); for e in self.labels.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).0 as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 2].fill(0.0); } } } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -1059,7 +1059,7 @@ impl F4GripClass {
         let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
         row[0] = self.def.0 as f64;
         self.animated.put(&mut row[1..], heap);
-        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.clips.len() as f64; heap.resize(at + self.clips.len() * 2, 0.0); for (i, e) in self.clips.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v) as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 2].fill(0.0); } } } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.clips.len() as f64; heap.reserve(self.clips.len() * 2); for e in self.clips.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v) as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 2].fill(0.0); } } } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -1399,8 +1399,8 @@ impl F4Delta {
         row[5] = self.length as f64;
         row[6] = self.source as f64;
         row[7] = self.borrowed_words as f64;
-        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.mask.len() as f64; heap.resize(at + self.mask.len() * 1, 0.0); for (i, e) in self.mask.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.values.len() as f64; heap.resize(at + self.values.len() * 1, 0.0); for (i, e) in self.values.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.mask.len() as f64; heap.reserve(self.mask.len() * 1); for e in self.mask.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.values.len() as f64; heap.extend_from_slice(self.values.as_slice()); }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -1484,7 +1484,7 @@ impl F4StatsWeapon {
         row[0] = self.def.0 as f64;
         row[1] = if self.primary { 1.0 } else { 0.0 };
         match &self.key { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v).0 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
-        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.labels.len() as f64; heap.resize(at + self.labels.len() * 2, 0.0); for (i, e) in self.labels.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).0 as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 2].fill(0.0); } } } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.labels.len() as f64; heap.reserve(self.labels.len() * 2); for e in self.labels.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).0 as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 2].fill(0.0); } } } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

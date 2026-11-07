@@ -228,7 +228,7 @@ impl TrInput {
         row[34] = self.phase as u8 as f64;
         match &self.started { Some(v) => { row[35] = 0.0; row[35 + 1] = (*v); } None => { row[35] = 1.0; row[35 + 1..35 + 2].fill(0.0); } }
         match &self.vehicle { Some(v) => { row[37] = 0.0; row[37 + 1] = (*v).slot as f64; row[37 + 1 + 1] = (*v).gen as f64; } None => { row[37] = 1.0; row[37 + 1..37 + 3].fill(0.0); } }
-        { let at = heap.len(); row[40] = at as f64; row[40 + 1] = self.vehicles.len() as f64; heap.resize(at + self.vehicles.len() * 3, 0.0); for (i, e) in self.vehicles.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } } } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[40] = at as f64; row[40 + 1] = self.vehicles.len() as f64; heap.reserve(self.vehicles.len() * 3); for e in self.vehicles.iter() { let mut item = [0.0f64; 3]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } } } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {

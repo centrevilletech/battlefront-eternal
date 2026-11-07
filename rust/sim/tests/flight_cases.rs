@@ -74,6 +74,7 @@ fn same3(a: &Vector3, b: V) -> bool {
 }
 
 /// A case's calls, answered in order, their arguments checked.
+#[derive(Clone)]
 struct Scripted<'c> {
     calls: Vec<V<'c>>,
     next: usize,
@@ -312,7 +313,30 @@ fn pilot(case: V) -> Result<(), String> {
         has_path: env_v.get("hasPath").bool(),
         space: v.get("space").bool(),
     };
-    let stick = hull.pilot_input(&mut w, &env, &Tuning::of(class), request.as_ref(), aim.as_ref(), &steer, 7.0);
+    // Exercise both entry points against the same frozen script: solver
+    // callers and the native AI's smaller canonical observation.
+    let mut solver_world = w.clone();
+    let solver_stick = hull.pilot_input(&mut solver_world, &env, &Tuning::of(class), request.as_ref(), aim.as_ref(), &steer, 7.0);
+    let mut row = bfe_sim::gen::Vehicle::default();
+    row.flying = true;
+    row.flight_class = Some(class);
+    row.position = [hull.position.x, hull.position.y, hull.position.z];
+    row.quaternion = [hull.quaternion.x, hull.quaternion.y, hull.quaternion.z, hull.quaternion.w];
+    row.body = bfe_sim::store::Ref::new(hull.body, 0);
+    row.radius = hull.flight.radius;
+    let mut strings = bfe_sim::store::Strings::default();
+    hull.flight.to_store(&mut row, &mut strings);
+    let pilot = bfe_sim::flight::ai::Pilot::from_vehicle(&row, &strings, hull.flight.config)?;
+    let stick = pilot.pilot_input(&mut w, &env, &Tuning::of(class), request.as_ref(), aim.as_ref(), &steer, 7.0);
+    for (solver, canonical) in [(solver_stick.forward, stick.forward), (solver_stick.right, stick.right),
+        (solver_stick.turn, stick.turn), (solver_stick.pitch, stick.pitch), (solver_stick.up, stick.up), (solver_stick.down, stick.down)] {
+        if !same_number(solver, canonical) { return Err("canonical pilot and solver pilot numbers differ".into()); }
+    }
+    if (solver_stick.brake, solver_stick.trick, solver_stick.immelmann, solver_stick.boost)
+        != (stick.brake, stick.trick, stick.immelmann, stick.boost)
+        || solver_world.error != w.error || solver_world.next != w.next {
+        return Err("canonical pilot and solver pilot differ".into());
+    }
     if let Some(e) = w.error {
         return Err(e);
     }

@@ -5,12 +5,12 @@
 //! steering, src/ai/classic/vehicles/steering.js); all motion stays the
 //! flight model's.
 
-use super::config::{throttle_for, Tuning};
+use super::config::{throttle_for, Config, Tuning};
 use super::model::{or_zero, DOWN};
 use super::FlightState;
 use crate::rig::math;
 use crate::vehicles::{BodyId, Hit, Hull};
-use three::{clamp, Vector3};
+use three::{clamp, Quaternion, Vector3};
 use v8math::{abs, floor, hypot, max, min};
 
 const PI: f64 = std::f64::consts::PI;
@@ -93,7 +93,49 @@ pub enum Blend {
     Share(f64),
 }
 
+// pilotInput and raiseOverTerrain read only this flight subset. Keeping it
+// separate from the solver hull avoids copying seats, rigs and collision
+// scratch for an AI observation; the arithmetic below remains shared.
+struct PilotFlight {
+    config: Config,
+    state: Option<FlightState>, grounded: bool, airspeed: f64, radius: f64,
+    state_time: f64, clock: f64, power: f64, trick: super::Trick,
+    landing_reason: super::Message, terrain_warning: bool,
+}
+pub struct Pilot {
+    position: Vector3, quaternion: Quaternion, body: BodyId, flight: PilotFlight,
+}
+impl Pilot {
+    fn of(hull:&Hull)->Self {
+        let f=&hull.flight;
+        Self {position:hull.position,quaternion:hull.quaternion,body:hull.body,
+            flight:PilotFlight {config:f.config,state:f.state,grounded:f.grounded,airspeed:f.airspeed,
+                radius:f.radius,state_time:f.state_time,clock:f.clock,power:f.power,trick:f.trick,
+                landing_reason:f.landing_reason,terrain_warning:f.terrain_warning}}
+    }
+    /// Canonical flight reads use the same defaults as Flight::from_store.
+    /// The small text vocabulary is matched without allocating or interning.
+    pub fn from_vehicle(v:&crate::gen::Vehicle,strings:&crate::store::Strings,config:Config)->Result<Self,String> {
+        let reason=super::store::text(strings,v.landing_reason);
+        let trick=super::store::text(strings,v.trick);
+        Ok(Self {position:Vector3::new(v.position[0],v.position[1],v.position[2]),
+            quaternion:Quaternion::new(v.quaternion[0],v.quaternion[1],v.quaternion[2],v.quaternion[3]),body:v.body.slot,
+            flight:PilotFlight {config,state:v.flight_state,grounded:v.grounded,airspeed:v.airspeed,radius:v.radius,
+                state_time:v.state_time,clock:v.flight_clock.unwrap_or(f64::NAN),power:v.power.unwrap_or(f64::NAN),
+                trick:super::Trick::from_text(&trick).ok_or_else(||format!("trick: no trick {trick:?}"))?,
+                landing_reason:super::Message::from_text(&reason).ok_or_else(||format!("landingReason: no message {reason:?}"))?,
+                terrain_warning:v.terrain_warning.unwrap_or(false)}})
+    }
+}
 impl Hull {
+    pub fn raise_over_terrain<W:PilotWorld>(&self,w:&mut W,env:&PilotEnv,point:&mut Vector3,blend:Blend)->bool {
+        Pilot::of(self).raise_over_terrain(w,env,point,blend)
+    }
+    pub fn pilot_input<W:PilotWorld>(&self,w:&mut W,env:&PilotEnv,tuning:&Tuning,request:Option<&Request>,aim:Option<&Vector3>,steer:&Steer,ai_target_id:f64)->Stick {
+        Pilot::of(self).pilot_input(w,env,tuning,request,aim,steer,ai_target_id)
+    }
+}
+impl Pilot {
     /// raiseOverTerrain(v, env, point, blend): `point` raised (never
     /// lowered) so the craft clears what lies ahead by 25 m; whether
     /// something other than terrain was ahead.

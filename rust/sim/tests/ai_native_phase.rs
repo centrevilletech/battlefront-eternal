@@ -428,3 +428,28 @@ fn lease_channel_storage_is_recycled_after_publication() {
     COUNTING.with(|on|on.set(false));assert!(valid);
     assert_eq!(ALLOCATIONS.with(Cell::get),0);
 }
+
+// Reverse-index presence is independent of the qualified source handle:
+// slot zero and source generation zero are valid, as is the largest generation.
+#[test]
+fn identities_keep_zero_sources_and_full_source_generations() {
+    use owned::entities::{Entities, Entity};
+    let mut entities = Entities::new(1);
+    let zero = Entity::Unit(Ref::new(0, 0));
+    let first = entities.register(zero);
+    assert_eq!(first as u32, 0);
+    assert_eq!(entities.find(zero), Some(first));
+    let replacement = Entity::Unit(Ref::new(0, u32::MAX));
+    let next = entities.register(replacement);
+    assert_eq!(entities.get(first), None);
+    assert_eq!(entities.find(zero), None);
+    assert_eq!(entities.find(replacement), Some(next));
+    assert!(!entities.retire(first));
+    assert_eq!(entities.find(replacement), Some(next));
+    assert!(entities.retire(next));
+    assert_eq!(entities.find(replacement), None);
+    let other = Entity::Hull(Ref::new(0, u32::MAX));
+    let hull = entities.register(other);
+    assert_eq!(entities.find(other), Some(hull));
+    assert_eq!(entities.find(replacement), None);
+}

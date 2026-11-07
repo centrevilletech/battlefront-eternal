@@ -199,8 +199,8 @@ impl BpQueryResult {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.members.len() as f64; heap.resize(at + self.members.len() * 16, 0.0); for (i, e) in self.members.iter().enumerate() { let mut item = [0.0f64; 16]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 16..at + (i + 1) * 16].copy_from_slice(&item); } }
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.hulls.len() as f64; heap.resize(at + self.hulls.len() * 6, 0.0); for (i, e) in self.hulls.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.members.len() as f64; heap.reserve(self.members.len() * 16); for e in self.members.iter() { let mut item = [0.0f64; 16]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.hulls.len() as f64; heap.reserve(self.hulls.len() * 6); for e in self.hulls.iter() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         match &self.character { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).slot as f64; row[4 + 1 + 1] = (*v).gen as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 3].fill(0.0); } }
         row[7] = self.number;
     }

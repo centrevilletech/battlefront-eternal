@@ -25,7 +25,7 @@ fn a4(q: &Quaternion) -> [f64; 4] {
     [q.x, q.y, q.z, q.w]
 }
 
-fn text(strings: &Strings, id: Option<StrId>) -> std::borrow::Cow<'static, str> {
+pub(super) fn text(strings: &Strings, id: Option<StrId>) -> std::borrow::Cow<'static, str> {
     let Some(id) = id else { return std::borrow::Cow::Borrowed("") };
     let units = strings.units(id);
     match Message::TEXTS.iter().chain(Trick::TEXTS.iter()).chain(LockState::TEXTS.iter())

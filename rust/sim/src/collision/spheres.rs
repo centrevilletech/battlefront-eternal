@@ -78,7 +78,7 @@ pub struct Polygon {
 /// pools them): `list()` holds the last gather's, in order.
 pub struct Gathered {
     polygons: Vec<Polygon>,
-    spare_keys: Vec<u64>,
+    spare_indices: Vec<Option<usize>>,
     count: usize,
     grouped: bool,
     index: PolygonIndex,
@@ -89,7 +89,7 @@ pub struct Gathered {
 
 impl Default for Gathered {
     fn default() -> Self {
-        Gathered { polygons: Vec::new(), spare_keys: Vec::new(), count: 0,
+        Gathered { polygons: Vec::new(), spare_indices: Vec::new(), count: 0,
             grouped: false, index: PolygonIndex::new(), spares: Vec::new() }
     }
 }
@@ -110,7 +110,7 @@ impl Gathered {
     pub fn reserve(&mut self, polygons: usize, triangles: usize) {
         self.polygons.reserve(polygons.saturating_sub(self.polygons.len()));
         while self.polygons.len() < polygons { self.polygons.push(Polygon::default()); }
-        self.spare_keys.resize(self.polygons.len(),0);
+        self.spare_indices.resize(self.polygons.len(),None);
         for polygon in &mut self.polygons {
             polygon.tris.reserve(triangles.saturating_sub(polygon.tris.len()));
         }
@@ -125,7 +125,7 @@ impl Gathered {
     pub fn prepare(&mut self, s: &State, world: usize, blockers: Option<usize>) {
         self.prepare_geometry(s,world,blockers,0);
         self.polygons.resize_with(self.spares.len(),Polygon::default);
-        self.spare_keys.resize(self.polygons.len(),0);
+        self.spare_indices.resize(self.polygons.len(),None);
         self.index.reserve(self.spares.len());
     }
 
@@ -162,7 +162,7 @@ impl Gathered {
     fn clear(&mut self) {
         if !self.spares.is_empty() {
             for (at,p) in self.polygons[..self.count].iter_mut().enumerate() {
-                if let Ok(i) = self.spares.binary_search_by_key(&self.spare_keys[at], |row| row.0) {
+                if let Some(i) = self.spare_indices[at] {
                     std::mem::swap(&mut p.tris,&mut self.spares[i].1);
                 }
             }
@@ -196,11 +196,15 @@ impl Gathered {
             }
         }
         if n == self.polygons.len() { self.polygons.push(Polygon::default()); }
-        if n == self.spare_keys.len() { self.spare_keys.push(key); } else { self.spare_keys[n] = key; }
+        // Geometry is inserted only by prepare_geometry, after clear returns
+        // every borrowed buffer. Its sorted places stay stable for this query,
+        // so cleanup can return the buffer without searching for its key again.
+        let spare = self.spares.binary_search_by_key(&key, |row| row.0).ok();
+        if n == self.spare_indices.len() { self.spare_indices.push(spare); } else { self.spare_indices[n] = spare; }
         self.count += 1;
         if self.grouped { self.index.set(id, n); }
         let p = &mut self.polygons[n];
-        if let Ok(i) = self.spares.binary_search_by_key(&key, |row| row.0) {
+        if let Some(i) = spare {
             std::mem::swap(&mut p.tris,&mut self.spares[i].1);
         }
         p.id = id;
@@ -1104,6 +1108,9 @@ mod tests {
         // Both observations keep the exact public id and the same storage.
         for offset in [0.0,16777216.0,33554432.0] {
             gathered.clear();
+            // Loading geometry between queries can move the sorted places.
+            // A subsequent query resolves the new place before borrowing it.
+            if offset == 16777216.0 { gathered.spares.insert(0,(0,Vec::with_capacity(1))); }
             let polygon = gathered.polygon_key(offset + 7.0,true,key);
             polygon.tris.push(Tri { a:[0.0;3],b:[1.0,0.0,0.0],c:[0.0,0.0,1.0],set:NO_SET,index:0 });
             assert_eq!(polygon.id,offset + 7.0);

@@ -257,7 +257,7 @@ impl WireWorldFacts {
         row[1] = self.at;
         row[2] = self.unix_ms;
         row[3] = self.dropped_ticks;
-        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.links.len() as f64; heap.resize(at + self.links.len() * 7, 0.0); for (i, e) in self.links.iter().enumerate() { let mut item = [0.0f64; 7]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 7..at + (i + 1) * 7].copy_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.links.len() as f64; heap.reserve(self.links.len() * 7); for e in self.links.iter() { let mut item = [0.0f64; 7]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -325,14 +325,14 @@ impl WireStoreSetup {
         row[0] = self.unbuilt.0 as f64;
         row[1] = self.built.0 as f64;
         row[2] = self.destroyed.0 as f64;
-        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.classes.len() as f64; heap.resize(at + self.classes.len() * 2, 0.0); for (i, e) in self.classes.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.weapon_names.len() as f64; heap.resize(at + self.weapon_names.len() * 2, 0.0); for (i, e) in self.weapon_names.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.posts.len() as f64; heap.resize(at + self.posts.len() * 2, 0.0); for (i, e) in self.posts.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[9] = at as f64; row[9 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 2, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[11] = at as f64; row[11 + 1] = self.peers.len() as f64; heap.resize(at + self.peers.len() * 7, 0.0); for (i, e) in self.peers.iter().enumerate() { let mut item = [0.0f64; 7]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 7..at + (i + 1) * 7].copy_from_slice(&item); } }
-        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.items.len() as f64; heap.resize(at + self.items.len() * 2, 0.0); for (i, e) in self.items.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[15] = at as f64; row[15 + 1] = self.remotes.len() as f64; heap.resize(at + self.remotes.len() * 2, 0.0); for (i, e) in self.remotes.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[17] = at as f64; row[17 + 1] = self.ordnance.len() as f64; heap.resize(at + self.ordnance.len() * 2, 0.0); for (i, e) in self.ordnance.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.classes.len() as f64; heap.reserve(self.classes.len() * 2); for e in self.classes.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[5] = at as f64; row[5 + 1] = self.weapon_names.len() as f64; heap.reserve(self.weapon_names.len() * 2); for e in self.weapon_names.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.posts.len() as f64; heap.reserve(self.posts.len() * 2); for e in self.posts.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[9] = at as f64; row[9 + 1] = self.weapons.len() as f64; heap.reserve(self.weapons.len() * 2); for e in self.weapons.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[11] = at as f64; row[11 + 1] = self.peers.len() as f64; heap.reserve(self.peers.len() * 7); for e in self.peers.iter() { let mut item = [0.0f64; 7]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[13] = at as f64; row[13 + 1] = self.items.len() as f64; heap.reserve(self.items.len() * 2); for e in self.items.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[15] = at as f64; row[15 + 1] = self.remotes.len() as f64; heap.reserve(self.remotes.len() * 2); for e in self.remotes.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[17] = at as f64; row[17 + 1] = self.ordnance.len() as f64; heap.reserve(self.ordnance.len() * 2); for e in self.ordnance.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         row[19] = self.item_capacity as f64;
         row[20] = self.remote_capacity as f64;
         row[21] = self.entity_capacity as f64;

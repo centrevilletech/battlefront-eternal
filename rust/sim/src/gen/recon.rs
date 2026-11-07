@@ -49,8 +49,8 @@ impl F3ReconClass {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
         row[0] = self.id as f64;
-        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.value.len() as f64; heap.resize(at + self.value.len() * 1, 0.0); for (i, e) in self.value.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.loadout.len() as f64; heap.resize(at + self.loadout.len() * 1, 0.0); for (i, e) in self.loadout.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.value.len() as f64; heap.extend_from_slice(self.value.as_slice()); }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.loadout.len() as f64; heap.reserve(self.loadout.len() * 1); for e in self.loadout.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e).0 as f64; } heap.extend_from_slice(&item); } }
         match &self.explosion { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v) as f64; } None => { row[5] = 1.0; row[5 + 1..5 + 2].fill(0.0); } }
         row[7..7 + 3].copy_from_slice(&self.muzzle);
     }
@@ -84,7 +84,7 @@ impl F3ReconLevel {
         let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
         row[0] = self.weapon.0 as f64;
         row[1] = self.level as f64;
-        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.value.len() as f64; heap.resize(at + self.value.len() * 1, 0.0); for (i, e) in self.value.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.value.len() as f64; heap.extend_from_slice(self.value.as_slice()); }
         match &self.ordnance { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).0 as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 2].fill(0.0); } }
         match &self.strike { Some(v) => { row[6] = 0.0; row[6 + 1] = (*v) as f64; } None => { row[6] = 1.0; row[6 + 1..6 + 2].fill(0.0); } }
     }
@@ -115,7 +115,7 @@ impl F3ReconStrike {
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
         row[0] = self.id as f64;
-        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.value.len() as f64; heap.resize(at + self.value.len() * 1, 0.0); for (i, e) in self.value.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.value.len() as f64; heap.extend_from_slice(self.value.as_slice()); }
         row[3] = self.ordnance.0 as f64;
     }
 
@@ -311,8 +311,8 @@ impl F3ReconContextState {
         row[22] = self.look_x;
         row[23] = self.look_y;
         row[24] = if self.zoom { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[25] = at as f64; row[25 + 1] = self.droids.len() as f64; heap.resize(at + self.droids.len() * 2, 0.0); for (i, e) in self.droids.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[27] = at as f64; row[27 + 1] = self.strikes.len() as f64; heap.resize(at + self.strikes.len() * 2, 0.0); for (i, e) in self.strikes.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[25] = at as f64; row[25 + 1] = self.droids.len() as f64; heap.reserve(self.droids.len() * 2); for e in self.droids.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[27] = at as f64; row[27 + 1] = self.strikes.len() as f64; heap.reserve(self.strikes.len() * 2); for e in self.strikes.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -371,7 +371,7 @@ impl F3ReconDroidState {
         row[18..18 + 3].copy_from_slice(&self.target);
         row[21] = self.countdown;
         match &self.salvo { Some(v) => { row[22] = 0.0; v.put(&mut row[22 + 1..], heap); } None => { row[22] = 1.0; row[22 + 1..22 + 16].fill(0.0); } }
-        { let at = heap.len(); row[38] = at as f64; row[38 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 42, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 42..at + (i + 1) * 42].copy_from_slice(&item); } }
+        { let at = heap.len(); row[38] = at as f64; row[38 + 1] = self.weapons.len() as f64; heap.reserve(self.weapons.len() * 42); for e in self.weapons.iter() { let mut item = [0.0f64; 42]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         row[40..40 + 2].copy_from_slice(&self.selected);
     }
 
@@ -583,8 +583,8 @@ impl ReconContext {
         row[23] = self.look_x;
         row[24] = self.look_y;
         row[25] = if self.zoom { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[26] = at as f64; row[26 + 1] = self.droids.len() as f64; heap.resize(at + self.droids.len() * 2, 0.0); for (i, e) in self.droids.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
-        { let at = heap.len(); row[28] = at as f64; row[28 + 1] = self.strikes.len() as f64; heap.resize(at + self.strikes.len() * 2, 0.0); for (i, e) in self.strikes.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[26] = at as f64; row[26 + 1] = self.droids.len() as f64; heap.reserve(self.droids.len() * 2); for e in self.droids.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
+        { let at = heap.len(); row[28] = at as f64; row[28 + 1] = self.strikes.len() as f64; heap.reserve(self.strikes.len() * 2); for e in self.strikes.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
@@ -668,7 +668,7 @@ impl ReconDroid {
         row[28..28 + 3].copy_from_slice(&self.target);
         row[31] = self.countdown;
         match &self.salvo { Some(v) => { row[32] = 0.0; v.put(&mut row[32 + 1..], heap); } None => { row[32] = 1.0; row[32 + 1..32 + 16].fill(0.0); } }
-        { let at = heap.len(); row[48] = at as f64; row[48 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 43, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 43]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 43..at + (i + 1) * 43].copy_from_slice(&item); } }
+        { let at = heap.len(); row[48] = at as f64; row[48 + 1] = self.weapons.len() as f64; heap.reserve(self.weapons.len() * 43); for e in self.weapons.iter() { let mut item = [0.0f64; 43]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } }
         row[50..50 + 2].copy_from_slice(&self.selected);
     }
 

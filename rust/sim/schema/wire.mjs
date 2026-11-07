@@ -9,9 +9,9 @@ export default {
   records: {
     WireVelocity: { wide: 'bool', v: 'f64x3' },
     WireQuaternion: { index: 'f64', v: 'f64x3' },
-    WireMount: { $layout: true, slot: 'f64|null', tilt: 'f64', roll: 'f64', walkPhase: 'f64', walkBlend: 'f64', seats: 'list:f64x2' },
+    WireMount: { $layout: true, $reuse: true, slot: 'f64|null', tilt: 'f64', roll: 'f64', walkPhase: 'f64', walkBlend: 'f64', seats: 'list:f64x2' },
     WireEntry: {
-      $layout: true,
+      $layout: true, $reuse: true,
       cls: 'enum:WireClass', entityId: 'f64', generation: 'f64', classId: 'f64', team: 'f64', disc: 'bool',
       pos: 'f64x3', vel: 'rec:WireVelocity', yaw: 'f64', pitch: 'f64', health: 'f64', posture: 'f64', charge: 'f64',
       state: 'f64', weapon: 'f64', seatSlot: 'f64', seatIndex: 'f64', fireCounter: 'f64',
@@ -19,7 +19,7 @@ export default {
       quat: 'rec:WireQuaternion', power: 'f64', mount: 'rec:WireMount', gunYaw: 'f64', gunPitch: 'f64',
       active: 'bool', definitionId: 'f64', up: 'f64x3',
     },
-    WireSlot: { $layout: true, slot: 'f64', entry: 'rec:WireEntry' },
+    WireSlot: { $layout: true, $reuse: true, slot: 'f64', entry: 'rec:WireEntry' },
     WireField: { $layout: true, id: 'f64', schema: 'f64', generation: 'f64', payload: 'list:u8' },
     WireSnapshot: { tick: 'f64', epoch: 'f64', slots: 'list:rec:WireSlot', world: 'list:rec:WireField' },
     WireEncode: { current: 'rec:WireSnapshot', baseline: 'rec:WireSnapshot|null', interval: 'f64' },

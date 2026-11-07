@@ -173,7 +173,7 @@ impl WireMount {
         row[3] = self.roll;
         row[4] = self.walk_phase;
         row[5] = self.walk_blend;
-        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 2, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0..0 + 2].copy_from_slice(&(*e)); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.seats.len() as f64; heap.extend_from_slice(self.seats.as_flattened()); }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -186,6 +186,20 @@ impl WireMount {
             walk_blend: row[5],
             seats: { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push({ let mut a = [0.0; 2]; a.copy_from_slice(&row[0..0 + 2]); a }); } out },
         }
+    }
+
+    /// Decode into reserved list banks without growing or replacing them.
+    /// False leaves a partial scalar update; all list banks remain owned.
+    pub fn take_into(&mut self, row: &[f64], heap: &[f64]) -> bool {
+        if row.len() < 8 { return false; }
+        let row: &[f64; 8] = row[..8].try_into().unwrap();
+        self.slot = if row[0] == 0.0 { Some(row[0 + 1]) } else { None };
+        self.tilt = row[2];
+        self.roll = row[3];
+        self.walk_phase = row[4];
+        self.walk_blend = row[5];
+        { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); if n > self.seats.capacity() || at > heap.len() || n > (heap.len() - at) / 2 { return false; } self.seats.clear(); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; self.seats.push({ let mut a = [0.0; 2]; a.copy_from_slice(&row[0..0 + 2]); a }); } }
+        true
     }
 
 }
@@ -284,7 +298,7 @@ impl WireEntry {
         row[24] = if self.reverse { 1.0 } else { 0.0 };
         row[25] = if self.dead { 1.0 } else { 0.0 };
         row[26] = if self.shield_on { 1.0 } else { 0.0 };
-        { let at = heap.len(); row[27] = at as f64; row[27 + 1] = self.anim.len() as f64; heap.resize(at + self.anim.len() * 1, 0.0); for (i, e) in self.anim.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[27] = at as f64; row[27 + 1] = self.anim.len() as f64; heap.extend_from_slice(self.anim.as_slice()); }
         self.quat.put(&mut row[29..], heap);
         row[33] = self.power;
         self.mount.put(&mut row[34..], heap);
@@ -332,6 +346,45 @@ impl WireEntry {
         }
     }
 
+    /// Decode into reserved list banks without growing or replacing them.
+    /// False leaves a partial scalar update; all list banks remain owned.
+    pub fn take_into(&mut self, row: &[f64], heap: &[f64]) -> bool {
+        if row.len() < 49 { return false; }
+        let row: &[f64; 49] = row[..49].try_into().unwrap();
+        self.cls = WireClass::from_u8(word_u32(row[0]) as u8).unwrap_or_default();
+        self.entity_id = row[1];
+        self.generation = row[2];
+        self.class_id = row[3];
+        self.team = row[4];
+        self.disc = row[5] != 0.0;
+        self.pos = { let mut a = [0.0; 3]; a.copy_from_slice(&row[6..6 + 3]); a };
+        self.vel = WireVelocity::take(&row[9..], heap);
+        self.yaw = row[13];
+        self.pitch = row[14];
+        self.health = row[15];
+        self.posture = row[16];
+        self.charge = row[17];
+        self.state = row[18];
+        self.weapon = row[19];
+        self.seat_slot = row[20];
+        self.seat_index = row[21];
+        self.fire_counter = row[22];
+        self.mode = row[23];
+        self.reverse = row[24] != 0.0;
+        self.dead = row[25] != 0.0;
+        self.shield_on = row[26] != 0.0;
+        { let (at, n) = (word_u32(row[27]) as usize, word_u32(row[27 + 1]) as usize); if n > self.anim.capacity() || at > heap.len() || n > (heap.len() - at) / 1 { return false; } self.anim.clear(); self.anim.extend_from_slice(&heap[at..at + n]); }
+        self.quat = WireQuaternion::take(&row[29..], heap);
+        self.power = row[33];
+        if !self.mount.take_into(&row[34..], heap) { return false; }
+        self.gun_yaw = row[42];
+        self.gun_pitch = row[43];
+        self.active = row[44] != 0.0;
+        self.definition_id = row[45];
+        self.up = { let mut a = [0.0; 3]; a.copy_from_slice(&row[46..46 + 3]); a };
+        true
+    }
+
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -359,6 +412,16 @@ impl WireSlot {
         }
     }
 
+    /// Decode into reserved list banks without growing or replacing them.
+    /// False leaves a partial scalar update; all list banks remain owned.
+    pub fn take_into(&mut self, row: &[f64], heap: &[f64]) -> bool {
+        if row.len() < 50 { return false; }
+        let row: &[f64; 50] = row[..50].try_into().unwrap();
+        self.slot = row[0];
+        if !self.entry.take_into(&row[1..], heap) { return false; }
+        true
+    }
+
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -382,7 +445,7 @@ impl WireField {
         row[0] = self.id;
         row[1] = self.schema;
         row[2] = self.generation;
-        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.payload.len() as f64; heap.resize(at + self.payload.len() * 1, 0.0); for (i, e) in self.payload.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[3] = at as f64; row[3 + 1] = self.payload.len() as f64; heap.reserve(self.payload.len() * 1); for e in self.payload.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -468,7 +531,7 @@ impl WireBytes {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.bytes.len() as f64; heap.resize(at + self.bytes.len() * 1, 0.0); for (i, e) in self.bytes.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.bytes.len() as f64; heap.reserve(self.bytes.len() * 1); for e in self.bytes.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -519,8 +582,8 @@ impl WireDelta {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
-        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.current.len() as f64; heap.resize(at + self.current.len() * 1, 0.0); for (i, e) in self.current.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
-        match &self.baseline { Some(v) => { row[2] = 0.0; { let at = heap.len(); row[2 + 1] = at as f64; row[2 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[2] = 1.0; row[2 + 1..2 + 3].fill(0.0); } }
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.current.len() as f64; heap.reserve(self.current.len() * 1); for e in self.current.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } }
+        match &self.baseline { Some(v) => { row[2] = 0.0; { let at = heap.len(); row[2 + 1] = at as f64; row[2 + 1 + 1] = v.len() as f64; heap.reserve(v.len() * 1); for e in v.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } } } None => { row[2] = 1.0; row[2 + 1..2 + 3].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -589,12 +652,12 @@ impl WireOwn {
         row[5] = if self.second { 1.0 } else { 0.0 };
         row[6] = self.own_parts;
         match &self.correction { Some(v) => { row[7] = 0.0; v.put(&mut row[7 + 1..], heap); } None => { row[7] = 1.0; row[7 + 1..7 + 6].fill(0.0); } }
-        match &self.baseline_payload { Some(v) => { row[13] = 0.0; { let at = heap.len(); row[13 + 1] = at as f64; row[13 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[13] = 1.0; row[13 + 1..13 + 3].fill(0.0); } }
-        match &self.correction_delta { Some(v) => { row[16] = 0.0; { let at = heap.len(); row[16 + 1] = at as f64; row[16 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[16] = 1.0; row[16 + 1..16 + 3].fill(0.0); } }
+        match &self.baseline_payload { Some(v) => { row[13] = 0.0; { let at = heap.len(); row[13 + 1] = at as f64; row[13 + 1 + 1] = v.len() as f64; heap.reserve(v.len() * 1); for e in v.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } } } None => { row[13] = 1.0; row[13 + 1..13 + 3].fill(0.0); } }
+        match &self.correction_delta { Some(v) => { row[16] = 0.0; { let at = heap.len(); row[16 + 1] = at as f64; row[16 + 1 + 1] = v.len() as f64; heap.reserve(v.len() * 1); for e in v.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } } } None => { row[16] = 1.0; row[16 + 1..16 + 3].fill(0.0); } }
         match &self.summaries { Some(v) => { row[19] = 0.0; { let at = heap.len(); row[19 + 1] = at as f64; row[19 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 5, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } } } None => { row[19] = 1.0; row[19 + 1..19 + 3].fill(0.0); } }
         match &self.baseline_summaries { Some(v) => { row[22] = 0.0; { let at = heap.len(); row[22 + 1] = at as f64; row[22 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 5, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } } } None => { row[22] = 1.0; row[22 + 1..22 + 3].fill(0.0); } }
-        match &self.summaries_section { Some(v) => { row[25] = 0.0; { let at = heap.len(); row[25 + 1] = at as f64; row[25 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[25] = 1.0; row[25 + 1..25 + 3].fill(0.0); } }
-        match &self.cosmetic_bytes { Some(v) => { row[28] = 0.0; { let at = heap.len(); row[28 + 1] = at as f64; row[28 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[28] = 1.0; row[28 + 1..28 + 3].fill(0.0); } }
+        match &self.summaries_section { Some(v) => { row[25] = 0.0; { let at = heap.len(); row[25 + 1] = at as f64; row[25 + 1 + 1] = v.len() as f64; heap.reserve(v.len() * 1); for e in v.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } } } None => { row[25] = 1.0; row[25 + 1..25 + 3].fill(0.0); } }
+        match &self.cosmetic_bytes { Some(v) => { row[28] = 0.0; { let at = heap.len(); row[28 + 1] = at as f64; row[28 + 1 + 1] = v.len() as f64; heap.reserve(v.len() * 1); for e in v.iter() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e) as f64; } heap.extend_from_slice(&item); } } } None => { row[28] = 1.0; row[28 + 1..28 + 3].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -765,7 +828,7 @@ impl WireRecord {
         row[56] = self.tilt;
         row[57] = self.walk_phase;
         row[58] = self.walk_blend;
-        match &self.seats { Some(v) => { row[59] = 0.0; { let at = heap.len(); row[59 + 1] = at as f64; row[59 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 2, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } } } None => { row[59] = 1.0; row[59 + 1..59 + 3].fill(0.0); } }
+        match &self.seats { Some(v) => { row[59] = 0.0; { let at = heap.len(); row[59 + 1] = at as f64; row[59 + 1 + 1] = v.len() as f64; heap.reserve(v.len() * 2); for e in v.iter() { let mut item = [0.0f64; 2]; { let row = &mut item; e.put(&mut row[0..], heap); } heap.extend_from_slice(&item); } } } None => { row[59] = 1.0; row[59 + 1..59 + 3].fill(0.0); } }
         match &self.vehicle_id { Some(v) => { row[62] = 0.0; row[62 + 1] = (*v); } None => { row[62] = 1.0; row[62 + 1..62 + 2].fill(0.0); } }
         match &self.seat_index { Some(v) => { row[64] = 0.0; row[64 + 1] = (*v); } None => { row[64] = 1.0; row[64 + 1..64 + 2].fill(0.0); } }
     }
