@@ -31,6 +31,9 @@ globalThis.localStorage ??= { getItem: () => null, setItem() {}, removeItem() {}
 export async function headlessGame(query, {read,simulationFactory}={}) {
   if(read)globalThis.fetch=contentFetch(read);
   const { createGame } = await import('../src/game.js');
+  // Qualification installs a factory only in its child process. Ordinary
+  // captures retain createGame's default; no application option is added.
+  simulationFactory ??= globalThis[Symbol.for('bfe.qualification.simulationFactory')];
   return createGame({ query, headless: true, ...(simulationFactory ? {simulationFactory} : {}) });
 }
 

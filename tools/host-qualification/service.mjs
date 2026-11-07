@@ -126,7 +126,7 @@ export async function qualifyService(config){
     await closeClients();
     for(let index=0;index<info.length;index++){const first=await service.call('close',{index});const second=await service.call('close',{index});assert.equal(first.workerExited,true);assert.equal(second.alreadyClosed,true);}
     const closed=await service.call('sample');assert.equal(closed.worlds.length,0);result.closed=closed;
-  }catch(error){result.errors.push(String(error.stack??error).slice(0,4000));}
+  }catch(error){result.errors.push(String(error.stack??error).slice(0,4000));if(error.qualificationClient)result.failedClient=error.qualificationClient;}
   finally{
     if(shaping){try{result.kernelFinal=shaping.stats();shaping.stop();execFileSync('tc',['qdisc','del','dev','lo','root']);}catch(error){result.errors.push(String(error));}}
     await closeClients();result.exit=await service.close();result.stderr=service.stderr;

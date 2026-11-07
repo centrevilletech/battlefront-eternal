@@ -78,3 +78,37 @@ test('addon qualification uses the built default without creating unused raw dir
   assert.match(result.error,/\.host-addon[\/]bfe-node\.node/);
   assert.deepEqual(await readdir(dir),['result.json']);
 });
+
+test('farm proof retains every acceptance window except wall-clock soaks',async()=>{
+  const {jobs,maps,shardRows}=await import('../tools/host-qualification/jobs.mjs');
+  const full=jobs(),proof=jobs({proof:true});assert.equal(full.length,proof.length);
+  for(let i=0;i<full.length;i++){
+    const expected=structuredClone(full[i]);if(['lifecycle','memory'].includes(expected.kind))expected.seconds=300;
+    assert.deepEqual(proof[i],expected);
+  }
+  assert.equal(proof.filter(j=>j.kind==='lifecycle').length,maps.length);
+  assert.equal(proof.filter(j=>j.kind==='matrix').length,3);
+  const {readFile}=await import('node:fs/promises');
+  const text=await readFile(new URL('../tools/world-hash-matrix.txt',import.meta.url),'utf8');
+  const rows=text.split('\n').map(s=>s.replace(/#.*/,'').trim()).filter(Boolean);
+  const shards=[0,1,2].flatMap(index=>shardRows(text,index).trim().split('\n'));
+  assert.equal(rows.length,61);assert.equal(shards.length,61);assert.equal(new Set(shards).size,61);
+  assert.deepEqual(shards.sort(),rows.sort());
+});
+
+test('bundle hydration preserves active files and replaces a different archive',async t=>{
+  const {stat}=await import('node:fs/promises'),{execFileSync}=await import('node:child_process'),{createHash}=await import('node:crypto');
+  const directory=await mkdtemp(join(tmpdir(),'host-archive-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const staging=join(directory,'staging'),target=join(directory,'installed'),archive=join(directory,'bundle.tar'),receipt=join(directory,'receipt');
+  const {mkdir}=await import('node:fs/promises');await mkdir(join(staging,'bundle/engine'),{recursive:true});await mkdir(target);
+  const create=async text=>{
+    await writeFile(join(staging,'bundle/engine/payload.js'),text);
+    await writeFile(join(staging,'bundle/engine/host-runtime.json'),JSON.stringify({artifacts:{'engine/payload.js':createHash('sha256').update(text).digest('hex')}}));
+    execFileSync('tar',['-cf',archive,'-C',staging,'bundle']);
+  };
+  const engine=join(target,'bundle/engine'),payload=join(engine,'payload.js');
+  const hydrate=()=>execFileSync(process.execPath,[new URL('../tools/host-qualification/hydrate.mjs',import.meta.url).pathname,archive,engine,receipt]);
+  await create('first');hydrate();assert.equal(await readFile(payload,'utf8'),'first');
+  const before=(await stat(payload)).ino;await rm(receipt);hydrate();assert.equal((await stat(payload)).ino,before,'complete active bundle was rewritten');
+  await create('second');hydrate();assert.equal(await readFile(payload,'utf8'),'second','old complete bundle hid a changed archive');
+});

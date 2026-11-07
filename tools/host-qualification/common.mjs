@@ -37,10 +37,10 @@ export async function collect(references,timeout=10000){
   const end=performance.now()+timeout;
   for(;;){await sleep(10);global.gc();await sleep(10);if(references.every(ref=>ref.deref()===undefined))return true;if(performance.now()>end)return false;}
 }
-export async function backendProvider({backend,module,engine,manifest}){
+export async function backendProvider({backend,module,engine,manifest,sourceRoot}){
   if(backend==='wasm')return (await import('./wasm.mjs')).wasmProvider({engine,manifest});
   if(!module)throw Error('Native qualification requires an explicit harness backend module');
-  const provider=await (await import(pathToFileURL(resolve(module)))).createQualificationBackend({engine,manifest});
+  const provider=await (await import(pathToFileURL(resolve(module)))).createQualificationBackend({engine,manifest,sourceRoot});
   if(provider?.capabilities?.nativeWorld!==true||provider.capabilities.nativePublication!==true)throw Error('Backend does not expose native world and publication');
   if(typeof provider.open!=='function')throw Error('Invalid qualification backend');
   return provider;

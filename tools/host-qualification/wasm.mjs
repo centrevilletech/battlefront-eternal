@@ -4,6 +4,8 @@ import {resolve,dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {maximum} from './telemetry.mjs';
+import {PhaseCounters} from '../../src/sim/phase-contract.js';
+import {WireCensusLayout as Census} from '../../src/sim/gen/wire-census.js';
 const moduleAt=(root,name)=>import(pathToFileURL(resolve(root,name)));
 export async function wasmProvider({engine,manifest}){
   const server=resolve(dirname(engine),'server');
@@ -18,6 +20,12 @@ export async function wasmProvider({engine,manifest}){
     globalThis.fetch=await dataReader(config.data);
     let game,world,host,instance,backend,closed=false,peak={},finishedAt=null;
     const clients=new Map(),weak=[];
+    let measured={steps:0,publications:0,stepMicros:0,publishMicros:0,packetBytes:0};
+    const measure=(key,fn)=>{
+      if(!config.measure)return fn();
+      const start=process.threadCpuUsage();const result=fn(),cpu=process.threadCpuUsage(start);
+      measured[key]+=cpu.user+cpu.system;return result;
+    };
     const fail=stage=>{if(config.failAfter===stage)throw Error(`Construction fixture: ${stage}`);};
     const close=()=>{
       if(closed)return false;closed=true;
@@ -40,6 +48,19 @@ export async function wasmProvider({engine,manifest}){
     const check=()=>{if(closed)throw Error('Battle closed');};
     return {
       references:weak,
+      resetMeasurements(){
+        measured={steps:0,publications:0,stepMicros:0,publishMicros:0,packetBytes:0};
+        game.simBridge.boundaryCounters={inputWords:0,outputWords:0,inputBytes:0,outputBytes:0,importCalls:0,hooks:0,publishedRows:0};
+        game.simBridge.phaseCounters=new PhaseCounters();
+        game.simBridge.x.wire_census_begin();
+      },
+      measurements(){
+        const bridge=game.simBridge,ptr=bridge.x.wire_census_end();bridge.views();
+        const census=bridge.f.subarray(ptr/8,ptr/8+Census.words);
+        return {...measured,boundary:{...bridge.boundaryCounters,phase:bridge.phaseCounters},
+          allocations:census[Census.allocations],reallocations:census[Census.reallocations],allocationBytes:census[Census.allocationBytes],
+          allocationScope:'Simulation allocator during the complete measured tick loop; excludes JavaScript and client presentation owners'};
+      },
       async join(id){
         check();if(clients.has(id))throw Error('Duplicate harness client');
         await world.addPlayer(id,{spawn:true,teamSelect:false,reliableFire:true,separateActions:true,name:'Qualification player'});
@@ -51,11 +72,11 @@ export async function wasmProvider({engine,manifest}){
       step(count=1){
         check();for(let i=0;i<count;i++){
           const faults=host.advanceEdges();if(faults.length)throw faults[0].error;
-          const tick=world.step();const consumed=host.consumedEdges(tick);if(consumed.length)throw consumed[0].error;
+          const tick=measure('stepMicros',()=>world.step());if(config.measure)measured.steps++;const consumed=host.consumedEdges(tick);if(consumed.length)throw consumed[0].error;
           if(game.battle.finished&&finishedAt===null)finishedAt=tick;
-          const publication=host.publish();if(publication.faults.length)throw publication.faults[0].error;
+          const publication=measure('publishMicros',()=>host.publish());if(config.measure)measured.publications++;if(publication.faults.length)throw publication.faults[0].error;
           for(const [id,client]of clients){
-            for(const bytes of publicationBuffersFor(publication,id)){const result=client.receiver.receive(new Uint8Array(bytes));client.packets++;if(result?.complete)client.complete++;}
+            for(const bytes of publicationBuffersFor(publication,id)){const result=client.receiver.receive(new Uint8Array(bytes));client.packets++;if(config.measure)measured.packetBytes+=bytes.byteLength;if(result?.complete)client.complete++;}
             host.input(id,client.encoder.keepalive(client.receiver.snapshotAck));
           }
         }
