@@ -94,7 +94,7 @@ impl Input {
         if !secondary && self.secondary() { self.press_fire(1); }
     }
     fn secondary(&self) -> bool {
-        self.middle || self.down(KeyCode::AltLeft) || self.down(KeyCode::AltRight)
+        self.right_mouse || self.down(KeyCode::AltLeft) || self.down(KeyCode::AltRight)
     }
     // Reliable fire identities are independent from movement sequence.
     // A press and release between ticks still reaches the next command.
@@ -103,22 +103,23 @@ impl Input {
         self.fire_id[button] = self.fire_id[button].wrapping_add(1);
         self.action(if button == 0 { Action::FirePrimary } else { Action::FireSecondary });
     }
-    // DOM Mouse0/1/2 map to left/right/middle, rather than left/middle/right.
-    // Keep that distinction: the original controls zoom with the right button.
+    // DOM Mouse0/1/2 are left/middle/right. Preserve Controls' physical
+    // defaults: middle zooms (flight roll-lock), right fires the secondary.
+    // The network encoder names those physical codes in the shared profile.
     pub fn mouse(&mut self, button: MouseButton, pressed: bool) {
         match button {
             MouseButton::Left => {
                 if pressed && !self.primary { self.press_fire(0); }
                 self.primary = pressed;
             }
-            MouseButton::Middle => {
+            MouseButton::Right => {
                 let was = self.secondary();
-                self.middle = pressed;
+                self.right_mouse = pressed;
                 if !was && self.secondary() { self.press_fire(1); }
             }
-            MouseButton::Right => {
-                if pressed && !self.right_mouse { self.action(Action::Zoom); }
-                self.right_mouse = pressed;
+            MouseButton::Middle => {
+                if pressed && !self.middle { self.action(Action::Zoom); }
+                self.middle = pressed;
             },
             MouseButton::Back if pressed => {
                 self.view_actions.perspective = true;
@@ -151,7 +152,7 @@ impl Input {
             (self.down(KeyCode::KeyD), FlightHeld::RollRight),
             (self.down(KeyCode::KeyA), FlightHeld::RollLeft),
             (self.down(KeyCode::ShiftLeft) || self.down(KeyCode::ShiftRight), FlightHeld::Boost),
-            (self.down(KeyCode::KeyZ) || self.right_mouse, FlightHeld::RollLock),
+            (self.down(KeyCode::KeyZ) || self.middle, FlightHeld::RollLock),
         ] { if on { held |= 1 << flag as u8; } }
         let result = ClientFlightCommand { held, default_held: held, actions: self.flight_actions,
             scale: 1.0, curve: 1.35, ..Default::default() };

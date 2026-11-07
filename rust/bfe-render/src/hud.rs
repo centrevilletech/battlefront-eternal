@@ -77,6 +77,17 @@ impl<C: HasContext> HudPass<C> {
         }
     }
 
+    // Resource admission knows each program's matrix slots. NaNs preserve
+    // the first real uniform upload while keeping that draw allocation-free.
+    // This is the same cache admission used by the retained post pass.
+    pub fn prepare_program(&mut self,program:usize,uniforms:&[(&str,u32)]) {
+        for(slot,(_,kind))in uniforms.iter().enumerate(){
+            if *kind==crate::post::TYPE_MAT3 || *kind==crate::post::TYPE_MAT4 {
+                self.matrices.entry((program,slot)).or_insert([f32::NAN;16]);
+            }
+        }
+    }
+
     // The batch's index (batch.js: two triangles a quad), once.
 // Batch.init's resource role: allocate one index buffer and four attribute
 // buffers. Their order matches SIZES/LOCATIONS and reupload's mirror list.

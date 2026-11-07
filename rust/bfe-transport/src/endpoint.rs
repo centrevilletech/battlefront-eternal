@@ -43,6 +43,11 @@ impl Endpoint{
     // receipts. Wall-clock corrections never move the transport backward.
     pub fn now(&self)->f64{self.start.elapsed().as_secs_f64()*1000.}
     pub fn ready(&self)->bool{self.ready}
+    // Error formatting is terminal work. Preserve the authenticated CLOSE
+    // text instead of hiding a kick or shutdown behind a generic socket line.
+    pub fn failure(&self,error:Error)->String{
+        self.connection.as_ref().and_then(|c|c.closed).map_or_else(||error.to_string(),|c|format!("server closed connection ({}): {}",c.code,String::from_utf8_lossy(c.reason())))
+    }
     // Expose the selected bound socket only after path selection. Other
     // address-family candidates cannot impersonate that connection endpoint.
     pub fn local_addr(&self)->Option<SocketAddr>{self.chosen.and_then(|i|self.sockets[self.candidates[i].socket].udp.local_addr().ok())}
@@ -72,7 +77,7 @@ impl Endpoint{
             // A datagram flood has a bounded turn, so native input and drawing
             // still get their next frame. Remaining packets stay in the kernel.
             for _ in 0..256{
-                let (n,path)=match self.sockets[socket].udp.recv_from(&mut bytes){Ok(v)=>v,Err(e)if e.kind()==std::io::ErrorKind::WouldBlock=>break,Err(_)=>return Err(Error("UDP receive failed"))};
+                let (n,path)=match self.sockets[socket].udp.recv_from(&mut bytes){Ok(v)=>v,Err(e)if e.kind()==std::io::ErrorKind::WouldBlock=>break,Err(e)if datagram_drop(&e)=>continue,Err(_)=>return Err(Error("UDP receive failed"))};
                 let packet=&bytes[..n];if n<common::BYTES{continue;}
                 if matches!(packet[0]as usize,packet::DATA|packet::DATA_PHASE){
                     if let Some(c)=&mut self.connection{
@@ -111,5 +116,18 @@ impl Endpoint{
             if c.closed.is_some(){return Err(Error("connection to server closed"));}
         }
         if self.ready{self.handshake=None;}Ok(())
+    }
+}
+
+// Unconnected UDP can report an ICMP rejection for just one candidate on
+// Windows. Drop that receipt; handshake/idle deadlines own session failure.
+fn datagram_drop(error:&std::io::Error)->bool{
+    matches!(error.kind(),std::io::ErrorKind::Interrupted|std::io::ErrorKind::ConnectionReset|std::io::ErrorKind::ConnectionRefused)
+}
+#[cfg(test)]mod tests{
+    #[test]fn per_datagram_errors_do_not_end_a_session(){
+        use std::io::{Error,ErrorKind};
+        for kind in [ErrorKind::Interrupted,ErrorKind::ConnectionReset,ErrorKind::ConnectionRefused]{assert!(super::datagram_drop(&Error::from(kind)));}
+        assert!(!super::datagram_drop(&Error::from(ErrorKind::PermissionDenied)));
     }
 }

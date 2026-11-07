@@ -129,7 +129,11 @@ pub(crate) fn set_uniform<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>, ma
                     core.gl.uniform_matrix_4_f32_slice(location.as_ref(), false, &m);
                 }
             }
-            matrices.insert((program, slot), m);
+            // Updating a full HashMap through insert can reserve before it
+            // discovers the existing key. Admission already owns this row;
+            // replace its value directly so even the first draw stays cold.
+            if let Some(held)=matrices.get_mut(&(program,slot)){*held=m;}
+            else {matrices.insert((program,slot),m);}
             core.stats.gl_calls += 1;
         }
         n @ 1..=4 => {

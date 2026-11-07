@@ -87,6 +87,39 @@ pub struct Environment {
     pub assists: bool,
 }
 
+impl Environment {
+    /// F2's cold flight-environment reader is also used by private native
+    /// sessions. Authored bounds and landing zones keep the same defaults.
+    pub fn from_content(env:&bfe_content::Value,max_fly_height:f64)->Self{
+        use bfe_content::Value;
+        let nums3 = |v: Option<&Value>| -> [f64; 3] { [0, 1, 2].map(|k| v.and_then(|a| a.at(k)).and_then(Value::as_f64).unwrap_or(f64::NAN)) };
+        let bounds = env.get("bounds").filter(|b| !matches!(b, Value::Null)).map(|b| (nums3(b.get("min")), nums3(b.get("max"))));
+        let landing_zones = env.get("landingZones").filter(|z| !matches!(z, Value::Null)).map(|zones| {
+            zones
+                .as_array()
+                .unwrap_or(&[])
+                .iter()
+                .map(|z| {
+                    let (min, max) = (nums3(z.get("min")), nums3(z.get("max")));
+                    let floor_y = match z.get("floorY") {
+                        None | Some(Value::Null) => min[1],
+                        Some(v) => v.as_f64().unwrap_or(f64::NAN),
+                    };
+                    Zone { min, max, floor_y }
+                })
+                .collect()
+        });
+        Self {
+            ceiling: env.get("ceiling").and_then(Value::as_f64),
+            max_fly_height,
+            bounds,
+            space: env.get("space").is_some_and(Value::truthy),
+            landing_zones,
+            assists: false,
+        }
+    }
+}
+
 /// A team as the registry holds one: a number, or nothing (null or
 /// undefined, which the registry's relation treats alike).
 pub type Team = Option<f64>;

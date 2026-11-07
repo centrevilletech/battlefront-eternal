@@ -7,6 +7,8 @@ use serde_json::{json, Value};
 // separate matrix, and skeleton rows retain attached-mode rounding rather
 // than baking an approximate world-space replacement for a skinned draw.
 pub struct Part {
+    pub instance:usize,
+    pub attachment:Option<String>,
     pub model: String,
     pub source: usize,
     pub geometry_key: String,
@@ -32,7 +34,11 @@ fn array<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, String> {
 // LiveObjects selects its initial unbuilt look when available. A built
 // power-up station or static building otherwise begins at its authored bind
 // pose. Damage, rebuilds and animation commands require a world owner.
-pub fn admit(content: &BattleContent) -> Result<Placements, String> {
+pub fn admit(content: &BattleContent) -> Result<Placements, String> {admit_selected(content,0)}
+/// Direct joins pose armed buildings in the native prop owner instead.
+pub fn admit_live(content:&BattleContent)->Result<Placements,String>{admit_selected(content,1)}
+pub fn admit_turrets(content:&BattleContent)->Result<Placements,String>{admit_selected(content,2)}
+fn admit_selected(content: &BattleContent,mode:u8) -> Result<Placements, String> {
     let mut result = Placements {
         parts: vec![],
         deferred: 0,
@@ -48,8 +54,8 @@ pub fn admit(content: &BattleContent) -> Result<Placements, String> {
         return Ok(result);
     };
     let mut placements = Vec::with_capacity(instances.len());
-    for desc in instances {
-        placements.push(desc.clone());
+    for (instance,desc) in instances.iter().enumerate() {
+        placements.push((instance,desc.clone()));
         if desc["base"] == "trap" {
             if let Some(model) = desc["trap"]["pad"]["model"].as_str() {
                 let matrix = crate::pad::placement(
@@ -57,14 +63,15 @@ pub fn admit(content: &BattleContent) -> Result<Placements, String> {
                     array(&desc["trap"]["pad"]["at"])?,
                     &content.content.collision,
                 )?;
-                placements.push(json!({"base":"staticpad","model":model,"matrix":matrix}));
+                placements.push((instance,json!({"base":"staticpad","model":model,"matrix":matrix})));
             }
         }
     }
     // One immutable recipe per look, shared across every authored placement.
     let mut cache = std::collections::BTreeMap::<String, Value>::new();
-    for desc in &placements {
+    for (instance,desc) in &placements {
         let base = desc["base"].as_str().unwrap_or("");
+        if mode==1&&base=="armedbuilding"||mode==2&&base!="armedbuilding"{continue;}
         // AnimatedProp.present samples clips even without gameplay. Retain
         // that distinction instead of publishing an incorrect bind-pose door.
         if matches!(base, "animatedprop" | "door") {
@@ -74,8 +81,8 @@ pub fn admit(content: &BattleContent) -> Result<Placements, String> {
         // Destroyed geometry is a different model and is not part of the
         // initial visible set. Texture/resource admission follows this chosen
         // look, rather than uploading every dormant wreck in the prop pack.
-        let name = desc["unbuilt"]["model"]
-            .as_str()
+        let unbuilt=if mode==2{None}else{desc["unbuilt"]["model"].as_str()};
+        let name = unbuilt
             .or_else(|| desc["model"].as_str())
             .ok_or("prop has no initial model")?;
         let separate = if base == "armedbuilding" && desc["unbuilt"]["model"].is_null() {
@@ -185,6 +192,7 @@ pub fn admit(content: &BattleContent) -> Result<Placements, String> {
             let mut bind_inverse = three::Matrix4 { elements: placed };
             bind_inverse.invert();
             result.parts.push(Part {
+                instance:*instance,attachment:b["attach"].as_str().map(str::to_string),
                 model: name.into(),
                 source: array(&b["part"])?,
                 geometry_key: format!("{key}/{}", b["part"]),

@@ -480,6 +480,7 @@ pub fn water(
     };
     let spec = programs::spec(key)?;
     let p = bridge.add_owned_program(key)?;
+    bridge.r.water.prepare_program(p as usize,spec.uniforms);
     let look = &data["look"];
     let scale = data["scale"].as_f64().unwrap_or(1.);
     let divisions = look["PatchDivisions"][0].as_f64().unwrap_or(16.);

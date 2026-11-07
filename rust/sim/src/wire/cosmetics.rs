@@ -125,9 +125,14 @@ pub fn decode_compact(record: &Record) -> Result<Compact> {
 /// The publication owner reserves the three launch-offset values once.
 /// Decoding malformed content never replaces that retained vector.
 pub fn decode_compact_into(record: &Record, e: &mut Compact) -> Result<()> {
-    if !record.combat
-        || ![1.0, 2.0].contains(&record.schema)
-        || record.payload.len() != if record.schema == 1.0 { 130 } else { 82 }
+    if !record.combat{return Err("invalid combat payload");}
+    decode_bolt_into(record.schema,record.tick,&record.payload,e)
+}
+/// A native presentation consumer borrows the publication's retained bytes.
+/// The producer encoder and the client use this one validated bolt grammar.
+pub fn decode_bolt_into(schema:f64,tick:f64,bytes:&[u8],e:&mut Compact)->Result<()> {
+    if ![1.0, 2.0].contains(&schema)
+        || bytes.len() != if schema == 1.0 { 130 } else { 82 }
     {
         return Err("invalid combat payload");
     }
@@ -155,12 +160,12 @@ pub fn decode_compact_into(record: &Record, e: &mut Compact) -> Result<()> {
         }
     }
     let mut r = Reader {
-        bytes: &record.payload,
+        bytes,
         at: 0,
     };
-    e.offset.clear(); e.view = View::default(); e.view.schema = record.schema;
+    e.offset.clear(); e.view = View::default(); e.view.schema = schema;
     e.expiry_tick = r.u32(); e.definition = r.u32();
-    e.view.schema = record.schema;
+    e.view.schema = schema;
     e.view.owner = Owner::number(r.u32());
     e.owner_generation = r.u32();
     e.fire = r.u32();
@@ -169,7 +174,7 @@ pub fn decode_compact_into(record: &Record, e: &mut Compact) -> Result<()> {
     e.view.direction = Some(r.vec()?);
     e.surface = r.bytes[r.at] as f64;
     r.at += 1;
-    if record.schema == 1.0 {
+    if schema == 1.0 {
         e.offset.extend_from_slice(&r.vec()?);
         e.view.speed = r.f64()?;
         e.view.life = r.f64()?;
@@ -180,15 +185,15 @@ pub fn decode_compact_into(record: &Record, e: &mut Compact) -> Result<()> {
     if e.channel > 1.0
         || e.launch_tick < 0.0
         || e.execution_tick < e.launch_tick
-        || e.execution_tick > record.tick
+        || e.execution_tick > tick
     {
         return Err("invalid combat execution tick");
     }
-    if e.launch_tick > record.tick
-        || e.expiry_tick < record.tick
-        || e.expiry_tick - record.tick > 7320.0
+    if e.launch_tick > tick
+        || e.expiry_tick < tick
+        || e.expiry_tick - tick > 7320.0
         || e.surface > 5.0
-        || record.schema == 1.0
+        || schema == 1.0
             && (e.view.life < 0.0 || e.view.life > 120.0 || e.view.speed < 0.0 || e.merge <= 0.0)
     {
         return Err("invalid combat lifetime");

@@ -931,14 +931,37 @@ impl CollisionOwner {
     /// world's first hit. HIT and DISTANCE are written back; a world that
     /// does not exist, or records past the reserved input, cast nothing.
     pub fn world_cast_rays(&mut self, id: u32, count: u32) -> u32 {
+        let mut rows=std::mem::take(&mut self.gathers.input);
+        let used=(count as usize).min(rows.len()/bfe_presentation::layout::cast_ray::STRIDE);
+        self.cast_rows(id,&mut rows[..used*bfe_presentation::layout::cast_ray::STRIDE]);
+        self.gathers.input=rows;
+        used as u32
+    }
+    /// A native receiver publishes geometry presence as one retained flag.
+    /// This names an already-admitted query body, never a simulation lease.
+    pub fn enable_body(&mut self,kernel:u32,enabled:bool){if let Some(flag)=self.gathers.places.get_mut(kernel as usize){*flag=enabled as u8;}}
+    pub fn body_flags(&self,world:u32,out:&mut[f64]){if let Some(world)=self.state.worlds.get(world as usize){for(to,kernel)in out.iter_mut().zip(&world.order){*to=self.gathers.places.get(*kernel as usize).copied().unwrap_or(0)as f64;}}}
+    /// Borrow a complete nearest hit for native item and sound phases. The
+    /// generated batch ray path below shares these exact geometric kernels.
+    pub fn ray_hit(&mut self,id:u32,ray:Ray,far:f64,ignore:i32)->Option<(i32,Hit)>{
+        if id as usize>=self.state.worlds.len(){return None;}
+        let n=broad::world_candidates_near_into(&mut self.state,id as usize,&ray,far,ignore as i64,false,false,&mut self.candidates).min(MAX_BODIES);
+        for c in 0..n{self.enabled[c]=self.gathers.places[self.candidates[c]as usize];}
+        let(code,hit)=world_cast_ray_in(&mut self.state,id as usize,&ray,far,v8math::hypot(ray.dx,ray.dz),&self.candidates[..n],&self.enabled[..n]);
+        (code!=MISS).then_some((code,hit))
+    }
+    /// Native phases lend their existing ray bank to the same collision loop.
+    /// Query scratch and enabled flags remain in this owner; no result vector
+    /// or per-ray host call is created while a displayed frame is borrowed.
+    pub fn cast_rows(&mut self,id:u32,rows:&mut[f64])->usize {
         use bfe_presentation::layout::cast_ray as cr;
         let world = id as usize;
         if world >= self.state.worlds.len() {
             return 0;
         }
-        let count = (count as usize).min(self.gathers.input.len() / cr::STRIDE);
+        let count = rows.len() / cr::STRIDE;
         for r in 0..count {
-            let x = &self.gathers.input[r * cr::STRIDE..(r + 1) * cr::STRIDE];
+            let x = &rows[r * cr::STRIDE..(r + 1) * cr::STRIDE];
             let ray = Ray { ox: x[cr::ORIGIN], oy: x[cr::ORIGIN + 1], oz: x[cr::ORIGIN + 2], dx: x[cr::DIRECTION], dy: x[cr::DIRECTION + 1], dz: x[cr::DIRECTION + 2] };
             let (far, hypot, ignore) = (x[cr::FAR], x[cr::HYPOT], x[cr::IGNORE]);
             let ignore = if ignore >= 0.0 && ignore < MAX_BODIES as f64 { ignore as i64 } else { -1 };
@@ -947,11 +970,11 @@ impl CollisionOwner {
                 self.enabled[c] = self.gathers.places[self.candidates[c] as usize];
             }
             let (code, hit) = world_cast_ray_in(&mut self.state, world, &ray, far, hypot, &self.candidates[..n], &self.enabled[..n]);
-            let x = &mut self.gathers.input[r * cr::STRIDE..(r + 1) * cr::STRIDE];
+            let x = &mut rows[r * cr::STRIDE..(r + 1) * cr::STRIDE];
             x[cr::HIT] = (code != MISS) as u8 as f64;
             x[cr::DISTANCE] = if code != MISS { hit.distance } else { 0.0 };
         }
-        count as u32
+        count
     }
     pub fn grid_ray(&mut self, id: u32) -> u32 {
         let ray = read_ray(&self.io);

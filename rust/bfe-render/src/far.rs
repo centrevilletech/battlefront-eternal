@@ -254,6 +254,11 @@ impl<C: HasContext> FarPass<C> {
         FarPass { input: vec![0.0; FAR_INPUT_LEN], vertices: vec![0.0; FAR_VERTICES_LEN], tables: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new(), probe_ubos: vec![], counted: PASS_FAR }
     }
 
+    // Native resource admission knows the complete item bank before play.
+    // Reserve the visible list then, including a later camera revealing all
+    // items. Display selection must not grow it on its first full view.
+    pub fn prepare_frame_capacity(&mut self) {self.list.reserve(self.items.len().saturating_sub(self.list.len()));}
+
     // The uniforms of a program the pass sets (all it reads besides the frame
     // block): names, GL types and array lengths. Samplers other than the
     // core's get units of their own. None when it reads a type the pass
@@ -619,7 +624,10 @@ impl<C: HasContext> FarPass<C> {
             self.list.push((i, z));
         }
         let items = &self.items;
-        self.list.sort_by(|a, b| order(&items[a.0], a.1, &items[b.0], b.1));
+        // Input enumeration is ascending item id. That index breaks equal
+        // render keys exactly as stable sorting did, while the in-place sort
+        // needs no temporary allocation on maps with a large visible list.
+        self.list.sort_unstable_by(|a,b|order(&items[a.0],a.1,&items[b.0],b.1).then_with(||a.0.cmp(&b.0)));
         self.vao = None;
         let list = std::mem::take(&mut self.list);
         for &(i, _) in &list {

@@ -32,3 +32,5 @@ bfe-environment = { path = "../bfe-environment" }
 bfe-transport = { path = "../bfe-transport" }
 sim = { path = "../sim" }
 content = { path = "../content" }
+
+base64 = "0.22"

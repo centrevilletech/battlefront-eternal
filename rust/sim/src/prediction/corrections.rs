@@ -251,6 +251,32 @@ pub fn decode_weapon(bytes: Option<&[u8]>) -> Result<WeaponState> {
     })
 }
 
+/// validateArsenalWeapon expands against Weapon::create, rather than the
+/// previous snapshot. Idle words omitted by the server therefore reset too.
+/// The fixed checkpoint is consumed directly by native prediction admission.
+pub fn restore_arsenal_weapon(bytes: &[u8], initial: &crate::gen::Weapon) -> Result<crate::gen::Weapon> {
+    let w = initial;
+    let values = [w.timer,w.clip,w.reserve,w.heat,w.kick,w.spread_scale,w.sniper_scale,w.yaw_spread_override.unwrap_or(f64::NAN),
+        w.wait,w.reload_left,w.throw_time,w.held,w.charge,w.pattern,w.salvos_left,w.salvo_wait,w.lock_target_id,w.lock_generation,w.lock_elapsed,w.limit];
+    let mut full = [0u8;162];
+    for (i,n) in values.iter().enumerate() { full[2+i*8..10+i*8].copy_from_slice(&n.to_le_bytes()); }
+    let mask = decode_arsenal_mask(Some(bytes))?;
+    let expanded = expand_arsenal_delta(bytes,mask,full).map_err(|e|e.error)?;
+    let state = decode_weapon(Some(&expanded.full))?;
+    let mut weapon = initial.clone();
+    let n = state.numbers;
+    weapon.level = state.level as f64;
+    weapon.deployed=state.flags&1!=0;weapon.firing=state.flags&2!=0;weapon.overheated=state.flags&4!=0;
+    weapon.released=state.flags&8!=0;weapon.hidden=state.flags&16!=0;weapon.charging=state.flags&32!=0;weapon.lock_complete=state.flags&64!=0;
+    weapon.timer=n[0];weapon.clip=n[1];weapon.reserve=n[2];weapon.heat=n[3];weapon.kick=n[4];weapon.spread_scale=n[5];weapon.sniper_scale=n[6];weapon.yaw_spread_override=(!n[7].is_nan()).then_some(n[7]);
+    weapon.wait=n[8];weapon.reload_left=n[9];weapon.throw_time=n[10];weapon.held=n[11];weapon.charge=n[12];weapon.pattern=n[13];weapon.salvos_left=n[14];weapon.salvo_wait=n[15];weapon.lock_target_id=n[16];weapon.lock_generation=n[17];weapon.lock_elapsed=n[18];weapon.limit=n[19];
+    if let Some(melee)=&mut weapon.melee {
+        let tail=decode_arsenal_melee(bytes,expanded.cursor)?;
+        melee.time=tail.time;melee.index=tail.index as f64;melee.active=tail.active!=0;
+    } else if expanded.cursor!=bytes.len(){return Err("trailing arsenal weapon state");}
+    Ok(weapon)
+}
+
 /// The vectors are in schema order. Compact state adds settled only when its
 /// flag is present; a caller applies its local history reset after validation.
 #[derive(Clone, Debug, PartialEq)]
@@ -665,7 +691,7 @@ pub fn decode_flight_into(bytes: Option<&[u8]>, schema: f64, supported: bool, ob
 }
 
 /// Payload ranges retain the caller's slice semantics, including Buffer views.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct MountedWeapon {
     pub barrel: f64,
     pub offset: usize,
@@ -699,7 +725,21 @@ impl MountedState {
         out
     }
 }
+/// Native checkpoint restoration borrows the same mounted grammar without
+/// allocating variable arrays for its at most two weapons and six aim values.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MountedFixed {
+    pub mode: u8, pub id: u32, pub generation: u32, pub index: u8, pub flags: u8,
+    pub values: [f64; 6], pub value_count: usize,
+    pub weapons: [MountedWeapon; 2], pub weapon_count: usize,
+}
 pub fn decode_mounted(bytes: Option<&[u8]>) -> Result<MountedState> {
+    let v = decode_mounted_fixed(bytes)?;
+    Ok(MountedState { mode: v.mode, id: v.id, generation: v.generation,
+        index: v.index, flags: v.flags, values: v.values[..v.value_count].to_vec(),
+        weapons: v.weapons[..v.weapon_count].to_vec() })
+}
+pub fn decode_mounted_fixed(bytes: Option<&[u8]>) -> Result<MountedFixed> {
     let bytes = bytes
         .filter(|b| b.len() >= 11)
         .ok_or("truncated mounted control")?;
@@ -733,10 +773,11 @@ pub fn decode_mounted(bytes: Option<&[u8]>) -> Result<MountedState> {
     if count > 2 || mode == 3 && count > 1 {
         return Err("invalid mounted control length");
     }
-    let values = r.numbers(value_count, "nonfinite mounted control", None)?;
+    let mut values = [0.; 6];
+    for value in &mut values[..value_count] { *value = r.number("nonfinite mounted control", false)?; }
     r.at = count_at + 1;
-    let mut weapons = Vec::new();
-    for _ in 0..count {
+    let mut weapons = [MountedWeapon::default(); 2];
+    for weapon in &mut weapons[..count as usize] {
         if r.at + 10 > bytes.len() {
             return Err("invalid mounted control length");
         }
@@ -748,24 +789,24 @@ pub fn decode_mounted(bytes: Option<&[u8]>) -> Result<MountedState> {
         if r.at + length > bytes.len() {
             return Err("invalid mounted control length");
         }
-        weapons.push(MountedWeapon {
+        *weapon = MountedWeapon {
             barrel,
             offset: r.at,
             length,
-        });
+        };
         r.at += length;
     }
     if r.at != bytes.len() {
         return Err("invalid mounted control length");
     }
-    Ok(MountedState {
+    Ok(MountedFixed {
         mode,
         id,
         generation,
         index,
         flags,
-        values,
-        weapons,
+        values, value_count,
+        weapons, weapon_count: count as usize,
     })
 }
 
@@ -1036,25 +1077,31 @@ pub fn decode_own_player_header(bytes: &[u8]) -> Result<OwnPlayerHeader> {
     own_header(&mut OwnReader { bytes, at: 0 })
 }
 
-/// Decode the own-player envelope after a plain record's kind/schema check.
-/// Body, arsenal and recon bytes remain opaque. Only mounted structure is
-/// validated here, at its original position before trailing and view checks.
-/// The writer's allocation size does not limit accepted envelope lengths.
-pub fn decode_own_player(bytes: Option<&[u8]>, supported_record: bool) -> Result<OwnPlayerState> {
-    if !supported_record {
-        return Err("unsupported own-player correction");
+/// Borrowed arsenal iteration shares own_header and the counted-payload reader.
+/// Native display retains the complete envelope until its next correction;
+/// this iterator never allocates a per-weapon facade or copies payload bytes.
+pub struct OwnWeapons<'a> { reader: OwnReader<'a>, left: u8 }
+impl<'a> Iterator for OwnWeapons<'a> {
+    type Item = Result<OwnWeapon>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.left == 0 { return None; }
+        self.left -= 1;
+        Some((|| Ok(OwnWeapon { id: self.reader.u16()?, payload: self.reader.counted()? }))())
     }
-    let bytes = bytes.ok_or("unsupported own-player correction")?;
-    let mut r = OwnReader { bytes, at: 0 };
-    let OwnPlayerHeader { epoch, content_epoch, class_id, team, body_schema, vehicle_id, vehicle_generation, body, health, dead, death_time, unit_dead_time, removed, kick, zoom_step, zoom, first, selected } = own_header(&mut r)?;
-    let count = r.byte()?;
-    let mut weapons = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        weapons.push(OwnWeapon {
-            id: r.u16()?,
-            payload: r.counted()?,
-        });
-    }
+}
+pub fn own_weapons(bytes: &[u8]) -> Result<(OwnPlayerHeader, OwnWeapons<'_>)> {
+    let mut reader = OwnReader { bytes, at: 0 };
+    let header = own_header(&mut reader)?;
+    let left = reader.byte()?;
+    Ok((header, OwnWeapons { reader, left }))
+}
+
+struct OwnControl {
+    held_bits: PayloadRange, flags: u16, mouse_scale: Option<f64>, aspect: Option<f64>,
+    view_tick: Option<f64>, binding_profile_id: u16, flight_settings: Option<OwnFlightSettings>,
+    has_bindings: bool, gamepad: Option<OwnGamepad>, discarded_input: u32, control_mode: u8,
+}
+fn own_control(r: &mut OwnReader<'_>) -> Result<OwnControl> {
     let held_bits = r.take(16)?;
     let flags = r.u16()?;
     if flags > 2047 {
@@ -1106,6 +1153,46 @@ pub fn decode_own_player(bytes: Option<&[u8]>, supported_record: bool) -> Result
     if control_mode > 4 {
         return Err("invalid own control mode");
     }
+    Ok(OwnControl { held_bits, flags, mouse_scale, aspect, view_tick, binding_profile_id,
+        flight_settings, has_bindings, gamepad, discarded_input, control_mode })
+}
+/// Locate the mounted lease in the borrowed complete envelope. Both public
+/// decoders use own_control, so optional view fields have a single wire grammar.
+pub fn own_mounted(bytes: &[u8]) -> Result<Option<MountedFixed>> {
+    let (_, mut weapons) = own_weapons(bytes)?;
+    for weapon in weapons.by_ref() { weapon?; }
+    let r = &mut weapons.reader;
+    let control = own_control(r)?;
+    if control.control_mode < 2 { return Ok(None); }
+    let payload = r.counted()?;
+    let mut state = decode_mounted_fixed(payload.get(bytes))?;
+    if state.mode != control.control_mode { return Err("mounted control mode mismatch"); }
+    if r.at != bytes.len() { return Err("trailing own-player payload"); }
+    for weapon in &mut state.weapons[..state.weapon_count] { weapon.offset += payload.offset; }
+    Ok(Some(state))
+}
+
+/// Decode the own-player envelope after a plain record's kind/schema check.
+/// Body, arsenal and recon bytes remain opaque. Only mounted structure is
+/// validated here, at its original position before trailing and view checks.
+/// The writer's allocation size does not limit accepted envelope lengths.
+pub fn decode_own_player(bytes: Option<&[u8]>, supported_record: bool) -> Result<OwnPlayerState> {
+    if !supported_record {
+        return Err("unsupported own-player correction");
+    }
+    let bytes = bytes.ok_or("unsupported own-player correction")?;
+    let mut r = OwnReader { bytes, at: 0 };
+    let OwnPlayerHeader { epoch, content_epoch, class_id, team, body_schema, vehicle_id, vehicle_generation, body, health, dead, death_time, unit_dead_time, removed, kick, zoom_step, zoom, first, selected } = own_header(&mut r)?;
+    let count = r.byte()?;
+    let mut weapons = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        weapons.push(OwnWeapon {
+            id: r.u16()?,
+            payload: r.counted()?,
+        });
+    }
+    let OwnControl { held_bits, flags, mouse_scale, aspect, view_tick, binding_profile_id,
+        flight_settings, has_bindings, gamepad, discarded_input, control_mode } = own_control(&mut r)?;
     let mounted = if control_mode >= 2 {
         let payload = r.counted()?;
         let mut state = decode_mounted(payload.get(bytes))?;

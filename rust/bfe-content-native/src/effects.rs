@@ -13,6 +13,7 @@ pub struct Effects {
     pub handles: Vec<(String, usize)>,
     pub gpu_tracks: Vec<f32>,
     pub gpu_size: [u32; 2],
+    pub gpu_indices:Vec<Option<usize>>,
 }
 impl Effects {
     pub fn compile(library: &Value) -> Result<Self, String> {
@@ -56,7 +57,9 @@ impl Effects {
             TRACK_WIDTH as u32,
             compiler.gpu.len().max(1).next_power_of_two() as u32,
         ];
+        let gpu_indices=compiler.source.iter().map(|source|compiler.gpu.iter().position(|v|v.same(source))).collect();
         Ok(Self {
+            gpu_indices,
             gpu_tracks,
             gpu_size,
             descriptor: serde_json::json!({"definitions":compiler.definitions,"groups":compiler.groups}),

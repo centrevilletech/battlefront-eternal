@@ -94,6 +94,11 @@ impl MapCamera {
             slots,
         })
     }
+    pub fn snapshot(&self)->&View{&self.view}
+    pub fn aspect(&self)->f64{let projection=&self.view.values[..16];projection[5]/projection[0]}
+    /// A camera phase has already selected and obstructed this view. Publish
+    /// its exact matrices instead of deriving them again from yaw and pitch.
+    pub fn accept_camera(&mut self,output:&[f64]){use bfe_presentation::layout::camera_output as o;self.position.copy_from_slice(&output[o::POSITION..o::POSITION+3]);self.view.values[..16].copy_from_slice(&output[o::PROJECTION..o::PROJECTION+16]);self.view.values[16..32].copy_from_slice(&output[o::INVERSE..o::INVERSE+16]);let at=self.slots[1];self.view.values[at..at+3].copy_from_slice(&self.position);}
     pub fn follow(&mut self,position:[f64;3],yaw:f64,pitch:f64,dt:f64){
         self.position=position;self.yaw=yaw+std::f64::consts::PI;self.pitch=pitch;self.time+=dt;
     }
@@ -293,7 +298,7 @@ impl Scene {
                 .ok_or_else(|| format!("missing foliage texture {}", class.texture))?;
             foliage_images.push(content.textures.load(path)?);
         }
-        let placed = bfe_content_native::placed::admit(&content)?;
+        let placed = if live{bfe_content_native::placed::admit_live(&content)?}else{bfe_content_native::placed::admit(&content)?};
         let mut water_image = |name: &str| -> Result<Option<usize>, String> {
             layers
                 .get(&name.to_lowercase())
@@ -338,6 +343,9 @@ impl Scene {
         };
         let mut features = [0; L::FEATURES_LENGTH];
         features[L::FEATURES_POINTS] = (ORDNANCE_LIGHTS + posts) as u32;
+        let prepared_views=if live{Some(crate::online::first_person::Prepared::new(&mut content)?)}else{None};
+        let prepared_particles=if live{Some(crate::online::particles::Prepared::new(&mut content)?)}else{None};
+        let prepared_hud=if live{Some(crate::online::hud::Prepared::new(&mut content)?)}else{None};
         let mut used = vec![false; content.textures.images.len()];
         for (i, mesh) in content
             .world
@@ -375,7 +383,7 @@ impl Scene {
                 used[id] = true;
             }
         }
-        if live{for actor in &content.actors{for &texture in &actor.textures{if let Some(id)=texture{used[id]=true;}}}}
+        if live{used.fill(true);}
         let canvas = Canvas::new(load(), size)?;
         let mut resources = Resources::new(load());
         resources.canvas = Some(canvas.framebuffer);
@@ -602,10 +610,11 @@ impl Scene {
         // must stay outside the live program bank, never alias world shader 0.
         use bfe_render::post_chain::layout::{facts as pf, program as pp};
         bridge.r.post_chain.input[pf::PROGRAMS..pf::PROGRAMS + pp::COUNT].fill(u32::MAX as f64);
-        bridge.frame_reserve_frame();
         // WorldPass.prepareNative seals the opaque draw order after admission.
         // Adding descriptors alone leaves the retained submission list empty.
         bridge.r.world.sort(false);
+        bridge.r.far.prepare_frame_capacity();
+        bridge.r.foliage.prepare_frame_caches();
         if admitted == 0 {
             return Err("map contains no inspectable static world".into());
         }
@@ -635,7 +644,8 @@ impl Scene {
             usize::from(static_content.water.is_some()),
             static_content.skies.len()
         );
-        let online=if live{Some(crate::online::replicas::Replicas::new(&mut content,&mut bridge,&textures)?)}else{None};
+        let online=if live{Some(crate::online::replicas::Replicas::new(&mut content,&mut bridge,&textures,prepared_views.ok_or("missing first-person resources")?,prepared_hud.ok_or("missing battle HUD resources")?,prepared_particles.ok_or("missing battle particle resources")?,&mut resources,empty,size)?)}else{None};
+        bridge.frame_reserve_frame();
         Ok((
             Self {
                 online,
@@ -657,6 +667,28 @@ impl Scene {
             camera,
         ))
     }
+    /// A direct join publishes all live owners together before the renderer
+    /// borrows their frame banks. The window supplies only its elapsed clock.
+    // Presentation borrows an already decoded session. Keeping this boundary
+    // separate from socket pumping also lets recorded network sessions exercise
+    // the complete native frame without constructing a transport or a World.
+    pub fn present_network(&mut self, receiver:&crate::online::receiver::Receiver,
+        replay:&crate::online::replay::Replay, history:&crate::online::replay::History,
+        camera:&mut MapCamera,dt:f64) {
+        if let Some(resources)=&mut self.online {
+            let mut world=Matrix4::default();
+            world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
+            resources.frame(receiver,receiver.clock.shown,dt.min(8./60.),camera.position,
+                replay,history,&world.elements,&mut self.bridge);
+            resources.cameras.frame(receiver,replay,&mut resources.hulls,&mut resources.turrets,camera,dt);
+            world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
+            resources.sound.frame(receiver,&world.elements,dt,replay,resources.hud.audio_facts());
+        }
+    }
+    pub fn online_frame(&mut self,client:&mut crate::online::client::Client,dt:f64){
+        self.present_network(&client.receiver,&client.replay,&client.sender.history,&mut client.camera,dt);
+        client.receiver.publications.clear();
+    }
     pub fn draw(&mut self, view: &View) -> Result<(), String> {
         self.draw_selected(view, Component::All)
     }
@@ -667,9 +699,10 @@ impl Scene {
         self.bridge.frame_begin_frame();
         self.bridge.r.frames.plan.facts.fill(0.);
         self.bridge.r.frames.plan.facts[f::MAIN] = 1.;
+        if self.online.is_some(){self.bridge.r.frames.plan.facts[f::HUD_KINDS]=k::HUD as f64;}
         // Target rows are numeric facts, not a host-selected draw sequence.
         // Renderer::battle_frame owns binds, clears, composites and the tail.
-        for role in [r::FAR, r::NEAR, r::IMAGE, r::TRANSPARENT] {
+        for role in [r::FAR, r::NEAR, r::IMAGE, r::TRANSPARENT, r::HUD0] {
             let row = &mut self.bridge.r.frames.bindings[role * b::LEN..(role + 1) * b::LEN];
             row.fill(0.);
             row[b::TARGET] = if role == r::FAR {
@@ -713,7 +746,7 @@ impl Scene {
         self.publish(r::FAR, k::FAR, 0, 0, 0);
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         let mut records = if matches!(component, Component::All | Component::Props) {
-            let room=if component==Component::All{self.online.as_ref().map_or(0,|r|r.visible.min(128))}else{0};
+            let room=if component==Component::All{self.online.as_ref().map_or(0,|r|r.record_budget().min(bfe_render::instances::MAX_RECORDS))}else{0};
             self.static_content.select_limit(&mut self.bridge,bfe_render::instances::MAX_RECORDS-room)
         } else {
             0
@@ -741,7 +774,10 @@ impl Scene {
         self.bridge.r.post.input[..bfe_render::post::STEP].copy_from_slice(&self.image_step);
         self.bridge.r.post.states[..bfe_render::post::STATE].copy_from_slice(&self.image_state);
         self.publish(r::IMAGE, k::SCREEN, 0, 0, 1);
+        if let Some(online)=&self.online{self.bridge.r.frames.meta[r::TRANSPARENT*m::LEN+m::FX_WORDS]=online.combat.particles.words as f64;}
         self.publish(r::TRANSPARENT, k::TRANSPARENT, records, bones, 0);
+        if let Some(online)=&self.online{let (view_records,view_bones)=online.first_person.append(&online.units,&mut self.bridge);if view_records!=0{let mut projection=Matrix4::default();let top=0.3*(std::f64::consts::PI/6.).tan();let right=top*self.size[0]as f64/self.size[1]as f64;projection.make_perspective(-right,right,top,-top,0.3,10.,CoordinateSystem::WebGL);self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
+        if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
         let success = self.bridge.battle_frame(&mut self.resources);
         self.bridge.r.water.input[bfe_render::water::S_SHOWN] = water_shown;
         if !success {

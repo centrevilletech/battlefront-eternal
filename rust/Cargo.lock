@@ -177,6 +177,7 @@ version = "0.1.0"
 dependencies = [
  "audio",
  "audio-control",
+ "base64",
  "bfe-content-native",
  "bfe-environment",
  "bfe-pose",

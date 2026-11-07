@@ -128,6 +128,33 @@ impl ClientPrediction {
     // weapon tables. A later frame must restore its authority checkpoint.
     pub fn reset(&mut self) { self.life = None; if let Some(h) = &mut self.hull { h.reset(); } }
 
+    /// Body tables finish admission after private class sessions are born.
+    /// Refresh their retained query reservations before any pending frame.
+    pub fn prepare_native_collision(&mut self,state:&mut State){if let Some(hull)=&mut self.hull{hull.prepare_native_collision(state);}}
+    /// Native display packs the existing private hull publication directly
+    /// into its one generated frame, beside pending commands and wire bytes.
+    pub fn native_hull_frame(&self,words:&mut Vec<f64>,schema:u32,level:f64)->Result<u32,&'static str>{self.hull.as_ref().ok_or(INVALID)?.native_frame(words,schema,level)}
+    /// Native admission uses Weapon::create for the definition's exact initial
+    /// checkpoint, including player spread and nullable override defaults.
+    pub fn initial_weapon(&self, id: crate::store::DefId) -> Option<crate::gen::Weapon> {
+        if !self.arsenal.defs.has(id) { return None; }
+        let mut weapon = crate::gen::Weapon::create(id, &self.arsenal.defs, true);
+        weapon.prepare_melee(self.arsenal.defs.class(id));
+        Some(weapon)
+    }
+    /// A native join knows its maximum command and arsenal budgets before it
+    /// opens the socket. Reserve restore and result banks at that cold boundary.
+    pub fn reserve_native(&mut self, bodies: usize, weapons: usize) {
+        self.output.reserve(32768); self.before.reserve(4096);
+        self.flags.reserve(bodies); self.correction.reserve(2200);
+        self.notices.reserve(16384); self.barrels.reserve(128);
+        self.arsenal.reserve_native(weapons);
+    }
+
+    /// Cold snapshot-body bindings belong to the private query environment.
+    pub fn bind_native_collider(&mut self,body:u32,collider:crate::vehicles::native::Collider){if let Some(hull)=&mut self.hull{hull.bind_native_collider(body,collider);}}
+    /// Cold map admission seals private infantry gather storage too.
+    pub fn prepare_actor_collision(&mut self,state:&State,world:u32){self.actor.reserve_collision(state,world as usize);}
     /// predictionVehicle construction for native hosts and synthetic fixtures.
     /// The caller transfers a private owner, never an authoritative pool row.
     pub fn install_hull(&mut self, owner: hulls::Session) {

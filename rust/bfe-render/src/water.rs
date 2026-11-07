@@ -121,6 +121,17 @@ impl<C: HasContext> WaterPass<C> {
         }
     }
 
+    // Resource admission knows each program's matrix slots. NaNs preserve
+    // the first real uniform upload while keeping that draw allocation-free.
+    // This is the same cache admission used by the retained post pass.
+    pub fn prepare_program(&mut self,program:usize,uniforms:&[(&str,u32)]) {
+        for(slot,(_,kind))in uniforms.iter().enumerate(){
+            if *kind==crate::post::TYPE_MAT3 || *kind==crate::post::TYPE_MAT4 {
+                self.matrices.entry((program,slot)).or_insert([f32::NAN;16]);
+            }
+        }
+    }
+
     // A surface drawing a geometry the page registered (core.rs); blend,
     // depth function and flags as transparent.rs DrawState takes them; side
     // as transparent.rs apply().

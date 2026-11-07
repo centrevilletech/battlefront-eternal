@@ -48,15 +48,8 @@ impl Runtime {
                 macro_rules! copy { ($layout:ident, $field:ident, $count:ident) => {{ let id = row[$layout::ID] as usize; assert!(id < RECORDS); self.phase.$field[id].copy_from_slice(row); self.phase.$count = self.phase.$count.max(id + 1); }}; }
                 match kind {
                     input::FRAME => { assert_eq!(count, 1); self.phase.frame.copy_from_slice(row); }
-                    input::EMITTER => {
-                        let id = row[emitter::ID] as usize; assert!(id < RECORDS);
-                        if row[emitter::KIND] == 0.0 && self.phase.emitters[id][emitter::KIND] != 0.0 { let point = [row[emitter::X], row[emitter::Y], row[emitter::Z]]; self.phase.engine.detach_emitter(id, point); self.phase.layers.detach_emitter(id, point); }
-                        if row[emitter::KIND] != 0.0 && self.phase.emitters[id][emitter::KIND] == 0.0 { self.phase.entity_state[id] = Default::default(); }
-                        copy!(emitter, emitters, entity_count);
-                    }
-                    input::WEAPON => {
-                        let id = row[weapon::ID] as usize; assert!(id < RECORDS); if row[weapon::OWNER] >= 0.0 && self.phase.weapons[id][weapon::OWNER] < 0.0 { self.phase.weapon_state[id] = Default::default(); self.phase.player_weapon_state[id] = Default::default(); } copy!(weapon, weapons, weapon_count);
-                    }
+                    input::EMITTER => self.phase.observe_emitter(row),
+                    input::WEAPON => self.phase.observe_weapon(row),
                     input::POST => copy!(post, posts, post_count),
                     input::COUNT => { let id = row[count::POST] as usize; let team = row[count::TEAM] as usize; self.phase.post_counts[id][team] = row[count::VALUE]; }
                     input::ITEM => { let id = row[item::ID] as usize; if row[item::PRESENT] != 0.0 && self.phase.items[id][item::PRESENT] == 0.0 { self.phase.item_state[id] = Default::default(); } copy!(item, items, item_count); },
@@ -103,5 +96,36 @@ impl Runtime {
         for v in &self.phase.engine.voices { if v.done { continue; } let row = &mut self.debug[count * debug_voice::STRIDE..(count + 1) * debug_voice::STRIDE];
             row[debug_voice::SOUND] = v.sound as f64; row[debug_voice::CATEGORY] = v.category as f64; row[debug_voice::MODE3D] = v.mode3d as u8 as f64; row[debug_voice::DISTANCE] = v.distance; row[debug_voice::AUDIBLE] = v.audible; row[debug_voice::SCORE] = v.score; row[debug_voice::REAL] = v.real as u8 as f64; row[debug_voice::OCCLUDED] = v.occluded.unwrap_or(0.0); row[debug_voice::ELAPSED] = v.elapsed; count += 1;
         } self.info[info::DEBUG_COUNT] = count as f64;
+    }
+}
+
+// Native facts use the same admission edge as Runtime.feed. Reusing a slot
+// must retire its loops before resetting the edge history for the new body.
+impl Phase {
+    pub fn observe_emitter(&mut self, row: &[f64]) {
+        if row.len() != emitter::STRIDE { return; }
+        let id = row[emitter::ID] as usize;
+        if id >= RECORDS { return; }
+        if row[emitter::KIND] == 0.0 && self.emitters[id][emitter::KIND] != 0.0 {
+            let point = [row[emitter::X], row[emitter::Y], row[emitter::Z]];
+            self.engine.detach_emitter(id, point);
+            self.layers.detach_emitter(id, point);
+        }
+        if row[emitter::KIND] != 0.0 && self.emitters[id][emitter::KIND] == 0.0 {
+            self.entity_state[id] = Default::default();
+        }
+        self.emitters[id].copy_from_slice(row);
+        self.entity_count = self.entity_count.max(id + 1);
+    }
+    pub fn observe_weapon(&mut self, row: &[f64]) {
+        if row.len() != weapon::STRIDE { return; }
+        let id = row[weapon::ID] as usize;
+        if id >= RECORDS { return; }
+        if row[weapon::OWNER] >= 0.0 && self.weapons[id][weapon::OWNER] < 0.0 {
+            self.weapon_state[id] = Default::default();
+            self.player_weapon_state[id] = Default::default();
+        }
+        self.weapons[id].copy_from_slice(row);
+        self.weapon_count = self.weapon_count.max(id + 1);
     }
 }

@@ -130,6 +130,13 @@ pub struct Session {
 }
 
 impl Session {
+    // Reservations belong to native resource admission; repeated corrections
+    // refill the same arsenal, barrel and ordered-shot storage.
+    pub(crate) fn reserve_native(&mut self, weapons: usize) {
+        self.input.reserve(16384); self.output.reserve(32768);
+        self.weapons.reserve(weapons); self.barrels.reserve(128);
+        self.barrel_writes.reserve(128); self.shots.reserve(1024);
+    }
     pub fn run(&mut self, op: u32) -> Result<(), &'static str> {
         self.output.clear();
         self.shots.clear();

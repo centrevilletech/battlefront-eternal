@@ -365,15 +365,16 @@ impl<C: HasContext> FoliagePass<C> {
             unsafe {
                 if self.model_views.get(&program) != Some(&view_matrix) {
                     gl.uniform_matrix_4_f32_slice(class.model_view.as_ref(), false, &view_matrix);
-                    self.model_views.insert(program, view_matrix);
+                    if let Some(held)=self.model_views.get_mut(&program){*held=view_matrix;}else{self.model_views.insert(program,view_matrix);}
                     core.stats.gl_calls += 1;
                 }
                 if self.map_matrices.get(&program) != Some(&class.map_matrix) {
                     gl.uniform_matrix_3_f32_slice(class.map_transform.as_ref(), false, &class.map_matrix);
-                    self.map_matrices.insert(program, class.map_matrix);
+                    if let Some(held)=self.map_matrices.get_mut(&program){*held=class.map_matrix;}else{self.map_matrices.insert(program,class.map_matrix);}
                     core.stats.gl_calls += 1;
                 }
-                if class.model.is_some() && self.models.insert(program) {
+                if class.model.is_some() && !self.models.contains(&program) {
+                    self.models.insert(program);
                     gl.uniform_matrix_4_f32_slice(class.model.as_ref(), false, &[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
                     core.stats.gl_calls += 1;
                 }
@@ -395,6 +396,17 @@ impl<C: HasContext> FoliagePass<C> {
             core.stats.gl_calls += 2;
             core.stats.pass_draws[PASS_FOLIAGE] += 1;
         }
+    }
+
+    // Native admission finishes every class before its first displayed
+    // frame. Seed matrix caches with NaNs so the first values still upload,
+    // and reserve the identity-uniform set without claiming it was uploaded.
+    pub fn prepare_frame_caches(&mut self) {
+        for class in &self.classes {
+            self.model_views.entry(class.program).or_insert([f32::NAN;16]);
+            self.map_matrices.entry(class.program).or_insert([f32::NAN;9]);
+        }
+        self.models.reserve(self.classes.len());
     }
 
     // Programs are made again after a context loss or a settings change

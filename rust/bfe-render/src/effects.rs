@@ -491,6 +491,23 @@ impl<C: HasContext> EffectsPass<C> {
         b.index_count = index.len() as i32;
     }
 
+    /// Native admission knows the retained particle capacity before play.
+    /// Allocate its VBO and shared interleave scratch here so a first burst
+    /// does not resize either store from a displayed frame.
+    pub fn prepare_batch<M:MultiDraw>(&mut self,core:&Core<C,M>,batch:u32,capacity:usize){
+        let Some(b)=self.batches.get_mut(batch as usize)else{return;};
+        if capacity<=b.capacity{return;}
+        unsafe{core.gl.bind_buffer(glow::ARRAY_BUFFER,Some(b.vbo));core.gl.buffer_data_size(glow::ARRAY_BUFFER,(capacity*b.stride*4)as i32,glow::DYNAMIC_DRAW);core.gl.bind_buffer(glow::ARRAY_BUFFER,None);}
+        b.capacity=capacity;self.staging.resize(self.staging.len().max(capacity*b.stride),0.);
+    }
+    /// Native admission seals the emitter texture's fixed maximum too. The
+    /// normal uploader owns its format and sampler state; replaying a cold
+    /// zero-write publication avoids a separate native texture algorithm.
+    pub fn prepare_owner<M:MultiDraw>(&mut self,core:&mut Core<C,M>,owner:u32,rows:usize){
+        let count=self.input[IN_OWNERS];let saved:[f64;OWNER_STRIDE]=self.input[OWNER_AT..OWNER_AT+OWNER_STRIDE].try_into().unwrap();
+        self.input[IN_OWNERS]=1.;self.input[OWNER_AT..OWNER_AT+OWNER_STRIDE].copy_from_slice(&[owner as f64,rows as f64,0.,0.]);
+        self.upload_owners(core);self.input[IN_OWNERS]=count;self.input[OWNER_AT..OWNER_AT+OWNER_STRIDE].copy_from_slice(&saved);
+    }
     // A batch whose instances the page writes interleaved, as it keeps them
     // (one buffer of all its attributes, in add_batch's order).
     pub fn batch_interleaved(&mut self, batch: u32) {

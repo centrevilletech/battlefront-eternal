@@ -69,10 +69,10 @@ impl MasterOutput {
 
 // Both sources end in the existing Rust output chain. Selecting a source is
 // cold admission; each callback retains its processor and partial quantum.
-enum DeviceOutput { Pcm(MasterOutput), Sound(crate::sound::SoundOutput) }
+enum DeviceOutput { Pcm(MasterOutput), Sound(crate::sound::SoundOutput), Live(crate::online::sound::LiveOutput) }
 impl DeviceOutput {
     fn fill<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T], status: &Status) {
-        match self { Self::Pcm(p) => p.fill(data,status), Self::Sound(s) => s.fill(data,status) }
+        match self { Self::Pcm(p) => p.fill(data,status), Self::Sound(s) => s.fill(data,status), Self::Live(s)=>s.fill(data,status) }
     }
 }
 // Keep the stream alive for the complete window lifetime. Dropping it stops
@@ -90,6 +90,7 @@ impl AudioDevice {
     pub fn open_sound(sound: crate::sound::SoundOutput) -> Result<Self,String> {
         Self::open_output(DeviceOutput::Sound(sound),48000)
     }
+    pub fn open_live(output:crate::online::sound::LiveOutput)->Result<Self,String>{Self::open_output(DeviceOutput::Live(output),48000)}
     fn open_output(output: DeviceOutput, rate: u32) -> Result<Self,String> {
         let device = cpal::default_host().default_output_device().ok_or("no audio output device")?;
         // Explicit rate and stereo prevent accidental speed or channel changes.

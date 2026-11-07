@@ -31,8 +31,7 @@ struct Options {
     dir: PathBuf,
     map: Option<String>,
     join: Option<String>,
-    identity: PathBuf,
-    name: String,
+    admission: Option<(crate::online::info::Server,bfe_transport::endpoint::Endpoint)>,
     seconds: Option<Duration>,
     root: PathBuf,
     audio: bool,
@@ -102,14 +101,16 @@ impl Options {
                 root = Some(arg.into());
             }
         }
+        let root=root.ok_or("content directory required")?;
+        let identity=match identity{Some(p)=>p,None=>crate::online::info::default_identity()?};
+        let admission=join.as_deref().map(|address|crate::online::info::prepare(address,&root,&identity,&name)).transpose()?;
         Ok(Self {
             dir,
             map,
             join,
-            identity:match identity{Some(p)=>p,None=>crate::online::info::default_identity()?},
-            name,
+            admission,
             seconds,
-            root: root.ok_or("content directory required")?,
+            root,
             audio,
             pcm,
             sound,
@@ -180,13 +181,14 @@ impl SceneDriver {
                 host.world.receive(elapsed)?;
                 // Copy only the fixed frame bank. Replica phases borrow the
                 // receiver beside it, without borrowing a World or JS facade.
-                let view=crate::scene::View{values:host.frame(elapsed)?.values};
+                let _=host.frame(elapsed)?;
                 host.world.send()?;
-                if let Some(resources)=&mut scene.online{resources.frame(&host.world.receiver,host.world.receiver.clock.shown,elapsed.min(8./60.),host.world.camera.position);}
+                scene.online_frame(&mut host.world,elapsed);
+                let view=crate::scene::View{values:host.world.camera.snapshot().values};
                 scene.draw(&view)?;
                 if start.is_none(){*start=Some(now);if seconds.is_some(){*initial=Some(scene.hash()?);}eprintln!("native online scene ready");}
                 if seconds.is_some_and(|duration|now.duration_since(start.unwrap_or(now))>=duration){
-                    let mut summary=host.world.summary();summary["draws"]=scene.draws.into();summary["initial"]=initial.clone().into();summary["final"]=scene.hash()?.into();summary["visible"]=scene.online.as_ref().map_or(0,|r|r.visible).into();println!("{summary}");return Ok(true);
+                    let mut summary=host.world.summary();if let Some(resources)=&scene.online{summary["hudQuads"]=resources.hud.quads.into();summary["hulls"]=resources.hulls.visible.into();summary["items"]=resources.items.visible.into();summary["projectileQuads"]=resources.combat.total_quads.into();summary["effects"]=resources.combat.total_effects.into();summary["combatRecords"]=serde_json::json!(resources.combat.received);summary["soundEvents"]=resources.sound.events.into();summary["firstPersonFrames"]=resources.first_person.frames.into();summary["presentationRefused"]=(resources.combat.refused+resources.hulls.refused+resources.refused).into();summary["audioFrames"]=resources.sound.device_frames().into();summary["audioSegments"]=resources.sound.decoded.into();summary["audioPeak"]=resources.sound.peak().into();summary["audioBatches"]=resources.sound.batches.into();summary["audioRefused"]=resources.sound.refused.into();}summary["predictionTicks"]=(host.world.replay.ticks+host.world.replay.fleet.ticks).into();summary["hullPredictionTicks"]=host.world.replay.fleet.ticks.into();summary["predictedHull"]=host.world.replay.fleet.identity.map(|p|p.0).into();summary["draws"]=scene.draws.into();summary["initial"]=initial.clone().into();summary["final"]=scene.hash()?.into();summary["visible"]=scene.online.as_ref().map_or(0,|r|r.visible).into();println!("{summary}");return Ok(true);
                 }Ok(false)
             }
             Self::Native {
@@ -267,6 +269,9 @@ impl Running {
         };
         let attrs = Window::default_attributes()
             .with_title("Battlefront Eternal")
+            // Content and GPU admission require a context, but must never
+            // expose an unresponsive window while files and shaders load.
+            .with_visible(false)
             .with_active(options.audio)
             .with_resizable(false)
             .with_inner_size(PhysicalSize::new(size(0)?, size(1)?));
@@ -315,11 +320,11 @@ impl Running {
                 display.get_proc_address(name) as *const _
             })
         };
-        let scene = if let Some(address)=&options.join{
-            let server=crate::online::info::Server::read(address)?;
-            let (scene,camera)=crate::scene::Scene::load_online(&options.root,&server.query,[size(0)?as i32,size(1)?as i32],load)?;
-            let resources=scene.online.as_ref().ok_or("missing online resources")?;
-            let client=crate::online::client::Client::connect(address,&server,&options.root,&options.identity,&options.name,resources,camera)?;
+        let mut scene = if options.join.is_some(){
+            let (server,endpoint)=options.admission.take().ok_or("missing join admission")?;
+            let (mut scene,camera)=crate::scene::Scene::load_online(&options.root,&server.query,[size(0)?as i32,size(1)?as i32],load)?;
+            let resources=scene.online.as_mut().ok_or("missing online resources")?;
+            let client=crate::online::client::Client::connect(endpoint,resources,camera)?;
             SceneDriver::Online{scene,host:Host::new(client),last:Instant::now(),start:None,seconds:options.seconds,initial:None}
         }else if let Some(map) = &options.map {
             let (scene, camera) = crate::scene::Scene::load(
@@ -348,7 +353,7 @@ impl Running {
             }
         };
         let audio = if options.audio {
-            Some(if let Some(dir) = &options.sound {
+            Some(if let SceneDriver::Online{scene,..}=&mut scene{AudioDevice::open_live(scene.online.as_mut().and_then(|s|s.sound.output.take()).ok_or("missing native battle output")?)?}else if let Some(dir) = &options.sound {
                 if !options.pcm.is_empty() {
                     return Err("choose a sound archive or PCM source".into());
                 }
@@ -365,6 +370,7 @@ impl Running {
             .unwrap_or(60000)
             .max(1000);
         let refresh = Duration::from_secs_f64(1000.0 / hz as f64);
+        window.set_visible(true);
         if options.audio {
             window.focus_window();
         }

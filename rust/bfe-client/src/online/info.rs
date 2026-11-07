@@ -96,3 +96,13 @@ pub fn identity(path:&Path)->Result<Identity,String>{
         assert!(response(b"HTTP/1.1 404 Not Found\r\n\r\n{}").is_err());
     }
 }
+
+// Resolve discovery, content identity and transport candidates before creating
+// a visible window. The endpoint remains nonblocking during window admission.
+pub fn prepare(address:&str,root:&Path,path:&Path,name:&str)->Result<(Server,bfe_transport::endpoint::Endpoint),String>{
+    let server=Server::read(address)?;
+    let files=bfe_content::files::DirFiles::new(root);
+    let hash=bfe_content_native::fingerprint::hash(&files,&server.query)?;
+    let endpoint=bfe_transport::endpoint::Endpoint::connect(address,identity(path)?,server.identity()?,&Server::hello(&hash,name)).map_err(|e|e.to_string())?;
+    Ok((server,endpoint))
+}

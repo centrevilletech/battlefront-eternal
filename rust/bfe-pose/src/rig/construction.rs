@@ -84,6 +84,31 @@ fn view(s: Option<&Value>, index: usize, flying: bool, turn_rate: f64) -> Record
         "yawFactor":num(key("YawTurnFactor"),1.0),"pitchFactor":num(key("PitchTurnFactor"),1.0),
         "turnRate":num(key("TurnRate"),if index>0 {2.0} else {turn_rate}),"pitchLimits":pitch,"yawLimits":yaw,"wrapYaw":wrap})
 }
+/// Turret's camera vectors follow authored property order, while tension
+/// and lens parsing share seatView's numeric constructor.
+pub fn turret_view(settings: Option<&Value>) -> Record {
+    let mut result = view(settings, 1, false, 2.0);
+    let key = |name: &str| settings.and_then(|s| s.get(name));
+    let pitch = pair(key("PitchLimits")).unwrap_or([-45.0,45.0]);
+    result["pitchLimits"] = record!([-pitch[1]*DEG, -pitch[0]*DEG]);
+    result["turnRate"] = record!(num(key("MaxTurnSpeed"),2.0));
+    result["filter"] = record!(num(key("TurnFilter"),10.0));
+    result["eye"] = record!([0.0, 0.0, 0.0]);
+    result["center"] = record!([0.0, 0.0, 0.0]);
+    result["offset"] = record!([0.0, 0.0, 0.0]);
+    if let Some(settings) = settings.and_then(Value::as_object) {
+        for (key, value) in settings.entries() {
+            if !matches!(key, "EyePointOffset" | "TrackCenter" | "TrackOffset") { continue; }
+            let Some(v) = vector(Some(value)) else { continue; };
+            match key {
+                "EyePointOffset" => { result["eye"] = record!(v); result["center"] = record!(v); }
+                "TrackCenter" => result["center"] = record!(v),
+                _ => result["offset"] = record!(v),
+            }
+        }
+    }
+    result
+}
 /// Vehicle constructor, its marker/muzzle ordering, and seatView. The HullRig
 /// builder is shared with authority; these records include the host-facing
 /// aim rates and camera fields authority has no reason to publish.

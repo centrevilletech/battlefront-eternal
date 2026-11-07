@@ -161,6 +161,15 @@ impl Default for Session {
     }
 }
 impl Session {
+    /// Native joins admit collision geometry before opening their socket.
+    /// Reserve the same pooled footprint as movement::reserve_mover; body
+    /// switches reset these caches without discarding their backing storage.
+    pub(crate) fn reserve_collision(&mut self,collision:&State,world:usize){
+        let Some(w)=collision.worlds.get(world)else{return;};
+        let statics=w.statics.map_or(0,|set|collision.sets[set].polygons.len());
+        self.gathered.reserve(256,16);self.gathered.prepare_dense(collision,world,16);
+        for cache in &mut self.caches{cache.reserve(statics,0,w.order.len());}
+    }
     pub fn run(&mut self, op: u32, collision: &mut State) -> Result<(), &'static str> {
         self.output.clear();
         let mut r = Reader {

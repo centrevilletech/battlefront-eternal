@@ -11,7 +11,7 @@
 use std::ptr::addr_of_mut;
 
 pub mod commands;
-mod adpcm;
+pub mod adpcm;
 mod signal;
 mod biquad;
 pub mod clarity;

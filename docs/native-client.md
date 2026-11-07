@@ -20,14 +20,25 @@ Ed25519 identity. `--identity KEY_FILE` selects a separate profile and `--name
 NAME` supplies its roster name. The default key belongs to the user's application
 data directory. An invalid key is reported, never silently replaced. Close and
 join again with the same profile to reconnect under the server's grace policy.
+Discovery, DNS and identity checks finish before the event loop starts. Content
+and GPU resources load into a hidden window; the admitted window then pumps
+handshake retries during redraws, so close and focus events remain responsive.
+Server rejection text and authenticated close reasons are reported directly.
+Application heartbeat replies use the reliable event stream independently of
+transport keepalive packets.
 
 Online sessions receive snapshots directly into the Rust network owner and
 sample its retained timeline from the presentation phases. They create no local
 authoritative world. The server-selected class spawns automatically; Space asks
 to spawn again after death. WASD moves, mouse motion aims, mouse buttons fire,
 and the existing generated desktop controls provide posture, jump and reload.
-Map resources and remote body rigs are admitted before packet delivery; live
-frames retain bounded input, transport, snapshot, skeleton and renderer storage.
+E enters or leaves a nearby vehicle or turret. Own movement and mounted
+weapons replay pending input through ClientPrediction; remote actors, hulls,
+riders, items and projectiles sample the shared session and presentation owners.
+Held models and first-person arms use the existing unit rig publication. The
+battle HUD and audio control runtime consume those same generated gameplay facts.
+Map, rig, HUD, effect and sound resources are admitted before packet delivery;
+live frames retain bounded input, transport, snapshot and renderer storage.
 The server remains responsible for admission, teams, spawning and service policy.
 `--no-audio` permits a diagnostic run without an audio device.
 

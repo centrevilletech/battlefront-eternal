@@ -1,6 +1,23 @@
 // Installed before the page loads. Only the test harness replaces the WASM
 // export facade; browser production code and its resource ownership stay intact.
 (() => {
+  // Recording admission scans every native bank. Hold only the worker's
+  // initial start while that cold instrumentation runs, so a slow capture
+  // cannot advance authority past the fixed lockstep start tick.
+  const started=new WeakSet(),post=Worker.prototype.postMessage;
+  Worker.prototype.postMessage=function(message,...transfer){
+    if(typeof message?.payload==='string'&&!started.has(this)){
+      const call=JSON.parse(message.payload);
+      if(call.type==='call'&&call.method==='start'){
+        started.add(this);
+        post.call(this,{...message,payload:JSON.stringify({...call,method:'lockstep'})},...transfer);
+        // The client's ready promise requires its first authority checkpoint.
+        // One explicit step supplies it without starting the real-time pump.
+        return post.call(this,{...message,payload:JSON.stringify({type:'call',id:0,method:'advance',args:{ticks:1}})});
+      }
+    }
+    return post.call(this,message,...transfer);
+  };
   const api=__NATIVE_API__, defaults=__NATIVE_LENGTHS__;
   const state=window.__nativeSession={calls:[],blobs:[],owners:[],errors:[],depth:0,frame:-1,externalDraws:0,passDraws:[]};
   const blob=a=>{const u=ArrayBuffer.isView(a)?new Uint8Array(a.buffer,a.byteOffset,a.byteLength):new Uint8Array(a);state.blobs.push(u.slice());return {blob:state.blobs.length-1};};

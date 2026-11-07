@@ -60,6 +60,7 @@ pub struct BattleContent {
     pub models: Vec<Mesh>,
     pub actors: Vec<ActorMesh>,
     pub textures: Library,
+    pub texture_paths:BTreeMap<String,String>,
     pub effects: Vec<(String, crate::effects::Effects)>,
     pub first_person: Option<bfe_presentation::unit_content::FirstPersonInput>,
     pub units: Vec<(String, bfe_presentation::unit_content::Input)>,
@@ -467,6 +468,7 @@ impl Loader {
                 &collision.terrain_indices,
             )
         });
+        let mut texture_paths=BTreeMap::new();for table in any{for(name,path)in table{texture_paths.entry(name).or_insert(path);}}
         Ok(BattleContent {
             content,
             map: metadata,
@@ -474,6 +476,7 @@ impl Loader {
             models,
             actors,
             textures,
+            texture_paths,
             units,
             first_person,
             effects,
@@ -680,7 +683,7 @@ fn actor_mesh(
     })
 }
 
-pub(crate) fn authored_json(value: &Authored) -> Value {
+pub fn authored_json(value: &Authored) -> Value {
     match value {
         Authored::Null => Value::Null,
         Authored::Bool(v) => Value::Bool(*v),
@@ -698,7 +701,7 @@ pub(crate) fn authored_json(value: &Authored) -> Value {
 // modelPack is shared by held weapons, FX, sky ships and environment models.
 // A scoped pack keeps its own texture resolver; a same-named common bitmap
 // must not replace an environment or sky texture during native admission.
-fn append_pack(
+pub fn append_pack(
     out: &mut Vec<Mesh>,
     pack: &bfe_content::models::ModelMap,
     prefix: &str,

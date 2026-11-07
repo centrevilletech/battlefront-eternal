@@ -46,6 +46,38 @@ impl Hull {
         hull
     }
 
+    /// A private native replay has no authoritative store row to clone. Copy
+    /// the canonical constructor's constants into a detached generated row;
+    /// movement still enters through load/to_store and the existing kernels.
+    pub fn initial_record(&self,strings:&mut Strings)->Vehicle {
+        let mut row=Vehicle::default();
+        row.flying=self.flying;
+        row.walking=self.walking;
+        row.creature=self.creature;
+        row.wheeled=self.wheeled;
+        row.repulsor=self.repulsor;
+        row.speed=self.speed;
+        row.reverse_speed=self.reverse_speed;
+        row.strafe_speed=self.strafe_speed;
+        row.acceleration=self.acceleration;
+        row.deceleration=self.deceleration;
+        row.turn_rate=self.turn_rate;
+        row.hover=self.hover;
+        row.bound_radius=self.bound_radius;
+        row.probe_radius=self.probe_radius;
+        row.max_health=self.max_health;
+        row.water_depth=self.water_depth;
+        row.bounds_min=a3(&self.bounds_min);
+        row.bounds_max=a3(&self.bounds_max);
+        row.center=a3(&self.center);
+        row.size=a3(&self.size);
+        row.probes=self.probes.iter().map(a3).collect();row.support_probes=self.support_probes.iter().map(a3).collect();row.body=Ref::new(self.body,0);
+        row.water_rule=self.water_rule.map(|r|crate::gen::WaterRule{interval:r.interval,amount:r.amount});
+        row.wheels=self.wheels.iter().map(|w|crate::gen::VehicleWheel{x:w.x,radius:w.radius,phase:w.phase,previous:w.previous,tick_from:w.tick_from}).collect();
+        row.seats=self.seats.iter().map(|_|crate::gen::VehicleSeat::default()).collect();row.seat_views=self.seats.iter().map(|s|crate::gen::SeatView{pitch_limits:s.pitch_limits,yaw_limits:s.yaw_limits,wrap_yaw:s.wrap_yaw}).collect();row.seat_leases=self.seats.iter().map(|_|crate::gen::SeatLeaseView::default()).collect();
+        self.to_store(&mut row,strings);row
+    }
+
     /// Every field the store holds of the hull, from its record (its
     /// class's keys, its pose and its flight stay as they are): a hull made
     /// current again after a call that changed it in the store.

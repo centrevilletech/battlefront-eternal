@@ -15,7 +15,7 @@ use crate::gen::{ClientCommand, ClientFrame, ClientHull, ClientHullState, Client
 use crate::seats::boarding::{LookAccess, LookField, SeatControl, seat_look_with};
 use crate::store::Strings;
 use crate::vehicles::{BodyId, Ground, Hit, Hull, Input, Polygon, SpringPolygons, VehicleWorld};
-use crate::vehicles::native::{Collision, MapRules};
+use crate::vehicles::native::{Collider, Collision, MapRules};
 use three::{Matrix4, Quaternion, Vector3};
 
 // predictVehicle retained 60 earlier poses plus every tick of a fresh replay.
@@ -67,6 +67,14 @@ impl Session {
             life: None, authority: 0.0, tick: 0.0, sequence: 0.0, held: 0, from_walk: [0.0; 2], checkpoint_flight_held: 0, checkpoint: Vec::with_capacity(1024), incoming: Vec::with_capacity(1024),
             flight_correction: corrections::FlightState { numbers: Vec::with_capacity(37), vectors: Vec::with_capacity(7),
                 quaternions: Vec::with_capacity(6), ..Default::default() } }
+    }
+    pub(super) fn bind_native_collider(&mut self,body:u32,collider:Collider){self.collision.add_collider(body,collider);}
+    pub(super) fn prepare_native_collision(&mut self,state:&mut State){self.collision.prepare(state);self.members.reserve(512);self.teams.reserve(8);self.hull.target_scratch.reserve(512);if let Some(legs)=&self.hull.legs{self.hull.leg_side_scratch.reserve(legs.pairs.len()*2);}}
+    /// The native host lends its generated command/correction bank once per
+    /// frame. Publish this private row's prerequisites into that same bank;
+    /// no class geometry or authoritative store is needed at the boundary.
+    pub(super) fn native_frame(&self,words:&mut Vec<f64>,schema:u32,level:f64)->Result<u32,&'static str>{
+        self.publish(words,ClientHull{slot:self.hull.id.slot,generation:self.hull.id.gen,seats_count:self.hull.seats.len()as u32,wheels_count:self.row.wheels.len()as u32,correction_schema:schema,level,assists:true,..Default::default()})
     }
     // updateFlightTarget used to write through the clone's shared weapon list.
     // Return its private lock as a value for the same session's weapon replay.
