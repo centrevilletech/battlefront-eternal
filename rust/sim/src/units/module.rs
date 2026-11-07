@@ -306,6 +306,7 @@ impl<'a> ModuleWorld<'a> {
         let mut c = std::mem::take(&mut unit.combat);
         let mut w = JsWorld::with_services(unit_ref(id), unit, &c,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
         f(&mut c, unit, &defs, &self.edges, &mut w);
+        w.finish();
         unit.combat = c;
     }
 

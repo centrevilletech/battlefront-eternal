@@ -7,10 +7,8 @@ use super::combat::{CombatDefs, Edge};
 use super::defs::{DefTable, Js, JsObj, WeaponClass};
 use super::weapons::{arm, Admission, Shot, ShotKind, WeaponDraws};
 use super::world::{ArcTarget, CastHit, CombatWorld, DamageInfo, Droid, LockPick, Presentation};
-use crate::abi::sim;
 use crate::gen::*;
 use crate::store::{word_u32, DefId, Nullable, Ref, StrId, Strings};
-use std::ptr::addr_of_mut;
 use std::rc::Rc;
 use three::Vector3;
 
@@ -31,31 +29,26 @@ impl CombatOwner {
     pub(crate) const fn new() -> Self { Self { content: None, taken: None } }
 }
 
-fn content() -> &'static mut Content {
-    // SAFETY: one thread; nothing holds a reference to it across a call
-    // out of the module (commands clone the Rc they read).
-    unsafe {
-        (*addr_of_mut!(crate::abi::cold().combat.content)).get_or_insert_with(|| Content {
-            defs: Rc::new(CombatDefs::default()),
-            explosion_packets: Vec::new(),
-        })
-    }
+fn content(owner: &mut CombatOwner) -> &mut Content {
+    owner.content.get_or_insert_with(|| Content {
+        defs: Rc::new(CombatDefs::default()), explosion_packets: Vec::new(),
+    })
 }
 
 /// The combat classes and weapons the battle has given the module (a
 /// command's or the units' phase's own handle on them).
-pub(crate) fn defs() -> Rc<CombatDefs> { content().definitions() }
+pub(crate) fn defs_in(owner: &mut CombatOwner) -> Rc<CombatDefs> { content(owner).definitions() }
 
 // PlayerCombat.zoom is a native seat read with no foreign callback. Borrow
 // prepared definitions directly; each rider needs no new Rc owner or array.
-pub(crate) fn zoom(c: &mut Combat) -> f64 { content().zoom(c) }
+pub(crate) fn zoom_in(owner: &mut CombatOwner, c: &mut Combat) -> f64 { content(owner).zoom(c) }
 
 /// Numeric blast fields are cached with the same construction id as the
 /// legacy definition. Victim traversal copies this small value, not a table.
-pub(crate) fn blast_packet(id: u32) -> super::impacts::BlastPacket { content().blast_packet(id) }
+pub(crate) fn blast_packet_in(owner: &mut CombatOwner, id: u32) -> super::impacts::BlastPacket { content(owner).blast_packet(id) }
 
-fn unit_ref(id: u32) -> Ref<Unit> {
-    sim().store.unit.reference(id).unwrap_or(Ref::new(id, 0))
+fn unit_ref(store: &Store, id: u32) -> Ref<Unit> {
+    store.unit.reference(id).unwrap_or(Ref::new(id, 0))
 }
 
 // ---- Content: JavaScript values as words (src/f3-combat.js `valueWords`):
@@ -113,8 +106,7 @@ pub(crate) fn read_js(words: &[f64], at: &mut usize, strings: &Strings) -> Js {
 }
 
 /// The value JavaScript wrote into the call block.
-fn call_value() -> Js {
-    let s = sim();
+fn call_value(s: &crate::abi::Sim) -> Js {
     let (row, heap) = s.calls.args();
     let words: Vec<f64> = row.iter().chain(heap.iter()).copied().collect();
     let mut at = 0;
@@ -130,54 +122,38 @@ fn obj_of(v: Js) -> Rc<JsObj> {
 
 /// Weapon class `id` (the battle's weapon table), its definition in the
 /// call block.
-#[no_mangle]
-pub extern "C" fn cmb_weapon(id: u32) { let value = call_value(); content().weapon(id, value); }
+pub(crate) fn cmb_weapon_in(w: &mut crate::world::owner::World, id: u32) { let value = call_value(&w.sim); content(&mut w.combat).weapon(id, value); }
 
 /// Unit class `id` (the battle's unitClass table): what combat reads of it
 /// (AddHealth, base, its loadout), in the call block.
-#[no_mangle]
-pub extern "C" fn cmb_class(id: u32) { let value = call_value(); content().class(id, value); }
+pub(crate) fn cmb_class_in(w: &mut crate::world::owner::World, id: u32) { let value = call_value(&w.sim); content(&mut w.combat).class(id, value); }
 
 /// Explosion `id` (src/f3-combat.js's table), in the call block.
-#[no_mangle]
-pub extern "C" fn cmb_explosion(id: u32) { let value = call_value(); content().explosion(id, value); }
+pub(crate) fn cmb_explosion_in(w: &mut crate::world::owner::World, id: u32) { let value = call_value(&w.sim); content(&mut w.combat).explosion(id, value); }
 
 /// A command's answer in the call block: what it wrote into the unit, then
 /// the combat's record. `flag`: a command's own answer (a weapon chosen).
-fn answer(r: Ref<Unit>) -> *const f64 {
-    let s = sim();
+fn answer(s: &mut crate::abi::Sim, r: Ref<Unit>) -> *const f64 {
     let u = s.store.unit.get(r).expect("a constructed unit");
     s.calls.result(Combat::WORDS, |row, heap| u.combat.put(row, heap));
     s.calls.block.ptr()
 }
 
-/// The unit a command or the units' phase has out of the store, if any
-/// (its slot holds an empty unit until it goes back): what JavaScript must
-/// not write into meanwhile, and what the phase's syncs leave out.
-
-/// The slot of the unit out of the store now.
-pub(crate) fn taken() -> Option<u32> {
-    // SAFETY: one thread, a copy out.
-    unsafe { *addr_of_mut!(crate::abi::cold().combat.taken) }
-}
-
-
-
 // Unit.tick and Unit.onMoved own the complete body. Lend its combat in place
 // too; splitting it just to reunite it would construct another empty Combat.
-pub(crate) fn take_body(r: Ref<Unit>) -> Unit { CombatOwner::lend_body(&mut sim().store, unsafe { &mut *addr_of_mut!(crate::abi::cold().combat.taken) }, r) }
-pub(crate) fn put_body(r: Ref<Unit>, unit: Unit) { CombatOwner::restore_body(&mut sim().store, unsafe { &mut *addr_of_mut!(crate::abi::cold().combat.taken) }, r, unit) }
+pub(crate) fn take_body_in(w: &mut crate::world::owner::World, r: Ref<Unit>) -> Unit { CombatOwner::lend_body(&mut w.sim.store, &mut w.combat.taken, r) }
+pub(crate) fn put_body_in(w: &mut crate::world::owner::World, r: Ref<Unit>, unit: Unit) { CombatOwner::restore_body(&mut w.sim.store, &mut w.combat.taken, r, unit) }
 
 // PlayerCombat methods borrow body and combat separately. Only that call
 // frame needs an empty Combat field; movement and aim handoffs do not.
-pub(crate) fn take(r: Ref<Unit>) -> (Unit, Combat) {
-    let mut unit = take_body(r);
+pub(crate) fn take_in(w: &mut crate::world::owner::World, r: Ref<Unit>) -> (Unit, Combat) {
+    let mut unit = take_body_in(w, r);
     let combat = std::mem::take(&mut unit.combat);
     (unit, combat)
 }
-pub(crate) fn put(r: Ref<Unit>, mut unit: Unit, combat: Combat) {
+pub(crate) fn put_in(w: &mut crate::world::owner::World, r: Ref<Unit>, mut unit: Unit, combat: Combat) {
     unit.combat = combat;
-    put_body(r,unit);
+    put_body_in(w, r,unit);
 }
 
 // ---- The commands (src/f3-combat.js CombatFacade).
@@ -187,10 +163,9 @@ pub(crate) fn put(r: Ref<Unit>, mut unit: Unit, combat: Combat) {
 /// weapons keep a player's spread floor), and the numbers JavaScript took
 /// from its class (MaxHealth || 300, the chunk roll, the health scale's
 /// name). The answer as every command's.
-#[no_mangle]
-pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> *const f64 {
-    let defs = content().defs.clone();
-    let r = unit_ref(unit);
+pub(crate) fn cmb_new_in(w: &mut crate::world::owner::World, unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> *const f64 {
+    let defs = content(&mut w.combat).defs.clone();
+    let r = unit_ref(&w.sim.store, unit);
     let weapons = arm(defs.loadout(DefId(class)), &defs.weapons, player != 0);
     let n = weapons.len();
     let combat = Combat {
@@ -204,7 +179,7 @@ pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, c
         death_time: 0.0,
         team: 0.0,
         repair_target: None,
-        repair_lock: sim().strings.intern_str(""),
+        repair_lock: w.sim.strings.intern_str(""),
         blow_apart: false,
         chunks,
         zoom_step: 0.0,
@@ -234,12 +209,12 @@ pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, c
         ..Combat::default()
     };
     {
-        let s = sim();
+        let s = &mut w.sim;
         let u = s.store.unit.ensure(r);
         u.class_def = DefId(class);
         u.combat = combat;
     }
-    answer(r)
+    answer(&mut w.sim, r)
 }
 
 /// weapons.js Arsenal.select (:517).
@@ -253,18 +228,17 @@ pub(crate) fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
 /// reads from the store: 5 mounted, 6 gunUnderwater, 7 team, 8 player,
 /// 9 deferMuzzles, 10 whether it has a generator (random), 11 whether it
 /// has recon droids (remotes).
-#[no_mangle]
-pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) -> u32 {
+pub(crate) fn cmb_set_in(w: &mut crate::world::owner::World, unit: u32, field: u32, value: f64) -> u32 {
     let Ok(code) = u8::try_from(field) else {
         return 0;
     };
     let Some(field) = F3CombatField::from_u8(code) else {
         return 0;
     };
-    if taken() == Some(unit) {
+    if w.combat.taken == Some(unit) {
         return 0;
     }
-    let Some((_, body)) = sim().store.unit.at_mut(unit) else {
+    let Some((_, body)) = w.sim.store.unit.at_mut(unit) else {
         return 0;
     };
     let c = &mut body.combat;
@@ -287,18 +261,17 @@ pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) -> u32 {
 
 /// WeaponFacade settings validate their generated field and arsenal index.
 /// A rejected command leaves the row intact and reports failure to its host.
-#[no_mangle]
-pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) -> u32 {
+pub(crate) fn cmb_weapon_set_in(w: &mut crate::world::owner::World, unit: u32, weapon: u32, field: u32, value: f64) -> u32 {
     let Ok(code) = u8::try_from(field) else {
         return 0;
     };
     let Some(field) = F3WeaponField::from_u8(code) else {
         return 0;
     };
-    if taken() == Some(unit) {
+    if w.combat.taken == Some(unit) {
         return 0;
     }
-    let Some((_, body)) = sim().store.unit.at_mut(unit) else {
+    let Some((_, body)) = w.sim.store.unit.at_mut(unit) else {
         return 0;
     };
     let Some(w) = body.combat.weapons.get_mut(weapon as usize) else {
@@ -325,7 +298,8 @@ fn a3(v: &Vector3) -> Vec3 {
 }
 
 /// The battle as the module's imports give it, for unit `unit`'s combat.
-pub(crate) struct JsWorld<'a> {
+pub(crate) struct JsWorld<'w, 'a> {
+    w: &'w mut crate::world::owner::World,
     unit: f64,
     r: Ref<Unit>,
     /// Whether he has recon droids (combat.remotes): without, no droid of
@@ -341,9 +315,9 @@ pub(crate) struct JsWorld<'a> {
     recon: Option<crate::units::f3::WorldServices<'a>>,
 }
 
-impl<'a> JsWorld<'a> {
-    pub(crate) fn with_services(r: Ref<Unit>, unit: &Unit, combat: &Combat, recon: Option<crate::units::f3::WorldServices<'a>>) -> Self {
-        Self {
+impl<'w, 'a> JsWorld<'w, 'a> {
+    pub(crate) fn with_services_in(w: &'w mut crate::world::owner::World, r: Ref<Unit>, unit: &Unit, combat: &Combat, recon: Option<crate::units::f3::WorldServices<'a>>) -> Self {
+        Self { w,
             unit: r.slot as f64,
             r,
             remotes: combat.has_remotes,
@@ -369,14 +343,14 @@ impl<'a> JsWorld<'a> {
     /// An import that runs the battle's code: the unit and his combat back
     /// in the store for it (JavaScript syncs from them first and gives his
     /// view back after), then out again as the battle left them.
-    fn changing(&mut self, u: &mut Unit, c: &mut Combat, call: impl FnOnce(Option<crate::units::f3::WorldServices<'_>>)) {
-        put(self.r, std::mem::take(u), std::mem::take(c));
+    fn changing(&mut self, u: &mut Unit, c: &mut Combat, call: impl FnOnce(&mut crate::world::owner::World, Option<crate::units::f3::WorldServices<'_>>)) {
+        put_in(self.w, self.r, std::mem::take(u), std::mem::take(c));
         // Native fire, repair and recursive deaths need committed state, but
         // no mirror reader ran. Keep their touched rows pending until an
         // actual foreign leaf or phase return consumes the publication.
         crate::units::f3::changed(self.r);
-        call(self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
-        let (nu, nc) = take(self.r);
+        call(self.w, self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+        let (nu, nc) = take_in(self.w, self.r);
         *u = nu;
         *c = nc;
     }
@@ -415,8 +389,8 @@ impl<'a> JsWorld<'a> {
     }
 }
 
-impl Drop for JsWorld<'_> {
-    fn drop(&mut self) {
+impl JsWorld<'_, '_> {
+    pub(crate) fn finish(mut self) {
         // Return the invocation's handle buffer even when the shot produced
         // no links. The next tick must not allocate another acquisition list.
         if let Some(targets) = self.arc.take() {
@@ -425,7 +399,7 @@ impl Drop for JsWorld<'_> {
     }
 }
 
-impl WeaponDraws for JsWorld<'_> {
+impl WeaponDraws for JsWorld<'_, '_> {
     fn draw(&mut self, weapon: u32) -> f64 {
         return crate::units::f3::random_draw(self.r, Some(weapon));
     }
@@ -445,12 +419,12 @@ impl WeaponDraws for JsWorld<'_> {
 
         return crate::units::f3::required_services!(self.recon.as_mut(), Admission::No)
             .recon
-            .reserve(&sim().store)
+            .reserve(&self.w.sim.store)
             .map_or(Admission::No, |r| Admission::Token(crate::recon::Authority::token(r)));
     }
 }
 
-impl CombatWorld for JsWorld<'_> {
+impl CombatWorld for JsWorld<'_, '_> {
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit> {
         return crate::units::native::cast_static(crate::units::f3::collision_world(), origin, direction, far, static_only).map(|h| CastHit {
             distance: h.distance,
@@ -468,27 +442,27 @@ impl CombatWorld for JsWorld<'_> {
         let context = crate::recon::module::context_for(self.r, self.life)?;
         return crate::units::f3::required_services!(self.recon.as_ref(), None)
             .recon
-            .of(&sim().store, context, weapon)
+            .of(&self.w.sim.store, context, weapon)
             .map(|r| Droid(r.slot));
     }
 
     fn remote_enter(&mut self, droid: Droid, unit: &mut Unit, combat: &mut Combat) {
-        self.changing(unit, combat, |authority| {
+        self.changing(unit, combat, |w, authority| {
             let services = authority.unwrap();
             let authority = services.recon;
-            let reference = sim().store.recon_droid.at(droid.0).expect("live remote droid").0;
-            authority.enter(&mut sim().store, reference);
+            let reference = w.sim.store.recon_droid.at(droid.0).expect("live remote droid").0;
+            authority.enter(&mut w.sim.store, reference);
             crate::recon::module::publish_active(authority);
         });
         return;
     }
 
     fn remote_kill(&mut self, droid: Droid, unit: &mut Unit, combat: &mut Combat) {
-        self.changing(unit, combat, |authority| {
+        self.changing(unit, combat, |w, authority| {
             let mut services = authority.unwrap();
             let authority = services.recon;
-            let reference = sim().store.recon_droid.at(droid.0).expect("live remote droid").0;
-            authority.kill(&mut sim().store, &mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)), reference);
+            let reference = w.sim.store.recon_droid.at(droid.0).expect("live remote droid").0;
+            authority.kill(&mut w.sim.store, &mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)), reference);
             crate::recon::module::publish_active(authority);
         });
         return;
@@ -501,16 +475,16 @@ impl CombatWorld for JsWorld<'_> {
         let definition = combat.weapons[weapon as usize].def;
         let (class, immediate) = crate::recon::module::weapon(definition);
         let (origin, velocity) = (*origin, *velocity);
-        self.changing(unit, combat, |authority| {
+        self.changing(unit, combat, |w, authority| {
             let mut services = authority.unwrap();
             let authority = services.recon;
             let token = admission
                 .and_then(|t| authority.reservation(t))
-                .or_else(|| if admission.is_none() { authority.reserve(&sim().store) } else { None });
+                .or_else(|| if admission.is_none() { authority.reserve(&w.sim.store) } else { None });
             if let Some(token) = token {
                 if authority
                     .launch(
-                        &mut sim().store,
+                        &mut w.sim.store,
                         &mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),
                         context,
                         token,
@@ -535,7 +509,7 @@ impl CombatWorld for JsWorld<'_> {
     }
 
     fn lock_on(&mut self, eye: &Vector3, dir: &Vector3, _weapon: u32, tool: &Weapon, current: Option<RepairTarget>, held: bool, team: f64) -> Option<RepairTarget> {
-        let defs = defs();
+        let defs = defs_in(&mut self.w.combat);
         let definition = &tool.level(defs.weapons.class(tool.def)).repair;
         return crate::units::f3_props::lock_on(
             *eye,
@@ -553,11 +527,11 @@ impl CombatWorld for JsWorld<'_> {
     }
 
     fn repair(&mut self, weapon: u32, target: Option<RepairTarget>, team: f64, unit: &mut Unit, combat: &mut Combat) -> bool {
-        let defs = defs();
+        let defs = defs_in(&mut self.w.combat);
         let tool = &combat.weapons[weapon as usize];
         let definition = &tool.level(defs.weapons.class(tool.def)).repair;
         let mut done = false;
-        self.changing(unit, combat, |services| {
+        self.changing(unit, combat, |_w, services| {
             done = crate::units::f3_props::repair(target, definition, team, crate::units::f3::required_services!(services, ()));
         });
         return done;
@@ -573,8 +547,8 @@ impl CombatWorld for JsWorld<'_> {
         let service = crate::units::f3::weapon_service(weapon.def, weapon.level);
         let ShotKind::Round { target_id, target_generation, .. } = shot.kind else { return };
         let (from, direction, owner) = (a3(from), a3(dir), OrdnanceOwner::Unit(self.r));
-        self.changing(unit, combat, |recon| {
-            let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), recon);
+        self.changing(unit, combat, |w, recon| {
+            let mut world = crate::ordnance::module::JsWorld::with_services(w, recon);
             // Definitions are immutable during this phase. The shooter is
             // back in the store before F1 can emit instant-hit callbacks.
             let mut cx = crate::ordnance::Cx::new(&mut world);
@@ -593,8 +567,8 @@ impl CombatWorld for JsWorld<'_> {
         let mut frame = crate::units::f3::items().take(self.r.slot, self.life, w.def, w.level as u32);
         let (origin, velocity, owner) = (a3(origin), a3(velocity), ItemOwner::Unit(self.r));
         let mut made = false;
-        self.changing(unit, combat, |recon| {
-            let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), recon);
+        self.changing(unit, combat, |w, recon| {
+            let mut world = crate::ordnance::module::JsWorld::with_services(w, recon);
             let mut cx = crate::ordnance::Cx::new(&mut world);
             made = unsafe { (*service).dispense(&mut cx, frame.key, &mut frame.work, &mut frame.spare, most, origin, velocity, yaw, owner, team) };
         });
@@ -606,7 +580,7 @@ impl CombatWorld for JsWorld<'_> {
         // Commit the attacker before a defender's damage can recursively
         // explode. The candidate buffer belongs to this invocation's Unit.
         let (owner, origin, aim, source) = (self.r, combat.origin, combat.aim_dir, a3(&unit.position()));
-        self.changing(unit, combat, |recon| crate::units::f3_sensors::melee(owner, origin, aim, source, recon));
+        self.changing(unit, combat, |_w, recon| crate::units::f3_sensors::melee(owner, origin, aim, source, recon));
         return;
     }
 
@@ -631,7 +605,7 @@ impl CombatWorld for JsWorld<'_> {
         let (owner, from) = (self.r, *from);
         // Commit the shooter before a link can kill a mine or start a
         // class blast that reaches back into this same combat.
-        self.changing(unit, combat, |recon| super::live::arc_hit(victim, amount, from, owner, recon));
+        self.changing(unit, combat, |w, recon| super::live::arc_hit_in(w, victim, amount, from, owner, recon));
         return;
     }
 
@@ -649,7 +623,7 @@ impl CombatWorld for JsWorld<'_> {
             effect: F3Effect::Headshot,
             position: a3(point),
         }
-        .emit(&mut sim().events);
+        .emit(&mut self.w.sim.events);
     }
 
     fn headshot_credit(&mut self, previous: Attacker) {
@@ -664,10 +638,10 @@ impl CombatWorld for JsWorld<'_> {
                 if r == self.r {
                     self.character
                 } else {
-                    sim().store.unit.get(r).and_then(|u| u.character)
+                    self.w.sim.store.unit.get(r).and_then(|u| u.character)
                 }
             }
-            Attacker::OwnerSnapshot(r) => sim().store.owner_snapshot.get(r).and_then(|o| o.character),
+            Attacker::OwnerSnapshot(r) => self.w.sim.store.owner_snapshot.get(r).and_then(|o| o.character),
             // Hulls and turrets have no Character of their own. A null credit
             // does not create or change any BattleStats record.
             _ => None,
@@ -688,7 +662,7 @@ impl CombatWorld for JsWorld<'_> {
             direction: combat.shot_dir,
             team: unit.team,
         }
-        .emit(&mut sim().events);
+        .emit(&mut self.w.sim.events);
         return;
     }
 
@@ -696,7 +670,7 @@ impl CombatWorld for JsWorld<'_> {
         let _allocations = crate::allocations::at(F3AllocationStage::Hit);
         // instrument.onDamaged keeps the authored amount/scale fields as
         // well as actual health damage. Preserve absent and null points.
-        let (attacker_ref, attacker_team) = super::live::attribution(attacker, self.r, unit);
+        let (attacker_ref, attacker_team) = super::live::attribution_in(self.w, attacker, self.r, unit);
         let point_state = match info.point {
             None => F3OptionalState::Absent,
             Some(None) => F3OptionalState::Null,
@@ -724,7 +698,7 @@ impl CombatWorld for JsWorld<'_> {
                 source: _source.map_or([0.0; 3], |p| a3(&p)),
             },
         }
-        .emit(&mut sim().events);
+        .emit(&mut self.w.sim.events);
         return;
     }
 
@@ -746,7 +720,7 @@ impl CombatWorld for JsWorld<'_> {
             // Game.onDeath calls leaveKilled before Character credit and
             // item drops. A gunner falls from the last native rider pose.
             let reference = self.r;
-            self.changing(unit, combat, |services| {
+            self.changing(unit, combat, |_w, services| {
                 crate::vehicles::module::f2::live_seats::leave_killed(reference, crate::units::f3::required_services!(services, ()));
             });
         }
@@ -759,8 +733,8 @@ impl CombatWorld for JsWorld<'_> {
         }
         let key = F3UnitKey::of(self.r, unit);
         let attacker = combat.last_attacker;
-        let (attacker_ref, attacker_team) = super::live::attribution(attacker, self.r, unit);
-        let killer = super::live::character(attacker, self.r, unit);
+        let (attacker_ref, attacker_team) = super::live::attribution_in(self.w, attacker, self.r, unit);
+        let killer = super::live::character_in(self.w, attacker, self.r, unit);
         let credit = F3DeathCredit {
             key: F3UnitKey::of(self.r, unit),
             unit: self.r,
@@ -768,7 +742,7 @@ impl CombatWorld for JsWorld<'_> {
             relation: if killer.is_some() { crate::units::f3::relation(attacker_team, unit.team) } else { 0.0 },
         };
         let mut controller = None;
-        self.changing(unit, combat, |services| {
+        self.changing(unit, combat, |_w, services| {
             if crate::battle::f4_core::owns_lifecycle() {
                 controller=crate::battle::f4_core::died(credit.unit,credit.killer,credit.relation,crate::units::f3::required_services!(services,()));
             } else {
@@ -786,14 +760,14 @@ impl CombatWorld for JsWorld<'_> {
             position: a3(&unit.position()),
             team: unit.team,
         }
-        .emit(&mut sim().events);
+        .emit(&mut self.w.sim.events);
         let (class, mut position, velocity, yaw) = (unit.class_def, a3(&unit.position()), a3(&unit.velocity()), unit.aim_yaw());
         position[1] += 1.048;
         // Items.dropFor draws once even when the authored list is empty.
         // The retained immutable list has no sidecar borrow across spawn.
         let drops = crate::units::f3::items().drops(class) as *const [crate::items::Drop];
-        self.changing(unit, combat, |recon| {
-            let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), recon);
+        self.changing(unit, combat, |w, recon| {
+            let mut world = crate::ordnance::module::JsWorld::with_services(w, recon);
             let mut cx = crate::ordnance::Cx::new(&mut world);
             unsafe {
                 let _allocations = crate::allocations::at(F3AllocationStage::Drop);
@@ -805,13 +779,13 @@ impl CombatWorld for JsWorld<'_> {
 
     fn blown_apart(&mut self, health: f64, unit: &mut Unit, combat: &mut Combat) {
         let reference = self.r;
-        self.changing(unit, combat, |recon| super::live::blow_apart(reference, health, recon));
+        self.changing(unit, combat, |w, recon| super::live::blow_apart_in(w, reference, health, recon));
         return;
     }
 
     fn respawn(&mut self, unit: &mut Unit, combat: &mut Combat) {
         if crate::battle::f4_tail::owns_player(self.r) {
-            self.changing(unit,combat,|services| crate::battle::f4_tail::auto_respawn(services.expect("native player body services")));
+            self.changing(unit,combat,|_w, services| crate::battle::f4_tail::auto_respawn(services.expect("native player body services")));
             return;
         }
         // PlayerCombat.onRespawn only notifies the host. Deliver it after
@@ -822,7 +796,7 @@ impl CombatWorld for JsWorld<'_> {
             event: F3BodyEvent::Respawn,
             health: combat.health,
         }
-        .emit(&mut sim().events);
+        .emit(&mut self.w.sim.events);
         return;
     }
 
@@ -873,7 +847,7 @@ impl CombatWorld for JsWorld<'_> {
                 notice.channel = *channel;
             }
         }
-        notice.emit(&mut sim().events);
+        notice.emit(&mut self.w.sim.events);
         return;
     }
 
@@ -900,7 +874,7 @@ impl CombatWorld for JsWorld<'_> {
             source_present: _source.is_some(),
             source: _source.map_or([0.0; 3], |p| a3(&p)),
         }
-        .emit(&mut sim().events);
+        .emit(&mut self.w.sim.events);
         return;
     }
 
@@ -984,3 +958,42 @@ impl Content {
         packets[id as usize] = packet;
     }
 }
+
+// facade shims: retained for unconverted callers.
+#[cfg(target_arch = "wasm32")]
+impl<'a> JsWorld<'static, 'a> {
+    pub(crate) fn with_services(r: Ref<Unit>, unit: &Unit, combat: &Combat, recon: Option<crate::units::f3::WorldServices<'a>>) -> Self { Self::with_services_in(crate::abi::world(), r, unit, combat, recon) }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn defs() -> Rc<CombatDefs>{ defs_in(&mut crate::abi::world().combat) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn zoom(c: &mut Combat) -> f64{ zoom_in(&mut crate::abi::world().combat, c) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn blast_packet(id: u32) -> super::impacts::BlastPacket{ blast_packet_in(&mut crate::abi::world().combat, id) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn cmb_weapon(id: u32){ cmb_weapon_in(crate::abi::world(), id) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn cmb_class(id: u32){ cmb_class_in(crate::abi::world(), id) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn cmb_explosion(id: u32){ cmb_explosion_in(crate::abi::world(), id) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn take_body(r: Ref<Unit>) -> Unit{ take_body_in(crate::abi::world(), r) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn put_body(r: Ref<Unit>, unit: Unit){ put_body_in(crate::abi::world(), r, unit) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn take(r: Ref<Unit>) -> (Unit, Combat){ take_in(crate::abi::world(), r) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn put(r: Ref<Unit>, unit: Unit, combat: Combat){ put_in(crate::abi::world(), r, unit, combat) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn cmb_new(unit: u32, class: u32, player: u32, max_health: f64, chunks: f64, scale: u32) -> *const f64{ cmb_new_in(crate::abi::world(), unit, class, player, max_health, chunks, scale) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) -> u32{ cmb_set_in(crate::abi::world(), unit, field, value) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) -> u32{ cmb_weapon_set_in(crate::abi::world(), unit, weapon, field, value) }

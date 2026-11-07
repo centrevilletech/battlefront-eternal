@@ -1551,6 +1551,7 @@ fn mutate_combat(reference: Ref<Unit>, command: &F3Change, recon: Option<crate::
         }
         _ => unreachable!(),
     }
+    world.finish();
     cm::put(reference, unit, combat);
 }
 

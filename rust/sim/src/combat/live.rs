@@ -3,7 +3,6 @@
 //! The store is borrowed only while sampling or replacing a row. Damage can
 //! immediately enter another explosion, including one attributed to its own
 //! victim, so a shooter or victim never stays borrowed across that service.
-use crate::abi::sim;
 use crate::gen::{Attacker, Character, HitPart, OrdnanceOwner, Unit};
 use crate::ordnance::world::DefArg;
 use crate::store::{Nullable, Ref};
@@ -22,35 +21,36 @@ pub(crate) enum ArcVictim {
 /// Game.arcTargets.hurt reevaluates friendly fire per link. Its source is
 /// where that link began, while info.point reads the owner's current feet.
 /// Those two points may differ after a preceding link caused a nested blast.
-pub(crate) fn arc_hit(victim: ArcVictim, amount: f64, from: Vector3, owner: Ref<Unit>, recon: Option<crate::units::f3::WorldServices<'_>>) {
+pub(crate) fn arc_hit_in(w: &mut crate::world::owner::World, victim: ArcVictim, amount: f64, from: Vector3, owner: Ref<Unit>, recon: Option<crate::units::f3::WorldServices<'_>>) {
     match victim {
         ArcVictim::Recon(reference) => {
             let mut services = crate::units::f3::required_services!(recon,());
             let authority = services.recon;
-            authority.hurt(&mut sim().store,&mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),reference,amount);
+            authority.hurt(&mut w.sim.store,&mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),reference,amount);
             crate::recon::module::publish_active(authority);
         }
         ArcVictim::Unit(reference) => {
-            let source = sim().store.unit.get(owner).expect("committed arc owner");
+            let source = w.sim.store.unit.get(owner).expect("committed arc owner");
             let (team,human,point) = (source.team,source.human,source.position());
-            let target = sim().store.unit.get(reference).expect("acquired arc Unit");
+            let target = w.sim.store.unit.get(reference).expect("acquired arc Unit");
             let scaled = amount * super::impacts::team_damage(team,human,target.team,target.human,f3::friendly_fire());
             if scaled <= 0.0 { return; }
-            let defs = super::module::defs();
-            let (mut unit,mut combat) = super::module::take(reference);
-            let mut world = super::module::JsWorld::with_services(reference,&unit,&combat,recon);
+            let defs = super::module::defs_in(&mut w.combat);
+            let (mut unit,mut combat) = super::module::take_in(w, reference);
+            let mut world = super::module::JsWorld::with_services_in(w, reference,&unit,&combat,recon);
             let info = super::world::DamageInfo {
                 amount:Some(scaled),typed:Some(1.0),generic:Some(1.0),known:Some(true),point:Some(Some(point)),
                 ..Default::default()
             };
             super::combat::damage_with(&mut combat,&mut unit,&defs,scaled,scaled,Some(from),Attacker::Unit(owner),&info,&mut world);
-            super::module::put(reference,unit,combat);
+            world.finish();
+            super::module::put_in(w, reference,unit,combat);
             f3::changed(reference);
         }
         ArcVictim::Item(reference) => {
             // Items.hurt owns finite health and gone checks. Its native world
             // completes the mine's death explosion before this link resumes.
-            let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), recon);
+            let mut world = crate::ordnance::module::JsWorld::with_services(w, recon);
             let mut cx = crate::ordnance::Cx::new(&mut world);
             cx.hurt(reference,amount);
         }
@@ -59,22 +59,23 @@ pub(crate) fn arc_hit(victim: ArcVictim, amount: f64, from: Vector3, owner: Ref<
 
 /// SeatsWorld.kill supplies an untyped, non-directional infinite hit after
 /// vacating the lease. Reuse PlayerCombat.damage and its immediate death hooks.
-pub(crate) fn damage(reference: Ref<Unit>, amount: f64, attacker: Attacker, services: f3::WorldServices<'_>) {
-    let defs = super::module::defs();
-    let (mut unit, mut combat) = super::module::take(reference);
-    let mut world = super::module::JsWorld::with_services(reference, &unit, &combat, Some(services));
+pub(crate) fn damage_in(w: &mut crate::world::owner::World, reference: Ref<Unit>, amount: f64, attacker: Attacker, services: f3::WorldServices<'_>) {
+    let defs = super::module::defs_in(&mut w.combat);
+    let (mut unit, mut combat) = super::module::take_in(w, reference);
+    let mut world = super::module::JsWorld::with_services_in(w, reference, &unit, &combat, Some(services));
     super::combat::damage_with(&mut combat, &mut unit, &defs, amount, amount, None, attacker,
         &super::world::DamageInfo::default(), &mut world);
-    super::module::put(reference, unit, combat);
+    world.finish();
+    super::module::put_in(w, reference, unit, combat);
     f3::changed(reference);
 }
 
 /// Game.onExplode traverses the live mixed registry by index. Every nested
 /// death finishes immediately; neither a victim snapshot nor a work queue
 /// can preserve the order of a mine or a droid exploding back through it.
-pub(crate) fn blast(definition: crate::store::DefId, position: [f64; 3], owner: OrdnanceOwner, recon: Option<crate::units::f3::WorldServices<'_>>) {
+pub(crate) fn blast_in(w: &mut crate::world::owner::World, definition: crate::store::DefId, position: [f64; 3], owner: OrdnanceOwner, recon: Option<crate::units::f3::WorldServices<'_>>) {
     let packet = f3::blast_packet(definition);
-    let (team, _, attacker) = owner_facts(owner);
+    let (team, _, attacker) = owner_facts_in(w, owner);
     let mut notice = crate::gen::F3BlastNotice {
         stage: crate::gen::F3BlastStage::Present,
         explosion: definition.0,
@@ -85,7 +86,7 @@ pub(crate) fn blast(definition: crate::store::DefId, position: [f64; 3], owner: 
         ..Default::default()
     };
     // refOf observes the source before any recursive death or pooling.
-    if let Some(source) = owner_reference(owner) {
+    if let Some(source) = owner_reference_in(w, owner) {
         notice.has_source = true;
         notice.source = source;
     }
@@ -98,8 +99,9 @@ pub(crate) fn blast(definition: crate::store::DefId, position: [f64; 3], owner: 
     }
     // Presentation starts before unit damage. Network explosion capture is
     // later: the old onExplode observer returned only after the whole fan-out.
-    notice.emit(&mut sim().events);
+    notice.emit(&mut w.sim.events);
     let mut world = Blast {
+        w,
         definition,
         owner,
         notice,
@@ -107,18 +109,18 @@ pub(crate) fn blast(definition: crate::store::DefId, position: [f64; 3], owner: 
     };
     super::impacts::fan_out(&mut world, &packet, &v(position), attacker);
     world.notice.stage = crate::gen::F3BlastStage::Finished;
-    world.notice.emit(&mut sim().events);
+    world.notice.emit(&mut world.w.sim.events);
 }
 
 /// refOf (game.js) for a committed source, including frozen launch lives.
-pub(crate) fn owner_reference(owner: OrdnanceOwner) -> Option<crate::gen::F3LifeRef> {
+pub(crate) fn owner_reference_in(w: &mut crate::world::owner::World, owner: OrdnanceOwner) -> Option<crate::gen::F3LifeRef> {
     match owner {
-        OrdnanceOwner::Unit(r) => sim().store.unit.get(r).map(|u| crate::gen::F3LifeRef {
+        OrdnanceOwner::Unit(r) => w.sim.store.unit.get(r).map(|u| crate::gen::F3LifeRef {
             id: r.slot as f64,
             generation: u.generation,
         }),
         OrdnanceOwner::OwnerSnapshot(r) => {
-            sim()
+            w.sim
                 .store
                 .owner_snapshot
                 .get(r)
@@ -131,7 +133,8 @@ pub(crate) fn owner_reference(owner: OrdnanceOwner) -> Option<crate::gen::F3Life
     }
 }
 
-struct Blast<'a> {
+struct Blast<'w, 'a> {
+    w: &'w mut crate::world::owner::World,
     // The copied packet is shared by value; this frame retains the F1 index
     // needed by item definitions and by the later capture notification.
     definition: crate::store::DefId,
@@ -139,17 +142,17 @@ struct Blast<'a> {
     notice: crate::gen::F3BlastNotice,
     recon: Option<crate::units::f3::WorldServices<'a>>,
 }
-impl super::impacts::BlastWorld for Blast<'_> {
+impl super::impacts::BlastWorld for Blast<'_, '_> {
     fn registry_len(&self) -> usize {
         // Read the live length again after each recursive hurt. A foreign
         // Character hook must not freeze the next visitation index.
-        sim().store.units.list.len()
+        self.w.sim.store.units.list.len()
     }
     fn registry_unit(&self, index: usize) -> Option<Ref<Unit>> {
-        let crate::gen::Member::Unit(r) = sim().store.units.list[index] else {
+        let crate::gen::Member::Unit(r) = self.w.sim.store.units.list[index] else {
             return None;
         };
-        let unit = sim().store.unit.get(r).expect("blast registry Unit");
+        let unit = self.w.sim.store.unit.get(r).expect("blast registry Unit");
         // Game.onExplode includes lingering corpses, which can still be
         // pushed, but skips inactive and already pooled bodies.
         if unit.removed || !(unit.alive || unit.dead) {
@@ -167,12 +170,12 @@ impl super::impacts::BlastWorld for Blast<'_> {
     ) {
         // teamDamage is evaluated for this victim at the moment it is hit.
         // Earlier deaths can change attribution or a source's current body.
-        let (team, human, _) = owner_facts(self.owner);
-        let defs = super::module::defs();
-        let (mut unit, mut combat) = super::module::take(reference);
+        let (team, human, _) = owner_facts_in(self.w, self.owner);
+        let defs = super::module::defs_in(&mut self.w.combat);
+        let (mut unit, mut combat) = super::module::take_in(self.w, reference);
         let scale =
             super::impacts::team_damage(team, human, unit.team, unit.human, f3::friendly_fire());
-        let mut world = super::module::JsWorld::with_services(reference, &unit, &combat,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+        let mut world = super::module::JsWorld::with_services_in(self.w, reference, &unit, &combat,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
         // Taking combat out keeps the current victim available to recursive
         // services only after JsWorld's explicit commit barrier.
         let touched = super::combat::explode_prepared(
@@ -186,7 +189,8 @@ impl super::impacts::BlastWorld for Blast<'_> {
             scale,
             &mut world,
         );
-        super::module::put(reference, unit, combat);
+        world.finish();
+        super::module::put_in(self.w, reference, unit, combat);
         // An out-of-reach or occluded body has no changed publication. This
         // avoids turning one area command into another all-unit copy-out.
         if touched {
@@ -197,7 +201,7 @@ impl super::impacts::BlastWorld for Blast<'_> {
         // Game.onExplode emits this journal record after every soldier but
         // before hulls, mines, props and recon. Nested records stay nested.
         self.notice.stage = crate::gen::F3BlastStage::Event;
-        self.notice.emit(&mut sim().events);
+        self.notice.emit(&mut self.w.sim.events);
     }
     fn blast_hulls(&mut self, packet: &super::impacts::BlastPacket, at: &Vector3, _: Attacker) {
         crate::units::f3_hulls::blast(*packet, *at, self.owner,
@@ -206,7 +210,7 @@ impl super::impacts::BlastWorld for Blast<'_> {
     fn blast_items(&mut self, _: &super::impacts::BlastPacket, at: &Vector3) {
         // Items.blast marks a mine gone before its own explosion. The same
         // canonical list remains visible throughout that recursive call.
-        let mut world = crate::ordnance::module::JsWorld::with_services(crate::abi::world(), self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+        let mut world = crate::ordnance::module::JsWorld::with_services(self.w, self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
         let mut cx = crate::ordnance::Cx::new(&mut world);
         cx.blast(self.definition, [at.x, at.y, at.z]);
     }
@@ -225,7 +229,7 @@ impl super::impacts::BlastWorld for Blast<'_> {
             droid_scale: packet.hit.scales[super::impacts::HealthScale::Droid as usize],
             push: packet.push, push_inner: packet.push_inner, push_outer: packet.push_outer,
         };
-        authority.blast(&mut sim().store,&mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),explosion,*at);
+        authority.blast(&mut self.w.sim.store,&mut crate::recon::module::NativeWorld::idle(services.queries,services.ai.as_mut().map(|ai|&mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks)),explosion,*at);
         crate::recon::module::publish_active(authority);
     }
 }
@@ -233,8 +237,8 @@ impl super::impacts::BlastWorld for Blast<'_> {
 /// UnitFactory.onBlowApart uses the body position before Unit.onDeath clears
 /// alive. Its class explosion can immediately hurt the committed dead combat;
 /// death and blast deliberately leave that Unit's lazy shape cache untouched.
-pub(crate) fn blow_apart(reference: Ref<Unit>, health: f64, recon: Option<crate::units::f3::WorldServices<'_>>) {
-    let unit = sim().store.unit.get(reference).expect("blown body");
+pub(crate) fn blow_apart_in(w: &mut crate::world::owner::World, reference: Ref<Unit>, health: f64, recon: Option<crate::units::f3::WorldServices<'_>>) {
+    let unit = w.sim.store.unit.get(reference).expect("blown body");
     let key = crate::gen::F3UnitKey::of(reference, unit);
     let mut position = unit.position();
     // UnitFactory.onBlowApart raises ordinary soldiers by 0.9 m, while a
@@ -243,7 +247,7 @@ pub(crate) fn blow_apart(reference: Ref<Unit>, health: f64, recon: Option<crate:
         position.y += 0.9;
     }
     if let Some(explosion) = f3::items().explosion(unit.class_def) {
-        blast(
+        blast_in(w,
             explosion,
             [position.x, position.y, position.z],
             OrdnanceOwner::Unit(reference),
@@ -257,13 +261,13 @@ pub(crate) fn blow_apart(reference: Ref<Unit>, health: f64, recon: Option<crate:
         event: crate::gen::F3BodyEvent::BlowApart,
         health,
     }
-    .emit(&mut sim().events);
+    .emit(&mut w.sim.events);
 }
 
 /// Game.onHit visits prop owners before hulls, for both ordinary rounds and
 /// heroes' fixed melee packet. A blade's absent direction remains absent in
 /// Turret.onDamaged rather than fabricating a known directional damage source.
-pub(crate) fn hit_body_packet(body: Ref<crate::gen::Body>, packet: super::impacts::HitPacket,
+pub(crate) fn hit_body_packet_in(_w: &mut crate::world::owner::World, body: Ref<crate::gen::Body>, packet: super::impacts::HitPacket,
     owner: OrdnanceOwner, direction: Option<Vector3>, mut services: f3::WorldServices<'_>) {
     crate::units::f3_props::struck(body, packet, owner, direction, services.reborrow());
     crate::units::f3_hulls::struck(body, packet, owner, services.reborrow());
@@ -271,7 +275,7 @@ pub(crate) fn hit_body_packet(body: Ref<crate::gen::Body>, packet: super::impact
 
 /// OrdnanceWorld.hitUnit resolves a beam's current Damage override separately
 /// from its immutable scales. The fixed packet is copied, never its class map.
-pub(crate) fn hit_unit(
+pub(crate) fn hit_unit_in(w: &mut crate::world::owner::World,
     reference: Ref<Unit>,
     definition: DefArg,
     point: [f64; 3],
@@ -283,7 +287,7 @@ pub(crate) fn hit_unit(
     let (definition, damage) = match definition {
         DefArg::Ordnance(def) => (def, None),
         DefArg::Beam(r) => {
-            let b = sim().store.beam.get(r).expect("live beam");
+            let b = w.sim.store.beam.get(r).expect("live beam");
             (b.def, b.damage)
         }
     };
@@ -291,12 +295,12 @@ pub(crate) fn hit_unit(
     if let Some(damage) = damage {
         packet.damage = damage;
     }
-    hit_packet(reference, packet, point, owner, part, direction,recon);
+    hit_packet_in(w, reference, packet, point, owner, part, direction,recon);
 }
 
 /// Game.onHitUnit also handles heroes' fixed melee packet. Reuse the same
 /// health/shield scaling and credit order without fabricating an F1 class.
-pub(crate) fn hit_packet(
+pub(crate) fn hit_packet_in(w: &mut crate::world::owner::World,
     reference: Ref<Unit>,
     packet: super::impacts::HitPacket,
     point: [f64; 3],
@@ -307,14 +311,14 @@ pub(crate) fn hit_packet(
 ) {
     // Friendly Fire scales the health and shield paths independently of the
     // authored health category. A head effect still occurs before rejection.
-    let (team, human, attacker) = owner_facts(owner);
+    let (team, human, attacker) = owner_facts_in(w, owner);
     // Take only the victim. The shooter was committed by fireRound before
     // F1 entered this service, including an instant catch-up bolt's hit.
-    let defs = super::module::defs();
-    let (mut unit, mut combat) = super::module::take(reference);
+    let defs = super::module::defs_in(&mut w.combat);
+    let (mut unit, mut combat) = super::module::take_in(w, reference);
     let scale =
         super::impacts::team_damage(team, human, unit.team, unit.human, f3::friendly_fire());
-    let mut world = super::module::JsWorld::with_services(reference, &unit, &combat,recon);
+    let mut world = super::module::JsWorld::with_services_in(w, reference, &unit, &combat,recon);
     super::impacts::hit(
         &mut combat,
         &mut unit,
@@ -330,25 +334,26 @@ pub(crate) fn hit_packet(
     );
     // Make recursive results canonical before the caller resumes its shot.
     // Sparse publication records a touched handle without observing shapes.
-    super::module::put(reference, unit, combat);
+    world.finish();
+    super::module::put_in(w, reference, unit, combat);
     f3::changed(reference);
 }
 
 // teamOf/isHumanOwner (game.js). Ordinary F1 rounds retain a Unit pointer;
 // captured recon launch lives are prepared by the authority's owner service.
-pub(crate) fn owner_facts(owner: OrdnanceOwner) -> (f64, bool, Attacker) {
+pub(crate) fn owner_facts_in(w: &mut crate::world::owner::World, owner: OrdnanceOwner) -> (f64, bool, Attacker) {
     match owner {
         OrdnanceOwner::Null => (0.0, false, Attacker::Null),
         OrdnanceOwner::Unit(r) => {
-            let Some(u) = sim().store.unit.get(r) else { f3::fail(); return (0.,false,Attacker::Null); };
+            let Some(u) = w.sim.store.unit.get(r) else { f3::fail(); return (0.,false,Attacker::Null); };
             (u.team, u.human, Attacker::Unit(r))
         }
         OrdnanceOwner::Vehicle(r) => {
-            let Some(v) = sim().store.vehicle.get(r) else { f3::fail(); return (0.,false,Attacker::Null); };
+            let Some(v) = w.sim.store.vehicle.get(r) else { f3::fail(); return (0.,false,Attacker::Null); };
             (v.team.unwrap_or(0.0), false, Attacker::Vehicle(r))
         }
         OrdnanceOwner::OwnerSnapshot(r) => {
-            let owner = sim()
+            let owner = w.sim
                 .store
                 .owner_snapshot
                 .get(r)
@@ -359,7 +364,7 @@ pub(crate) fn owner_facts(owner: OrdnanceOwner) -> (f64, bool, Attacker) {
         // owner. isHumanOwner always treats that literal as human, unlike
         // an ordinary Unit pointer whose human flag is read from the row.
         OrdnanceOwner::Player => {
-            let player = sim().store.unit.get(f3::viewpoint()).expect("player viewpoint");
+            let player = w.sim.store.unit.get(f3::viewpoint()).expect("player viewpoint");
             (player.team, true, Attacker::Player)
         }
     }
@@ -370,7 +375,7 @@ fn v(a: [f64; 3]) -> Vector3 {
 
 /// Game.onDeath selects the last attacker's Character. Captured launch
 /// attribution keeps that pointer even after the source's pooled life ends.
-pub(crate) fn character(
+pub(crate) fn character_in(w: &mut crate::world::owner::World,
     attacker: Attacker,
     current: Ref<Unit>,
     unit: &Unit,
@@ -379,16 +384,16 @@ pub(crate) fn character(
         Attacker::Unit(_) | Attacker::Player => {
             let r = match attacker { Attacker::Unit(r) => r, _ => f3::viewpoint() };
             if r == current { unit.character }
-            else { sim().store.unit.get(r).and_then(|u| u.character) }
+            else { w.sim.store.unit.get(r).and_then(|u| u.character) }
         }
-        Attacker::OwnerSnapshot(r) => sim().store.owner_snapshot.get(r).and_then(|o| o.character),
+        Attacker::OwnerSnapshot(r) => w.sim.store.owner_snapshot.get(r).and_then(|o| o.character),
         _ => None,
     }
 }
 
 /// refOf/teamOf (game.js) at notification time, before a pooled owner could
 /// advance to another life. The current victim may be out of the store.
-pub(crate) fn attribution(
+pub(crate) fn attribution_in(w: &mut crate::world::owner::World,
     attacker: Attacker,
     current: Ref<Unit>,
     unit: &Unit,
@@ -402,7 +407,7 @@ pub(crate) fn attribution(
             let u = if r == current {
                 unit
             } else {
-                match sim().store.unit.get(r) { Some(u)=>u,None=>{f3::fail();return (None,0.);}}
+                match w.sim.store.unit.get(r) { Some(u)=>u,None=>{f3::fail();return (None,0.);}}
             };
             (
                 Some(crate::gen::F3LifeRef {
@@ -414,7 +419,7 @@ pub(crate) fn attribution(
         }
         Attacker::Vehicle(r) => (
             None,
-            sim()
+            w.sim
                 .store
                 .vehicle
                 .get(r)
@@ -425,7 +430,7 @@ pub(crate) fn attribution(
         // A delayed shot retains the original life even if its source Unit
         // now holds a different Character or belongs to the other team.
         Attacker::OwnerSnapshot(r) => {
-            let owner = sim()
+            let owner = w.sim
                 .store
                 .owner_snapshot
                 .get(r)
@@ -464,3 +469,21 @@ pub(crate) fn origin(unit: &Unit, combat: &crate::gen::Combat) -> [f64; 3] {
     };
     [p.x, p.y + height, p.z]
 }
+
+// facade shims: retained for unconverted callers.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn damage(reference: Ref<Unit>, amount: f64, attacker: Attacker, services: f3::WorldServices<'_>){ damage_in(crate::abi::world(), reference, amount, attacker, services) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn blast(definition: crate::store::DefId, position: [f64; 3], owner: OrdnanceOwner, recon: Option<crate::units::f3::WorldServices<'_>>){ blast_in(crate::abi::world(), definition, position, owner, recon) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn owner_reference(owner: OrdnanceOwner) -> Option<crate::gen::F3LifeRef>{ owner_reference_in(crate::abi::world(), owner) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn blow_apart(reference: Ref<Unit>, health: f64, recon: Option<crate::units::f3::WorldServices<'_>>){ blow_apart_in(crate::abi::world(), reference, health, recon) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn hit_body_packet(body: Ref<crate::gen::Body>, packet: super::impacts::HitPacket, owner: OrdnanceOwner, direction: Option<Vector3>, services: f3::WorldServices<'_>){ hit_body_packet_in(crate::abi::world(), body, packet, owner, direction, services) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn hit_unit( reference: Ref<Unit>, definition: DefArg, point: [f64; 3], owner: OrdnanceOwner, part: Nullable<HitPart>, direction: [f64; 3], recon: Option<crate::units::f3::WorldServices<'_>>, ){ hit_unit_in(crate::abi::world(), reference, definition, point, owner, part, direction, recon) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn hit_packet( reference: Ref<Unit>, packet: super::impacts::HitPacket, point: [f64; 3], owner: OrdnanceOwner, part: Nullable<HitPart>, direction: [f64; 3], recon: Option<crate::units::f3::WorldServices<'_>>, ){ hit_packet_in(crate::abi::world(), reference, packet, point, owner, part, direction, recon) }
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn owner_facts(owner: OrdnanceOwner) -> (f64, bool, Attacker){ owner_facts_in(crate::abi::world(), owner) }
