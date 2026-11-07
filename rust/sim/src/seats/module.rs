@@ -66,7 +66,15 @@ pub(crate) fn stand_up(unit: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
 /// Vehicles.latchCrews on the store (the command seatLatch): every hull's
 /// stale leases let go, every bot's intent frozen for this update, and the
 /// exits asked for carried out.
-pub fn latch(sim: &mut Sim, args: SeatPhaseArgs) -> SeatPhaseAnswer {
+pub fn latch_in(w: &mut crate::world::owner::World, args: SeatPhaseArgs) -> SeatPhaseAnswer {
+    latch_store(&mut w.sim.store, args)
+}
+
+// Generated commands still lend the exchange core. This narrow adapter shares
+// the same solver and needs no facade acquisition on either target.
+pub fn latch(sim: &mut Sim, args: SeatPhaseArgs) -> SeatPhaseAnswer { latch_store(&mut sim.store, args) }
+
+fn latch_store(store: &mut Store, args: SeatPhaseArgs) -> SeatPhaseAnswer {
     let mut hulls = Hulls {
         time: args.time,
         ticks: args.ticks,
@@ -75,7 +83,7 @@ pub fn latch(sim: &mut Sim, args: SeatPhaseArgs) -> SeatPhaseAnswer {
         ..Hulls::default()
     };
     let mut world = JsSeats::default();
-    hulls.latch_crews(&mut sim.store, &mut world);
+    hulls.latch_crews(store, &mut world);
     SeatPhaseAnswer { ticks: hulls.ticks, latched: hulls.latched, effects: world.effects }
 }
 

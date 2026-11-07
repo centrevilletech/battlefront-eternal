@@ -1,7 +1,6 @@
 //! Stable content IDs and input profile normalization. Content object identity
 //! stays with the host; this boundary owns names, validation and UTF-16 order.
 use crate::{
-    abi::sim,
     gen::{WrInputs, WrName, WrResult, WrTables},
     store::{StrId, Strings},
 };
@@ -116,9 +115,8 @@ pub extern "C" fn wire_registry_words(op: u32) -> u32 {
         _ => 0,
     }
 }
-#[no_mangle]
-pub extern "C" fn wire_registry_run(op: u32) -> *const f64 {
-    let s = sim();
+pub(crate) fn wire_registry_run_in(w: &mut crate::world::owner::World, op: u32) -> *const f64 {
+    let s = &mut w.sim;
     let result = {
         let (row, heap) = s.calls.args();
         match op {
@@ -171,3 +169,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn wire_registry_run(op: u32) -> *const f64 { wire_registry_run_in(crate::abi::world(), op) }

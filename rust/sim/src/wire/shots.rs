@@ -49,40 +49,33 @@ impl Counters {
 }
 // Canonical fired notices resolve counters in this battle's owned bank.
 // Registration is cold, bounded, and never retains a sibling allocation.
-pub(crate) fn native_observe(id:f64,generation:f64,live:f64) {
-    crate::abi::world().wire.as_mut().expect("wire observer outside publication").observe_shot(id,generation,live);
+pub(crate) fn native_observe_in(w: &mut crate::world::owner::World, id:f64,generation:f64,live:f64) {
+    w.wire.as_mut().expect("wire observer outside publication").observe_shot(id,generation,live);
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_attach(counter:*mut Counters)->u32 {
-    super::owner::with(|owner| {
-        let key=counter as usize;if owner.shots.get(key).is_none(){return 0;}
-        if owner.attached_shots.contains(&key){return 1;}
-        if owner.attached_shots.len()==16{return 0;}
-        owner.attached_shots.reserve(16usize.saturating_sub(owner.attached_shots.len()));
-        owner.attached_shots.push(key);1
-    })
+pub(crate) unsafe fn wire_shots_attach_in(w: &mut crate::world::owner::World, counter:*mut Counters) ->u32 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
+    let key=counter as usize;if owner.shots.get(key).is_none(){return 0;}
+    if owner.attached_shots.contains(&key){return 1;}
+    if owner.attached_shots.len()==16{return 0;}
+    owner.attached_shots.reserve(16usize.saturating_sub(owner.attached_shots.len()));
+    owner.attached_shots.push(key);1
+
 }
-#[no_mangle]
-pub extern "C" fn wire_shots_create(capacity:f64)->*mut Counters {
+pub(crate) fn wire_shots_create_in(w: &mut crate::world::owner::World, capacity:f64) ->*mut Counters {
     if !integer(capacity)||!(1. ..=65536.).contains(&capacity){return std::ptr::null_mut();}
-    super::owner::with(|owner|owner.shots.insert(Counters {capacity,units:Vec::with_capacity(capacity as usize),..Default::default()}).unwrap_or(0) as *mut Counters)
+    super::owner::with_in(w, |owner|owner.shots.insert(Counters {capacity,units:Vec::with_capacity(capacity as usize),..Default::default()}).unwrap_or(0) as *mut Counters)
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_drop(p:*mut Counters) {
-    super::owner::with(|owner| {let key=p as usize;owner.attached_shots.retain(|&h|h!=key);owner.shots.remove(key);});
+pub(crate) unsafe fn wire_shots_drop_in(w: &mut crate::world::owner::World, p:*mut Counters) {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");let key=p as usize;owner.attached_shots.retain(|&h|h!=key);owner.shots.remove(key);
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_observe(p:*mut Counters,id:f64,generation:f64,live:f64) {
-    super::owner::with(|owner|if let Some(c)=owner.shots.get_mut(p as usize){c.observe(id,generation,live)});
+pub(crate) unsafe fn wire_shots_observe_in(w: &mut crate::world::owner::World, p:*mut Counters,id:f64,generation:f64,live:f64) {
+    super::owner::with_in(w, |owner|if let Some(c)=owner.shots.get_mut(p as usize){c.observe(id,generation,live)});
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_counter(p:*const Counters,id:f64,generation:f64)->f64 {
-    super::owner::with(|owner|owner.shots.get(p as usize).map_or(0.,|c|c.counter(id,generation)))
+pub(crate) unsafe fn wire_shots_counter_in(w: &mut crate::world::owner::World, p:*const Counters,id:f64,generation:f64) ->f64 {
+    super::owner::with_in(w, |owner|owner.shots.get(p as usize).map_or(0.,|c|c.counter(id,generation)))
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_reset(p:*mut Counters) {super::owner::with(|owner|if let Some(c)=owner.shots.get_mut(p as usize){c.reset()});}
-#[no_mangle]
-pub unsafe extern "C" fn wire_shots_overflow(p:*const Counters)->f64 {super::owner::with(|owner|owner.shots.get(p as usize).map_or(0.,|c|c.overflow))}
+pub(crate) unsafe fn wire_shots_reset_in(w: &mut crate::world::owner::World, p:*mut Counters) {super::owner::with_in(w, |owner|if let Some(c)=owner.shots.get_mut(p as usize){c.reset()});}
+pub(crate) unsafe fn wire_shots_overflow_in(w: &mut crate::world::owner::World, p:*const Counters) ->f64 {super::owner::with_in(w, |owner|owner.shots.get(p as usize).map_or(0.,|c|c.overflow))}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +101,62 @@ mod tests {
         c.reset();
         assert_eq!(c.overflow, 0.);
         assert!(c.units.is_empty());
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_shots_attach(counter:*mut Counters) ->u32 { wire_shots_attach_in(crate::abi::world(), counter) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn wire_shots_create(capacity:f64) ->*mut Counters { wire_shots_create_in(crate::abi::world(), capacity) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_shots_drop(p:*mut Counters) { wire_shots_drop_in(crate::abi::world(), p) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_shots_observe(p:*mut Counters,id:f64,generation:f64,live:f64) { wire_shots_observe_in(crate::abi::world(), p, id, generation, live) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_shots_counter(p:*const Counters,id:f64,generation:f64) ->f64 { wire_shots_counter_in(crate::abi::world(), p, id, generation) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_shots_reset(p:*mut Counters) { wire_shots_reset_in(crate::abi::world(), p) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_shots_overflow(p:*const Counters) ->f64 { wire_shots_overflow_in(crate::abi::world(), p) }
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn native_observe(id:f64,generation:f64,live:f64) { native_observe_in(crate::abi::world(),id,generation,live); }
+
+#[cfg(test)]
+mod owner_tests {
+    use super::*;
+    use crate::world::owner::World;
+
+    #[test]
+    fn counters_follow_the_explicit_world_and_retire_their_generation() {
+        let (mut a, mut b) = (World::new(), World::new());
+        let ka = wire_shots_create_in(&mut a, 2.);
+        let kb = wire_shots_create_in(&mut b, 2.);
+        assert_eq!(ka, kb);
+        unsafe {
+            assert_eq!(wire_shots_attach_in(&mut a, ka), 1);
+            assert_eq!(wire_shots_attach_in(&mut b, kb), 1);
+            native_observe_in(&mut a, 7., 1., 1.);
+            assert_eq!(wire_shots_counter_in(&mut a, ka, 7., 1.), 1.);
+            assert_eq!(wire_shots_counter_in(&mut b, kb, 7., 1.), 0.);
+            native_observe_in(&mut b, 7., 1., 1.);
+            native_observe_in(&mut a, 7., 2., 2.);
+            assert_eq!(wire_shots_counter_in(&mut a, ka, 7., 2.), 1.);
+            assert_eq!(wire_shots_counter_in(&mut b, kb, 7., 1.), 1.);
+            wire_shots_drop_in(&mut a, ka);
+            let replacement = wire_shots_create_in(&mut a, 2.);
+            assert_ne!(ka, replacement);
+            assert_eq!(wire_shots_attach_in(&mut a, ka), 0);
+            native_observe_in(&mut a, 7., 3., 3.);
+            assert_eq!(wire_shots_counter_in(&mut a, replacement, 7., 3.), 0.);
+            assert_eq!(wire_shots_counter_in(&mut b, kb, 7., 1.), 1.);
+        }
     }
 }

@@ -18,7 +18,6 @@ pub use module::Runtime;
 pub mod registry;
 pub mod shots;
 pub mod combat;
-#[cfg(target_arch = "wasm32")]
 mod census;
 pub mod store_capture;
 pub mod store_world;

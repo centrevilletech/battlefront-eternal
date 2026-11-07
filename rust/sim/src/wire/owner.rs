@@ -15,7 +15,6 @@ pub struct Owner {
     pub sources:Pool<super::store_source::Source>,
     #[cfg(target_arch="wasm32")]
     pub publications:Pool<super::publish_module::Session>,
-    #[cfg(target_arch="wasm32")]
     pub census:super::census::Census,
 }
 impl Default for Owner {fn default()->Self {Self::new()}}
@@ -25,7 +24,7 @@ impl Owner {
         cosmetics:Pool::new(10),attached_shots:Vec::new(),
         #[cfg(target_arch="wasm32")] sources:Pool::new(11),
         #[cfg(target_arch="wasm32")] publications:Pool::new(12),
-        #[cfg(target_arch="wasm32")] census:super::census::Census::new()}}
+        census:super::census::Census::new()}}
     /// Canonical fired notices update only this battle's admitted counters.
     /// Capture itself never dispatches a gameplay or presentation callback.
     pub fn observe_shot(&mut self,id:f64,generation:f64,live:f64) {
@@ -33,10 +32,7 @@ impl Owner {
     }
 }
 
-/// The instance facade detaches the existing box before canonical source
-/// readers borrow sibling simulation fields. Publication cannot call JS or
-/// recurse into the bank; every inner operation receives explicit borrows.
-pub(crate) fn with<R>(run:impl FnOnce(&mut Owner)->R)->R {
-    let mut owner=crate::abi::world().wire.take().expect("wire operation is not reentrant");
-    let result=run(&mut owner);crate::abi::world().wire=Some(owner);result
+/// Lend a publication bank without moving it out of its owning battle.
+pub(crate) fn with_in<R>(w: &mut crate::world::owner::World, run: impl FnOnce(&mut Owner) -> R) -> R {
+    run(w.wire.as_deref_mut().expect("admitted wire owner"))
 }

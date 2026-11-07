@@ -103,11 +103,10 @@ pub fn keepalive(ack: &WiAck) -> Result<Vec<u8>> {
 
 #[no_mangle]
 pub extern "C" fn wire_input_words(op: u32) -> u32 { if op == 0 { WiPacket::WORDS as u32 } else { WiAck::WORDS as u32 } }
-#[no_mangle]
-pub extern "C" fn wire_input_encode(op: u32) -> *const f64 {
-    let (row, heap) = crate::abi::sim().calls.args();
+pub(crate) fn wire_input_encode_in(w: &mut crate::world::owner::World, op: u32) -> *const f64 {
+    let (row, heap) = w.sim.calls.args();
     let result = if op == 0 { encode(&WiPacket::take(row, heap)) } else { keepalive(&WiAck::take(row, heap)) };
-    super::module::output(result.map(|bytes| vec![bytes]))
+    super::module::output(&mut w.sim, result.map(|bytes| vec![bytes]))
 }
 
 #[cfg(test)]
@@ -140,3 +139,7 @@ mod tests {
         assert_eq!(encode(&packet), Err("invalid edge"));
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn wire_input_encode(op: u32) -> *const f64 { wire_input_encode_in(crate::abi::world(), op) }

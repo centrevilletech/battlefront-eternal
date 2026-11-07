@@ -503,28 +503,23 @@ pub struct Presentation {
 impl Default for Presentation {
     fn default() -> Self { Self { input: Vec::with_capacity(512), output: Vec::with_capacity(2048), repair: Vec::with_capacity(512), error: 0, error_field: 0 } }
 }
-#[no_mangle]
-pub extern "C" fn wire_presentation_create() -> *mut Presentation {
-    super::owner::with(|owner| {
+pub(crate) fn wire_presentation_create_in(w: &mut crate::world::owner::World) -> *mut Presentation {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 
     owner.presentation.insert(Presentation::default()).unwrap_or(0) as *mut Presentation
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_presentation_drop(p: *mut Presentation) {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_presentation_drop_in(w: &mut crate::world::owner::World, p: *mut Presentation) {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.presentation.get(p as usize).is_none() {return;}
 
     if !p.is_null() {
         owner.presentation.remove(p as usize);
     }
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_presentation_room(p: *mut Presentation, words: u32) -> *mut f64 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_presentation_room_in(w: &mut crate::world::owner::World, p: *mut Presentation, words: u32) -> *mut f64 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.presentation.get(p as usize).is_none() {return std::ptr::null_mut();}
 
     let p = owner.presentation.get_mut(p as usize).unwrap();
@@ -532,19 +527,17 @@ if owner.presentation.get(p as usize).is_none() {return std::ptr::null_mut();}
     p.input.resize(words as usize, 0.0);
     p.input.as_mut_ptr()
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_presentation_run(p: *mut Presentation, op: u32) -> u32 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_presentation_run_in(w: &mut crate::world::owner::World, p: *mut Presentation, op: u32) -> u32 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.presentation.get(p as usize).is_none() {return 0;}
 
     let p = owner.presentation.get_mut(p as usize).unwrap();
     p.error_field = 0;
     let result = match op {
-        0 => unit_payload_into(&p.input, &crate::abi::sim().strings, &mut p.output, &mut p.repair),
-        1 => world_payload_into(&p.input, &crate::abi::sim().strings, &mut p.output),
-        2 => event_payload_into(&p.input, &crate::abi::sim().strings, &mut p.output).map_err(|(error, field)| {
+        0 => unit_payload_into(&p.input, &w.sim.strings, &mut p.output, &mut p.repair),
+        1 => world_payload_into(&p.input, &w.sim.strings, &mut p.output),
+        2 => event_payload_into(&p.input, &w.sim.strings, &mut p.output).map_err(|(error, field)| {
             p.error_field = field;
             error
         }),
@@ -561,34 +554,27 @@ if owner.presentation.get(p as usize).is_none() {return 0;}
     }
     p.error
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_presentation_ptr(p: *mut Presentation) -> *const u8 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_presentation_ptr_in(w: &mut crate::world::owner::World, p: *mut Presentation) -> *const u8 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.presentation.get(p as usize).is_none() {return std::ptr::null();}
 
     owner.presentation.get_mut(p as usize).unwrap().output.as_ptr()
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_presentation_len(p: *mut Presentation) -> u32 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_presentation_len_in(w: &mut crate::world::owner::World, p: *mut Presentation) -> u32 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.presentation.get(p as usize).is_none() {return 0;}
 
     owner.presentation.get_mut(p as usize).unwrap().output.len() as u32
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_presentation_error_field(p: *mut Presentation) -> u32 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_presentation_error_field_in(w: &mut crate::world::owner::World, p: *mut Presentation) -> u32 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.presentation.get(p as usize).is_none() {return 0;}
 
     owner.presentation.get_mut(p as usize).unwrap().error_field
 
-    })
 }
 
 #[cfg(test)]
@@ -694,3 +680,25 @@ mod tests {
         assert_eq!(unit_payload(&words, &strings), Err(Error::Number));
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn wire_presentation_create() -> *mut Presentation { wire_presentation_create_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_presentation_drop(p: *mut Presentation) { wire_presentation_drop_in(crate::abi::world(), p) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_presentation_room(p: *mut Presentation, words: u32) -> *mut f64 { wire_presentation_room_in(crate::abi::world(), p, words) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_presentation_run(p: *mut Presentation, op: u32) -> u32 { wire_presentation_run_in(crate::abi::world(), p, op) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_presentation_ptr(p: *mut Presentation) -> *const u8 { wire_presentation_ptr_in(crate::abi::world(), p) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_presentation_len(p: *mut Presentation) -> u32 { wire_presentation_len_in(crate::abi::world(), p) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_presentation_error_field(p: *mut Presentation) -> u32 { wire_presentation_error_field_in(crate::abi::world(), p) }

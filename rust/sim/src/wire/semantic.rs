@@ -1034,28 +1034,23 @@ pub struct Semantic {
     input: Vec<f64>,
     output: Vec<u8>,
 }
-#[no_mangle]
-pub extern "C" fn wire_semantic_create() -> *mut Semantic {
-    super::owner::with(|owner| {
+pub(crate) fn wire_semantic_create_in(w: &mut crate::world::owner::World) -> *mut Semantic {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 
     owner.semantic.insert(Semantic::default()).unwrap_or(0) as *mut Semantic
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_semantic_drop(p: *mut Semantic) {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_semantic_drop_in(w: &mut crate::world::owner::World, p: *mut Semantic) {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return;}
 
     if !p.is_null() {
         owner.semantic.remove(p as usize);
     }
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_semantic_room(p: *mut Semantic, n: u32) -> *mut f64 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_semantic_room_in(w: &mut crate::world::owner::World, p: *mut Semantic, n: u32) -> *mut f64 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return std::ptr::null_mut();}
 
     let p = owner.semantic.get_mut(p as usize).unwrap();
@@ -1063,15 +1058,13 @@ if owner.semantic.get(p as usize).is_none() {return std::ptr::null_mut();}
     p.input.resize(n as usize, 0.);
     p.input.as_mut_ptr()
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_semantic_run(p: *mut Semantic, op: u32) -> u32 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_semantic_run_in(w: &mut crate::world::owner::World, p: *mut Semantic, op: u32) -> u32 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return 0;}
 
     let p = owner.semantic.get_mut(p as usize).unwrap();
-    let result = encode(op, &p.input, &crate::abi::sim().strings);
+    let result = encode(op, &p.input, &w.sim.strings);
     p.output.clear();
     match result {
         Ok(parts) => {
@@ -1084,28 +1077,23 @@ if owner.semantic.get(p as usize).is_none() {return 0;}
             }
             0
         }
-        Err(error) => crate::abi::sim().strings.intern_str(error).0 + 1,
+        Err(error) => w.sim.strings.intern_str(error).0 + 1,
     }
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_semantic_ptr(p: *mut Semantic) -> *const u8 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_semantic_ptr_in(w: &mut crate::world::owner::World, p: *mut Semantic) -> *const u8 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return std::ptr::null();}
 
     owner.semantic.get_mut(p as usize).unwrap().output.as_ptr()
 
-    })
 }
-#[no_mangle]
-pub unsafe extern "C" fn wire_semantic_len(p: *mut Semantic) -> u32 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_semantic_len_in(w: &mut crate::world::owner::World, p: *mut Semantic) -> u32 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.semantic.get(p as usize).is_none() {return 0;}
 
     owner.semantic.get_mut(p as usize).unwrap().output.len() as u32
 
-    })
 }
 
 #[cfg(test)]
@@ -1159,3 +1147,22 @@ mod tests {
         assert_eq!(&bytes[31..], &[1, 4, 0, 255]);
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn wire_semantic_create() -> *mut Semantic { wire_semantic_create_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_semantic_drop(p: *mut Semantic) { wire_semantic_drop_in(crate::abi::world(), p) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_semantic_room(p: *mut Semantic, n: u32) -> *mut f64 { wire_semantic_room_in(crate::abi::world(), p, n) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_semantic_run(p: *mut Semantic, op: u32) -> u32 { wire_semantic_run_in(crate::abi::world(), p, op) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_semantic_ptr(p: *mut Semantic) -> *const u8 { wire_semantic_ptr_in(crate::abi::world(), p) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_semantic_len(p: *mut Semantic) -> u32 { wire_semantic_len_in(crate::abi::world(), p) }

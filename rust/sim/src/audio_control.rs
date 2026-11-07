@@ -6,32 +6,21 @@ use ::audio_control::phase::index;
 use ::audio_control::layout::{frame, plane};
 use crate::collision::{self, Ray};
 
-#[no_mangle]
-pub extern "C" fn sound_new(seed: u32) -> u32 {
-    crate::abi::world().page.sound.insert(Runtime::new(seed)).unwrap_or(0) as u32
+pub(crate) fn sound_new_in(w: &mut crate::world::owner::World, seed: u32) -> u32 {
+    w.page.sound.insert(Runtime::new(seed)).unwrap_or(0) as u32
 }
-#[no_mangle]
-pub extern "C" fn sound_free(h: u32) { crate::abi::world().page.sound.remove(h as usize); }
-#[no_mangle]
-pub extern "C" fn sound_input(h: u32) -> *mut f64 { crate::abi::world().page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.input.as_mut_ptr()) }
-#[no_mangle]
-pub extern "C" fn sound_info(h: u32) -> *mut f64 { crate::abi::world().page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.info.as_mut_ptr()) }
-#[no_mangle]
-pub extern "C" fn sound_commands(h: u32) -> *const f64 { crate::abi::world().page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.phase.engine.commands.as_ptr()) }
-#[no_mangle]
-pub extern "C" fn sound_placements(h: u32) -> *const f64 { crate::abi::world().page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.phase.engine.placements.as_ptr()) }
-#[no_mangle]
-pub extern "C" fn sound_requests(h: u32) -> *const f64 { crate::abi::world().page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.requests.as_ptr()) }
-#[no_mangle]
-pub extern "C" fn sound_follows(h: u32) -> *const u32 { crate::abi::world().page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.follows.as_ptr()) }
-#[no_mangle]
-pub extern "C" fn sound_debug(h: u32) -> *const f64 { let Some(r) = crate::abi::world().page.sound.get_mut(h as usize) else { return std::ptr::null() }; r.diagnostic(); r.debug.as_ptr() }
-#[no_mangle]
-pub extern "C" fn sound_import(h: u32, kind: u32, length: u32) { if let Some(r) = crate::abi::world().page.sound.get_mut(h as usize) { r.import(kind as usize, length as usize); } }
-#[no_mangle]
-pub extern "C" fn sound_ready(h: u32) { if let Some(r) = crate::abi::world().page.sound.get_mut(h as usize) { r.ready(); } }
+pub(crate) fn sound_free_in(w: &mut crate::world::owner::World, h: u32) { w.page.sound.remove(h as usize); }
+pub(crate) fn sound_input_in(w: &mut crate::world::owner::World, h: u32) -> *mut f64 { w.page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.input.as_mut_ptr()) }
+pub(crate) fn sound_info_in(w: &mut crate::world::owner::World, h: u32) -> *mut f64 { w.page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.info.as_mut_ptr()) }
+pub(crate) fn sound_commands_in(w: &mut crate::world::owner::World, h: u32) -> *const f64 { w.page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.phase.engine.commands.as_ptr()) }
+pub(crate) fn sound_placements_in(w: &mut crate::world::owner::World, h: u32) -> *const f64 { w.page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.phase.engine.placements.as_ptr()) }
+pub(crate) fn sound_requests_in(w: &mut crate::world::owner::World, h: u32) -> *const f64 { w.page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.requests.as_ptr()) }
+pub(crate) fn sound_follows_in(w: &mut crate::world::owner::World, h: u32) -> *const u32 { w.page.sound.get_mut(h as usize).map_or(std::ptr::null_mut(), |r| r.follows.as_ptr()) }
+pub(crate) fn sound_debug_in(w: &mut crate::world::owner::World, h: u32) -> *const f64 { let Some(r) = w.page.sound.get_mut(h as usize) else { return std::ptr::null() }; r.diagnostic(); r.debug.as_ptr() }
+pub(crate) fn sound_import_in(w: &mut crate::world::owner::World, h: u32, kind: u32, length: u32) { if let Some(r) = w.page.sound.get_mut(h as usize) { r.import(kind as usize, length as usize); } }
+pub(crate) fn sound_ready_in(w: &mut crate::world::owner::World, h: u32) { if let Some(r) = w.page.sound.get_mut(h as usize) { r.ready(); } }
 
-struct Map<'a> { world: usize, flags: &'a [u8], planes: &'a [[f64; plane::STRIDE]], candidates: &'a mut [u32], enabled: &'a mut [u8] }
+struct Map<'a> { state: &'a mut crate::collision::State, world: usize, flags: &'a [u8], planes: &'a [[f64; plane::STRIDE]], candidates: &'a mut [u32], enabled: &'a mut [u8] }
 impl Collision for Map<'_> {
     fn cast(&mut self, from: Point, direction: Point, reach: f64) -> Option<Hit> {
         if self.world == ::audio_control::engine::NONE {
@@ -45,7 +34,7 @@ impl Collision for Map<'_> {
             if distance < 0.0 || distance > reach { return None; }
             return Some(Hit { distance, point: [from[0] + direction[0] * distance, from[1] + direction[1] * distance, from[2] + direction[2] * distance], terrain: false });
         }
-        let state = collision::state(); let ray = Ray { ox: from[0], oy: from[1], oz: from[2], dx: direction[0], dy: direction[1], dz: direction[2] };
+        let state = &mut *self.state; let ray = Ray { ox: from[0], oy: from[1], oz: from[2], dx: direction[0], dy: direction[1], dz: direction[2] };
         let count = collision::world_candidates_into(state, self.world, &ray, -1, false, false, self.candidates);
         for i in 0..count { let slot = state.worlds[self.world].order[self.candidates[i] as usize] as usize; self.enabled[i] = self.flags[slot]; }
         let hypot_xz = v8math::hypot(direction[0], direction[2]);
@@ -56,9 +45,45 @@ impl Collision for Map<'_> {
 
 /// One gameplay sound-control call per presented frame. Both ray budgets
 /// execute inside Rust against the current collision state and body flags.
-#[no_mangle]
-pub extern "C" fn sound_step(h: u32, length: u32) {
-    let Some(r) = crate::abi::world().page.sound.get_mut(h as usize) else { return }; r.clear_output(); r.feed(length as usize);
-    let mut map = Map { world: index(r.phase.frame[frame::WORLD]), flags: &r.body_flags, planes: &r.planes, candidates: &mut r.candidates, enabled: &mut r.enabled };
+pub(crate) fn sound_step_in(w: &mut crate::world::owner::World, h: u32, length: u32) {
+    let Some(r) = w.page.sound.get_mut(h as usize) else { return }; r.clear_output(); r.feed(length as usize);
+    let mut map = Map { state: &mut w.collision.state, world: index(r.phase.frame[frame::WORLD]), flags: &r.body_flags, planes: &r.planes, candidates: &mut r.candidates, enabled: &mut r.enabled };
     r.phase.step(&mut map, &r.events); r.publish();
 }
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_new(seed: u32) -> u32 { sound_new_in(crate::abi::world(), seed) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_free(h: u32) { sound_free_in(crate::abi::world(), h) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_input(h: u32) -> *mut f64 { sound_input_in(crate::abi::world(), h) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_info(h: u32) -> *mut f64 { sound_info_in(crate::abi::world(), h) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_commands(h: u32) -> *const f64 { sound_commands_in(crate::abi::world(), h) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_placements(h: u32) -> *const f64 { sound_placements_in(crate::abi::world(), h) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_requests(h: u32) -> *const f64 { sound_requests_in(crate::abi::world(), h) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_follows(h: u32) -> *const u32 { sound_follows_in(crate::abi::world(), h) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_debug(h: u32) -> *const f64 { sound_debug_in(crate::abi::world(), h) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_import(h: u32, kind: u32, length: u32) { sound_import_in(crate::abi::world(), h, kind, length) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_ready(h: u32) { sound_ready_in(crate::abi::world(), h) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn sound_step(h: u32, length: u32) { sound_step_in(crate::abi::world(), h, length) }

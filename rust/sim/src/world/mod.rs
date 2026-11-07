@@ -32,7 +32,9 @@ impl Default for Tick {
 
 /// Mirror banks commit only at the outer world return. Canonical stores and
 /// source-point event samples remain available to every intervening phase.
-pub(crate) fn deferred() -> bool {crate::abi::world().tick.running}
+pub(crate) fn deferred_in(tick: &Tick) -> bool {tick.running}
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn deferred() -> bool {deferred_in(&crate::abi::world().tick)}
 
 /// WaterState.step's independent gameplay clock. Presentation can sample the
 /// completed level, but render dt never advances authoritative water.

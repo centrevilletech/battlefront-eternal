@@ -62,29 +62,26 @@ impl Owner { pub(crate) const fn new() -> Self { Self { aims: None, preview: Non
 #[cfg(target_arch = "wasm32")]
 mod module {
     use super::*;
-    use crate::{abi::sim, gen::{BodySpawn,BodySpawnOutput}};
+    use crate::{gen::{BodySpawn,BodySpawnOutput}};
     // Fixed pointers survive calls. Only WASM memory growth detaches a host
     // view; another preview does not resize either reserved allocation.
-    fn owner() -> &'static mut Preview {
+    fn owner(w: &mut crate::world::owner::World) -> &mut Preview {
         // One thread owns the page preview; no borrow crosses a host import.
-        crate::abi::cold().page_body.preview.get_or_insert_with(|| Preview {
+        w.page_body.preview.get_or_insert_with(|| Preview {
             frame: [0.0; BodyPreviewFrame::WORDS], looks: vec![0.0; LOOKS * BodyLook::WORDS] })
     }
-    fn aims()->&'static mut Vec<f64> {
+    fn aims(w: &mut crate::world::owner::World)->&mut Vec<f64> {
         // All shot poses in a replay publication share this reserved block.
         // The host answers their rays before one resume resolves every aim.
-        crate::abi::cold().page_body.aims.get_or_insert_with(||vec![0.0;AIM_ROWS*BodyPreviewFrame::WORDS])
+        w.page_body.aims.get_or_insert_with(||vec![0.0;AIM_ROWS*BodyPreviewFrame::WORDS])
     }
-    #[no_mangle]
-    pub extern "C" fn body_aim_ptr()->*mut f64{aims().as_mut_ptr()}
-    #[no_mangle]
-    pub extern "C" fn body_aim_capacity()->u32{AIM_ROWS as u32}
-    #[no_mangle]
-    pub extern "C" fn body_aim_batch(count:u32,resume:u32) {
+    pub(crate) fn body_aim_ptr_in(w: &mut crate::world::owner::World) ->*mut f64 {aims(w).as_mut_ptr()}
+    pub(crate) fn body_aim_capacity_in(_w: &mut crate::world::owner::World) ->u32 {AIM_ROWS as u32}
+    pub(crate) fn body_aim_batch_in(w: &mut crate::world::owner::World, count:u32,resume:u32) {
         // Count is untrusted independently of the host writer. Oversized
         // paused publications keep their admitted prefix and report the tail.
         let skipped=count.saturating_sub(AIM_ROWS as u32);
-        let count=(count as usize).min(AIM_ROWS);let rows=aims();
+        let count=(count as usize).min(AIM_ROWS);let rows=aims(w);
         for row in rows[..count*BodyPreviewFrame::WORDS].chunks_exact_mut(BodyPreviewFrame::WORDS){
             let mut frame=BodyPreviewFrame::take(row,&[]);
             if resume!=0{resolve::<crate::cameras::HostMath>(&mut frame);}
@@ -95,15 +92,11 @@ mod module {
         // no diagnostic buffer or per-refusal event needs to grow here.
         rows[BodyPreviewFrame::SKIPPED]=skipped as f64;
     }
-    #[no_mangle]
-    pub extern "C" fn body_preview_frame_ptr() -> *mut f64 { owner().frame.as_mut_ptr() }
-    #[no_mangle]
-    pub extern "C" fn body_preview_looks_ptr() -> *mut f64 { owner().looks.as_mut_ptr() }
-    #[no_mangle]
-    pub extern "C" fn body_preview_capacity() -> u32 { LOOKS as u32 }
-    #[no_mangle]
-    pub extern "C" fn body_preview(with_aim: u32) {
-        let p = owner(); let mut f = BodyPreviewFrame::take(&p.frame, &[]);
+    pub(crate) fn body_preview_frame_ptr_in(w: &mut crate::world::owner::World) -> *mut f64 { owner(w).frame.as_mut_ptr() }
+    pub(crate) fn body_preview_looks_ptr_in(w: &mut crate::world::owner::World) -> *mut f64 { owner(w).looks.as_mut_ptr() }
+    pub(crate) fn body_preview_capacity_in(_w: &mut crate::world::owner::World) -> u32 { LOOKS as u32 }
+    pub(crate) fn body_preview_in(w: &mut crate::world::owner::World, with_aim: u32) {
+        let p = owner(w); let mut f = BodyPreviewFrame::take(&p.frame, &[]);
         // convergedAim restored the tick basis after sampling pending look.
         // Publish it separately: HUD targeting reads the physical gun frame.
         if with_aim!=0 {
@@ -118,42 +111,40 @@ mod module {
         // Both records contain scalars only; no heap can grow on this path.
         f.put(&mut p.frame, &mut Vec::new());
     }
-    #[no_mangle]
-    pub extern "C" fn body_preview_resolve() {
-        let p=owner();let mut f=BodyPreviewFrame::take(&p.frame,&[]);
+    pub(crate) fn body_preview_resolve_in(w: &mut crate::world::owner::World) {
+        let p=owner(w);let mut f=BodyPreviewFrame::take(&p.frame,&[]);
         resolve::<crate::cameras::HostMath>(&mut f);
         f.put(&mut p.frame,&mut Vec::new());
     }
-    #[no_mangle]
     // Soldier.constructor's native class reader keeps authored defaults in
     // one place. JSON parsing is confined to this cold resource admission.
-    pub extern "C" fn body_construct(ptr: *const u8, len: u32) -> *const f64 {
+    pub(crate) fn body_construct_in(w: &mut crate::world::owner::World, ptr: *const u8, len: u32) -> *const f64 {
         // Soldier.constructor accepts only the owned scratch span, so no raw
         // slice can outlive its allocation or read beyond the supplied bytes.
-        let Some(bytes)=sim().scratch_bytes(ptr,len as usize) else {return std::ptr::null()};
+        let Some(bytes)=w.sim.scratch_bytes(ptr,len as usize) else {return std::ptr::null()};
         let Ok(def)=bfe_content::json::parse_bytes(bytes) else {return std::ptr::null()};
         if !matches!(def,bfe_content::Value::Object(_)) {return std::ptr::null();}
         let body = super::super::class::soldier_body(&def, 200.0, 0.0, 0.0);
-        let s = sim(); s.calls.result(Soldier::WORDS, |row, heap| body.put(row, heap));
+        let s = &mut w.sim; s.calls.result(Soldier::WORDS, |row, heap| body.put(row, heap));
         s.calls.block.ptr()
     }
-    fn spawn_cast(world:u32,p:&three::Vector3,d:&three::Vector3,far:f64)->Option<super::super::world::CastHit> {
-        // Cold resource ids are still boundary input. A stale or forged id
-        // leaves the requested placement airborne instead of indexing a store.
-        if world as usize>=crate::collision::state().worlds.len(){None}
-        else{super::super::native::cast(world as usize,p,d,far)}
+    fn spawn_cast(w: &mut crate::world::owner::World, world:u32,p:&three::Vector3,d:&three::Vector3,far:f64)->Option<super::super::world::CastHit> {
+        // A stale resource leaves the placement airborne instead of indexing
+        // collision storage. The unit query keeps its original flag ordering.
+        if world as usize >= w.collision.state.worlds.len() { None }
+        else { super::super::native::cast(world as usize,p,d,far) }
     }
-    #[no_mangle]
-    pub extern "C" fn body_spawn_droideka(world:u32)->*const f64 {
+
+    pub(crate) fn body_spawn_droideka_in(w: &mut crate::world::owner::World, world:u32) ->*const f64 {
         use crate::gen::{Droideka,DroidekaSpawn,DroidekaSpawnOutput,Shield};
-        let(row,heap)=sim().calls.args();let input=DroidekaSpawn::take(row,heap);
+        let(row,heap)=w.sim.calls.args();let input=DroidekaSpawn::take(row,heap);
         let mut body=Droideka::default();
         if input.has_shield{body.shield=Some(Shield{max:input.shield_max,..Default::default()});}
         let[x,y,z]=input.position;
         // Droideka.spawn's grounding and shield reset are shared with the
         // canonical unit body. No probe vector or hit object belongs to JS.
         body.spawn_with(x,y,z,input.yaw,|p,d,far|{
-            spawn_cast(world,p,d,far)
+            spawn_cast(w,world,p,d,far)
         });
         // Native Unit.spawn enters deployed mode and resets interpolation.
         // The page sends the two animator reset commands after publication.
@@ -161,17 +152,16 @@ mod module {
             velocity:body.velocity,aim_yaw:body.aim_yaw,aim_pitch:body.aim_pitch,legs:body.legs,spin:body.spin,
             dead:body.dead,mode:0.0,time:0.0,reverse:false,
             shield_value:body.shield.as_ref().map_or(0.0,|s|s.value),shield_on:false};
-        let s=sim();s.calls.result(DroidekaSpawnOutput::WORDS,|row,heap|out.put(row,heap));s.calls.block.ptr()
+        let s=&mut w.sim;s.calls.result(DroidekaSpawnOutput::WORDS,|row,heap|out.put(row,heap));s.calls.block.ptr()
     }
-    #[no_mangle]
     // Soldier.spawn uses the same reset as Unit.spawn. The collision store
     // is borrowed directly, so the grounding query cannot call the page.
-    pub extern "C" fn body_spawn(world: u32) -> *const f64 {
-        let (row, heap) = sim().calls.args(); let input = BodySpawn::take(row, heap);
+    pub(crate) fn body_spawn_in(w: &mut crate::world::owner::World, world: u32) -> *const f64 {
+        let (row, heap) = w.sim.calls.args(); let input = BodySpawn::take(row, heap);
         let mut body = Soldier::default(); body.jet.recharge = input.recharge;
         let [x,y,z] = input.position;
         body.spawn_with(x,y,z,input.yaw, |p,d,far| {
-            spawn_cast(world,p,d,far)
+            spawn_cast(w,world,p,d,far)
         });
         // The old exact-correction schema carries the probe origin even
         // though native movement does not read that overwritten scratch.
@@ -179,7 +169,7 @@ mod module {
             velocity:body.velocity, normal:body.normal, origin:[x,y+1.5,z], aim_yaw:body.aim_yaw, aim_pitch:body.aim_pitch,
             posture:body.posture, air:body.air, dive:body.dive, state_time:body.state_time, lock:body.lock,
             fuel:body.fuel, grounded:body.grounded, ground_adjustment:body.ground_adjustment };
-        let s = sim(); s.calls.result(BodySpawnOutput::WORDS, |row, heap| out.put(row, heap));
+        let s = &mut w.sim; s.calls.result(BodySpawnOutput::WORDS, |row, heap| out.put(row, heap));
         s.calls.block.ptr()
     }
 }
@@ -209,3 +199,38 @@ mod tests {
         assert_eq!(frame.skipped,u32::MAX-1);
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_construct(ptr: *const u8, len: u32) -> *const f64 { module::body_construct_in(crate::abi::world(), ptr, len) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_spawn_droideka(world:u32) ->*const f64 { module::body_spawn_droideka_in(crate::abi::world(), world) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_spawn(world: u32) -> *const f64 { module::body_spawn_in(crate::abi::world(), world) }
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_aim_ptr() ->*mut f64 { module::body_aim_ptr_in(crate::abi::cold()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_aim_capacity() ->u32 { module::body_aim_capacity_in(crate::abi::cold()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_aim_batch(count:u32,resume:u32) { module::body_aim_batch_in(crate::abi::cold(), count, resume) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_preview_frame_ptr() -> *mut f64 { module::body_preview_frame_ptr_in(crate::abi::cold()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_preview_looks_ptr() -> *mut f64 { module::body_preview_looks_ptr_in(crate::abi::cold()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_preview_capacity() -> u32 { module::body_preview_capacity_in(crate::abi::cold()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_preview(with_aim: u32) { module::body_preview_in(crate::abi::cold(), with_aim) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn body_preview_resolve() { module::body_preview_resolve_in(crate::abi::cold()) }

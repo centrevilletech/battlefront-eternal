@@ -1,11 +1,9 @@
 //! The generated exchange owns all inputs before encoding. No callback is
 //! made while a runtime, the store or the exchange block is borrowed.
 use super::codec;
-use crate::abi::sim;
 use crate::gen::*;
 
-pub fn output(result: codec::Result<Vec<Vec<u8>>>) -> *const f64 {
-    let s = sim();
+pub fn output(s: &mut crate::abi::Sim, result: codec::Result<Vec<Vec<u8>>>) -> *const f64 {
     let out = match result {
         Ok(parts) => WireOutput {
             error: None,
@@ -22,8 +20,7 @@ pub fn output(result: codec::Result<Vec<Vec<u8>>>) -> *const f64 {
 }
 /// wire_held consumes Encoder's retained datagrams directly into the generated
 /// result layout. It must not clone each packet merely to serialize the list.
-fn output_retained(result: codec::Result<&[Vec<u8>]>) -> *const f64 {
-    let s = sim();
+fn output_retained(s: &mut crate::abi::Sim, result: codec::Result<&[Vec<u8>]>) -> *const f64 {
     let (parts, error) = match result {
         Ok(parts) => (parts, None),
         Err(error) => (&[][..], Some(s.strings.intern_str(error))),
@@ -54,9 +51,8 @@ pub extern "C" fn wire_words(op: u32) -> u32 {
         _ => 0,
     }) as u32
 }
-#[no_mangle]
-pub extern "C" fn wire_encode(op: u32) -> *const f64 {
-    let (row, heap) = sim().calls.args();
+pub(crate) fn wire_encode_in(w: &mut crate::world::owner::World, op: u32) -> *const f64 {
+    let (row, heap) = w.sim.calls.args();
     let result = match op {
         0 => {
             let a = WireEncode::take(row, heap);
@@ -76,7 +72,7 @@ pub extern "C" fn wire_encode(op: u32) -> *const f64 {
         }
         _ => Err("unknown wire operation"),
     };
-    output(result)
+    output(&mut w.sim, result)
 }
 
 /// A host owns a separate runtime inside its battle's module. Its snapshots
@@ -151,22 +147,19 @@ impl Runtime {
         self.encoder.encode(current, base, interval)
     }
 }
-#[no_mangle]
-pub extern "C" fn wire_create() -> *mut Runtime {
-    super::owner::with(|owner| {
+pub(crate) fn wire_create_in(w: &mut crate::world::owner::World) -> *mut Runtime {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 
     owner.runtimes.insert(Runtime::default()).unwrap_or(0) as *mut Runtime
 
-    })
 }
 /// Bind the canonical producer before its first publication. Ring banks
 /// reserve the loaded content's maximum crew size at this cold boundary.
 /// # Safety
 /// Both allocations belong to this simulation instance and remain live.
 #[cfg(target_arch = "wasm32")]
-#[no_mangle]
-pub unsafe extern "C" fn wire_bind_store(runtime: *mut Runtime, source: *const super::store_source::Source) -> u32 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_bind_store_in(w: &mut crate::world::owner::World, runtime: *mut Runtime, source: *const super::store_source::Source) -> u32 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.runtimes.get(runtime as usize).is_none() {return 0;}
 if owner.sources.get(source as usize).is_none() {return 0;}
 
@@ -176,53 +169,67 @@ if owner.sources.get(source as usize).is_none() {return 0;}
     let Ok(ring) = super::retained::Ring::new((owner.sources.get(source as usize).unwrap()).capture.seat_capacity(), 1024, 128) else { return 0 };
     runtime.retained = Some(ring); 1
 
-    })
 }
 /// # Safety
 /// The handle names a wire runtime in this module instance.
-#[no_mangle]
-pub unsafe extern "C" fn wire_drop(runtime: *mut Runtime) {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_drop_in(w: &mut crate::world::owner::World, runtime: *mut Runtime) {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.runtimes.get(runtime as usize).is_none() {return;}
 
     if !runtime.is_null() {
         owner.runtimes.remove(runtime as usize);
     }
 
-    })
 }
 /// # Safety
 /// The handle belongs to this module instance for the call.
-#[no_mangle]
-pub unsafe extern "C" fn wire_capture(runtime: *mut Runtime) -> *const f64 {
-    super::owner::with(|owner| {
+pub(crate) unsafe fn wire_capture_in(w: &mut crate::world::owner::World, runtime: *mut Runtime) -> *const f64 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.runtimes.get(runtime as usize).is_none() {return std::ptr::null();}
 
     let input = {
-        let (row, heap) = sim().calls.args();
+        let (row, heap) = w.sim.calls.args();
         WireCapture::take(row, heap)
     };
     let result = owner.runtimes.get_mut(runtime as usize).unwrap()
-        .capture(input, &sim().strings)
+        .capture(input, &w.sim.strings)
         .map(|_| Vec::new());
-    output(result)
+    output(&mut w.sim, result)
 
-    })
 }
 /// # Safety
 /// The handle belongs to this module instance for the call.
-#[no_mangle]
-pub unsafe extern "C" fn wire_held(
-    runtime: *mut Runtime,
+pub(crate) unsafe fn wire_held_in(w: &mut crate::world::owner::World, runtime: *mut Runtime,
     tick: f64,
     epoch: f64,
     baseline: f64,
-    interval: f64,
-) -> *const f64 {
-    super::owner::with(|owner| {
+    interval: f64,) -> *const f64 {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.runtimes.get(runtime as usize).is_none() {return std::ptr::null();}
 
-    output_retained(owner.runtimes.get_mut(runtime as usize).unwrap().encode(tick, epoch, baseline, interval))
+    output_retained(&mut w.sim, owner.runtimes.get_mut(runtime as usize).unwrap().encode(tick, epoch, baseline, interval))
 
-    })
 }
+
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn wire_encode(op: u32) -> *const f64 { wire_encode_in(crate::abi::world(), op) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn wire_create() -> *mut Runtime { wire_create_in(crate::abi::world()) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_bind_store(runtime: *mut Runtime, source: *const super::store_source::Source) -> u32 { wire_bind_store_in(crate::abi::world(), runtime, source) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_drop(runtime: *mut Runtime) { wire_drop_in(crate::abi::world(), runtime) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_capture(runtime: *mut Runtime) -> *const f64 { wire_capture_in(crate::abi::world(), runtime) }
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub unsafe extern "C" fn wire_held(runtime: *mut Runtime,
+    tick: f64,
+    epoch: f64,
+    baseline: f64,
+    interval: f64,) -> *const f64 { wire_held_in(crate::abi::world(), runtime, tick, epoch, baseline, interval) }
