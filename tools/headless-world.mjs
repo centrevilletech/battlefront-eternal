@@ -12,17 +12,26 @@ export const root = fileURLToPath(new URL('../', import.meta.url));
 export const content = process.env.BFE_CONTENT_DIR || path.join(root, 'public');
 register('./node-headless-hooks.mjs', import.meta.url);
 
-globalThis.fetch = async (url) => {
+// A corpus reader supplies exactly the recorded cold bytes. The default
+// still reads installed content; the game never selects between backends.
+export function readContent(url) {
   const file = path.join(content, String(url).split('?')[0]);
-  if (!fs.existsSync(file)) return { ok: false, status: 404, json: async () => { throw new Error(`404 ${url}`); }, arrayBuffer: async () => { throw new Error(`404 ${url}`); } };
-  const bytes = fs.readFileSync(file);
-  return { ok: true, status: 200, json: async () => JSON.parse(bytes.toString()), arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
-};
+  return fs.existsSync(file) ? fs.readFileSync(file) : null;
+}
+function contentFetch(read) {
+  return async url => {
+    const bytes=read(String(url));
+    if(bytes===null)return {ok:false,status:404,json:async()=>{throw Error(`404 ${url}`);},arrayBuffer:async()=>{throw Error(`404 ${url}`);}};
+    return {ok:true,status:200,json:async()=>JSON.parse(bytes.toString()),arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)};
+  };
+}
+globalThis.fetch = contentFetch(readContent);
 globalThis.localStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
 
-export async function headlessGame(query) {
+export async function headlessGame(query, {read,simulationFactory}={}) {
+  if(read)globalThis.fetch=contentFetch(read);
   const { createGame } = await import('../src/game.js');
-  return createGame({ query, headless: true });
+  return createGame({ query, headless: true, ...(simulationFactory ? {simulationFactory} : {}) });
 }
 
 // The next tick's command with nothing pressed.

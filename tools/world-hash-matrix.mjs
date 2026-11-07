@@ -40,6 +40,12 @@ const opts = (name) => argv.flatMap((a, i) => (a === `--${name}` ? [argv[i + 1]]
 const out = opt('out', null);
 if (!out) { console.error('usage: node tools/world-hash-matrix.mjs --out DIR [options] (see the top of the file)'); process.exit(2); }
 
+// Backend selection belongs to this harness. Recorded inputs are required
+// for native replay; no runtime game setting changes its simulation owner.
+const backend=opt('backend','wasm'),recordCorpus=opt('record-corpus',null),replayCorpus=opt('replay-corpus',null);
+if(!['wasm','native'].includes(backend))throw Error(`Unknown backend ${backend}`);
+if(recordCorpus&&replayCorpus)throw Error('Choose recording or replay');
+if(backend==='native'&&!replayCorpus)throw Error('Native replay requires --replay-corpus');
 const BUILTIN_VARIANTS = { rust: [] };
 const custom = Object.fromEntries(opts('variant').map((v) => { const at = v.indexOf('='); return [v.slice(0, at), v.slice(at + 1).split(/\s+/).filter(Boolean)]; }));
 const variantNames = String(opt('variants', 'rust')).split(',').filter(Boolean);
@@ -62,6 +68,7 @@ const matrixFile = path.resolve(opt('matrix', path.join(root, 'tools/world-hash-
 const only = opt('only', null);
 const configs = readMatrix(matrixFile).filter((c) => !only || new RegExp(only).test(c.label));
 if (!configs.length) throw Error(`no battle in ${matrixFile}${only ? ` matches ${only}` : ''}`);
+if((recordCorpus||replayCorpus)&&variants.length!==1)throw Error('A corpus run requires one variant');
 const labels = new Set();
 for (const c of configs) { if (labels.has(c.label)) throw Error(`${c.label} twice in ${matrixFile}`); labels.add(c.label); }
 
@@ -97,6 +104,13 @@ const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); }
 const linesOf = (f) => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean); } catch { return null; } };
 function whole(config, variant, dir = out) {
   const meta = readJson(file(config.label, variant, 'json', dir));
+  if(dir===out) {
+    if((meta?.backend||'wasm')!==backend)return null;
+    if(recordCorpus) {
+      const admission=readJson(path.join(recordCorpus,config.label,'setup.json'));
+      if(admission?.frames!==config.ticks||!fs.existsSync(path.join(recordCorpus,config.label,'inputs.json.gz')))return null;
+    }
+  }
   return meta?.exit === 0 && meta.ticks === config.ticks ? meta : null;
 }
 
@@ -122,7 +136,10 @@ if (argv.includes('--compare-only')) tasks = [];
 const runtime = runtimeOf(node), commit = commitOf();
 function run(task, cpu) {
   const { config, variant } = task;
-  const args = ['tools/world-hash.mjs', ...config.args, ...variant.args];
+  const caseDirectory=path.resolve(recordCorpus||replayCorpus||out,config.label);
+  const args=backend==='native'?['tools/world-native.mjs','--corpus',caseDirectory,'--driver',opt('native-driver','rust/target/debug/world-twin')]:
+    replayCorpus?['tools/world-hash.mjs','--replay-corpus',caseDirectory]:['tools/world-hash.mjs',...config.args,...variant.args,
+      ...(recordCorpus?['--record-corpus',caseDirectory]:[])];
   const [command, commandArgs] = cpu === null ? [node, args] : ['taskset', ['-c', String(cpu), node, ...args]];
   const started = Date.now();
   return new Promise((resolve) => {
@@ -133,7 +150,7 @@ function run(task, cpu) {
       const ticks = linesOf(file(config.label, variant.name, 'txt'))?.length ?? 0;
       const log = fs.readFileSync(file(config.label, variant.name, 'err'), 'utf8');
       const steps = [...log.matchAll(/world step ([0-9.]+) ms/g)].map((m) => Number(m[1]));
-      const meta = { label: config.label, variant: variant.name, args, exit, ticks, expected: config.ticks, wallSeconds: (Date.now() - started) / 1000,
+      const meta = { label: config.label, variant: variant.name, backend, corpus:recordCorpus||replayCorpus, args, exit, ticks, expected: config.ticks, wallSeconds: (Date.now() - started) / 1000,
         stepMs: steps.length ? steps.reduce((a, b) => a + b, 0) / steps.length : null, cpu, ...runtime, commit, finished: new Date().toISOString() };
       fs.writeFileSync(file(config.label, variant.name, 'json'), JSON.stringify(meta, null, 1) + '\n');
       resolve(meta);
@@ -250,4 +267,10 @@ const table = [
 fs.writeFileSync(path.join(out, 'summary.md'), table.join('\n') + '\n');
 fs.writeFileSync(path.join(out, 'summary.json'), JSON.stringify({ matrix: path.relative(root, matrixFile), variants, against, runtimes: v8s, commits, ticksPerVariant, wallSeconds: (Date.now() - startedAll) / 1000, failures, rows }, null, 1) + '\n');
 console.log(table.join('\n'));
+if(recordCorpus&&!shard) {
+  const admissions=configs.map(config=>({label:config.label,args:config.args,ticks:config.ticks,
+    setup:JSON.parse(fs.readFileSync(path.join(recordCorpus,config.label,'setup.json'),'utf8'))}));
+  fs.writeFileSync(path.join(recordCorpus,'manifest.json'),JSON.stringify({version:1,commit,runtime,rows:admissions},null,1)+'\n');
+}
+
 process.exit(failures ? 1 : 0);

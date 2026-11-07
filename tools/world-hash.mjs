@@ -63,13 +63,21 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const argv = process.argv.slice(2);
+import { WorldCorpus, readSetup } from './world-corpus.mjs';
+const rawArgv=process.argv.slice(2);
+const rawOption=name=>{const at=rawArgv.indexOf(`--${name}`);return at<0?null:rawArgv[at+1];};
+const recording=rawOption('record-corpus'),replaying=rawOption('replay-corpus');
+if(recording&&replaying)throw Error('Choose recording or replay');
+const argv=replaying?readSetup(replaying).argv:rawArgv;
+const corpus=recording||replaying?new WorldCorpus({directory:recording||replaying,replay:!!replaying,blobs:rawOption('corpus-blobs'),
+  argv:rawArgv.filter((arg,index)=>!['--record-corpus','--corpus-blobs'].includes(arg)&&!['--record-corpus','--corpus-blobs'].includes(rawArgv[index-1]))}):null;
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i < 0 ? fallback : argv[i + 1]; };
 const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('seed', 1)), ticks = Number(opt('ticks', 2400));
 const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
 const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = argv.includes('--twice') ? 2 : Number(opt('battles', 1));
 const unit = opt('unit', null), mount = Number(opt('mount', -1));
 const nativeRandom = opt('random', 'seeded') === 'native';
+if(corpus&&(nativeRandom||argv.includes('--plugin')))throw Error('Corpus runs require the seeded, unmodified world harness');
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
 if (!(Number.isInteger(battles) && battles >= 1)) throw Error(`--battles ${opt('battles')}: a whole number from 1`);
@@ -87,7 +95,8 @@ for (let i = 0; i < argv.length; i++) if (argv[i] === '--plugin') plugins.push(a
 // work in flight run at another point of the tick than without a plugin.
 const call = (name, ...args) => { for (const plugin of plugins) plugin[name]?.(...args); };
 
-const { headlessGame } = await import('./headless-world.mjs');
+const { headlessGame,readContent } = await import('./headless-world.mjs');
+const { loadSim } = await import('../src/sim/module.js');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
@@ -98,7 +107,8 @@ const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slic
 
 async function battle(index) {
   const prefix = index ? `${index + 1}:` : '';
-  const game = await headlessGame(query);
+  if(corpus){const cold=corpus.startBattle(index,now,draw);if(replaying){now=cold.now;draw=cold.draw;}}
+  const game = await headlessGame(query,corpus?{read:url=>corpus.readAsset(url,readContent),simulationFactory:()=>corpus.simulationFactory(loadSim)}:{});
   if (ai !== 'off' && !game.ai?.native) throw Error('native AI phase did not attach');
   if (!game.liveOwner) throw Error('native live-object phase did not attach');
   // Collision, movement, rounds and items are required on the battle instance.
@@ -131,19 +141,27 @@ async function battle(index) {
   }
   let fireEdges = 0, mounted = 0, mountedAt = 0;
   const near = (list, p) => list.map((x) => [x, x.position.distanceToSquared(p)]).sort((a, b) => a[1] - b[1]).map(([x]) => x);
-  function mountStep(i) {
+  function mountStep(i, operations) {
     const u = server.actor.unit;
     if (!u?.alive || u.removed) return;
     if (mounted === 0) {
       const turret = near((game.turretSeats?.turrets || []).filter((t) => game.turretSeats.canMan(u, t)), u.position)[0];
-      if (turret && game.turretSeats.man(u, turret)) { mounted = 1; mountedAt = i; } else mounted = 2;
+      if(turret) {
+        const action={kind:'turret',unit:u.id,life:u.generation,turret:game.turretSeats.turrets.indexOf(turret)};
+        action.accepted=Boolean(game.turretSeats.man(u,turret));operations.push(action);
+        if(action.accepted){mounted=1;mountedAt=i;}else mounted=2;
+      }else mounted=2;
     } else if (mounted === 1 && i - mountedAt >= 480) {
-      if (u.seat?.turret) game.turretSeats.leave(u, { placement: true });
+      if (u.seat?.turret) {operations.push({kind:'leave',unit:u.id,life:u.generation});game.turretSeats.leave(u, { placement: true });}
       mounted = 2;
     } else if (mounted === 2 && !u.seat) {
       for (const v of near((game.vehicles?.vehicles || []).filter((v) => v.alive), u.position)) {
         const k = v.seats.findIndex((s, k) => s.weapons.length && v.seatFree(k));
-        if (k >= 0 && game.vehicles.board(u, v, k)) { mounted = 3; break; }
+        if(k>=0) {
+          const action={kind:'hull',unit:u.id,life:u.generation,hull:game.vehicles.vehicles.indexOf(v),seat:k};
+          action.accepted=Boolean(game.vehicles.board(u,v,k));operations.push(action);
+          if(action.accepted){mounted=3;break;}
+        }
       }
     }
   }
@@ -151,19 +169,36 @@ async function battle(index) {
   call('battle', { game, server, world, index, options });
   for (let i = 0; i < ticks; i++) {
     now += 1000 / 60;
-    if (mount >= 0 && i >= mount) mountStep(i);
+    const frame=corpus?.begin({battle:index,index:i,now,mount:[],acks:[]});
+    if(replaying) {
+      now=frame.now;
+      for(const action of frame.mount) {
+        const actor=server.actor.unit;
+        if(actor.id!==action.unit||actor.generation!==action.life)throw Error('Recorded mount life is stale');
+        if(action.kind==='leave')game.turretSeats.leave(actor,{placement:true});
+        else if(action.kind==='turret'){if(Boolean(game.turretSeats.man(actor,game.turretSeats.turrets[action.turret]))!==action.accepted)throw Error('Recorded turret outcome differs');}
+        else if(action.kind==='hull'){if(Boolean(game.vehicles.board(actor,game.vehicles.vehicles[action.hull],action.seat))!==action.accepted)throw Error('Recorded hull outcome differs');}
+        else throw Error('Unknown recorded mount');
+      }
+    } else if (mount >= 0 && i >= mount) mountStep(i,frame?.mount||[]);
     const tick = game.worldClock.tick + 1, phase = i % 240;
     call('tick', tick);
     const down = phase < 160 ? ['KeyW'] : phase < 200 ? ['KeyA', 'Mouse0'] : ['KeyD'];
     const generation = server.actor.unit.generation, viewTick = view === null ? null : Math.max(0, tick - view);
-    world.input(server.id, { epoch: 1, sequence: tick, tick, generation, down, actions: [],
-      look: [[Math.round(12 * Math.sin(i * 0.05)), Math.round(3 * Math.cos(i * 0.07))]], ...(view === null ? {} : { viewTick }) });
-    if (view !== null && (phase === 160 || phase === 200)) world.fire(server.id, { epoch: 1, id: ++fireEdges, tick, generation, button: 0, pressed: phase === 160, ...(phase === 160 ? { viewTick } : {}) });
+    const command=replaying?frame.input:{ epoch: 1, sequence: tick, tick, generation, down, actions: [],
+      look: [[Math.round(12 * Math.sin(i * 0.05)), Math.round(3 * Math.cos(i * 0.07))]], ...(view === null ? {} : { viewTick }) };
+    if(recording)frame.input=command;
+    world.input(server.id,command);
+    const fire=replaying?frame.fire:(view !== null && (phase === 160 || phase === 200)?{epoch:1,id:++fireEdges,tick,generation,button:0,pressed:phase===160,...(phase===160?{viewTick}:{})}:null);
+    if(recording)frame.fire=fire;
+    if(fire)world.fire(server.id,fire);
     server.step();
     // The lag rises a tick a tick (the acknowledged tick holds, the baseline
     // ages) and falls two at a time; of the two ticks named, a page has the
     // one that was published.
-    if (ack) { const k = i % 238, lag = 2 + (k < 119 ? k : 238 - k); for (const at of [tick - lag - 1, tick - lag]) if (at > 0) server.host.input(server.id, encodeSnapshotAckKeepalive({ epoch: 1, tick: at })); }
+    if(replaying) {for(const at of frame.acks)server.host.input(server.id,encodeSnapshotAckKeepalive({epoch:1,tick:at}));}
+    else if (ack) { const k = i % 238, lag = 2 + (k < 119 ? k : 238 - k); for (const at of [tick - lag - 1, tick - lag]) if (at > 0) {frame?.acks.push(at);server.host.input(server.id, encodeSnapshotAckKeepalive({ epoch: 1, tick: at }));} }
+    corpus?.finishFrame();
     const published = crypto.createHash('sha1');
     for (const [channel, payload] of sent) { published.update(channel); published.update(payload instanceof ArrayBuffer ? new Uint8Array(payload) : String(payload)); }
     sent = [];
@@ -181,4 +216,5 @@ async function battle(index) {
 
 for (let index = 0; index < battles; index++) await battle(index);
 for (const plugin of plugins) await plugin.finish?.();
+corpus?.finish(options);
 process.exit(0);

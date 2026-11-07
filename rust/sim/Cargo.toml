@@ -25,11 +25,18 @@ replay = ["dep:sim-replay", "bfe-pose/replay"]
 # built twice into the same file (cargo's output filename collision), and a
 # test could link the other build's dependencies.
 nav-twin = []
+# Whole-world corpus runner; native entry integration is opt-in.
+world-twin = []
 
 [[bin]]
 name = "nav-twin"
 path = "src/bin/nav-twin.rs"
 required-features = ["nav-twin"]
+
+[[bin]]
+name = "world-twin"
+path = "src/bin/world-twin.rs"
+required-features = ["world-twin"]
 
 [dependencies]
 bfe-presentation = { path = "../bfe-presentation", default-features = false }
