@@ -250,14 +250,14 @@ fn legacy_query(owner: &mut collision::CollisionOwner, v: &Value, ids: Installed
         },
     }
 }
-struct Lane {
+struct Twin {
     context: Context,
     exchange: Box<collision::CollisionOwner>,
     ids: Option<Installed>,
     order: Vec<u32>,
     retained: Option<CollisionResult>,
 }
-impl Lane {
+impl Twin {
     fn new() -> Self {
         Self {
             context: Context::new(),
@@ -269,7 +269,7 @@ impl Lane {
     }
 }
 fn replay(path: &Path, legacy: Option<usize>) {
-    let mut lanes = [Lane::new(), Lane::new()];
+    let mut twins = [Twin::new(), Twin::new()];
     let mut queries = 0;
     let mut summary = false;
     for (line, text) in BufReader::new(File::open(path).unwrap())
@@ -289,7 +289,7 @@ fn replay(path: &Path, legacy: Option<usize>) {
         if legacy.is_some_and(|n| n != cx) {
             continue;
         }
-        let lane = &mut lanes[cx];
+        let twin = &mut twins[cx];
         let is_legacy = legacy.is_some();
         match op {
             "install" => {
@@ -297,9 +297,9 @@ fn replay(path: &Path, legacy: Option<usize>) {
                 let b = build(Positions::F32(&c.positions), &c.indices);
                 let t = build(Positions::F32(&c.terrain_positions), &c.terrain_indices);
                 let ids = if is_legacy {
-                    install(&mut *lane.exchange, &c, &b, Some(&t)).unwrap()
+                    install(&mut *twin.exchange, &c, &b, Some(&t)).unwrap()
                 } else {
-                    lane.context.collision_install(&c, &b, Some(&t)).unwrap()
+                    twin.context.collision_install(&c, &b, Some(&t)).unwrap()
                 };
                 assert_eq!(
                     [
@@ -313,21 +313,21 @@ fn replay(path: &Path, legacy: Option<usize>) {
                     array(get(&v, "ids"))
                 );
                 let cache = if is_legacy {
-                    lane.exchange.cache_new(1.5)
+                    twin.exchange.cache_new(1.5)
                 } else {
-                    lane.context.collision_cache(ids.world, 1.5).unwrap()
+                    twin.context.collision_cache(ids.world, 1.5).unwrap()
                 };
                 assert_eq!(cache, num(&v, "cache") as u32);
-                lane.ids = Some(ids);
+                twin.ids = Some(ids);
             }
             "shape" => {
                 let p = corners(&v);
                 let i = array(get(&v, "i"));
                 let polygons = array(get(&v, "polygons"));
                 let tree = if is_legacy {
-                    legacy_shape(&mut lane.exchange, p, &i, &polygons)
+                    legacy_shape(&mut twin.exchange, p, &i, &polygons)
                 } else {
-                    lane.context.collision_shape(p, i, polygons).unwrap()
+                    twin.context.collision_shape(p, i, polygons).unwrap()
                 };
                 assert_eq!(tree, num(&v, "tree") as u32, "shape at {line}");
             }
@@ -337,16 +337,16 @@ fn replay(path: &Path, legacy: Option<usize>) {
                 let polys = array(get(&v, "polygons"));
                 let offset = num(&v, "offset");
                 let id = if is_legacy {
-                    let id = lane.exchange.set_new(tree, (bounds.len() / 6) as u32, offset);
+                    let id = twin.exchange.set_new(tree, (bounds.len() / 6) as u32, offset);
                     unsafe {
-                        std::slice::from_raw_parts_mut(lane.exchange.set_bounds(id), bounds.len())
+                        std::slice::from_raw_parts_mut(twin.exchange.set_bounds(id), bounds.len())
                             .copy_from_slice(&bounds);
-                        std::slice::from_raw_parts_mut(lane.exchange.set_polygons(id), polys.len())
+                        std::slice::from_raw_parts_mut(twin.exchange.set_polygons(id), polys.len())
                             .copy_from_slice(&polys)
                     };
                     id
                 } else {
-                    lane.context
+                    twin.context
                         .collision_fixed_set(tree, &bounds, &polys, offset)
                         .unwrap()
                 };
@@ -362,31 +362,31 @@ fn replay(path: &Path, legacy: Option<usize>) {
                     matrix: values[6..22].try_into().unwrap(),
                     inverse: values[22..38].try_into().unwrap(),
                 };
-                let world = lane.ids.unwrap().world;
+                let world = twin.ids.unwrap().world;
                 let id = if is_legacy {
-                    let id = lane.exchange.body_new(body.tree as u32, body.moving as u32);
+                    let id = twin.exchange.body_new(body.tree as u32, body.moving as u32);
                     assert!(id >= 0);
-                    lane.exchange.body_offset(id as u32, body.offset);
-                    lane.exchange.io_mut()[20..58].copy_from_slice(&values);
-                    lane.exchange.body_set(id as u32);
+                    twin.exchange.body_offset(id as u32, body.offset);
+                    twin.exchange.io_mut()[20..58].copy_from_slice(&values);
+                    twin.exchange.body_set(id as u32);
                     id as u32
                 } else {
-                    lane.context.collision_body(world, body).unwrap()
+                    twin.context.collision_body(world, body).unwrap()
                 };
                 assert_eq!(id, num(&v, "id") as u32);
-                lane.order.push(id);
+                twin.order.push(id);
                 if is_legacy {
-                    order(&mut lane.exchange, world, &lane.order)
+                    order(&mut twin.exchange, world, &twin.order)
                 }
             }
             "place" => {
                 let values = floats(get(&v, "v"));
                 let id = num(&v, "id") as u32;
                 if is_legacy {
-                    lane.exchange.io_mut()[20..58].copy_from_slice(&values);
-                    lane.exchange.body_set(id)
+                    twin.exchange.io_mut()[20..58].copy_from_slice(&values);
+                    twin.exchange.body_set(id)
                 } else {
-                    lane.context
+                    twin.context
                         .collision_place(
                             id,
                             values[..6].try_into().unwrap(),
@@ -398,30 +398,30 @@ fn replay(path: &Path, legacy: Option<usize>) {
             }
             "remove" => {
                 let id = num(&v, "id") as u32;
-                let at = lane.order.iter().position(|&n| n == id).unwrap();
-                lane.order.remove(at);
+                let at = twin.order.iter().position(|&n| n == id).unwrap();
+                twin.order.remove(at);
                 if is_legacy {
-                    order(&mut lane.exchange, lane.ids.unwrap().world, &lane.order)
+                    order(&mut twin.exchange, twin.ids.unwrap().world, &twin.order)
                 } else {
-                    assert!(lane
+                    assert!(twin
                         .context
-                        .collision_remove(lane.ids.unwrap().world, id)
+                        .collision_remove(twin.ids.unwrap().world, id)
                         .unwrap())
                 }
             }
             "order" => {
-                lane.order = array(get(&v, "order"));
+                twin.order = array(get(&v, "order"));
                 if is_legacy {
-                    order(&mut lane.exchange, lane.ids.unwrap().world, &lane.order)
+                    order(&mut twin.exchange, twin.ids.unwrap().world, &twin.order)
                 } else {
-                    lane.context
-                        .collision_order(lane.ids.unwrap().world, &lane.order)
+                    twin.context
+                        .collision_order(twin.ids.unwrap().world, &twin.order)
                         .unwrap()
                 }
             }
             "grow" => {
                 if !is_legacy {
-                    lane.context
+                    twin.context
                         .scratch(&vec![0; num(&v, "bytes") as usize])
                         .unwrap();
                 }
@@ -429,10 +429,10 @@ fn replay(path: &Path, legacy: Option<usize>) {
             "query" => {
                 let flags: Vec<u8> = array(get(&v, "flags")).iter().map(|&n| n as u8).collect();
                 let actual = if is_legacy {
-                    legacy_query(&mut lane.exchange, &v, lane.ids.unwrap(), &flags)
+                    legacy_query(&mut twin.exchange, &v, twin.ids.unwrap(), &flags)
                 } else {
-                    lane.context
-                        .collision_query(query(&v, lane.ids.unwrap()), &flags)
+                    twin.context
+                        .collision_query(query(&v, twin.ids.unwrap()), &flags)
                         .unwrap()
                 };
                 let expected = get(&v, "expected");
@@ -466,7 +466,7 @@ fn replay(path: &Path, legacy: Option<usize>) {
                     assert_eq!(actual.near, array(near), "near at {line}")
                 }
                 if queries == 7 && !is_legacy {
-                    lane.retained = Some(actual)
+                    twin.retained = Some(actual)
                 }
                 queries += 1;
             }
@@ -475,9 +475,9 @@ fn replay(path: &Path, legacy: Option<usize>) {
     }
     assert!(summary);
     assert!(queries > 1900);
-    for lane in lanes {
-        lane.context.dispose().unwrap();
-        if let Some(saved) = lane.retained {
+    for twin in twins {
+        twin.context.dispose().unwrap();
+        if let Some(saved) = twin.retained {
             assert_eq!(saved.io.len(), 64);
         }
     }
@@ -493,11 +493,11 @@ fn replay(path: &Path, legacy: Option<usize>) {
 
 #[test]
 fn native_collision_matches_two_wasm_instances_and_isolated_legacy_processes() {
-    if let Some(lane) = std::env::var_os("BFE_COLLISION_LEGACY_LANE") {
+    if let Some(twin) = std::env::var_os("BFE_COLLISION_LEGACY_CONTEXT") {
         let trace = std::env::var_os("BFE_COLLISION_TRACE").unwrap();
         replay(
             Path::new(&trace),
-            Some(lane.to_str().unwrap().parse().unwrap()),
+            Some(twin.to_str().unwrap().parse().unwrap()),
         );
         return;
     }
@@ -511,18 +511,18 @@ fn native_collision_matches_two_wasm_instances_and_isolated_legacy_processes() {
         .unwrap();
     assert!(status.success(), "collision oracle failed");
     replay(&trace, None);
-    for lane in 0..2 {
+    for twin in 0..2 {
         let status = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "native_collision_matches_two_wasm_instances_and_isolated_legacy_processes",
                 "--nocapture",
             ])
-            .env("BFE_COLLISION_LEGACY_LANE", lane.to_string())
+            .env("BFE_COLLISION_LEGACY_CONTEXT", twin.to_string())
             .env("BFE_COLLISION_TRACE", &trace)
             .status()
             .unwrap();
-        assert!(status.success(), "legacy native lane {lane}");
+        assert!(status.success(), "legacy native twin {twin}");
     }
     fs::remove_file(trace).unwrap();
 }

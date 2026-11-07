@@ -118,9 +118,10 @@ at `TurretSeats` (`src/seats.js`).
   own page by the presentation body batch (`rider_sample`,
   `rust/bfe-presentation/src/units.rs`), at the aim the page previews, so the page poses its own player at the gun in the
   gunner's pose the world strikes him in.
-- Struck (`Turret.exposedSeat`, `Turret.riderShapes`, `SeatLease.exposed`):
+- Struck (`Turret.exposedSeat`, `Unit.hitShapes`, `SeatLease.exposed`):
   his posed body at the seat, in the seat node's frame
-  (`src/rider-pose.js`): head, torso, thighs, shins and both arms to the
+  (`rust/bfe-pose/src/rig/rider.rs`, published through
+  `src/presentation/unit-collision.js`): head, torso, thighs, shins and both arms to the
   middle of the hand. The turret's own collision is the nearest hit where it
   lies in front of him: the gun turret's tub covers him to the waist (its
   collision is a plain drum about 1 m tall, without the shield plates or the

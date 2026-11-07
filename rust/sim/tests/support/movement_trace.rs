@@ -24,7 +24,7 @@ pub enum Mode {
     Stateful,
     Legacy,
 }
-pub struct Lane {
+pub struct Twin {
     cx: Context,
     collision: Box<collision::CollisionOwner>,
     movement: Box<movement::MovementOwner>,
@@ -33,7 +33,7 @@ pub struct Lane {
     pub ticks: usize,
     retained: Option<bfe_sim::abi::context::MovementResult>,
 }
-impl Lane {
+impl Twin {
     pub fn new() -> Self {
         Self {
             cx: Context::new(),
@@ -84,7 +84,7 @@ fn input(v: &[f64; movement::IO_LEN]) -> Input {
         },
     }
 }
-pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
+pub fn step(twin: &mut Twin, v: &Value, mode: Mode) {
     let legacy = mode == Mode::Legacy;
     match get(v, "op").as_str().unwrap() {
         "header" | "summary" => {}
@@ -94,21 +94,21 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
             let t = (!c.terrain_indices.is_empty())
                 .then(|| build(Positions::F32(&c.terrain_positions), &c.terrain_indices));
             let ids = if legacy {
-                install(&mut *lane.collision, &c, &b, t.as_ref()).unwrap()
+                install(&mut *twin.collision, &c, &b, t.as_ref()).unwrap()
             } else {
-                lane.cx.collision_install(&c, &b, t.as_ref()).unwrap()
+                twin.cx.collision_install(&c, &b, t.as_ref()).unwrap()
             };
             assert_eq!(ids.world, 0);
-            lane.ids = Some(ids);
+            twin.ids = Some(ids);
         }
         "shape" => {
             let p = corners(v);
             let index = array(get(v, "i"));
             let polygons = array(get(v, "polygons"));
             let id = if legacy {
-                legacy_shape(&mut lane.collision, p, &index, &polygons)
+                legacy_shape(&mut twin.collision, p, &index, &polygons)
             } else {
-                lane.cx.collision_shape(p, index, polygons).unwrap()
+                twin.cx.collision_shape(p, index, polygons).unwrap()
             };
             assert_eq!(id, num(v, "tree") as u32);
         }
@@ -123,26 +123,26 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
                 inverse: a[22..38].try_into().unwrap(),
             };
             let id = if legacy {
-                let id = lane.collision.body_new(b.tree as u32, b.moving as u32);
+                let id = twin.collision.body_new(b.tree as u32, b.moving as u32);
                 assert!(id >= 0);
-                lane.collision.body_offset(id as u32, b.offset);
-                lane.collision.io_mut()[20..58].copy_from_slice(&a);
-                lane.collision.body_set(id as u32);
+                twin.collision.body_offset(id as u32, b.offset);
+                twin.collision.io_mut()[20..58].copy_from_slice(&a);
+                twin.collision.body_set(id as u32);
                 id as u32
             } else {
-                lane.cx.collision_body(0, b).unwrap()
+                twin.cx.collision_body(0, b).unwrap()
             };
             assert_eq!(id, num(v, "id") as u32);
-            lane.order.push(id);
+            twin.order.push(id);
         }
         "place" => {
             let a = floats(get(v, "v"));
             let id = num(v, "id") as u32;
             if legacy {
-                lane.collision.io_mut()[20..58].copy_from_slice(&a);
-                lane.collision.body_set(id)
+                twin.collision.io_mut()[20..58].copy_from_slice(&a);
+                twin.collision.body_set(id)
             } else {
-                lane.cx
+                twin.cx
                     .collision_place(
                         id,
                         a[..6].try_into().unwrap(),
@@ -153,20 +153,20 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
             }
         }
         "order" => {
-            lane.order = array(get(v, "order"));
+            twin.order = array(get(v, "order"));
             if legacy {
-                order(&mut lane.collision, 0, &lane.order)
+                order(&mut twin.collision, 0, &twin.order)
             } else {
-                lane.cx.collision_order(0, &lane.order).unwrap()
+                twin.cx.collision_order(0, &twin.order).unwrap()
             }
         }
         "new" => {
             let class: [f64; 21] = floats(get(v, "class")).try_into().unwrap();
             let id = if legacy {
-                lane.movement.io_mut()[50..71].copy_from_slice(&class);
-                lane.movement.mover_new(0)
+                twin.movement.io_mut()[50..71].copy_from_slice(&class);
+                twin.movement.mover_new(0)
             } else {
-                lane.cx.movement_new(0, class).unwrap()
+                twin.cx.movement_new(0, class).unwrap()
             };
             assert_eq!(id, num(v, "id") as u32);
         }
@@ -177,29 +177,29 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
                 .into_iter()
                 .map(|x| x as u8)
                 .collect();
-            assert_eq!(flags.len(), lane.order.len());
+            assert_eq!(flags.len(), twin.order.len());
             let expected = floats(get(v, "expected"));
             if legacy {
-                *lane.movement.io_mut() = a;
+                *twin.movement.io_mut() = a;
                 unsafe {
-                    std::slice::from_raw_parts_mut(lane.movement.flags_mut().as_mut_ptr(), flags.len())
+                    std::slice::from_raw_parts_mut(twin.movement.flags_mut().as_mut_ptr(), flags.len())
                         .copy_from_slice(&flags)
                 };
-                assert_eq!(lane.movement.tick(&mut lane.collision.state, id), num(v, "code") as u32);
+                assert_eq!(twin.movement.tick(&mut twin.collision.state, id), num(v, "code") as u32);
                 assert_eq!(
-                    bits(lane.movement.io_mut()),
+                    bits(twin.movement.io_mut()),
                     bits(&expected),
                     "legacy tick {} mover {id}",
-                    lane.ticks
+                    twin.ticks
                 );
             } else {
                 let result = if mode == Mode::Stateful {
-                    lane.cx.movement_load(id, a).and_then(|_| {
-                        lane.cx
+                    twin.cx.movement_load(id, a).and_then(|_| {
+                        twin.cx
                             .movement_advance(id, input(&a), a[31], flags.clone())
                     })
                 } else {
-                    lane.cx.movement_tick(id, a, flags.clone())
+                    twin.cx.movement_tick(id, a, flags.clone())
                 };
                 if num(v, "code") == 2. {
                     assert!(matches!(result, Err(MovementError::UnknownState)))
@@ -209,26 +209,26 @@ pub fn step(lane: &mut Lane, v: &Value, mode: Mode) {
                         bits(&result.io),
                         bits(&expected),
                         "owned tick {} mover {id}",
-                        lane.ticks
+                        twin.ticks
                     );
                     assert_eq!(result.flags, flags);
-                    if lane.retained.is_none() {
-                        lane.retained = Some(result)
+                    if twin.retained.is_none() {
+                        twin.retained = Some(result)
                     }
                 }
             }
-            lane.ticks += 1;
+            twin.ticks += 1;
         }
         "grow" => {
             if !legacy {
-                lane.cx.scratch(&vec![0; 700_000]).unwrap();
+                twin.cx.scratch(&vec![0; 700_000]).unwrap();
             }
         }
         op => panic!("unknown movement trace operation {op}"),
     }
 }
 pub fn replay(path: &Path, mode: Mode, only: Option<usize>) -> usize {
-    let mut lanes = [Lane::new(), Lane::new()];
+    let mut twins = [Twin::new(), Twin::new()];
     let mut summary = None;
     for (line, text) in BufReader::new(File::open(path).unwrap())
         .lines()
@@ -248,33 +248,33 @@ pub fn replay(path: &Path, mode: Mode, only: Option<usize>) -> usize {
             continue;
         }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            step(&mut lanes[cx], &v, mode)
+            step(&mut twins[cx], &v, mode)
         }));
         if let Err(payload) = result {
             eprintln!("{} line {} context {cx}", path.display(), line + 1);
             std::panic::resume_unwind(payload)
         }
     }
-    let total = lanes.iter().map(|x| x.ticks).sum();
+    let total = twins.iter().map(|x| x.ticks).sum();
     assert!(summary.is_some());
     assert!(total > 0);
     if only.is_none() {
         assert_eq!(Some(total), summary)
     }
-    for lane in lanes {
-        finish(lane, mode)
+    for twin in twins {
+        finish(twin, mode)
     }
     total
 }
-pub fn finish(lane: Lane, mode: Mode) {
+pub fn finish(twin: Twin, mode: Mode) {
     if mode != Mode::Legacy {
-        let retained = lane.retained.as_ref().map(|x| bits(&x.io));
-        lane.cx.dispose().unwrap();
-        assert_eq!(lane.retained.as_ref().map(|x| bits(&x.io)), retained);
+        let retained = twin.retained.as_ref().map(|x| bits(&x.io));
+        twin.cx.dispose().unwrap();
+        assert_eq!(twin.retained.as_ref().map(|x| bits(&x.io)), retained);
     }
 }
 pub fn interleave(a: &Path, b: &Path) -> usize {
-    let mut lanes = [Lane::new(), Lane::new()];
+    let mut twins = [Twin::new(), Twin::new()];
     let mut readers = [
         BufReader::new(File::open(a).unwrap()).lines(),
         BufReader::new(File::open(b).unwrap()).lines(),
@@ -284,7 +284,7 @@ pub fn interleave(a: &Path, b: &Path) -> usize {
         for i in 0..2 {
             match readers[i].next() {
                 Some(line) => step(
-                    &mut lanes[i],
+                    &mut twins[i],
                     &json::parse(&line.unwrap()).unwrap(),
                     Mode::Owned,
                 ),
@@ -292,27 +292,27 @@ pub fn interleave(a: &Path, b: &Path) -> usize {
             }
         }
     }
-    let ticks = lanes.iter().map(|x| x.ticks).sum();
-    for lane in lanes {
-        finish(lane, Mode::Owned)
+    let ticks = twins.iter().map(|x| x.ticks).sum();
+    for twin in twins {
+        finish(twin, Mode::Owned)
     }
     ticks
 }
 pub fn assert_no_legacy_exchange_use(path: &Path, index: usize) {
-    let mut lane = Lane::new();
-    *lane.movement.io_mut() = [321.5; 80];
-    lane.collision.io_mut().fill(789.25);
-    lane.movement.flags_mut().fill(73);
+    let mut twin = Twin::new();
+    *twin.movement.io_mut() = [321.5; 80];
+    twin.collision.io_mut().fill(789.25);
+    twin.movement.flags_mut().fill(73);
     unsafe {
-        std::slice::from_raw_parts_mut(lane.collision.enabled_ptr(), 65536).fill(87);
-        std::slice::from_raw_parts_mut(lane.collision.candidates_ptr(), 65536).fill(9876);
+        std::slice::from_raw_parts_mut(twin.collision.enabled_ptr(), 65536).fill(87);
+        std::slice::from_raw_parts_mut(twin.collision.candidates_ptr(), 65536).fill(9876);
     }
     replay(path, Mode::Owned, Some(index));
-    assert_eq!(*lane.movement.io_mut(), [321.5; 80]);
-    assert_eq!(*lane.collision.io_mut(), [789.25; 64]);
-    assert!(lane.movement.flags_mut().iter().all(|&x| x == 73));
-    assert!(copy(lane.collision.enabled_ptr(), 65536).iter().all(|&x| x == 87));
-    assert!(copy(lane.collision.candidates_ptr(), 65536).iter().all(|&x| x == 9876));
+    assert_eq!(*twin.movement.io_mut(), [321.5; 80]);
+    assert_eq!(*twin.collision.io_mut(), [789.25; 64]);
+    assert!(twin.movement.flags_mut().iter().all(|&x| x == 73));
+    assert!(copy(twin.collision.enabled_ptr(), 65536).iter().all(|&x| x == 87));
+    assert!(copy(twin.collision.candidates_ptr(), 65536).iter().all(|&x| x == 9876));
 }
 
 fn get<'a>(v: &'a Value, name: &str) -> &'a Value {

@@ -39,11 +39,11 @@ fn same(actual: &Record, expected: &Value) {
     assert_eq!(bits(&actual.row), bits(&expected.row));
     assert_eq!(bits(&actual.heap), bits(&expected.heap));
 }
-struct Lane {
+struct Twin {
     context: Context,
     calls: Rc<RefCell<VecDeque<Value>>>,
 }
-impl Lane {
+impl Twin {
     fn new() -> Self {
         let context = Context::new();
         let calls: Rc<RefCell<VecDeque<Value>>> = Rc::default();
@@ -74,7 +74,7 @@ fn native_world_consumers_match_existing_port_fixtures() {
         .spawn()
         .expect("run consumer fixtures");
     let reader = BufReader::new(child.stdout.take().unwrap());
-    let mut lanes: Vec<Lane> = Vec::new();
+    let mut twins: Vec<Twin> = Vec::new();
     let mut count = 0;
     let mut summary = false;
     for text in reader.lines() {
@@ -90,10 +90,10 @@ fn native_world_consumers_match_existing_port_fixtures() {
             continue;
         }
         let cx = get(&event, "cx").as_f64().unwrap() as usize;
-        while lanes.len() <= cx {
-            lanes.push(Lane::new());
+        while twins.len() <= cx {
+            twins.push(Twin::new());
         }
-        let Lane { context, calls } = &lanes[cx];
+        let Twin { context, calls } = &twins[cx];
         for (i, units) in get(&event, "strings")
             .as_array()
             .unwrap()
@@ -135,8 +135,8 @@ fn native_world_consumers_match_existing_port_fixtures() {
     assert!(child.wait().unwrap().success());
     assert!(summary);
     assert!(count > 0, "only {count} consumer records");
-    assert!(lanes.len() > 2);
-    for lane in lanes {
-        lane.context.dispose().unwrap();
+    assert!(twins.len() > 2);
+    for twin in twins {
+        twin.context.dispose().unwrap();
     }
 }

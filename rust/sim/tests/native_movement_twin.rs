@@ -4,11 +4,11 @@ mod trace;
 use std::{fs, path::Path, process::Command};
 #[test]
 fn native_movement_matches_two_wasm_instances_and_isolated_legacy_processes() {
-    if let Ok(lane) = std::env::var("BFE_MOVEMENT_LEGACY_LANE") {
-        let lane = lane.parse().unwrap();
+    if let Ok(twin) = std::env::var("BFE_MOVEMENT_LEGACY_CONTEXT") {
+        let twin = twin.parse().unwrap();
         let path = std::env::var("BFE_MOVEMENT_TRACE").unwrap();
-        trace::assert_no_legacy_exchange_use(Path::new(&path), lane);
-        let n = trace::replay(Path::new(&path), trace::Mode::Legacy, Some(lane));
+        trace::assert_no_legacy_exchange_use(Path::new(&path), twin);
+        let n = trace::replay(Path::new(&path), trace::Mode::Legacy, Some(twin));
         eprintln!(
             "isolated legacy movement: {n} exact records; native leaves legacy exchanges untouched"
         );
@@ -28,14 +28,14 @@ fn native_movement_matches_two_wasm_instances_and_isolated_legacy_processes() {
     );
     assert_eq!(trace::replay(&path, trace::Mode::Owned, None), 6720);
     assert_eq!(trace::replay(&path, trace::Mode::Stateful, None), 6720);
-    for lane in 0..2 {
+    for twin in 0..2 {
         assert!(Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "native_movement_matches_two_wasm_instances_and_isolated_legacy_processes",
                 "--nocapture"
             ])
-            .env("BFE_MOVEMENT_LEGACY_LANE", lane.to_string())
+            .env("BFE_MOVEMENT_LEGACY_CONTEXT", twin.to_string())
             .env("BFE_MOVEMENT_TRACE", &path)
             .status()
             .unwrap()

@@ -171,3 +171,59 @@ test('a native timed dispenser item expires once and credits its real thrower',a
   assert.equal(item.gone,true);assert.equal(world.items.items.length,0);
   assert.equal(blasts.length,1);assert.equal(blasts[0].def,expiry);assert.equal(blasts[0].owner,unit);
 });
+
+// The coordinator and command entries share retirement, but deliver their
+// explosion notices at different boundaries. Observe both so a later expiry
+// cannot hide behind an early harmless pop or a dispenser's eviction.
+async function timedFixture(maxItems=2) {
+  const blasts=[];
+  const expiry={class:'timed-blast',Damage:1,DamageRadiusInner:.1,DamageRadiusOuter:.1};
+  const pop={class:'timed-pop',Damage:0,DamageRadiusInner:.1,DamageRadiusOuter:.1};
+  const timed={...mine,class:'timed-bomb',LifeSpan:5,ExplosionExpire:expiry,ExplosionDeath:pop};
+  const world=await f3World({soldier:{...definition,weapons:[{...dispenser,item:timed,MaxItems:maxItems}]}},{
+    blastNotice:(def,event)=>blasts.push({def,owner:event.owner}),
+    itemOptions:{explode:(def,position,owner)=>blasts.push({def,owner})},
+  });
+  const unit=world.spawn('soldier',0,0,true,null),step=worldFrame(world,unit);
+  unit.combat.arsenal.weapons[0].random=world.ordnance.random;
+  return {world,unit,step,blasts,expiry,pop};
+}
+
+test('a timed bomb destroyed before its time pops harmlessly and never expires',async()=>{
+  const {world,unit,step,blasts,pop}=await timedFixture();
+  unit.intent.buttons[0]=1;step();unit.intent.buttons[0]=0;
+  const bomb=world.items.items[0];assert.equal(bomb.health,40);
+  world.items.hurt(bomb,41);
+  assert.equal(bomb.gone,true);assert.deepEqual(blasts,[{def:pop,owner:unit}]);
+  for(let i=0;i<360;i++)step();
+  assert.deepEqual(blasts,[{def:pop,owner:unit}]);assert.deepEqual(world.items.items,[]);
+  assert.deepEqual(world.items.ownedBy('layer',unit),[]);assert.equal(unit.health,2000);
+});
+
+test('items without an expiry explosion go away while an untimed land mine remains',async()=>{
+  const blasts=[];
+  const world=await f3World({soldier:{...definition,weapons:[]}},{
+    blastNotice:(def,event)=>blasts.push({def,owner:event.owner}),
+    itemOptions:{explode:(def,position,owner)=>blasts.push({def,owner})},
+  });
+  const step=worldFrame(world,world.spawn('soldier',80,80,true,null));
+  const pickup=world.items.spawn({class:'timed-pickup',base:'powerupitem',LifeSpan:30},new Vector3(0,.2,0),new Vector3(),0);
+  const landmine=world.items.spawn({...mine,class:'untimed-mine',LifeSpan:undefined,TriggerRadius:1},new Vector3(3,.2,0),new Vector3(),0);
+  for(let i=0;i<31*60;i++)step();
+  assert.equal(pickup.gone,true);assert.deepEqual(world.items.items,[landmine]);
+  assert.deepEqual(blasts,[]);assert.equal(landmine.health,40);
+});
+
+test('a thrower over MaxItems loses only the oldest bomb as a pop',async()=>{
+  const {world,unit,step,blasts,pop,expiry}=await timedFixture(1);
+  unit.intent.buttons[0]=1;step();const first=world.items.items[0];
+  unit.intent.buttons[0]=0;step();unit.intent.buttons[0]=1;step();unit.intent.buttons[0]=0;
+  const second=world.items.items[0];assert.notEqual(second,first);
+  assert.equal(first.gone,true);assert.deepEqual(world.items.items,[second]);
+  assert.deepEqual(world.items.ownedBy('layer',unit),[second]);
+  assert.deepEqual(blasts,[{def:pop,owner:unit}]);
+  for(let i=0;i<330;i++)step();
+  assert.equal(second.gone,true);assert.deepEqual(world.items.items,[]);
+  assert.deepEqual(world.items.ownedBy('layer',unit),[]);
+  assert.deepEqual(blasts,[{def:pop,owner:unit},{def:expiry,owner:unit}]);
+});

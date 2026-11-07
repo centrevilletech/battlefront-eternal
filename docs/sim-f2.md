@@ -12,8 +12,9 @@ Respawn preserves the Vehicle facade, increments its gameplay generation and
 resets that life. Slab retirement invalidates old references before slot reuse.
 
 AI intent comes from the native AI phase, which runs earlier in the same world
-tick (`rust/sim/src/world/step.rs`); the unit registry and building health and
-rebuild state are native as well (`rust/sim/src/battle`). Unit facts enter at phase entry,
+tick (`rust/sim/src/world/step.rs`). `src/registry.js` assigns the gameplay unit
+identities; native unit and battle owners retain authoritative gameplay state,
+including building health and rebuilding (`rust/sim/src/battle`). Unit facts enter at phase entry,
 before spawn callbacks can issue scalar commands. Logical latching stays in its
 original scheduler slot; a command amends only its touched canonical actors. Body changes, registry changes, remote flight keys and weapon modifiers
 use retained numeric baselines; only changed records cross. Cache baselines

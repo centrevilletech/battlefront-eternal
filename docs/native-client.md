@@ -8,7 +8,10 @@ repository.
 
 Build with `cargo build --manifest-path rust/Cargo.toml -p bfe-client` and run
 `bfe-client SESSION_DIR CONTENT_DIR`. `BFE_CONTENT_DIR` can supply the content
-root. `--pcm STEREO_F32LE` supplies a looping 48 kHz stereo test signal. The
+root. `--pcm STEREO_F32LE` supplies a looping 48 kHz stereo test signal.
+`--sound ARCHIVE_DIR` replays a recorded sound archive through the Rust audio
+master; choose either the archive or PCM input. `--desktop-gl` requests a
+desktop OpenGL 4.5 context instead of the default OpenGL ES 3.0 context. The
 `native-session` diagnostic uses the same window loop without opening an audio
 device and prints a framebuffer comparison before its last swap. Battle output
 lives in a fixed RGBA8 canvas target, then blits to the window. An overlapping
