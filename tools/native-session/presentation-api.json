@@ -1,0 +1,1065 @@
+[
+  {
+    "constructorArgs": [
+      [
+        "content",
+        " &str"
+      ]
+    ],
+    "class": "pagepresentation",
+    "name": "PagePresentation",
+    "methods": [
+      {
+        "name": "present_frame",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "header",
+        "type": "f64",
+        "pointer": "header_ptr",
+        "length": "header_len"
+      },
+      {
+        "name": "effects",
+        "type": "f64",
+        "pointer": "effects_ptr",
+        "length": "effects_len"
+      },
+      {
+        "name": "draws",
+        "type": "f64",
+        "pointer": "draws_ptr",
+        "length": "draws_len"
+      },
+      {
+        "name": "events",
+        "type": "f64",
+        "pointer": "events_ptr",
+        "length": "events_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pageunits",
+    "name": "PageUnits",
+    "methods": [
+      {
+        "name": "load_content",
+        "args": [
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize, String>"
+      },
+      {
+        "name": "add_actor",
+        "args": [
+          [
+            "content",
+            "usize"
+          ],
+          [
+            "inverses",
+            "&str"
+          ],
+          [
+            "attachments",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize, String>"
+      },
+      {
+        "name": "add_view",
+        "args": [
+          [
+            "data",
+            "&str"
+          ],
+          [
+            "attachments",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize, String>"
+      },
+      {
+        "name": "unbind_network",
+        "args": [
+          [
+            "actor",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "present_units",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "present_first_person",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "place_actors",
+        "args": [
+          [
+            "count",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "refresh_actor",
+        "args": [
+          [
+            "id",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "bind_network",
+        "args": [
+          [
+            "network",
+            "&PageNetwork"
+          ],
+          [
+            "slot",
+            "usize"
+          ],
+          [
+            "id",
+            "f64"
+          ],
+          [
+            "generation",
+            "f64"
+          ],
+          [
+            "kind",
+            "f64"
+          ]
+        ],
+        "result": "Result<(),String>"
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "commands",
+        "type": "f64",
+        "pointer": "commands_ptr",
+        "length": "commands_len"
+      },
+      {
+        "name": "output",
+        "type": "f64",
+        "pointer": "output_ptr",
+        "length": "output_len"
+      },
+      {
+        "name": "nodes",
+        "type": "f64",
+        "pointer": "nodes_ptr",
+        "length": "nodes_len"
+      },
+      {
+        "name": "places",
+        "type": "u32",
+        "pointer": "places_ptr",
+        "length": "places_len"
+      },
+      {
+        "name": "changed",
+        "type": "u32",
+        "pointer": "changed_ptr",
+        "length": "changed_len"
+      },
+      {
+        "name": "skin",
+        "type": "f32",
+        "pointer": "skin_ptr",
+        "length": "skin_len"
+      },
+      {
+        "name": "header",
+        "type": "f64",
+        "pointer": "header_ptr",
+        "length": "header_len"
+      },
+      {
+        "name": "weapons",
+        "type": "f64",
+        "pointer": "weapons_ptr",
+        "length": "weapons_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pageprops",
+    "name": "PageProps",
+    "methods": [
+      {
+        "name": "load_clip",
+        "args": [
+          [
+            "frames",
+            "usize"
+          ],
+          [
+            "fps",
+            "f64"
+          ],
+          [
+            "root_motion",
+            "bool"
+          ],
+          [
+            "tracks",
+            "Vec<i32>"
+          ],
+          [
+            "data",
+            "Vec<f32>"
+          ]
+        ],
+        "result": "u32"
+      },
+      {
+        "name": "add_prop",
+        "args": [
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize, String>"
+      },
+      {
+        "name": "add_trap",
+        "args": [
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize, String>"
+      },
+      {
+        "name": "add_turret",
+        "args": [
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize, String>"
+      },
+      {
+        "name": "present_props",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "turret_input",
+        "type": "f64",
+        "pointer": "turret_input_ptr",
+        "length": "turret_input_len"
+      },
+      {
+        "name": "nodes",
+        "type": "f64",
+        "pointer": "nodes_ptr",
+        "length": "nodes_len"
+      },
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "prop_input",
+        "type": "f64",
+        "pointer": "prop_input_ptr",
+        "length": "prop_input_len"
+      },
+      {
+        "name": "prop_output",
+        "type": "f64",
+        "pointer": "prop_output_ptr",
+        "length": "prop_output_len"
+      },
+      {
+        "name": "trap_input",
+        "type": "f64",
+        "pointer": "trap_input_ptr",
+        "length": "trap_input_len"
+      },
+      {
+        "name": "trap_output",
+        "type": "f64",
+        "pointer": "trap_output_ptr",
+        "length": "trap_output_len"
+      },
+      {
+        "name": "events",
+        "type": "f64",
+        "pointer": "events_ptr",
+        "length": "events_len"
+      },
+      {
+        "name": "header",
+        "type": "f64",
+        "pointer": "header_ptr",
+        "length": "header_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagevehicles",
+    "name": "PageVehicles",
+    "methods": [
+      {
+        "name": "load_clip",
+        "args": [
+          [
+            "frames",
+            "usize"
+          ],
+          [
+            "fps",
+            "f64"
+          ],
+          [
+            "root_motion",
+            "bool"
+          ],
+          [
+            "tracks",
+            "Vec<i32>"
+          ],
+          [
+            "data",
+            "Vec<f32>"
+          ]
+        ],
+        "result": "u32"
+      },
+      {
+        "name": "add_rig",
+        "args": [
+          [
+            "data",
+            "&str"
+          ]
+        ],
+        "result": "Result<usize, String>"
+      },
+      {
+        "name": "unbind_network",
+        "args": [
+          [
+            "rig",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "place_hulls",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "pose_hulls",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "bind_network",
+        "args": [
+          [
+            "network",
+            "&PageNetwork"
+          ],
+          [
+            "slot",
+            "usize"
+          ],
+          [
+            "id",
+            "f64"
+          ],
+          [
+            "generation",
+            "f64"
+          ],
+          [
+            "kind",
+            "f64"
+          ]
+        ],
+        "result": "Result<(),String>"
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "stream_in",
+        "type": "f64",
+        "pointer": "stream_in_ptr",
+        "length": "stream_in_len"
+      },
+      {
+        "name": "stream_out",
+        "type": "f64",
+        "pointer": "stream_out_ptr",
+        "length": "stream_out_len"
+      },
+      {
+        "name": "header",
+        "type": "f64",
+        "pointer": "header_ptr",
+        "length": "header_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pageitems",
+    "name": "PageItems",
+    "methods": [
+      {
+        "name": "define_item",
+        "args": [
+          [
+            "index",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "apply_item_records",
+        "args": [
+          [
+            "count",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "reset_items",
+        "args": [
+          [
+            "epoch",
+            "f64"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "present_items",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "resume_items",
+        "args": [
+          [
+            "abandon",
+            "bool"
+          ]
+        ],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "frame",
+        "type": "f64",
+        "pointer": "frame_ptr",
+        "length": "frame_len"
+      },
+      {
+        "name": "records",
+        "type": "f64",
+        "pointer": "records_ptr",
+        "length": "records_len"
+      },
+      {
+        "name": "definitions",
+        "type": "f64",
+        "pointer": "definitions_ptr",
+        "length": "definitions_len"
+      },
+      {
+        "name": "requests",
+        "type": "f64",
+        "pointer": "requests_ptr",
+        "length": "requests_len"
+      },
+      {
+        "name": "answers",
+        "type": "f64",
+        "pointer": "answers_ptr",
+        "length": "answers_len"
+      },
+      {
+        "name": "views",
+        "type": "f64",
+        "pointer": "views_ptr",
+        "length": "views_len"
+      },
+      {
+        "name": "releases",
+        "type": "f64",
+        "pointer": "releases_ptr",
+        "length": "releases_len"
+      },
+      {
+        "name": "ripples",
+        "type": "f64",
+        "pointer": "ripples_ptr",
+        "length": "ripples_len"
+      },
+      {
+        "name": "header",
+        "type": "f64",
+        "pointer": "header_ptr",
+        "length": "header_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pageordnance",
+    "name": "PageOrdnance",
+    "methods": [
+      {
+        "name": "set_style",
+        "args": [
+          [
+            "index",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "flush_net",
+        "args": [
+          [
+            "count",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "present_ordnance",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "net",
+        "type": "f64",
+        "pointer": "net_ptr",
+        "length": "net_len"
+      },
+      {
+        "name": "style",
+        "type": "f64",
+        "pointer": "style_ptr",
+        "length": "style_len"
+      },
+      {
+        "name": "header",
+        "type": "f64",
+        "pointer": "header_ptr",
+        "length": "header_len"
+      },
+      {
+        "name": "calls",
+        "type": "f64",
+        "pointer": "calls_ptr",
+        "length": "calls_len"
+      },
+      {
+        "name": "counts",
+        "type": "u32",
+        "pointer": "counts_ptr",
+        "length": "counts_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagenetwork",
+    "name": "PageNetwork",
+    "methods": [
+      {
+        "name": "close",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "timeline_push",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "timeline_options",
+        "args": [
+          [
+            "maximum",
+            "usize"
+          ],
+          [
+            "hz",
+            "f64"
+          ],
+          [
+            "extrapolate",
+            "f64"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "timeline_setup",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "receive_setup",
+        "args": [],
+        "result": ""
+      },
+      {
+        "name": "lookup",
+        "args": [
+          [
+            "kind",
+            "u32"
+          ],
+          [
+            "id",
+            "f64"
+          ]
+        ],
+        "result": "bool"
+      },
+      {
+        "name": "capture",
+        "args": [
+          [
+            "tick",
+            "f64"
+          ]
+        ],
+        "result": "String"
+      },
+      {
+        "name": "set_bounds",
+        "args": [
+          [
+            "x",
+            "f64"
+          ],
+          [
+            "dx",
+            "f64"
+          ],
+          [
+            "z",
+            "f64"
+          ],
+          [
+            "dz",
+            "f64"
+          ],
+          [
+            "y",
+            "f64"
+          ],
+          [
+            "dy",
+            "f64"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "receive",
+        "args": [
+          [
+            "length",
+            "usize"
+          ]
+        ],
+        "result": "Result<(),String>"
+      },
+      {
+        "name": "reset",
+        "args": [
+          [
+            "epoch",
+            "f64"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "remove",
+        "args": [
+          [
+            "id",
+            "f64"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "present",
+        "args": [
+          [
+            "tick",
+            "f64"
+          ],
+          [
+            "player",
+            "f64"
+          ],
+          [
+            "vehicle",
+            "f64"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "inspect",
+        "args": [
+          [
+            "op",
+            "u32"
+          ],
+          [
+            "length",
+            "usize"
+          ]
+        ],
+        "result": "Result<usize,String>"
+      },
+      {
+        "name": "outbound_new",
+        "args": [],
+        "result": "usize"
+      },
+      {
+        "name": "outbound_drop",
+        "args": [
+          [
+            "id",
+            "usize"
+          ]
+        ],
+        "result": ""
+      },
+      {
+        "name": "outbound_run",
+        "args": [
+          [
+            "id",
+            "usize"
+          ],
+          [
+            "op",
+            "u32"
+          ],
+          [
+            "length",
+            "usize"
+          ]
+        ],
+        "result": "Result<(),String>"
+      },
+      {
+        "name": "encode",
+        "args": [
+          [
+            "op",
+            "u32"
+          ],
+          [
+            "length",
+            "usize"
+          ]
+        ],
+        "result": "Result<usize,String>"
+      }
+    ],
+    "banks": [
+      {
+        "name": "bytes",
+        "type": "u8",
+        "pointer": "bytes_ptr",
+        "length": "bytes_len"
+      },
+      {
+        "name": "words",
+        "type": "f64",
+        "pointer": "words_ptr",
+        "length": "words_len"
+      },
+      {
+        "name": "numbers",
+        "type": "f64",
+        "pointer": "numbers_ptr",
+        "length": "numbers_len"
+      },
+      {
+        "name": "encoded",
+        "type": "u8",
+        "pointer": "encoded_ptr",
+        "length": "encoded_len"
+      },
+      {
+        "name": "inspection",
+        "type": "f64",
+        "pointer": "inspection_ptr",
+        "length": "inspection_len"
+      },
+      {
+        "name": "timeline_input",
+        "type": "f64",
+        "pointer": "timeline_input_ptr",
+        "length": "timeline_input_len"
+      },
+      {
+        "name": "timeline_output",
+        "type": "f64",
+        "pointer": "timeline_output_ptr",
+        "length": "timeline_output_len"
+      },
+      {
+        "name": "header",
+        "type": "f64",
+        "pointer": "header_ptr",
+        "length": "header_len"
+      },
+      {
+        "name": "records",
+        "type": "f64",
+        "pointer": "records_ptr",
+        "length": "records_len"
+      },
+      {
+        "name": "seats",
+        "type": "f64",
+        "pointer": "seats_ptr",
+        "length": "seats_len"
+      },
+      {
+        "name": "payloads",
+        "type": "u8",
+        "pointer": "payloads_ptr",
+        "length": "payloads_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pagewarning",
+    "name": "PageWarning",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "row",
+        "type": "f64",
+        "pointer": "row_ptr",
+        "length": "row_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [
+      [
+        "count",
+        " usize"
+      ]
+    ],
+    "class": "pagelights",
+    "name": "PageLights",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "input",
+        "type": "f64",
+        "pointer": "input_ptr",
+        "length": "input_len"
+      },
+      {
+        "name": "commands",
+        "type": "f64",
+        "pointer": "commands_ptr",
+        "length": "commands_len"
+      },
+      {
+        "name": "output",
+        "type": "f64",
+        "pointer": "output_ptr",
+        "length": "output_len"
+      },
+      {
+        "name": "handles",
+        "type": "f64",
+        "pointer": "handles_ptr",
+        "length": "handles_len"
+      },
+      {
+        "name": "header",
+        "type": "f64",
+        "pointer": "header_ptr",
+        "length": "header_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [
+      [
+        "groups",
+        " &str"
+      ]
+    ],
+    "class": "pageshellmusic",
+    "name": "PageShellMusic",
+    "methods": [
+      {
+        "name": "frame",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "row",
+        "type": "f64",
+        "pointer": "row_ptr",
+        "length": "row_len"
+      }
+    ]
+  },
+  {
+    "constructorArgs": [],
+    "class": "pageinterfacebatch",
+    "name": "PageInterfaceBatch",
+    "methods": [
+      {
+        "name": "step",
+        "args": [],
+        "result": ""
+      }
+    ],
+    "banks": [
+      {
+        "name": "frame",
+        "type": "f64",
+        "pointer": "frame_ptr",
+        "length": "frame_len"
+      },
+      {
+        "name": "commands",
+        "type": "f64",
+        "pointer": "commands_ptr",
+        "length": "commands_len"
+      },
+      {
+        "name": "position",
+        "type": "f32",
+        "pointer": "position_ptr",
+        "length": "position_len"
+      },
+      {
+        "name": "uv",
+        "type": "f32",
+        "pointer": "uv_ptr",
+        "length": "uv_len"
+      },
+      {
+        "name": "mask",
+        "type": "f32",
+        "pointer": "mask_ptr",
+        "length": "mask_len"
+      },
+      {
+        "name": "tint",
+        "type": "f32",
+        "pointer": "tint_ptr",
+        "length": "tint_len"
+      },
+      {
+        "name": "dirty",
+        "type": "u8",
+        "pointer": "dirty_ptr",
+        "length": "dirty_len"
+      }
+    ]
+  }
+]

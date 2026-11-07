@@ -12,8 +12,11 @@ const MAX_STEPS: usize = 8;
 /// their storage; the host borrows it only until the renderer finishes copying.
 /// No callback reaches a device from inside a simulation entity loop.
 pub trait World {
+    type Frame: ?Sized;
+    /// A live owner changes this when its controlled player respawns.
+    fn generation(&self) -> u32 { 1 }
     fn step(&mut self, command: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, view: &ViewActions, dt: f64) -> Result<(), String>;
-    fn present(&mut self, alpha: f64) -> &Frame;
+    fn present(&mut self, alpha: f64) -> &Self::Frame;
 }
 
 // Captured rows are immutable load-time data. They exercise native device
@@ -31,6 +34,7 @@ impl CaptureWorld {
     pub fn frame(&self, index: usize) -> Option<&Frame> { self.frames.get(index) }
 }
 impl World for CaptureWorld {
+    type Frame = Frame;
     // Captures have no authoritative gameplay. Advancing the source at fixed
     // ticks preserves replay speed on displays whose refresh differs from 60 Hz.
     fn step(&mut self, _command: &ClientCommand, _look: &ClientLook, _flight: &ClientFlightCommand, _view: &ViewActions, _dt: f64) -> Result<(), String> {
@@ -57,7 +61,7 @@ impl<W: World> Host<W> {
     // Limit debt once at frame admission. A long load cannot run an unbounded
     // catch-up loop, duplicate press actions or starve the window event queue.
     // Fractional authority time is passed explicitly to presentation.
-    pub fn frame(&mut self, elapsed: f64) -> Result<&Frame, String> {
+    pub fn frame(&mut self, elapsed: f64) -> Result<&W::Frame, String> {
         let elapsed = if elapsed.is_finite() { elapsed.clamp(0.0, STEP * MAX_STEPS as f64) } else { 0.0 };
         self.accumulator += elapsed;
         let mut steps = 0;
@@ -65,7 +69,7 @@ impl<W: World> Host<W> {
             self.tick = self.tick.wrapping_add(1);
             // Each completed step consumes a fresh command sequence, including
             // catch-up steps whose held state remains unchanged.
-            let (command, look) = self.input.take(self.tick, 1);
+            let (command, look) = self.input.take(self.tick, self.world.generation());
             let flight = self.input.take_flight();
             let view = self.input.take_view();
             self.world.step(&command, &look, &flight, &view, STEP)?;

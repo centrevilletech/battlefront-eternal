@@ -140,7 +140,7 @@ impl<C: HasContext> HudPass<C> {
         {
             let (gl, state, stats) = (&core.gl, &mut core.state, &mut core.stats);
             unsafe {
-                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                #[cfg(target_arch = "wasm32")] gl.bind_framebuffer(glow::FRAMEBUFFER, None); #[cfg(not(target_arch = "wasm32"))] gl.bind_framebuffer(glow::FRAMEBUFFER, core.canvas_framebuffer);
                 gl.viewport(0, 0, input[IN_VIEWPORT] as i32, input[IN_VIEWPORT + 1] as i32);
             }
             stats.gl_calls += 2;

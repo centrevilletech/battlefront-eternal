@@ -118,7 +118,7 @@ struct Uniform<C: HasContext> {
     location: Option<C::UniformLocation>,
     ty: u32,
     unit: u32,
-    value: Vec<f32>,
+    value: Vec<f32>, #[cfg(not(target_arch = "wasm32"))] ints: Vec<i32>,
 }
 
 #[derive(Clone)]
@@ -290,7 +290,7 @@ impl<C: HasContext> FarPass<C> {
                     }
                 };
             }
-            uniforms.push(Uniform { location, ty, unit, value: vec![f32::NAN; floats] });
+            uniforms.push(Uniform { location, ty, unit, value: vec![f32::NAN; floats], #[cfg(not(target_arch = "wasm32"))] ints: vec![0; floats] });
         }
         if !assign.is_empty() {
             unsafe {
@@ -778,7 +778,7 @@ impl<C: HasContext> FarPass<C> {
                     FLOAT_MAT3 => gl.uniform_matrix_3_f32_slice(l, false, value),
                     FLOAT_MAT4 => gl.uniform_matrix_4_f32_slice(l, false, value),
                     _ => {
-                        let ints: Vec<i32> = value.iter().map(|&v| v as i32).collect();
+                        #[cfg(target_arch = "wasm32")] let ints: Vec<i32> = value.iter().map(|&v| v as i32).collect(); #[cfg(not(target_arch = "wasm32"))] let ints = { for (out, &v) in uniform.ints.iter_mut().zip(value.iter()) { *out = v as i32; } &uniform.ints };
                         gl.uniform_1_i32_slice(l, &ints);
                     }
                 }

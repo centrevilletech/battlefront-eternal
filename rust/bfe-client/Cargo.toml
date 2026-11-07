@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
 publish = false
+default-run = "bfe-client"
 description = "Window, input and audio device host for the native renderer"
 
 [dependencies]
@@ -17,3 +18,12 @@ winit = { version = "0.30", default-features = false, features = ["x11", "rwh_06
 raw-window-handle = "0.6"
 cpal = "0.15"
 serde_json = "1"
+
+serde = { version = "1", features = ["derive"] }
+bfe-content-native = { path = "../bfe-content-native" }
+bfe-presentation = { path = "../bfe-presentation", default-features = false }
+bfe-pose = { path = "../bfe-pose" }
+sha2 = "0.10"
+
+audio-control = { path = "../audio-control" }
+three = { path = "../three" }

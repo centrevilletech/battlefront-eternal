@@ -1,0 +1,23 @@
+[package]
+name = "bfe-content-native"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Prepared battle content and visual resource admission for native hosts"
+
+[dependencies]
+content = { path = "../content" }
+bfe-render = { path = "../bfe-render" }
+bfe-presentation = { path = "../bfe-presentation", default-features = false }
+bfe-pose = { path = "../bfe-pose" }
+basis-transcode = { path = "../basis-transcode" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+glow = "0.18"
+sha2 = "0.10"
+
+three = { path = "../three" }
+
+[dev-dependencies]
+png = "0.18"

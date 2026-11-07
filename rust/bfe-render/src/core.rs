@@ -385,7 +385,7 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub log: Vec<String>,
     // The first failure a pass met where it cannot return one (a draw run inside
     // the transparent sort); the phase's end hands it back to the page as its error.
-    pub fault: Option<String>,
+    pub fault: Option<String>, #[cfg(not(target_arch = "wasm32"))] pub canvas_framebuffer: Option<C::Framebuffer>,
 }
 
 pub(crate) fn upload_texture<C: HasContext>(gl: &C, width: i32, height: i32) -> C::Texture {
@@ -468,7 +468,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             gl, multi, programs: vec![], owned_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
-            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![], fault: None,
+            input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
         }
     }
 
@@ -869,8 +869,8 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             unsafe {
                 // Three's last image upload may have flipped rows. The lamp
                 // table is addressed by source index, so keep its row order.
-                self.gl.pixel_store_bool(0x9240, false); // UNPACK_FLIP_Y_WEBGL
-                self.gl.pixel_store_bool(0x9241, false); // UNPACK_PREMULTIPLY_ALPHA_WEBGL
+                #[cfg(target_arch = "wasm32")] self.gl.pixel_store_bool(0x9240, false); // WebGL-only unpack flag
+                #[cfg(target_arch = "wasm32")] self.gl.pixel_store_bool(0x9241, false); // Native GL uploads already use raw rows
 
                 self.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
                 crate::core::spare_view_slot();
@@ -915,7 +915,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
                 gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::DEPTH_ATTACHMENT, glow::TEXTURE_2D, Some(t), 0);
             }
             let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
-            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            #[cfg(target_arch = "wasm32")] gl.bind_framebuffer(glow::FRAMEBUFFER, None); #[cfg(not(target_arch = "wasm32"))] gl.bind_framebuffer(glow::FRAMEBUFFER, self.canvas_framebuffer);
             self.stats.gl_calls += 6;
             if status != glow::FRAMEBUFFER_COMPLETE {
                 gl.delete_framebuffer(fb);
@@ -928,7 +928,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     // One of the renderer's framebuffers (None: the canvas's) on a target.
     pub fn bind_framebuffer(&mut self, target: u32, framebuffer: Option<u32>) {
         let fb = framebuffer.map(|i| self.framebuffers[i as usize].2);
-        unsafe { self.gl.bind_framebuffer(target, fb) };
+        #[cfg(not(target_arch = "wasm32"))] let fb = fb.or(self.canvas_framebuffer); unsafe { self.gl.bind_framebuffer(target, fb) };
         self.stats.gl_calls += 1;
     }
 
@@ -955,4 +955,24 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         self.stats.gl_calls += 2;
         match self.fault.take() { Some(error) => Err(error), None => Ok(self.stats) }
     }
+}
+
+// Native motion draws need only remember the four owned shader families.
+// A full set may repeat a uniform update; it must never allocate or refuse
+// a draw when a diagnostic registers additional program variants.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) struct NativeProgramSet { values: [usize; 4], len: usize }
+#[cfg(not(target_arch = "wasm32"))]
+impl NativeProgramSet {
+    pub fn new() -> Self { Self { values: [0; 4], len: 0 } }
+    pub fn contains(&self, value: &usize) -> bool { self.values[..self.len].contains(value) }
+    pub fn push(&mut self, value: usize) { if self.len < self.values.len() { self.values[self.len] = value; self.len += 1; } }
+}
+
+// Native cold descriptor admission resolves slots without exposing program
+// storage or GL reflection to the host. Browser admission stays internal.
+#[cfg(not(target_arch = "wasm32"))]
+impl<C: HasContext,M: MultiDraw> Core<C,M> {
+    pub fn native_texture_count(&self)->usize {self.textures.len()}
+    pub fn native_uniform_slot(&self,program:u32,name:&str)->Option<usize>{self.programs.get(program as usize)?.uniforms.iter().position(|(n,_,_)|n==name)}
 }

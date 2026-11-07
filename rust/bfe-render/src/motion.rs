@@ -346,7 +346,7 @@ impl<C: HasContext> MotionPass<C> {
         // Runs of consecutive records drawn alike, one instanced draw each, in
         // the page's order.
         let key = |rec: &[f64]| [rec[REC_KIND], rec[REC_PROGRAM], rec[REC_GEOMETRY], rec[REC_FIRST], rec[REC_COUNT], rec[REC_SIDE]];
-        let mut set: Vec<usize> = Vec::with_capacity(4);
+        #[cfg(target_arch = "wasm32")] let mut set: Vec<usize> = Vec::with_capacity(4); #[cfg(not(target_arch = "wasm32"))] let mut set = crate::core::NativeProgramSet::new();
         let mut i = 0;
         while i < records {
             let rec = &self.input[IN_RECORDS + i * REC_STRIDE..IN_RECORDS + (i + 1) * REC_STRIDE];

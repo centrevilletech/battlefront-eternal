@@ -319,3 +319,21 @@ impl Stream {
         }
     }
 }
+
+// The native output binds from its device callback. Reset the logical bed
+// as new() does, retaining all admitted PCM scratch, filters and delay rings.
+#[cfg(not(target_arch = "wasm32"))]
+impl Stream {
+    pub fn reset(&mut self, rate: f64) {
+        self.on=false;self.channels=1;self.kind=0;self.spatial=false;
+        self.gain=Timeline::new(1.0);
+        self.cutoff=Timeline::new(20000.0f64.min(rate/2.0) as f32);
+        self.send=Timeline::new(0.0);self.sources=[Source::default();3];
+        self.output.fill(0.0);self.direction=[0.0,0.0,-1.0];
+        self.positions=[Timeline::new(0.0),Timeline::new(0.0),Timeline::new(-1.0)];
+        self.filter.clear();self.side.fill(0.0);
+        self.upmix_filter=crate::biquad::Biquad::new(crate::biquad::Kind::Lowpass,7000.0,1.0,0.0,rate);
+        for delay in &mut self.delays {delay.fill(0.0);}
+        self.delay_at=[0;4];self.gains.fill(0.0);
+    }
+}

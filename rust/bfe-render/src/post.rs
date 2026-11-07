@@ -236,7 +236,7 @@ impl<C: HasContext> PostPass<C> {
             let fb = gl.create_framebuffer().unwrap();
             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
             gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(core.textures[texture as usize]), 0);
-            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            #[cfg(target_arch = "wasm32")] gl.bind_framebuffer(glow::FRAMEBUFFER, None); #[cfg(not(target_arch = "wasm32"))] gl.bind_framebuffer(glow::FRAMEBUFFER, core.canvas_framebuffer);
             self.targets.push(fb);
         }
         (self.targets.len() - 1) as u32
@@ -275,7 +275,7 @@ impl<C: HasContext> PostPass<C> {
             if target != TARGET_BOUND {
                 let gl = &core.gl;
                 unsafe {
-                    gl.bind_framebuffer(glow::FRAMEBUFFER, if target < 0.0 { None } else { self.targets.get(target as usize).copied() });
+                    let fb = if target < 0.0 { None } else { self.targets.get(target as usize).copied() }; #[cfg(not(target_arch = "wasm32"))] let fb = fb.or(core.canvas_framebuffer); gl.bind_framebuffer(glow::FRAMEBUFFER, fb);
                     gl.viewport(0, 0, step[STEP_WIDTH] as i32, step[STEP_HEIGHT] as i32);
                 }
                 core.stats.gl_calls += 2;

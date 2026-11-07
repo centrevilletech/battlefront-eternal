@@ -129,15 +129,39 @@ name = "bfe-client"
 version = "0.1.0"
 dependencies = [
  "audio",
+ "audio-control",
+ "bfe-content-native",
  "bfe-native",
+ "bfe-pose",
+ "bfe-presentation",
  "bfe-render",
  "cpal",
  "glow",
  "glutin",
  "glutin-winit",
  "raw-window-handle",
+ "serde",
  "serde_json",
+ "sha2",
+ "three",
  "winit",
+]
+
+[[package]]
+name = "bfe-content-native"
+version = "0.1.0"
+dependencies = [
+ "basis-transcode",
+ "bfe-pose",
+ "bfe-presentation",
+ "bfe-render",
+ "content",
+ "glow",
+ "png",
+ "serde",
+ "serde_json",
+ "sha2",
+ "three",
 ]
 
 [[package]]

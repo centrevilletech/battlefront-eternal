@@ -67,6 +67,14 @@ impl MasterOutput {
     }
 }
 
+// Both sources end in the existing Rust output chain. Selecting a source is
+// cold admission; each callback retains its processor and partial quantum.
+enum DeviceOutput { Pcm(MasterOutput), Sound(crate::sound::SoundOutput) }
+impl DeviceOutput {
+    fn fill<T: SizedSample + FromSample<f32>>(&mut self, data: &mut [T], status: &Status) {
+        match self { Self::Pcm(p) => p.fill(data,status), Self::Sound(s) => s.fill(data,status) }
+    }
+}
 // Keep the stream alive for the complete window lifetime. Dropping it stops
 // callbacks before the last shared diagnostic reference is released.
 pub struct AudioDevice {
@@ -77,6 +85,12 @@ impl AudioDevice {
     // Startup negotiates one supported sample format. Runtime errors are
     // visible to the window host; they never choose another render chain.
     pub fn open(pcm: Vec<f32>, rate: u32) -> Result<Self, String> {
+        Self::open_output(DeviceOutput::Pcm(MasterOutput::new(rate,pcm)?),rate)
+    }
+    pub fn open_sound(sound: crate::sound::SoundOutput) -> Result<Self,String> {
+        Self::open_output(DeviceOutput::Sound(sound),48000)
+    }
+    fn open_output(output: DeviceOutput, rate: u32) -> Result<Self,String> {
         let device = cpal::default_host().default_output_device().ok_or("no audio output device")?;
         // Explicit rate and stereo prevent accidental speed or channel changes.
         // The loader will eventually decode directly to this admitted rate.
@@ -86,7 +100,6 @@ impl AudioDevice {
             .ok_or("audio device does not support stereo at the requested rate")?.with_sample_rate(cpal::SampleRate(rate));
         let format = supported.sample_format();
         let config = supported.config();
-        let output = MasterOutput::new(rate, pcm)?;
         let status = Arc::new(Status::default());
         let stream = match format {
             cpal::SampleFormat::F32 => build::<f32>(&device, &config, output, &status),
@@ -109,7 +122,7 @@ impl AudioDevice {
 // Sample conversion is selected once through the generic callback. There is
 // no format switch, allocation, message queue or mutex in the sample loop.
 fn build<T: SizedSample + FromSample<f32>>(device: &cpal::Device, config: &cpal::StreamConfig,
-    mut output: MasterOutput, status: &Arc<Status>) -> Result<cpal::Stream, String> {
+    mut output: DeviceOutput, status: &Arc<Status>) -> Result<cpal::Stream, String> {
     let rendered = status.clone();
     let failed = status.clone();
     device.build_output_stream(config, move |data: &mut [T], _| output.fill(data, &rendered),

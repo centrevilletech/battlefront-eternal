@@ -303,7 +303,7 @@ impl Output {
     }
     // StreamOut.start can learn the channel width from its first segment.
     // Rebinding its routing must preserve already-scheduled segment cursors and
-    // the shared gain, while recreating format-dependent filter/panner state.
+    #[cfg(target_arch = "wasm32")]
     pub fn stream(&mut self, slot: usize, channels: usize, kind: u32, spatial: bool) {
         let on = self.streams[slot].on;
         let gain = self.streams[slot].gain;
@@ -1014,5 +1014,36 @@ fn stereo_pan(meta: &mut Placement, input: &[f32], mix: &mut [f32], block: u64, 
         let a = (scratch[i].clamp(-1.0, 1.0) as f64 + 1.0) * PI / 4.0;
         mix[i] += input[i] * host::cos(a) as f32;
         mix[FRAMES + i] += input[i] * host::sin(a) as f32;
+    }
+}
+
+// Device callbacks bind between quanta. Keep their storage policy separate
+// from the worklet's cold message handler, with the same routing and cursors.
+#[cfg(not(target_arch = "wasm32"))]
+impl Output {
+    /// StreamOut.start's native bind reuses every admitted bed buffer.
+    pub fn stream(&mut self, slot: usize, channels: usize, kind: u32, spatial: bool) {
+        let on=self.streams[slot].on;
+        let gain=self.streams[slot].gain;
+        let sources=self.streams[slot].sources;
+        self.streams[slot].reset(self.rate);
+        let channels=channels.min(CHANNELS);
+        self.streams[slot].configure(channels,kind,spatial);
+        if on {self.streams[slot].gain=gain;self.streams[slot].sources=sources;}
+        let rate=self.rate;
+        self.streams[slot].filter.resize_with(channels,||Biquad::new(Kind::Lowpass,(rate/2.0) as f32,-3.0103,0.0,rate));
+        self.placements[VOICES+slot]=Placement::default();
+        self.placements[VOICES+slot].active=true;
+        self.placements[VOICES+slot].spatial=spatial;
+        self.route_stream(slot);
+    }
+    /// AudioOutput::controls reserves both forwarding banks before playback.
+    /// Source binds have the same allocation bound from the first callback.
+    pub fn reserve_controls(&mut self, words: usize) {
+        let words=words.min(65536);
+        self.commands.resize(words,0.0);
+        self.voice_commands.reserve(words);
+        self.voices.command_storage(words);
+        for stream in &mut self.streams {stream.filter.reserve(CHANNELS);}
     }
 }

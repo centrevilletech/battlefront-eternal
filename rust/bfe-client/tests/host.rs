@@ -74,6 +74,7 @@ struct Probe {
     alpha: f64,
 }
 impl World for Probe {
+    type Frame = Frame;
     fn step(&mut self, command: &ClientCommand, _look: &ClientLook, _flight: &ClientFlightCommand, _view: &bfe_client::input::ViewActions, dt: f64) -> Result<(), String> {
         assert_eq!(dt, STEP);
         assert!(command.sequence > self.last_sequence);

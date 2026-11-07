@@ -1,0 +1,2206 @@
+{
+  "class": "bferenderer",
+  "methods": [
+    {
+      "name": "canopies_mesh",
+      "args": [
+        [
+          "max",
+          "u32"
+        ]
+      ],
+      "result": "Result<(), String>"
+    },
+    {
+      "name": "fx_reserve",
+      "args": [
+        [
+          "floats",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_add_owner",
+      "args": [
+        [
+          "tracks",
+          "u32"
+        ],
+        [
+          "track_rows",
+          "f32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "fx_add_batch",
+      "args": [
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ],
+        [
+          "blend",
+          "&[u32]"
+        ],
+        [
+          "corner",
+          "u32"
+        ],
+        [
+          "attributes",
+          "&[u32]"
+        ],
+        [
+          "owner",
+          "i32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "fx_batch_texture",
+      "args": [
+        [
+          "batch",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_batch_values",
+      "args": [
+        [
+          "batch",
+          "u32"
+        ],
+        [
+          "values",
+          "&str"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_batch_interleaved",
+      "args": [
+        [
+          "batch",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_batch_side",
+      "args": [
+        [
+          "batch",
+          "u32"
+        ],
+        [
+          "side",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_batch_depth",
+      "args": [
+        [
+          "batch",
+          "u32"
+        ],
+        [
+          "flags",
+          "u32"
+        ],
+        [
+          "func",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_batch_sampler",
+      "args": [
+        [
+          "batch",
+          "u32"
+        ],
+        [
+          "name",
+          "&str"
+        ],
+        [
+          "unit",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_batch_sampler_3d",
+      "args": [
+        [
+          "batch",
+          "u32"
+        ],
+        [
+          "name",
+          "&str"
+        ],
+        [
+          "unit",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_batch_base",
+      "args": [
+        [
+          "batch",
+          "u32"
+        ],
+        [
+          "attributes",
+          "&[u32]"
+        ],
+        [
+          "vertices",
+          "u32"
+        ],
+        [
+          "data",
+          "&[f32]"
+        ],
+        [
+          "index",
+          "&[u16]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_add_mesh",
+      "args": [
+        [
+          "texture",
+          "i32"
+        ],
+        [
+          "blend",
+          "&[u32]"
+        ],
+        [
+          "depth_flags",
+          "u32"
+        ],
+        [
+          "depth_func",
+          "u32"
+        ],
+        [
+          "sizes",
+          "&[u32]"
+        ],
+        [
+          "values",
+          "&str"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "fx_mesh_pass",
+      "args": [
+        [
+          "mesh",
+          "u32"
+        ],
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "side",
+          "u32"
+        ],
+        [
+          "locations",
+          "&[u32]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "fx_mesh_texture",
+      "args": [
+        [
+          "mesh",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_add_model",
+      "args": [
+        [
+          "texture",
+          "i32"
+        ],
+        [
+          "blend",
+          "&[u32]"
+        ],
+        [
+          "depth_flags",
+          "u32"
+        ],
+        [
+          "depth_func",
+          "u32"
+        ],
+        [
+          "values",
+          "&str"
+        ],
+        [
+          "sphere",
+          "&[f64]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "fx_model_pass",
+      "args": [
+        [
+          "model",
+          "u32"
+        ],
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "side",
+          "u32"
+        ],
+        [
+          "geometry",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "fx_model_texture",
+      "args": [
+        [
+          "model",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "fx_model_sampler",
+      "args": [
+        [
+          "model",
+          "u32"
+        ],
+        [
+          "name",
+          "&str"
+        ],
+        [
+          "unit",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_table",
+      "args": [
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "names",
+          "&str"
+        ],
+        [
+          "types",
+          "&[u32]"
+        ],
+        [
+          "counts",
+          "&[u32]"
+        ]
+      ],
+      "result": "Option<u32>"
+    },
+    {
+      "name": "far_item",
+      "args": [
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "table",
+          "u32"
+        ],
+        [
+          "geometry",
+          "u32"
+        ],
+        [
+          "flags",
+          "u32"
+        ],
+        [
+          "depth_func",
+          "u32"
+        ],
+        [
+          "blend",
+          "&[u32]"
+        ],
+        [
+          "order",
+          "&[f64]"
+        ],
+        [
+          "sphere",
+          "&[f64]"
+        ],
+        [
+          "slot",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "far_source",
+      "args": [
+        [
+          "item",
+          "u32"
+        ],
+        [
+          "uniform",
+          "u32"
+        ],
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "values",
+          "&[f32]"
+        ],
+        [
+          "at",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_range",
+      "args": [
+        [
+          "item",
+          "u32"
+        ],
+        [
+          "start",
+          "i32"
+        ],
+        [
+          "count",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_base",
+      "args": [
+        [
+          "item",
+          "u32"
+        ],
+        [
+          "base",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_instanced",
+      "args": [
+        [
+          "item",
+          "u32"
+        ],
+        [
+          "location",
+          "u32"
+        ],
+        [
+          "columns",
+          "u32"
+        ],
+        [
+          "rows",
+          "i32"
+        ],
+        [
+          "max",
+          "u32"
+        ],
+        [
+          "count",
+          "u32"
+        ],
+        [
+          "at",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_cells",
+      "args": [
+        [
+          "item",
+          "u32"
+        ],
+        [
+          "positions",
+          "&[f32]"
+        ],
+        [
+          "index",
+          "&[u32]"
+        ],
+        [
+          "cell_size",
+          "f64"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_terrain",
+      "args": [
+        [
+          "item",
+          "u32"
+        ],
+        [
+          "level",
+          "u32"
+        ],
+        [
+          "index",
+          "&[u32]"
+        ],
+        [
+          "cells",
+          "&[f64]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_items",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "far_mirror_frame",
+      "args": [],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "far_range_input",
+      "args": [
+        [
+          "item",
+          "u32"
+        ],
+        [
+          "at",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_refresh",
+      "args": [
+        [
+          "item",
+          "u32"
+        ],
+        [
+          "buffer",
+          "u32"
+        ],
+        [
+          "at",
+          "u32"
+        ],
+        [
+          "floats",
+          "u32"
+        ],
+        [
+          "flag",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_probe_frame",
+      "args": [
+        [
+          "face",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "foliage_class",
+      "args": [
+        [
+          "texture",
+          "u32"
+        ],
+        [
+          "grass",
+          "bool"
+        ],
+        [
+          "shadows",
+          "bool"
+        ],
+        [
+          "definition",
+          "&str"
+        ],
+        [
+          "authored",
+          "&[f64]"
+        ],
+        [
+          "rows",
+          "&[f32]"
+        ],
+        [
+          "bounds",
+          "&[f64]"
+        ],
+        [
+          "map_matrix",
+          "&[f32]"
+        ]
+      ],
+      "result": "Result<u32, String>"
+    },
+    {
+      "name": "foliage_frame",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "foliage_selected",
+      "args": [
+        [
+          "class",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "hud_init",
+      "args": [
+        [
+          "index",
+          "&[u32]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "hud_model_text",
+      "args": [
+        [
+          "text",
+          "&str"
+        ],
+        [
+          "uppercase",
+          "bool"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "hud_model_asset",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ],
+        [
+          "width",
+          "f64"
+        ],
+        [
+          "height",
+          "f64"
+        ],
+        [
+          "ready",
+          "bool"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "hud_model_font",
+      "args": [
+        [
+          "font",
+          "u32"
+        ],
+        [
+          "height",
+          "f64"
+        ],
+        [
+          "rows",
+          "&[f64]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "hud_model_event",
+      "args": [
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "a",
+          "f64"
+        ],
+        [
+          "b",
+          "f64"
+        ],
+        [
+          "c",
+          "f64"
+        ],
+        [
+          "d",
+          "f64"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "hud_model_observe",
+      "args": [
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "a",
+          "f64"
+        ],
+        [
+          "b",
+          "f64"
+        ],
+        [
+          "c",
+          "f64"
+        ],
+        [
+          "d",
+          "f64"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "hud_model_update",
+      "args": [],
+      "result": "f64"
+    },
+    {
+      "name": "hud_model_build",
+      "args": [
+        [
+          "mode",
+          "u32"
+        ],
+        [
+          "full",
+          "bool"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "records_at",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "record_stride",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "inst_add_blend",
+      "args": [
+        [
+          "blend",
+          "&[u32]"
+        ],
+        [
+          "depth_flags",
+          "u32"
+        ],
+        [
+          "depth_func",
+          "u32"
+        ],
+        [
+          "passes",
+          "&[u32]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "interface_buffer_init",
+      "args": [
+        [
+          "geometry",
+          "u32"
+        ],
+        [
+          "buffer",
+          "u32"
+        ],
+        [
+          "data",
+          "&[u8]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "interface_upload_frame",
+      "args": [
+        [
+          "stream",
+          "u32"
+        ],
+        [
+          "offset",
+          "usize"
+        ],
+        [
+          "length",
+          "usize"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "interface_frame",
+      "args": [
+        [
+          "draws",
+          "usize"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "set_shadow_maps",
+      "args": [
+        [
+          "ids",
+          "&[u32]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "add_texture",
+      "args": [
+        [
+          "resources",
+          "&crate::resources::GpuResources"
+        ],
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": "Result<u32, String>"
+    },
+    {
+      "name": "replace_sample_texture",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "resources",
+          "&crate::resources::GpuResources"
+        ],
+        [
+          "source",
+          "u32"
+        ]
+      ],
+      "result": "Result<(), String>"
+    },
+    {
+      "name": "set_far_map",
+      "args": [
+        [
+          "texture",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "add_program",
+      "args": [
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "vs",
+          "&str"
+        ],
+        [
+          "fs",
+          "&str"
+        ],
+        [
+          "attributes",
+          "&str"
+        ],
+        [
+          "uniforms",
+          "&str"
+        ]
+      ],
+      "result": "Result<u32, String>"
+    },
+    {
+      "name": "add_program_lamps",
+      "args": [
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "vs",
+          "&str"
+        ],
+        [
+          "fs",
+          "&str"
+        ],
+        [
+          "attributes",
+          "&str"
+        ],
+        [
+          "uniforms",
+          "&str"
+        ]
+      ],
+      "result": "Result<u32, String>"
+    },
+    {
+      "name": "set_lamps",
+      "args": [
+        [
+          "data",
+          "&[f32]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "add_owned_program",
+      "args": [
+        [
+          "key",
+          "&str"
+        ]
+      ],
+      "result": "Result<u32, String>"
+    },
+    {
+      "name": "add_geometry",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "geometry_buffer",
+      "args": [
+        [
+          "g",
+          "u32"
+        ],
+        [
+          "data",
+          "&[u8]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "geometry_pointer",
+      "args": [
+        [
+          "g",
+          "u32"
+        ],
+        [
+          "buffer",
+          "u32"
+        ],
+        [
+          "location",
+          "u32"
+        ],
+        [
+          "size",
+          "i32"
+        ],
+        [
+          "ty",
+          "u32"
+        ],
+        [
+          "normalized",
+          "bool"
+        ],
+        [
+          "stride",
+          "i32"
+        ],
+        [
+          "offset",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "geometry_index",
+      "args": [
+        [
+          "g",
+          "u32"
+        ],
+        [
+          "data",
+          "&[u8]"
+        ],
+        [
+          "ty",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "geometry_group",
+      "args": [
+        [
+          "g",
+          "u32"
+        ],
+        [
+          "start",
+          "i32"
+        ],
+        [
+          "count",
+          "i32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "geometry_primitive",
+      "args": [
+        [
+          "g",
+          "u32"
+        ],
+        [
+          "mode",
+          "u32"
+        ],
+        [
+          "first",
+          "i32"
+        ],
+        [
+          "indexed",
+          "bool"
+        ],
+        [
+          "width",
+          "f32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "far_frame",
+      "args": [],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "frame",
+      "args": [
+        [
+          "records",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "transparent_frame",
+      "args": [
+        [
+          "three",
+          "u32"
+        ],
+        [
+          "image",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "fx_into_frame",
+      "args": [
+        [
+          "batch",
+          "u32"
+        ],
+        [
+          "target",
+          "u32"
+        ],
+        [
+          "width",
+          "u32"
+        ],
+        [
+          "height",
+          "u32"
+        ],
+        [
+          "count",
+          "u32"
+        ],
+        [
+          "at",
+          "u32"
+        ],
+        [
+          "capacity",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "view_frame",
+      "args": [
+        [
+          "records",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "post_frame",
+      "args": [
+        [
+          "steps",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "mirror_frame",
+      "args": [
+        [
+          "records",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "mirror_transparent_frame",
+      "args": [
+        [
+          "three",
+          "u32"
+        ],
+        [
+          "image",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "motion_frame",
+      "args": [
+        [
+          "records",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "hud_frame",
+      "args": [],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "near_begin",
+      "args": [
+        [
+          "clear",
+          "&[f64]"
+        ],
+        [
+          "steps",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "screen_frame",
+      "args": [
+        [
+          "steps",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "motion_record_stride",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "motion_records_at",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "motion_extra",
+      "args": [
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "geometry",
+          "u32"
+        ],
+        [
+          "max",
+          "u32"
+        ],
+        [
+          "layout",
+          "&[u32]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "post_target",
+      "args": [
+        [
+          "texture",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "post_chain_begin_frame",
+      "args": [],
+      "result": ""
+    },
+    {
+      "name": "post_chain_plan_frame",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "post_chain_frame",
+      "args": [],
+      "result": "bool"
+    },
+    {
+      "name": "post_chain_error_frame",
+      "args": [],
+      "result": "Option<String>"
+    },
+    {
+      "name": "shadow_frame",
+      "args": [],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "geometry_buffer_data",
+      "args": [
+        [
+          "g",
+          "u32"
+        ],
+        [
+          "slot",
+          "u32"
+        ],
+        [
+          "data",
+          "&[u8]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "geometry_index_data",
+      "args": [
+        [
+          "g",
+          "u32"
+        ],
+        [
+          "data",
+          "&[u8]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "geometry_buffer_sub_data",
+      "args": [
+        [
+          "g",
+          "u32"
+        ],
+        [
+          "slot",
+          "u32"
+        ],
+        [
+          "offset",
+          "i32"
+        ],
+        [
+          "data",
+          "&[u8]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "geometry_index_sub_data",
+      "args": [
+        [
+          "g",
+          "u32"
+        ],
+        [
+          "offset",
+          "i32"
+        ],
+        [
+          "data",
+          "&[u8]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "static_depth_add",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ]
+      ],
+      "result": "Result<u32,String>"
+    },
+    {
+      "name": "static_depth_replace",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "texture",
+          "i32"
+        ]
+      ],
+      "result": "Result<u32,String>"
+    },
+    {
+      "name": "static_depth_finish",
+      "args": [],
+      "result": "Result<String,String>"
+    },
+    {
+      "name": "static_depth_clipped",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "static_terrain_layers",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "weights",
+          "&[u8]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "static_source",
+      "args": [
+        [
+          "authored",
+          "&str"
+        ],
+        [
+          "vertices",
+          "Vec<f32>"
+        ],
+        [
+          "index",
+          "Vec<u32>"
+        ]
+      ],
+      "result": "Result<u32,String>"
+    },
+    {
+      "name": "static_source_weights",
+      "args": [
+        [
+          "id",
+          "u32"
+        ],
+        [
+          "weights",
+          "&[u8]"
+        ]
+      ],
+      "result": "Result<(),String>"
+    },
+    {
+      "name": "static_world",
+      "args": [
+        [
+          "source",
+          "u32"
+        ],
+        [
+          "far_view",
+          "bool"
+        ],
+        [
+          "low_res_scale",
+          "f64"
+        ],
+        [
+          "samplers",
+          "&[i32]"
+        ],
+        [
+          "features",
+          "&[u32]"
+        ],
+        [
+          "order",
+          "u32"
+        ],
+        [
+          "slot",
+          "u32"
+        ],
+        [
+          "object",
+          "u32"
+        ]
+      ],
+      "result": "Result<u32,String>"
+    },
+    {
+      "name": "static_world_settings",
+      "args": [
+        [
+          "near",
+          "&[u32]"
+        ],
+        [
+          "far",
+          "&[u32]"
+        ]
+      ],
+      "result": "Result<(),String>"
+    },
+    {
+      "name": "transparent_segment",
+      "args": [
+        [
+          "k",
+          "u32"
+        ]
+      ],
+      "result": "Result<bfe_render::core::Stats, String>"
+    },
+    {
+      "name": "transparent_bucket",
+      "args": [
+        [
+          "geometry",
+          "u32"
+        ],
+        [
+          "blend",
+          "&[u32]"
+        ],
+        [
+          "depth_func",
+          "u32"
+        ],
+        [
+          "flags",
+          "u32"
+        ],
+        [
+          "point_lit",
+          "bool"
+        ],
+        [
+          "bounds",
+          "&[f64]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "transparent_bucket_pass",
+      "args": [
+        [
+          "b",
+          "u32"
+        ],
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "side",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "transparent_bucket_texture",
+      "args": [
+        [
+          "b",
+          "u32"
+        ],
+        [
+          "unit",
+          "u32"
+        ],
+        [
+          "texture",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "transparent_bucket_uniform",
+      "args": [
+        [
+          "b",
+          "u32"
+        ],
+        [
+          "pass",
+          "u32"
+        ],
+        [
+          "name",
+          "&str"
+        ],
+        [
+          "values",
+          "&[f32]"
+        ],
+        [
+          "int",
+          "bool"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "transparent_object_stride",
+      "args": [],
+      "result": "u32"
+    },
+    {
+      "name": "transparent_object",
+      "args": [
+        [
+          "kind",
+          "u32"
+        ],
+        [
+          "geometry",
+          "u32"
+        ],
+        [
+          "start",
+          "i32"
+        ],
+        [
+          "count",
+          "i32"
+        ],
+        [
+          "blend",
+          "&[u32]"
+        ],
+        [
+          "depth_func",
+          "u32"
+        ],
+        [
+          "flags",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "transparent_object_pass",
+      "args": [
+        [
+          "o",
+          "u32"
+        ],
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "side",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "transparent_object_texture",
+      "args": [
+        [
+          "o",
+          "u32"
+        ],
+        [
+          "texture",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "water_surface",
+      "args": [
+        [
+          "geometry",
+          "u32"
+        ],
+        [
+          "blend",
+          "&[u32]"
+        ],
+        [
+          "depth_func",
+          "u32"
+        ],
+        [
+          "flags",
+          "u32"
+        ],
+        [
+          "side",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "water_rings",
+      "args": [
+        [
+          "index",
+          "&[u32]"
+        ],
+        [
+          "blend",
+          "&[u32]"
+        ],
+        [
+          "depth_func",
+          "u32"
+        ],
+        [
+          "flags",
+          "u32"
+        ],
+        [
+          "side",
+          "u32"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "water_set",
+      "args": [
+        [
+          "max",
+          "u32"
+        ],
+        [
+          "sizes",
+          "&[u32]"
+        ]
+      ],
+      "result": "Option<u32>"
+    },
+    {
+      "name": "water_instanced",
+      "args": [
+        [
+          "surface",
+          "u32"
+        ],
+        [
+          "set",
+          "u32"
+        ],
+        [
+          "k",
+          "u32"
+        ],
+        [
+          "location",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "world_uses_lamps",
+      "args": [
+        [
+          "id",
+          "u32"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "add_world",
+      "args": [
+        [
+          "geometry",
+          "u32"
+        ],
+        [
+          "program",
+          "u32"
+        ],
+        [
+          "order",
+          "u32"
+        ],
+        [
+          "flags",
+          "u32"
+        ],
+        [
+          "bounds",
+          "&[f64]"
+        ]
+      ],
+      "result": "u32"
+    },
+    {
+      "name": "world_texture",
+      "args": [
+        [
+          "w",
+          "u32"
+        ],
+        [
+          "unit",
+          "u32"
+        ],
+        [
+          "texture",
+          "u32"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "world_uniform",
+      "args": [
+        [
+          "w",
+          "u32"
+        ],
+        [
+          "name",
+          "&str"
+        ],
+        [
+          "values",
+          "&[f32]"
+        ],
+        [
+          "int",
+          "bool"
+        ]
+      ],
+      "result": "bool"
+    },
+    {
+      "name": "world_cells",
+      "args": [
+        [
+          "w",
+          "u32"
+        ],
+        [
+          "positions",
+          "&[f32]"
+        ],
+        [
+          "index",
+          "&[u32]"
+        ],
+        [
+          "cell_size",
+          "f64"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "sort",
+      "args": [
+        [
+          "by_program",
+          "bool"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "world_runs",
+      "args": [
+        [
+          "w",
+          "u32"
+        ],
+        [
+          "ranges",
+          "&[u32]"
+        ],
+        [
+          "boxes",
+          "&[f64]"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "world_shown",
+      "args": [
+        [
+          "w",
+          "u32"
+        ],
+        [
+          "shown",
+          "bool"
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "world_lamps",
+      "args": [
+        [
+          "w",
+          "u32"
+        ],
+        [
+          "values",
+          "&[f32]"
+        ]
+      ],
+      "result": ""
+    }
+  ],
+  "banks": [
+    {
+      "name": "canopies_input",
+      "type": "f64",
+      "pointer": "canopies_input_ptr",
+      "length": "canopies_input_len"
+    },
+    {
+      "name": "canopies_leaves",
+      "type": "f32",
+      "pointer": "canopies_leaves_ptr",
+      "length": "canopies_leaves_len"
+    },
+    {
+      "name": "fx_input",
+      "type": "f64",
+      "pointer": "fx_input_ptr",
+      "length": "fx_input_len"
+    },
+    {
+      "name": "fx_data",
+      "type": "f32",
+      "pointer": "fx_data_ptr",
+      "length": "fx_data_len"
+    },
+    {
+      "name": "fx_matrices",
+      "type": "f64",
+      "pointer": "fx_matrices_ptr",
+      "length": "fx_matrices_len"
+    },
+    {
+      "name": "far_input",
+      "type": "f64",
+      "pointer": "far_input_ptr",
+      "length": "far_input_len"
+    },
+    {
+      "name": "far_vertices",
+      "type": "f32",
+      "pointer": "far_vertices_ptr",
+      "length": "far_vertices_len"
+    },
+    {
+      "name": "foliage_input",
+      "type": "f64",
+      "pointer": "foliage_input_ptr",
+      "length": "foliage_input_len"
+    },
+    {
+      "name": "hud_input",
+      "type": "f64",
+      "pointer": "hud_input_ptr",
+      "length": "hud_input_len"
+    },
+    {
+      "name": "hud_position",
+      "type": "f32",
+      "pointer": "hud_position_ptr",
+      "length": "hud_position_len"
+    },
+    {
+      "name": "hud_uv",
+      "type": "f32",
+      "pointer": "hud_uv_ptr",
+      "length": "hud_uv_len"
+    },
+    {
+      "name": "hud_mask_uv",
+      "type": "f32",
+      "pointer": "hud_mask_uv_ptr",
+      "length": "hud_mask_uv_len"
+    },
+    {
+      "name": "hud_tint",
+      "type": "f32",
+      "pointer": "hud_tint_ptr",
+      "length": "hud_tint_len"
+    },
+    {
+      "name": "hud_model_input",
+      "type": "f64",
+      "pointer": "hud_model_input_ptr",
+      "length": "hud_model_input_len"
+    },
+    {
+      "name": "interface_input",
+      "type": "f64",
+      "pointer": "interface_input_ptr",
+      "length": "interface_input_len"
+    },
+    {
+      "name": "input",
+      "type": "f64",
+      "pointer": "input_ptr",
+      "length": "input_len"
+    },
+    {
+      "name": "bones",
+      "type": "f32",
+      "pointer": "bones_ptr",
+      "length": "bones_len"
+    },
+    {
+      "name": "shadow_input",
+      "type": "f64",
+      "pointer": "shadow_input_ptr",
+      "length": "shadow_input_len"
+    },
+    {
+      "name": "motion_input",
+      "type": "f64",
+      "pointer": "motion_input_ptr",
+      "length": "motion_input_len"
+    },
+    {
+      "name": "motion_bones",
+      "type": "f32",
+      "pointer": "motion_bones_ptr",
+      "length": "motion_bones_len"
+    },
+    {
+      "name": "motion_previous",
+      "type": "f32",
+      "pointer": "motion_previous_ptr",
+      "length": "motion_previous_len"
+    },
+    {
+      "name": "motion_extras",
+      "type": "f64",
+      "pointer": "motion_extras_ptr",
+      "length": "motion_extras_len"
+    },
+    {
+      "name": "motion_extra_values",
+      "type": "f32",
+      "pointer": "motion_extra_values_ptr",
+      "length": "motion_extra_values_len"
+    },
+    {
+      "name": "post_input",
+      "type": "f64",
+      "pointer": "post_input_ptr",
+      "length": "post_input_len"
+    },
+    {
+      "name": "post_states",
+      "type": "f64",
+      "pointer": "post_states_ptr",
+      "length": "post_states_len"
+    },
+    {
+      "name": "post_chain_input",
+      "type": "f64",
+      "pointer": "post_chain_input_ptr",
+      "length": "post_chain_input_len"
+    },
+    {
+      "name": "post_chain_state",
+      "type": "f64",
+      "pointer": "post_chain_state_ptr",
+      "length": "post_chain_state_len"
+    },
+    {
+      "name": "static_shadow_input",
+      "type": "f64",
+      "pointer": "static_shadow_input_ptr",
+      "length": "static_shadow_input_len"
+    },
+    {
+      "name": "caster_input",
+      "type": "f64",
+      "pointer": "caster_input_ptr",
+      "length": "caster_input_len"
+    },
+    {
+      "name": "transparent_keys",
+      "type": "f64",
+      "pointer": "transparent_keys_ptr",
+      "length": "transparent_keys_len"
+    },
+    {
+      "name": "transparent_objects",
+      "type": "f64",
+      "pointer": "transparent_objects_ptr",
+      "length": "transparent_objects_len"
+    },
+    {
+      "name": "view_input",
+      "type": "f64",
+      "pointer": "view_input_ptr",
+      "length": "view_input_len"
+    },
+    {
+      "name": "water_input",
+      "type": "f64",
+      "pointer": "water_input_ptr",
+      "length": "water_input_len"
+    },
+    {
+      "name": "water_rings_position",
+      "type": "f32",
+      "pointer": "water_rings_position_ptr",
+      "length": "water_rings_position_len"
+    },
+    {
+      "name": "water_rings_uv",
+      "type": "f32",
+      "pointer": "water_rings_uv_ptr",
+      "length": "water_rings_uv_len"
+    },
+    {
+      "name": "water_rings_alpha",
+      "type": "f32",
+      "pointer": "water_rings_alpha_ptr",
+      "length": "water_rings_alpha_len"
+    },
+    {
+      "name": "water_instances",
+      "type": "f32",
+      "pointer": "water_instances_ptr",
+      "length": "water_instances_len"
+    },
+    {
+      "name": "world_input",
+      "type": "f32",
+      "pointer": "world_input_ptr",
+      "length": "world_input_len"
+    }
+  ]
+}

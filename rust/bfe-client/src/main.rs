@@ -281,5 +281,10 @@ fn run() -> Result<(), String> {
     match app.error { Some(error) => Err(error), None => Ok(()) }
 }
 fn main() {
+    // A full session owns every battle phase. Keep the original near-capture
+    // format available for the headless/window renderer regression harness.
+    if std::env::args_os().nth(1).is_some_and(|dir|dir == "--map" || std::path::Path::new(&dir).join("session.json").is_file()) {
+        bfe_client::session_window::run_with_audio(true);return;
+    }
     if let Err(error) = run() { eprintln!("bfe-client: {error}"); std::process::exit(1); }
 }

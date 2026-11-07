@@ -211,8 +211,8 @@ pub const NO_CORNER: u32 = u32::MAX;
 const QUAD: [f32; 8] = [-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0];
 const QUAD_INDEX: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
-const UNPACK_FLIP_Y_WEBGL: u32 = 0x9240;
-const UNPACK_PREMULTIPLY_ALPHA_WEBGL: u32 = 0x9241;
+#[cfg(target_arch = "wasm32")] const UNPACK_FLIP_Y_WEBGL: u32 = 0x9240;
+#[cfg(target_arch = "wasm32")] const UNPACK_PREMULTIPLY_ALPHA_WEBGL: u32 = 0x9241;
 
 // A draw's culling and winding as three's setMaterial makes them: side 0
 // front (back faces culled), 1 back (three culls back faces with clockwise
@@ -1007,8 +1007,8 @@ impl<C: HasContext> EffectsPass<C> {
                 if written > 0 {
                     // Rows as they are: whatever three's last upload left
                     // these at would flip or premultiply them.
-                    gl.pixel_store_bool(UNPACK_FLIP_Y_WEBGL, false);
-                    gl.pixel_store_bool(UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+                    #[cfg(target_arch = "wasm32")] gl.pixel_store_bool(UNPACK_FLIP_Y_WEBGL, false);
+                    #[cfg(target_arch = "wasm32")] gl.pixel_store_bool(UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
                     gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
                     crate::core::spare_view_slot();
                     gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, 3, written as i32, glow::RGBA, glow::FLOAT,
