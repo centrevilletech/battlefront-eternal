@@ -133,3 +133,6 @@ test('shared source or destination is rejected before any numeric memory access'
   try {await once(worker,'message');for(let i=0;i<100;i++)assert.throws(()=>owner.copyBlock(source,output),/SharedArrayBuffer/);assert.ok(output.every(n=>n===73));}
   finally {await worker.terminate();owner.close();}
 });
+
+// Keep the provider's arena tests in the existing native CI entrypoint.
+await import('./node-host-backend.mjs');

@@ -1,6 +1,6 @@
 // Concrete memory/export compatibility for the WASM phase adapters only.
 // Native providers reuse BlockBridge's generated I/O over owned arenas.
-import { BlockBridge, Heap } from '../bridge-core.js';
+import { BlockBridge, Heap, StringTable } from '../bridge-core.js';
 import { wasmBackendFor } from './backend.js';
 import { BLOCK_HEADER_WORDS as HEADER } from '../gen/boundary.js';
 import { COMMAND_TABLE, EVENT_TABLE, IMPORT_TABLE, KIND_TABLE } from '../gen/index.js';
@@ -269,31 +269,4 @@ export class SimBridge extends BlockBridge {
   }
 }
 
-// The instance's strings: an index for each, the same on both sides
-// (strings are interned in Rust; this keeps a copy of each it has seen).
-export class StringTable {
-  constructor(bridge) {
-    this.bridge = bridge;
-    this.ids = new Map();
-    this.list = [];
-  }
-
-  id(s) {
-    let id = this.ids.get(s);
-    if (id !== undefined) return id;
-    if (typeof s !== "string") throw Error(`not a string (${s})`);
-    id = this.bridge.backend.intern(s);
-    this.ids.set(s, id);
-    this.list[id] = s;
-    return id;
-  }
-
-  at(id) {
-    let s = this.list[id];
-    if (s !== undefined) return s;
-    s = this.bridge.backend.string(id);
-    this.ids.set(s, id);
-    this.list[id] = s;
-    return s;
-  }
-}
+export { StringTable } from '../bridge-core.js';

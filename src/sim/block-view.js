@@ -45,3 +45,44 @@ export class WasmBlocks {
     return view;
   }
 }
+
+// Native results use independently owned arenas, never numeric addresses. A
+// successful call replaces its borrowed publication without allocation. Separate
+// operation, kind and event banks keep observer reentry from overwriting events.
+export class NativeBlocks {
+  constructor(words = 8192) {
+    this.banks = [new BlockView(),new BlockView(),new BlockView()];
+    this.view = this.banks[0];
+    this.closed = false;
+    this.reserve(words);
+  }
+  reserve(words) {
+    if (this.closed) throw Error('Native block bank closed');
+    if (!Number.isSafeInteger(words) || words < 0 || words > 4 * 1024 * 1024) throw RangeError('Invalid native arena capacity');
+    let grown = false;
+    for (const view of this.banks) {
+      if (words <= (view.words?.length ?? -1)) continue;
+      view.words = new Float64Array(words);
+      view.base = view.length = 0; view.generation++; grown = true;
+    }
+    return grown;
+  }
+  publish(length, view = this.view) {
+    if (this.closed || !Number.isSafeInteger(length) || length < 0 || length > view.words.length) throw Error('Invalid native result extent');
+    view.base = 0; view.length = length; view.generation++;
+    this.view = view; return view;
+  }
+  readBlock(block = this.view) {
+    if (this.closed) throw Error('Native block bank closed');
+    if (!this.banks.includes(block)) throw Error('Result belongs to another native bank');
+    return block;
+  }
+  close() {
+    if (this.closed) return false;
+    this.closed = true;
+    for(const view of this.banks) {
+      view.words = null; view.base = view.length = 0; view.generation++;
+    }
+    return true;
+  }
+}
