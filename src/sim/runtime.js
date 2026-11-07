@@ -1,3 +1,5 @@
+import { WasmBlocks } from './block-view.js';
+import { BLOCK_HEADER_WORDS } from './gen/boundary.js';
 // The entity store's JavaScript side (docs/sim-store.md): what the code
 // tools/sim-schema.mjs generates in src/sim/gen/ is written against. The
 // tables that give JavaScript objects the numbers Rust knows them by
@@ -11,7 +13,7 @@ export { sameArray, sameEach, sameList, sameMap, sameObject, sameQuat, sameTyped
 // A sync block's header: rows, stride, where the heap starts, its length,
 // and how many of the rows (the first) are retired entities'
 // (rust/sim/src/store/block.rs).
-const HEADER = 5;
+const HEADER = BLOCK_HEADER_WORDS;
 
 // The keys of `object` its kind's schema does not list (the completeness
 // check: a field nobody declared is state a replay would miss).
@@ -403,12 +405,32 @@ export class ExportContext extends SimContext {
   }
 }
 
-// A battle's instance of the module, as the store sees it: its exports,
-// views of its memory (made again when it grows: `views()` once a phase
-// boundary, never in the middle of one) and its string table.
-export class SimBridge extends SimContext {
-  constructor(instance, options = {}) {
+// Generated record I/O shared by WASM and native operation arenas. Neither
+// the encoder nor decoder needs an exports object or a native address.
+export class BlockBridge extends SimContext {
+  constructor(blocks, options = {}) {
     super(options);
+    this.blocks = blocks;
+    this.readBlock = blocks.readBlock.bind(blocks);
+    this.boundaryCounters = null;
+  }
+  // A record out of a block Rust wrote at `ptr`, into `into` (a new
+  // object if none).
+  callResult(record, ptr, into = null) {
+    const block = this.readBlock(ptr);
+    const f = block.words, base = block.base;
+    if (this.boundaryCounters) this.boundaryCounters.outputWords += f[base] * f[base + 1] + f[base + 3];
+    return record.sync(this, f, base + HEADER, base + f[base + 2], into ?? new record.Mirror());
+  }
+
+
+}
+
+// A battle's WASM exports and the phase bindings' retained full-memory views.
+// The generated record decoder above also accepts independent native arenas.
+export class SimBridge extends BlockBridge {
+  constructor(instance, options = {}) {
+    super(new WasmBlocks(instance.exports.memory), options);
     this.x = instance.exports;
     // Optional boundary diagnostics count actual scalar copies. They do not
     // choose simulation paths and remain absent from ordinary world ticks.
@@ -418,6 +440,14 @@ export class SimBridge extends SimContext {
     if (this.x.sim_kinds() !== KIND_TABLE.length - 1) throw Error(`the simulation's module knows ${this.x.sim_kinds()} kinds, the store's JavaScript ${KIND_TABLE.length - 1}: rebuild it (npm run rust:build)`);
     // (A u32 comes back from the module as an i32: >>> 0 reads it unsigned.)
     for (const k of KIND_TABLE) if (k && this.x.sim_kind_hash(k.code) >>> 0 !== k.hash) throw Error(`the simulation's module lays ${k.name} out otherwise than the store's JavaScript: rebuild it (npm run rust:build)`);
+    this.readBlock = (pointer) => {
+      const block = this.blocks.readBlock(pointer);
+      if (this.buffer && this.buffer !== block.words.buffer) this.grown++;
+      this.f = block.words;
+      this.buffer = block.words.buffer;
+      this.u8 = this.blocks.bytes;
+      return block;
+    };
     this.memory = this.x.memory;
     this.buffer = null;
     this.f = null;
@@ -437,7 +467,7 @@ export class SimBridge extends SimContext {
     this.phaseCounters = null;
     this.beforeImport = null;
     // The import block: where it is (in f64s) and its size.
-    this.exchange = this.x.sim_import_args() / 8;
+    this.exchange = this.x.sim_import_args();
     this.exchangeWords = this.x.sim_import_capacity();
     // One bridge an instance: the module's imports reach the bridge attached
     // to it, so a second would take them from the first (bridgeFor()).
@@ -457,20 +487,11 @@ export class SimBridge extends SimContext {
     heap.clear();
     record.put(this, value, rows, 0, heap);
     const ptr = this.x.sim_call_room(words, heap.words.length);
-    this.views();
-    const f = this.f, at = ptr / 8 + HEADER, hw = heap.words;
+    const block = this.readBlock(ptr);
+    const f = block.words, at = block.base + HEADER, hw = heap.words;
     for (let i = 0; i < words; i++) f[at + i] = rows[i];
     for (let i = 0; i < hw.length; i++) f[at + words + i] = hw[i];
     if (this.boundaryCounters) this.boundaryCounters.inputWords += words + hw.length;
-  }
-
-  // A record out of a block Rust wrote at `ptr`, into `into` (a new
-  // object if none).
-  callResult(record, ptr, into = null) {
-    this.views();
-    const f = this.f, base = ptr / 8;
-    if (this.boundaryCounters) this.boundaryCounters.outputWords += f[base] * f[base + 1] + f[base + 3];
-    return record.sync(this, f, base + HEADER, base + f[base + 2], into ?? new record.Mirror());
   }
 
   // Serves imports (a phase's own, by import name): `handlers` adds
@@ -508,8 +529,8 @@ export class SimBridge extends SimContext {
   // keep), and forgets them; returns how many there were.
   drain(handlers) {
     const ptr = this.x.sim_events();
-    this.views();
-    const f = this.f, base = ptr / 8, end = base + 1 + f[base];
+    const block = this.readBlock(ptr);
+    const f = block.words, base = block.base, end = base + 1 + f[base];
     if (this.boundaryCounters) this.boundaryCounters.outputWords += f[base];
     let count = 0;
     for (let at = base + 1; at < end; at += 2 + f[at + 1]) {
@@ -527,8 +548,8 @@ export class SimBridge extends SimContext {
   // lets an aimer consume the prefix before the phase appends more events.
   // The caller owns the epoch and clearing, so this adds no getter exports.
   drainFrom(ptr, offset, mirrors, handlers, selected = false, cursor = null) {
-    this.views();
-    const f = this.f, base = ptr / 8, end = base + 1 + f[base];
+    const block = this.readBlock(ptr);
+    const f = block.words, base = block.base, end = base + 1 + f[base];
     let at = base + 1 + offset;
     while (at < end) {
       const event = EVENT_TABLE[f[at]], record = event.record, next = at + 2 + f[at + 1];
@@ -563,9 +584,9 @@ export class SimBridge extends SimContext {
     // before generated arguments resolve them. This hook never runs gameplay
     // notifications and does not enter another export on the native stack.
     this.beforeImport?.(code);
-    const args = (this.served[code] ??= new imp.args.Mirror()), base = this.exchange;
-    this.views();
-    const f = this.f, counters = this.phaseCounters;
+    const args = (this.served[code] ??= new imp.args.Mirror());
+    const block = this.readBlock(this.exchange), base = block.base;
+    const f = block.words, counters = this.phaseCounters;
     if (counters) { counters.importCalls++; counters.outputFields += f[base] * f[base + 1] + f[base + 3]; }
     if (this.boundaryCounters) {
       this.boundaryCounters.importCalls++; this.boundaryCounters.hooks++;
@@ -580,8 +601,8 @@ export class SimBridge extends SimContext {
     const hw = heap.words;
     if (counters) counters.inputFields += HEADER + words + hw.length;
     if (HEADER + words + hw.length > this.exchangeWords) throw Error(`${imp.name}: a result larger than the import block`);
-    this.views();
-    const g = this.f, at = base + HEADER, rows = this.rows;
+    const resultBlock = this.readBlock(this.exchange);
+    const g = resultBlock.words, at = resultBlock.base + HEADER, rows = this.rows;
     g[base] = 1; g[base + 1] = words; g[base + 2] = HEADER + words; g[base + 3] = hw.length; g[base + 4] = 0;
     for (let i = 0; i < words; i++) g[at + i] = rows[i];
     for (let i = 0; i < hw.length; i++) g[at + words + i] = hw[i];
@@ -595,9 +616,10 @@ export class SimBridge extends SimContext {
     // 0: no need to ask the memory for its buffer while it has not grown.)
     if (this.buffer?.byteLength) return;
     if (this.buffer) this.grown++;
-    this.buffer = this.memory.buffer;
-    this.f = new Float64Array(this.buffer);
-    this.u8 = new Uint8Array(this.buffer);
+    this.blocks.refresh();
+    this.f = this.blocks.view.words;
+    this.buffer = this.f.buffer;
+    this.u8 = this.blocks.bytes;
   }
 
   // Room for `bytes` more bytes of the battle's data, made as it loads so
@@ -623,8 +645,8 @@ export class SimBridge extends SimContext {
   exported(kind, mode, visit) {
     const ptr = this.x.sim_export(kind, mode);
     if (!ptr) throw Error(`${KIND_TABLE[kind].name}: the store holds no fields of it`);
-    this.views();
-    const f = this.f, base = ptr / 8, rows = f[base], stride = f[base + 1], h = base + f[base + 2], retired = f[base + 4];
+    const block = this.readBlock(ptr);
+    const f = block.words, base = block.base, rows = f[base], stride = f[base + 1], h = base + f[base + 2], retired = f[base + 4];
     if (this.boundaryCounters) {
       this.boundaryCounters.outputWords += rows * stride + f[base + 3];
       this.boundaryCounters.publishedRows += rows;
@@ -702,10 +724,9 @@ export class SimBridge extends SimContext {
       put(this, o, rows, at, heap);
     }
     const ptr = this.x.sim_import_room(kind, n, stride, heap.words.length);
-    this.views();
-    const base = ptr / 8;
-    this.f.set(rows.subarray(0, n * stride), base + HEADER);
-    this.f.set(heap.words, base + HEADER + n * stride);
+    const block = this.readBlock(ptr), base = block.base, f = block.words;
+    f.set(rows.subarray(0, n * stride), base + HEADER);
+    f.set(heap.words, base + HEADER + n * stride);
     if (this.boundaryCounters) this.boundaryCounters.inputWords += n * stride + heap.words.length;
     if (this.x.sim_import(kind, (full ? 1 : 0) | (some ? 2 : 0)) !== 0) throw Error(`${k.name}: the store holds no fields of it`);
   }

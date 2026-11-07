@@ -31,6 +31,7 @@ import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { generate as hostSchema } from './host-contract.mjs';
 import { main as simSchema } from './sim-schema.mjs';
 import { main as codecSchema } from './audio-codec-schema.mjs';
 import { main as audioSchema } from './audio-schema.mjs';
@@ -260,6 +261,7 @@ export async function main(args) {
     const artifact = ARTIFACTS[name];
     if (name === 'sim') {
       await simSchema(check ? ['--check'] : []);
+      hostSchema(check);
       if (process.exitCode) problems.push("the store's generated code is stale: node tools/sim-schema.mjs");
     }
     if (name === 'sim' || name === 'presentation') {

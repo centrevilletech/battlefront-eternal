@@ -1,4 +1,13 @@
 {
   "repository": "centrevilletech/battlefront-eternal-server",
-  "revision": "10ffbb58558febb11421346128107056406e14a1"
+  "revision": "e5e331462075ef37c3005c89f4107e3ce034d19f",
+  "format": 1,
+  "serverAdapterABI": 4,
+  "addonABI": 1,
+  "storeABI": 1,
+  "napiMinimum": 8,
+  "worldBackend": "wasm",
+  "targets": [
+    "linux-x64-gnu"
+  ]
 }

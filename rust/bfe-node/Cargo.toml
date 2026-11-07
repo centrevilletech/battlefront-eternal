@@ -1,0 +1,21 @@
+[package]
+name = "bfe-node"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+# Nonallocating resource counters for worker/GC teardown fixtures only.
+lifecycle-probe = []
+
+[dependencies]
+sim = { path = "../sim" }
+napi = { version = "=2.16.17", default-features = false, features = ["napi8"] }
+napi-derive = "=2.16.13"
+
+[build-dependencies]
+napi-build = "=2.3.1"

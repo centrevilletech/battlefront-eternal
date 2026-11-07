@@ -22,6 +22,8 @@ def main():
     parser.add_argument('--server-repo', type=Path, default=Path(__file__).resolve().parents[2] / 'battlefront-eternal-server')
     parser.add_argument('--engine', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--data', type=Path)
+    parser.add_argument('--map', default='nab2')
+    parser.add_argument('--side', default='rep')
     parser.add_argument('--client', choices=('native',), default='native')
     parser.add_argument('--seed', type=int, default=20261012, help='Verified kernel netem PRNG seed; changed packet cadence still changes loss events')
     parser.add_argument('--players', type=int, choices=(1, 2, 8, 32, 64), default=2)
@@ -67,7 +69,8 @@ def main():
                         f'BFE_ENGINE_DIR={args.engine.resolve()}',
                         f'BFE_DATA_DIR={(args.data or args.engine / "public").resolve()}',
                         f'BFE_SERVER_REPO={args.server_repo.resolve()}',
-                        node, 'tools/net-probe.mjs', f'--players={args.players}',
+                        node, str(Path(__file__).with_name('net-probe.mjs').resolve()), f'--players={args.players}',
+                        f'--map={args.map}', f'--side={args.side}',
                         f'--seconds={args.seconds}', f'--warmup={args.warmup}',
                         f'--lead={max(6, (args.input_lead_ms * 60 + 999) // 1000)}']
         command_cwd = args.engine.resolve()

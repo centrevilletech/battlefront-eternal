@@ -26,6 +26,7 @@
     "dist": "npm run host:prepare && vite build --mode desktop && electron-builder --publish never",
     "dist:dir": "npm run host:prepare && vite build --mode desktop && electron-builder --dir --publish never",
     "build:desktop": "vite build --mode desktop",
+    "host:addon": "node tools/build-node-host.mjs",
     "host:prepare": "node build/prepare-host-runtime.mjs",
     "rust:build": "node tools/build-rust.mjs",
     "rust:check": "node tools/build-rust.mjs --check",

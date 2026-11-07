@@ -94,6 +94,10 @@ jobs:
           trap 'rm -f "$config"' EXIT
           printf 'pcm.!default { type null }\n' > "$config"
           ALSA_CONFIG_PATH="$config" BFE_AUDIO_NULL=1 cargo test --locked -p bfe-client --test audio -- --ignored
+      - name: Build the Linux Node host addon
+        run: node tools/build-node-host.mjs --fixtures
+      - name: Node host handshake and lifecycle fixtures
+        run: node --expose-gc --test tests/node-host-addon.mjs
       - name: Keep the rebuilt files
         if: failure()
         uses: actions/upload-artifact@v7

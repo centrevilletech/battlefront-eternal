@@ -166,8 +166,8 @@ export class OrdnanceSim {
   // mirror, made current, or undefined.
   answered(ptr) {
     const b = this.bridge;
-    b.views();
-    const f = b.f, base = ptr / 8, at = base + HEADER, kind = f[at];
+    const block = b.readBlock(ptr);
+    const f = block.words, base = block.base, at = base + HEADER, kind = f[at];
     if (!kind) return undefined;
     return this.mirror(kind, f, at + 1, base + f[base + BLOCK.heap]);
   }
@@ -183,8 +183,8 @@ export class OrdnanceSim {
   // The round an import hands over: its row after the import's own words.
   handed(name, kind) {
     const b = this.bridge;
-    b.views();
-    const f = b.f, base = b.exchange;
+    const block = b.readBlock(b.exchange);
+    const f = block.words, base = block.base;
     return this.mirror(kind, f, base + HEADER + this.rowAt[name], base + f[base + BLOCK.heap]);
   }
 

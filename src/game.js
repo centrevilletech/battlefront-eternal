@@ -100,9 +100,9 @@ import { pageGpu } from "./gpu-info.js";
 // "textures" with how many of how many have arrived.
 // The battle's shared simulation module. Page prediction requires it;
 // a load failure reaches the battle's error screen.
-async function loadSimInstance() {
+async function loadSimInstance(factory) {
   try {
-    return await (await import("./sim/module.js")).loadSim();
+    return await (factory ? factory() : (await import("./sim/module.js")).loadSim());
   } catch (error) {
     throw new Error(`The Rust simulation module could not load: ${error?.message ?? error}`, { cause: error });
   }
@@ -147,7 +147,7 @@ async function attachOwnedCombat(instance) {
   return attachF3Combat(instance,{Unit,Vehicle,Soldier,Droideka,Building,Turret});
 }
 
-export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null } = {}) {
+export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, simulationFactory = null } = {}) {
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, Destruction, loadEnvironment, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
 // The destruction and weather phase's Rust module, compiled before anything builds on it.
@@ -274,7 +274,7 @@ async function start() {
   const policy = spawnPolicy(params, world.mission);
   // Reject an unavailable local class before loading bodies or starting the
   // worker. Its admission failure would otherwise leave loading awaiting it.
-  const simInstance = await loadSimInstance();
+  const simInstance = await loadSimInstance(simulationFactory);
   if (!headless && !params.has("network")) {
     const { validateStartupClass } = await import("./spawn-screen/startup.js");
     validateStartupClass(simInstance, policy, world.mission);

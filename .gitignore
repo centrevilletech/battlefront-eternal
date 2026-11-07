@@ -31,3 +31,9 @@ toolchain/
 
 # Bundled server code staging (no imported game assets).
 .host-runtime/
+
+# Built Node-API host artifacts.
+.host-addon/
+
+.host-runtime-stage-*/
+.host-runtime-previous/
